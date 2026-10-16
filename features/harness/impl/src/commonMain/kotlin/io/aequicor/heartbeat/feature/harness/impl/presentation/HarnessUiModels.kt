@@ -34,7 +34,7 @@ internal data class ItemRowUi(
     val status: ItemStatusUi,
 )
 
-/** A chat explicitly connected to the harness; [label] names the engine and a short chat id. */
+/** A chat connected to the harness; [label] names the engine and a short chat id. */
 @Immutable
 internal data class AttachmentUi(val key: String, val label: String)
 

@@ -58,6 +58,12 @@ class OrganismLifeTest {
         assertEquals(TARGET, judged.copy(immunityTarget = null).sessionOf("k1")?.reopening?.target)
         assertNull(judged.copy(cells = listOf(zygoteCell(), cell(C1).copy(session = null))).sessionOf("c1"))
         assertNull(judged.sessionOf("k2"))
+        val own = TARGET.copy(model = ModelId("mini"))
+        val configuration = CellConfiguration(own, "low")
+        val configured = judged.copy(
+            cells = judged.cells.map { if (it.id == C1) it.copy(configuration = configuration) else it },
+        )
+        assertEquals(own, configured.sessionOf("c1")?.reopening?.target)
     }
 
     @Test

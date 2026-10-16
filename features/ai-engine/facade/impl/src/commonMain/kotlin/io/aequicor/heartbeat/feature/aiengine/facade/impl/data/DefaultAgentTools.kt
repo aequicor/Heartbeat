@@ -107,12 +107,13 @@ internal class DefaultAgentTools(
         turn: TurnId,
         target: EngineTarget?,
         decisionMode: AgentToolDecisionMode,
+        reviewTarget: EngineTarget?,
     ) {
-        log.i { "Bind hosted execution to the facade turn" }
+        log.i { "Bind hosted execution to the facade turn, separateReview=${reviewTarget != null}" }
         callsLock.withLock {
             val key = session to request
             val previous = boundTurns[key]
-            val next = BoundTurn(turn, target ?: previous?.target, decisionMode)
+            val next = BoundTurn(turn, target ?: previous?.target, decisionMode, reviewTarget ?: previous?.reviewTarget)
             check(previous == null || previous == next) { "Request already has a different execution identity" }
             boundTurns[key] = next
         }
@@ -244,6 +245,7 @@ internal class DefaultAgentTools(
                     target = bound?.target ?: context.target,
                     authorization = null,
                     decisionMode = bound?.decisionMode ?: context.decisionMode,
+                    reviewTarget = bound?.reviewTarget ?: context.reviewTarget,
                 )
                 val key = trusted.session to trusted.turn
                 if (key in finishedTurns) false else calls.getOrPut(key) { mutableSetOf() }.add(invocation)
@@ -549,7 +551,12 @@ internal class DefaultAgentTools(
 
     private fun List<String>.joined(): String = filter { it.isNotBlank() }.joinToString("\n\n")
 
-    private data class BoundTurn(val turn: TurnId, val target: EngineTarget?, val decisionMode: AgentToolDecisionMode)
+    private data class BoundTurn(
+        val turn: TurnId,
+        val target: EngineTarget?,
+        val decisionMode: AgentToolDecisionMode,
+        val reviewTarget: EngineTarget?,
+    )
 
     /**
      * Declarations available to the session's workspace before its declared names and the effective policy, and

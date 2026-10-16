@@ -81,7 +81,7 @@ import pro.respawn.flowmvi.dsl.collect
 
 @Composable
 internal fun ProfileSettingsScreen(model: SearchSettingsModel, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
-    val state by produceState(SearchSettingsState(), model) {
+    val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
     ProfileSettingsContent(state, model.store::intent, onBack, modifier)

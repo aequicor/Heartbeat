@@ -193,6 +193,19 @@ public sealed interface OrganismStatus {
 }
 
 /**
+ * The model a cell runs on when it differs from the organism's: an adaptively chosen [target] (engine, connection,
+ * model) at [reasoningEffort] (null — the model's default), and why it was chosen. Fixed when the cell is born.
+ */
+@Serializable
+public data class CellConfiguration(
+    val target: EngineTarget,
+    val reasoningEffort: String? = null,
+    val rationale: String = "",
+) {
+    override fun toString(): String = "CellConfiguration(target=$target, effort=${reasoningEffort ?: "default"})"
+}
+
+/**
  * One engine session of an organism. [parent] is null only for the zygote. [session] is set once the native
  * session exists; [inbox] is an append-only result log read by the cell's tool. [receivedLetters] is its read
  * cursor, so reads can be replayed after ambiguous tool delivery. [turns] makes request ids unique.
@@ -211,6 +224,8 @@ public data class Cell(
     val receivedLetters: Int = 0,
     /** The agent explicitly asked to sleep until its next unread result. Never interrupts a working turn. */
     val isAwaitingResults: Boolean = false,
+    /** Its own model configuration; null runs it on the organism's model and the profile's effort. */
+    val configuration: CellConfiguration? = null,
 ) {
     init {
         require(receivedLetters in 0..inbox.size) { "Invalid inbox cursor" }

@@ -7,10 +7,12 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptHelper
+import io.aequicor.heartbeat.feature.harness.api.workflow.AdaptiveAgent
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
@@ -35,12 +37,14 @@ import kotlin.time.Duration.Companion.seconds
  * Initialization installs a complete old-profile snapshot before new producers start; every restored operation
  * is cleanup-only. A closing producer is cancelled and joined before release and deletion, including all journal
  * writes. Result monitors are independent siblings: a blocked read cannot delay the native cancellation barrier.
+ * An adaptive spawn chooses its model before acquiring a slot; restored operations never choose again.
  */
 internal class HarnessSpawnOperations(
     private val scope: CoroutineScope,
     private val journal: HarnessSpawnJournal,
     private val helpers: Lazy<HelperAgents>,
     private val bindings: HarnessHelperBindings,
+    private val models: HarnessHelperModels = HarnessHelperModels.Inherit,
 ) : HarnessSpawnLifecycle {
     private val log = Log.tag("HarnessSpawns")
     private val initialization = Mutex()
@@ -128,6 +132,11 @@ internal class HarnessSpawnOperations(
         var isMonitoring = false
         try {
             admit(entry, submission)
+            val model = submission.adaptive?.let { adaptive ->
+                val kind = HarnessHelperKind.Script
+                models.choose(HarnessHelperModelRequest(submission.prompt.text, adaptive, kind, submission.workspace))
+            }
+            admit(entry, submission)
             entry.lease = helpers.value.acquire(
                 entry.record.action,
                 entry.record.parent,
@@ -139,9 +148,10 @@ internal class HarnessSpawnOperations(
             val helper = helpers.value.create(
                 entry.leaseRequired(),
                 submission.workspace,
-                null,
+                model?.target,
                 submission.title,
                 TrustLevel.Ask,
+                HelperModelOptions(model?.reasoningEffort),
             )
             withContext(NonCancellable) {
                 entry.record = journal.bindHelper(entry.record.reservation, helper)
@@ -285,6 +295,7 @@ internal data class HarnessSpawnSubmission(
     val workspace: WorkspaceRef?,
     val title: String,
     val prompt: HelperPrompt,
+    val adaptive: AdaptiveAgent? = null,
     val isAdmitted: suspend () -> Boolean,
 ) {
     override fun toString(): String = "HarnessSpawnSubmission(***)"

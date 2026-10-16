@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
@@ -48,10 +49,9 @@ internal class StudioConfiguredSubmission(
         }
         val trust = helperPolicy.trust(record, requested, configurations)
         if (record.helper != null) active.features.requireFeature(AppliesTrustLevels)
-        val effort = if (stored != null) {
-            stored.reasoningEffort
-        } else {
-            efforts.state.value.effectiveEffort(target, models().reasoningEfforts(target))
+        val supported = models().reasoningEfforts(target)
+        val effort = turnEffort(stored, record.helper, supported) {
+            efforts.state.value.effectiveEffort(target, supported)
         }
         log.i { "Submitting prompt length=${request.prompt.length} trust=${trust ?: "default"}" }
         val seed = record.pendingSeed.takeIf { request.compaction == null }
@@ -66,7 +66,10 @@ internal class StudioConfiguredSubmission(
         }
         // The handoff turn's narrowed trust is not the chat's configuration: its session is never reflected again.
         if (request.isHandoff) controller.retire(id, active)
-        val submitted = send(active, constrained, effort) { turnTrust(request, record, trust, configurations) }
+        val reviewTarget = record.helper?.model?.reviewTarget
+        val submitted = send(active, constrained, effort, reviewTarget) {
+            turnTrust(request, record, trust, configurations)
+        }
         if (carried.isNotEmpty()) consumeSeed(access, id)
         if (request.isHandoff) return submitted.turn
         confirmConfiguration(
@@ -134,6 +137,7 @@ internal class StudioConfiguredSubmission(
         active: ActiveSession,
         request: StudioTurnRequest,
         reasoningEffort: String?,
+        reviewTarget: EngineTarget?,
         trust: suspend () -> TrustLevel?,
     ): SubmittedPrompt {
         log.i { "Send the reserved native request" }
@@ -157,6 +161,7 @@ internal class StudioConfiguredSubmission(
                     request.request,
                     compaction,
                     request.delivery,
+                    reviewTarget,
                 )
             }
             // A helper receipt must not stay Submitting when the engine refused the request before acceptance.
@@ -167,4 +172,19 @@ internal class StudioConfiguredSubmission(
     }
 
     private data class SubmittedPrompt(val turn: TurnId, val trust: TrustLevel?)
+}
+
+/**
+ * Effort of a turn: the chat's stored settings win; a helper's creator may fix its effort while the model still
+ * advertises it ([supported]); otherwise the [profile] choice applies.
+ */
+internal fun turnEffort(
+    stored: StudioSessionSettings?,
+    helper: StudioHelperIdentity?,
+    supported: List<String>,
+    profile: () -> String?,
+): String? = if (stored != null) {
+    stored.reasoningEffort
+} else {
+    helper?.model?.reasoningEffort?.takeIf { it in supported } ?: profile()
 }

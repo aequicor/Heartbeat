@@ -2,7 +2,9 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.ItemName
+import io.aequicor.heartbeat.feature.harness.api.workflow.AdaptiveAgent
 import io.aequicor.heartbeat.feature.harness.api.workflow.AgentOptions
+import io.aequicor.heartbeat.feature.harness.api.workflow.AgentPriority
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
@@ -12,6 +14,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -93,6 +96,19 @@ class WorkflowEngineTest {
         }
         assertEquals(WorkflowFailure.Diverged, shortened.reason)
         assertEquals(1, fixture.requests.size)
+    }
+
+    @Test
+    fun `plain agent steps keep their digest and an adaptive request is part of it`() = runTest {
+        val fixture = WorkflowFixture()
+        fixture.engine().execute { JsonPrimitive(agent("Task", AgentOptions("Helper"))) }
+        val plain = Json.encodeToString(listOf("agent", "Task", "Helper", null)).encodeUtf8().sha256().hex()
+        assertEquals(plain, fixture.storage.load().single().steps.single().promptSha)
+        val adaptive = AgentOptions("Helper", adaptive = AdaptiveAgent(AgentPriority.Cost))
+        val changed = assertFailsWith<WorkflowStepFailed> {
+            fixture.engine().execute { JsonPrimitive(agent("Task", adaptive)) }
+        }
+        assertEquals(WorkflowFailure.Diverged, changed.reason)
     }
 
     @Test

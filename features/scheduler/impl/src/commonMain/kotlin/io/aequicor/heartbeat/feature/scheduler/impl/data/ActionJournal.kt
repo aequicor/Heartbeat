@@ -36,6 +36,11 @@ internal data class ActionRecord(
     val parent: SessionRef? = null,
     val request: RequestId? = null,
     val initiator: RequestInitiator? = null,
+    /**
+     * Feature that reads this result itself ([io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgents]): the
+     * finished record stays until that owner acknowledges it, even when no wake awaits it.
+     */
+    val retainedBy: String? = null,
 ) {
     /** A helper journaled before its prompt by this version; only such a record can hold a recovered slot. */
     val hasHelperIdentity: Boolean get() = helper != null && parent != null && request != null

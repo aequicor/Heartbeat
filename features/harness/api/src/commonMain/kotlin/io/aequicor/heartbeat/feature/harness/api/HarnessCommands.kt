@@ -65,10 +65,23 @@ private fun HarnessState.Ready.update(intent: HarnessIntent.Internal.Update): Li
     } else {
         val changed = when (val change = intent.change) {
             is HarnessChange.Meta -> old.copy(title = change.title, description = change.description)
+
             is HarnessChange.Scope -> old.copy(scope = change.scope)
+
+            is HarnessChange.DefaultForNewSessions -> old.copy(isDefaultForNewSessions = change.isDefaultForNewSessions)
+
             is HarnessChange.PutItem -> old.copy(items = old.items.filterNot { it.id == change.item.id } + change.item)
+
             is HarnessChange.RemoveItem -> old.copy(items = old.items.filterNot { it.id == change.item })
+
             is HarnessChange.Tools -> old.copy(tools = change.tools)
+
+            is HarnessChange.Content -> old.copy(
+                title = change.title,
+                description = change.description,
+                items = change.items,
+                tools = change.tools,
+            )
         }
         revised(intent.requestId, changed, intent.at)
     }
@@ -84,7 +97,21 @@ private fun Harness.changeRejection(change: HarnessChange): HarnessRejection? = 
 
     is HarnessChange.RemoveItem -> HarnessRejection.NotFound.takeIf { items.none { item -> item.id == change.item } }
 
-    is HarnessChange.Meta, is HarnessChange.Scope, is HarnessChange.Tools -> null
+    is HarnessChange.Content -> contentRejection(change.items)
+
+    is HarnessChange.Meta,
+    is HarnessChange.Scope,
+    is HarnessChange.Tools,
+    is HarnessChange.DefaultForNewSessions,
+    -> null
+}
+
+/** Replacement items must be unique, keep the names of existing identities and fit the item limit. */
+private fun Harness.contentRejection(replacement: List<HarnessItem>): HarnessRejection? = when {
+    !replacement.haveUniqueIdentity() -> HarnessRejection.Invalid
+    replacement.any { item -> items.any { it.id == item.id && it.name != item.name } } -> HarnessRejection.Invalid
+    replacement.size > HarnessLimits.ITEMS -> HarnessRejection.Limit
+    else -> null
 }
 
 private fun HarnessState.Ready.enable(intent: HarnessIntent.Internal.SetEnabled): LibraryTransition {

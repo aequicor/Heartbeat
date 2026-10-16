@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
@@ -63,12 +64,14 @@ internal suspend fun ActiveSession.submit(
     text: String,
     trust: TrustLevel?,
     attachments: List<ResourceRef> = emptyList(),
+    reasoningEffort: String? = null,
+    reviewTarget: EngineTarget? = null,
 ): TurnId {
     val trusted = trust?.takeIf { features.resolve(AppliesTrustLevels) is FeatureAccess.Available }
     val parts = listOf(ContentPart.Text(text)) + attachments.map {
         if (it.mediaType.startsWith("image/")) ContentPart.Image(it) else ContentPart.Resource(it)
     }
-    val prompt = PromptRequest(request, parts, trust = trusted)
+    val prompt = PromptRequest(request, parts, reasoningEffort, trusted, reviewTarget = reviewTarget)
     return try {
         features.resolve(SendsPrompts).orThrow().send(prompt)
     } catch (e: EngineException) {

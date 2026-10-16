@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptHelper
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptHistory
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptSession
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptSessions
+import io.aequicor.heartbeat.feature.harness.api.workflow.AdaptiveAgent
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
@@ -30,9 +31,14 @@ internal class HarnessScriptSessions(
         return sender.send(owner, session, text, origin)
     }
 
-    override suspend fun spawn(parent: SessionRef?, title: String, prompt: String): ScriptHelper {
+    override suspend fun spawn(
+        parent: SessionRef?,
+        title: String,
+        prompt: String,
+        adaptive: AdaptiveAgent?,
+    ): ScriptHelper {
         val origin = origins.current()
-        return spawner.spawn(owner, parent, title, prompt, origin)
+        return spawner.spawn(owner, parent, HarnessSpawnTask(title, prompt, adaptive), origin)
     }
 
     fun close() = spawner.retire(owner)

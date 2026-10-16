@@ -53,6 +53,7 @@ internal data class HarnessDetailState(
     val title: String = "",
     val description: String = "",
     val isEnabled: Boolean = false,
+    val isDefaultForNewSessions: Boolean = false,
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val items: ImmutableList<ItemRowUi> = persistentListOf(),
     val runs: ImmutableList<RunUi> = persistentListOf(),
@@ -66,6 +67,7 @@ internal data class HarnessDetailState(
 /** Controls of the detail screen. */
 internal sealed interface HarnessDetailIntent : MVIIntent {
     data class SetEnabled(val isEnabled: Boolean) : HarnessDetailIntent
+    data class SetDefaultForNewSessions(val isDefaultForNewSessions: Boolean) : HarnessDetailIntent
     data class SetItemEnabled(val item: String, val isEnabled: Boolean) : HarnessDetailIntent
     data class OpenItem(val item: String) : HarnessDetailIntent
     data object OpenTools : HarnessDetailIntent
@@ -165,6 +167,7 @@ internal class HarnessDetailModel(
             HarnessDetailIntent.Delete -> updateState { copy(isDeleting = true) }
 
             is HarnessDetailIntent.SetEnabled,
+            is HarnessDetailIntent.SetDefaultForNewSessions,
             is HarnessDetailIntent.SetItemEnabled,
             is HarnessDetailIntent.Detach,
             HarnessDetailIntent.EditMeta,
@@ -181,6 +184,9 @@ internal class HarnessDetailModel(
             is HarnessDetailIntent.SetEnabled -> send(
                 HarnessIntent.Internal.SetEnabled(request(), id, intent.isEnabled, harness.revision, clock.now()),
             )
+
+            is HarnessDetailIntent.SetDefaultForNewSessions ->
+                change(harness, HarnessChange.DefaultForNewSessions(intent.isDefaultForNewSessions))
 
             is HarnessDetailIntent.SetItemEnabled -> send(
                 HarnessIntent.Internal.SetItemEnabled(
@@ -257,6 +263,7 @@ internal class HarnessDetailModel(
             title = harness.title,
             description = harness.description,
             isEnabled = harness.isEnabled,
+            isDefaultForNewSessions = harness.isDefaultForNewSessions,
             attachments = ready.attachments.filterValues { id in it }.keys
                 .map { AttachmentUi(it.key(), it.label()) }.sortedBy { it.label }.toImmutableList(),
             items = entry.itemRows(ready.isRuntimeAvailable).toImmutableList(),

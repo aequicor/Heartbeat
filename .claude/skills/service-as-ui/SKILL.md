@@ -27,6 +27,7 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
 | Файлы и даты платформы | `domain/UiPlatform`; `DesktopUiPlatform` (jvm), `MobileUiPlatform` (Android/iOS) |
 | Web-документы | `domain/UiWebDocuments` → `data/BrowserUiWebDocuments` (`browser:api` `BrowserDocuments`); хосты `presentation/component/WebDocumentHosts` |
 | Студия: слоты композера, старта и плавающей сводки справа сверху, панель дока, карточки в ленте | `ai-studio/impl` (`MachineStudioSurfaces`, `StudioSurfaceBinding`, `StudioSidePanel`, `AiStudioComponent`) |
+| Раздел `interfaces` конфигурации проекта (`.heartbeat`, `.hbai`) | `impl/domain/config/InterfaceConfigCodec.kt`, `impl/data/config/InterfaceConfigSection.kt` (владелец — харнесс по имени) |
 | Раздел настроек «Интерфейсы» | `settings` (`SettingsSection.Interfaces` → `ServiceUiLibraryRoute(isEmbedded = true)`) |
 
 ## Правила

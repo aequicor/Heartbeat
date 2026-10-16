@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -37,6 +38,8 @@ internal suspend fun ActiveSession.submitStudioPrompt(
     requestId: RequestId,
     compaction: ContextCompaction? = null,
     delivery: StudioPromptDelivery? = null,
+    /** Model reviewing the turn's automatic safety decisions; null reviews on the turn's own model. */
+    reviewTarget: EngineTarget? = null,
 ): TurnId {
     // A compaction carries no input and no effort: it only summarizes the native context. It keeps the chat's trust,
     // which the engine would otherwise reset to its default and report back as the chat's configuration.
@@ -47,6 +50,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             trust = trust,
             compaction = supportedCompaction(compaction),
             decisionMode = AgentToolDecisionMode.AutomaticSafety,
+            reviewTarget = reviewTarget,
         )
     } else {
         PromptRequest(
@@ -57,6 +61,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             reasoningEffort = reasoningEffort,
             trust = trust,
             decisionMode = AgentToolDecisionMode.AutomaticSafety,
+            reviewTarget = reviewTarget,
         )
     }
     val sender = features.requireFeature(SendsPrompts)

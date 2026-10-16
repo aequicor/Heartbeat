@@ -81,6 +81,8 @@ public sealed interface AiStudioState : MachineState {
         val projectErrorPane: Int? = null,
         /** Desktop toggle availability; established chats retain their execution workspace. */
         val isWorktreeAvailable: Boolean = false,
+        /** Projects whose folder is a Git repository: only they offer an isolated checkout. */
+        val repositoryProjects: Set<String> = emptySet(),
         val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
         /** Next creation token; never reused while Ready survives, even when pane ids are reused. */
         val nextCreateRequestId: Long = 0,
@@ -242,10 +244,11 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Route ids of the models currently offered, in display order. */
         public data class ModelsChanged(val modelIds: List<String>) : Internal
 
-        /** Local project feature and platform availability changed. */
+        /** Local project feature and platform availability, or the set of Git repository projects, changed. */
         public data class ProjectAvailabilityChanged(
             val isAvailable: Boolean,
             val isWorktreeAvailable: Boolean = false,
+            val repositoryProjects: Set<String> = emptySet(),
         ) : Internal
 
         /** The picker registered a stable project id, or returned null when cancelled. */

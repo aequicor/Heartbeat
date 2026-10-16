@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.acceptSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.compactedChat
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.finishDiagramSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isHarnessSelectionReady
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pendingSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.prepareSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.queueSubmission
@@ -73,7 +74,9 @@ internal suspend fun submitStudioDraft(
 
 /** Only the selected primary chat accepts composer submissions. */
 private fun AiStudioScreenState.canSubmitDraft(paneId: Int): Boolean {
-    val chat = panes.firstOrNull { it.id == paneId }?.sessionId
+    val pane = panes.firstOrNull { it.id == paneId } ?: return false
+    if (!isHarnessSelectionReady(pane)) return false
+    val chat = pane.sessionId
     if (selectedNative(chat) != PRIMARY_SUB_SESSION) return false
     val isOrganism = sessions.any { it.id == chat && it.isOrganism }
     return !isOrganism || (subSessions[chat] ?: PRIMARY_SUB_SESSION) == PRIMARY_SUB_SESSION

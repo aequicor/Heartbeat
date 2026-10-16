@@ -45,6 +45,59 @@ class AiStudioProjectsTest {
     }
 
     @Test
+    fun `choosing a non git folder clears worktree mode before submitting`() {
+        val selected = ready.copy(
+            panes = listOf(StudioPane(0, projectId = "git-project", isWorktree = true)),
+            isWorktreeAvailable = true,
+            repositoryProjects = setOf("git-project"),
+        )
+        val picking = selected.copy(addingProjectTo = 0)
+        val chosen = selected.copy(panes = listOf(StudioPane(0, projectId = "folder")))
+        AiStudioMachineSpec.assertTransition(
+            from = selected,
+            intent = AiStudioIntent.Public.AddProject(0),
+            to = picking,
+            effects = listOf(AiStudioEffect.ChooseProject(0)),
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = picking,
+            intent = AiStudioIntent.Internal.ProjectChosen(0, "folder"),
+            to = chosen,
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = chosen,
+            intent = AiStudioIntent.Public.Submit(0, "Implement"),
+            to = chosen.copy(
+                panes = listOf(chosen.panes.single().copy(isCreating = true, createRequestId = 0)),
+                nextCreateRequestId = 1,
+            ),
+            effects = listOf(
+                AiStudioEffect.CreateSession(0, "folder", "Implement", ready.settings, requestId = 0),
+            ),
+        )
+    }
+
+    @Test
+    fun `choosing a git folder or cancelling preserves the existing worktree choice`() {
+        val selected = ready.copy(
+            panes = listOf(StudioPane(0, projectId = "git-project", isWorktree = true)),
+            isWorktreeAvailable = true,
+            repositoryProjects = setOf("git-project", "another-git-project"),
+        )
+        val picking = selected.copy(addingProjectTo = 0)
+        AiStudioMachineSpec.assertTransition(
+            from = picking,
+            intent = AiStudioIntent.Internal.ProjectChosen(0, "another-git-project"),
+            to = selected.copy(panes = listOf(selected.panes.single().copy(projectId = "another-git-project"))),
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = picking,
+            intent = AiStudioIntent.Internal.ProjectChosen(0, null),
+            to = selected,
+        )
+    }
+
+    @Test
     fun `folder result never rebinds an existing conversation opened while picking`() {
         val switched = ready.copy(panes = listOf(StudioPane(0, sessionId = "existing")))
         AiStudioMachineSpec.assertTransition(

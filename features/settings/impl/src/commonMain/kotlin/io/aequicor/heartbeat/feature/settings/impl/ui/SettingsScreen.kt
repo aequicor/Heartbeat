@@ -54,8 +54,11 @@ import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_co
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_feature_flags
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_harness
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_interfaces
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_logs
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_models
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_project_config
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_search
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_subagents
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_title
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
@@ -63,7 +66,7 @@ import pro.respawn.flowmvi.dsl.collect
 
 @Composable
 internal fun SettingsScreen(component: SettingsComponent, modifier: Modifier = Modifier) {
-    val state by produceState(SettingsScreenState(), component.model) {
+    val state by produceState(component.model.current.value, component.model) {
         component.model.store.collect { states.collect { value = it } }
     }
     SettingsContent(state, component::select, component::back, component::close, modifier) {
@@ -253,6 +256,7 @@ private fun BackButton(onBack: () -> Unit) {
 private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
     when (section) {
         SettingsSectionUi.Models -> Res.string.settings_section_models
+        SettingsSectionUi.Subagents -> Res.string.settings_section_subagents
         SettingsSectionUi.Search -> Res.string.settings_section_search
         SettingsSectionUi.ComputerUse -> Res.string.settings_section_computer_use
         SettingsSectionUi.ChromiumBrowser -> Res.string.settings_section_chromium_browser
@@ -261,12 +265,15 @@ private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
         SettingsSectionUi.Builds -> Res.string.settings_section_builds
         SettingsSectionUi.Harness -> Res.string.settings_section_harness
         SettingsSectionUi.Interfaces -> Res.string.settings_section_interfaces
+        SettingsSectionUi.ProjectConfig -> Res.string.settings_section_project_config
+        SettingsSectionUi.Logs -> Res.string.settings_section_logs
         SettingsSectionUi.FeatureFlags -> Res.string.settings_section_feature_flags
     },
 )
 
 private fun SettingsSectionUi.icon(): ImageVector = when (this) {
     SettingsSectionUi.Models -> HbIcons.Layers
+    SettingsSectionUi.Subagents -> HbIcons.Users
     SettingsSectionUi.Search -> HbIcons.Search
     SettingsSectionUi.ComputerUse -> HbIcons.Layers
     SettingsSectionUi.ChromiumBrowser -> HbIcons.Globe
@@ -275,6 +282,8 @@ private fun SettingsSectionUi.icon(): ImageVector = when (this) {
     SettingsSectionUi.Builds -> HbIcons.Terminal
     SettingsSectionUi.Harness -> HbIcons.Code
     SettingsSectionUi.Interfaces -> HbIcons.Grid
+    SettingsSectionUi.ProjectConfig -> HbIcons.FolderOpen
+    SettingsSectionUi.Logs -> HbIcons.FileText
     SettingsSectionUi.FeatureFlags -> HbIcons.Sliders
 }
 

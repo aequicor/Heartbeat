@@ -64,7 +64,12 @@ class BrowserIntegrationTest {
             flags.setOverride(BrowserEnabled, true)
             machine.state.first { it is BrowserState.Running && it.isEnabled }
             app.machines.send(BrowserMachineKey, BrowserIntent.Public.Open("example.org"))
-            machine.state.first { it is BrowserState.Running && it.page.url == "https://example.org" }
+            // Open updates page optimistically; wait for the session's tab so Stop cannot overtake its load.
+            machine.state.first { state ->
+                state is BrowserState.Running && state.tabs.any { tab ->
+                    tab.id == state.selectedTabId && tab.page.url == "https://example.org" && tab.page.isLoading
+                }
+            }
             app.machines.send(BrowserMachineKey, BrowserIntent.Public.Stop)
             val settled = machine.state.first { it is BrowserState.Running && !it.page.isLoading }
             assertFalse((settled as BrowserState.Running).page.isLoading)

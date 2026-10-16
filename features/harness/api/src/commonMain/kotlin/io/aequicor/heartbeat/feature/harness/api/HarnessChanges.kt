@@ -37,6 +37,9 @@ public sealed interface HarnessChange {
     /** Replaces the normalized activation scope. */
     public data class Scope(val scope: HarnessScope) : HarnessChange
 
+    /** Changes the profile's new-chat selection preference without changing existing attachments. */
+    public data class DefaultForNewSessions(val isDefaultForNewSessions: Boolean) : HarnessChange
+
     /** Adds or replaces an item without renaming an existing identity. */
     public data class PutItem(val item: HarnessItem) : HarnessChange
 
@@ -45,6 +48,20 @@ public sealed interface HarnessChange {
 
     /** Replaces declarative tool switches. */
     public data class Tools(val tools: ToolPolicySpec) : HarnessChange
+
+    /**
+     * Replaces metadata, every item and tool switches in one revision (configuration from a project folder or
+     * bundle). Items keep their identities: an existing id keeps its name, absent items are removed.
+     * The profile's default selection preference is preserved.
+     */
+    public data class Content(
+        val title: String,
+        val description: String,
+        val items: List<HarnessItem>,
+        val tools: ToolPolicySpec,
+    ) : HarnessChange {
+        override fun toString(): String = "HarnessChange.Content(items=${items.size}, ***)"
+    }
 }
 
 /** Stable reasons without source code, prompt content or storage exception messages. */

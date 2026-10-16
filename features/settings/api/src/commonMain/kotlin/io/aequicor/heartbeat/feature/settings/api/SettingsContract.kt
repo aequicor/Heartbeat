@@ -15,6 +15,10 @@ public enum class SettingsSection {
     @SerialName("models")
     Models,
 
+    /** Adaptive subagents: selection preferences, service models, connection billing and model descriptions. */
+    @SerialName("subagents")
+    Subagents,
+
     /** Search providers of the profile. */
     @SerialName("search")
     Search,
@@ -46,6 +50,14 @@ public enum class SettingsSection {
     /** Interfaces the agent built for harnesses: their switches, specs and previews. */
     @SerialName("interfaces")
     Interfaces,
+
+    /** Project `.heartbeat` folders, changes waiting for trust and `.hbai` transfer. */
+    @SerialName("project_config")
+    ProjectConfig,
+
+    /** Desktop application diagnostics: recent logs, archive and the logs directory. */
+    @SerialName("logs")
+    Logs,
 
     /** Device-local feature flags. */
     @SerialName("feature_flags")
@@ -85,6 +97,7 @@ public val UnifiedSettings: FeatureToggle.Flag = FeatureToggle.Flag(
 public val SettingsSection.deepLinkName: String
     get() = when (this) {
         SettingsSection.Models -> "models"
+        SettingsSection.Subagents -> "subagents"
         SettingsSection.Search -> "search"
         SettingsSection.ComputerUse -> "computer_use"
         SettingsSection.ChromiumBrowser -> "chromium_browser"
@@ -93,6 +106,8 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Builds -> "builds"
         SettingsSection.Harness -> "harness"
         SettingsSection.Interfaces -> "interfaces"
+        SettingsSection.ProjectConfig -> "project_config"
+        SettingsSection.Logs -> "logs"
         SettingsSection.FeatureFlags -> "feature_flags"
     }
 

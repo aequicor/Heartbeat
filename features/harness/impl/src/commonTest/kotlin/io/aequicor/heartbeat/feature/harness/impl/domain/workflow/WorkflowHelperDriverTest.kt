@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStep
 import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryTestStore
 import io.aequicor.heartbeat.feature.harness.impl.data.run.StoredWorkflowHelperJournal
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperBinding
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperModels
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.SpawnTestBindings
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.SpawnTestHelpers
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
@@ -191,7 +192,7 @@ internal class WorkflowHelperDriverTest {
     }
 }
 
-private class WorkflowHelpersFixture {
+internal class WorkflowHelpersFixture {
     val workflow = WorkflowFixture()
     val grants = StoredWorkflowHelperJournal(RunDeliveryTestStore(workflow.clock), workflow.clock)
     val trace = mutableListOf<String>()
@@ -201,6 +202,7 @@ private class WorkflowHelpersFixture {
     var beforePrompt: suspend (HelperPrompt) -> Unit = {}
     var cancel: (RequestId) -> HelperCancellation = { HelperCancellation.NotSubmitted(it) }
     var cancellations = 0
+    var models: HarnessHelperModels = HarnessHelperModels.Inherit
     private var sequence = 0
     private val helpers = object : HelperAgents by base {
         override suspend fun prompt(helper: HelperId, prompt: HelperPrompt): HelperSubmission {
@@ -220,7 +222,7 @@ private class WorkflowHelpersFixture {
     fun driver(progress: WorkflowRunJournal, driver: Job? = null): WorkflowHelperDriver = WorkflowHelperDriver(
         workflow.initial,
         progress,
-        WorkflowHelperPorts(grants, resources, helpers, bindings),
+        WorkflowHelperPorts(grants, resources, helpers, bindings, models),
         null,
         HelperHandoff(),
         { true },

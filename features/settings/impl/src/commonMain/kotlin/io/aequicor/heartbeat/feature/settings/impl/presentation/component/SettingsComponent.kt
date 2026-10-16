@@ -18,9 +18,12 @@ import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.core.navigation.StackHost
 import io.aequicor.heartbeat.core.navigation.routeEntry
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsRoute
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfileRoute
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
+import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
@@ -28,6 +31,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessItemRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessToolsRoute
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLibraryRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSurfaceRoute
@@ -149,6 +153,8 @@ class SettingsComponent(
     private companion object {
         val SECTION_ROUTES = setOf(
             EngineConnectionsRoute::class,
+            AdaptiveSubagentsRoute::class,
+            ModelProfileRoute::class,
             ComputerUseRoute::class,
             ChromiumBridgeRoute::class,
             AgentLearningRoute::class,
@@ -160,9 +166,11 @@ class SettingsComponent(
             HarnessToolsRoute::class,
             ServiceUiLibraryRoute::class,
             ServiceUiSurfaceRoute::class,
+            ProjectConfigRoute::class,
             ConnectEngineRoute::class,
             ProfileSettingsRoute::class,
             TogglesPanelRoute::class,
+            AppLogsRoute::class,
         )
     }
 }
@@ -170,6 +178,7 @@ class SettingsComponent(
 /** The embedded route of each section, owned by the section's feature. */
 internal fun SettingsSection.route(): Route = when (this) {
     SettingsSection.Models -> EngineConnectionsRoute(isEmbedded = true)
+    SettingsSection.Subagents -> AdaptiveSubagentsRoute(isEmbedded = true)
     SettingsSection.Search -> ProfileSettingsRoute(isEmbedded = true)
     SettingsSection.ComputerUse -> ComputerUseRoute(isEmbedded = true)
     SettingsSection.ChromiumBrowser -> ChromiumBridgeRoute(isEmbedded = true)
@@ -178,6 +187,8 @@ internal fun SettingsSection.route(): Route = when (this) {
     SettingsSection.Builds -> WorktreeBuildsRoute(isEmbedded = true)
     SettingsSection.Harness -> HarnessRoute(isEmbedded = true)
     SettingsSection.Interfaces -> ServiceUiLibraryRoute(isEmbedded = true)
+    SettingsSection.ProjectConfig -> ProjectConfigRoute(isEmbedded = true)
+    SettingsSection.Logs -> AppLogsRoute(isEmbedded = true)
     SettingsSection.FeatureFlags -> TogglesPanelRoute(isEmbedded = true)
 }
 

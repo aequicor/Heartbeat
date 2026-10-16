@@ -22,6 +22,7 @@ import pro.respawn.flowmvi.plugins.reduce
 /** A settings section as the screen knows it; mapped from and to the contract's [SettingsSection]. */
 enum class SettingsSectionUi {
     Models,
+    Subagents,
     Search,
     ComputerUse,
     ChromiumBrowser,
@@ -30,12 +31,15 @@ enum class SettingsSectionUi {
     Builds,
     Harness,
     Interfaces,
+    ProjectConfig,
+    Logs,
     FeatureFlags,
 }
 
 /** Screen value of a contract section. */
 fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
     SettingsSection.Models -> SettingsSectionUi.Models
+    SettingsSection.Subagents -> SettingsSectionUi.Subagents
     SettingsSection.Search -> SettingsSectionUi.Search
     SettingsSection.ComputerUse -> SettingsSectionUi.ComputerUse
     SettingsSection.ChromiumBrowser -> SettingsSectionUi.ChromiumBrowser
@@ -44,12 +48,15 @@ fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
     SettingsSection.Builds -> SettingsSectionUi.Builds
     SettingsSection.Harness -> SettingsSectionUi.Harness
     SettingsSection.Interfaces -> SettingsSectionUi.Interfaces
+    SettingsSection.ProjectConfig -> SettingsSectionUi.ProjectConfig
+    SettingsSection.Logs -> SettingsSectionUi.Logs
     SettingsSection.FeatureFlags -> SettingsSectionUi.FeatureFlags
 }
 
 /** Contract section of a screen value. */
 fun SettingsSectionUi.toSection(): SettingsSection = when (this) {
     SettingsSectionUi.Models -> SettingsSection.Models
+    SettingsSectionUi.Subagents -> SettingsSection.Subagents
     SettingsSectionUi.Search -> SettingsSection.Search
     SettingsSectionUi.ComputerUse -> SettingsSection.ComputerUse
     SettingsSectionUi.ChromiumBrowser -> SettingsSection.ChromiumBrowser
@@ -58,6 +65,8 @@ fun SettingsSectionUi.toSection(): SettingsSection = when (this) {
     SettingsSectionUi.Builds -> SettingsSection.Builds
     SettingsSectionUi.Harness -> SettingsSection.Harness
     SettingsSectionUi.Interfaces -> SettingsSection.Interfaces
+    SettingsSectionUi.ProjectConfig -> SettingsSection.ProjectConfig
+    SettingsSectionUi.Logs -> SettingsSection.Logs
     SettingsSectionUi.FeatureFlags -> SettingsSection.FeatureFlags
 }
 
@@ -106,7 +115,7 @@ class SettingsModel(
 ) {
     private val log = Log.tag("SettingsModel")
 
-    val store = factory.create<SettingsScreenState, SettingsScreenIntent, SettingsScreenAction>(
+    private val screen = factory.createScreen<SettingsScreenState, SettingsScreenIntent, SettingsScreenAction>(
         "Settings",
         SettingsScreenState(),
         onError = { this },
@@ -141,6 +150,10 @@ class SettingsModel(
             }
         }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope.coroutineScope)

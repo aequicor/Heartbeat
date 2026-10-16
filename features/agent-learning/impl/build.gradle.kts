@@ -11,6 +11,7 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.worktreeMode.api)
+            implementation(projects.features.projectConfig.api)
             implementation(projects.core.common)
             implementation(projects.core.stateMachine.api)
             implementation(projects.core.stateMachine.flowmviExt)
@@ -28,6 +29,7 @@ kotlin {
             implementation(libs.kotlinx.collectionsImmutable)
             implementation(libs.kotlinx.serialization.core)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.okio)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
         }

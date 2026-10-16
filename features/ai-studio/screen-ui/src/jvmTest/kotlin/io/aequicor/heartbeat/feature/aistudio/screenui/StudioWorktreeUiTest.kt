@@ -62,6 +62,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentSetOf
 import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import java.io.IOException
@@ -227,7 +228,7 @@ class StudioWorktreeUiTest {
     }
 
     @Test
-    fun `new pane mode selection has its own identity and disappears when unavailable`() =
+    fun `new pane mode selection has its own identity and disappears when unavailable or outside git`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
             val events = mutableListOf<StudioIntent>()
             val pane = PaneUi(7, projectId = "project")
@@ -245,7 +246,11 @@ class StudioWorktreeUiTest {
             onNodeWithTag("worktree-mode-7").performClick()
             runOnIdle {
                 assertEquals(listOf<StudioIntent>(StudioIntent.SelectWorktree(7, true)), events)
-                state = state.copy(isWorktreeAvailable = false)
+                state = state.copy(repositoryProjects = persistentSetOf())
+            }
+            onNodeWithTag("worktree-mode-7").assertDoesNotExist()
+            runOnIdle {
+                state = state.copy(isWorktreeAvailable = false, repositoryProjects = persistentSetOf("project"))
             }
             onNodeWithTag("worktree-mode-7").assertDoesNotExist()
         }
@@ -460,6 +465,7 @@ class StudioWorktreeUiTest {
         val initial = AiStudioScreenState(panes = persistentListOf(pane))
         return initial.copy(
             projects = persistentListOf(ProjectUi("project", "Heartbeat", EnvironmentUi.Local, "master")),
+            repositoryProjects = persistentSetOf("project"),
             models = persistentListOf(ModelUi("route", "Model", isLocalProjectSupported = true)),
             settings = initial.settings.copy(modelId = "route"),
         )
