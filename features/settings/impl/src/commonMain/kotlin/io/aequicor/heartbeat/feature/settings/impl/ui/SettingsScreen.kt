@@ -254,41 +254,44 @@ private fun BackButton(onBack: () -> Unit) {
 }
 
 @Composable
-private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
-    when (section) {
-        SettingsSectionUi.Models -> Res.string.settings_section_models
-        SettingsSectionUi.Security -> Res.string.settings_section_security
-        SettingsSectionUi.Subagents -> Res.string.settings_section_subagents
-        SettingsSectionUi.Search -> Res.string.settings_section_search
-        SettingsSectionUi.ComputerUse -> Res.string.settings_section_computer_use
-        SettingsSectionUi.ChromiumBrowser -> Res.string.settings_section_chromium_browser
-        SettingsSectionUi.AgentLearning -> Res.string.settings_section_agent_learning
-        SettingsSectionUi.Context -> Res.string.settings_section_context
-        SettingsSectionUi.Builds -> Res.string.settings_section_builds
-        SettingsSectionUi.Harness -> Res.string.settings_section_harness
-        SettingsSectionUi.Interfaces -> Res.string.settings_section_interfaces
-        SettingsSectionUi.ProjectConfig -> Res.string.settings_section_project_config
-        SettingsSectionUi.Logs -> Res.string.settings_section_logs
-        SettingsSectionUi.FeatureFlags -> Res.string.settings_section_feature_flags
-    },
+private fun sectionTitle(section: SettingsSectionUi): String = stringResource(SECTION_TITLES.getValue(section))
+
+// Tables instead of `when`: one entry per section keeps the mappings flat as sections are added.
+private val SECTION_TITLES = mapOf(
+    SettingsSectionUi.Models to Res.string.settings_section_models,
+    SettingsSectionUi.Security to Res.string.settings_section_security,
+    SettingsSectionUi.Subagents to Res.string.settings_section_subagents,
+    SettingsSectionUi.Search to Res.string.settings_section_search,
+    SettingsSectionUi.ComputerUse to Res.string.settings_section_computer_use,
+    SettingsSectionUi.ChromiumBrowser to Res.string.settings_section_chromium_browser,
+    SettingsSectionUi.AgentLearning to Res.string.settings_section_agent_learning,
+    SettingsSectionUi.Context to Res.string.settings_section_context,
+    SettingsSectionUi.Builds to Res.string.settings_section_builds,
+    SettingsSectionUi.Harness to Res.string.settings_section_harness,
+    SettingsSectionUi.Interfaces to Res.string.settings_section_interfaces,
+    SettingsSectionUi.ProjectConfig to Res.string.settings_section_project_config,
+    SettingsSectionUi.Logs to Res.string.settings_section_logs,
+    SettingsSectionUi.FeatureFlags to Res.string.settings_section_feature_flags,
 )
 
-private fun SettingsSectionUi.icon(): ImageVector = when (this) {
-    SettingsSectionUi.Models -> HbIcons.Layers
-    SettingsSectionUi.Security -> HbIcons.Shield
-    SettingsSectionUi.Subagents -> HbIcons.Users
-    SettingsSectionUi.Search -> HbIcons.Search
-    SettingsSectionUi.ComputerUse -> HbIcons.Layers
-    SettingsSectionUi.ChromiumBrowser -> HbIcons.Globe
-    SettingsSectionUi.AgentLearning -> HbIcons.Sparkles
-    SettingsSectionUi.Context -> HbIcons.Minimize
-    SettingsSectionUi.Builds -> HbIcons.Terminal
-    SettingsSectionUi.Harness -> HbIcons.Code
-    SettingsSectionUi.Interfaces -> HbIcons.Grid
-    SettingsSectionUi.ProjectConfig -> HbIcons.FolderOpen
-    SettingsSectionUi.Logs -> HbIcons.FileText
-    SettingsSectionUi.FeatureFlags -> HbIcons.Sliders
-}
+private fun SettingsSectionUi.icon(): ImageVector = SECTION_ICONS.getValue(this)
+
+private val SECTION_ICONS: Map<SettingsSectionUi, ImageVector> = mapOf(
+    SettingsSectionUi.Models to HbIcons.Layers,
+    SettingsSectionUi.Security to HbIcons.Shield,
+    SettingsSectionUi.Subagents to HbIcons.Users,
+    SettingsSectionUi.Search to HbIcons.Search,
+    SettingsSectionUi.ComputerUse to HbIcons.Layers,
+    SettingsSectionUi.ChromiumBrowser to HbIcons.Globe,
+    SettingsSectionUi.AgentLearning to HbIcons.Sparkles,
+    SettingsSectionUi.Context to HbIcons.Minimize,
+    SettingsSectionUi.Builds to HbIcons.Terminal,
+    SettingsSectionUi.Harness to HbIcons.Code,
+    SettingsSectionUi.Interfaces to HbIcons.Grid,
+    SettingsSectionUi.ProjectConfig to HbIcons.FolderOpen,
+    SettingsSectionUi.Logs to HbIcons.FileText,
+    SettingsSectionUi.FeatureFlags to HbIcons.Sliders,
+)
 
 @Preview
 @Composable

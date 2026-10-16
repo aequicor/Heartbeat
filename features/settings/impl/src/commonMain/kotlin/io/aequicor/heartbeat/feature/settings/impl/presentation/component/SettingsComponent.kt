@@ -178,22 +178,25 @@ class SettingsComponent(
 }
 
 /** The embedded route of each section, owned by the section's feature. */
-internal fun SettingsSection.route(): Route = when (this) {
-    SettingsSection.Models -> EngineConnectionsRoute(isEmbedded = true)
-    SettingsSection.Security -> StudioSecurityRoute(isEmbedded = true)
-    SettingsSection.Subagents -> AdaptiveSubagentsRoute(isEmbedded = true)
-    SettingsSection.Search -> ProfileSettingsRoute(isEmbedded = true)
-    SettingsSection.ComputerUse -> ComputerUseRoute(isEmbedded = true)
-    SettingsSection.ChromiumBrowser -> ChromiumBridgeRoute(isEmbedded = true)
-    SettingsSection.AgentLearning -> AgentLearningRoute(isEmbedded = true)
-    SettingsSection.Context -> ContextOptimizationRoute(isEmbedded = true)
-    SettingsSection.Builds -> WorktreeBuildsRoute(isEmbedded = true)
-    SettingsSection.Harness -> HarnessRoute(isEmbedded = true)
-    SettingsSection.Interfaces -> ServiceUiLibraryRoute(isEmbedded = true)
-    SettingsSection.ProjectConfig -> ProjectConfigRoute(isEmbedded = true)
-    SettingsSection.Logs -> AppLogsRoute(isEmbedded = true)
-    SettingsSection.FeatureFlags -> TogglesPanelRoute(isEmbedded = true)
-}
+internal fun SettingsSection.route(): Route = EMBEDDED_ROUTES.getValue(this)
+
+// A table instead of a `when`: one entry per section keeps the mapping flat as sections are added.
+private val EMBEDDED_ROUTES: Map<SettingsSection, Route> = mapOf(
+    SettingsSection.Models to EngineConnectionsRoute(isEmbedded = true),
+    SettingsSection.Security to StudioSecurityRoute(isEmbedded = true),
+    SettingsSection.Subagents to AdaptiveSubagentsRoute(isEmbedded = true),
+    SettingsSection.Search to ProfileSettingsRoute(isEmbedded = true),
+    SettingsSection.ComputerUse to ComputerUseRoute(isEmbedded = true),
+    SettingsSection.ChromiumBrowser to ChromiumBridgeRoute(isEmbedded = true),
+    SettingsSection.AgentLearning to AgentLearningRoute(isEmbedded = true),
+    SettingsSection.Context to ContextOptimizationRoute(isEmbedded = true),
+    SettingsSection.Builds to WorktreeBuildsRoute(isEmbedded = true),
+    SettingsSection.Harness to HarnessRoute(isEmbedded = true),
+    SettingsSection.Interfaces to ServiceUiLibraryRoute(isEmbedded = true),
+    SettingsSection.ProjectConfig to ProjectConfigRoute(isEmbedded = true),
+    SettingsSection.Logs to AppLogsRoute(isEmbedded = true),
+    SettingsSection.FeatureFlags to TogglesPanelRoute(isEmbedded = true),
+)
 
 /** Base entry of [SettingsComponent.sections] before a section is chosen. */
 @Serializable

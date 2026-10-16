@@ -180,6 +180,15 @@ class SettingsSectionsTest {
         assertEquals(SettingsSection.Security, settingsSectionOf("security"))
     }
 
+    @Test
+    fun `every section maps to its screen value and an embedded route`() {
+        SettingsSection.entries.forEach { section ->
+            assertEquals(section, section.toUi().toSection())
+            section.route()
+        }
+        assertEquals(SettingsSection.entries.size, SettingsSectionUi.entries.size)
+    }
+
     private val allUi = all.map { it.toUi() }
 
     @Test
