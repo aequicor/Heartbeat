@@ -837,11 +837,12 @@ private fun composerModeActions(organism: Boolean?, worktree: Boolean?): List<Hb
             isSelected = it,
         )
     }
+    // Both modes share one section, so only its first item carries the header.
     val worktreeAction = worktree?.let {
         HbComposerAction(
             WORKTREE_ACTION,
             stringResource(Res.string.worktree_mode),
-            sectionLabel = stringResource(Res.string.organism_menu_section),
+            sectionLabel = stringResource(Res.string.organism_menu_section).takeIf { organismAction == null },
             isSelected = it,
         )
     }

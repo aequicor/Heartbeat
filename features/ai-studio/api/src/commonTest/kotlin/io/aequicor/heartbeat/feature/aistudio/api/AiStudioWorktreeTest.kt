@@ -156,6 +156,40 @@ class AiStudioWorktreeTest {
     }
 
     @Test
+    fun `leaving the isolated mode or a git project clears the sandbox choice`() {
+        val sandbox = ready.copy(
+            isSandboxAvailable = true,
+            panes = listOf(StudioPane(0, projectId = "project", isWorktree = true, isSandbox = true)),
+        )
+        AiStudioMachineSpec.assertTransition(
+            sandbox,
+            AiStudioIntent.Public.SelectOrganism(0, true),
+            sandbox.copy(panes = listOf(StudioPane(0, projectId = "project", isOrganism = true))),
+        )
+        AiStudioMachineSpec.assertTransition(
+            sandbox,
+            AiStudioIntent.Public.SelectProject(0, "folder"),
+            sandbox.copy(panes = listOf(StudioPane(0, projectId = "folder"))),
+        )
+        AiStudioMachineSpec.assertTransition(
+            sandbox.copy(addingProjectTo = 0),
+            AiStudioIntent.Internal.ProjectChosen(0, "folder"),
+            sandbox.copy(panes = listOf(StudioPane(0, projectId = "folder"))),
+        )
+        AiStudioMachineSpec.assertTransition(
+            sandbox,
+            AiStudioIntent.Internal.ProjectAvailabilityChanged(true, isWorktreeAvailable = false),
+            sandbox.copy(
+                isProjectAddingAvailable = true,
+                isWorktreeAvailable = false,
+                isSandboxAvailable = false,
+                repositoryProjects = emptySet(),
+                panes = listOf(StudioPane(0, projectId = "project")),
+            ),
+        )
+    }
+
+    @Test
     fun `mode is independently chosen per new pane and passed to creation`() {
         val selected = ready.copy(panes = listOf(ready.panes[0].copy(isWorktree = true), ready.panes[1]))
         AiStudioMachineSpec.assertTransition(ready, AiStudioIntent.Public.SelectWorktree(0, true), selected)

@@ -56,10 +56,13 @@ class StudioConversationCreationTest {
             val caller = async { fixture.creation.create(record) { fixture.saved[it.id] = it } }
             runCurrent()
             assertEquals(choice, fixture.machine.sandboxChoice)
+            // The record saved before preparation is what a restart finds.
+            val pending = fixture.saved.getValue("chat")
+            assertEquals(choice, pending.isSandbox)
             fixture.machine.prepared()
             caller.await()
 
-            val restored = Json.decodeFromString<StudioChatRecord>(Json.encodeToString(record))
+            val restored = Json.decodeFromString<StudioChatRecord>(Json.encodeToString(pending))
             val restarted = CreationFixture(backgroundScope)
             restarted.saved["chat"] = restored
             restarted.recoverPending()

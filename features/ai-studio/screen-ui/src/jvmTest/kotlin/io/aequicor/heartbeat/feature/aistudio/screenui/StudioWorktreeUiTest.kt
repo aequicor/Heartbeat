@@ -18,6 +18,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
@@ -41,6 +42,7 @@ import androidx.compose.ui.test.withKeyDown
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_menu_section
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_checkout_dirty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_unknown
@@ -87,6 +89,44 @@ class StudioWorktreeUiTest {
                 sandboxChoice(width, dark)
             }
         }
+    }
+
+    @Test
+    fun `plus menu offers worktree only beside sandboxes and shares one mode header`() {
+        modeMenu(isSandboxAvailable = true)
+        modeMenu(isSandboxAvailable = false)
+    }
+
+    private fun modeMenu(isSandboxAvailable: Boolean) = runSkikoComposeUiTest(size = Size(900f, 700f)) {
+        val pane = PaneUi(7, projectId = "project")
+        var sandboxLabel = ""
+        var worktreeLabel = ""
+        var modeLabel = ""
+        var addLabel = ""
+        setContent {
+            sandboxLabel = stringResource(Res.string.sandbox_mode)
+            worktreeLabel = stringResource(Res.string.worktree_mode)
+            modeLabel = stringResource(Res.string.organism_menu_section)
+            addLabel = stringResource(Res.string.composer_add)
+            HbTheme(darkTheme = false) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    StudioComposer(
+                        workspace(pane).copy(
+                            isWorktreeAvailable = true,
+                            isSandboxAvailable = isSandboxAvailable,
+                            isOrganismEnabled = true,
+                        ).paneContent(pane),
+                        {},
+                        isCompact = false,
+                    )
+                }
+            }
+        }
+        onNodeWithTag("worktree-mode-7").assertTextEquals(if (isSandboxAvailable) sandboxLabel else worktreeLabel)
+        onNodeWithContentDescription(addLabel).performClick()
+        onAllNodesWithText(modeLabel).assertCountEquals(1)
+        // The worktree label appears once: the menu item beside the Sandbox chip, or the chip itself.
+        onAllNodesWithText(worktreeLabel).assertCountEquals(1)
     }
 
     private fun sandboxChoice(width: Float, dark: Boolean) = runSkikoComposeUiTest(size = Size(width, 700f)) {

@@ -59,6 +59,9 @@ public const val MAX_STUDIO_PANES: Int = 2
  * session already saved by creation remains an idle sidebar entry; it never starts a hidden run. Focusing
  * another pane preserves the pending request, and already started runs survive all Ready navigation.
  * Switching the workspace toggle off detaches effects; accepted native turns remain owned by the profile.
+ * Isolation of a new pane is a worktree or, only while sandboxes are available, a sandbox: SelectWorktree grants a
+ * requested sandbox only then, and ProjectAvailabilityChanged (for idle new panes) and CreateFailed drop an isolation
+ * that is no longer offered, leaving a plain worktree when only sandboxes went away.
  * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run → RunFinished(Failed),
  * Cancel → CancelFailed, ObserveRuntime → RuntimeLost, RespondPermission → PermissionAnswerFailed,
  * SaveSettings → SettingsSaveFailed; failed Apply,
@@ -571,7 +574,7 @@ private fun ReadyTransitions.executionModes() {
     }
 }
 
-/** A failed attempt returns to a fresh pane under the current availability, which may have changed during IO. */
+/** A failed attempt keeps the draft but drops isolation options that became unavailable during IO. */
 private fun AiStudioState.Ready.afterCreateFailure(pane: StudioPane): StudioPane {
     val isIsolated = pane.isWorktree && isWorktreeAvailable && pane.projectId in repositoryProjects
     return pane.copy(
