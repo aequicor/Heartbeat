@@ -2,6 +2,9 @@ package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.st
 
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceKind
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceOrigin
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 
@@ -32,14 +35,34 @@ data class ResourceInventoryUi(val files: ImmutableList<ResourceFileUi>, val ext
 internal fun ResourceInventory.toUi(): ResourceInventoryUi = ResourceInventoryUi(
     resources.map {
         ResourceFileUi(
-            ResourceKindUi.valueOf(it.kind.name),
-            ResourceOriginUi.valueOf(it.origin.name),
+            it.kind.toUi(),
+            it.origin.toUi(),
             it.path,
             it.name,
-            ResourceStateUi.valueOf(it.state.name),
+            it.state.toUi(),
             it.description,
         )
     }.toImmutableList(),
     external,
     isTruncated,
 )
+
+// Exhaustive mappings: a new API value fails the build here instead of the panel at runtime.
+private fun ResourceKind.toUi(): ResourceKindUi = when (this) {
+    ResourceKind.Extension -> ResourceKindUi.Extension
+    ResourceKind.Skill -> ResourceKindUi.Skill
+    ResourceKind.Prompt -> ResourceKindUi.Prompt
+}
+
+private fun ResourceOrigin.toUi(): ResourceOriginUi = when (this) {
+    ResourceOrigin.Profile -> ResourceOriginUi.Profile
+    ResourceOrigin.Project -> ResourceOriginUi.Project
+}
+
+private fun ResourceState.toUi(): ResourceStateUi = when (this) {
+    ResourceState.Enabled -> ResourceStateUi.Enabled
+    ResourceState.Excluded -> ResourceStateUi.Excluded
+    ResourceState.NotListed -> ResourceStateUi.NotListed
+    ResourceState.NeedsTrust -> ResourceStateUi.NeedsTrust
+    ResourceState.KindOff -> ResourceStateUi.KindOff
+}

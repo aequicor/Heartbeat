@@ -156,7 +156,7 @@ class EngineConfigurationService(
         val directory = workspace?.let { directoryOf(it) }
         val trust = config.trust[workspace] ?: ProjectTrust.Undecided
         val inventory = io { configurator.resources(config.values, directory, trust) }
-        log.i { "resources listed engine=${engine.value} count=${inventory.resources.size}" }
+        log.d { "resources listed engine=${engine.value} count=${inventory.resources.size}" }
         return inventory.copy(engine = engine, workspace = workspace)
     }
 

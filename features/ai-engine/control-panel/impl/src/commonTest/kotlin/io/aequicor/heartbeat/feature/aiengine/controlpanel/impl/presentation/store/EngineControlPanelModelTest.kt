@@ -75,6 +75,27 @@ class EngineControlPanelModelTest {
     }
 
     @Test
+    fun `a resource read holds other operations without reading as a save`() = runTest {
+        machine.state.value = configured(ConfigRevision(2))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ConfigIntent.EditField("retries", FieldInputUi.Number("3")))
+        runCurrent()
+        val active = machine.state.value as EngineControlState.Active
+        machine.state.value = active.copy(pending = ControlOperation.ListResources(CodexId))
+        runCurrent()
+        with(screen.states.value) {
+            assertTrue(isBusy && isReadingResources)
+            assertFalse(isSaving)
+            assertEquals(true, config?.isDirty)
+        }
+        val save = ControlOperation.SaveProfile(CodexId, ConfigEdit(EngineConfigValues()), ConfigRevision(2))
+        machine.state.value = active.copy(pending = save)
+        runCurrent()
+        with(screen.states.value) { assertTrue(isBusy && isSaving && !isReadingResources) }
+    }
+
+    @Test
     fun `the panel starts the machine and shows the engine`() = runTest {
         val screen = subscribe(model().store)
         runCurrent()

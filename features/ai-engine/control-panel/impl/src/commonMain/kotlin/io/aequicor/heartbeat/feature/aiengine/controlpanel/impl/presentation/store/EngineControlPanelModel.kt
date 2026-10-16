@@ -53,7 +53,10 @@ data class EngineControlPanelState(
     val loginCode: String = "",
     /** An action waiting for confirmation (uninstall, an unverified update, sign-out). */
     val confirmAction: EngineActionUi? = null,
+    /** A change of settings or files is running: forms are read-only and the save bar says so. */
     val isSaving: Boolean = false,
+    /** Any operation is running, a resource read included; actions that would start another one wait for it. */
+    val isBusy: Boolean = false,
     /** The failure of the last operation, until dismissed. */
     val failure: FailureUi? = null,
     val pages: ImmutableList<PageItemUi> = persistentListOf(),
@@ -61,6 +64,7 @@ data class EngineControlPanelState(
     val openPage: String? = null,
     /** The selected scope's saved resource inventory, never the local form draft. */
     val resources: ResourceInventoryUi? = null,
+    /** A resource inventory is being read; forms stay editable meanwhile. */
     val isReadingResources: Boolean = false,
     /** The profile configuration form; null while engine configuration is off or the engine declares no schema. */
     val config: ConfigFormUi? = null,
@@ -139,7 +143,7 @@ class EngineControlPanelModel(
     val store = factory.create<EngineControlPanelState, EngineControlPanelIntent, EngineControlPanelAction>(
         "EngineControlPanel",
         EngineControlPanelState(engineId.value).reflect(engineId, machine.state.value),
-        onError = { copy(isLoading = false, isSaving = false, failure = FailureUi.Unknown) },
+        onError = { copy(isLoading = false, isSaving = false, isBusy = false, failure = FailureUi.Unknown) },
     ) {
         init { sendTo(machine, EngineControlIntent.Public.Start) }
         reflect(machine) { reflect(engineId, it) }
@@ -255,7 +259,12 @@ class EngineControlPanelModel(
     private suspend fun PanelContext.refreshResources() {
         var workspace: WorkspaceRef? = null
         withState { workspace = openProject?.let(::WorkspaceRef) }
-        sendTo(machine, EngineControlIntent.Public.Apply(ControlOperation.ListResources(engineId, workspace)))
+        val result = sendTo(
+            machine,
+            EngineControlIntent.Public.Apply(ControlOperation.ListResources(engineId, workspace)),
+        )
+        // Refused while another operation runs: a shown inventory is refreshed after it, otherwise Refresh reads it.
+        if (result != SendResult.Accepted) log.d { "resource read not started result=$result" }
     }
 
     // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
@@ -313,7 +322,8 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
     val base = copy(
         isLoading = snapshot == null && active.loadFailure == null,
         hasLoadFailure = active.loadFailure != null,
-        isSaving = active.pending != null,
+        isSaving = active.pending != null && active.pending !is ControlOperation.ListResources,
+        isBusy = active.pending != null,
         isReadingResources = active.pending is ControlOperation.ListResources,
         failure = active.failed?.failure?.toUi(),
     )

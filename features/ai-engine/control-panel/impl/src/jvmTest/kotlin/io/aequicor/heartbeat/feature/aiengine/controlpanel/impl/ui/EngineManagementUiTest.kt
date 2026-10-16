@@ -239,7 +239,7 @@ class EngineManagementUiTest {
             setContent { Host(state, intents::add) }
             tags.forEach { onNodeWithTag(it).assertIsEnabled() }
             mainClock.autoAdvance = false
-            runOnIdle { state = loaded.copy(isSaving = true) }
+            runOnIdle { state = loaded.copy(isSaving = true, isBusy = true) }
             mainClock.advanceTimeByFrame()
             tags.forEach { tag ->
                 onNodeWithTag(tag).assertIsNotEnabled()
@@ -270,7 +270,7 @@ class EngineManagementUiTest {
             val tags = listOf("engine-login-submit", "engine-job-cancel")
             tags.forEach { onNodeWithTag(it).assertIsEnabled() }
             mainClock.autoAdvance = false
-            runOnIdle { state = loaded.copy(isSaving = true) }
+            runOnIdle { state = loaded.copy(isSaving = true, isBusy = true) }
             mainClock.advanceTimeByFrame()
             tags.forEach { tag ->
                 onNodeWithTag(tag).assertIsNotEnabled()
@@ -299,7 +299,7 @@ class EngineManagementUiTest {
             setContent { Host(state, intents::add) }
             onNodeWithTag("engine-launch-save").assertIsEnabled()
             mainClock.autoAdvance = false
-            runOnIdle { state = loaded.copy(isSaving = true) }
+            runOnIdle { state = loaded.copy(isSaving = true, isBusy = true) }
             mainClock.advanceTimeByFrame()
             onNodeWithTag("engine-launch-save").assertIsNotEnabled().performMouseInput {
                 moveTo(center)

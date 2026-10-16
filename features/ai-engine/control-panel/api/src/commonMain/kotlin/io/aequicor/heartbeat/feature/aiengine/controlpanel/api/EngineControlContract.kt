@@ -217,18 +217,20 @@ public object EngineControlMachineKey :
  * | From | Intent | Guard | To | Effect |
  * |---|---|---|---|---|
  * | Idle | Start | | Active | Observe |
- * | Active | Snapshot | | stay (load failure cleared) | |
- * | Active | Apply | observed, nothing pending | stay (pending, failure cleared) | Execute |
+ * | Active | Snapshot | | stay (load failure cleared; resources dropped when configuration is off) | |
+ * | Active | Apply | observed, nothing pending | stay (pending, failure cleared; a read drops resources) | Execute |
  * | Active | Applied | | stay (result, save version advanced) | Execute ListResources after saved changes |
  * | Active | ApplyFailed | | stay (failed) | |
  * | Active | DismissError | | stay | |
- * | Active | CloseProject | | stay (no project) | |
+ * | Active | CloseProject | | stay (no project, its resources dropped) | |
  * | Active | DismissImport | | stay (no preview or report) | |
  * | Active | ObserveFailed | | stay (snapshot dropped, load failure) | |
  * | Active | RetryLoad | has load failure | stay | Observe |
  *
  * Changes and observation failures use `stay`, so neither cancels the other while it runs. A failed change is never
  * replayed: secrets of a configuration edit are closed once it ran, and a save may have partially completed.
+ * A listed inventory is kept only while configuration is on and, for a project, while that project is open: a read
+ * finishing after the project closed is dropped rather than shown or refreshed later.
  */
 public val EngineControlMachineSpec:
     MachineSpec<EngineControlState, EngineControlIntent, EngineControlEffect, EngineControlOutput> =
@@ -261,11 +263,10 @@ public val EngineControlMachineSpec:
             }
             on<EngineControlIntent.Internal.Applied> {
                 stay {
+                    val next = state.applied(intent.result)
+                    // Effects see the source state, so the effect below derives the same refresh.
                     val refresh = state.resourceRefresh(intent.result)
-                    state.applied(intent.result).copy(
-                        pending = refresh,
-                        resources = if (refresh != null) null else state.applied(intent.result).resources,
-                    )
+                    if (refresh == null) next else next.copy(pending = refresh, resources = null)
                 }
                 effect { state.resourceRefresh(intent.result)?.let(EngineControlEffect::Execute) }
             }
@@ -306,7 +307,7 @@ public val EngineControlMachineSpec:
 private fun EngineControlState.Active.applied(result: ControlResult): EngineControlState.Active = when (result) {
     ControlResult.Done -> copy(pending = null)
 
-    is ControlResult.Resources -> copy(pending = null, resources = result.inventory)
+    is ControlResult.Resources -> copy(pending = null, resources = result.inventory.takeIf { shows(it) })
 
     is ControlResult.Project -> copy(
         pending = null,
@@ -318,6 +319,10 @@ private fun EngineControlState.Active.applied(result: ControlResult): EngineCont
 
     is ControlResult.Imported -> copy(pending = null, importPreview = null, importReport = result.report)
 }
+
+private fun EngineControlState.Active.shows(inventory: ResourceInventory): Boolean =
+    snapshot?.configuration?.isEnabled == true &&
+        (inventory.workspace == null || inventory.workspace == project?.workspace)
 
 /** The panel's failure for an exception an operation threw. */
 public fun Throwable.toControlFailure(): ControlFailure = when (this) {

@@ -73,7 +73,8 @@ internal fun EngineConfigState.edit(draft: ConfigDraft?, fieldId: String, input:
 /**
  * The form of this source with [draft] applied: the visible fields of every page with their values, defaults and
  * problems. Problems are those of the values as they would be saved, so rows being typed do not block saving; a file
- * that does not parse blocks it when [isUnparsedBlocking]. A page without a visible field is left out.
+ * that does not parse blocks it when [isUnparsedBlocking]. A page without a visible field is left out unless it
+ * shows resources.
  */
 internal fun FormSource.form(draft: ConfigDraft?, isUnparsedBlocking: Boolean = true): ConfigFormUi {
     val values = draft?.values ?: saved

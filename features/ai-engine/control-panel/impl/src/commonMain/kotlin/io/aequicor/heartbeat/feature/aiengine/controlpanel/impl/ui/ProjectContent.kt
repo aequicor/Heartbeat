@@ -96,7 +96,7 @@ internal fun ProjectScreen(
         title,
         { onIntent(EngineControlPanelIntent.Back) },
         modifier.testTag("engine-control-project"),
-        pinned = form?.let { { ConfigSaveBar(it, state.isSaving, onConfig) } },
+        pinned = form?.let { { ConfigSaveBar(it, state.isSaving, onConfig, isBusy = state.isBusy) } },
     ) {
         state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
         when {
@@ -105,12 +105,12 @@ internal fun ProjectScreen(
             file != null -> ConfigFileContent(file, project.form, state.isSaving, onConfig)
 
             else -> {
-                ProjectContent(project, state.isSaving, onIntent, onConfig)
+                ProjectContent(project, state.isSaving, state.isBusy, onIntent, onConfig)
                 if (project.form.pages.any { it.hasResources }) {
                     ResourceContent(
                         state.resources,
                         state.isReadingResources,
-                        !state.isSaving,
+                        !state.isBusy,
                         { onIntent(EngineControlPanelIntent.RefreshResources) },
                     )
                 }
@@ -123,6 +123,7 @@ internal fun ProjectScreen(
 private fun ProjectContent(
     project: ProjectFormUi,
     isSaving: Boolean,
+    isBusy: Boolean,
     onIntent: (EngineControlPanelIntent) -> Unit,
     onConfig: (ConfigIntent) -> Unit,
     modifier: Modifier = Modifier,
@@ -130,7 +131,7 @@ private fun ProjectContent(
     val form = project.form
     val isEditable = !isSaving && !form.isSubmitted
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xxl) {
-        project.trust?.let { TrustRow(it, enabled = !isSaving, { trust -> onIntent(ProjectIntent.SetTrust(trust)) }) }
+        project.trust?.let { TrustRow(it, enabled = !isBusy, { trust -> onIntent(ProjectIntent.SetTrust(trust)) }) }
         form.pages.forEach { page ->
             HbText(page.title.text(), Modifier.semantics { heading() }, style = HbTheme.typography.title)
             ConfigPageSections(page, isEditable, onConfig)

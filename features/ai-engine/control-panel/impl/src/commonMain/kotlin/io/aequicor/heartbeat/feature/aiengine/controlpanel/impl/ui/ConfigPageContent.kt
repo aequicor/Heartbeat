@@ -89,13 +89,17 @@ internal fun ConfigPageSections(
     }
 }
 
-/** Unsaved changes with save and discard, or a conflict that only a discard resolves. */
+/**
+ * Unsaved changes with save and discard, or a conflict that only a discard resolves. [isBusy] holds the save while
+ * another operation, such as a resource read, runs without claiming the changes are being saved.
+ */
 @Composable
 internal fun ConfigSaveBar(
     form: ConfigFormUi,
     isSaving: Boolean,
     onIntent: (ConfigIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isBusy: Boolean = isSaving,
 ) {
     val discard = stringResource(Res.string.control_config_discard)
     when {
@@ -137,7 +141,7 @@ internal fun ConfigSaveBar(
                 { onIntent(ConfigIntent.SaveConfig) },
                 Modifier.testTag("config-save"),
                 HbButtonStyle.Primary,
-                enabled = form.isSaveable && !isSaving,
+                enabled = form.isSaveable && !isBusy,
                 size = HbButtonSize.Small,
             )
         }

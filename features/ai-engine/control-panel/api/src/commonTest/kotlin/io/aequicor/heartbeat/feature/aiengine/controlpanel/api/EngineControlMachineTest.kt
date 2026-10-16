@@ -167,18 +167,75 @@ class EngineControlMachineTest {
     fun `resource reads are serialized and their result is retained`() {
         val request = ControlOperation.ListResources(engine)
         val inventory = ResourceInventory(engine, null, emptyList())
+        val configured = configured()
         EngineControlMachineSpec.assertTransition(
-            from = observed,
+            from = configured,
             intent = Public.Apply(request),
-            to = observed.copy(pending = request),
+            to = configured.copy(pending = request),
             effects = listOf(EngineControlEffect.Execute(request)),
         )
-        EngineControlMachineSpec.assertIgnored(observed.copy(pending = request), Public.Apply(restart))
+        EngineControlMachineSpec.assertIgnored(configured.copy(pending = request), Public.Apply(restart))
         EngineControlMachineSpec.assertTransition(
-            from = observed.copy(pending = request),
+            from = configured.copy(pending = request),
             intent = Internal.Applied(ControlResult.Resources(inventory)),
-            to = observed.copy(resources = inventory),
+            to = configured.copy(resources = inventory),
         )
+    }
+
+    @Test
+    fun `a read finishing after configuration turned off or its project closed is dropped`() {
+        val request = ControlOperation.ListResources(engine, workspace)
+        val inventory = ResourceInventory(engine, workspace, emptyList())
+        EngineControlMachineSpec.assertTransition(
+            from = observed.copy(pending = request, project = project),
+            intent = Internal.Applied(ControlResult.Resources(inventory)),
+            to = observed.copy(project = project),
+        )
+        EngineControlMachineSpec.assertTransition(
+            from = configured().copy(pending = request),
+            intent = Internal.Applied(ControlResult.Resources(inventory)),
+            to = configured(),
+        )
+        EngineControlMachineSpec.assertTransition(
+            from = configured().copy(pending = request, project = project),
+            intent = Internal.Applied(ControlResult.Resources(inventory)),
+            to = configured().copy(project = project, resources = inventory),
+        )
+    }
+
+    @Test
+    fun `shown resources follow configuration and the open scope`() {
+        val profile = ResourceInventory(engine, null, emptyList())
+        EngineControlMachineSpec.assertTransition(
+            from = configured().copy(resources = profile),
+            intent = Internal.Snapshot(snapshot),
+            to = observed,
+        )
+        EngineControlMachineSpec.assertTransition(
+            from = configured().copy(resources = profile, project = project),
+            intent = Public.CloseProject,
+            to = configured().copy(resources = profile),
+        )
+    }
+
+    @Test
+    fun `changes refresh nothing without a shown inventory of a resource capable engine`() {
+        val save = ControlOperation.SaveProfile(engine, ConfigEdit(EngineConfigValues()), ConfigRevision(0))
+        val shown = ResourceInventory(engine, null, emptyList())
+        val other = ResourceInventory(EngineId("codex"), null, emptyList())
+        val cases = listOf(
+            configured(),
+            configured().copy(resources = other),
+            configured(capabilities = emptySet()).copy(resources = shown),
+        )
+        cases.forEach { from ->
+            EngineControlMachineSpec.assertTransition(
+                from = from.copy(pending = save),
+                intent = Internal.Applied(ControlResult.Done),
+                to = from,
+                effects = emptyList(),
+            )
+        }
     }
 
     @Test
@@ -248,6 +305,12 @@ class EngineControlMachineTest {
             intent = Public.CloseProject,
             to = active.copy(project = null, resources = null),
         )
+    }
+
+    private fun configured(capabilities: Set<ConfigCapability> = setOf(ConfigCapability.Resources)): Active {
+        val schema = EngineConfigSchema(emptyList(), emptyList(), capabilities = capabilities)
+        val config = EngineConfigState(engine, schema, EngineConfigValues(), ConfigRevision(0))
+        return observed.copy(snapshot = snapshot.copy(configuration = EngineConfigurationState(true, listOf(config))))
     }
 
     @Test

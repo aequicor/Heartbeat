@@ -275,8 +275,15 @@
     <string name="control_resources_unloaded">Загрузите список, чтобы увидеть источник и состояние ресурсов.</string>
     <string name="control_resources_empty">В этих папках файлы ресурсов не найдены.</string>
     <string name="control_resources_loading">Чтение файлов ресурсов…</string>
-    <string name="control_resources_external">Вне инвентаря: %1$d внешних записей.</string>
-    <string name="control_resources_truncated">Достигнут предел обхода. Список неполный.</string>
+    <plurals name="control_resources_external">
+        <item quantity="one">Вне инвентаря: %1$d внешняя запись.</item>
+        <item quantity="few">Вне инвентаря: %1$d внешние записи.</item>
+        <item quantity="many">Вне инвентаря: %1$d внешних записей.</item>
+        <item quantity="other">Вне инвентаря: %1$d внешней записи.</item>
+    </plurals>
+    <string name="control_resources_truncated">Часть файлов не прочитана или не проверена в пределах ограничений. Список неполный.</string>
+    <string name="control_resources_more">Показать ещё (осталось %1$d)</string>
+    <string name="control_resource_meta">%1$s · %2$s · %3$s</string>
     <string name="control_resource_profile">Профиль</string>
     <string name="control_resource_project">Проект</string>
     <string name="control_resource_extension">Расширение</string>

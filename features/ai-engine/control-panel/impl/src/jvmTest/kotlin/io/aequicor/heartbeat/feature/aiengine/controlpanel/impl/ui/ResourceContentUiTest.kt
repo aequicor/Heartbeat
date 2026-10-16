@@ -1,12 +1,26 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
@@ -99,5 +113,48 @@ class ResourceContentUiTest {
                 }
             }
         }
+    }
+
+    @Test
+    fun `each inventory state shows one matching message and long lists open a page at a time`() =
+        runSkikoComposeUiTest(size = Size(420f, 900f)) {
+            var shown by mutableStateOf<Pair<ResourceInventoryUi?, Boolean>>(null to true)
+            setContent {
+                HbTheme {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        ResourceContent(shown.first, shown.second, isRefreshEnabled = true, onRefresh = {})
+                    }
+                }
+            }
+            onNodeWithText("Чтение файлов ресурсов…").assertIsDisplayed()
+            shown = null to false
+            onNodeWithText("Загрузите список, чтобы увидеть источник и состояние ресурсов.").assertIsDisplayed()
+            shown = ResourceInventoryUi(persistentListOf(), 0, false) to false
+            onNodeWithText("В этих папках файлы ресурсов не найдены.").assertIsDisplayed()
+            shown = ResourceInventoryUi(persistentListOf(), 1, true) to false
+            onAllNodesWithTag("resource-inventory").assertCountEquals(1)
+            onNodeWithText("Вне инвентаря: 1 внешняя запись.").assertIsDisplayed()
+            onAllNodes(hasText("В этих папках файлы ресурсов не найдены.")).assertCountEquals(0)
+            val many = (0 until 250).map {
+                ResourceFileUi(
+                    ResourceKindUi.Prompt,
+                    ResourceOriginUi.Profile,
+                    "prompts/p$it.md",
+                    "p$it",
+                    ResourceStateUi.Enabled,
+                    null,
+                )
+            }.toImmutableList()
+            shown = ResourceInventoryUi(many, 0, false) to false
+            onAllNodes(hasTestTagPrefix("resource:")).assertCountEquals(100)
+            onNodeWithTag("resources-more").performScrollTo().performClick()
+            onAllNodes(hasTestTagPrefix("resource:")).assertCountEquals(200)
+            onNodeWithTag("resources-more").performScrollTo().performClick()
+            onAllNodes(hasTestTagPrefix("resource:")).assertCountEquals(250)
+            onAllNodesWithTag("resources-more").assertCountEquals(0)
+        }
+
+    private fun hasTestTagPrefix(prefix: String) = SemanticsMatcher("test tag starting with $prefix") {
+        it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(prefix) == true
     }
 }
