@@ -56,6 +56,73 @@ class AiStudioWorktreeTest {
     }
 
     @Test
+    fun `a sandbox is chosen while available and passed to creation`() {
+        val available = ready.copy(isSandboxAvailable = true)
+        val sandbox = available.copy(
+            panes = listOf(available.panes[0].copy(isWorktree = true, isSandbox = true), available.panes[1]),
+        )
+        AiStudioMachineSpec.assertTransition(available, AiStudioIntent.Public.SelectWorktree(0, true, true), sandbox)
+        AiStudioMachineSpec.assertTransition(
+            sandbox,
+            AiStudioIntent.Public.Submit(0, "Implement"),
+            sandbox.copy(
+                panes = listOf(sandbox.panes[0].copy(isCreating = true, createRequestId = 0), sandbox.panes[1]),
+                nextCreateRequestId = 1,
+            ),
+            effects = listOf(
+                AiStudioEffect.CreateSession(
+                    0,
+                    "project",
+                    "Implement",
+                    settings,
+                    requestId = 0,
+                    isWorktree = true,
+                    isSandbox = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `a plain worktree replaces the sandbox and a sandbox needs availability`() {
+        val available = ready.copy(isSandboxAvailable = true)
+        val sandbox = available.copy(panes = listOf(available.panes[0].copy(isWorktree = true, isSandbox = true)))
+        val worktree = available.copy(panes = listOf(available.panes[0].copy(isWorktree = true)))
+        AiStudioMachineSpec.assertTransition(sandbox, AiStudioIntent.Public.SelectWorktree(0, true), worktree)
+        AiStudioMachineSpec.assertTransition(
+            sandbox,
+            AiStudioIntent.Public.SelectWorktree(0, false, true),
+            available.copy(panes = listOf(available.panes[0])),
+        )
+        AiStudioMachineSpec.assertTransition(
+            ready,
+            AiStudioIntent.Public.SelectWorktree(0, true, true),
+            ready.copy(panes = listOf(ready.panes[0].copy(isWorktree = true), ready.panes[1])),
+        )
+    }
+
+    @Test
+    fun `disabling sandboxes turns a selected sandbox into a plain worktree`() {
+        val sandbox = ready.copy(
+            isSandboxAvailable = true,
+            panes = listOf(StudioPane(0, projectId = "project", isWorktree = true, isSandbox = true)),
+        )
+        AiStudioMachineSpec.assertTransition(
+            sandbox,
+            AiStudioIntent.Internal.ProjectAvailabilityChanged(
+                true,
+                isWorktreeAvailable = true,
+                repositoryProjects = setOf("project"),
+            ),
+            sandbox.copy(
+                isProjectAddingAvailable = true,
+                isSandboxAvailable = false,
+                panes = listOf(StudioPane(0, projectId = "project", isWorktree = true)),
+            ),
+        )
+    }
+
+    @Test
     fun `mode is independently chosen per new pane and passed to creation`() {
         val selected = ready.copy(panes = listOf(ready.panes[0].copy(isWorktree = true), ready.panes[1]))
         AiStudioMachineSpec.assertTransition(ready, AiStudioIntent.Public.SelectWorktree(0, true), selected)

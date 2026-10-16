@@ -81,6 +81,8 @@ public sealed interface AiStudioState : MachineState {
         val projectErrorPane: Int? = null,
         /** Desktop toggle availability; established chats retain their execution workspace. */
         val isWorktreeAvailable: Boolean = false,
+        /** Sandboxes are on: the isolated mode offered first is a sandbox, a plain worktree is the alternative. */
+        val isSandboxAvailable: Boolean = false,
         /** Projects whose folder is a Git repository: only they offer an isolated checkout. */
         val repositoryProjects: Set<String> = emptySet(),
         val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
@@ -111,8 +113,12 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Changes the project a new session of [paneId] will belong to. */
         public data class SelectProject(val paneId: Int, val projectId: String?) : Public
 
-        /** Selects isolated execution before the first native session is created. */
-        public data class SelectWorktree(val paneId: Int, val isEnabled: Boolean) : Public
+        /**
+         * Selects isolated execution before the first native session is created; [isSandbox] picks a sandbox
+         * instead of a plain worktree and applies only while sandboxes are available.
+         */
+        public data class SelectWorktree(val paneId: Int, val isEnabled: Boolean, val isSandbox: Boolean = false) :
+            Public
 
         /** Selects the organic AI mode before the first message of a new-session pane. */
         public data class SelectOrganism(val paneId: Int, val isEnabled: Boolean) : Public
@@ -249,6 +255,7 @@ public sealed interface AiStudioIntent : MachineIntent {
             val isAvailable: Boolean,
             val isWorktreeAvailable: Boolean = false,
             val repositoryProjects: Set<String> = emptySet(),
+            val isSandboxAvailable: Boolean = false,
         ) : Internal
 
         /** The picker registered a stable project id, or returned null when cancelled. */
@@ -313,6 +320,8 @@ public sealed interface AiStudioEffect : MachineEffect {
         val submissionId: String = "",
         /** Prepare an isolated checkout before the first native create. */
         val isWorktree: Boolean = false,
+        /** With [isWorktree], the checkout is a sandbox; false keeps a plain worktree. */
+        val isSandbox: Boolean = false,
         /** The conversation is an organic AI organism conceived from [prompt]; it has no native session of its own. */
         val isOrganism: Boolean = false,
         /** Trusted host context captured with this input; never decoded from screen JSON. */

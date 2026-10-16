@@ -17,13 +17,15 @@ internal fun ProjectTransitions.projects() {
             state.copy(
                 isProjectAddingAvailable = intent.isAvailable,
                 isWorktreeAvailable = intent.isWorktreeAvailable,
+                isSandboxAvailable = intent.isSandboxAvailable,
                 repositoryProjects = intent.repositoryProjects,
                 panes = state.panes.map {
                     val isEligible = intent.isWorktreeAvailable && it.projectId in intent.repositoryProjects
-                    if (it.sessionId == null && !it.isCreating && !isEligible) {
-                        it.copy(isWorktree = false)
-                    } else {
-                        it
+                    when {
+                        it.sessionId != null || it.isCreating -> it
+                        !isEligible -> it.copy(isWorktree = false, isSandbox = false)
+                        !intent.isSandboxAvailable -> it.copy(isSandbox = false)
+                        else -> it
                     }
                 },
             )
@@ -48,6 +50,7 @@ internal fun ProjectTransitions.projects() {
                         it.copy(
                             projectId = intent.projectId,
                             isWorktree = it.isWorktree && intent.projectId in state.repositoryProjects,
+                            isSandbox = it.isSandbox && intent.projectId in state.repositoryProjects,
                         )
                     } else {
                         it

@@ -48,6 +48,8 @@ public data class StudioPane(
     val createRequestId: Long? = null,
     /** Fixed at creation; only a new local-project pane can change its execution mode. */
     val isWorktree: Boolean = false,
+    /** With [isWorktree], the isolated checkout is a source-only sandbox rather than a plain worktree. */
+    val isSandbox: Boolean = false,
     /** Fixed at creation; the first prompt conceives an organic AI organism instead of starting one session. */
     val isOrganism: Boolean = false,
 )

@@ -21,7 +21,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Disabled | AvailabilityChanged | enabled | Loading | Load |
  * | Ready | NewSession | pane open | Ready (pane → new-session page, focused) | |
  * | Ready | SelectProject | new-session page, not creating | Ready (target project; worktree only for Git) | |
- * | Ready | SelectWorktree | new pane of a Git project, available | Ready (execution mode; leaves organism mode) | |
+ * | Ready | SelectWorktree | new pane of a Git project, available | Ready (isolation choice; leaves organism mode) | |
  * | Ready | SelectOrganism | new-session page, not creating | Ready (organism mode; leaves the worktree) | |
  * | Ready | AddProject | supported, new-session pane, picker idle | Ready (picker active) | ChooseProject |
  * | Ready | ProjectChosen | matching picker | Ready (selected project; worktree only for Git; unchanged on cancel) | |
@@ -206,29 +206,12 @@ private fun ReadyTransitions.navigation() {
                 it.copy(
                     projectId = intent.projectId,
                     isWorktree = it.isWorktree && intent.projectId in state.repositoryProjects,
+                    isSandbox = it.isSandbox && intent.projectId in state.repositoryProjects,
                 )
             }
         }
     }
-    on<AiStudioIntent.Public.SelectWorktree>(guard = {
-        state.isWorktreeAvailable && state.pane(intent.paneId)?.let {
-            it.isNewSessionPage() && it.projectId in state.repositoryProjects
-        } == true
-    }) {
-        // An organism's turns do not run through the checkout task, so the two modes exclude each other.
-        stay {
-            state.replacePane(intent.paneId) {
-                it.copy(isWorktree = intent.isEnabled, isOrganism = it.isOrganism && !intent.isEnabled)
-            }
-        }
-    }
-    on<AiStudioIntent.Public.SelectOrganism>(guard = { state.pane(intent.paneId)?.isNewSessionPage() == true }) {
-        stay {
-            state.replacePane(intent.paneId) {
-                it.copy(isOrganism = intent.isEnabled, isWorktree = it.isWorktree && !intent.isEnabled)
-            }
-        }
-    }
+    executionModes()
     on<AiStudioIntent.Public.OpenSession>(guard = { state.hasPane(intent.paneId) }) {
         stay { state.open(intent.sessionId, intent.paneId ?: state.focusedPaneId) }
         effect { AiStudioEffect.Apply(intent.sessionId, SessionEdit.SetUnread(false)) }
@@ -274,6 +257,7 @@ private fun ReadyTransitions.conversations() {
                 attachments = intent.attachments,
                 submissionId = intent.submissionId,
                 isWorktree = state.pane(intent.paneId)?.isWorktree == true,
+                isSandbox = state.pane(intent.paneId)?.let { it.isWorktree && it.isSandbox } == true,
                 isOrganism = state.pane(intent.paneId)?.isOrganism == true,
                 environment = intent.environment,
             )
@@ -555,3 +539,34 @@ private fun SessionEdit.isValid(): Boolean = this !is SessionEdit.Rename || titl
 private fun SessionEdit.isArchiving(): Boolean = this is SessionEdit.SetArchived && isArchived
 
 private fun SessionEdit.normalized(): SessionEdit = if (this is SessionEdit.Rename) copy(title = title.trim()) else this
+
+/** Isolation and organism selection are mutually exclusive choices of a new pane. */
+private fun ReadyTransitions.executionModes() {
+    on<AiStudioIntent.Public.SelectWorktree>(guard = {
+        state.isWorktreeAvailable && state.pane(intent.paneId)?.let {
+            it.isNewSessionPage() && it.projectId in state.repositoryProjects
+        } == true
+    }) {
+        // An organism's turns do not run through the checkout task, so the two modes exclude each other.
+        stay {
+            state.replacePane(intent.paneId) {
+                it.copy(
+                    isWorktree = intent.isEnabled,
+                    isSandbox = intent.isEnabled && intent.isSandbox && state.isSandboxAvailable,
+                    isOrganism = it.isOrganism && !intent.isEnabled,
+                )
+            }
+        }
+    }
+    on<AiStudioIntent.Public.SelectOrganism>(guard = { state.pane(intent.paneId)?.isNewSessionPage() == true }) {
+        stay {
+            state.replacePane(intent.paneId) {
+                it.copy(
+                    isOrganism = intent.isEnabled,
+                    isWorktree = it.isWorktree && !intent.isEnabled,
+                    isSandbox = it.isSandbox && !intent.isEnabled,
+                )
+            }
+        }
+    }
+}
