@@ -137,7 +137,7 @@ class BrowserModelTest {
     }
 
     @Test
-    fun `a closed tab reopens at its address next to the selected tab`() = runTest {
+    fun `a closed tab reopens at its address among the user's own tabs`() = runTest {
         val fixture = Fixture(this)
         fixture.subscribe()
         fixture.machine.state.value = ready(BrowserPage()).copy(
@@ -158,12 +158,37 @@ class BrowserModelTest {
                 BrowserRequest(
                     "",
                     BrowserOperation.NewTab,
-                    "a",
+                    null,
                     arguments = JsonObject(mapOf("url" to JsonPrimitive("https://example.com/a"))),
                 ),
             ),
             performed,
         )
+    }
+
+    @Test
+    fun `tab keys leave agent tabs alone and clearing data forgets closed tabs`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(
+                BrowserTab("mine", BrowserPage("https://example.com/mine")),
+                BrowserTab("agent", BrowserPage("https://example.com/agent"), owner = "session-a"),
+            ),
+            selectedTabId = "agent",
+        )
+        runCurrent()
+        fixture.model.store.intent(BrowserScreenIntent.Shortcut(BrowserShortcut.CloseTab))
+        fixture.model.store.intent(BrowserScreenIntent.CloseTab("agent"))
+        runCurrent()
+        assertEquals(listOf("agent"), fixture.machine.performed().map { it.tabId })
+        assertTrue(screen.states.value.closedTabUrls.isEmpty())
+        fixture.model.store.intent(BrowserScreenIntent.CloseTab("mine"))
+        runCurrent()
+        assertEquals(listOf("https://example.com/mine"), screen.states.value.closedTabUrls)
+        fixture.model.store.intent(BrowserScreenIntent.ClearData)
+        runCurrent()
+        assertTrue(screen.states.value.closedTabUrls.isEmpty())
     }
 
     @Test
