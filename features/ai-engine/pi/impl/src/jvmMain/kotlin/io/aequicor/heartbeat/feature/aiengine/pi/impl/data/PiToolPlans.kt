@@ -24,6 +24,10 @@ internal data class PiLaunchPlan(
     val emptySessionId: String? = null,
 ) {
     val names: Set<String> get() = policy.nativeOn + search + hosted?.specifications.orEmpty().map { it.name }
+
+    /** Pi's `--tools` allowlist with the entries the profile configuration adds. */
+    fun tools(config: PiAgentConfig): String = (names + config.tools).joinToString(",")
+
     override fun toString(): String = "PiLaunchPlan"
 }
 

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
@@ -29,6 +30,8 @@ internal data class PiStartup(
     val executable: Path?,
     val source: InstallSource,
     val environment: List<EnvironmentEntry> = emptyList(),
+    /** The profile's configuration of Pi; empty while engine configuration is off. */
+    val config: EngineConfigValues = EngineConfigValues(),
 ) {
     override fun toString(): String = "PiStartup(source=$source)"
 }
@@ -43,17 +46,18 @@ internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVer
     val custom = context.settings.executable?.takeIf { it.isNotBlank() }
     val managed = context.managed?.executable
     val environment = context.settings.environment
+    val config = context.config
     return when {
-        custom != null -> PiStartup(pathOrNull(custom), InstallSource.Custom, environment)
+        custom != null -> PiStartup(pathOrNull(custom), InstallSource.Custom, environment, config)
 
         managed != null && (
             bundledVersion == null || isNewerVersion(checkNotNull(context.managed).version, bundledVersion)
         ) ->
-            PiStartup(pathOrNull(managed), InstallSource.Managed, environment)
+            PiStartup(pathOrNull(managed), InstallSource.Managed, environment, config)
 
-        bundled != null || bundledVersion != null -> PiStartup(bundled, InstallSource.Bundled, environment)
+        bundled != null || bundledVersion != null -> PiStartup(bundled, InstallSource.Bundled, environment, config)
 
-        else -> PiStartup(null, InstallSource.Missing, environment)
+        else -> PiStartup(null, InstallSource.Missing, environment, config)
     }
 }
 

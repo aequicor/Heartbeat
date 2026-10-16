@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.configSecretUsage
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import io.aequicor.heartbeat.feature.searchengine.api.NativeWebFetch
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
@@ -43,6 +44,7 @@ import java.io.IOException
 import java.io.UncheckedIOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.util.Comparator
 import java.util.HexFormat
@@ -230,13 +232,15 @@ internal class PiProcessLauncher(
         val workingDir = workspace?.let(Path::of) ?: Files.createDirectories(root.resolve("workspace"))
         val hosted = plan.hosted
         val areSearchToolsEnabled = plan.search.isNotEmpty()
-        val tools = plan.names.joinToString(",")
+        val agent = piAgentConfig(startup.config, storage.profileHome(owner.id.value), ::configSecret)
         val extensions = piExtensions(agentDir, areSearchToolsEnabled, hosted != null)
         // The user opened the workspace folder explicitly, so its instructions and skills may load.
-        val command = piCommand(executable, sessionDir, extensions, tools, workspace != null, plan.emptySessionId)
+        val launchFlags = PiLaunchFlags(workspace != null, plan.emptySessionId, agent.flags(agentDir))
+        val command = piCommand(executable, sessionDir, extensions, plan.tools(agent), launchFlags)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
         val environment = builder.environment()
         applyPiEnvironment(environment, startup)
+        environment.putAll(agent.environment)
         environment["PI_CODING_AGENT_DIR"] = agentDir.toString()
         environment["PI_SKIP_VERSION_CHECK"] = "1"
         // A harness can become active during this process's lifetime. Always gate inspection too, so live Off
@@ -253,6 +257,7 @@ internal class PiProcessLauncher(
             }
             extensions.forEach { installExtension(it.fileName.toString(), it) }
             modelsJson?.let { Files.writeString(agentDir.resolve("models.json"), it) }
+            writeAgentFiles(agentDir, agent)
             secret.use { it.reveal { chars -> environment[provider.variable] = String(chars) } }
             log.i { "Starting Pi process source=${startup.source}" }
             val started = builder.start()
@@ -272,6 +277,27 @@ internal class PiProcessLauncher(
             piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
         } finally {
             environment.remove(provider.variable)
+        }
+    }
+
+    /** Resolves a vault reference of the configuration; a missing entry leaves its MCP server off. */
+    private suspend fun configSecret(slot: String): String? =
+        secrets.readFor(configSecretUsage(PiEngineId, slot))?.use { it.reveal { chars -> String(chars) } }
+
+    private fun writeAgentFiles(agentDir: Path, agent: PiAgentConfig) {
+        agent.files.forEach { (name, text) ->
+            val file = Files.writeString(agentDir.resolve(name), text)
+            if (name == MCP_FILE) ownerOnly(file)
+        }
+        if (agent.files.isNotEmpty()) log.i { "Pi configuration applied files=${agent.files.size}" }
+        val missing = agent.missingSecrets
+        if (missing > 0) log.w { "Pi MCP servers switched off for missing secrets count=$missing" }
+    }
+
+    /** `mcp.json` may carry substituted secrets; without owner bits the app data folder guards it. */
+    private fun ownerOnly(file: Path) {
+        if ("posix" in file.fileSystem.supportedFileAttributeViews()) {
+            Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"))
         }
     }
 
@@ -414,22 +440,67 @@ internal fun piCommand(
     tools: String,
     isProject: Boolean = false,
     emptySessionId: String? = null,
-): List<String> = listOf(
-    executable.toString(),
-    "--mode",
-    "rpc",
-    "--session-dir",
-    sessionDir.toString(),
-    "--no-extensions",
-) + extensions.flatMap { listOf("-e", it.toString()) } +
-    if (isProject) {
-        listOf("--approve")
-    } else {
-        listOf("--no-approve", "--no-skills", "--no-context-files")
-    } +
-    emptySessionId?.let { listOf("--session-id", it) }.orEmpty() + listOf(
-        "--no-prompt-templates",
-        "--no-themes",
-        "--tools",
-        tools,
-    )
+    flags: PiFlags = PiFlags(),
+): List<String> = buildList {
+    addAll(listOf(executable.toString(), "--mode", "rpc", "--session-dir", sessionDir.toString()))
+    if (!flags.isDiscovering) add("--no-extensions")
+    extensions.forEach { addAll(listOf("-e", it.toString())) }
+    flags.builtins.forEach { addAll(listOf("-e", it)) }
+    addAll(projectFlags(isProject, flags))
+    emptySessionId?.let { addAll(listOf("--session-id", it)) }
+    if (!flags.isPromptsLoaded) add("--no-prompt-templates")
+    addAll(listOf("--no-themes", "--tools", tools))
+}
+
+/** Session-specific parts of the command line. */
+internal data class PiLaunchFlags(val isProject: Boolean, val emptySessionId: String?, val flags: PiFlags)
+
+internal fun piCommand(
+    executable: Path,
+    sessionDir: Path,
+    extensions: List<Path>,
+    tools: String,
+    launch: PiLaunchFlags,
+): List<String> = piCommand(
+    executable,
+    sessionDir,
+    extensions,
+    tools,
+    launch.isProject,
+    launch.emptySessionId,
+    launch.flags,
+)
+
+/** Trust, discovery and instruction flags: a project session reads the project, a detached one stays hermetic. */
+private fun projectFlags(isProject: Boolean, flags: PiFlags): List<String> = buildList {
+    val isContextRead = isProject && flags.hasProjectContext
+    if (isProject) add("--approve") else add("--no-approve")
+    if (!isProject && !flags.isSkillsLoaded) add("--no-skills")
+    if (!isContextRead) add("--no-context-files")
+    flags.instructions?.takeIf { !isContextRead }?.let { addAll(listOf("--append-system-prompt", it)) }
+}
+
+/**
+ * Launch flags the profile configuration changes; the defaults keep the hermetic command line. [instructions] is the
+ * profile's `AGENTS.md`, passed explicitly where context discovery is off.
+ */
+internal data class PiFlags(
+    val builtins: List<String> = emptyList(),
+    val isDiscovering: Boolean = false,
+    val isSkillsLoaded: Boolean = false,
+    val isPromptsLoaded: Boolean = false,
+    val hasProjectContext: Boolean = true,
+    val instructions: String? = null,
+) {
+    override fun toString(): String = "PiFlags(builtins=$builtins, discovering=$isDiscovering)"
+}
+
+/** The launch flags of this configuration for a process whose agent directory is [agentDir]. */
+internal fun PiAgentConfig.flags(agentDir: Path): PiFlags = PiFlags(
+    builtins = builtins,
+    isDiscovering = isDiscovering,
+    isSkillsLoaded = isSkillsLoaded,
+    isPromptsLoaded = isPromptsLoaded,
+    hasProjectContext = hasProjectContext,
+    instructions = agentDir.resolve(AGENTS_FILE).toString().takeIf { hasInstructions },
+)
