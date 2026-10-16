@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.ui.window.WindowState
 import java.awt.EventQueue
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.LinkedBlockingQueue
@@ -12,6 +13,7 @@ import kotlin.io.path.exists
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -120,6 +122,26 @@ class DesktopSingleInstanceTest {
 
         assertTrue(socket.toString().toByteArray().size <= MAX_SOCKET_BYTES)
         assertEquals(socket, instanceSocket(directory.resolve("x".repeat(LONG_SEGMENT))))
+    }
+
+    @Test
+    fun `a fallback socket fits a long temporary path with a non ASCII user name`() {
+        val profile = directory.root.resolve("Users").resolve("АлександрАлександров")
+        val temporary = profile.resolve("AppData").resolve("Local").resolve("Temp")
+        val longDataDirectory = directory.resolve("x".repeat(LONG_SEGMENT))
+
+        val socket = instanceSocket(longDataDirectory, temporary)
+
+        assertTrue(socket.startsWith(temporary))
+        assertTrue(socket.toString().toByteArray(Charsets.UTF_8).size <= MAX_SOCKET_BYTES)
+        assertEquals(socket, instanceSocket(longDataDirectory, temporary))
+    }
+
+    @Test
+    fun `a temporary path that cannot fit even a short socket is rejected`() {
+        val tooLong = directory.resolve("x".repeat(LONG_SEGMENT))
+
+        assertFailsWith<IOException> { instanceSocket(tooLong, tooLong) }
     }
 
     private fun claim() = claimDesktopInstance(directory, posted::put, {}, connectAttempts = 1)

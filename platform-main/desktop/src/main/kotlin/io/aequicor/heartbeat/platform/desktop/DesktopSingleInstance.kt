@@ -49,14 +49,15 @@ internal fun claimDesktopInstance(
     connectAttempts: Int = CONNECT_ATTEMPTS,
 ): DesktopInstanceClaim {
     val log = Log.tag("DesktopInstance")
+    val socket: Path
     val channel = try {
+        socket = instanceSocket(directory)
         ensurePrivateDirectory(directory)
         FileChannel.open(directory.resolve(LOCK_NAME), StandardOpenOption.CREATE, StandardOpenOption.WRITE)
     } catch (e: IOException) {
-        log.w(e) { "Single-instance lock is unavailable; launching without it" }
+        log.w(e) { "Single-instance paths are unavailable; launching without the lock" }
         return DesktopInstanceClaim.Unguarded
     }
-    val socket = instanceSocket(directory)
     val lock = try {
         channel.tryLockInProcess()
     } catch (e: IOException) {
@@ -179,15 +180,22 @@ internal fun desktopInstanceDirectory(
 
 /**
  * `<directory>/instance.sock`, or a per-user temporary directory keyed by that path when it is too long for a Unix
- * domain socket address.
+ * domain socket address. The fallback uses short names so a long user profile still fits the address limit.
+ * Throws [IOException] before opening the lock when even the short address cannot fit [temporaryDirectory].
  */
-internal fun instanceSocket(directory: Path): Path {
+internal fun instanceSocket(
+    directory: Path,
+    temporaryDirectory: Path = Path.of(System.getProperty("java.io.tmpdir")),
+): Path {
     val preferred = directory.resolve(SOCKET_NAME).toAbsolutePath().normalize()
     val bytes = preferred.toString().toByteArray(Charsets.UTF_8)
     if (bytes.size <= MAX_SOCKET_PATH_BYTES) return preferred
     val digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)).take(DIGEST_CHARS)
-    return Path.of(System.getProperty("java.io.tmpdir"), "heartbeat-instance-$digest", SOCKET_NAME)
-        .toAbsolutePath().normalize()
+    val fallback = temporaryDirectory.resolve("hb-$digest").resolve("s").toAbsolutePath().normalize()
+    if (fallback.toString().toByteArray(Charsets.UTF_8).size > MAX_SOCKET_PATH_BYTES) {
+        throw IOException("The temporary directory is too long for a single-instance socket address")
+    }
+    return fallback
 }
 
 /** A lock held by this JVM (another claim in the same process) counts as held, like one of another process. */
