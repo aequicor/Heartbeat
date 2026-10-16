@@ -36,6 +36,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -97,6 +98,7 @@ internal class DesktopBrowserSession(
     override val pages = MutableStateFlow(BrowserPage())
     override val tabs = MutableStateFlow(emptyList<BrowserTab>() to null as String?)
     override val hasTabs = true
+    override val shortcuts = MutableSharedFlow<BrowserShortcut>(extraBufferCapacity = SHORTCUT_BUFFER)
     override val favicons: StateFlow<Map<String, BrowserFaviconImage>>
         get() = icons.images
     override val initialUrl: String
@@ -488,7 +490,7 @@ internal class DesktopBrowserSession(
         val surface = BrowserSurfaceAdapter(scope, dispatchers, nativeResources)
         surface.setEnabled(true)
         val guard = DesktopBrowserAgentGuard()
-        val panel = factory.create(surface, guard) { url -> openLinkedTab(id, url) }
+        val panel = factory.create(surface, guard, { url -> openLinkedTab(id, url) }, ::pagePressed)
         val entry =
             Entry(
                 BrowserTab(
@@ -578,6 +580,12 @@ internal class DesktopBrowserSession(
         }
     }
 
+    /** A tab key pressed inside a page, on CEF's UI thread; the strip acts on it as on a key pressed in Compose. */
+    private fun pagePressed(shortcut: BrowserShortcut) {
+        log.i { "Browser tab shortcut pressed in a page: $shortcut" }
+        if (!shortcuts.tryEmit(shortcut)) log.w { "Browser tab shortcut dropped: $shortcut" }
+    }
+
     /** Native callbacks may arrive on CEF threads; recheck the live parent on main before inheriting it. */
     private fun openLinkedTab(parentId: String, command: BrowserCommand.Load) {
         val url = command.url
@@ -653,6 +661,7 @@ internal class DesktopBrowserSession(
 
     private companion object {
         const val NAVIGATION_TIMEOUT = 30_000L
+        const val SHORTCUT_BUFFER = 16
         const val BLOCKED_NAVIGATION =
             "The page tried to open a local or private-network address and was stopped. " +
                 "Open such an address with browser_open so the user can approve it."

@@ -22,11 +22,13 @@ internal interface DesktopBrowserPanelFactory : BrowserNativeResources {
     /**
      * The panel of [surface] whose documents [guard] restricts for an agent owner. The first creation of a surface
      * fixes its guard: the session creates each tab's panel with the tab's guard before any view can ask for it.
+     * [onShortcut] receives tab keys pressed inside the page, on CEF's UI thread.
      */
     fun create(
         surface: BrowserSurface,
         guard: DesktopBrowserAgentGuard,
         openTab: ((BrowserCommand.Load) -> Unit)? = null,
+        onShortcut: ((BrowserShortcut) -> Unit)? = null,
     ): DesktopBrowserPanel
     fun close(surface: BrowserSurface)
 
@@ -72,6 +74,7 @@ internal class DefaultDesktopBrowserPanelFactory(
         surface: BrowserSurface,
         guard: DesktopBrowserAgentGuard,
         openTab: ((BrowserCommand.Load) -> Unit)?,
+        onShortcut: ((BrowserShortcut) -> Unit)?,
     ): DesktopBrowserPanel = synchronized(monitor) {
         check(profile.isAvailable) { "Browser profile is unavailable" }
         panels.getOrPut(surface) {
@@ -92,6 +95,7 @@ internal class DefaultDesktopBrowserPanelFactory(
                         changed,
                         guard = guard,
                         openTab = openTab,
+                        onShortcut = onShortcut,
                     ) {
                         checkNotNull(CefRequestContext.createContext(shared, it))
                     }

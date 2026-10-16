@@ -121,6 +121,20 @@ class BrowserModelTest {
     }
 
     @Test
+    fun `tab keys from inside a page act like keys pressed in the strip`() = runTest {
+        val fixture = Fixture(this)
+        fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(BrowserTab("a"), BrowserTab("b")),
+            selectedTabId = "a",
+        )
+        runCurrent()
+        fixture.shortcuts.emit(BrowserShortcut.NextTab)
+        runCurrent()
+        assertEquals(BrowserIntent.Public.SelectTab("b"), fixture.machine.sent.last())
+    }
+
+    @Test
     fun `a closed tab reopens at its address next to the selected tab`() = runTest {
         val fixture = Fixture(this)
         fixture.subscribe()
@@ -296,6 +310,7 @@ class BrowserModelTest {
     private class Fixture(private val scope: TestScope) {
         val machine = TestBrowserMachine()
         val favicons = MutableStateFlow<Map<String, BrowserFaviconImage>>(emptyMap())
+        val shortcuts = MutableSharedFlow<BrowserShortcut>()
         private val owner = BrowserTestScope(scope.backgroundScope)
         private val dispatchers = BrowserTestDispatchers(StandardTestDispatcher(scope.testScheduler))
         val model = BrowserModel(
@@ -304,6 +319,7 @@ class BrowserModelTest {
             HeartbeatStoreFactory(dispatchers),
             object : BrowserSurface by BrowserSurfaceAdapter(owner, dispatchers) {
                 override val favicons = this@Fixture.favicons
+                override val shortcuts = this@Fixture.shortcuts
             },
         )
 

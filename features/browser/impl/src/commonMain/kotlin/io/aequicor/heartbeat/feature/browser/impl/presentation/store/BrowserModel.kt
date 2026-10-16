@@ -43,6 +43,9 @@ internal class BrowserModel(
         onError = { copy(error = BrowserScreenError.EngineUnavailable, isLoading = false) },
     ) {
         reflect(machine) { reflectState(it) }
+        whileSubscribed(name = "shortcuts") {
+            surface.shortcuts.collect { intent(BrowserScreenIntent.Shortcut(it)) }
+        }
         whileSubscribed(name = "favicons") {
             surface.favicons.collect { images -> updateState { copy(favicons = images.toImmutableMap()) } }
         }

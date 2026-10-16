@@ -17,6 +17,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -457,6 +458,16 @@ class DesktopBrowserSessionTest {
     }
 
     @Test
+    fun `tab keys pressed inside a page reach the strip`() = runTest {
+        val fixture = Fixture(this)
+        fixture.create()
+        val received = async { fixture.session.shortcuts.first() }
+        runCurrent()
+        fixture.shortcuts.single()(BrowserShortcut.NextTab)
+        assertEquals(BrowserShortcut.NextTab, received.await())
+    }
+
+    @Test
     fun `an unreadable page falls back to the origin icon`() = runTest {
         val fixture = Fixture(this, devTools = { _, _ -> error("Page went away") })
         fixture.create()
@@ -505,6 +516,7 @@ class DesktopBrowserSessionTest {
         val surfaces = mutableListOf<BrowserSurface>()
         val guards = mutableListOf<DesktopBrowserAgentGuard>()
         val links = mutableListOf<(BrowserCommand.Load) -> Unit>()
+        val shortcuts = mutableListOf<(BrowserShortcut) -> Unit>()
         private val panels = mutableListOf<DesktopBrowserPanel>()
         var clearCount = 0
         private var requestIndex = 0
@@ -536,7 +548,9 @@ class DesktopBrowserSessionTest {
                 surface: BrowserSurface,
                 guard: DesktopBrowserAgentGuard,
                 openTab: ((BrowserCommand.Load) -> Unit)?,
+                onShortcut: ((BrowserShortcut) -> Unit)?,
             ): DesktopBrowserPanel {
+                shortcuts += requireNotNull(onShortcut)
                 check(surfaces.size != failCreateAt) { "Panel creation failed" }
                 links += requireNotNull(openTab)
                 surfaces += surface

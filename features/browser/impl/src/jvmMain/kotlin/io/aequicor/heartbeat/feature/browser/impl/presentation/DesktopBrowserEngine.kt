@@ -44,6 +44,7 @@ internal class DesktopBrowserEngine(
     private val onClosed: () -> Unit = {},
     guard: DesktopBrowserAgentGuard,
     openTab: ((BrowserCommand.Load) -> Unit)? = null,
+    onShortcut: ((BrowserShortcut) -> Unit)? = null,
     createContext: (CefRequestContextHandler) -> CefRequestContext,
 ) : DesktopBrowserRuntime {
     private val log = Log.tag("DesktopBrowserEngine")
@@ -244,6 +245,7 @@ internal class DesktopBrowserEngine(
                     }
                 },
             )
+            onShortcut?.let { client.addKeyboardHandler(DesktopBrowserShortcuts(it)) }
             installDesktopBrowserRestrictions(client)
             browser = client.createBrowser("about:blank", false, false, context)
             navigation = DesktopBrowserNavigation(browser, changed, policy::prepareNavigation)
