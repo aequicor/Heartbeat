@@ -60,8 +60,9 @@ public const val MAX_STUDIO_PANES: Int = 2
  * another pane preserves the pending request, and already started runs survive all Ready navigation.
  * Switching the workspace toggle off detaches effects; accepted native turns remain owned by the profile.
  * Isolation of a new pane is a worktree or, only while sandboxes are available, a sandbox: SelectWorktree grants a
- * requested sandbox only then, and ProjectAvailabilityChanged (for idle new panes) and CreateFailed drop an isolation
- * that is no longer offered, leaving a plain worktree when only sandboxes went away.
+ * requested sandbox only then. SelectOrganism and choosing a non-Git project clear the isolation;
+ * ProjectAvailabilityChanged (for idle new panes) and CreateFailed drop an isolation that is no longer offered,
+ * leaving a plain worktree when only sandboxes went away.
  * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run → RunFinished(Failed),
  * Cancel → CancelFailed, ObserveRuntime → RuntimeLost, RespondPermission → PermissionAnswerFailed,
  * SaveSettings → SettingsSaveFailed; failed Apply,

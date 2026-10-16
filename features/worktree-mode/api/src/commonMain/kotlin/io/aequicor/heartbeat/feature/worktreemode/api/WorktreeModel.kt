@@ -17,10 +17,10 @@ public val WorktreeModeEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 )
 
 /**
- * New isolated tasks become source-only sandboxes unless their chat chooses a plain worktree
- * ([WorktreeIntent.Public.Prepare.isSandbox] = false): their builds never run in the task checkout but in a shared pool
- * of warm build slots of the repository, from an immutable snapshot of the task's files. Existing tasks keep the
- * isolation they were created with.
+ * New isolated tasks become source-only sandboxes: their builds never run in the task checkout but in a shared pool
+ * of warm build slots of the repository, from an immutable snapshot of the task's files. A chat can choose a plain
+ * worktree instead ([WorktreeIntent.Public.Prepare.isSandbox] = false). Existing tasks keep the isolation they were
+ * created with.
  */
 public val WorktreeSandboxEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "worktree_mode.sandbox",
