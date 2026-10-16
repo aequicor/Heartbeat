@@ -5,21 +5,24 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
-/** A harness available for explicit connection from a chat's composer. */
+/** A harness available in a chat's composer, optionally selected by default for a new user chat. */
 data class StudioHarness(
     val id: String,
     val title: String,
     val description: String = "",
     val projectIds: Set<String> = emptySet(),
+    val isDefaultForNewSessions: Boolean = false,
 ) {
-    /** Empty scope is shared; project restrictions only control discovery, never automatic attachment. */
+    /** Empty scope is shared; project restrictions also limit where the new-chat default is offered. */
     fun isAvailableFor(projectId: String?): Boolean = projectIds.isEmpty() || projectId in projectIds
 }
 
-/** Library choices: enabled harnesses and committed chat connections. */
+/** Library choices: enabled harnesses and committed connections; unknown initial data cannot seed a new chat. */
 data class StudioHarnessChoices(
     val harnesses: List<StudioHarness> = emptyList(),
     val attached: Map<SessionRef, Set<String>> = emptyMap(),
+    val isReady: Boolean = true,
+    val isLoadFailed: Boolean = false,
 )
 
 /**
@@ -30,6 +33,9 @@ data class StudioHarnessChoices(
  */
 interface StudioHarnesses {
     val choices: Flow<StudioHarnessChoices>
+
+    /** Retries the initial library load without changing the draft. */
+    suspend fun reload(): Boolean = false
 
     /** Connects or disconnects an existing chat; true once the library confirmed the change. */
     suspend fun connect(session: SessionRef, harness: String, isSelected: Boolean): Boolean

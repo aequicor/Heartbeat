@@ -39,6 +39,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
@@ -159,7 +160,10 @@ class AiStudioModel(
     }
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
-        initial = AiStudioScreenState(now = clock.now()).reflectMachine(machine.state.value),
+        initial = AiStudioScreenState(
+            now = clock.now(),
+            harnessChoices = HarnessChoicesUi(isReady = harnesses === StudioHarnesses.None),
+        ).reflectMachine(machine.state.value),
         // Failures are logged by the store factory; the workspace stays usable instead of a dead-end error.
         onError = { this },
     ) {
@@ -545,6 +549,8 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.Suggestions -> suggestions.handle(pipeline, intent)
 
+            AiStudioScreenIntent.ReloadHarnesses -> harnessSelection.reload(pipeline)
+
             is AiStudioScreenIntent.Submit -> submit(pipeline, intent.paneId, environment)
 
             is AiStudioScreenIntent.Attachment -> attachmentInputs.handle(pipeline, intent)
@@ -557,12 +563,7 @@ class AiStudioModel(
                 StudioSettingChange.Model(intent.modelId),
             ) { copy(modelId = intent.modelId) }
 
-            is AiStudioScreenIntent.SelectEffort -> {
-                val effort = if (intent.effort == EffortUi.VeryHigh) "xhigh" else intent.effort.name.lowercase()
-                selectSetting(pipeline, intent.paneId, StudioSettingChange.Effort(effort)) {
-                    copy(effort = intent.effort.toDomain())
-                }
-            }
+            is AiStudioScreenIntent.SelectEffort -> selectEffort(pipeline, intent)
 
             is AiStudioScreenIntent.SelectEngineEffort -> selectEngineEffort(pipeline, intent)
 
@@ -651,6 +652,13 @@ class AiStudioModel(
                     edit(pipeline, renaming.sessionId, SessionEdit.Rename(renaming.title))
                 }
             }
+        }
+    }
+
+    private suspend fun selectEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEffort) {
+        val effort = if (intent.effort == EffortUi.VeryHigh) "xhigh" else intent.effort.name.lowercase()
+        selectSetting(pipeline, intent.paneId, StudioSettingChange.Effort(effort)) {
+            copy(effort = intent.effort.toDomain())
         }
     }
 

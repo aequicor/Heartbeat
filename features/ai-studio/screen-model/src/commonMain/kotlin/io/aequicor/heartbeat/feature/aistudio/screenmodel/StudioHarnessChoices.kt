@@ -3,12 +3,15 @@ package io.aequicor.heartbeat.feature.aistudio.screenmodel
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 
-/** Toggles [harness] in the choice of a new chat's pane. */
-fun HarnessChoicesUi.choosePane(paneId: Int, harness: String, isSelected: Boolean): HarnessChoicesUi {
-    val next = panes[paneId].orEmpty().let { if (isSelected) it + harness else it - harness }
-    return copy(
-        panes = (if (next.isEmpty()) panes - paneId else panes + (paneId to next.toImmutableSet())).toImmutableMap(),
-    )
+/** Toggles [harness], freezing [initialSelection] on the first edit; an empty override keeps defaults off. */
+fun HarnessChoicesUi.choosePane(
+    paneId: Int,
+    harness: String,
+    isSelected: Boolean,
+    initialSelection: Set<String> = emptySet(),
+): HarnessChoicesUi {
+    val next = (panes[paneId] ?: initialSelection).let { if (isSelected) it + harness else it - harness }
+    return copy(panes = (panes + (paneId to next.toImmutableSet())).toImmutableMap())
 }
 
 /**
@@ -16,7 +19,7 @@ fun HarnessChoicesUi.choosePane(paneId: Int, harness: String, isSelected: Boolea
  * anything chosen there meanwhile.
  */
 fun HarnessChoicesUi.restorePane(submitted: SubmissionUi, draftKey: String): HarnessChoicesUi {
-    if (submitted.harnesses.isEmpty() || draftKey != "pane:${submitted.paneId}") return this
+    if (draftKey != "pane:${submitted.paneId}") return this
     val restored = panes[submitted.paneId].orEmpty() + submitted.harnesses
     return copy(panes = (panes + (submitted.paneId to restored.toImmutableSet())).toImmutableMap())
 }
@@ -32,13 +35,29 @@ fun AiStudioScreenState.availableHarnesses(pane: PaneUi): List<HarnessOptionUi> 
     return harnessChoices.options.filter { it.isAvailableFor(projectId) || it.id in attached }
 }
 
+/**
+ * Existing chats use only committed connections. Untouched new panes follow available defaults, including a library
+ * loaded after the pane opened. The first manual edit freezes the complete selection, including no harnesses.
+ * Organisms create their sessions outside the studio turn host and therefore do not receive these defaults.
+ */
+fun AiStudioScreenState.selectedHarnesses(pane: PaneUi): Set<String> {
+    if (pane.sessionId != null) return harnessChoices.chats[pane.sessionId].orEmpty()
+    harnessChoices.panes[pane.id]?.let { return it }
+    return availableHarnesses(pane).filter { it.isDefaultForNewSessions && !pane.isOrganism }
+        .mapTo(mutableSetOf()) { it.id }
+}
+
+/** Only ordinary new chats must know the library's defaults before native tool declarations are frozen. */
+fun AiStudioScreenState.isHarnessSelectionReady(pane: PaneUi): Boolean =
+    pane.sessionId != null || pane.isOrganism || harnessChoices.isReady
+
 /** A project switch or library update must not leave invisible selections in a new session's first prompt. */
 fun AiStudioScreenState.pruneHarnessChoices(): AiStudioScreenState {
     val choices = harnessChoices.panes.mapNotNull { (id, selected) ->
         val pane = panes.firstOrNull { it.id == id && it.sessionId == null } ?: return@mapNotNull null
         val available = availableHarnesses(pane).mapTo(mutableSetOf()) { it.id }
         val retained = selected.filter { it in available }.toImmutableSet()
-        if (retained.isEmpty()) null else id to retained
+        id to retained
     }.toMap().toImmutableMap()
     return if (choices == harnessChoices.panes) this else copy(harnessChoices = harnessChoices.copy(panes = choices))
 }

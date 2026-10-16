@@ -7,11 +7,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import io.aequicor.heartbeat.ds.components.HbButton
+import io.aequicor.heartbeat.ds.components.HbButtonSize
+import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbComposerAction
 import io.aequicor.heartbeat.ds.components.HbComposerMultiSelect
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMultiSelectLabels
+import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_defaults_loading
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_defaults_retry
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_section
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_clear
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_clear_search
@@ -32,7 +39,44 @@ internal fun StudioHarnessPicker(
     modifier: Modifier = Modifier,
     isCompact: Boolean = false,
 ) {
-    if (content.harnesses.isEmpty()) return
+    when {
+        !content.isHarnessSelectionReady -> StudioHarnessLoading(content, onIntent, modifier)
+        content.harnesses.isNotEmpty() -> StudioHarnessChoicesPicker(content, onIntent, modifier, isCompact)
+    }
+}
+
+@Composable
+private fun StudioHarnessLoading(
+    content: PaneContent,
+    onIntent: (StudioIntent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (content.isHarnessLoadFailed) {
+        HbButton(
+            text = stringResource(Res.string.harness_defaults_retry),
+            onClick = { onIntent(StudioIntent.ReloadHarnesses) },
+            modifier = modifier.testTag("harness-reload-${content.pane.id}"),
+            style = HbButtonStyle.Ghost,
+            size = HbButtonSize.Small,
+        )
+    } else {
+        HbText(
+            text = stringResource(Res.string.harness_defaults_loading),
+            modifier = modifier.testTag("harness-loading-${content.pane.id}"),
+            style = HbTheme.typography.caption,
+            color = HbTheme.colors.textSecondary,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun StudioHarnessChoicesPicker(
+    content: PaneContent,
+    onIntent: (StudioIntent) -> Unit,
+    modifier: Modifier = Modifier,
+    isCompact: Boolean = false,
+) {
     var isExpanded by remember(content.pane.id, content.pane.sessionId, content.project?.id) { mutableStateOf(false) }
     val selected = content.harnesses.filter { it.isSelected }
     val label = when (selected.size) {

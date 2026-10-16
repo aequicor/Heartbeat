@@ -36,7 +36,9 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.contextPanelFor
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.dismissedNotices
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isHarnessSelectionReady
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.noticeDismissal
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedHarnesses
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -122,6 +124,8 @@ data class PaneContent(
     val isCompactEnabled: Boolean = false,
     val isOrganismEnabled: Boolean = false,
     val harnesses: ImmutableList<HarnessChoiceUi> = persistentListOf(),
+    val isHarnessSelectionReady: Boolean = true,
+    val isHarnessLoadFailed: Boolean = false,
     val isHarnessFailed: Boolean = false,
     val organism: OrganismUi? = null,
     val subSession: String = PRIMARY_SUB_SESSION,
@@ -164,13 +168,12 @@ data class SidebarInput(
 )
 
 /**
- * Harness choices of a pane: a chat shows its committed connections, a new chat the choice kept on its pane.
- * Only explicit connections are selected, regardless of a harness's stored legacy scope.
+ * Harness choices of a pane: a chat shows committed connections, a new chat its override or available defaults.
  */
 fun AiStudioScreenState.harnessChoices(pane: PaneUi): ImmutableList<HarnessChoiceUi> {
-    val selected = if (pane.sessionId != null) harnessChoices.chats[pane.sessionId] else harnessChoices.panes[pane.id]
+    val selected = selectedHarnesses(pane)
     return availableHarnesses(pane).map { harness ->
-        HarnessChoiceUi(harness.id, harness.title, selected?.contains(harness.id) == true, harness.description)
+        HarnessChoiceUi(harness.id, harness.title, harness.id in selected, harness.description)
     }.toImmutableList()
 }
 
@@ -183,7 +186,6 @@ internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
 /** Everything pane [pane] draws, projected from the screen state. */
 fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     val session = displayedSession(pane.sessionId)
-    val startedAt = runStartedAt[pane.sessionId]
     val configuration = configurations[pane.sessionId]
     val organism = organisms[pane.sessionId]
     val effectiveSettings = paneSettings(session, configuration).forOrganism(organism)
@@ -201,7 +203,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         transcript = transcriptOf(pane.sessionId, session)?.collapsed(feedCollapse),
         isFocused = pane.id == focusedPaneId,
         isStopping = session != null && session.id in stopping,
-        elapsed = if (session?.isRunning == true) startedAt?.let { (now - it).coerceAtLeast(Duration.ZERO) } else null,
+        elapsed = elapsed(session),
         draft = draft(pane.id),
         attachments = attachments(pane.id),
         isAttachmentsEnabled = isAttachmentsEnabled,
@@ -209,6 +211,8 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isCompactEnabled = isCompactEnabled,
         isOrganismEnabled = isOrganismEnabled,
         harnesses = harnessChoices(pane),
+        isHarnessSelectionReady = isHarnessSelectionReady(pane),
+        isHarnessLoadFailed = harnessChoices.isLoadFailed,
         isHarnessFailed = harnessChoices.isFailed(pane.sessionId),
         organism = organism,
         subSession = selectedSubSession(pane.sessionId, session),
@@ -239,6 +243,13 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         worktree = worktrees[pane.sessionId],
         worktreeJournal = worktreeJournal,
     )
+}
+
+/** Elapsed time is shown only while the session is running. */
+private fun AiStudioScreenState.elapsed(session: SessionUi?): Duration? = if (session?.isRunning == true) {
+    runStartedAt[session.id]?.let { (now - it).coerceAtLeast(Duration.ZERO) }
+} else {
+    null
 }
 
 /** Context belongs to the selected organism cell or to the native session. */

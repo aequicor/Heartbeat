@@ -335,4 +335,6 @@
     <string name="engine_preparation_storage">Could not save %1$s. Check free disk space and retry the message.</string>
     <string name="engine_preparation_invalid">Could not verify %1$s. Retry the message to download its components again.</string>
     <string name="engine_preparation_unavailable">%1$s components are unavailable. Retry the message.</string>
+    <string name="harness_defaults_loading">Loading harnesses…</string>
+    <string name="harness_defaults_retry">Harnesses unavailable · Retry</string>
 </resources>
