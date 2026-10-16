@@ -42,6 +42,7 @@ import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
@@ -86,6 +87,7 @@ class HarnessAuthoringToolsTest {
     private val library = FakeLibrary()
     private val host = FakeHost()
     private val catalogs = FakeCatalogs()
+    private var creationScope: HarnessScope? = HarnessScope.Projects(setOf(SOURCE_PROJECT))
     private val tools = HarnessAuthoringTools(
         toggles,
         lazyOf(library),
@@ -98,6 +100,7 @@ class HarnessAuthoringToolsTest {
                 review
             },
         ),
+        HarnessCreationScope { workspace -> if (workspace == null) HarnessScope.Attached else creationScope },
     )
     private val context = AgentToolContext(dispatchSession, PROJECT, TurnId("turn"), trust = TrustLevel.Full)
 
@@ -248,7 +251,7 @@ class HarnessAuthoringToolsTest {
     }
 
     @Test
-    fun `create connects only its empty original revision`() = runTest {
+    fun `project create saves its source project and connects only its empty original revision`() = runTest {
         library.harnesses = emptyList()
         val args = buildJsonObject {
             put("name", "compose_ui")
@@ -258,11 +261,56 @@ class HarnessAuthoringToolsTest {
         val result = tools.execute(reviewContext.copy(authorization = approval), HarnessTools.CREATE, args)
         assertFalse(result.isError, result.text)
         val create = assertIs<HarnessIntent.Internal.Create>(library.sent[0])
-        assertEquals(HarnessScope.Attached, create.draft.scope)
+        assertEquals(HarnessScope.Projects(setOf(SOURCE_PROJECT)), create.draft.scope)
         val attach = assertIs<HarnessIntent.Public.Attach>(library.sent[1])
         assertEquals(create.id, attach.id)
         assertEquals(0L, attach.expectedRevision)
         assertEquals(emptySet(), attach.expectedSessions)
+    }
+
+    @Test
+    fun `project create without attachment stays in its project library`() = runTest {
+        val args = createArgs(isAttached = false)
+        val approval = allow(reviewContext, HarnessTools.CREATE, args)
+        val result = tools.execute(reviewContext.copy(authorization = approval), HarnessTools.CREATE, args)
+        assertFalse(result.isError, result.text)
+        val create = assertIs<HarnessIntent.Internal.Create>(library.sent.single())
+        assertEquals(HarnessScope.Projects(setOf(SOURCE_PROJECT)), create.draft.scope)
+    }
+
+    @Test
+    fun `create without a project saves a shared harness`() = runTest {
+        val detached = reviewContext.copy(workspace = null)
+        val args = createArgs(isAttached = false)
+        val approval = allow(detached, HarnessTools.CREATE, args)
+        val result = tools.execute(detached.copy(authorization = approval), HarnessTools.CREATE, args)
+        assertFalse(result.isError, result.text)
+        val create = assertIs<HarnessIntent.Internal.Create>(library.sent.single())
+        assertEquals(HarnessScope.Attached, create.draft.scope)
+    }
+
+    @Test
+    fun `unknown project refuses creation instead of saving a shared harness`() = runTest {
+        creationScope = null
+        val args = createArgs(isAttached = false)
+        assertIs<AgentToolAutomaticAuthorization.Denied>(
+            tools.automaticAuthorization(reviewContext, spec(HarnessTools.CREATE), args),
+        )
+        assertTrue(tools.execute(reviewContext, HarnessTools.CREATE, args).isError)
+        assertTrue(reviewedChanges.isEmpty())
+        assertTrue(library.sent.isEmpty())
+    }
+
+    @Test
+    fun `changed source project invalidates creation review`() = runTest {
+        val args = createArgs(isAttached = false)
+        val approval = allow(reviewContext, HarnessTools.CREATE, args)
+        creationScope = HarnessScope.Projects(setOf(WorkspaceRef("other_project")))
+        val changed = tools.approval(reviewContext, spec(HarnessTools.CREATE), args)
+        assertNotEquals(approval.binding, changed.binding)
+        assertTrue(tools.execute(reviewContext.copy(authorization = approval), HarnessTools.CREATE, args).isError)
+        assertEquals(1, reviewedChanges.size)
+        assertTrue(library.sent.isEmpty())
     }
 
     @Test
@@ -342,6 +390,12 @@ class HarnessAuthoringToolsTest {
         return snapshot
     }
 
+    private fun createArgs(isAttached: Boolean): JsonObject = buildJsonObject {
+        put("name", "project_rules")
+        put("title", "Project rules")
+        put("attach", isAttached)
+    }
+
     private fun put(kind: String, name: String, content: String, description: String? = null): JsonObject =
         buildJsonObject {
             put("harness", harness.name.value)
@@ -361,6 +415,7 @@ class HarnessAuthoringToolsTest {
 }
 
 private val PROJECT = WorkspaceRef("worktree")
+private val SOURCE_PROJECT = WorkspaceRef("source_project")
 
 private object FixedClock : Clock {
     override fun now(): Instant = Instant.fromEpochMilliseconds(10_000)

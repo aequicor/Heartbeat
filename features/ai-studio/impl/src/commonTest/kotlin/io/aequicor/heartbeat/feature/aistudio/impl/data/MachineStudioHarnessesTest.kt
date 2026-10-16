@@ -14,6 +14,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenui.harnessChoices
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
@@ -27,6 +32,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -220,23 +226,30 @@ class MachineStudioHarnessesTest {
     }
 
     @Test
-    fun `legacy scopes are offered as ordinary choices and never count as connected`() = runTest {
+    fun `project scopes reach the picker without becoming shared or connected`() = runTest {
         val library = SpecHarnessLibrary(backgroundScope)
         val profile = libraryEntry("compose").let { it.copy(harness = it.harness.copy(scope = HarnessScope.Profile)) }
         val projects = libraryEntry("verify").let {
             it.copy(harness = it.harness.copy(scope = HarnessScope.Projects(setOf(WorkspaceRef("project")))))
         }
         library.state.value = HarnessState.Ready(
-            harnesses = listOf(profile, projects),
+            harnesses = listOf(profile, libraryEntry("shared"), projects),
             attachments = mapOf(other to setOf(HarnessId("verify"))),
         )
         val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
 
         val choices = harnesses.choices.first()
 
-        assertEquals(listOf("compose", "verify"), choices.harnesses.map { it.id })
-        assertTrue(choices.harnesses.first().projectIds.isEmpty())
-        assertEquals(setOf("project"), choices.harnesses.last().projectIds)
+        val screen = AiStudioScreenState(
+            harnessChoices = HarnessChoicesUi(options = choices.harnesses.map { it.toUi() }.toImmutableList()),
+        )
+        assertEquals(
+            listOf("compose", "shared", "verify"),
+            screen.harnessChoices(PaneUi(0, projectId = "project")).map { it.id },
+        )
+        assertEquals(listOf("compose", "shared"), screen.harnessChoices(PaneUi(0, projectId = "other")).map { it.id })
+        assertEquals(listOf("compose", "shared"), screen.harnessChoices(PaneUi(0)).map { it.id })
+        assertTrue(screen.harnessChoices(PaneUi(0, projectId = "project")).none { it.isSelected })
         assertEquals(mapOf(other to setOf("verify")), choices.attached)
     }
 }
