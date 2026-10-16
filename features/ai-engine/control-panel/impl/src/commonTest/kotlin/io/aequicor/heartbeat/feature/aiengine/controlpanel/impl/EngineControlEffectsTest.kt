@@ -101,6 +101,15 @@ class EngineControlEffectsTest {
     }
 
     @Test
+    fun `resource operation preserves the selected engine and project`() = runTest {
+        effects.handle(EngineControlEffect.Execute(ControlOperation.ListResources(pi, workspace)), scope)
+        val result = (scope.intents.single() as EngineControlIntent.Internal.Applied).result as ControlResult.Resources
+        assertEquals(pi, result.inventory.engine)
+        assertEquals(workspace, result.inventory.workspace)
+        assertEquals(listOf("resources"), configuration.calls)
+    }
+
+    @Test
     fun `a profile save closes its secrets even when it fails`() = runTest {
         val secret = Secret("value".toCharArray())
         configuration.failure = ConfigException(ConfigFailure.Conflict)

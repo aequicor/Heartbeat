@@ -75,6 +75,9 @@ internal class EngineControlEffects(private val services: EngineControlServices)
                 operation.edit.secrets.values.forEach { it?.close() }
             }
 
+            is ControlOperation.ListResources ->
+                ControlResult.Resources(configuration.resources(engine, operation.workspace))
+
             is ControlOperation.OpenProject ->
                 ControlResult.Project(configuration.readProject(engine, operation.workspace))
 

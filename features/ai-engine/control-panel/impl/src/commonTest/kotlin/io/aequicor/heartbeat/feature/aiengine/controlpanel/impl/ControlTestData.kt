@@ -43,6 +43,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrustStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -124,6 +125,11 @@ internal class FakeConfiguration(initial: EngineConfigurationState = EngineConfi
     override val state = MutableStateFlow(initial)
     val calls = mutableListOf<String>()
     var failure: Exception? = null
+
+    override suspend fun resources(engine: EngineId, workspace: WorkspaceRef?): ResourceInventory {
+        calls += "resources"
+        return ResourceInventory(engine, workspace, emptyList())
+    }
 
     override suspend fun saveProfile(engine: EngineId, edit: ConfigEdit, expected: ConfigRevision): ConfigRevision {
         calls += "saveProfile"
