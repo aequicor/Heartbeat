@@ -21,10 +21,17 @@ internal data class DirectoryConnection(val binding: EngineBindingId, val title:
 internal data class Directory(
     val models: List<DirectoryModel> = emptyList(),
     val connections: List<DirectoryConnection> = emptyList(),
+    val defaultTarget: EngineTarget? = null,
 )
 
 /** Enabled models and connections of the profile, for the settings screens. */
 internal fun interface ModelDirectory {
     /** The directory and its changes; reads cached catalogs only. */
     fun observe(): Flow<Directory>
+}
+
+/** Whether research of descriptions is turned on. */
+internal fun interface ResearchAvailability {
+    /** The current value and its changes. */
+    fun observe(): Flow<Boolean>
 }

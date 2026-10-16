@@ -146,6 +146,8 @@ private fun LazyListScope.sectionItems(state: SubagentsScreenState, onIntent: (S
     item(key = "selection") { SelectionSection(state, onIntent) }
     item(key = "service") { ServiceSection(state, onIntent) }
     item(key = "costs") { CostsSection(state.connections, onIntent) }
+    item(key = "models") { ModelsSection(state, onIntent) }
+    item(key = "trial") { TrialSection(state.trial, onIntent) }
 }
 
 @Composable
@@ -275,7 +277,7 @@ private fun CostsSection(
 
 /** A button naming the current option that opens a menu of [options] (id to label). */
 @Composable
-private fun ChoiceMenu(
+internal fun ChoiceMenu(
     options: ImmutableList<Pair<String, String>>,
     selected: String,
     label: String,
@@ -323,7 +325,7 @@ private fun ErrorBanner(
     }
 }
 
-private fun PriorityUi.title(): StringResource = when (this) {
+internal fun PriorityUi.title(): StringResource = when (this) {
     PriorityUi.Quality -> Res.string.subagents_priority_quality
     PriorityUi.Balanced -> Res.string.subagents_priority_balanced
     PriorityUi.Speed -> Res.string.subagents_priority_speed

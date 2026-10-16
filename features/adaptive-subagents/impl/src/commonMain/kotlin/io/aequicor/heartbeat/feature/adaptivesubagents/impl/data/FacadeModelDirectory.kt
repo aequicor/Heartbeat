@@ -56,12 +56,12 @@ internal class FacadeModelDirectory(
                         )
                     }
                 }
-            }
-        }.flatMapLatest { parts ->
+            }.let { parts -> parts to selected.defaultTarget }
+        }.flatMapLatest { (parts, default) ->
             if (parts.isEmpty()) {
-                flowOf(Directory())
+                flowOf(Directory(defaultTarget = default))
             } else {
-                combine(parts) { all -> Directory(all.flatMap { it.second }, all.map { it.first }) }
+                combine(parts) { all -> Directory(all.flatMap { it.second }, all.map { it.first }, default) }
             }
         }
     }

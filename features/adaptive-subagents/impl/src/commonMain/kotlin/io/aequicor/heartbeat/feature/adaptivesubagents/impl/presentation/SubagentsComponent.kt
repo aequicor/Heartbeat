@@ -9,8 +9,10 @@ import dev.zacsweers.metro.AssistedInject
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.navigation.Navigator
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveModels
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.LibraryMachine
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.ModelDirectory
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.ResearchAvailability
 
 /** The adaptive subagents section; the library belongs to the profile and outlives the screen. */
 @AssistedInject
@@ -20,11 +22,21 @@ internal class SubagentsComponent(
     @Assisted screen: ScopeHandle,
     machine: LibraryMachine,
     directory: ModelDirectory,
+    adaptive: AdaptiveModels,
+    research: ResearchAvailability,
     factory: HeartbeatStoreFactory,
 ) : ComponentContext by context {
     /** The screen store, retained across configuration changes. */
     val model: SubagentsModel = instanceKeeper.getOrCreate(MODEL_KEY) {
-        RetainedModel(SubagentsModel(machine, directory.observe(), factory, screen.coroutineScope))
+        val model = SubagentsModel(
+            machine,
+            directory.observe(),
+            adaptive,
+            research.observe(),
+            factory,
+            screen.coroutineScope,
+        )
+        RetainedModel(model)
     }.model
 
     /** Closes this navigation entry. */
