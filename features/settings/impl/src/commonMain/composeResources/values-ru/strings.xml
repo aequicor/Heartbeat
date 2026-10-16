@@ -9,6 +9,7 @@
     <string name="settings_section_agent_learning">Самообучение</string>
     <string name="settings_section_context">Контекст</string>
     <string name="settings_section_interfaces">Интерфейсы</string>
+    <string name="settings_section_project_config">Конфигурация</string>
     <string name="settings_section_harness">Харнесс</string>
     <string name="settings_section_logs">Логи приложения</string>
 </resources>

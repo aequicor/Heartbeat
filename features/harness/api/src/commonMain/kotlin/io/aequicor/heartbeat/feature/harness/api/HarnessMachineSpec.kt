@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Idle, Loading, Failed | any other Command (Public or Internal.Edit) | stay | Rejected(Unavailable) |
  * | Ready | Internal.Create valid unique and within reserved quotas | stay, pending save | Save |
  * | Ready | Internal.Update/SetEnabled/SetItemEnabled, current revision and valid | stay, pending save | Save |
+ * | Ready | Internal.Update(Content), item ids keep names, unique, within limits | stay, pending save | Save |
  * | Ready | Internal.Delete, current revision and attachment domain free | stay, pending remove | Remove (cascade) |
  * | Ready | mutation stale revision / busy / missing / invalid / limits | stay | Rejected |
  * | Ready | Saved, exact pending receipt | stay, commit model | Activate/Deactivate, Created/Updated |

@@ -286,6 +286,17 @@ send/wake/spawn/workflow. Ограничения (Off/hosted_off, Deny/Ask-ху�
 по конвенции `HANDOFF_REQUEST_PREFIX` в request id (перехват инструментов) и по директиве-маркеру в транскрипте;
 другие хосты не используют этот префикс для своих запросов.
 
+`features/project-config/api` кроме машины `ProjectConfigMachineKey` содержит раскладку дерева конфигурации
+(`ConfigLayout`, `ConfigPath`, `ConfigLimits`), модель юнитов, проверок и предложений, чистые `reconcile` /
+`bundleProposals` и SPI `projectconfig.api.spi.ConfigSection` — разделы дерева, которые реализуют фичи-владельцы
+(`harness:impl`, `service-as-ui:impl`, `agent-learning:impl`) и связывают в профильный мультибиндинг. Пакет `spi`
+используют только реализующие модули и `platform-main:di-bundle` (проверяется на ревью). Раздел кодирует свои сущности
+детерминированно, проверяет юнит без применения и применяет его только после доверия пользователя — своими интентами,
+поэтому `Internal`-интенты других машин наружу не выходят. Другие фичи шлют машине только чтение и скрытие
+(`Reload`, `Sync`, `Dismiss`, `OpenBundle`, `CloseBundle`); доверие и запись папок и архивов (`Trust`, `KeepApp`,
+`RemoveFromProject`, `SaveToProject`, `Export`, `ImportToProject`) — `Internal`-команды экрана самой фичи.
+Пути проектов не покидают `project-config:impl`; тексты, код и причины ревью не логируются.
+
 `features/service-as-ui/api` — интерфейсы агента: профильная библиотека поверхностей (`UiSurface`, чистые
 `UiLibrary.apply` — создание/замена по ожидаемой ревизии, включение, удаление, `Purge` удалённых владельцев) и SPI
 `serviceasui.api.spi.ServiceUiProvider`: владельцы поверхностей (харнессы) и их методы, которые поверхности вызывают

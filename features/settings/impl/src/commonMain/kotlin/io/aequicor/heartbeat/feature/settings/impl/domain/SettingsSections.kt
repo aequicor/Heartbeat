@@ -22,6 +22,7 @@ internal fun availableSections(
     isHarnessEnabled: Boolean = false,
     isContextEnabled: Boolean = false,
     isInterfacesEnabled: Boolean = false,
+    isProjectConfigEnabled: Boolean = false,
     isLogsEnabled: Boolean = false,
     isDesktop: Boolean = false,
 ): ImmutableList<SettingsSection> = SettingsSection.entries.filter { section ->
@@ -35,6 +36,7 @@ internal fun availableSections(
         SettingsSection.Context -> isContextEnabled
         SettingsSection.Harness -> isHarnessEnabled
         SettingsSection.Interfaces -> isInterfacesEnabled
+        SettingsSection.ProjectConfig -> isProjectConfigEnabled
         SettingsSection.Logs -> return@filter isLogsEnabled && isDesktop
         SettingsSection.FeatureFlags -> return@filter true
     }

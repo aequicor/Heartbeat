@@ -46,10 +46,16 @@ public enum class LearnRejection {
 
     /** A required text is empty (a skill also needs its description) or a text exceeds [LearningLimits]. */
     Invalid,
+
+    /** The instruction to replace does not exist. */
+    Missing,
 }
 
-/** Correlates a learned instruction with the request that added it until it is written. */
-public data class LearnReceipt(val requestId: String, val id: InstructionId)
+/**
+ * Correlates a learned or replaced instruction with its request until it is written; [previous] is the instruction a
+ * replacement overwrote, restored when the write fails.
+ */
+public data class LearnReceipt(val requestId: String, val id: InstructionId, val previous: LearnedInstruction? = null)
 
 /** Commands from the feature's tools and screens, and results of effects. */
 public sealed interface AgentLearningIntent : MachineIntent {
@@ -63,6 +69,13 @@ public sealed interface AgentLearningIntent : MachineIntent {
 
         /** Adds [instruction]; the outcome is reported as an output carrying [requestId]. */
         public data class Learn(val requestId: String, val instruction: LearnedInstruction) : Public
+
+        /**
+         * Replaces everything but the switch and creation time of the known instruction with [instruction]'s id: its
+         * kind, project, scope and texts (configuration from a project folder or bundle). The outcome is reported
+         * like [Learn]'s; a replacement that cannot be written restores the previous instruction.
+         */
+        public data class Replace(val requestId: String, val instruction: LearnedInstruction) : Public
 
         /** Turns an instruction on or off without removing it. */
         public data class SetEnabled(val id: InstructionId, val isEnabled: Boolean) : Public
@@ -126,10 +139,10 @@ public sealed interface AgentLearningEffect : MachineEffect {
 
 /** One-shot notifications. */
 public sealed interface AgentLearningOutput : MachineOutput {
-    /** [Public.Learn][AgentLearningIntent.Public.Learn] with [requestId] stored the instruction [id]. */
+    /** [Public.Learn][AgentLearningIntent.Public.Learn] or `Replace` with [requestId] stored the instruction [id]. */
     public data class Learned(val requestId: String, val id: InstructionId) : AgentLearningOutput
 
-    /** [Public.Learn][AgentLearningIntent.Public.Learn] with [requestId] was not taken. */
+    /** [Public.Learn][AgentLearningIntent.Public.Learn] or `Replace` with [requestId] was not taken. */
     public data class Rejected(val requestId: String, val reason: LearnRejection) : AgentLearningOutput
 
     /** A change was not persisted. */

@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessItemRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessToolsRoute
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLibraryRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSurfaceRoute
@@ -159,6 +160,7 @@ class SettingsComponent(
             HarnessToolsRoute::class,
             ServiceUiLibraryRoute::class,
             ServiceUiSurfaceRoute::class,
+            ProjectConfigRoute::class,
             ConnectEngineRoute::class,
             ProfileSettingsRoute::class,
             TogglesPanelRoute::class,
@@ -177,6 +179,7 @@ internal fun SettingsSection.route(): Route = when (this) {
     SettingsSection.Context -> ContextOptimizationRoute(isEmbedded = true)
     SettingsSection.Harness -> HarnessRoute(isEmbedded = true)
     SettingsSection.Interfaces -> ServiceUiLibraryRoute(isEmbedded = true)
+    SettingsSection.ProjectConfig -> ProjectConfigRoute(isEmbedded = true)
     SettingsSection.Logs -> AppLogsRoute(isEmbedded = true)
     SettingsSection.FeatureFlags -> TogglesPanelRoute(isEmbedded = true)
 }

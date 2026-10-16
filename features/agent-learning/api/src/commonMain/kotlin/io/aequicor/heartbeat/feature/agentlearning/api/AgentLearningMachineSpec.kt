@@ -14,23 +14,28 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Loading | Loaded | | Ready(instructions, approval) | |
  * | Loading | LoadFailed | | Failed | StorageFailed |
  * | Failed | Reload | | Loading | Load |
- * | Idle / Loading / Failed | Learn | | same | Rejected(Unavailable) |
+ * | Idle / Loading / Failed | Learn / Replace | | same | Rejected(Unavailable) |
  * | Ready | Learn | empty text or over the limits | Ready | Rejected(Invalid) |
  * | Ready | Learn | same lesson exists | Ready | Rejected(Duplicate) |
  * | Ready | Learn | registry full | Ready | Rejected(Limit) |
  * | Ready | Learn | otherwise | Ready(+trimmed instruction, revision + 1) | Persist(receipt) |
+ * | Ready | Replace | unknown id | Ready | Rejected(Missing) |
+ * | Ready | Replace | texts not valid / same lesson as another | Ready | Rejected(Invalid / Duplicate) |
+ * | Ready | Replace | nothing changes | Ready | Learned |
+ * | Ready | Replace | otherwise | Ready(replaced, revision + 1) | Persist(receipt with previous) |
  * | Ready | Saved | | Ready | Learned(receipt) |
  * | Ready | SetEnabled | known id, value differs | Ready(updated, revision + 1) | Persist |
  * | Ready | Edit | known id, trimmed texts unchanged | Ready | |
  * | Ready | Edit | known id, texts differ, are valid and the title is free | Ready(updated, revision + 1) | Persist |
  * | Ready | Delete | known id | Ready(without it, revision + 1) | Persist |
  * | Ready | SetApproval | level differs | Ready(approval, approvalRevision + 1) | PersistApproval |
- * | Ready | SaveFailed | receipt of a held one | Ready(without it, revision + 1) | Persist, StorageFailed, Rejected |
+ * | Ready | SaveFailed | receipt of a held one | Ready(rolled back, revision + 1) | Persist, StorageFailed, Rejected |
  * | Ready | SaveFailed | otherwise | Ready | StorageFailed, Rejected for a receipt |
  *
  * Effect failures: Load → LoadFailed, Persist → SaveFailed(receipt), PersistApproval → SaveFailed. A learned
  * instruction is confirmed only once written; one that could not be written is rolled back and rejected as
- * NotPersisted, so it reaches no prompt and no later save. Texts are valid when the title and content are not
+ * NotPersisted, so it reaches no prompt and no later save; an unwritten replacement restores the instruction it
+ * replaced. Texts are valid when the title and content are not
  * empty, a skill has a description and every text fits [LearningLimits]. After a failed load nothing is written, so
  * a broken read never replaces the stored registry with an empty one.
  */
@@ -71,6 +76,25 @@ public val AgentLearningMachineSpec: LearningSpec =
                 }
                 output {
                     state.rejection(intent.instruction)?.let { AgentLearningOutput.Rejected(intent.requestId, it) }
+                }
+            }
+            on<AgentLearningIntent.Public.Replace> {
+                stay { state.replaced(intent.instruction) ?: state }
+                effect {
+                    val previous = state.find(intent.instruction.id)
+                    state.replaced(intent.instruction)?.takeIf { it != state }
+                        ?.persist(LearnReceipt(intent.requestId, intent.instruction.id, previous))
+                }
+                output {
+                    when (val rejection = state.replaceRejection(intent.instruction)) {
+                        null -> if (state.replaced(intent.instruction) == state) {
+                            AgentLearningOutput.Learned(intent.requestId, intent.instruction.id)
+                        } else {
+                            null
+                        }
+
+                        else -> AgentLearningOutput.Rejected(intent.requestId, rejection)
+                    }
                 }
             }
             on<AgentLearningIntent.Internal.Saved> {
@@ -128,6 +152,9 @@ private fun <T : AgentLearningState> LearningStateBuilder<T>.rejectUnavailable()
     on<AgentLearningIntent.Public.Learn> {
         output { AgentLearningOutput.Rejected(intent.requestId, LearnRejection.Unavailable) }
     }
+    on<AgentLearningIntent.Public.Replace> {
+        output { AgentLearningOutput.Rejected(intent.requestId, LearnRejection.Unavailable) }
+    }
 }
 
 private typealias LearningStateBuilder<T> =
@@ -152,9 +179,33 @@ private fun AgentLearningState.Ready.learned(instruction: LearnedInstruction): A
     return copy(instructions = instructions + trimmed, revision = revision + 1)
 }
 
-/** The state without the learned instruction of [receipt], or unchanged when there is none to roll back. */
-private fun AgentLearningState.Ready.withoutUnsaved(receipt: LearnReceipt?): AgentLearningState.Ready =
-    receipt?.id?.takeIf { find(it) != null }?.let { removed(it) } ?: this
+/**
+ * The state without the learned instruction of [receipt] or with the instruction its replacement overwrote, or
+ * unchanged when there is none to roll back.
+ */
+private fun AgentLearningState.Ready.withoutUnsaved(receipt: LearnReceipt?): AgentLearningState.Ready {
+    val id = receipt?.id?.takeIf { find(it) != null } ?: return this
+    return receipt.previous?.let { previous -> changed(id) { previous } } ?: removed(id)
+}
+
+private fun AgentLearningState.Ready.replaceRejection(instruction: LearnedInstruction): LearnRejection? {
+    if (find(instruction.id) == null) return LearnRejection.Missing
+    val trimmed = instruction.trimmed() ?: return LearnRejection.Invalid
+    return LearnRejection.Duplicate.takeIf { instructions.any { it.id != trimmed.id && it.isSameLesson(trimmed) } }
+}
+
+/**
+ * The state with the known instruction replaced by [instruction] (keeping its switch and creation time), itself when
+ * nothing changes, or null when the registry rejects the replacement.
+ */
+private fun AgentLearningState.Ready.replaced(instruction: LearnedInstruction): AgentLearningState.Ready? {
+    val current = find(instruction.id)
+    val trimmed = instruction.trimmed()
+    if (current == null || trimmed == null || replaceRejection(instruction) != null) return null
+    val replacement = trimmed.copy(isEnabled = current.isEnabled, createdAtMillis = current.createdAtMillis)
+    val isUnchanged = replacement.copy(updatedAtMillis = current.updatedAtMillis) == current
+    return if (isUnchanged) this else changed(instruction.id) { replacement }
+}
 
 private fun AgentLearningState.Ready.changed(
     id: InstructionId,

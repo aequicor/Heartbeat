@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLibraryRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.api.deepLinkName
@@ -39,6 +40,7 @@ class SettingsSectionsTest {
                 isHarnessEnabled = true,
                 isContextEnabled = true,
                 isInterfacesEnabled = true,
+                isProjectConfigEnabled = true,
                 isLogsEnabled = true,
                 isDesktop = true,
             ),
@@ -109,6 +111,18 @@ class SettingsSectionsTest {
         }
         assertEquals(ServiceUiLibraryRoute(isEmbedded = true), SettingsSection.Interfaces.route())
         assertEquals(SettingsSection.Interfaces, settingsSectionOf("interfaces"))
+    }
+
+    @Test
+    fun `project configuration is offered only with its toggle and an active profile and opens embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isProjectConfigEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.ProjectConfig in sections)
+            }
+        }
+        assertEquals(ProjectConfigRoute(isEmbedded = true), SettingsSection.ProjectConfig.route())
+        assertEquals(SettingsSection.ProjectConfig, settingsSectionOf("project_config"))
     }
 
     @Test
