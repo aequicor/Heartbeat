@@ -248,7 +248,7 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Fixes the execution mode of a new pane before its first submission. */
     @Serializable
     @SerialName("AiStudioScreenIntent.SelectWorktree")
-    data class SelectWorktree(val paneId: Int, val isEnabled: Boolean) : Worktree
+    data class SelectWorktree(val paneId: Int, val isEnabled: Boolean, val isSandbox: Boolean = false) : Worktree
 
     /** Applies one explicit decision to the saved result. */
     @Serializable

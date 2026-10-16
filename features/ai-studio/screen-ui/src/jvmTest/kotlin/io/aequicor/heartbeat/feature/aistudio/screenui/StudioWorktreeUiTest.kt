@@ -19,7 +19,9 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasSetTextAction
@@ -27,6 +29,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -37,6 +40,7 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.test.withKeyDown
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_checkout_dirty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_unknown
@@ -76,6 +80,59 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent a
 /** Worktree lifecycle renders as cards in the transcript; the composer region keeps only the composer. */
 @OptIn(ExperimentalTestApi::class)
 class StudioWorktreeUiTest {
+    @Test
+    fun `sandbox chip is the default and plus menu selects a plain worktree`() {
+        for (dark in listOf(false, true)) {
+            for (width in listOf(420f, 1280f)) {
+                sandboxChoice(width, dark)
+            }
+        }
+    }
+
+    private fun sandboxChoice(width: Float, dark: Boolean) = runSkikoComposeUiTest(size = Size(width, 700f)) {
+        val events = mutableListOf<StudioIntent>()
+        var pane by mutableStateOf(PaneUi(7, projectId = "project"))
+        var sandboxLabel = ""
+        var worktreeLabel = ""
+        var addLabel = ""
+        setContent {
+            sandboxLabel = stringResource(Res.string.sandbox_mode)
+            worktreeLabel = stringResource(Res.string.worktree_mode)
+            addLabel = stringResource(Res.string.composer_add)
+            HbTheme(darkTheme = dark) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    StudioComposer(
+                        workspace(pane).copy(isWorktreeAvailable = true, isSandboxAvailable = true)
+                            .paneContent(pane),
+                        events::add,
+                        isCompact = false,
+                    )
+                }
+            }
+        }
+        onNodeWithTag("worktree-mode-7").assertTextEquals(sandboxLabel).assertIsOff().performClick()
+        runOnIdle {
+            assertEquals(StudioIntent.SelectWorktree(7, true, true), events.last())
+            pane = pane.copy(isWorktree = true, isSandbox = true)
+        }
+        onNodeWithTag("worktree-mode-7").assertIsOn()
+        saveImage(captureToImage(), "sandbox-selected-$width-$dark")
+        onNodeWithContentDescription(addLabel).performClick()
+        onNodeWithText(worktreeLabel).assertIsDisplayed()
+        saveImage(captureToImage(), "sandbox-menu-$width-$dark")
+        onNodeWithText(worktreeLabel).performClick()
+        runOnIdle {
+            assertEquals(StudioIntent.SelectWorktree(7, true, false), events.last())
+            pane = pane.copy(isWorktree = true, isSandbox = false)
+        }
+        onNodeWithTag("worktree-mode-7").assertTextEquals(worktreeLabel).assertIsOn().performClick()
+        runOnIdle {
+            assertEquals(StudioIntent.SelectWorktree(7, false, false), events.last())
+            pane = pane.copy(isWorktree = false)
+        }
+        onNodeWithTag("worktree-mode-7").assertTextEquals(sandboxLabel).assertIsOff()
+    }
+
     @Test
     fun `worktree card keeps its position when the session leaves the pane and returns in another pane`() =
         runSkikoComposeUiTest(size = Size(520f, 900f)) {

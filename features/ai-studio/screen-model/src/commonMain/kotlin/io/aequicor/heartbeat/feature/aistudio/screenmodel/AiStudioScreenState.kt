@@ -35,6 +35,7 @@ data class AiStudioScreenState(
     val isResearchEnabled: Boolean = false,
     val isProjectAddingAvailable: Boolean = false,
     val isWorktreeAvailable: Boolean = false,
+    val isSandboxAvailable: Boolean = false,
     /** Projects whose folder is a Git repository; the worktree mode is offered only for them. */
     val repositoryProjects: ImmutableSet<String> = persistentSetOf(),
     val worktrees: ImmutableMap<String, WorktreeUi> = persistentMapOf(),

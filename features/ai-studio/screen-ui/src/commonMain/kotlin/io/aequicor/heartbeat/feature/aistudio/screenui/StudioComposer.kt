@@ -336,6 +336,8 @@ private fun StudioComposerLeading(
         isHelper = content.session?.isHelper == true,
         organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },
         onOrganism = { onIntent(StudioIntent.SelectOrganism(content.pane.id, it)) },
+        worktree = content.worktreeMenuSelection(),
+        onWorktree = { onIntent(StudioIntent.SelectWorktree(content.pane.id, it)) },
         onAttach = { onIntent(StudioIntent.PickAttachments(content.pane.id)) }.takeIf {
             content.canAddAttachments() && content.host.isNativeAttachmentInputAvailable &&
                 !content.isAttachmentPending
@@ -457,13 +459,7 @@ private fun StudioComposerModes(content: PaneContent, onIntent: (StudioIntent) -
             )
         }
     } else if (pane.sessionId == null && content.isWorktreeAvailable && content.project != null) {
-        HbComposerToggle(
-            label = stringResource(Res.string.worktree_mode),
-            isChecked = pane.isWorktree,
-            onCheckedChange = { onIntent(StudioIntent.SelectWorktree(pane.id, it)) },
-            modifier = Modifier.testTag("worktree-mode-${pane.id}"),
-            icon = HbIcons.Branch,
-        )
+        NewSessionIsolationToggle(content, onIntent)
     }
 }
 
@@ -599,6 +595,8 @@ private fun TemplatesMenu(
     isHelper: Boolean,
     organism: Boolean?,
     onOrganism: (Boolean) -> Unit,
+    worktree: Boolean?,
+    onWorktree: (Boolean) -> Unit,
     onAttach: (() -> Unit)?,
     onPasteImage: (() -> Unit)?,
     onAttachPage: (() -> Unit)?,
@@ -617,16 +615,7 @@ private fun TemplatesMenu(
         stringResource(Res.string.template_remember),
         sectionLabel = stringResource(Res.string.composer_commands),
     )
-    // A mode of the new chat, offered only before its first message.
-    val organismAction = organism?.let {
-        HbComposerAction(
-            ORGANISM_ACTION,
-            stringResource(Res.string.organism_mode),
-            supportingText = stringResource(Res.string.organism_mode_hint),
-            sectionLabel = stringResource(Res.string.organism_menu_section),
-            isSelected = it,
-        )
-    }
+    val modes = composerModeActions(organism, worktree)
     val attachments = listOfNotNull(
         onAttachPage?.let { HbComposerAction(PAGE_ACTION, stringResource(Res.string.attachments_page)) },
         onAttach?.let { HbComposerAction(ATTACH_ACTION, stringResource(Res.string.attachments_add)) },
@@ -634,7 +623,7 @@ private fun TemplatesMenu(
         onResearch?.let { HbComposerAction(RESEARCH_ACTION, stringResource(Res.string.research_mode)) },
     )
     val actions = attachments + templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
-        listOfNotNull(rememberAction.takeIf { isRememberEnabled }, organismAction) +
+        listOfNotNull(rememberAction.takeIf { isRememberEnabled }) + modes +
         approvalActions(approval, approvalEnabled, securityLevel, isTrustSupported, isHelper)
     HbComposerMenuButton(
         label = stringResource(Res.string.composer_add),
@@ -652,6 +641,8 @@ private fun TemplatesMenu(
                 onResearch?.invoke()
             } else if (id.startsWith(APPROVAL_PREFIX)) {
                 onApproval(ApprovalUi.valueOf(id.removePrefix(APPROVAL_PREFIX)))
+            } else if (id == WORKTREE_ACTION) {
+                onWorktree(worktree != true)
             } else if (id == ORGANISM_ACTION) {
                 onOrganism(organism != true)
             } else if (id == REMEMBER_ACTION) {
@@ -799,6 +790,7 @@ private const val ATTACH_ACTION = "attach-file"
 private const val PASTE_ACTION = "paste-image"
 private const val RESEARCH_ACTION = "research"
 private const val REMEMBER_ACTION = "remember"
+private const val WORKTREE_ACTION = "worktree-mode"
 private const val ORGANISM_ACTION = "organism"
 
 private const val NO_PROJECT = "no-project"
@@ -812,3 +804,46 @@ private fun PaneContent.canAddAttachments(): Boolean {
 }
 
 private const val PAGE_ACTION = "attach-page"
+
+/** The default action offers a sandbox until a plain worktree has been explicitly selected. */
+@Composable
+private fun NewSessionIsolationToggle(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
+    val pane = content.pane
+    val isSandbox = content.isSandboxAvailable && (!pane.isWorktree || pane.isSandbox)
+    HbComposerToggle(
+        label = stringResource(if (isSandbox) Res.string.sandbox_mode else Res.string.worktree_mode),
+        isChecked = pane.isWorktree,
+        onCheckedChange = { onIntent(StudioIntent.SelectWorktree(pane.id, it, isSandbox)) },
+        modifier = Modifier.testTag("worktree-mode-${pane.id}"),
+        enabled = !pane.isCreating,
+        icon = if (isSandbox) HbIcons.Layers else HbIcons.Branch,
+    )
+}
+
+/** Modes are selectable only before provisioning; a selected worktree appears as the active chip. */
+private fun PaneContent.worktreeMenuSelection(): Boolean? = (pane.isWorktree && !pane.isSandbox).takeIf {
+    pane.sessionId == null && !pane.isCreating && isSandboxAvailable
+}
+
+@Composable
+private fun composerModeActions(organism: Boolean?, worktree: Boolean?): List<HbComposerAction> {
+    // A mode of the new chat, offered only before its first message.
+    val organismAction = organism?.let {
+        HbComposerAction(
+            ORGANISM_ACTION,
+            stringResource(Res.string.organism_mode),
+            supportingText = stringResource(Res.string.organism_mode_hint),
+            sectionLabel = stringResource(Res.string.organism_menu_section),
+            isSelected = it,
+        )
+    }
+    val worktreeAction = worktree?.let {
+        HbComposerAction(
+            WORKTREE_ACTION,
+            stringResource(Res.string.worktree_mode),
+            sectionLabel = stringResource(Res.string.organism_menu_section),
+            isSelected = it,
+        )
+    }
+    return listOfNotNull(organismAction, worktreeAction)
+}
