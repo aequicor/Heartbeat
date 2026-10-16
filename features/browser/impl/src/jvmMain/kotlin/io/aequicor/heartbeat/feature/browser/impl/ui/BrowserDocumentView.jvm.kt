@@ -88,8 +88,8 @@ private fun RetainedDocumentPanel(
     } else {
         0.0
     }
-    // SwingPanel clears the Compose backing under the entire native rectangle. Its masked corners
-    // need the final opaque backdrop: a translucent scrim alone composites over the empty black hole.
+    // The Swing host keeps its legacy corner backdrop; the kept Compose backing (see nativeViewBacking)
+    // draws above it, so its masked corners show the real dialog backdrop instead.
     val backdrop = if (modalDismiss != null) {
         HbTheme.colors.scrim.compositeOver(HbTheme.surfaces.assistant)
     } else {
