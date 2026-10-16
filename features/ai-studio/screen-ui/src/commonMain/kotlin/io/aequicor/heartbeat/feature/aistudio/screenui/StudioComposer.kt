@@ -71,6 +71,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_ask
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_helper_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_settings_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_trust
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_unsupported
@@ -331,6 +332,7 @@ private fun StudioComposerLeading(
         approvalEnabled = !content.isSettingPending && content.organism == null,
         securityLevel = content.securityLevel.takeIf { content.usesProfileSecurity(hasRunPreferences) },
         isTrustSupported = content.isTrustSupported(),
+        isHelper = content.session?.isHelper == true,
         organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },
         onOrganism = { onIntent(StudioIntent.SelectOrganism(content.pane.id, it)) },
         onAttach = { onIntent(StudioIntent.PickAttachments(content.pane.id)) }.takeIf {
@@ -592,6 +594,7 @@ private fun TemplatesMenu(
     approvalEnabled: Boolean,
     securityLevel: SecurityLevelUi?,
     isTrustSupported: Boolean,
+    isHelper: Boolean,
     organism: Boolean?,
     onOrganism: (Boolean) -> Unit,
     onAttach: (() -> Unit)?,
@@ -630,7 +633,7 @@ private fun TemplatesMenu(
     )
     val actions = attachments + templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
         listOfNotNull(rememberAction.takeIf { isRememberEnabled }, organismAction) +
-        approvalActions(approval, approvalEnabled, securityLevel, isTrustSupported)
+        approvalActions(approval, approvalEnabled, securityLevel, isTrustSupported, isHelper)
     HbComposerMenuButton(
         label = stringResource(Res.string.composer_add),
         actions = actions.toImmutableList(),
@@ -729,6 +732,7 @@ private fun approvalActions(
     enabled: Boolean,
     securityLevel: SecurityLevelUi?,
     isTrustSupported: Boolean,
+    isHelper: Boolean,
 ): List<HbComposerAction> {
     if (securityLevel != null) {
         return listOf(
@@ -742,10 +746,13 @@ private fun approvalActions(
                     },
                 ),
                 supportingText = stringResource(
-                    if (securityLevel != SecurityLevelUi.Automatic && !isTrustSupported) {
-                        Res.string.security_unsupported
-                    } else {
-                        Res.string.security_settings_hint
+                    when {
+                        isHelper -> Res.string.security_helper_hint
+
+                        securityLevel != SecurityLevelUi.Automatic && !isTrustSupported ->
+                            Res.string.security_unsupported
+
+                        else -> Res.string.security_settings_hint
                     },
                 ),
                 sectionLabel = stringResource(Res.string.approval_menu),

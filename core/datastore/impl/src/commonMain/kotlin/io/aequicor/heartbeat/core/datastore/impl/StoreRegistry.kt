@@ -4,6 +4,7 @@
 
 package io.aequicor.heartbeat.core.datastore.impl
 
+import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
@@ -19,6 +20,7 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.datastore.DataEvent
 import io.aequicor.heartbeat.core.datastore.DatabaseSpec
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.ProfileStorageCleaner
 import io.aequicor.heartbeat.core.datastore.StorageOwner
@@ -34,6 +36,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okio.FileSystem
@@ -94,19 +98,27 @@ internal class StoreRegistry(
         return layout.filesDirectory(owner, name).toString()
     }
 
+    /** Reject conflicting policy before an owner's lazy cache captures a factory with that invalid spec. */
+    fun checkKeyValueReadPolicy(owner: StorageOwner, spec: KeyValueSpec) {
+        preferences(layout.keyValueFile(owner, spec.name), "${owner.label}/$spec", spec.readPolicy)
+    }
+
     fun openKeyValue(owner: StorageOwner, spec: KeyValueSpec, scope: ScopeHandle): LoggingKeyValueStore {
         val label = "${owner.label}/$spec"
         val store = LoggingKeyValueStore(
             spec = spec,
             label = label,
-            dataStore = preferences(layout.keyValueFile(owner, spec.name), label),
+            dataStore = preferences(layout.keyValueFile(owner, spec.name), label, spec.readPolicy),
             clock = clock,
             journal = { withContext(dispatchers.io) { firedEvents(owner) } },
             scope = scope,
         )
         scope.coroutineScope.launch(dispatchers.io + CoroutineName("retention $label")) {
-            store.prepare()
-            runRetentionTimer(label, clock, store.nextDeadline()) { store.purgeExpired() }
+            val deadlines = flow {
+                store.prepare()
+                emitAll(store.nextDeadline())
+            }
+            runRetentionTimer(label, clock, deadlines) { store.purgeExpired() }
         }
         log.i { "$label: opened" }
         return store
@@ -229,11 +241,16 @@ internal class StoreRegistry(
         return journals.getOrPut(file.toString()) { EventJournal(file, fileSystem) }
     }
 
-    private fun preferences(file: Path, label: String): DataStore<Preferences> =
+    private fun preferences(file: Path, label: String, readPolicy: KeyValueReadPolicy): DataStore<Preferences> =
         preferenceFiles.getOrPut(file.toString()) {
             val job = SupervisorJob(appScope.coroutineScope.coroutineContext[Job])
             val dataStore = PreferenceDataStoreFactory.createWithPath(
                 corruptionHandler = ReplaceFileCorruptionHandler { error ->
+                    if (readPolicy == KeyValueReadPolicy.Strict) {
+                        val failure = CorruptionException("Stored preferences file is corrupted")
+                        log.e(failure) { "$label: file is corrupted, strict read leaves it unchanged" }
+                        throw failure
+                    }
                     log.e(error) { "$label: file is corrupted, replaced with empty data" }
                     emptyPreferences()
                 },
@@ -243,7 +260,9 @@ internal class StoreRegistry(
                     file
                 },
             )
-            PreferencesFile(SnapshotDataStore(dataStore), job)
+            PreferencesFile(SnapshotDataStore(dataStore), job, readPolicy)
+        }.also {
+            check(it.readPolicy == readPolicy) { "$label: read policy changed during the app lifetime" }
         }.dataStore
 
     private inline fun update(transform: (List<OwnerStores>) -> List<OwnerStores>) {
@@ -253,7 +272,11 @@ internal class StoreRegistry(
         }
     }
 
-    private data class PreferencesFile(val dataStore: DataStore<Preferences>, val job: Job)
+    private data class PreferencesFile(
+        val dataStore: DataStore<Preferences>,
+        val job: Job,
+        val readPolicy: KeyValueReadPolicy,
+    )
 }
 
 /** A database opened by [StoreRegistry]. */

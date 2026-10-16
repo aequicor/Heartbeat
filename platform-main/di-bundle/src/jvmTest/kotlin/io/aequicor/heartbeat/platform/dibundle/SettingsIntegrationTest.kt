@@ -36,11 +36,14 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeRoute as ProductionWelcomeRoute
 
 /** The settings window through the real graph: deep links, the embedded section and closing with back. */
@@ -49,8 +52,8 @@ class SettingsIntegrationTest {
     private val processes = mutableListOf<Process>()
     private val clock = RealTestClock()
 
-    private inner class Process {
-        val graph = createGraphFactory<TestAppGraph.Factory>().create(PersistedProfile())
+    private inner class Process(val disk: PersistedProfile = PersistedProfile()) {
+        val graph = createGraphFactory<TestAppGraph.Factory>().create(disk)
         private val lifecycle = LifecycleRegistry().apply { resume() }
         val root = HeartbeatRoot(
             DefaultComponentContext(lifecycle),
@@ -80,6 +83,7 @@ class SettingsIntegrationTest {
     @AfterTest
     fun cleanup() = runTest {
         processes.forEach { it.graph.closeAndAwaitStorages() }
+        processes.map { it.disk.storageRoot }.distinct().forEach { check(File(it).deleteRecursively()) }
         Dispatchers.resetMain()
         clock.close()
     }
@@ -170,6 +174,41 @@ class SettingsIntegrationTest {
         advanceUntilIdle()
         assertEquals(StudioSecurityState.Ready(StudioSecurityLevel.Ask), security.state.value)
         process.close()
+    }
+
+    @Test
+    fun `corrupted security preferences retain manual confirmation after process restart`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val disk = PersistedProfile()
+        val first = Process(disk)
+        (first.graph as TestToggleAccessors).toggleControl.setOverride(StudioEngineRuntime, true)
+        first.graph.profileSessions.open(ProfileId("corrupted-security"))
+        val initial = first.graph.machines.observe(StudioSecurityMachineKey).filterNotNull().first()
+        initial.state.first { it is StudioSecurityState.Ready }
+        initial.send(StudioSecurityIntent.Public.SetLevel(StudioSecurityLevel.Ask))
+        initial.state.first { it == StudioSecurityState.Ready(StudioSecurityLevel.Ask) }
+        first.close()
+
+        val file = File(disk.storageRoot).walkTopDown().single { it.name == "ai_studio_security.preferences_pb" }
+        val corrupted = byteArrayOf(0x0A, 0x7F)
+        file.writeBytes(corrupted)
+
+        val restored = Process(disk)
+        val security = restored.graph.machines.observe(StudioSecurityMachineKey).filterNotNull().first()
+        assertEquals(
+            StudioSecurityState.LoadError,
+            security.state.first { it is StudioSecurityState.Ready || it == StudioSecurityState.LoadError },
+        )
+        security.send(StudioSecurityIntent.Public.SetLevel(StudioSecurityLevel.Trust))
+        assertEquals(StudioSecurityState.LoadError, security.state.value)
+        security.send(StudioSecurityIntent.Public.Retry)
+        assertEquals(
+            StudioSecurityState.LoadError,
+            security.state.first { it is StudioSecurityState.Ready || it == StudioSecurityState.LoadError },
+        )
+        assertTrue(file.exists())
+        assertContentEquals(corrupted, file.readBytes(), "corruption must not be rewritten as a fresh profile")
+        restored.close()
     }
 
     @Test

@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ForScope
@@ -10,7 +11,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityStore
 
-private val SecuritySpec = KeyValueSpec("ai_studio_security")
+private val SecuritySpec = KeyValueSpec("ai_studio_security", readPolicy = KeyValueReadPolicy.Strict)
 private val LevelKey = stringKey("confirmation_level")
 
 /** One permanent profile setting; no chat defaults or engine acknowledgements can overwrite it. */

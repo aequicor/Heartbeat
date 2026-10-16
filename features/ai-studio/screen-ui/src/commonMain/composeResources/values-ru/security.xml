@@ -3,4 +3,5 @@
     <string name="security_trust">Полное доверие</string>
     <string name="security_settings_hint">Изменить в Настройки → Безопасность</string>
     <string name="security_unsupported">Движок не поддерживает уровни подтверждения</string>
+    <string name="security_helper_hint">Фоновые помощники всегда используют автоматическую проверку независимо от уровня подтверждения профиля.</string>
 </resources>
