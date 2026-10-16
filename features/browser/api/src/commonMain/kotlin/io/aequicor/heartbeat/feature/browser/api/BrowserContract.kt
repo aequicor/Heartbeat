@@ -51,6 +51,8 @@ public data class BrowserPage(
     val error: BrowserError? = null,
     val faviconUrl: String = "",
     val isAwaitingResponse: Boolean = false,
+    val failure: BrowserLoadFailure? = null,
+    val security: BrowserSecurity = BrowserSecurity.Unknown,
 )
 
 /** Runtime projection; desktop restores tab metadata from profile storage, without native history or approvals. */
@@ -68,6 +70,7 @@ public sealed interface BrowserState : MachineState {
         val tabs: List<BrowserTab> = emptyList(),
         val selectedTabId: String? = null,
         val display: BrowserDisplay = BrowserDisplay.Hidden,
+        val areErrorPagesEnabled: Boolean = false,
     ) : BrowserState
 }
 
@@ -108,6 +111,18 @@ public sealed interface BrowserIntent : MachineIntent {
 
     /** Results delivered by feature effects. */
     public sealed interface Internal : BrowserIntent {
+        /** Live desktop error-page policy; mobile implementations leave it disabled. */
+        public data class ErrorPagesChanged(val isEnabled: Boolean) : Internal
+
+        /** A real offline-to-online transition, never the initial connectivity snapshot. */
+        public data object NetworkRestored : Internal
+
+        /** User-only decision tied to the exact selected tab and failure snapshot. */
+        public data class ProceedCertificate(val tabId: String, val failure: BrowserLoadFailure) : Internal
+
+        /** Leaves this certificate warning through history, or closes the tab without history. */
+        public data class ReturnToSafety(val tabId: String, val failure: BrowserLoadFailure) : Internal
+
         /** Cancellation finished, including native input cleanup. */
         public data class OperationCancelled(val id: String) : Internal
 
@@ -136,6 +151,15 @@ public sealed interface BrowserIntent : MachineIntent {
 
 /** IO requests executed through the implementation's domain ports. */
 public sealed interface BrowserEffect : MachineEffect {
+    /** Rechecks and applies the user's certificate decision in the native session. */
+    public data class ProceedCertificate(val tabId: String, val failure: BrowserLoadFailure) : BrowserEffect
+
+    /** Leaves a matching warning without granting a certificate exception. */
+    public data class ReturnToSafety(val tabId: String, val failure: BrowserLoadFailure) : BrowserEffect
+
+    /** Retries retained human-controlled tabs that still show a connectivity failure. */
+    public data object RetryNetworkErrors : BrowserEffect
+
     /** Performs one tab operation and returns a correlated result. */
     public data class Perform(val request: BrowserRequest) : BrowserEffect
 

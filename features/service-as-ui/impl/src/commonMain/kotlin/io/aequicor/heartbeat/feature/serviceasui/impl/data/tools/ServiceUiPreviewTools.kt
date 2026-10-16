@@ -151,7 +151,7 @@ internal class ServiceUiPreviewTools(
             putJsonObject("content") {
                 put("width", result.metrics.contentWidth)
                 put("height", result.metrics.contentHeight)
-                put("horizontalOverflow", result.metrics.horizontalOverflow)
+                put("horizontalOverflow", result.metrics.hasHorizontalOverflow)
             }
             putJsonArray("issues") {
                 result.issues.forEach { issue ->

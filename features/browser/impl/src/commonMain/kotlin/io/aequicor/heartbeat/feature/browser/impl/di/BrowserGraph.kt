@@ -88,6 +88,11 @@ object BrowserToggleBindings {
     @IntoSet
     fun researchAccess(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserResearchAccess
 
+    /** Opt-in desktop error pages and certificate decisions. */
+    @Provides
+    @IntoSet
+    fun errorPages(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserErrorPages
+
     /** Site icons in tabs; on by default under the opt-in browser flag. */
     @Provides
     @IntoSet

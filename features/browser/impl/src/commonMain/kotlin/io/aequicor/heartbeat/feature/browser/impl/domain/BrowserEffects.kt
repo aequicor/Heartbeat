@@ -33,6 +33,12 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
 
     override suspend fun handle(effect: BrowserEffect, machine: EffectScope<BrowserIntent>) {
         when (effect) {
+            is BrowserEffect.ProceedCertificate -> session.proceedCertificate(effect.tabId, effect.failure)
+
+            is BrowserEffect.ReturnToSafety -> session.returnToSafety(effect.tabId, effect.failure)
+
+            BrowserEffect.RetryNetworkErrors -> session.retryNetworkErrors()
+
             is BrowserEffect.Perform -> perform(effect, machine)
 
             is BrowserEffect.SelectTab -> selectTab(effect.id)
@@ -68,6 +74,12 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
         var isFailed = true
         try {
             coroutineScope {
+                launch {
+                    session.errorPagesEnabled.collect { machine.send(BrowserIntent.Internal.ErrorPagesChanged(it)) }
+                }
+                launch {
+                    session.networkRestored.collect { machine.send(BrowserIntent.Internal.NetworkRestored) }
+                }
                 launch {
                     session.tabs.collect { (tabs, selected) ->
                         machine.send(BrowserIntent.Internal.TabsChanged(tabs, selected))

@@ -64,7 +64,7 @@ internal fun verifyNativeHiddenDocumentPreview(
     try {
         val html = previewHtml("http://127.0.0.1:${server.address.port}")
         val narrow = fixture.render(html, width = 360)
-        assertTrue(narrow.metrics.horizontalOverflow)
+        assertTrue(narrow.metrics.hasHorizontalOverflow)
         assertEquals(650, narrow.metrics.contentWidth)
         assertTrue(
             narrow.hasIssue(BrowserDocumentPreviewIssueKind.UnlabelledInput, "#missing"),
@@ -88,7 +88,7 @@ internal fun verifyNativeHiddenDocumentPreview(
         assertPreviewPng(narrow, 360)
 
         val wide = fixture.render(html, width = 900, isDark = true, fontScale = 1.5f)
-        assertFalse(wide.metrics.horizontalOverflow)
+        assertFalse(wide.metrics.hasHorizontalOverflow)
         assertEquals(900, wide.metrics.contentWidth)
         val smallField = narrow.samples.single { "#labelled" in it.element }
         val largeField = wide.samples.single { "#labelled" in it.element }
