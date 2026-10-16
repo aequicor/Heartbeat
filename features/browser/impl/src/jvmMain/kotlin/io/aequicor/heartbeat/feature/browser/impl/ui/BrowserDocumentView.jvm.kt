@@ -109,13 +109,14 @@ private fun RetainedDocumentPanel(
     if (preparation != BrowserRuntimeUi.Ready) {
         BrowserRuntimeStatus(preparation, panel::retry, sized)
     } else {
-        // The panel's own background shows until the page paints: the surface color, not Swing's white.
+        // Compose keeps the surface color under the page until its native view paints, follows new bounds or hides.
         val name = surface.title.ifBlank { stringResource(Res.string.browser_document_page) }
         DocumentViewport(sized.onSizeChanged { viewportWidth = it.width }) {
             BrowserNativeView(
                 background = HbTheme.colors.surface,
                 factory = remember(attachment) { attachment::createComponent },
                 modifier = Modifier.semantics { contentDescription = name },
+                isBackingCleared = false,
             )
         }
     }

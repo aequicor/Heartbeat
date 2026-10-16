@@ -67,4 +67,25 @@ class BrowserNativeDrawingTest {
                 assertEquals(0, disposals)
             }
         }
+
+    @Test
+    fun `kept backing paints its surface over interop clear and leaves the surroundings untouched`() =
+        runSkikoComposeUiTest(size = Size(80f, 80f)) {
+            var measured = IntSize.Zero
+            setContent {
+                CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                    Box(Modifier.fillMaxSize().background(Color.Blue)) {
+                        Box(
+                            Modifier.size(40.dp).nativeViewBacking(Color.Green)
+                                .onSizeChanged { measured = it }
+                                .drawBehind { drawRect(Color.Transparent, blendMode = BlendMode.Clear) },
+                        )
+                    }
+                }
+            }
+            val pixels = captureToImage().toPixelMap()
+            assertEquals(Color.Green, pixels[20, 20])
+            assertEquals(Color.Blue, pixels[60, 60])
+            runOnIdle { assertEquals(IntSize(40, 40), measured) }
+        }
 }
