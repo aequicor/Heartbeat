@@ -138,7 +138,7 @@ fun AiStudioScreenState.pendingSubmission(paneId: Int, id: String): SubmissionUi
         attachments(paneId),
         sessionId = sessionId,
         harnesses = if (pane != null && sessionId == null) {
-            val selected = harnessChoices.panes[paneId].orEmpty()
+            val selected = selectedHarnesses(pane)
             availableHarnesses(pane).filter { it.id in selected }.map { it.id }.toImmutableSet()
         } else {
             persistentSetOf()

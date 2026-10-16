@@ -48,7 +48,7 @@ fun AiStudioScreenState.surfaceHarnesses(pane: PaneUi): Set<String> {
     val isSameChat = pane.sessionId == null || pending?.sessionId == null || pending.sessionId == pane.sessionId
     return when {
         pending != null && isSameChat -> pending.harnesses
-        pane.sessionId == null -> harnessChoices.panes[pane.id].orEmpty()
+        pane.sessionId == null -> selectedHarnesses(pane)
         else -> emptySet()
     }
 }

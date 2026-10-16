@@ -91,7 +91,8 @@ val DefaultSettingsUi: SettingsUi = SettingsUi("pulse-pro", EffortUi.High, Appro
 
 /**
  * Harnesses of the composer picker: enabled [options], committed connections by chat id and choices kept on the panes
- * of chats that have no session yet. [failedChats] are chats whose last connection change was not confirmed.
+ * of chats that have no session yet. An absent pane follows the current available defaults; a present pane is an
+ * explicit override, including an empty set. [failedChats] are chats whose last connection change was not confirmed.
  */
 @Serializable
 @SerialName("HarnessChoicesUi")
@@ -101,6 +102,9 @@ data class HarnessChoicesUi(
     val chats: ImmutableMap<String, ImmutableSet<String>> = persistentMapOf(),
     val panes: ImmutableMap<Int, ImmutableSet<String>> = persistentMapOf(),
     val failedChats: ImmutableSet<String> = persistentSetOf(),
+    /** False until defaults are known; disabled harnesses have a known empty snapshot. */
+    val isReady: Boolean = true,
+    val isLoadFailed: Boolean = false,
 )
 
 /** An enabled harness of the library; [projectIds] restrict where it is offered (empty: everywhere). */
@@ -112,8 +116,9 @@ data class HarnessOptionUi(
     val title: String,
     val description: String = "",
     val projectIds: ImmutableSet<String> = persistentSetOf(),
+    val isDefaultForNewSessions: Boolean = false,
 ) {
-    /** Project restrictions only control discovery, never automatic attachment. */
+    /** Project restrictions limit both discovery and the choices selected by default for new chats. */
     fun isAvailableFor(projectId: String?): Boolean = projectIds.isEmpty() || projectId in projectIds
 }
 

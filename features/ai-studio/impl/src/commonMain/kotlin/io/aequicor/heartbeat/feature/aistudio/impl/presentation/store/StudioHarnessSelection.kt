@@ -11,11 +11,11 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.availableHarnesses
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.choosePane
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneHarnessChoices
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedHarnesses
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.PipelineContext
@@ -24,21 +24,42 @@ import pro.respawn.flowmvi.api.PipelineContext
 internal class StudioHarnessSelection(private val harnesses: StudioHarnesses, private val backend: StudioBackend) {
     private val log = Log.tag("AiStudioModel")
 
-    /** Library choices with connections projected from native sessions onto studio chats. */
+    /**
+     * Library choices projected onto chats. Equal failures must still be delivered after an inline retry clears
+     * the displayed failure; loading itself does not replace the last library snapshot.
+     */
     suspend fun observe(pipeline: HarnessPipeline) = with(pipeline) {
         combine(harnesses.choices, backend.repository().observeWorkspace()) { choices, workspace ->
-            choices.harnesses.map { it.toUi() }.toImmutableList() to workspace.sessions.mapNotNull { session ->
+            val chats = workspace.sessions.mapNotNull { session ->
                 val native = session.nativeSession ?: return@mapNotNull null
                 val attached = choices.attached[native] ?: return@mapNotNull null
                 session.id to attached.toImmutableSet()
             }.toMap().toImmutableMap()
-        }.distinctUntilChanged().collect { (options, chats) ->
+            Triple(choices, choices.harnesses.map { it.toUi() }.toImmutableList(), chats)
+        }.collect { (choices, options, chats) ->
             updateState {
-                copy(
-                    harnessChoices = harnessChoices.copy(options = options, chats = chats),
-                ).pruneHarnessChoices()
+                if (choices.isReady) {
+                    copy(
+                        harnessChoices = harnessChoices.copy(
+                            options = options,
+                            chats = chats,
+                            isReady = true,
+                            isLoadFailed = false,
+                        ),
+                    ).pruneHarnessChoices()
+                } else if (choices.isLoadFailed && harnessChoices.isReady) {
+                    this
+                } else {
+                    copy(harnessChoices = harnessChoices.copy(isReady = false, isLoadFailed = choices.isLoadFailed))
+                }
             }
         }
+    }
+
+    /** A failed initial load has an inline retry; input and manual selections remain intact. */
+    suspend fun reload(pipeline: HarnessPipeline) = with(pipeline) {
+        updateState { copy(harnessChoices = harnessChoices.copy(isLoadFailed = false)) }
+        if (!harnesses.reload()) updateState { copy(harnessChoices = harnessChoices.copy(isLoadFailed = true)) }
     }
 
     /**
@@ -59,7 +80,12 @@ internal class StudioHarnessSelection(private val harnesses: StudioHarnesses, pr
             log.i { "New chat harness choice selected=${intent.isSelected}" }
             updateState {
                 copy(
-                    harnessChoices = harnessChoices.choosePane(intent.paneId, intent.harness, intent.isSelected),
+                    harnessChoices = harnessChoices.choosePane(
+                        intent.paneId,
+                        intent.harness,
+                        intent.isSelected,
+                        selectedHarnesses(pane),
+                    ),
                 )
             }
             return@with

@@ -164,7 +164,7 @@ private fun StudioComposerInput(
         stopLabel = stringResource(Res.string.composer_stop),
         modifier = Modifier.testTag("composer-${pane.id}"),
         hasAttachments = content.attachments.isNotEmpty(),
-        canSend = !content.isAttachmentPending && (
+        canSend = content.isHarnessSelectionReady && !content.isAttachmentPending && (
             support?.accepts(
                 content.attachments,
             ) ?: content.attachments.isEmpty()

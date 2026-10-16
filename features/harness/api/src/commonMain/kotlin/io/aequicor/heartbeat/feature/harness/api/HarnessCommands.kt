@@ -68,6 +68,8 @@ private fun HarnessState.Ready.update(intent: HarnessIntent.Internal.Update): Li
 
             is HarnessChange.Scope -> old.copy(scope = change.scope)
 
+            is HarnessChange.DefaultForNewSessions -> old.copy(isDefaultForNewSessions = change.isDefaultForNewSessions)
+
             is HarnessChange.PutItem -> old.copy(items = old.items.filterNot { it.id == change.item.id } + change.item)
 
             is HarnessChange.RemoveItem -> old.copy(items = old.items.filterNot { it.id == change.item })
@@ -97,7 +99,11 @@ private fun Harness.changeRejection(change: HarnessChange): HarnessRejection? = 
 
     is HarnessChange.Content -> contentRejection(change.items)
 
-    is HarnessChange.Meta, is HarnessChange.Scope, is HarnessChange.Tools -> null
+    is HarnessChange.Meta,
+    is HarnessChange.Scope,
+    is HarnessChange.Tools,
+    is HarnessChange.DefaultForNewSessions,
+    -> null
 }
 
 /** Replacement items must be unique, keep the names of existing identities and fit the item limit. */
