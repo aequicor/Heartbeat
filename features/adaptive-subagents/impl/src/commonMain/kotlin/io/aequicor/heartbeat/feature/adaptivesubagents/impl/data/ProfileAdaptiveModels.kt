@@ -1,0 +1,93 @@
+package io.aequicor.heartbeat.feature.adaptivesubagents.impl.data
+
+import dev.zacsweers.metro.ContributesBinding
+import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveModels
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsEnabled
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ChoiceSource
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.InheritReason
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelChoice
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesState
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionContext
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionOption
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentRequest
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.selection.ScoredCandidate
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.selection.rationale
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.selection.shortlist
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.seconds
+
+/**
+ * Selection of subagent configurations: scoring of the cached catalog against the profile's descriptions. A library
+ * that is still loading is awaited briefly; an unreadable one leaves heuristics. Choices and counts are logged,
+ * the task never.
+ */
+@ContributesBinding(ProfileScope::class)
+@Inject
+internal class ProfileAdaptiveModels(
+    private val catalog: CatalogCandidates,
+    // Lazy: injecting the view starts the library machine, which only an enabled feature needs.
+    private val library: Lazy<ModelProfilesView>,
+    private val toggles: FeatureToggles,
+) : AdaptiveModels {
+    private val log = Log.tag("AdaptiveModels")
+
+    override suspend fun select(request: SubagentRequest, context: SelectionContext): ModelChoice {
+        if (!toggles.get(AdaptiveSubagentsEnabled)) return ModelChoice.Inherit(InheritReason.Disabled)
+        val ready = ready()
+        val priority = request.priority ?: ready.preferences.defaultPriority
+        val list = shortlist(catalog.candidates(), request, context, ready.profiles, ready.preferences)
+        val best = list.firstOrNull()
+        if (best == null) {
+            log.i { "subagent selection host=${context.host}: no candidates" }
+            return ModelChoice.Inherit(InheritReason.NoCandidates)
+        }
+        log.i {
+            "subagent selection host=${context.host} priority=$priority shortlist=${list.size} " +
+                "chose ${best.candidate.target} effort=${best.candidate.effort ?: "default"}"
+        }
+        return best.selected(best.rationale(priority), ChoiceSource.Scoring, list.size - 1)
+    }
+
+    override suspend fun preview(request: SubagentRequest, context: SelectionContext): List<SelectionOption> {
+        if (!toggles.get(AdaptiveSubagentsEnabled)) return emptyList()
+        val ready = ready()
+        return shortlist(catalog.candidates(), request, context, ready.profiles, ready.preferences).map { scored ->
+            SelectionOption(
+                scored.candidate.target,
+                scored.candidate.effort,
+                scored.candidate.title,
+                scored.ratings,
+                scored.basis,
+                scored.score,
+            )
+        }
+    }
+
+    private suspend fun ready(): ModelProfilesState.Ready {
+        val state = withTimeoutOrNull(LIBRARY_WAIT) {
+            library.value.state.first { it is ModelProfilesState.Ready || it is ModelProfilesState.Failed }
+        }
+        if (state !is ModelProfilesState.Ready) log.w { "model library unavailable; selecting by name heuristics" }
+        return state as? ModelProfilesState.Ready ?: ModelProfilesState.Ready()
+    }
+}
+
+/** The choice of [this] shortlisted configuration. */
+internal fun ScoredCandidate.selected(rationale: String, source: ChoiceSource, alternatives: Int) =
+    ModelChoice.Selected(
+        candidate.target,
+        candidate.effort,
+        candidate.title,
+        ratings,
+        rationale,
+        source,
+        alternatives,
+    )
+
+private val LIBRARY_WAIT = 5.seconds

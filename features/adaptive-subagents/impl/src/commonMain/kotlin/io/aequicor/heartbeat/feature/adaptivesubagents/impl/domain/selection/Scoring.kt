@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.selection
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.CostMode
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelKey
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfile
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.RatingSource
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.Ratings
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionContext
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionLimits
@@ -16,23 +17,11 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/** Where ratings of a candidate come from. */
-internal enum class RatingBasis {
-    /** The description of this very model. */
-    Described,
-
-    /** The description of the same model on another engine. */
-    Borrowed,
-
-    /** The name baseline: nobody described the model. */
-    Heuristic,
-}
-
 /** A candidate with its ratings, the description they came from, matched task tags and score. */
 internal data class ScoredCandidate(
     val candidate: Candidate,
     val ratings: Ratings,
-    val basis: RatingBasis,
+    val basis: RatingSource,
     val profile: ModelProfile?,
     val matchedTags: Set<String>,
     val score: Double,
@@ -68,9 +57,9 @@ internal fun rate(candidate: Candidate, profiles: List<ModelProfile>, preference
     val own = profiles.firstOrNull { it.key == key }
     val borrowed = own ?: profiles.firstOrNull { normalizedModel(it.key.model) == normalizedModel(key.model) }
     val basis = when {
-        own != null -> RatingBasis.Described
-        borrowed != null -> RatingBasis.Borrowed
-        else -> RatingBasis.Heuristic
+        own != null -> RatingSource.Described
+        borrowed != null -> RatingSource.Borrowed
+        else -> RatingSource.Heuristic
     }
     val variant = borrowed?.variants?.firstOrNull { it.effort == candidate.effort }
     val raw = variant?.traits?.ratings?.raw()
@@ -85,7 +74,7 @@ internal fun rate(candidate: Candidate, profiles: List<ModelProfile>, preference
 internal data class Rated(
     val ratings: Ratings,
     val raw: RawRatings,
-    val basis: RatingBasis,
+    val basis: RatingSource,
     val profile: ModelProfile?,
     val tags: Set<String>,
 )
@@ -130,14 +119,14 @@ private fun Double.rounded(): Double = (this * ROUNDING).roundToInt() / ROUNDING
 private data class Weights(val quality: Double, val speed: Double, val cost: Double)
 
 private val WEIGHTS = mapOf(
-    SubagentPriority.Quality to Weights(0.6, 0.2, 0.2),
+    SubagentPriority.Quality to Weights(0.7, 0.15, 0.15),
     SubagentPriority.Balanced to Weights(0.4, 0.3, 0.3),
-    SubagentPriority.Speed to Weights(0.2, 0.6, 0.2),
-    SubagentPriority.Cost to Weights(0.2, 0.2, 0.6),
+    SubagentPriority.Speed to Weights(0.15, 0.7, 0.15),
+    SubagentPriority.Cost to Weights(0.15, 0.15, 0.7),
 )
 private val FLOOR = mapOf(SubagentComplexity.Low to 2, SubagentComplexity.Medium to 3, SubagentComplexity.High to 4)
 private val EFFORT = mapOf(SubagentComplexity.Low to 1, SubagentComplexity.Medium to 2, SubagentComplexity.High to 3)
-private val BASIS = mapOf(RatingBasis.Described to 0.0, RatingBasis.Borrowed to -0.1, RatingBasis.Heuristic to -0.25)
+private val BASIS = mapOf(RatingSource.Described to 0.0, RatingSource.Borrowed to -0.1, RatingSource.Heuristic to -0.25)
 private const val PER_TARGET = 2
 private const val SHORTFALL = 0.75
 private const val OVERKILL = 0.3

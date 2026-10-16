@@ -291,6 +291,13 @@ send/wake/spawn/workflow. Ограничения (Off/hosted_off, Deny/Ask-ху�
 `ScriptUi` (`ui.method`) публикует методы для интерфейсов service-as-ui: их вызывает нажатие пользователя без хода
 агента, с полномочиями одобренного скрипта; `harness:impl` реализует для этого `ServiceUiProvider`.
 
+`features/adaptive-subagents/api` кроме профильной машины библиотеки описаний моделей (`ModelProfilesMachineKey`) содержит
+чистые типы описаний и запроса субагента и сервисный контракт `AdaptiveModels`: выбор конфигурации субагента
+(движок × подключение × модель × effort) среди включённых пользователем моделей по приоритету качества, скорости и
+стоимости — запрос/ответ без длительного флоу, поэтому без машины. Вызывающие (organic-ai, harness, обычные чаты)
+сохраняют прежнее поведение на `ModelChoice.Inherit`; текст задачи не логируется. `ModelProfilesView` — только чтение
+библиотеки, изменения — `Public` интенты машины.
+
 `features/context-window-optimization/api` кроме машины содержит чистые функции без IO: `decideCompaction`, журнал
 прогресса (`updated`/`render`), бриф продолжения `continuationBrief` и `handoffSplit`. Ход handoff-выжимки опознаётся
 по конвенции `HANDOFF_REQUEST_PREFIX` в request id (перехват инструментов) и по директиве-маркеру в транскрипте;

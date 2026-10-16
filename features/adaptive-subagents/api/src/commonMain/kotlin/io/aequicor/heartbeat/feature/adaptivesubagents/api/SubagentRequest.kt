@@ -48,7 +48,8 @@ public data class SubagentRequest(
     val tags: Set<String> = emptySet(),
 ) {
     override fun toString(): String =
-        "SubagentRequest(priority=$priority, complexity=$complexity, needs=$needs, tags=${tags.size})"
+        "SubagentRequest(priority=${priority?.name ?: "default"}, complexity=$complexity, needs=$needs, " +
+            "tags=${tags.size})"
 }
 
 /** Where the subagent runs: its host, the parent's model (when known) and the execution workspace. */

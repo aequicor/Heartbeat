@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.api.CostMode
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelKey
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfile
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ProfileVariant
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.RatingSource
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.Ratings
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionContext
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentComplexity
@@ -53,8 +54,8 @@ class ScoringTest {
         )
         val rated = rate(haiku, listOf(described), prefs)
         assertEquals(Ratings(5, 5, 5), rated.ratings)
-        assertEquals(RatingBasis.Described, rated.basis)
-        assertEquals(RatingBasis.Heuristic, rate(opus, listOf(described), prefs).basis)
+        assertEquals(RatingSource.Described, rated.basis)
+        assertEquals(RatingSource.Heuristic, rate(opus, listOf(described), prefs).basis)
     }
 
     @Test
@@ -82,7 +83,7 @@ class ScoringTest {
             updatedAt = Instant.fromEpochSeconds(1),
         )
         val rated = rate(pi, listOf(profile), prefs)
-        assertEquals(RatingBasis.Borrowed, rated.basis)
+        assertEquals(RatingSource.Borrowed, rated.basis)
         assertEquals(Ratings(4, 5, 4), rated.ratings)
         assertTrue("quick-edits" in rated.tags)
     }
