@@ -337,18 +337,22 @@ internal class PiProcessLauncher(
 
     private fun writeAgentFiles(agentDir: Path, agent: PiAgentConfig) {
         agent.files.forEach { (name, text) ->
-            val file = Files.writeString(agentDir.resolve(name), text)
-            if (name == MCP_FILE) ownerOnly(file)
+            val file = agentDir.resolve(name)
+            if (name == MCP_FILE) createOwnerOnly(file)
+            Files.writeString(file, text)
         }
         if (agent.files.isNotEmpty()) log.i { "Pi configuration applied files=${agent.files.size}" }
         val missing = agent.missingSecrets
         if (missing > 0) log.w { "Pi MCP servers switched off for missing secrets count=$missing" }
     }
 
-    /** `mcp.json` may carry substituted secrets; without owner bits the app data folder guards it. */
-    private fun ownerOnly(file: Path) {
+    /**
+     * Creates `mcp.json`, which may carry substituted secrets, readable by the owner only before anything is written;
+     * without owner bits (Windows) the per-process directory in the app data folder guards it.
+     */
+    private fun createOwnerOnly(file: Path) {
         if ("posix" in file.fileSystem.supportedFileAttributeViews()) {
-            Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"))
+            Files.createFile(file, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
         }
     }
 

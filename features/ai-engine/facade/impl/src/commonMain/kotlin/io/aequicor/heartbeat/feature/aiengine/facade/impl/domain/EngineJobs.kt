@@ -232,7 +232,10 @@ class EngineJobs(
     private suspend fun packages(engine: EngineId, operation: PackageOperation) {
         val configurator = registry.require(engine).configurator?.value
             ?: refuse("engine has no configurator engine=${engine.value}")
-        val config = launch.context(engine).config
+        val started = launch.context(engine)
+        // Without configuration the list is empty, and a sync would remove every installed package.
+        if (!started.isConfigured) refuse("package jobs need engine configuration engine=${engine.value}")
+        val config = started.config
         withContext(context.io) {
             configurator.packages(operation, config) { done, total -> phase(engine, JobPhase.Installing(done, total)) }
         }

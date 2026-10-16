@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
@@ -70,7 +71,7 @@ internal class PiPackages(private val home: Path, private val run: suspend (List
         return try {
             Json.parseToJsonElement(Files.readString(file)) as? JsonObject ?: JsonObject(emptyMap())
         } catch (e: SerializationException) {
-            log.w(e) { "Pi package settings are unreadable; they are rewritten" }
+            log.w(e.redactedFailure()) { "Pi package settings are unreadable; they are rewritten" }
             JsonObject(emptyMap())
         }
     }

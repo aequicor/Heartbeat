@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocumentId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineActionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -43,6 +44,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.actions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
@@ -77,6 +79,7 @@ class EngineManagementServiceTest {
         InstallSupport.Managed,
         LoginSupport.Cli,
         LaunchSpec(setOf(LaunchOption.Executable, LaunchOption.Environment), reservedEnvironment = setOf("CLI_HOME")),
+        hasPackages = true,
     )
     private val registry = EngineRegistry(
         listOf(
@@ -296,6 +299,19 @@ class EngineManagementServiceTest {
 
         assertEquals(listOf(cliId), runtimes.retired)
         assertEquals(LaunchContext(config = values, isConfigured = true), runtimes.expected.last())
+    }
+
+    @Test
+    fun `packages are offered only while engine configuration is on`() = runTest {
+        val service = service()
+        runCurrent()
+        assertFalse(service.state.value.engine(cliId).spec.hasPackages)
+        assertFalse(EngineActionKind.Packages in service.state.value.engine(cliId).actions())
+
+        flags.configuration.value = true
+        runCurrent()
+
+        assertTrue(EngineActionKind.Packages in service.state.value.engine(cliId).actions())
     }
 
     @Test

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocumentId
@@ -105,7 +106,7 @@ internal class PiNativeImporter(private val source: Path, private val home: Path
             Json.parseToJsonElement(Files.readString(path)) as? JsonObject
         } catch (e: SerializationException) {
             // The user's file is not plain JSON; its content is not logged and the part is not offered.
-            log.w(e) { "Pi file is not plain JSON and is not imported" }
+            log.w(e.redactedFailure()) { "Pi file is not plain JSON and is not imported" }
             null
         }
     }

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigCapability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
@@ -128,7 +129,7 @@ class EngineConfigurationService(
         val trust = preferences.load().configOf(engine).trust[workspace] ?: ProjectTrust.Undecided
         val directory = directoryOf(workspace)
         val isGated = io { configurator.hasGatedConfiguration(directory) }
-        log.d { "project trust engine=${engine.value} trust=$trust gated=$isGated" }
+        log.v { "project trust engine=${engine.value} trust=$trust gated=$isGated" }
         return ProjectTrustStatus(trust, isGated)
     }
 
@@ -162,6 +163,8 @@ class EngineConfigurationService(
     ): ImportReport {
         val (schema, configurator) = configurable(engine)
         requireCapability(engine, schema, ConfigCapability.ImportNative)
+        // Reading copies resources into the profile; a stale import is refused before anything is copied.
+        if (preferences.load().configOf(engine).revision != expected.value) conflict(engine)
         val native = io { configurator.readNative(selection) }
         try {
             mutex.withLock {
@@ -220,9 +223,11 @@ class EngineConfigurationService(
         storage("vault write engine=${engine.value}") {
             written.forEach { (slot, value) -> secrets.put(engine, slot, requireNotNull(value)) }
         }
-        preferences.update { chosen ->
-            val config = chosen.configOf(engine).copy(values = values, revision = revision)
-            chosen.copy(config = chosen.config + (engine to config))
+        storage("configuration write engine=${engine.value}") {
+            preferences.update { chosen ->
+                val config = chosen.configOf(engine).copy(values = values, revision = revision)
+                chosen.copy(config = chosen.config + (engine to config))
+            }
         }
         current.values.secrets.keys.filter { it !in values.secrets }.forEach { slot -> forget(engine, slot) }
         log.i {
@@ -272,8 +277,9 @@ class EngineConfigurationService(
         edit: ProjectEdit,
         current: ProjectFile?,
     ): Pair<ConfigDocumentId, String?>? {
+        // An emptied raw file is deleted: it is how a file that does not parse is removed.
         val text = when {
-            spec.id in edit.raw -> edit.raw.getValue(spec.id)
+            spec.id in edit.raw -> edit.raw.getValue(spec.id).takeIf { it.isNotBlank() }
             spec.id in edit.values.documents -> serialize(edit.values.documents.getValue(spec.id))
             current != null && parse(spec, current.text) == null -> return null
             else -> null
@@ -284,11 +290,13 @@ class EngineConfigurationService(
     private fun rawProblems(edit: ProjectEdit, documents: List<ConfigDocumentSpec>): List<ConfigProblem> =
         edit.raw.mapNotNull { (id, text) ->
             val spec = documents.firstOrNull { it.id == id }
-            when {
-                spec == null -> ConfigProblem(id, emptyList(), ConfigProblemReason.NotInScope)
-                text.length > spec.maxChars -> ConfigProblem(id, emptyList(), ConfigProblemReason.TooLong)
+            val reason = when {
+                spec == null -> ConfigProblemReason.NotInScope
+                text.length > spec.maxChars -> ConfigProblemReason.TooLong
+                SecretReferenceText.containsMatchIn(text) -> ConfigProblemReason.SecretInProject
                 else -> null
             }
+            reason?.let { ConfigProblem(id, emptyList(), it) }
         }
 
     private fun configurable(engine: EngineId): Pair<EngineConfigSchema, EngineConfigurator> {
@@ -313,7 +321,8 @@ class EngineConfigurationService(
             storage("resolve project") { saved.resolve(workspace) }
         }
         if (directory == null) {
-            log.w { "project configuration refused: project unavailable" }
+            // Expected for a project removed from the saved list; the caller decides how to report it.
+            log.d { "project configuration refused: project unavailable" }
             throw ConfigException(ConfigFailure.ProjectUnavailable)
         }
         return directory
@@ -331,7 +340,8 @@ class EngineConfigurationService(
         throw e
     } catch (e: Exception) {
         // Adapters and the vault report platform IO errors of their own types; the panel shows one storage failure.
-        log.e(e) { "$operation failed" }
+        // Their messages may quote paths or file contents, so only the type and stack are logged.
+        log.e(e.redactedFailure()) { "$operation failed" }
         throw ConfigException(ConfigFailure.Storage)
     }
 
@@ -347,6 +357,9 @@ class EngineConfigurationService(
 
     private companion object {
         val SecretSlot = Regex("[A-Z0-9_]{1,48}")
+
+        /** A vault reference anywhere in raw text; project files are shared and never refer to the vault. */
+        val SecretReferenceText = Regex("""\$\{HEARTBEAT_SECRET_[A-Z0-9_]{1,48}}""")
     }
 }
 
@@ -378,7 +391,7 @@ private fun parse(spec: ConfigDocumentSpec, text: String): ConfigDocument? = whe
         (ProjectJson.parseToJsonElement(text) as? JsonObject)?.let(ConfigDocument::Json)
     } catch (e: SerializationException) {
         // A project file with comments or a syntax error is kept and edited as text; its content is not logged.
-        Log.tag("EngineConfiguration").w(e) { "project document is not plain JSON" }
+        Log.tag("EngineConfiguration").w(e.redactedFailure()) { "project document is not plain JSON" }
         null
     }
 }

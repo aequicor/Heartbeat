@@ -236,6 +236,23 @@ class EngineConfigurationServiceTest {
     }
 
     @Test
+    fun `an emptied file that does not parse is removed`() = runTest {
+        val service = service()
+        runCurrent()
+        files.files[settings] = ProjectFile("{ broken", "r2")
+
+        service.saveProject(
+            TestEngine,
+            workspace,
+            ProjectEdit(EngineConfigValues(), raw = mapOf(settings to "")),
+            ProjectRevision(mapOf(settings to "r2")),
+        )
+
+        assertEquals<Map<ConfigDocumentId, String?>>(mapOf(settings to null), files.writes.single())
+        assertFalse(settings in files.files)
+    }
+
+    @Test
     fun `a project save refuses changed files and vault references`() = runTest {
         val service = service()
         runCurrent()
@@ -257,6 +274,13 @@ class EngineConfigurationServiceTest {
         assertEquals(
             listOf(ConfigProblemReason.SecretInProject),
             (invalid as ConfigFailure.Invalid).problems.map { it.reason },
+        )
+        val text = "{ \"t\": \"${secretReference("TOKEN")}\" }"
+        val raw = ProjectEdit(EngineConfigValues(), raw = mapOf(settings to text))
+        val rawInvalid = failure { service.saveProject(TestEngine, workspace, raw, ProjectRevision()) }
+        assertEquals(
+            listOf(ConfigProblemReason.SecretInProject),
+            (rawInvalid as ConfigFailure.Invalid).problems.map { it.reason },
         )
         assertTrue(files.writes.isEmpty())
     }
@@ -327,6 +351,18 @@ class EngineConfigurationServiceTest {
         assertEquals(listOf("settings"), report.imported)
         assertEquals(listOf("put IMPORTED"), secrets.calls)
         assertFailsWith<IllegalStateException> { secret.reveal { it.size } }
+    }
+
+    @Test
+    fun `a stale import is refused before anything is read`() = runTest {
+        val service = service()
+        runCurrent()
+        service.saveProfile(TestEngine, edit(retry = 1), ConfigRevision(0))
+
+        val stale = failure { service.importNative(TestEngine, ImportSelection(setOf("settings")), ConfigRevision(0)) }
+
+        assertEquals(ConfigFailure.Conflict, stale)
+        assertEquals(0, files.nativeReads)
     }
 
     @Test
@@ -428,6 +464,11 @@ class EngineConfigurationServiceTest {
 
         override suspend fun previewNative(): ImportPreview = ImportPreview("~/.engine", emptyList())
 
-        override suspend fun readNative(selection: ImportSelection): NativeImport = requireNotNull(native)
+        var nativeReads = 0
+
+        override suspend fun readNative(selection: ImportSelection): NativeImport {
+            nativeReads++
+            return requireNotNull(native)
+        }
     }
 }

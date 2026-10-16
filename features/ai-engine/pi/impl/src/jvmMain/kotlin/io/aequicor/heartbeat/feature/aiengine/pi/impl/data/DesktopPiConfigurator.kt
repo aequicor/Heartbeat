@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocumentId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFailure
@@ -22,7 +23,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.PackageOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFile
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFiles
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -33,7 +36,8 @@ import java.util.HexFormat
 /**
  * Pi's configuration files of the desktop. Project documents live where Pi reads them: `AGENTS.md` in the project
  * root, the rest in `.pi`. Writes replace a file atomically (a linked file is written through its link) after the
- * file still has the revision the caller read. The facade calls it on the IO dispatcher.
+ * file still has the revision the caller read. A file or directory linking out of the project is refused, and a file
+ * that is not UTF-8 is never shown or rewritten. The facade calls it on the IO dispatcher.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
@@ -61,7 +65,7 @@ internal class DesktopPiConfigurator(
         try {
             PiPackages(profileHome) { arguments -> commands(profileHome, arguments) }.apply(operation, config, progress)
         } catch (e: IOException) {
-            log.w(e) { "Pi package files could not be written" }
+            log.w(e.redactedFailure()) { "Pi package files could not be written" }
             throw ManagementException(ManagementFailure.Install(InstallFailureReason.Storage), e)
         }
     }
@@ -83,9 +87,9 @@ internal class DesktopPiConfigurator(
     }
 
     override suspend fun readProject(directory: String): ProjectFiles = files {
-        val root = Path.of(directory)
+        val root = Path.of(directory).toRealPath()
         ProjectFiles(
-            PiProjectFiles.mapNotNull { (id, relative) -> read(root.resolve(relative))?.let { id to it } }.toMap(),
+            PiProjectFiles.mapNotNull { (id, relative) -> read(root.confined(relative))?.let { id to it } }.toMap(),
         )
     }
 
@@ -94,10 +98,10 @@ internal class DesktopPiConfigurator(
         changes: Map<ConfigDocumentId, String?>,
         expected: Map<ConfigDocumentId, String?>,
     ): ProjectFiles = files {
-        val root = Path.of(directory)
-        val targets = changes.mapKeys { (id, _) -> root.resolve(PiProjectFiles[id] ?: unsupported()) }
+        val root = Path.of(directory).toRealPath()
+        val targets = changes.mapKeys { (id, _) -> root.confined(PiProjectFiles[id] ?: unsupported()) }
         val isChanged = changes.keys.any { id ->
-            read(root.resolve(PiProjectFiles.getValue(id)))?.revision != expected[id]
+            read(root.confined(PiProjectFiles.getValue(id)))?.revision != expected[id]
         }
         if (isChanged) {
             log.w { "Pi project files changed since they were read" }
@@ -117,7 +121,12 @@ internal class DesktopPiConfigurator(
         if (!Files.isRegularFile(path)) return null
         if (Files.size(path) > MAX_FILE_BYTES) throw ConfigException(ConfigFailure.Storage)
         val bytes = Files.readAllBytes(path)
-        return ProjectFile(String(bytes, Charsets.UTF_8), revisionOf(bytes))
+        val text = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+        return ProjectFile(text, revisionOf(bytes))
     }
 
     private fun write(path: Path, text: String) {
@@ -144,11 +153,22 @@ internal class DesktopPiConfigurator(
     private inline fun <T> files(block: () -> T): T = try {
         block()
     } catch (e: CharacterCodingException) {
-        log.w(e) { "Pi file is not UTF-8" }
+        log.w(e.redactedFailure()) { "Pi file is not UTF-8" }
         throw ConfigException(ConfigFailure.Storage)
     } catch (e: IOException) {
-        log.w(e) { "Pi files could not be read or written" }
+        // IO messages name the user's paths.
+        log.w(e.redactedFailure()) { "Pi files could not be read or written" }
         throw ConfigException(ConfigFailure.Storage)
+    }
+
+    /** The project file at [relative] under this (real) root; refused when a link on the way leaves the project. */
+    private fun Path.confined(relative: String): Path {
+        val path = resolve(relative)
+        if (!isInside(this, path, MAX_LINKS)) {
+            log.w { "Pi project file links out of the project" }
+            throw ConfigException(ConfigFailure.Storage)
+        }
+        return path
     }
 
     private fun unsupported(): Nothing = throw ConfigException(ConfigFailure.Unsupported)
@@ -174,3 +194,20 @@ internal fun revisionOf(bytes: ByteArray): String =
 
 private fun unsupportedCommand(): Nothing =
     throw ManagementException(ManagementFailure.Install(InstallFailureReason.Unsupported))
+
+/** Whether [path] (followed through at most [links] links, existing or not) stays inside the real directory [root]. */
+private fun isInside(root: Path, path: Path, links: Int): Boolean {
+    // The nearest part of the path that is a link or exists decides; a missing tail is created inside it.
+    val known = generateSequence(path.normalize()) { it.parent }
+        .firstOrNull { Files.isSymbolicLink(it) || Files.exists(it) }
+    return when {
+        known == null -> false
+
+        Files.isSymbolicLink(known) ->
+            links > 0 && isInside(root, known.resolveSibling(Files.readSymbolicLink(known)), links - 1)
+
+        else -> known.toRealPath().startsWith(root)
+    }
+}
+
+private const val MAX_LINKS = 8

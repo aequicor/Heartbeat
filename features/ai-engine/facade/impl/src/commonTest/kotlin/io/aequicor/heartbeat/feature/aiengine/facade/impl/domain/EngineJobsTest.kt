@@ -271,6 +271,26 @@ class EngineJobsTest {
     }
 
     @Test
+    fun `a package job without engine configuration fails and removes nothing`() = runTest {
+        val packages = JobPackages()
+        val jobs = EngineJobs(
+            EngineRegistry(listOf(packagesRegistration(packages)), EnginePlatform.DesktopMacOs),
+            installs,
+            EngineLaunchConfig { LaunchContext(isConfigured = false) },
+            NoFeeds,
+            runtimes,
+            facadeContext(),
+            hooks,
+        )
+
+        jobs.start(engine, EngineAction.SyncPackages)
+        runCurrent()
+
+        assertTrue(jobs.jobs.value.getValue(engine).phase is JobPhase.Failed)
+        assertEquals(emptyList(), packages.calls)
+    }
+
+    @Test
     fun `a package job of an engine without a configurator fails`() = runTest {
         val jobs = jobs()
         jobs.start(engine, EngineAction.UpdatePackages)

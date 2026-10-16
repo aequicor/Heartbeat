@@ -17,11 +17,13 @@ import kotlin.test.assertTrue
 
 class DesktopPiConfiguratorTest {
     private val root = Files.createTempDirectory("pi-config")
+    private val outside = Files.createTempDirectory("pi-outside")
     private val configurator = DesktopPiConfigurator({ root.resolve("home") })
 
     @AfterTest
     fun cleanUp() {
         root.toFile().deleteRecursively()
+        outside.toFile().deleteRecursively()
     }
 
     @Test
@@ -96,4 +98,28 @@ class DesktopPiConfiguratorTest {
         assertTrue(Files.isSymbolicLink(root.resolve("AGENTS.md")))
         assertEquals("Updated", target.readText())
     }
+
+    @Test
+    fun `a file or folder linking out of the project is neither read nor written`() = runTest {
+        val private = outside.resolve("profile").apply { writeText("export TOKEN=secret") }
+        Files.createSymbolicLink(root.resolve("AGENTS.md"), private)
+
+        assertEquals(ConfigFailure.Storage, refused { configurator.readProject(root.toString()) })
+        Files.delete(root.resolve("AGENTS.md"))
+        Files.createSymbolicLink(root.resolve(".pi"), outside)
+        val write = mapOf(PiDocuments.Settings to "{}")
+        assertEquals(ConfigFailure.Storage, refused { configurator.writeProject(root.toString(), write, emptyMap()) })
+        assertEquals("export TOKEN=secret", private.readText())
+        assertFalse(Files.exists(outside.resolve("settings.json")))
+    }
+
+    @Test
+    fun `a file that is not UTF-8 is not shown`() = runTest {
+        Files.write(root.resolve("AGENTS.md"), byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0x41))
+
+        assertEquals(ConfigFailure.Storage, refused { configurator.readProject(root.toString()) })
+    }
+
+    private suspend fun refused(block: suspend () -> Unit): ConfigFailure =
+        assertFailsWith<ConfigException> { block() }.failure
 }

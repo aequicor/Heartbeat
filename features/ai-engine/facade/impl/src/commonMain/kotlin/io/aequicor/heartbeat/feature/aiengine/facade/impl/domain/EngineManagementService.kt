@@ -342,7 +342,8 @@ class EngineManagementService(
         val settings = inputs.preferences.launchOf(id)
         return ManagedEngine(
             descriptor = descriptor,
-            spec = registration.management,
+            // Package jobs act on the configured package list, which exists only while configuration is on.
+            spec = registration.management.let { if (inputs.isConfigured) it else it.copy(hasPackages = false) },
             enablement = EngineEnablement(id !in inputs.preferences.disabled, reasons),
             availability = listed.firstOrNull { it.descriptor.id == id }?.availability
                 ?: if (isSupported) EngineAvailability.Unknown else EngineAvailability.UnsupportedPlatform,
