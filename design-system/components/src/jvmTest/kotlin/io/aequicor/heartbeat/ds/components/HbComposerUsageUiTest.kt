@@ -98,7 +98,8 @@ class HbComposerUsageUiTest {
                 val first = usageImage()
                 mainClock.advanceTimeBy(HbMotion().usageCompactionMillis / 4L)
                 assertEquals(isReduced, first.isSameUsage(usageImage()), "reduced=$isReduced sweep moves")
-                check(ImageIO.write(first, "png", File("build/previews", "usage-compacting-$isReduced.png")))
+                val directory = File("build/previews").apply { mkdirs() }
+                check(ImageIO.write(first, "png", File(directory, "usage-compacting-$isReduced.png")))
                 isCompacting = false
                 mainClock.advanceTimeBy(HbMotion().slowMillis.toLong())
                 val settled = usageImage()
