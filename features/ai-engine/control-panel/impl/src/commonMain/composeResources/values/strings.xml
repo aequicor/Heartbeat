@@ -244,4 +244,22 @@
     <string name="control_trust_trusted">Trust the project</string>
     <string name="control_project_loading">Reading the project's files…</string>
     <string name="control_project_files">Project files</string>
+    <string name="control_import_title">Import from the engine</string>
+    <string name="control_import_description">Bring settings, instructions, tool servers and resources from the engine's own configuration on this computer.</string>
+    <string name="control_import_open">Import…</string>
+    <string name="control_import_source">From %1$s</string>
+    <string name="control_import_merge">Merge: imported values replace the same keys</string>
+    <string name="control_import_replace">Replace: imported files replace the profile's</string>
+    <string name="control_import_confirm">Import</string>
+    <string name="control_import_dirty">Save or discard your changes before importing.</string>
+    <string name="control_import_empty">Nothing to import was found.</string>
+    <string name="control_import_count">%1$s (%2$d)</string>
+    <string name="control_import_done">Imported</string>
+    <string name="control_import_close">Close</string>
+    <string name="control_import_note_owned">Keys Heartbeat sets itself are left out</string>
+    <string name="control_import_note_secret">Plain credentials move into the profile vault</string>
+    <string name="control_import_note_host">Values from your shell variables are not passed to the engine</string>
+    <string name="control_import_note_skipped">Skipped (a link, installed dependencies or an unsupported file)</string>
+    <string name="control_import_note_large">Exceeds the size limits</string>
+    <string name="control_import_note_unreadable">Could not be read</string>
 </resources>

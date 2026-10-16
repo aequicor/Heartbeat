@@ -78,28 +78,33 @@ internal fun EngineControlPanelContent(
     ControlColumn(state.title.ifEmpty { state.engine }, onBack, modifier.testTag("engine-control-panel")) {
         when {
             state.hasLoadFailure -> LoadFailure({ onIntent(EngineControlPanelIntent.RetryLoad) })
-
             state.isLoading -> HbLoadingState(stringResource(Res.string.control_loading))
-
             state.isMissing -> HbEmptyState(stringResource(Res.string.control_panel_missing))
-
-            else -> {
-                state.failure?.let {
-                    ControlFailureBanner(
-                        it,
-                        onDismiss = { onIntent(EngineControlPanelIntent.DismissError) },
-                    )
-                }
-                state.panel?.let { EngineManagementSection(it, state.loginCode, state.isSaving, onIntent) }
-                SettingsPages(state, onIntent)
-                state.config?.takeIf { it.files.isNotEmpty() }?.let { ConfigFiles(it, onIntent) }
-                if (state.projects.isNotEmpty()) ProjectsSection(state.projects, onIntent)
-            }
+            else -> Overview(state, onIntent)
         }
     }
+    OverviewDialogs(state, onIntent)
+}
+
+/** The management block, the configuration pages and files, the projects and the import of the engine. */
+@Composable
+private fun Overview(state: EngineControlPanelState, onIntent: (EngineControlPanelIntent) -> Unit) {
+    state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
+    state.panel?.let { EngineManagementSection(it, state.loginCode, state.isSaving, onIntent) }
+    SettingsPages(state, onIntent)
+    state.config?.takeIf { it.files.isNotEmpty() }?.let { ConfigFiles(it, onIntent) }
+    if (state.projects.isNotEmpty()) ProjectsSection(state.projects, onIntent)
+    if (state.canImport) ImportSection(isEnabled = !state.isSaving, onIntent)
+}
+
+/** A confirmation of an engine action, an import being chosen and the report of a finished one. */
+@Composable
+private fun OverviewDialogs(state: EngineControlPanelState, onIntent: (EngineControlPanelIntent) -> Unit) {
     val panel = state.panel
     val action = state.confirmAction
     if (panel != null && action != null) EngineActionDialog(action, panel, isEnabled = !state.isSaving, onIntent)
+    state.importing?.let { ImportDialog(it, isBlocked = state.config?.isDirty == true, state.isSaving, onIntent) }
+    state.importReport?.let { ImportReportDialog(it, onIntent) }
 }
 
 /** An open configuration page or file editor in place of the overview; back returns to the overview. */

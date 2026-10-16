@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlInte
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlOutput
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ControlTestData
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigCapability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigRevision
@@ -14,7 +15,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportMode
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportPreview
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportSelection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalizedText
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
@@ -216,11 +222,42 @@ class EngineControlPanelModelTest {
         assertEquals(null, screen.states.value.openProject)
     }
 
-    private fun configured(revision: ConfigRevision, values: EngineConfigValues = EngineConfigValues()) =
-        (managedSnapshot() as EngineControlState.Active).let { active ->
-            val config = EngineConfigState(CodexId, ControlTestData.schema, values, revision)
-            active.copy(
-                snapshot = active.snapshot?.copy(configuration = EngineConfigurationState(true, listOf(config))),
-            )
-        }
+    @Test
+    fun `an import is previewed chosen and run against the saved revision`() = runTest {
+        machine.state.value = configured(ConfigRevision(3), capabilities = setOf(ConfigCapability.ImportNative))
+        val model = model()
+        val screen = subscribe(model.store)
+        assertEquals(true, screen.states.value.canImport)
+        model.store.intent(ImportIntent.Preview)
+        runCurrent()
+        assertEquals(EngineControlIntent.Public.Apply(ControlOperation.PreviewImport(CodexId)), machine.sent.last())
+
+        val preview = ImportPreview("~/.pi/agent", listOf(ImportItem("settings", LocalizedText("Settings"))))
+        machine.state.value = (machine.state.value as EngineControlState.Active).copy(importPreview = preview)
+        model.store.intent(ImportIntent.SetReplacing(true))
+        model.store.intent(ImportIntent.Import)
+        runCurrent()
+        val selection = ImportSelection(setOf("settings"), ImportMode.Replace)
+        assertEquals(
+            EngineControlIntent.Public.Apply(ControlOperation.Import(CodexId, selection, ConfigRevision(3))),
+            machine.sent.last(),
+        )
+
+        model.store.intent(ImportIntent.Dismiss)
+        runCurrent()
+        assertEquals(EngineControlIntent.Public.DismissImport, machine.sent.last())
+        assertEquals(null, screen.states.value.importing)
+    }
+
+    private fun configured(
+        revision: ConfigRevision,
+        values: EngineConfigValues = EngineConfigValues(),
+        capabilities: Set<ConfigCapability> = emptySet(),
+    ) = (managedSnapshot() as EngineControlState.Active).let { active ->
+        val schema = ControlTestData.schema.copy(capabilities = capabilities)
+        val config = EngineConfigState(CodexId, schema, values, revision)
+        active.copy(
+            snapshot = active.snapshot?.copy(configuration = EngineConfigurationState(true, listOf(config))),
+        )
+    }
 }

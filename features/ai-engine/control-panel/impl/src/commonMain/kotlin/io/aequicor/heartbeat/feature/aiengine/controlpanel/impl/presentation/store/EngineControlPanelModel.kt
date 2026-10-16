@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlInte
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlOutput
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.di.scope.EngineControlScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigCapability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -70,6 +71,10 @@ data class EngineControlPanelState(
     val project: ProjectFormUi? = null,
     /** Unsaved changes of the open project's files. */
     val projectDraft: ProjectDraft? = null,
+    /** The engine's own configuration can be imported; an import being chosen, and the report of a finished one. */
+    val canImport: Boolean = false,
+    val importing: ImportUi? = null,
+    val importReport: ImportReportUi? = null,
     val isConfigurationOff: Boolean = false,
     val isLoading: Boolean = true,
     val isMissing: Boolean = false,
@@ -105,6 +110,7 @@ class EngineControlPanelModel(
     private val log = Log.tag("EngineControlPanelModel")
     private val engineId = requireNotNull(target.engine) { "A panel graph is created for one engine" }
     private val projects = EngineProjects(machine, engineId)
+    private val imports = EngineImports(machine, engineId)
 
     val store = factory.create<EngineControlPanelState, EngineControlPanelIntent, EngineControlPanelAction>(
         "EngineControlPanel",
@@ -138,6 +144,8 @@ class EngineControlPanelModel(
             is ConfigIntent -> configure(intent)
 
             is ProjectIntent -> with(projects) { handle(intent) }
+
+            is ImportIntent -> with(imports) { handle(intent) }
         }
     }
 
@@ -255,6 +263,9 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
         openProject = openProject.takeIf { config != null },
         project = project?.let { config?.projectForm(it, projectDraft, title) },
         projectDraft = projectDraft,
+        canImport = config != null && ConfigCapability.ImportNative in config.schema.capabilities,
+        importing = active.importPreview?.toUi(importing),
+        importReport = active.importReport?.let { report -> importReport ?: report.toUi(importing) },
         isConfigurationOff = !snapshot.configuration.isEnabled,
         isMissing = managed == null,
     )
