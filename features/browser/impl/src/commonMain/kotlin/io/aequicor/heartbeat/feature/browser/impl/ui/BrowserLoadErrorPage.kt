@@ -70,7 +70,8 @@ internal fun BrowserLoadErrorPage(
             Modifier.semantics { heading() },
             style = HbTheme.typography.title,
         )
-        HbText(failure.url, color = HbTheme.colors.textSecondary, maxLines = URL_MAX_LINES)
+        // Never truncated: the user decides on this exact host, and an elided subdomain could hide the real one.
+        HbText(failure.url, color = HbTheme.colors.textSecondary)
         HbText(
             stringResource(
                 if (isCertificate) {
@@ -191,8 +192,6 @@ internal fun BrowserSecurityIndicator(security: BrowserSecurityUi, modifier: Mod
         }
     }
 }
-
-private const val URL_MAX_LINES = 3
 
 /** Chrome's technical prefix for certificate error codes; not localized. */
 private const val CERTIFICATE_CODE_PREFIX = "NET::"

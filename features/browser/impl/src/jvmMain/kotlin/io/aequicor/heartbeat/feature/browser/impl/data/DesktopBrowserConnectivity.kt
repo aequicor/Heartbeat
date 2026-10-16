@@ -37,20 +37,36 @@ private val log = Log.tag("BrowserConnectivity")
  * sample is logged, so a permanently unreadable host does not flood the log.
  */
 internal fun connectivitySamples(inspect: () -> Boolean, interval: Duration = 2.seconds): Flow<Boolean?> = flow {
-    var isReadable = true
+    val readability = ConnectivityReadability()
     while (true) {
         val isOnline = try {
-            inspect().also { isReadable = true }
+            inspect().also { readability.readable() }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            if (isReadable) log.w(error) { "Browser connectivity could not be inspected" }
-            isReadable = false
+            if (readability.failed()) {
+                log.w(error) { "Browser connectivity could not be inspected" }
+            } else {
+                log.v { "Browser connectivity is still unreadable" }
+            }
             null
         }
         emit(isOnline)
         delay(interval)
     }
+}
+
+/** Tracks unreadable periods so a failure is warned once per period; repeats stay at trace level. */
+private class ConnectivityReadability {
+    private var isReadable = true
+
+    fun readable() {
+        if (!isReadable) log.d { "Browser connectivity is readable again" }
+        isReadable = true
+    }
+
+    /** Whether this failure starts an unreadable period. */
+    fun failed(): Boolean = isReadable.also { isReadable = false }
 }
 
 /** Each observer starts without an assumed offline state; reconnect yields exactly one retry signal. */

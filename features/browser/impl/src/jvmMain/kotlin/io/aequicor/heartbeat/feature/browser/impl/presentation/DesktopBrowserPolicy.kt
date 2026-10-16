@@ -90,7 +90,6 @@ internal class DesktopBrowserPolicy(
         ): Boolean {
             val kind = if (frame.isMain) BrowserRequestKind.MainDocument else BrowserRequestKind.ChildDocument
             val isRejected = !allows(request.url, kind)
-            if (kind == BrowserRequestKind.MainDocument) mainDocumentMethod.set(request.method?.uppercase() ?: "GET")
             if (isRejected && kind == BrowserRequestKind.MainDocument && !isReleased()) unsupported()
             if (!isRejected && opensLinkInTab(
                     frame.isMain,
@@ -102,6 +101,10 @@ internal class DesktopBrowserPolicy(
             ) {
                 open(request.linkedNavigation())
                 return true
+            }
+            // Only a navigation this tab continues replaces the document whose failure may be retried.
+            if (!isRejected && kind == BrowserRequestKind.MainDocument) {
+                mainDocumentMethod.set(request.method?.uppercase() ?: "GET")
             }
             return isRejected
         }

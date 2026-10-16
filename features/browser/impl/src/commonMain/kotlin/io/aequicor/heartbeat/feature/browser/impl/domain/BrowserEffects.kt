@@ -78,7 +78,9 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
                     session.errorPagesEnabled.collect { machine.send(BrowserIntent.Internal.ErrorPagesChanged(it)) }
                 }
                 launch {
-                    session.networkRestored.collect { machine.send(BrowserIntent.Internal.NetworkRestored) }
+                    // A disabled browser inspects no network interfaces, whatever the error-page policy says.
+                    availability.observe().networkRecoveriesWhileEnabled { session.networkRestored }
+                        .collect { machine.send(BrowserIntent.Internal.NetworkRestored) }
                 }
                 launch {
                     session.tabs.collect { (tabs, selected) ->

@@ -63,17 +63,22 @@ class DesktopBrowserNavigationTest {
     }
 
     @Test
-    fun `indicator keeps the committed page until the next commit and drops it on failure`() {
+    fun `indicator follows the committed address and never an uncommitted one`() {
         navigation.execute(BrowserViewCommand.Load("http://example.com/"))
         navigation.address("http://example.com/")
         navigation.loading(isLoading = false, isBackAvailable = false, isForwardAvailable = false)
         assertEquals(BrowserSecurity.Http, states.last().security)
-        navigation.execute(BrowserViewCommand.Load("https://example.org/"))
+        // A load the page starts keeps the committed address, so its indicator stays.
         navigation.loading(isLoading = true, isBackAvailable = true, isForwardAvailable = false)
         assertEquals(BrowserSecurity.Http, states.last().security)
+        navigation.execute(BrowserViewCommand.Reload)
+        assertEquals(BrowserSecurity.Http, states.last().security)
+        // A typed address is not the committed page, also after it is stopped.
+        navigation.execute(BrowserViewCommand.Load("https://example.org/"))
+        assertEquals(BrowserSecurity.Unknown, states.last().security)
         navigation.execute(BrowserViewCommand.Stop)
         navigation.loading(isLoading = false, isBackAvailable = true, isForwardAvailable = false)
-        assertEquals(BrowserSecurity.Http, states.last().security)
+        assertEquals(BrowserSecurity.Unknown, states.last().security)
         navigation.execute(BrowserViewCommand.Load("https://example.org/"))
         navigation.address("https://example.org/")
         assertEquals(BrowserSecurity.Https, states.last().security)
