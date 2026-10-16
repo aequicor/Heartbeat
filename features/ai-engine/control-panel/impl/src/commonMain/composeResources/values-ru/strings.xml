@@ -215,4 +215,16 @@
     <string name="control_problem_missing_secret">Сохранённый секрет не найден; значение не передаётся.</string>
     <string name="control_problem_secret_literal">Похоже на учётные данные открытым текстом. Сохраните их как секрет.</string>
     <string name="control_problem_not_a_number">Введите целое число.</string>
+    <string name="control_config_add_entry">Добавить: %1$s</string>
+    <string name="control_config_remove_entry">Удалить</string>
+    <string name="control_config_entry_name">Имя</string>
+    <string name="control_config_entry_item">Элемент %1$d</string>
+    <string name="control_config_entry_unknown">Панель не знает такой формы записи. Измените её как JSON.</string>
+    <string name="control_config_key">Имя</string>
+    <string name="control_config_value">Значение</string>
+    <string name="control_config_add_pair">Добавить</string>
+    <string name="control_config_secret_on">Хранить значение как секрет</string>
+    <string name="control_config_secret_off">Хранить значение в файле</string>
+    <string name="control_config_secret_saved">Секрет сохранён. Введите значение, чтобы заменить его.</string>
+    <string name="control_config_secret_missing">Секрет не найден. Введите значение.</string>
 </resources>

@@ -215,4 +215,16 @@
     <string name="control_problem_missing_secret">The saved secret is missing; the value is left out.</string>
     <string name="control_problem_secret_literal">This looks like a credential in plain text. Keep it as a secret instead.</string>
     <string name="control_problem_not_a_number">Enter a whole number.</string>
+    <string name="control_config_add_entry">Add: %1$s</string>
+    <string name="control_config_remove_entry">Remove</string>
+    <string name="control_config_entry_name">Name</string>
+    <string name="control_config_entry_item">Item %1$d</string>
+    <string name="control_config_entry_unknown">This entry has a form the panel does not know. Edit it as JSON.</string>
+    <string name="control_config_key">Name</string>
+    <string name="control_config_value">Value</string>
+    <string name="control_config_add_pair">Add</string>
+    <string name="control_config_secret_on">Keep the value as a secret</string>
+    <string name="control_config_secret_off">Keep the value in the file</string>
+    <string name="control_config_secret_saved">Saved secret. Type to replace it.</string>
+    <string name="control_config_secret_missing">The secret is missing. Type the value.</string>
 </resources>

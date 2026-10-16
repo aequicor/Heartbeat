@@ -16,9 +16,13 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigSectionUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EntryUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FieldEditorUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FieldInputUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.KeyValueRowUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.OptionUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.PageItemUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.SecretUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.TextRoleUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.TextUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.UnitUi
@@ -118,18 +122,76 @@ class ConfigPageUiTest {
     }
 
     @Test
+    fun `entries and pairs send their edits through their field`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<EngineControlPanelIntent>()
+        val servers = ConfigFieldUi("servers", text("Servers"), null, serversEditor, isSet = true)
+        val page = ConfigPageUi(
+            "mcp",
+            text("MCP"),
+            persistentListOf(ConfigSectionUi("main", text("Main"), null, persistentListOf(servers))),
+        )
+        val state = overview.copy(openPage = "mcp", config = ConfigFormUi(persistentListOf(page)))
+        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }, {}) } }
+
+        onNodeWithTag("config-entry-name:github").performTextReplacement("gh")
+        onNodeWithTag("config-pair:env:0:secret").performClick()
+        onNodeWithTag("config-pair:env:0:value").performTextReplacement("new")
+        onNodeWithTag("config-pair-add:env").performClick()
+        onNodeWithTag("config-entry-remove:github").performClick()
+        onNodeWithTag("config-entry-add:servers").performClick()
+        runOnIdle {
+            val saved = KeyValueRowUi("TOKEN", "", "GH", SecretUi.Saved)
+            assertEquals(
+                listOf(
+                    edit("servers", FieldInputUi.RenameEntry("github", "gh")),
+                    edit("servers", inEnv(FieldInputUi.SetSecret("TOKEN", isSecret = false))),
+                    edit("servers", inEnv(FieldInputUi.KeyValues(persistentListOf(saved.copy(value = "new"))))),
+                    edit("servers", inEnv(FieldInputUi.KeyValues(persistentListOf(saved, KeyValueRowUi())))),
+                    edit("servers", FieldInputUi.RemoveEntry("github")),
+                    edit("servers", FieldInputUi.AddEntry("stdio")),
+                ),
+                intents,
+            )
+        }
+    }
+
+    @Test
     fun `every configuration problem has a text`() {
         ConfigProblemReasonUi.entries.forEach { ConfigProblemTexts.getValue(it) }
     }
 
-    private fun edit(field: String, input: FieldInputUi): EngineControlPanelIntent = ConfigIntent.EditField(
-        field,
-        input,
-    )
+    private fun edit(field: String, input: FieldInputUi): EngineControlPanelIntent =
+        ConfigIntent.EditField(field, input)
+
+    private fun inEnv(input: FieldInputUi) = FieldInputUi.EditEntry("github", "env", input)
 
     private companion object {
         val timeout = FieldEditorUi.Number("30", default = null, min = 0, max = null, unit = UnitUi.Seconds)
         val skills = FieldEditorUi.TextList(persistentListOf("a"), TextRoleUi.Path, isPatterns = true)
+        val serversEditor = FieldEditorUi.Entries(
+            text("Server"),
+            isNamed = true,
+            variants = persistentListOf(OptionUi("stdio", text("Command"))),
+            items = persistentListOf(
+                EntryUi(
+                    "github",
+                    "stdio",
+                    persistentListOf(
+                        ConfigFieldUi(
+                            "env",
+                            text("Env"),
+                            null,
+                            FieldEditorUi.KeyValues(
+                                persistentListOf(KeyValueRowUi("TOKEN", "", "GH", SecretUi.Saved)),
+                                isSecretAllowed = true,
+                                valueChoices = null,
+                            ),
+                            isSet = true,
+                        ),
+                    ),
+                ),
+            ),
+        )
 
         fun text(value: String) = TextUi(value, persistentMapOf())
     }

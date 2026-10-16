@@ -124,7 +124,7 @@ class ConfigPresentationTest {
             fields.getValue("skills").editor,
         )
         assertEquals(FieldEditorUi.Document("", "md"), fields.getValue("agents").editor)
-        assertEquals(FieldEditorUi.Structured(0), fields.getValue("env").editor)
+        assertEquals(FieldEditorUi.KeyValues(persistentListOf(), false, null), fields.getValue("env").editor)
         assertTrue("proxy" in fields)
         assertFalse(form.isDirty)
         assertFalse(form.canSave)

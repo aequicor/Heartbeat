@@ -1,8 +1,10 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store
 
+import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.ControlOperation
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigField
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFieldKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigProblem
@@ -11,16 +13,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigSchema
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ListSyntax
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EntriesShape
+import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.read
+import io.aequicor.heartbeat.feature.aiengine.facade.api.secretSlots
 import io.aequicor.heartbeat.feature.aiengine.facade.api.validateEngineConfig
+import io.aequicor.heartbeat.feature.aiengine.facade.api.with
 import io.aequicor.heartbeat.feature.aiengine.facade.api.write
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 
 /** Every field of the schema, page by page. */
 internal fun EngineConfigSchema.fields(): List<ConfigField> =
@@ -35,26 +39,29 @@ internal fun EngineControlState.configOf(engine: EngineId): EngineConfigState? =
 
 /**
  * The profile form of this configuration with [draft] applied: the visible profile fields of every page with their
- * values, defaults and problems. A page without a visible field is left out.
+ * values, defaults and problems. Problems are those of the values as they would be saved, so rows being typed do
+ * not block saving. A page without a visible field is left out.
  */
 internal fun EngineConfigState.form(draft: ConfigDraft?): ConfigFormUi {
     val values = draft?.values ?: profile
     val typed = draft?.invalidNumbers.orEmpty()
+    val secrets = SecretView(values.secrets.keys, draft?.secrets.orEmpty())
     val visible = schema.fields().filter { it.isShown(values) }
-    val problems = validateEngineConfig(schema, values, ConfigScope.Profile)
+    val saved = schema.cleaned(values).let { it.copy(secrets = it.secrets + secrets.typed.mapValues { PENDING }) }
+    val problems = validateEngineConfig(schema, saved, ConfigScope.Profile)
     val owned = problems.groupBy { it.owner(visible)?.id }
     val pages = schema.pages.map { page ->
         val sections = page.sections.mapNotNull { section ->
             val fields = section.fields.filter { it in visible }
             if (fields.isEmpty()) return@mapNotNull null
-            val rows = fields.map { it.toUi(values, owned[it.id].orEmpty(), typed[it.id]) }
+            val rows = fields.map { it.toUi(values, owned[it.id].orEmpty(), typed[it.id], secrets) }
             ConfigSectionUi(section.id, section.title.toUi(), section.note?.toUi(), rows.toImmutableList())
         }
         ConfigPageUi(page.id, page.title.toUi(), sections.toImmutableList())
     }
     return ConfigFormUi(
         pages = pages.filter { it.sections.isNotEmpty() }.toImmutableList(),
-        isDirty = draft != null && (draft.values != profile || typed.isNotEmpty()),
+        isDirty = draft != null && (draft.values != profile || typed.isNotEmpty() || draft.secrets.isNotEmpty()),
         blockingProblems = problems.count { it.isBlocking } + typed.size,
         hasConflict = draft != null && !draft.isSubmitted && draft.base != revision,
         isSubmitted = draft?.isSubmitted == true,
@@ -74,21 +81,35 @@ internal fun EngineConfigState.edit(draft: ConfigDraft?, fieldId: String, input:
     val typed = current.invalidNumbers - fieldId
     val unparsed = (input as? FieldInputUi.Number)?.text
         ?.takeIf { field.kind is ConfigFieldKind.Number && it.isNotBlank() && it.trim().toLongOrNull() == null }
-    val written = input.toJson(field.kind)
+    val slots = SlotNames(field.id, current.values.secretSlots() + current.secrets.keys + profile.secrets.keys)
+    val change = field.kind.change(current.values.read(field.binding), input, slots)
     return when {
         unparsed != null -> current.copy(invalidNumbers = typed + (fieldId to unparsed))
-        written == null -> current
-        else -> current.copy(values = current.values.write(field.binding, written.value), invalidNumbers = typed)
+
+        change == null -> current
+
+        else -> current.copy(
+            values = current.values.write(field.binding, change.value),
+            invalidNumbers = typed,
+            secrets = current.secrets + change.secrets.mapNotNull { (slot, text) -> text?.let { slot to it } } -
+                change.secrets.filterValues { it == null }.keys,
+        )
     }
 }
 
-/** [values] as saved: blank list items are dropped and emptied lists removed. */
+/** The profile save of [draft]: its values as saved and the values typed for the slots they still use. */
+internal fun EngineConfigSchema.saveOf(draft: ConfigDraft): ConfigEdit {
+    val values = cleaned(draft.values)
+    val used = values.secretSlots()
+    return ConfigEdit(values, draft.secrets.filterKeys { it in used }.mapValues { Secret(it.value.toCharArray()) })
+}
+
+/** [values] as saved: blank list items and blank names are dropped and emptied values removed. */
 internal fun EngineConfigSchema.cleaned(values: EngineConfigValues): EngineConfigValues =
-    fields().filter { it.kind is ConfigFieldKind.TextList }.fold(values) { result, field ->
-        val items = result.read(field.binding) as? JsonArray ?: return@fold result
-        val kept = items.filterNot { it.isBlankText() }
-        val list = kept.takeIf { it.isNotEmpty() }?.let(::JsonArray)
-        if (kept.size == items.size) result else result.write(field.binding, list)
+    fields().fold(values) { result, field ->
+        val value = result.read(field.binding) ?: return@fold result
+        val clean = field.kind.clean(value)
+        if (clean == value) result else result.write(field.binding, clean)
     }
 
 /**
@@ -103,26 +124,36 @@ internal fun ConfigDraft?.settle(config: EngineConfigState?, state: EngineContro
     else -> this
 }
 
-private data class Written(val value: JsonElement?)
+/** Revision standing in for a vault value that is typed but not saved yet. */
+private const val PENDING = -1L
 
-/** The JSON this input writes for a field of [kind]; null when it does not fit the kind. */
-private fun FieldInputUi.toJson(kind: ConfigFieldKind): Written? = when (this) {
-    FieldInputUi.Reset -> Written(null)
+/** This value without blank list items and blank names, inside entries too; null when nothing is left. */
+private fun ConfigFieldKind.clean(value: JsonElement): JsonElement? = when (this) {
+    is ConfigFieldKind.TextList -> (value as? JsonArray)?.filterNot { it.isBlankText() }
+        ?.let { kept -> JsonArray(kept).takeIf { kept.isNotEmpty() } } ?: value.takeUnless { it is JsonArray }
 
-    is FieldInputUi.Flag -> Written(JsonPrimitive(value)).takeIf { kind is ConfigFieldKind.Flag }
+    is ConfigFieldKind.KeyValues -> (value as? JsonObject)?.filterKeys { it.isNotBlank() }
+        ?.let { kept -> JsonObject(kept).takeIf { kept.isNotEmpty() } } ?: value.takeUnless { it is JsonObject }
 
-    is FieldInputUi.Choice -> (kind as? ConfigFieldKind.Choice)?.options
-        ?.firstOrNull { it.value.toString() == key }
-        ?.let { Written(it.value) }
+    is ConfigFieldKind.Entries -> cleanEntries(value)
 
-    is FieldInputUi.Number ->
-        Written(text.trim().toLongOrNull()?.let(::JsonPrimitive)).takeIf { kind is ConfigFieldKind.Number }
+    else -> value
+}
 
-    is FieldInputUi.Text -> Written(text.takeIf { it.isNotEmpty() }?.let(::JsonPrimitive))
-        .takeIf { kind is ConfigFieldKind.Text || kind is ConfigFieldKind.Document }
-
-    is FieldInputUi.TextList -> Written(items.takeIf { it.isNotEmpty() }?.let { JsonArray(it.map(::JsonPrimitive)) })
-        .takeIf { kind is ConfigFieldKind.TextList }
+private fun ConfigFieldKind.Entries.cleanEntries(value: JsonElement): JsonElement {
+    val items = items(value).map { (key, item) ->
+        val variant = variants.firstOrNull { it.match.accepts(item) } ?: return@map key to item
+        key to variant.fields.fold(item) { result, field ->
+            val inner = field.valueIn(result) ?: return@fold result
+            val clean = field.kind.clean(inner)
+            when {
+                clean == inner -> result
+                field.path.isEmpty() -> clean ?: JsonPrimitive("")
+                else -> (result as? JsonObject)?.with(field.path, clean) ?: result
+            }
+        }
+    }
+    return if (shape == EntriesShape.NamedMap) JsonObject(items.toMap()) else JsonArray(items.map { it.second })
 }
 
 /** A profile field whose condition holds. */
@@ -148,65 +179,32 @@ private fun ConfigBinding.contains(path: List<String>): Boolean = when (this) {
 private val ConfigBinding.depth: Int
     get() = (this as? ConfigBinding.JsonPath)?.path?.size ?: 0
 
-private fun ConfigField.toUi(values: EngineConfigValues, problems: List<ConfigProblem>, typed: String?): ConfigFieldUi {
+private fun ConfigField.toUi(
+    values: EngineConfigValues,
+    problems: List<ConfigProblem>,
+    typed: String?,
+    secrets: SecretView,
+): ConfigFieldUi {
     val value = values.read(binding)
     val base = (binding as? ConfigBinding.JsonPath)?.path.orEmpty()
+    val relative = problems.map { it.toUi(base) }
     val typing = listOfNotNull(typed?.let { ConfigProblemUi(ConfigProblemReasonUi.NotANumber) })
+    val editor = kind.editor(value, typed, secrets, relative)
+    // Problems inside entries are shown at their entry; the field keeps those about the whole value.
+    val own = if (editor is FieldEditorUi.Entries) relative.filter { it.path.isEmpty() } else relative
     return ConfigFieldUi(
         id = id,
         title = title.toUi(),
         description = description?.toUi(),
-        editor = kind.editor(value, typed),
+        editor = editor,
         isSet = value != null,
         isAdvanced = isAdvanced,
-        problems = (problems.map { it.toUi(base) } + typing).toImmutableList(),
+        problems = (own + typing).toImmutableList(),
     )
 }
 
 private fun ConfigProblem.toUi(base: List<String>) =
     ConfigProblemUi(ConfigProblemReasonUi.valueOf(reason.name), path.drop(base.size).toImmutableList(), isBlocking)
 
-private fun ConfigFieldKind.editor(value: JsonElement?, typed: String?): FieldEditorUi = when (this) {
-    is ConfigFieldKind.Flag -> FieldEditorUi.Flag((value as? JsonPrimitive)?.booleanOrNull, isOnByDefault)
-
-    is ConfigFieldKind.Choice -> FieldEditorUi.Choice(
-        options.map { OptionUi(it.value.toString(), it.title.toUi()) }.toImmutableList(),
-        selected = (value as? JsonPrimitive)?.toString(),
-        default = default?.toString(),
-    )
-
-    is ConfigFieldKind.Number -> FieldEditorUi.Number(
-        typed ?: value?.text().orEmpty(),
-        default,
-        min,
-        max,
-        unit?.let { UnitUi.valueOf(it.name) },
-    )
-
-    is ConfigFieldKind.Text -> FieldEditorUi.Text(value?.text().orEmpty(), TextRoleUi.valueOf(role.name), default)
-
-    is ConfigFieldKind.TextList -> FieldEditorUi.TextList(
-        (value as? JsonArray).orEmpty().map { it.text() }.toImmutableList(),
-        TextRoleUi.valueOf(role.name),
-        isPatterns = syntax == ListSyntax.ResourcePatterns,
-    )
-
-    is ConfigFieldKind.Document -> FieldEditorUi.Document(value?.text().orEmpty(), language)
-
-    is ConfigFieldKind.ManagedNote -> FieldEditorUi.Managed(reason.toUi())
-
-    is ConfigFieldKind.KeyValues, is ConfigFieldKind.Entries -> FieldEditorUi.Structured(value.count())
-}
-
 private fun JsonElement.isBlankText(): Boolean =
     (this as? JsonPrimitive)?.takeIf { it.isString }?.content?.isBlank() == true
-
-/** The text of a string, or the JSON of anything else. */
-private fun JsonElement.text(): String = (this as? JsonPrimitive)?.takeIf { it.isString }?.content ?: toString()
-
-private fun JsonElement?.count(): Int = when (this) {
-    is JsonObject -> size
-    is JsonArray -> size
-    null -> 0
-    else -> 1
-}

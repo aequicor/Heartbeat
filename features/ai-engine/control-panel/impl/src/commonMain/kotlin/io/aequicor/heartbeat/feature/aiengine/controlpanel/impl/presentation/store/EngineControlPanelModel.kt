@@ -17,7 +17,6 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlInte
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlOutput
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.di.scope.EngineControlScope
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -165,12 +164,16 @@ class EngineControlPanelModel(
             log.w { "ignore a configuration save without savable changes" }
             return
         }
-        val save = ControlOperation.SaveProfile(engineId, ConfigEdit(config.schema.cleaned(draft.values)), draft.base)
+        val edit = config.schema.saveOf(draft)
+        val save = ControlOperation.SaveProfile(engineId, edit, draft.base)
         // The draft stays until the saved revision changes, so a failed save keeps the edits to fix.
         if (sendTo(machine, EngineControlIntent.Public.Apply(save)) == SendResult.Accepted) {
             updateState {
                 copy(configDraft = configDraft?.copy(isSubmitted = true)).reflect(engineId, machine.state.value)
             }
+        } else {
+            // A refused save never reaches the effect that closes its secrets.
+            edit.secrets.values.forEach { it?.close() }
         }
     }
 

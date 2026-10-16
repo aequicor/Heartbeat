@@ -81,9 +81,58 @@ sealed interface FieldEditorUi {
     /** A setting Heartbeat owns, with the reason. */
     data class Managed(val reason: TextUi) : FieldEditorUi
 
-    /** A structured value with [count] items, edited as JSON of its document. */
-    data class Structured(val count: Int) : FieldEditorUi
+    /**
+     * Pairs of names and values (environment, headers). [valueChoices] restrict the values; with [isSecretAllowed] a
+     * value can be kept in the profile vault instead of the file.
+     */
+    data class KeyValues(
+        val rows: ImmutableList<KeyValueRowUi>,
+        val isSecretAllowed: Boolean,
+        val valueChoices: ImmutableList<OptionUi>?,
+    ) : FieldEditorUi
+
+    /**
+     * Structured entries (tool servers, packages) in document order. Named entries ([isNamed]) are renamed in place;
+     * a new entry takes one of [variants] (keyed by variant id).
+     */
+    data class Entries(
+        val itemTitle: TextUi,
+        val isNamed: Boolean,
+        val variants: ImmutableList<OptionUi>,
+        val items: ImmutableList<EntryUi>,
+    ) : FieldEditorUi
 }
+
+/**
+ * One entry: its [key] (the name, or the position in a list), the [variant] it matched (null for a form none
+ * describes, which is edited only as JSON), its fields and the problems of the entry itself.
+ */
+@Immutable
+data class EntryUi(
+    val key: String,
+    val variant: String?,
+    val fields: ImmutableList<ConfigFieldUi>,
+    val problems: ImmutableList<ConfigProblemUi> = persistentListOf(),
+) {
+    override fun toString(): String = "EntryUi(variant=$variant, fields=${fields.size})"
+}
+
+/**
+ * A name and its value. A value kept in the vault has a [slot]; it is never shown: [value] is only what was typed
+ * to replace it, and [secret] tells whether a value is saved, newly typed or missing. Never printed.
+ */
+@Immutable
+data class KeyValueRowUi(
+    val key: String = "",
+    val value: String = "",
+    val slot: String? = null,
+    val secret: SecretUi? = null,
+) {
+    override fun toString(): String = "KeyValueRowUi(secret=$secret)"
+}
+
+/** State of a value kept in the profile vault. */
+enum class SecretUi { Saved, Typed, Missing }
 
 /** A choice offered for a value; [key] identifies it in [FieldInputUi.Choice]. */
 @Immutable
@@ -149,17 +198,48 @@ sealed interface FieldInputUi {
 
     /** Returns to the engine's default. */
     data object Reset : FieldInputUi
+
+    /** Replaces the pairs of a key-value field; a vault row passes what was typed to replace its value. */
+    data class KeyValues(val rows: ImmutableList<KeyValueRowUi>) : FieldInputUi {
+        override fun toString(): String = "KeyValues(${rows.size})"
+    }
+
+    /** Moves the value of the pair [key] into the vault, or back into the file as an empty value. */
+    data class SetSecret(val key: String, val isSecret: Boolean) : FieldInputUi
+
+    /** Appends an entry of [variant]. */
+    data class AddEntry(val variant: String) : FieldInputUi
+
+    /** Removes the entry [key]. */
+    data class RemoveEntry(val key: String) : FieldInputUi
+
+    /** Renames the named entry [key]; a name another entry has changes nothing. */
+    data class RenameEntry(val key: String, val name: String) : FieldInputUi {
+        override fun toString(): String = "RenameEntry(***)"
+    }
+
+    /** Changes the field [field] of the entry [key]. */
+    data class EditEntry(val key: String, val field: String, val input: FieldInputUi) : FieldInputUi {
+        override fun toString(): String = "EditEntry(field=$field, input=$input)"
+    }
 }
 
 /**
  * Unsaved profile configuration: [values] edited from the configuration at [base], typed numbers that are not
- * numbers yet by field, and whether a save of it was accepted ([isSubmitted]). Never printed.
+ * numbers yet by field, values typed for vault slots ([secrets]) and whether a save of it was accepted
+ * ([isSubmitted]). Never printed.
  */
 data class ConfigDraft(
     val base: ConfigRevision,
     val values: EngineConfigValues,
     val invalidNumbers: Map<String, String> = emptyMap(),
+    val secrets: Map<String, String> = emptyMap(),
     val isSubmitted: Boolean = false,
 ) {
     override fun toString(): String = "ConfigDraft(base=${base.value}, isSubmitted=$isSubmitted)"
+}
+
+/** Vault slots with a saved value and the values typed for slots in the draft. Never printed. */
+internal data class SecretView(val saved: Set<String>, val typed: Map<String, String>) {
+    override fun toString(): String = "SecretView(saved=${saved.size}, typed=${typed.size})"
 }

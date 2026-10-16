@@ -35,7 +35,6 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_add_item
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_default_engine
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_items
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_managed
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_patterns_hint
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_remove_item
@@ -46,7 +45,8 @@ import org.jetbrains.compose.resources.stringResource
 
 /**
  * One configuration value: a settings row with an inline control (flag, choice, number) or a label above a wide
- * editor (text, list, document), then the problems found at it. Every change goes to [onInput].
+ * editor (text, list, document, pairs, entries), then the problems found at it. Every change goes to [onInput];
+ * [isAdvancedShown] unfolds the advanced fields of entries.
  */
 @Composable
 internal fun ConfigFieldRow(
@@ -54,6 +54,7 @@ internal fun ConfigFieldRow(
     enabled: Boolean,
     onInput: (FieldInputUi) -> Unit,
     modifier: Modifier = Modifier,
+    isAdvancedShown: Boolean = false,
 ) {
     val title = field.title.text()
     HbColumn(modifier.fillMaxWidth().testTag("config-field:${field.id}"), gap = HbTheme.spacing.xs) {
@@ -81,8 +82,12 @@ internal fun ConfigFieldRow(
                 HbBadge(stringResource(Res.string.control_config_managed))
             }
 
-            is FieldEditorUi.Structured -> HbSettingsRow(title, description = field.description?.text()) {
-                HbBadge(stringResource(Res.string.control_config_items, editor.count))
+            is FieldEditorUi.KeyValues -> WideField(field, enabled, onInput) {
+                KeyValuesEditor(field.id, editor, enabled, onInput)
+            }
+
+            is FieldEditorUi.Entries -> WideField(field, enabled, onInput) {
+                EntriesEditor(field.id, editor, enabled, isAdvancedShown, onInput)
             }
 
             is FieldEditorUi.Text -> WideField(field, enabled, onInput) {
@@ -274,8 +279,9 @@ private fun ListEditor(
     }
 }
 
+/** The problems of a value, one line per reason; warnings do not block saving. */
 @Composable
-private fun FieldProblems(problems: ImmutableList<ConfigProblemUi>, modifier: Modifier = Modifier) {
+internal fun FieldProblems(problems: ImmutableList<ConfigProblemUi>, modifier: Modifier = Modifier) {
     if (problems.isEmpty()) return
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xxs) {
         problems.distinctBy { it.reason }.forEach { problem ->

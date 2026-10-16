@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigPageUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigSectionUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FieldEditorUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_advanced_hide
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_advanced_show
@@ -62,9 +63,9 @@ internal fun ConfigPageContent(
                 isAdvancedShown || !it.isAdvanced || it.isSet ||
                     it.problems.isNotEmpty()
             }
-            if (fields.isNotEmpty()) Section(section, fields.toImmutableList(), isEditable, onIntent)
+            if (fields.isNotEmpty()) Section(section, fields.toImmutableList(), isEditable, isAdvancedShown, onIntent)
         }
-        if (page.sections.any { section -> section.fields.any { it.isAdvanced } }) {
+        if (page.sections.any { section -> section.fields.any { it.hasAdvanced() } }) {
             val toggle = if (isAdvancedShown) {
                 Res.string.control_config_advanced_hide
             } else {
@@ -141,6 +142,7 @@ private fun Section(
     section: ConfigSectionUi,
     fields: ImmutableList<ConfigFieldUi>,
     isEditable: Boolean,
+    isAdvancedShown: Boolean,
     onIntent: (ConfigIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -151,7 +153,16 @@ private fun Section(
     ) {
         fields.forEachIndexed { index, field ->
             if (index > 0) HbDivider()
-            ConfigFieldRow(field, isEditable, { onIntent(ConfigIntent.EditField(field.id, it)) })
+            ConfigFieldRow(
+                field,
+                isEditable,
+                { onIntent(ConfigIntent.EditField(field.id, it)) },
+                isAdvancedShown = isAdvancedShown,
+            )
         }
     }
 }
+
+/** The field or one of its entries' fields is advanced. */
+private fun ConfigFieldUi.hasAdvanced(): Boolean =
+    isAdvanced || (editor as? FieldEditorUi.Entries)?.items?.any { entry -> entry.fields.any { it.isAdvanced } } == true

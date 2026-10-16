@@ -9,8 +9,11 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigProblemReasonUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigProblemUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigSectionUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EntryUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FieldEditorUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.KeyValueRowUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.OptionUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.SecretUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.TextRoleUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.TextUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.UnitUi
@@ -87,7 +90,40 @@ private val PreviewPage = ConfigPageUi(
                     "servers",
                     text("Tool servers", "Серверы инструментов"),
                     null,
-                    FieldEditorUi.Structured(2),
+                    FieldEditorUi.Entries(
+                        text("Server", "Сервер"),
+                        isNamed = true,
+                        variants = persistentListOf(OptionUi("stdio", text("Command", "Команда"))),
+                        items = persistentListOf(
+                            EntryUi(
+                                "github",
+                                "stdio",
+                                persistentListOf(
+                                    ConfigFieldUi(
+                                        "command",
+                                        text("Command", "Команда"),
+                                        null,
+                                        FieldEditorUi.Text("npx", TextRoleUi.Command, default = null),
+                                        isSet = true,
+                                    ),
+                                    ConfigFieldUi(
+                                        "env",
+                                        text("Environment", "Окружение"),
+                                        null,
+                                        FieldEditorUi.KeyValues(
+                                            persistentListOf(
+                                                KeyValueRowUi("GITHUB_TOKEN", slot = "GITHUB", secret = SecretUi.Saved),
+                                                KeyValueRowUi("LOG_LEVEL", "debug"),
+                                            ),
+                                            isSecretAllowed = true,
+                                            valueChoices = null,
+                                        ),
+                                        isSet = true,
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
                     isSet = true,
                 ),
             ),
