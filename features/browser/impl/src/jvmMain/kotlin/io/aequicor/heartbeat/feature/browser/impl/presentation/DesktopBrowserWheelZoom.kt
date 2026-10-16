@@ -12,8 +12,8 @@ import org.cef.handler.CefMessageRouterHandlerAdapter
  * non-passive listener that consumes only trusted vertical wheel events with Ctrl or Cmd. The private presentation
  * channel can only request a bounded zoom step for its own tab; it exposes no browser operations or profile data.
  * The host rechecks the live toggle and selected tab. A page may invoke the channel itself, so requests never carry
- * an arbitrary percentage or target origin and the host throttles them like the listener does, which bounds profile
- * writes. Installation is idempotent and disabling removes each listener.
+ * an arbitrary percentage or target origin and the host throttles them slightly below the listener's rate, which
+ * bounds profile writes. Installation is idempotent and disabling removes each listener.
  */
 internal class DesktopBrowserWheelZoom(
     private val isEnabled: () -> Boolean,
@@ -59,20 +59,24 @@ internal class DesktopBrowserWheelZoom(
     }
 }
 
-/** Accepts one step per [WHEEL_ZOOM_INTERVAL_MS], measured on a monotonic clock; CEF calls it on its UI thread. */
+/**
+ * Accepts one step per [HOST_ZOOM_INTERVAL_MS] on a monotonic clock; CEF calls it on its UI thread. The bound is
+ * below the listener's [WHEEL_ZOOM_INTERVAL_MS], so IPC jitter never drops a step the trusted listener already took.
+ */
 internal class BrowserWheelZoomThrottle(private val nanoTime: () -> Long = System::nanoTime) {
     private var lastAccepted: Long? = null
 
     fun tryAcquire(): Boolean {
         val now = nanoTime()
         val last = lastAccepted
-        if (last != null && now - last < WHEEL_ZOOM_INTERVAL_MS * NANOS_PER_MILLI) return false
+        if (last != null && now - last < HOST_ZOOM_INTERVAL_MS * NANOS_PER_MILLI) return false
         lastAccepted = now
         return true
     }
 }
 
 private const val WHEEL_ZOOM_INTERVAL_MS = 80L
+private const val HOST_ZOOM_INTERVAL_MS = 50L
 private const val NANOS_PER_MILLI = 1_000_000L
 
 /**
