@@ -27,7 +27,8 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 /**
  * Indeterminate progress for background work such as a running agent. The arc rotates in the draw phase only,
  * so rows hosting it never recompose per frame; reduced motion shows a static arc.
- * Pass [contentDescription] when no adjacent text announces the activity.
+ * Pass [contentDescription] when no adjacent text announces the activity. [isCounterClockwise] marks waiting for
+ * someone else, such as a browser tab waiting for the server's response, as opposed to work in progress.
  */
 @Composable
 public fun HbActivityIndicator(
@@ -35,6 +36,7 @@ public fun HbActivityIndicator(
     contentDescription: String? = null,
     color: Color = HbTheme.colors.brand,
     size: Dp = HbTheme.dimensions.iconSmallSize,
+    isCounterClockwise: Boolean = false,
 ) {
     val isReducedMotion = HbTheme.motion.isReducedMotion
     val track = HbTheme.colors.outlineSubtle
@@ -44,7 +46,7 @@ public fun HbActivityIndicator(
     } else {
         rememberInfiniteTransition(label = "activity").animateFloat(
             initialValue = 0f,
-            targetValue = FULL_TURN,
+            targetValue = if (isCounterClockwise) -FULL_TURN else FULL_TURN,
             animationSpec = infiniteRepeatable(tween(ROTATION_MILLIS, easing = LinearEasing), RepeatMode.Restart),
             label = "activityRotation",
         )

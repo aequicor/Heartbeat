@@ -51,6 +51,7 @@ internal data class BrowserTabUi(
     val groupId: String? = null,
     val isLoading: Boolean = false,
     val faviconUrl: String = "",
+    val isAwaitingResponse: Boolean = false,
 )
 
 internal sealed interface BrowserScreenIntent : MVIIntent {

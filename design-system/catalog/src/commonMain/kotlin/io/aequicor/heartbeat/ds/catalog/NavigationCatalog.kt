@@ -84,6 +84,9 @@ internal fun NavigationExample(modifier: Modifier = Modifier) {
                     isSelected = selected == 2,
                     isEmphasized = true,
                     level = 1,
+                    leadingContent = {
+                        HbActivityIndicator(color = HbTheme.colors.textSecondary, isCounterClockwise = true)
+                    },
                 )
             }
         }

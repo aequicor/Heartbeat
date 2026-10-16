@@ -62,12 +62,14 @@ class BrowserModelTest {
         fixture.machine.state.value = ready(BrowserPage()).copy(
             tabs = listOf(
                 BrowserTab("loading", BrowserPage("https://example.com/", isLoading = true)),
-                BrowserTab("idle", BrowserPage("https://example.org/", "Idle")),
+                BrowserTab("idle", BrowserPage("https://example.org/", "Idle", isAwaitingResponse = true)),
+                BrowserTab("waiting", BrowserPage("https://example.net/", isLoading = true, isAwaitingResponse = true)),
             ),
             selectedTabId = "idle",
         )
         runCurrent()
-        assertEquals(listOf(true, false), screen.states.value.tabs.map { it.isLoading })
+        assertEquals(listOf(true, false, true), screen.states.value.tabs.map { it.isLoading })
+        assertEquals(listOf(false, false, true), screen.states.value.tabs.map { it.isAwaitingResponse })
         assertFalse(screen.states.value.isLoading)
     }
 

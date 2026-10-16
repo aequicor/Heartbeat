@@ -152,6 +152,14 @@ class BrowserUiTest {
                             tabs = persistentListOf(
                                 BrowserTabUi("one", "First", true, false, isLoading = true, faviconUrl = "icon"),
                                 BrowserTabUi("two", "Second", true, false, faviconUrl = "icon"),
+                                BrowserTabUi(
+                                    "three",
+                                    "Third",
+                                    isHumanControlled = true,
+                                    hasAgent = false,
+                                    isLoading = true,
+                                    isAwaitingResponse = true,
+                                ),
                             ),
                             favicons = persistentMapOf("icon" to BrowserFaviconImage(testIcon())),
                         ),
@@ -162,6 +170,8 @@ class BrowserUiTest {
             onNodeWithTag("browser-tab-loading-one", useUnmergedTree = true).assertIsDisplayed()
             onNodeWithTag("browser-tab-favicon-one", useUnmergedTree = true).assertDoesNotExist()
             onNodeWithTag("browser-tab-favicon-two", useUnmergedTree = true).assertIsDisplayed()
+            onNodeWithTag("browser-tab-waiting-three", useUnmergedTree = true).assertExists()
+            onNodeWithTag("browser-tab-loading-three", useUnmergedTree = true).assertDoesNotExist()
             onNodeWithTag("browser-tab-loading-two", useUnmergedTree = true).assertDoesNotExist()
             onNodeWithTag("browser-loading").assertDoesNotExist()
             onNodeWithTag("browser-tab-two").performMouseInput {

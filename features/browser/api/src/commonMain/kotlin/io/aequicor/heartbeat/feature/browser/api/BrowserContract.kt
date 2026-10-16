@@ -38,8 +38,9 @@ public enum class BrowserError {
 }
 
 /**
- * Current main frame; native history belongs to the currently attached surface. [faviconUrl] is the HTTP(S) address
- * of the site's icon found after the page loaded, or empty while it is unknown; like [url], it is never logged.
+ * Current main frame; native history belongs to the currently attached surface. [isAwaitingResponse] marks the first
+ * phase of [isLoading], before the server has answered the main document. [faviconUrl] is the HTTP(S) address of the
+ * site's icon found after the page loaded, or empty while it is unknown; like [url], it is never logged.
  */
 public data class BrowserPage(
     val url: String = "",
@@ -49,6 +50,7 @@ public data class BrowserPage(
     val isForwardAvailable: Boolean = false,
     val error: BrowserError? = null,
     val faviconUrl: String = "",
+    val isAwaitingResponse: Boolean = false,
 )
 
 /** Runtime projection; desktop restores tab metadata from profile storage, without native history or approvals. */

@@ -128,15 +128,20 @@ private fun BrowserTab(
         modifier = Modifier.width(width).bringIntoViewRequester(bringIntoView)
             .onMiddleClick { onIntent(BrowserScreenIntent.CloseTab(tab.id)) }
             .testTag("browser-tab-${tab.id}"),
-        // As in Chromium, the activity indicator takes the site icon's place while the page loads.
+        // As in Chromium, the activity indicator takes the site icon's place while the page loads: a muted one turning
+        // counter-clockwise while the server has not answered, then the accent one while the page arrives.
         icon = HbIcons.Globe.takeUnless { tab.isLoading || favicon != null },
         leadingContent = when {
             tab.isLoading -> {
                 {
                     HbActivityIndicator(
-                        Modifier.testTag("browser-tab-loading-${tab.id}"),
+                        Modifier.testTag(
+                            (if (tab.isAwaitingResponse) "browser-tab-waiting-" else "browser-tab-loading-") + tab.id,
+                        ),
                         contentDescription = stringResource(Res.string.browser_loading),
+                        color = if (tab.isAwaitingResponse) HbTheme.colors.textSecondary else HbTheme.colors.brand,
                         size = HbTheme.dimensions.iconSize,
+                        isCounterClockwise = tab.isAwaitingResponse,
                     )
                 }
             }

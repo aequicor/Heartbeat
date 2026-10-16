@@ -180,6 +180,7 @@ internal fun BrowserScreenState.reflectState(state: BrowserState): BrowserScreen
                         it.owner,
                         it.page.isLoading,
                         it.page.faviconUrl,
+                        it.page.isLoading && it.page.isAwaitingResponse,
                     )
                 }
                 .toImmutableList(),

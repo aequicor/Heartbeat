@@ -4,7 +4,10 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import org.cef.browser.CefBrowser
 
-/** EDT-confined state projection; native callback arguments are copied before entering this class. */
+/**
+ * EDT-confined state projection; native callback arguments are copied before entering this class. A load awaits the
+ * server's response until CEF reports the main frame's load start, which follows the navigation's commit.
+ */
 internal class DesktopBrowserNavigation(
     private val browser: CefBrowser,
     private val changed: (BrowserViewState) -> Unit,
@@ -34,7 +37,7 @@ internal class DesktopBrowserNavigation(
             BrowserViewCommand.Stop -> {
                 isStopped = true
                 browser.stopLoad()
-                update(state.copy(isLoading = false))
+                update(state.copy(isLoading = false, isAwaitingResponse = false))
             }
         }
     }
@@ -46,9 +49,12 @@ internal class DesktopBrowserNavigation(
     fun title(title: String) = update(state.copy(title = title))
 
     fun loading(isLoading: Boolean, isBackAvailable: Boolean, isForwardAvailable: Boolean) {
+        val isActive = isLoading && !isStopped
         update(
             state.copy(
-                isLoading = isLoading && !isStopped,
+                isLoading = isActive,
+                // A load the page started itself (a link, a redirect) begins here, before any response.
+                isAwaitingResponse = isActive && (state.isAwaitingResponse || !state.isLoading),
                 isBackAvailable = isBackAvailable,
                 isForwardAvailable = isForwardAvailable,
             ),
@@ -57,16 +63,18 @@ internal class DesktopBrowserNavigation(
 
     fun started() {
         isStopped = false
-        update(state.copy(isLoading = true, error = null))
+        update(state.copy(isLoading = true, isAwaitingResponse = false, error = null))
     }
 
-    fun failed() = update(state.copy(isLoading = false, error = BrowserViewError.LoadFailed))
+    fun failed() =
+        update(state.copy(isLoading = false, isAwaitingResponse = false, error = BrowserViewError.LoadFailed))
 
-    fun unsupported() = update(state.copy(isLoading = false, error = BrowserViewError.UnsupportedAddress))
+    fun unsupported() =
+        update(state.copy(isLoading = false, isAwaitingResponse = false, error = BrowserViewError.UnsupportedAddress))
 
     private fun begin(action: () -> Unit) {
         isStopped = false
-        update(state.copy(isLoading = true, error = null))
+        update(state.copy(isLoading = true, isAwaitingResponse = true, error = null))
         action()
     }
 

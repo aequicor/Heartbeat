@@ -68,6 +68,7 @@ internal class BrowserSurfaceAdapter(
             previous?.execute(BrowserViewCommand.Stop)
             page.value = page.value.copy(
                 isLoading = false,
+                isAwaitingResponse = false,
                 isBackAvailable = false,
                 isForwardAvailable = false,
                 error = null,
@@ -81,9 +82,9 @@ internal class BrowserSurfaceAdapter(
         val native = command.toNative()
         if (command is BrowserCommand.Load) {
             require(isBrowserUrlAllowed(command.url)) { "Browser requires an HTTP(S) address" }
-            page.value = page.value.copy(url = command.url, isLoading = true, error = null)
+            page.value = page.value.copy(url = command.url, isLoading = true, isAwaitingResponse = true, error = null)
         }
-        if (command == BrowserCommand.Stop) page.value = page.value.copy(isLoading = false)
+        if (command == BrowserCommand.Stop) page.value = page.value.copy(isLoading = false, isAwaitingResponse = false)
         val current = controller
         if (current == null) pending += native else current.execute(native)
     }
@@ -125,6 +126,7 @@ internal class BrowserSurfaceAdapter(
             this@BrowserSurfaceAdapter.controller = null
             page.value = page.value.copy(
                 isLoading = false,
+                isAwaitingResponse = false,
                 isBackAvailable = false,
                 isForwardAvailable = false,
             )
@@ -146,6 +148,7 @@ private fun BrowserViewState.toDomain(previousUrl: String): BrowserPage = Browse
     isLoading = isLoading,
     isBackAvailable = isBackAvailable,
     isForwardAvailable = isForwardAvailable,
+    isAwaitingResponse = isLoading && isAwaitingResponse,
     error = when (error) {
         null -> null
         BrowserViewError.LoadFailed -> BrowserError.LoadFailed

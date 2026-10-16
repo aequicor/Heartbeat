@@ -22,6 +22,7 @@ internal data class BrowserViewState(
     val isBackAvailable: Boolean = false,
     val isForwardAvailable: Boolean = false,
     val error: BrowserViewError? = null,
+    val isAwaitingResponse: Boolean = false,
 )
 
 internal enum class BrowserViewError {
