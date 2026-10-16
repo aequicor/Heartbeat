@@ -42,6 +42,10 @@ internal class DesktopBrowserPolicy(
 ) {
     private val log = Log.tag("DesktopBrowserPolicy")
     private val linkedNavigation = AtomicReference<BrowserViewCommand.Load?>(null)
+    private val mainDocumentMethod = AtomicReference("GET")
+
+    /** Whether the latest main-document navigation, including history and redirects, was not a plain GET. */
+    val isMainDocumentSubmission: Boolean get() = mainDocumentMethod.get() != "GET"
 
     /**
      * LoadURL can open a fresh browser; LoadRequest cannot navigate about:blank to a different origin.
@@ -86,6 +90,7 @@ internal class DesktopBrowserPolicy(
         ): Boolean {
             val kind = if (frame.isMain) BrowserRequestKind.MainDocument else BrowserRequestKind.ChildDocument
             val isRejected = !allows(request.url, kind)
+            if (kind == BrowserRequestKind.MainDocument) mainDocumentMethod.set(request.method?.uppercase() ?: "GET")
             if (isRejected && kind == BrowserRequestKind.MainDocument && !isReleased()) unsupported()
             if (!isRejected && opensLinkInTab(
                     frame.isMain,
@@ -151,6 +156,8 @@ internal class DesktopBrowserPolicy(
                 callback?.cancel()
                 return callback != null
             }
+            // The user may bypass natively before any load ends; withhold the host from agents first.
+            certificateExceptions.warned(requestUrl)
             return false
         }
 
@@ -222,7 +229,7 @@ internal class DesktopBrowserPolicy(
     fun allows(url: String?, kind: BrowserRequestKind): Boolean {
         if (isReleased() || !isBrowserRequestAllowed(url.orEmpty(), kind, isOwnBlank = isBootstrap())) return false
         // Chromium caches accepted certificates across this profile. Never lend that trust to an agent tab.
-        if (guard.isRestricted && certificateExceptions.contains(url.orEmpty())) return false
+        if (guard.isRestricted && certificateExceptions.isWithheldFromAgents(url.orEmpty())) return false
         return guard.allows(url.orEmpty(), kind)
     }
 }

@@ -9,20 +9,27 @@ public val BrowserErrorPages: FeatureToggle.Flag = FeatureToggle.Flag(
     default = false,
 )
 
-/** Main-document failure. Native diagnostics are excluded; [code] is a Chromium symbolic error name. */
+/**
+ * Main-document failure. Native diagnostics are excluded; [code] is a Chromium symbolic error name.
+ * [isSubmission] marks a non-GET navigation (a form post): the server may already have received it.
+ */
 public data class BrowserLoadFailure(
     val url: String,
     val code: String,
     val isCertificate: Boolean = false,
     val isProceedAllowed: Boolean = false,
     val id: String = "",
+    val isSubmission: Boolean = false,
 ) {
-    /** Only connectivity errors are retried after an observed offline-to-online transition. */
+    /**
+     * Only connectivity errors of plain loads are retried after an observed offline-to-online transition;
+     * like Chrome, a submission is never resent without the user.
+     */
     val isNetworkRetryable: Boolean
-        get() = !isCertificate && code in NETWORK_ERRORS
+        get() = !isCertificate && !isSubmission && code in NETWORK_ERRORS
 }
 
-/** Connection indicator, never inferred from an uncommitted address draft. */
+/** Connection indicator of the last committed document, never inferred from an address draft or a pending load. */
 public enum class BrowserSecurity {
     Unknown,
     Https,

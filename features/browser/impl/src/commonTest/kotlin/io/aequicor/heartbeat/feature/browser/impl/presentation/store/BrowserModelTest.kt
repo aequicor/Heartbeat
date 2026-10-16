@@ -6,10 +6,12 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDisplay
 import io.aequicor.heartbeat.feature.browser.api.BrowserError
 import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserOutput
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
+import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
@@ -311,13 +313,7 @@ class BrowserModelTest {
     fun `error details reset on another failure and certificate action keeps original snapshot`() = runTest {
         val fixture = Fixture(this)
         val screen = fixture.subscribe()
-        val failure = io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure(
-            "https://example.com/",
-            "ERR_CERT_DATE_INVALID",
-            true,
-            true,
-            "first",
-        )
+        val failure = certificateFailure()
         val state = ready(BrowserPage(url = failure.url, failure = failure)).copy(
             areErrorPagesEnabled = true,
             selectedTabId = "tab",
@@ -332,12 +328,57 @@ class BrowserModelTest {
         fixture.machine.state.value = state.copy(page = state.page.copy(failure = failure.copy(id = "next")))
         runCurrent()
         assertFalse(screen.states.value.isErrorDetailsExpanded)
-        fixture.model.store.intent(BrowserScreenIntent.ProceedCertificate("tab", original))
+        fixture.model.store.intent(BrowserScreenIntent.ProceedCertificate(original))
         runCurrent()
         assertEquals(BrowserIntent.Internal.ProceedCertificate("tab", failure), fixture.machine.sent.last())
         fixture.machine.state.value = state.copy(areErrorPagesEnabled = false)
         runCurrent()
         assertEquals(null, screen.states.value.failure)
+    }
+
+    @Test
+    fun `agent controlled warning offers no decision and keeps the exact snapshot`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        val failure = certificateFailure()
+        fixture.machine.state.value = ready(BrowserPage(url = failure.url, failure = failure)).copy(
+            areErrorPagesEnabled = true,
+            selectedTabId = "tab",
+            tabs = listOf(BrowserTab("tab", owner = "agent")),
+        )
+        runCurrent()
+        val shown = requireNotNull(screen.states.value.failure)
+        assertFalse(shown.isDecisionAvailable)
+        assertFalse(shown.isProceedAllowed)
+        assertEquals(failure, shown.failure)
+        fixture.model.store.intent(BrowserScreenIntent.ReturnToSafety(shown))
+        runCurrent()
+        assertEquals(BrowserIntent.Internal.ReturnToSafety("tab", failure), fixture.machine.sent.last())
+    }
+
+    @Test
+    fun `connection indicator follows the committed page through loads and address feedback`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        val committed = ready(BrowserPage(url = "https://example.com/", security = BrowserSecurity.Https))
+            .copy(areErrorPagesEnabled = true)
+        val cases = listOf(
+            committed to BrowserSecurityUi.Https,
+            committed.copy(page = committed.page.copy(security = BrowserSecurity.Http)) to BrowserSecurityUi.Http,
+            committed.copy(
+                page = committed.page.copy(security = BrowserSecurity.CertificateException, isLoading = true),
+            ) to BrowserSecurityUi.CertificateException,
+            committed.copy(page = committed.page.copy(error = BrowserError.UnsupportedAddress))
+                to BrowserSecurityUi.Https,
+            committed.copy(page = committed.page.copy(error = BrowserError.LoadFailed)) to BrowserSecurityUi.Unknown,
+            committed.copy(page = committed.page.copy(failure = certificateFailure())) to BrowserSecurityUi.Unknown,
+            committed.copy(areErrorPagesEnabled = false) to BrowserSecurityUi.Unknown,
+        )
+        for ((state, expected) in cases) {
+            fixture.machine.state.value = state
+            runCurrent()
+            assertEquals(expected, screen.states.value.security, "$state")
+        }
     }
 
     private class Fixture(private val scope: TestScope) {
@@ -371,6 +412,14 @@ class BrowserModelTest {
         }
     }
 }
+
+private fun certificateFailure() = BrowserLoadFailure(
+    "https://example.com/",
+    "ERR_CERT_DATE_INVALID",
+    isCertificate = true,
+    isProceedAllowed = true,
+    id = "first",
+)
 
 private fun ready(page: BrowserPage) = BrowserState.Running(isConfigured = true, isEnabled = true, page = page)
 

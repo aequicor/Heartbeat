@@ -11,13 +11,13 @@ import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.browser.api.BrowserDisplay
 import io.aequicor.heartbeat.feature.browser.api.BrowserError
 import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
-import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserOutput
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.browser.api.browserAddress
+import io.aequicor.heartbeat.feature.browser.api.isHumanDecisionAllowed
 import io.aequicor.heartbeat.feature.browser.impl.di.scope.BrowserScope
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
@@ -60,12 +60,12 @@ internal class BrowserModel(
 
                 is BrowserScreenIntent.ProceedCertificate -> sendTo(
                     machine,
-                    BrowserIntent.Internal.ProceedCertificate(intent.tabId, intent.failure.toDomain()),
+                    BrowserIntent.Internal.ProceedCertificate(intent.failure.tabId, intent.failure.failure),
                 )
 
                 is BrowserScreenIntent.ReturnToSafety -> sendTo(
                     machine,
-                    BrowserIntent.Internal.ReturnToSafety(intent.tabId, intent.failure.toDomain()),
+                    BrowserIntent.Internal.ReturnToSafety(intent.failure.tabId, intent.failure.failure),
                 )
 
                 is BrowserScreenIntent.ApproveControl -> sendTo(
@@ -306,22 +306,19 @@ private fun controlRequest(tabId: String, requestId: String, operation: BrowserO
         ),
     )
 
-private fun BrowserFailureUi.toDomain(): BrowserLoadFailure = BrowserLoadFailure(
-    url = url,
-    code = code,
-    isCertificate = isCertificate,
-    isProceedAllowed = isProceedAllowed,
-    id = id,
-)
-
-private fun BrowserState.Running.failureUi(): BrowserFailureUi? = page.failure?.takeIf { areErrorPagesEnabled }?.let {
-    val isHuman = tabs.any { tab -> tab.id == selectedTabId && (tab.owner == null || tab.isHumanControlled) }
-    BrowserFailureUi(it.url, it.code, it.isCertificate, it.isProceedAllowed && isHuman, it.id)
+private fun BrowserState.Running.failureUi(): BrowserFailureUi? {
+    val failure = page.failure?.takeIf { areErrorPagesEnabled } ?: return null
+    val tabId = selectedTabId ?: return null
+    return BrowserFailureUi(tabId, failure, isDecisionAvailable = isHumanDecisionAllowed(tabId))
 }
 
+/**
+ * The committed page's indicator survives pending loads and address-bar feedback; only a failed document drops it.
+ */
 private fun BrowserState.Running.securityUi(): BrowserSecurityUi {
-    if (!areErrorPagesEnabled || page.isLoading) return BrowserSecurityUi.Unknown
-    if (page.error != null || page.failure != null) return BrowserSecurityUi.Unknown
+    val isFailed = page.failure != null || page.error == BrowserError.LoadFailed ||
+        page.error == BrowserError.EngineUnavailable
+    if (!areErrorPagesEnabled || isFailed) return BrowserSecurityUi.Unknown
     return when (page.security) {
         BrowserSecurity.Unknown -> BrowserSecurityUi.Unknown
         BrowserSecurity.Https -> BrowserSecurityUi.Https
@@ -332,4 +329,4 @@ private fun BrowserState.Running.securityUi(): BrowserSecurityUi {
 
 private fun BrowserScreenState.keepsDetails(state: BrowserState.Running): Boolean =
     isErrorDetailsExpanded && state.areErrorPagesEnabled &&
-        state.selectedTabId == selectedTabId && state.page.failure?.id == failure?.id
+        state.selectedTabId == selectedTabId && state.page.failure?.id == failure?.failure?.id

@@ -9,8 +9,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -21,12 +25,20 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserFailureUi
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserPhase
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenError
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenIntent
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenState
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserSecurityUi
+import io.aequicor.heartbeat.feature.browser.impl.resources.Res
+import io.aequicor.heartbeat.feature.browser.impl.resources.browser_failure_details_collapsed
+import io.aequicor.heartbeat.feature.browser.impl.resources.browser_failure_details_expanded
+import io.aequicor.heartbeat.feature.browser.impl.resources.browser_security_certificate_exception
+import io.aequicor.heartbeat.feature.browser.impl.resources.browser_security_https
+import io.aequicor.heartbeat.feature.browser.impl.resources.browser_security_insecure
+import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
@@ -34,7 +46,17 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 class BrowserFailureUiTest {
-    private val failure = BrowserFailureUi("https://example.com/", "ERR_CERT_DATE_INVALID", true, true, "one")
+    private val failure = BrowserFailureUi(
+        "tab",
+        BrowserLoadFailure(
+            "https://example.com/",
+            "ERR_CERT_DATE_INVALID",
+            isCertificate = true,
+            isProceedAllowed = true,
+            id = "one",
+        ),
+    )
+    private val fatal = failure.copy(failure = failure.failure.copy(isProceedAllowed = false))
 
     @Test
     fun `invalid address feedback stays visible above a previous load failure`() = runSkikoComposeUiTest {
@@ -80,16 +102,13 @@ class BrowserFailureUiTest {
         onNodeWithTag("browser-proceed-certificate").performScrollTo().performClick()
         runOnIdle {
             assertEquals(0, nativeCount)
-            assertEquals(BrowserScreenIntent.ProceedCertificate("tab", failure), sent.last())
-            state = screen().copy(failure = failure.copy(isProceedAllowed = false), isErrorDetailsExpanded = true)
+            assertEquals(BrowserScreenIntent.ProceedCertificate(failure), sent.last())
+            state = screen().copy(failure = fatal, isErrorDetailsExpanded = true)
         }
         onNodeWithTag("browser-proceed-certificate").assertDoesNotExist()
         onNodeWithTag("browser-back-to-safety").performScrollTo().performClick()
         runOnIdle {
-            assertEquals(
-                BrowserScreenIntent.ReturnToSafety("tab", failure.copy(isProceedAllowed = false)),
-                sent.last(),
-            )
+            assertEquals(BrowserScreenIntent.ReturnToSafety(fatal), sent.last())
         }
     }
 
@@ -99,7 +118,7 @@ class BrowserFailureUiTest {
         setContent {
             HbTheme {
                 BrowserScreenContent(
-                    screen().copy(failure = failure.copy(code = "ERR_NAME_NOT_RESOLVED", isCertificate = false)),
+                    screen().copy(failure = network("ERR_NAME_NOT_RESOLVED")),
                     { sent += it },
                 )
             }
@@ -107,6 +126,77 @@ class BrowserFailureUiTest {
         onNodeWithText("ERR_NAME_NOT_RESOLVED").assertIsDisplayed()
         onNodeWithTag("browser-failure-reload").performClick()
         runOnIdle { assertEquals(BrowserScreenIntent.Reload, sent.single()) }
+    }
+
+    @Test
+    fun `network failure without specific details offers no duplicate details`() = runSkikoComposeUiTest {
+        setContent {
+            HbTheme {
+                val unreachable = screen().copy(
+                    failure = network("ERR_ADDRESS_UNREACHABLE"),
+                    error = BrowserScreenError.LoadFailed,
+                )
+                BrowserScreenContent(unreachable, {}) {
+                    error("Native content must stay hidden behind a network failure page")
+                }
+            }
+        }
+        onNodeWithTag("browser-failure-reload").assertIsDisplayed()
+        onNodeWithTag("browser-failure-details").assertDoesNotExist()
+        onNodeWithTag("browser-error").assertDoesNotExist()
+    }
+
+    @Test
+    fun `agent controlled warning explains why no decision is offered`() = runSkikoComposeUiTest {
+        setContent {
+            HbTheme {
+                BrowserScreenContent(screen().copy(failure = failure.copy(isDecisionAvailable = false)), {})
+            }
+        }
+        onNodeWithTag("browser-failure-agent").assertIsDisplayed()
+        onNodeWithTag("browser-back-to-safety").assertDoesNotExist()
+        onNodeWithTag("browser-failure-details").assertDoesNotExist()
+    }
+
+    @Test
+    fun `details toggle announces expansion`() = runSkikoComposeUiTest {
+        var state by mutableStateOf(screen())
+        var collapsed = ""
+        var expanded = ""
+        setContent {
+            collapsed = stringResource(Res.string.browser_failure_details_collapsed)
+            expanded = stringResource(Res.string.browser_failure_details_expanded)
+            HbTheme { BrowserScreenContent(state, {}) }
+        }
+        onNodeWithTag("browser-failure-details", useUnmergedTree = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, collapsed))
+        state = state.copy(isErrorDetailsExpanded = true)
+        onNodeWithTag("browser-failure-details", useUnmergedTree = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, expanded))
+    }
+
+    @Test
+    fun `connection indicator names insecure states and keeps https neutral`() = runSkikoComposeUiTest {
+        var security by mutableStateOf(BrowserSecurityUi.Http)
+        var insecure = ""
+        var exception = ""
+        var https = ""
+        setContent {
+            insecure = stringResource(Res.string.browser_security_insecure)
+            exception = stringResource(Res.string.browser_security_certificate_exception)
+            https = stringResource(Res.string.browser_security_https)
+            HbTheme { BrowserSecurityIndicator(security) }
+        }
+        onNodeWithText(insecure).assertIsDisplayed()
+        security = BrowserSecurityUi.CertificateException
+        onNodeWithText(insecure).assertIsDisplayed()
+        onNodeWithContentDescription(exception).assertExists()
+        security = BrowserSecurityUi.Https
+        onNodeWithText(insecure).assertDoesNotExist()
+        onNodeWithContentDescription(https).assertExists()
+        security = BrowserSecurityUi.Unknown
+        onNodeWithText(insecure).assertDoesNotExist()
+        onNodeWithContentDescription(https).assertDoesNotExist()
     }
 
     @Test
@@ -130,6 +220,11 @@ class BrowserFailureUiTest {
             }
         }
     }
+
+    private fun network(code: String) = BrowserFailureUi(
+        "tab",
+        BrowserLoadFailure("https://example.com/", code, id = "network"),
+    )
 
     private fun screen() = BrowserScreenState(
         phase = BrowserPhase.Ready,

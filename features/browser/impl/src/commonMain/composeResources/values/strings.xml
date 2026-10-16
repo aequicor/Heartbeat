@@ -64,6 +64,10 @@
     <string name="browser_failure_offline">You are offline. This page will retry when a network connection is restored.</string>
     <string name="browser_security_https">Connection information</string>
     <string name="browser_security_insecure">Not secure</string>
+    <string name="browser_certificate_agent">An agent controls this tab. Take control of the tab to decide on this warning.</string>
+    <string name="browser_failure_details_expanded">Expanded</string>
+    <string name="browser_failure_details_collapsed">Collapsed</string>
+    <string name="browser_security_certificate_exception">Not secure: a certificate error was bypassed for this site</string>
     <string name="browser_zoom">Page zoom: %1$d%</string>
     <string name="browser_zoom_percent">%1$d%</string>
     <string name="browser_zoom_in">Zoom in</string>

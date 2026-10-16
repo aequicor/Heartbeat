@@ -333,7 +333,8 @@ internal class DesktopBrowserSession(
         }
         if (request.owner != null) {
             require(!entry.tab.isHumanControlled) { "Tab is controlled by the user" }
-            failures.requireAgentSafety(entry)
+            // Closing reads nothing from the page: an agent can always abandon a tab its safety rules block.
+            if (request.operation != BrowserOperation.CloseTab) failures.requireAgentSafety(entry)
         }
         return when (request.operation) {
             BrowserOperation.ApproveControl,

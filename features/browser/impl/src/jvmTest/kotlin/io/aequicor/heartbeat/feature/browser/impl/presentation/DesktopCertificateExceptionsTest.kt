@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -30,6 +31,22 @@ class DesktopCertificateExceptionsTest {
     }
 
     @Test
+    fun `warned hosts and unreadable decisions are withheld from agents without a red label`() {
+        val exceptions = DesktopCertificateExceptions()
+        exceptions.warned("https://example.com/")
+        assertTrue(exceptions.isWithheldFromAgents("https://example.com:8443/"))
+        assertFalse(exceptions.isWithheldFromAgents("https://other.example/"))
+        assertFalse(exceptions.isWithheldFromAgents("http://example.com/"))
+        assertEquals(BrowserSecurity.Https, exceptions.security("https://example.com/"))
+        assertFalse(exceptions.restore(null))
+        assertTrue(exceptions.isWithheldFromAgents("https://other.example/"))
+        assertTrue(exceptions.restore(emptyMap<String, Any>()))
+        assertFalse(exceptions.isWithheldFromAgents("https://other.example/"))
+        exceptions.clear()
+        assertFalse(exceptions.isWithheldFromAgents("https://example.com/"))
+    }
+
+    @Test
     fun `agent navigation cannot borrow a human certificate exception`() {
         val exceptions = DesktopCertificateExceptions()
         val guard = DesktopBrowserAgentGuard()
@@ -44,18 +61,11 @@ class DesktopCertificateExceptionsTest {
         )
         exceptions.remember("https://example.com/")
         guard.restrict(null)
-        assertFalse(
-            policy.allows(
-                "https://example.com:8443/",
-                io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind.MainDocument,
-            ),
-        )
+        assertFalse(policy.allows("https://example.com:8443/", BrowserRequestKind.MainDocument))
         guard.unrestrict()
-        assertTrue(
-            policy.allows(
-                "https://example.com/",
-                io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind.MainDocument,
-            ),
-        )
+        assertTrue(policy.allows("https://example.com/", BrowserRequestKind.MainDocument))
+        exceptions.warned("https://warned.example/")
+        guard.restrict(null)
+        assertFalse(policy.allows("https://warned.example/", BrowserRequestKind.MainDocument))
     }
 }

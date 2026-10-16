@@ -199,8 +199,13 @@ internal class DesktopBrowserEngine(
                             "profile.default_content_setting_values.geolocation",
                             "profile.default_content_setting_values.notifications",
                         )
-                        val isDenied = preferences.all { context.setPreference(it, CONTENT_SETTING_BLOCK) == null } &&
-                            certificateExceptions.restore(context.getPreference(SSL_CERTIFICATE_DECISIONS))
+                        val isDenied = preferences.all { context.setPreference(it, CONTENT_SETTING_BLOCK) == null }
+                        // Labels grant nothing: unreadable decisions block agent requests (see policy), not the tab.
+                        if (!certificateExceptions.restore(context.getPreference(SSL_CERTIFICATE_DECISIONS))) {
+                            log.w(IllegalStateException("JCEF certificate decisions unreadable")) {
+                                "Chromium certificate exceptions could not be labelled"
+                            }
+                        }
                         onSwing {
                             // A hidden host can miss SHOWING_CHANGED while its native browser is still being created.
                             if (OS.isMacintosh()) browser.setWindowVisibility(browser.uiComponent.isShowing)
@@ -295,11 +300,12 @@ internal class DesktopBrowserEngine(
                         failedUrl: String,
                     ) {
                         if (frame.isMain && errorCode != CefLoadHandler.ErrorCode.ERR_ABORTED) {
+                            val isSubmission = policy.isMainDocumentSubmission
                             onSwing {
                                 log.w(IllegalStateException("JCEF load error code=$errorCode")) {
                                     "Main document load failed"
                                 }
-                                navigation?.failed(failedUrl, errorCode.name)
+                                navigation?.failed(failedUrl, errorCode.name, isSubmission)
                             }
                         }
                     }

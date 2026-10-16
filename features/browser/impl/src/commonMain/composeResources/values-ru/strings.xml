@@ -64,6 +64,10 @@
     <string name="browser_failure_offline">Нет подключения к сети. Страница повторит загрузку при восстановлении подключения.</string>
     <string name="browser_security_https">Сведения о подключении</string>
     <string name="browser_security_insecure">Не защищено</string>
+    <string name="browser_certificate_agent">Вкладкой управляет агент. Заберите управление вкладкой, чтобы принять решение по этому предупреждению.</string>
+    <string name="browser_failure_details_expanded">Развёрнуто</string>
+    <string name="browser_failure_details_collapsed">Свёрнуто</string>
+    <string name="browser_security_certificate_exception">Не защищено: для этого сайта пропущена ошибка сертификата</string>
     <string name="browser_zoom">Масштаб страницы: %1$d%</string>
     <string name="browser_zoom_percent">%1$d%</string>
     <string name="browser_zoom_in">Увеличить</string>

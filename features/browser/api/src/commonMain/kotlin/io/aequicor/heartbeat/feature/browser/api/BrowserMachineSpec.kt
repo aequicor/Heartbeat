@@ -20,8 +20,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * [Reobserve]; the effect already revoked the session. Running + Failed -> stay with
  * EngineUnavailable. ErrorPagesChanged updates the opt-in policy; enabled NetworkRestored emits
  * RetryNetworkErrors. Internal ProceedCertificate/ReturnToSafety require the exact selected failure
- * and human control; proceeding additionally requires an overridable certificate error.
- * Disabled navigation and duplicate Start are ignored.
+ * and human control; proceeding additionally requires an overridable certificate error. Disabling clears
+ * the failure and the connection indicator together with the native error.
+ * Navigation clears the failure but keeps the committed page's connection indicator until the engine reports
+ * the next commit. Disabled navigation and duplicate Start are ignored.
  * Running + ZoomAvailabilityChanged -> stay with isZoomEnabled. Enabled + Zoom (zoom enabled, HTTP/S page)
  * -> stay [Zoom(selected tab, direction, URL)]; Enabled + Zoom (zoom enabled, any other page) -> accepted without
  * an effect, since zoom keys on a new tab are routine input. During a pending main-frame navigation the URL is
@@ -39,13 +41,16 @@ import kotlin.coroutines.cancellation.CancellationException
  *     Running --> Running: Perform / Perform, Completed / output Completed
  *     Running --> Running: CancelOperation / CancelOperation, OperationCancelled / output Cancelled
  *     Running --> Running: ObserverFailed / Reobserve
+ *     Running --> Running: ErrorPagesChanged, NetworkRestored / RetryNetworkErrors
+ *     Running --> Running: ProceedCertificate / ProceedCertificate, ReturnToSafety / ReturnToSafety
  *     Running --> Running: ZoomAvailabilityChanged, Zoom [HTTP/S] / Zoom, Zoom [other]
  * ```
  *
  * All running updates use stay so the live toggle observer survives navigation, errors and
  * disabling. Effect failures never leave a request unanswered: Perform maps to an error result
  * ("cancelled" for a cancellation raised inside the operation), CancelOperation to its
- * acknowledgement, observation to a delayed restart; a failed SelectTab or Zoom is only logged.
+ * acknowledgement, observation to a delayed restart; a failed SelectTab, Zoom, network retry or certificate
+ * decision is only logged: none of them may mark the selected page's engine unavailable.
  */
 public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserEffect, BrowserOutput> =
     machineSpec(BrowserMachineKey, BrowserState.Idle) {
@@ -133,7 +138,6 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                             isLoading = true,
                             error = null,
                             failure = null,
-                            security = BrowserSecurity.Unknown,
                         ),
                     )
                 }
@@ -155,7 +159,6 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                             isLoading = true,
                             error = null,
                             failure = null,
-                            security = BrowserSecurity.Unknown,
                         ),
                     )
                 }
@@ -170,7 +173,6 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                             isLoading = true,
                             error = null,
                             failure = null,
-                            security = BrowserSecurity.Unknown,
                         ),
                     )
                 }
@@ -188,7 +190,6 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                             isLoading = true,
                             error = null,
                             failure = null,
-                            security = BrowserSecurity.Unknown,
                         ),
                     )
                 }
@@ -250,13 +251,16 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                 // Selection and zoom are presentation-only; a stale tab must not mark the whole engine unavailable.
                 is BrowserEffect.SelectTab, is BrowserEffect.Zoom -> null
 
+                // Background retries touch other tabs, and a stale certificate decision leaves its warning in place.
+                is BrowserEffect.ProceedCertificate,
+                is BrowserEffect.ReturnToSafety,
+                BrowserEffect.RetryNetworkErrors,
+                -> null
+
                 BrowserEffect.Observe -> BrowserIntent.Internal.ObserverFailed(attempt = 1)
 
                 is BrowserEffect.Reobserve -> BrowserIntent.Internal.ObserverFailed(effect.attempt + 1)
 
-                is BrowserEffect.ProceedCertificate,
-                is BrowserEffect.ReturnToSafety,
-                BrowserEffect.RetryNetworkErrors,
                 is BrowserEffect.Load,
                 BrowserEffect.Back,
                 BrowserEffect.Forward,
@@ -277,10 +281,19 @@ private fun BrowserState.Running.disabled(): BrowserState.Running = copy(
         isBackAvailable = false,
         isForwardAvailable = false,
         error = null,
+        failure = null,
+        security = BrowserSecurity.Unknown,
     ),
 )
 
-/** UI decisions cannot be replayed on another tab, load or an agent-controlled page. */
+/**
+ * UI decisions cannot be replayed on another tab, load or an agent-controlled page. An anonymous failure (empty id)
+ * is never decidable: two loads of the same URL and code would be indistinguishable.
+ */
 private fun BrowserState.Running.matchesWarning(tabId: String, failure: BrowserLoadFailure): Boolean =
     isEnabled && areErrorPagesEnabled && selectedTabId == tabId && page.failure == failure &&
-        failure.isCertificate && tabs.any { it.id == tabId && (it.owner == null || it.isHumanControlled) }
+        failure.isCertificate && failure.id.isNotEmpty() && isHumanDecisionAllowed(tabId)
+
+/** Whether a person, not an agent session, may decide on [tabId]'s certificate warning. */
+public fun BrowserState.Running.isHumanDecisionAllowed(tabId: String): Boolean =
+    tabs.any { it.id == tabId && (it.owner == null || it.isHumanControlled) }
