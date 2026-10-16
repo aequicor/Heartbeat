@@ -19,8 +19,9 @@ package io.aequicor.heartbeat.feature.projectconfig.api
  * | missing | entity exists | Remove proposal |
  * | missing | entity removed | binding dropped |
  *
- * Invalid units become proposals with their problems: they are shown and never trusted. Pure: digests and checks were
- * computed by the effect that read the folder.
+ * Invalid units become proposals with their problems: they are shown and never trusted. Units and bindings of
+ * [ProjectSnapshot.unavailable] sections are left untouched. Pure: digests and checks were computed by the effect
+ * that read the folder.
  */
 public fun reconcile(
     bindings: List<ConfigBinding>,
@@ -28,12 +29,14 @@ public fun reconcile(
     previous: List<ConfigProposal> = emptyList(),
 ): Reconciled {
     val reconciliation = Reconciliation(snapshot)
-    val own = bindings.filter { it.project == snapshot.project }
+    val (paused, own) = bindings.filter { it.project == snapshot.project }
+        .partition { it.unit.section in snapshot.unavailable }
     own.forEach(reconciliation::bound)
-    snapshot.units.filter { unit -> own.none { it.unit == unit.ref } }.forEach(reconciliation::unbound)
+    snapshot.units.filter { unit -> unit.ref.section !in snapshot.unavailable && own.none { it.unit == unit.ref } }
+        .forEach(reconciliation::unbound)
     reconciliation.released.forEach(reconciliation::unbound)
     return Reconciled(
-        reconciliation.bindings,
+        paused + reconciliation.bindings,
         reconciliation.proposals.map { it.keeping(previous) },
         reconciliation.writeBacks,
     )

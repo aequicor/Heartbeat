@@ -27,6 +27,18 @@ public interface ConfigSection {
     /** Directory of the section; never renamed. */
     public val id: ConfigSectionId
 
+    /**
+     * Whether entities apply in one project ([ConfigEntity.project], learned instructions): a unit of a project folder
+     * then matches only entities of that project, and a unit from a bundle only entities without one.
+     */
+    public val isProjectScoped: Boolean get() = false
+
+    /**
+     * What the automatic review must know about units of this section: how they run and what makes one risky. The
+     * review of a unit is the general policy of `project-config` followed by this text; trusted host text, no data.
+     */
+    public val reviewPolicy: String
+
     /** Section whose units the units of this one belong to (interfaces → harnesses); parents are applied first. */
     public val parent: ConfigSectionId? get() = null
 

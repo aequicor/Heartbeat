@@ -60,13 +60,18 @@ public data class EntityDigest(
     val digest: ConfigDigest,
 )
 
-/** What one sync read: units of the folder of [project] and the profile entities they relate to. */
+/**
+ * What one sync read: units of the folder of [project] and the profile entities they relate to. Sections in
+ * [unavailable] (their owner is off or not loaded) are left as they are: their units are not proposed and their
+ * bindings are neither removed nor written back.
+ */
 public data class ProjectSnapshot(
     val project: WorkspaceRef,
     val generation: Long,
     val units: List<ScannedUnit>,
     val entities: List<EntityDigest>,
     val ignored: List<ConfigProblem> = emptyList(),
+    val unavailable: Set<ConfigSectionId> = emptySet(),
 )
 
 /** Where a proposal comes from. */

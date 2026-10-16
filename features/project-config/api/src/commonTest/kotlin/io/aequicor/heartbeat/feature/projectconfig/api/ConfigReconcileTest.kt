@@ -82,6 +82,19 @@ class ConfigReconcileTest {
     }
 
     @Test
+    fun `units and bindings of unavailable sections are left untouched`() {
+        val paused = ProjectSnapshot(
+            project,
+            1,
+            listOf(unit(ConfigUnitRef(ConfigSectionId.Harnesses, "new"), "f9", "c9")),
+            emptyList(),
+            unavailable = setOf(ConfigSectionId.Harnesses),
+        )
+
+        assertEquals(Reconciled(listOf(binding), emptyList(), emptyList()), reconcile(listOf(binding), paused))
+    }
+
+    @Test
     fun `invalid units are shown but never trusted and reviews survive an unchanged rescan`() {
         val problem = ConfigProblem(ConfigProblemCode.Syntax, ConfigPath("harnesses/review/harness.json"))
         val invalid = ScannedUnit(review, digest("f1"), UnitCheck.Invalid(listOf(problem)))
