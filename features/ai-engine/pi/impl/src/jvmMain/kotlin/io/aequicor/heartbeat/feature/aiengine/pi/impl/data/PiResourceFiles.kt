@@ -9,15 +9,17 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.IOException
+import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 /**
  * A bounded, confined view of resource files; links are followed only within the root and never recursively twice.
- * An entry that cannot be read or named is skipped and marks the view incomplete, as Pi skips it too.
+ * An entry that cannot be read or named is skipped and marks the view incomplete, as Pi skips it too. Ignore rules are
+ * capped and matched within the read's shared [globs] allowance, since a project supplies them.
  */
-internal class PiResourceFiles(private val root: Path, private val budget: GlobBudget = GlobBudget()) {
+internal class PiResourceFiles(private val root: Path, private val globs: ResourceGlobs) {
     var isTruncated: Boolean = false
         private set
 
@@ -26,19 +28,32 @@ internal class PiResourceFiles(private val root: Path, private val budget: GlobB
         private set
     private val inspected = mutableSetOf<Path>()
     private var readBytes = 0
+    private var ignoreRules = 0
+    private var failures = 0
 
     fun safe(path: Path): Boolean = reserve(path) && path.normalize().startsWith(root) && try {
         isInside(root, path, PI_MAX_LINKS)
     } catch (e: IOException) {
-        log.w(e.redactedFailure()) { "Pi resource link not resolved" }
-        skip()
+        if (skip()) log.w(e.redactedFailure()) { LINK_FAILURE } else log.v { LINK_FAILURE }
         false
     }
 
-    /** Records an entry Pi would not load either; the caller logs why. */
-    fun skip() {
+    /**
+     * Records an entry Pi would not load either. True for the read's first failure, which the caller logs at WARN with
+     * its cause; the rest go to VERBOSE and the inventory sums them up, so a hostile project cannot flood the log.
+     */
+    fun skip(): Boolean {
         isTruncated = true
         skipped++
+        return failures++ == 0
+    }
+
+    /** Pi ignores malformed resource manifests and settings and falls back to directory discovery. */
+    fun json(text: String): JsonObject? = try {
+        Json.parseToJsonElement(text.removePrefix("\uFEFF")) as? JsonObject
+    } catch (e: SerializationException) {
+        if (failures++ == 0) log.w(e.redactedFailure()) { JSON_FAILURE } else log.v { JSON_FAILURE }
+        null
     }
 
     private fun reserve(path: Path): Boolean {
@@ -73,8 +88,7 @@ internal class PiResourceFiles(private val root: Path, private val budget: GlobB
             }
             Files.newInputStream(path).use { it.readNBytes(MAX_FILE_BYTES + 1) }
         } catch (e: IOException) {
-            log.w(e.redactedFailure()) { "Pi resource file not readable" }
-            skip()
+            if (skip()) log.w(e.redactedFailure()) { FILE_FAILURE } else log.v { FILE_FAILURE }
             return null
         }
         readBytes += bytes.size
@@ -94,8 +108,7 @@ internal class PiResourceFiles(private val root: Path, private val budget: GlobB
         val real = try {
             path.toRealPath()
         } catch (e: IOException) {
-            log.w(e.redactedFailure()) { "Pi resource folder not resolved" }
-            skip()
+            if (skip()) log.w(e.redactedFailure()) { FOLDER_FAILURE } else log.v { FOLDER_FAILURE }
             return emptyList()
         }
         if (real in ancestors) return emptyList()
@@ -156,22 +169,22 @@ internal class PiResourceFiles(private val root: Path, private val budget: GlobB
     }
 
     private fun extensionEntries(path: Path): List<Path> {
-        val manifest = text(path.resolve("package.json"))?.let(::resourceJson)
+        val manifest = text(path.resolve("package.json"))?.let(::json)
         val entries = ((manifest?.get("pi") as? JsonObject)?.get("extensions") as? JsonArray).orEmpty()
+            .asSequence().take(MAX_ENTRIES)
             .mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
-            .asSequence().mapNotNull { entry -> resolve(path, entry) }
+            .mapNotNull { entry -> resolve(path, entry) }
             .filter { safe(it) && Files.isRegularFile(it) }.take(MAX_ENTRIES).toList()
         if (entries.isNotEmpty()) return entries
         return listOf("index.ts", "index.js").map(path::resolve)
             .firstOrNull { safe(it) && Files.isRegularFile(it) }?.let(::listOf).orEmpty()
     }
 
-    /** [entry] of a project's manifest under [path]; an entry that is not a valid path here is skipped. */
-    fun resolve(path: Path, entry: String): Path? = try {
+    /** [entry] of a package manifest under [path]; an entry that is not a valid path here is skipped. */
+    private fun resolve(path: Path, entry: String): Path? = try {
         path.resolve(entry).normalize()
     } catch (e: InvalidPathException) {
-        log.w(e.redactedFailure()) { "Pi extension entry is not a valid path" }
-        skip()
+        if (skip()) log.w(e.redactedFailure()) { ENTRY_FAILURE } else log.v { ENTRY_FAILURE }
         null
     }
 
@@ -187,26 +200,34 @@ internal class PiResourceFiles(private val root: Path, private val budget: GlobB
             result.sortedBy { it.fileName.toString() }
         }
     } catch (e: IOException) {
-        log.w(e.redactedFailure()) { "Pi resource folder not readable" }
-        skip()
+        if (skip()) log.w(e.redactedFailure()) { FOLDER_FAILURE } else log.v { FOLDER_FAILURE }
+        emptyList()
+    } catch (e: DirectoryIteratorException) {
+        // Thrown by the stream's iterator when reading the folder fails midway; its cause is the IOException.
+        if (skip()) log.w(e.cause?.redactedFailure()) { FOLDER_FAILURE } else log.v { FOLDER_FAILURE }
         emptyList()
     }
 
     private fun ignores(path: Path): List<IgnoreRule> = listOf(".gitignore", ".ignore", ".fdignore").flatMap { name ->
-        text(path.resolve(name))?.lineSequence()?.map { it.trimEnd() }
-            ?.filter { it.isNotBlank() && !it.startsWith('#') }
-            ?.map { IgnoreRule(path, it.removePrefix("!"), it.startsWith('!')) }?.toList().orEmpty()
+        val lines = text(path.resolve(name))?.lineSequence()?.map { it.trimEnd() }
+            ?.filter { it.isNotBlank() && !it.startsWith('#') }?.toList().orEmpty()
+        val kept = lines.take((MAX_IGNORE_RULES - ignoreRules).coerceAtLeast(0))
+        ignoreRules += kept.size
+        if (kept.size < lines.size) isTruncated = true
+        kept.map { IgnoreRule(path, it.removePrefix("!"), it.startsWith('!')) }
     }
 
+    /** Every rule evaluation is charged, so rules stop applying once the read's allowance is spent. */
     private fun isIgnored(path: Path, rules: List<IgnoreRule>): Boolean {
         var isIgnored = false
-        rules.forEach { rule ->
+        for (rule in rules) {
+            if (!globs.spend()) break
             val relative = rule.base.relativize(path).posix()
             val pattern = rule.pattern.removePrefix("/").removeSuffix("/")
             val isMatched = if ('/' in pattern || rule.pattern.startsWith('/')) {
-                piResourceGlob(pattern, relative, budget)
+                globs.matches(pattern, relative)
             } else {
-                relative.split('/').any { piResourceGlob(pattern, it, budget) }
+                relative.split('/').any { globs.matches(pattern, it) }
             }
             if (isMatched && (!rule.pattern.endsWith('/') || Files.isDirectory(path))) isIgnored = !rule.isNegated
         }
@@ -227,15 +248,13 @@ internal class PiResourceFiles(private val root: Path, private val budget: GlobB
         const val MAX_DEPTH = 32
         const val MAX_FILE_BYTES = 64 * 1024
         const val MAX_READ_BYTES = 1024 * 1024
+        const val MAX_IGNORE_RULES = 1024
+        const val LINK_FAILURE = "Pi resource link not resolved"
+        const val FILE_FAILURE = "Pi resource file not readable"
+        const val FOLDER_FAILURE = "Pi resource folder not readable"
+        const val ENTRY_FAILURE = "Pi extension entry is not a valid path"
+        const val JSON_FAILURE = "resource metadata is not valid JSON"
     }
-}
-
-/** Pi ignores malformed resource manifests/settings and falls back to directory discovery. */
-internal fun resourceJson(text: String): JsonObject? = try {
-    Json.parseToJsonElement(text.removePrefix("\uFEFF")) as? JsonObject
-} catch (e: SerializationException) {
-    log.w(e.redactedFailure()) { "resource metadata is not valid JSON" }
-    null
 }
 
 private val log = Log.tag("PiResourceFiles")

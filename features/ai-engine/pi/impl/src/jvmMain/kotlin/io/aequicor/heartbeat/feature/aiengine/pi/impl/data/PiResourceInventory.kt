@@ -36,22 +36,24 @@ internal suspend fun piResourceInventory(
     val profileSettings = (profile.documents[PiDocuments.Settings] as? ConfigDocument.Json)?.value ?: JsonObject(
         emptyMap(),
     )
-    val budget = GlobBudget()
+    val globs = ResourceGlobs()
     val roots = buildList {
-        directory?.let { add(ResourceRoot(Path.of(it).toRealPath(), ResourceOrigin.Project, trust, flags, budget)) }
-        add(ResourceRoot(profileRoot, ResourceOrigin.Profile, trust, flags, budget))
+        directory?.let { add(ResourceRoot(Path.of(it).toRealPath(), ResourceOrigin.Project, trust, flags, globs)) }
+        add(ResourceRoot(profileRoot, ResourceOrigin.Profile, trust, flags, globs))
     }
     val resources = roots.flatMap { root ->
         val settings = if (root.origin == ResourceOrigin.Profile) profileSettings else root.projectSettings()
         root.inventory(settings, hasProject = directory != null)
     }
+    val skipped = roots.sumOf { it.files.skipped }
+    if (skipped > 1) log.w { "Pi resource entries skipped count=$skipped" }
     return ResourceInventory(
         PiEngineId,
         null,
         // Stable: within a kind, project resources stay before profile resources.
         resources.sortedBy { it.kind.ordinal },
         external = roots.sumOf { it.external },
-        isTruncated = budget.isExceeded || roots.any { it.files.isTruncated },
+        isTruncated = globs.isIncomplete || roots.any { it.files.isTruncated },
     )
 }
 
@@ -60,9 +62,9 @@ private class ResourceRoot(
     val origin: ResourceOrigin,
     val trust: ProjectTrust,
     val flags: PiAgentConfig,
-    private val budget: GlobBudget,
+    private val globs: ResourceGlobs,
 ) {
-    val files = PiResourceFiles(root, budget)
+    val files = PiResourceFiles(root, globs)
     var external = 0
         private set
     private val base = if (origin == ResourceOrigin.Project) root.resolve(".pi") else root
@@ -70,7 +72,7 @@ private class ResourceRoot(
 
     /** Pi reads a project's settings only once the project is trusted; until then they are not parsed either. */
     fun projectSettings(): JsonObject = if (isTrusted) {
-        files.text(base.resolve("settings.json"))?.let(::resourceJson) ?: JsonObject(emptyMap())
+        files.text(base.resolve("settings.json"))?.let(files::json) ?: JsonObject(emptyMap())
     } else {
         JsonObject(emptyMap())
     }
@@ -79,12 +81,12 @@ private class ResourceRoot(
         ResourceKind.entries.flatMap { resources(it, settings.entries(it), hasProject) }
 
     private fun resources(kind: ResourceKind, entries: List<String>, hasProject: Boolean): List<EngineResource> {
-        val patterns = PiResourcePatterns(entries, base, budget)
+        val patterns = PiResourcePatterns(entries, base, globs)
         val explicit = entries.asSequence().filterNot(String::isResourcePattern).mapNotNull(::local)
             .flatMap { files.collect(it, kind) }.toCollection(LinkedHashSet())
         val automatic = automatic(kind).toSet()
         val agents = agents(kind).toSet()
-        val agentPatterns = PiResourcePatterns(entries, root.resolve(".agents"), budget)
+        val agentPatterns = PiResourcePatterns(entries, root.resolve(".agents"), globs)
         return (explicit + automatic + agents).map { path ->
             val matching = if (path in agents) agentPatterns else patterns
             val isSelected = matching.enabled(path, isAutomatic = path !in explicit)
@@ -160,8 +162,7 @@ private class ResourceRoot(
         val entered = try {
             Path.of(entry)
         } catch (e: InvalidPathException) {
-            log.w(e.redactedFailure()) { "Pi resource entry is not a valid path" }
-            files.skip()
+            if (files.skip()) log.w(e.redactedFailure()) { ENTRY_FAILURE } else log.v { ENTRY_FAILURE }
             return null
         }
         if (WindowsPath.matches(entry) && !entered.isAbsolute) {
@@ -180,8 +181,7 @@ private class ResourceRoot(
     private fun confined(path: Path): Boolean = try {
         isInside(root, path, PI_MAX_LINKS)
     } catch (e: IOException) {
-        log.w(e.redactedFailure()) { "Pi resource entry link not resolved" }
-        files.skip()
+        if (files.skip()) log.w(e.redactedFailure()) { LINK_FAILURE } else log.v { LINK_FAILURE }
         false
     }
 }
@@ -217,5 +217,8 @@ private fun metadata(text: String?): Map<String, String> {
 }
 
 private val log = Log.tag("PiResourceInventory")
+
+private const val ENTRY_FAILURE = "Pi resource entry is not a valid path"
+private const val LINK_FAILURE = "Pi resource entry link not resolved"
 
 private val WindowsPath = Regex("^[A-Za-z]:[/\\\\].*")

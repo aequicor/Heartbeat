@@ -90,8 +90,9 @@ internal fun ConfigPageSections(
 }
 
 /**
- * Unsaved changes with save and discard, or a conflict that only a discard resolves. [isBusy] holds the save while
- * another operation, such as a resource read, runs without claiming the changes are being saved.
+ * Unsaved changes with save and discard, or a conflict that only a discard resolves. [isBusy] holds save and discard
+ * (a project discard reloads the project) while another operation, such as a resource read, runs without claiming
+ * the changes are being saved.
  */
 @Composable
 internal fun ConfigSaveBar(
@@ -133,7 +134,7 @@ internal fun ConfigSaveBar(
                 { onIntent(ConfigIntent.DiscardConfig) },
                 Modifier.testTag("config-discard"),
                 HbButtonStyle.Ghost,
-                enabled = !form.isSubmitted,
+                enabled = !form.isSubmitted && !isBusy,
                 size = HbButtonSize.Small,
             )
             HbButton(

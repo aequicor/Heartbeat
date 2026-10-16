@@ -46,10 +46,11 @@ import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
-/** The saved projects of the overview, each opening the configuration in its files. */
+/** The saved projects of the overview, each opening the configuration in its files once no operation runs. */
 @Composable
 internal fun ProjectsSection(
     projects: ImmutableList<ProjectItemUi>,
+    isEnabled: Boolean,
     onIntent: (EngineControlPanelIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -64,6 +65,7 @@ internal fun ProjectsSection(
                 project.title,
                 Modifier.testTag("engine-control-project:${project.id}"),
                 onClick = { onIntent(ProjectIntent.Open(project.id)) },
+                enabled = isEnabled,
             ) {
                 if (project.trust != ProjectTrustUi.Undecided) {
                     HbBadge(

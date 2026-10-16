@@ -135,7 +135,7 @@ private fun ResourceRow(file: ResourceFileUi, modifier: Modifier = Modifier) {
             style = HbTheme.typography.caption,
             color = HbTheme.colors.textSecondary,
         )
-        // The file name ends the path, so a long path wraps rather than losing it.
+        // A long path wraps to a second line; the row's name above still names the file.
         HbText(file.path, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary, maxLines = 2)
         file.description?.let { HbText(it, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary) }
     }

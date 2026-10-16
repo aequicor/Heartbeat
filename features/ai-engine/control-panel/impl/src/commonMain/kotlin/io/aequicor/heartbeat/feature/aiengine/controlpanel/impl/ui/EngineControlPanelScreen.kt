@@ -115,7 +115,7 @@ private fun Overview(state: EngineControlPanelState, onIntent: (EngineControlPan
     }
     SettingsPages(state, onIntent)
     state.config?.takeIf { it.files.isNotEmpty() }?.let { ConfigFiles(it, onIntent) }
-    if (state.projects.isNotEmpty()) ProjectsSection(state.projects, onIntent)
+    if (state.projects.isNotEmpty()) ProjectsSection(state.projects, !state.isBusy, onIntent)
     if (state.isImportable) ImportSection(isEnabled = !state.isBusy, onIntent)
 }
 

@@ -127,7 +127,7 @@ class PiResourceInventoryTest {
     }
 
     @Test
-    fun `malformed manifests fall back to index and untrusted content ignores invalid settings`() = runTest {
+    fun `malformed manifests fall back to index and untrusted settings are not read`() = runTest {
         write(project, ".pi/extensions/pkg/package.json", "{")
         write(project, ".pi/extensions/pkg/index.ts")
         write(project, ".pi/settings.json", "{")
@@ -163,7 +163,7 @@ class PiResourceInventoryTest {
 
     @Test
     fun `direct settings entries share the traversal budget`() {
-        val files = PiResourceFiles(home)
+        val files = PiResourceFiles(home, ResourceGlobs())
         repeat(4100) { files.safe(home.resolve("explicit$it.ts")) }
         assertTrue(files.isTruncated)
     }
@@ -207,14 +207,24 @@ class PiResourceInventoryTest {
         write(project, ".pi/prompts/.gitignore", "x".repeat(5000))
         write(project, ".pi/prompts/review.md")
         write(home, "prompts/mine.md")
+        write(home, "prompts/old.md")
+        write(home, "prompts/.gitignore", "draft.md")
+        write(home, "prompts/draft.md")
         val tooMany = "!" + "{a,b,c}".repeat(6)
         val result = configurator.resources(
-            settings("""{"prompts":["prompts","$tooMany"]}"""),
+            settings("""{"prompts":["prompts","$tooMany","!prompts/old.md"]}"""),
             project.toString(),
             ProjectTrust.Trusted,
         )
-        assertEquals(listOf(".pi/prompts/review.md", "prompts/mine.md"), result.resources.map { it.path })
-        assertEquals(ResourceState.Enabled, result.resources.last().state)
+        // Only the masks beyond the limits stop matching; the other masks and ignore rules still apply.
+        assertEquals(
+            listOf(
+                ".pi/prompts/review.md" to ResourceState.Enabled,
+                "prompts/mine.md" to ResourceState.Enabled,
+                "prompts/old.md" to ResourceState.Excluded,
+            ),
+            result.resources.map { it.path to it.state },
+        )
         assertTrue(result.isTruncated)
     }
 
@@ -233,19 +243,29 @@ class PiResourceInventoryTest {
             null,
             ProjectTrust.Undecided,
         )
+        // Windows and a root user can still read the folder; the invalid manifest entry marks the listing either way.
         assertEquals(
-            listOf("extensions/pkg/index.ts", "skills/open/SKILL.md"),
+            listOfNotNull(
+                "extensions/pkg/index.ts",
+                "skills/locked/inner/SKILL.md".takeIf { Files.isReadable(locked) },
+                "skills/open/SKILL.md",
+            ),
             result.resources.map { it.path },
         )
         assertTrue(result.isTruncated)
     }
 
     @Test
-    fun `glob budget is shared and ends matching once spent`() {
-        val budget = GlobBudget(states = 10)
-        assertFalse(piResourceGlob("*a".repeat(30) + "b", "a".repeat(80), budget))
-        assertTrue(budget.isExceeded)
-        assertFalse(piResourceGlob("a", "a", budget))
+    fun `a spent allowance ends matching while a single refused mask leaves the others matching`() {
+        val spent = ResourceGlobs(steps = 10)
+        assertFalse(spent.matches("*a".repeat(30) + "b", "a".repeat(80)))
+        assertTrue(spent.isSpent && spent.isIncomplete)
+        assertFalse(spent.matches("a", "a"))
+        val refused = ResourceGlobs()
+        assertFalse(refused.matches("{a,b,c}".repeat(6), "abc"))
+        assertFalse(refused.matches("x".repeat(5000), "x"))
+        assertTrue(refused.isIncomplete && !refused.isSpent)
+        assertTrue(refused.matches("a*", "ab"))
     }
 
     private fun java.io.File.setReadableRecursively() {
