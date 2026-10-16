@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigDigest
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigEntityKey
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigEntityRef
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLayout
@@ -87,15 +88,15 @@ internal class ProjectConfigModel(
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun ConfigPipeline.decide(intent: ProjectConfigScreenIntent.Decision) {
         when (intent) {
-            is ProjectConfigScreenIntent.Trust -> trust(intent.id)
+            is ProjectConfigScreenIntent.Trust -> trust(intent.version)
 
             ProjectConfigScreenIntent.ConfirmRisk -> confirmRisk()
 
             ProjectConfigScreenIntent.CancelRisk -> updateState { copy(confirming = null) }
 
-            is ProjectConfigScreenIntent.KeepApp -> sendTo(machine, Public.KeepApp(intent.id))
+            is ProjectConfigScreenIntent.KeepApp -> with(intent.version) { sendTo(machine, Public.KeepApp(id, seen)) }
 
-            is ProjectConfigScreenIntent.Dismiss -> sendTo(machine, Public.Dismiss(intent.id))
+            is ProjectConfigScreenIntent.Dismiss -> with(intent.version) { sendTo(machine, Public.Dismiss(id, seen)) }
 
             is ProjectConfigScreenIntent.Sync -> sendTo(machine, Public.Sync(WorkspaceRef(intent.projectKey)))
 
@@ -114,11 +115,12 @@ internal class ProjectConfigModel(
 
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
-    private suspend fun ConfigPipeline.trust(id: String) = withState {
-        val proposal = proposals.firstOrNull { it.id == id } ?: return@withState
+    private suspend fun ConfigPipeline.trust(version: ProposalVersionUi) = withState {
+        // The files changed since the user saw them: the new version waits for its own decision.
+        val proposal = proposals.firstOrNull { it.version == version } ?: return@withState
         when (proposal.review) {
-            ReviewUi.NotNeeded, is ReviewUi.Safe -> sendTo(machine, Public.Trust(proposal.id))
-            ReviewUi.Unavailable, is ReviewUi.Risky -> updateState { copy(confirming = proposal.id) }
+            ReviewUi.NotNeeded, is ReviewUi.Safe -> sendTo(machine, Public.Trust(version.id, version.seen))
+            ReviewUi.Unavailable, is ReviewUi.Risky -> updateState { copy(confirming = version) }
             ReviewUi.Pending -> Unit
         }
     }
@@ -135,9 +137,9 @@ internal class ProjectConfigModel(
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun ConfigPipeline.confirmRisk() = withState {
-        val id = confirming ?: return@withState
+        val version = confirmed?.version ?: return@withState
         updateState { copy(confirming = null) }
-        sendTo(machine, Public.Trust(id, isRiskAccepted = true))
+        sendTo(machine, Public.Trust(version.id, version.seen, isRiskAccepted = true))
     }
 
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
@@ -194,6 +196,8 @@ internal class ProjectConfigModel(
     }
 
     private fun requestId(): String = Uuid.random().toString()
+
+    private val ProposalVersionUi.seen: ConfigDigest? get() = digest?.let(::ConfigDigest)
 
     private companion object {
         const val BUNDLE_NAME = "heartbeat-config.${ConfigLayout.BUNDLE_EXTENSION}"

@@ -116,14 +116,18 @@ public sealed interface ProjectConfigIntent : MachineIntent {
         /** Reads the folder of [project] again. */
         public data class Sync(val project: WorkspaceRef) : Public
 
-        /** Applies [proposal] the user trusts; [isRiskAccepted] confirms a risky, uncertain or unreviewed one. */
-        public data class Trust(val proposal: String, val isRiskAccepted: Boolean = false) : Public
+        /**
+         * Applies [proposal] the user trusts in the version with [digest] they saw; [isRiskAccepted] confirms a risky,
+         * uncertain or unreviewed one. A proposal whose files changed since is ignored.
+         */
+        public data class Trust(val proposal: String, val digest: ConfigDigest?, val isRiskAccepted: Boolean = false) :
+            Public
 
-        /** Rejects the files of a project [proposal] and writes the profile's version back instead. */
-        public data class KeepApp(val proposal: String) : Public
+        /** Rejects the files of a project [proposal] with [digest] and writes the profile's version back instead. */
+        public data class KeepApp(val proposal: String, val digest: ConfigDigest?) : Public
 
-        /** Sets [proposal] aside until its files change. */
-        public data class Dismiss(val proposal: String) : Public
+        /** Sets [proposal] with [digest] aside until its files change. */
+        public data class Dismiss(val proposal: String, val digest: ConfigDigest?) : Public
 
         /** Deletes the files of [unit] from the folder of [project]; the profile entity stays. */
         public data class RemoveFromProject(val project: WorkspaceRef, val unit: ConfigUnitRef) : Public

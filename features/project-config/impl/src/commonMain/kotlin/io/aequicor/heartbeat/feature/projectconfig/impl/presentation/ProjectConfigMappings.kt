@@ -45,7 +45,7 @@ internal fun ProjectConfigScreenState.reflecting(state: ProjectConfigState, isSu
             }.sortedBy { it.name.lowercase() }.toImmutableList(),
             bundle = state.bundle?.name,
             isBusy = state.task != null,
-            confirming = confirming?.takeIf { id -> proposals.any { it.id == id && it.isTrustOffered } },
+            confirming = confirming?.takeIf { seen -> proposals.any { it.version == seen && it.isTrustOffered } },
             removing = removing?.takeIf { removal ->
                 state.bindings.any { it.project.value == removal.projectKey && it.unit.toString() == removal.unit.ref }
             },
@@ -93,6 +93,7 @@ private fun ConfigProposal.toUi(state: ProjectConfigState.Ready, names: Map<Stri
     }
     return ProposalUi(
         id = id,
+        digest = digest?.value,
         title = summary?.title?.takeIf { it.isNotBlank() } ?: unit.name,
         unit = unit.name,
         section = unit.section.toUi(),

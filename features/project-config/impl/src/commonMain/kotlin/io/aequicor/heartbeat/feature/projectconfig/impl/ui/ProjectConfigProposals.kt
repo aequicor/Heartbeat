@@ -164,7 +164,7 @@ private fun ProposalActions(proposal: ProposalUi, onIntent: (ProjectConfigScreen
         if (proposal.isTrustOffered) {
             HbButton(
                 stringResource(Res.string.pc_trust),
-                { onIntent(ProjectConfigScreenIntent.Trust(proposal.id)) },
+                { onIntent(ProjectConfigScreenIntent.Trust(proposal.version)) },
                 Modifier.testTag("project-config-trust-${proposal.id}"),
                 size = HbButtonSize.Small,
             )
@@ -172,7 +172,7 @@ private fun ProposalActions(proposal: ProposalUi, onIntent: (ProjectConfigScreen
         if (proposal.isKeepAppOffered) {
             HbButton(
                 stringResource(Res.string.pc_keep_app),
-                { onIntent(ProjectConfigScreenIntent.KeepApp(proposal.id)) },
+                { onIntent(ProjectConfigScreenIntent.KeepApp(proposal.version)) },
                 Modifier.testTag("project-config-keep-${proposal.id}"),
                 style = HbButtonStyle.Secondary,
                 size = HbButtonSize.Small,
@@ -180,7 +180,7 @@ private fun ProposalActions(proposal: ProposalUi, onIntent: (ProjectConfigScreen
         }
         HbButton(
             stringResource(Res.string.pc_dismiss),
-            { onIntent(ProjectConfigScreenIntent.Dismiss(proposal.id)) },
+            { onIntent(ProjectConfigScreenIntent.Dismiss(proposal.version)) },
             Modifier.testTag("project-config-dismiss-${proposal.id}"),
             style = HbButtonStyle.Ghost,
             size = HbButtonSize.Small,

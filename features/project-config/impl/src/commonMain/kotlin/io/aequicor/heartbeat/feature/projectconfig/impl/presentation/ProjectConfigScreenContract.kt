@@ -59,9 +59,13 @@ internal enum class FailureUi { Unavailable, Conflict, Duplicate, Limit, Invalid
 /** Where a proposal comes from: a project by name, or the open bundle. */
 internal data class SourceUi(val name: String, val isBundle: Boolean)
 
-/** One change waiting for the user's decision. */
+/** The version of proposal [id] the user sees: [digest] of its files, null for a removal. */
+internal data class ProposalVersionUi(val id: String, val digest: String?)
+
+/** One change waiting for the user's decision; decisions name the shown [version]. */
 internal data class ProposalUi(
     val id: String,
+    val digest: String?,
     val title: String,
     val unit: String,
     val section: SectionUi,
@@ -77,6 +81,9 @@ internal data class ProposalUi(
 ) {
     /** Whether "Trust" is offered: valid, reviewed or a removal, not being applied. */
     val isTrustOffered: Boolean get() = problems.isEmpty() && !isApplying && review != ReviewUi.Pending
+
+    /** The shown version, which decisions on this proposal name. */
+    val version: ProposalVersionUi get() = ProposalVersionUi(id, digest)
 }
 
 /** A unit of a project folder bound to a profile entity. */
@@ -144,13 +151,13 @@ internal data class ProjectConfigScreenState(
     val bundle: String? = null,
     val isBusy: Boolean = false,
     val notice: NoticeUi? = null,
-    val confirming: String? = null,
+    val confirming: ProposalVersionUi? = null,
     val picker: PickerUi? = null,
     val removing: RemovalUi? = null,
     val projectNames: ImmutableMap<String, String> = persistentMapOf(),
 ) : MVIState {
-    /** The proposal awaiting confirmation of its risk. */
-    val confirmed: ProposalUi? get() = proposals.firstOrNull { it.id == confirming }
+    /** The proposal awaiting confirmation of its risk, while it is in the version the user saw. */
+    val confirmed: ProposalUi? get() = proposals.firstOrNull { it.version == confirming }
 }
 
 /** Controls of the configuration screen. */
@@ -161,8 +168,8 @@ internal sealed interface ProjectConfigScreenIntent : MVIIntent {
     /** Choosers, file dialogs, tasks and the notice. */
     sealed interface Task : ProjectConfigScreenIntent
 
-    /** Trusts a proposal; a risky one asks for confirmation first. */
-    data class Trust(val id: String) : Decision
+    /** Trusts a proposal in the shown [version]; a risky one asks for confirmation first. */
+    data class Trust(val version: ProposalVersionUi) : Decision
 
     /** Trusts the proposal awaiting confirmation despite its risk. */
     data object ConfirmRisk : Decision
@@ -170,11 +177,11 @@ internal sealed interface ProjectConfigScreenIntent : MVIIntent {
     /** Keeps the proposal unconfirmed. */
     data object CancelRisk : Decision
 
-    /** Writes the profile's version over a project proposal's files. */
-    data class KeepApp(val id: String) : Decision
+    /** Writes the profile's version over the files of a project proposal in the shown [version]. */
+    data class KeepApp(val version: ProposalVersionUi) : Decision
 
-    /** Sets a proposal aside until its files change. */
-    data class Dismiss(val id: String) : Decision
+    /** Sets a proposal in the shown [version] aside until its files change. */
+    data class Dismiss(val version: ProposalVersionUi) : Decision
 
     /** Reads a project folder again. */
     data class Sync(val projectKey: String) : Decision

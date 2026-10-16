@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProjectConf
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProjectUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProposalKindUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProposalUi
+import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProposalVersionUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ReviewUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.SectionUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.SourceUi
@@ -197,6 +198,7 @@ private val previewState = ProjectConfigScreenState(
     proposals = persistentListOf(
         ProposalUi(
             id = "p",
+            digest = "d",
             title = "Code review",
             unit = "review",
             section = SectionUi.Harness,
@@ -243,7 +245,8 @@ private fun ProjectConfigDarkPreview() {
 @Preview
 @Composable
 private fun ProjectConfigRiskPreview() {
-    HbTheme(darkTheme = false) { ProjectConfigContent(previewState.copy(confirming = "p"), {}, null) }
+    val state = previewState.copy(confirming = ProposalVersionUi("p", "d"))
+    HbTheme(darkTheme = false) { ProjectConfigContent(state, {}, null) }
 }
 
 @Preview

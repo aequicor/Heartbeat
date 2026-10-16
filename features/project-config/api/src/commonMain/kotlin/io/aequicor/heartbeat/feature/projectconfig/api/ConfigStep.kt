@@ -31,6 +31,10 @@ internal fun Ready.bindingsOf(project: WorkspaceRef): List<ConfigBinding> = bind
 /** The proposal with [id], or null. */
 internal fun Ready.proposal(id: String): ConfigProposal? = proposals.firstOrNull { it.id == id }
 
+/** The proposal [id] while it is still in the version with [digest]. */
+internal fun Ready.proposal(id: String, digest: ConfigDigest?): ConfigProposal? =
+    proposal(id)?.takeIf { it.digest == digest }
+
 /** Stores [next] bindings when they differ as a set from the current ones. */
 internal fun Ready.withBindings(next: List<ConfigBinding>): ConfigStep {
     if (next.toSet() == bindings.toSet()) return ConfigStep(this)

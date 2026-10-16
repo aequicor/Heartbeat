@@ -26,11 +26,11 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Publi
  * | Ready | Synced | current generation | reconciled | SaveBindings, WriteBack, Review, Sync if dirty |
  * | Ready | SyncFailed | current generation | idle with failure | Sync if dirty |
  * | Ready | Reviewed / ReviewsFailed | | review of the proposal at that digest | |
- * | Ready | Trust | trustable (valid; safe, accepted risk or a removal) | applying | Apply |
+ * | Ready | Trust | seen digest; trustable (valid; safe, accepted risk or a removal) | applying | Apply |
  * | Ready | Applied | applying | proposal gone, binding committed | SaveBindings, Sync(project) |
  * | Ready | ApplyFailed | | proposal with failure | |
- * | Ready | KeepApp | project Update/Conflict/Remove with a target | proposal gone, writing | WriteBack |
- * | Ready | Dismiss | not applying | proposal gone until its digest changes | |
+ * | Ready | KeepApp | seen digest; project Update/Conflict/Remove with a target | proposal gone, writing | WriteBack |
+ * | Ready | Dismiss | seen digest; not applying | proposal gone until its digest changes | |
  * | Ready | RemoveFromProject | bound unit | writing the deletion | WriteBack |
  * | Ready | WrittenBack | | binding committed or dropped, proposals of the unit gone | SaveBindings, Sync |
  * | Ready | WriteBackFailed | | not writing | |
@@ -117,7 +117,9 @@ private fun ReadyBuilder.decisions() {
     on<Internal.ReviewsFailed> {
         stay { state.reviewed(intent.proposals.map { it.reviewKey to ProposalReview.Unavailable }) }
     }
-    on<Public.Trust>(guard = { state.proposal(intent.proposal)?.isTrustable(intent.isRiskAccepted) == true }) {
+    on<Public.Trust>(
+        guard = { state.proposal(intent.proposal, intent.digest)?.isTrustable(intent.isRiskAccepted) == true },
+    ) {
         step { state.trusted(checkNotNull(state.proposal(intent.proposal))) }
     }
     on<Internal.Applied> { step { state.applied(intent) } }
@@ -137,10 +139,10 @@ private fun ReadyBuilder.decisions() {
             )
         }
     }
-    on<Public.KeepApp>(guard = { state.keptWriteBack(intent.proposal) != null }) {
-        step { state.writing(checkNotNull(state.keptWriteBack(intent.proposal))) }
+    on<Public.KeepApp>(guard = { state.keptWriteBack(intent.proposal, intent.digest) != null }) {
+        step { state.writing(checkNotNull(state.keptWriteBack(intent.proposal, intent.digest))) }
     }
-    on<Public.Dismiss>(guard = { state.proposal(intent.proposal)?.isApplying == false }) {
+    on<Public.Dismiss>(guard = { state.proposal(intent.proposal, intent.digest)?.isApplying == false }) {
         stay {
             val proposal = checkNotNull(state.proposal(intent.proposal))
             state.copy(proposals = state.proposals - proposal, dismissed = state.dismissed + proposal.reviewKey)
@@ -209,14 +211,19 @@ private fun <J : ProjectConfigIntent> TransitionBuilder<
 >.step(
     compute: TransitionScope<ProjectConfigState.Ready, J>.() -> ConfigStep,
 ) {
-    stay { compute().state }
+    stay {
+        val next = compute()
+        // A transition has fixed effect and output slots: more would be dropped silently.
+        check(next.effects.size <= EFFECTS && next.outputs.size <= OUTPUTS) { "Too many effects of a step" }
+        next.state
+    }
     repeat(EFFECTS) { index -> effect { compute().effects.getOrNull(index) } }
     repeat(OUTPUTS) { index -> output { compute().outputs.getOrNull(index) } }
 }
 
 /** The write-back that keeps the profile's version against the files of a project proposal, or null. */
-private fun ProjectConfigState.Ready.keptWriteBack(id: String): ConfigWriteBack? {
-    val proposal = proposal(id)?.takeUnless { it.isApplying } ?: return null
+private fun ProjectConfigState.Ready.keptWriteBack(id: String, digest: ConfigDigest?): ConfigWriteBack? {
+    val proposal = proposal(id, digest)?.takeUnless { it.isApplying } ?: return null
     val project = (proposal.source as? ConfigSource.Project)?.project ?: return null
     val target = proposal.target?.takeIf { proposal.kind != ProposalKind.Create } ?: return null
     return ConfigWriteBack(project, proposal.unit, target)

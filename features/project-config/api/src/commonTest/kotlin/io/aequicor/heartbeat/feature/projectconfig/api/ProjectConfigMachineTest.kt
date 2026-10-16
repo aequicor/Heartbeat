@@ -78,8 +78,11 @@ class ProjectConfigMachineTest {
             Internal.Reviewed(proposal.id, ConfigDigest("n1"), ProposalReview.Done(ReviewVerdict.Risk, "network")),
         )
         assertTrue(risky.reviewing.isEmpty())
-        spec.assertIgnored(risky, Public.Trust(proposal.id))
-        val applying = checkNotNull(spec.resolve(risky, Public.Trust(proposal.id, isRiskAccepted = true)))
+        spec.assertIgnored(risky, Public.Trust(proposal.id, proposal.digest))
+        // The user accepted the risk of another version of the files: nothing is applied.
+        spec.assertIgnored(risky, Public.Trust(proposal.id, ConfigDigest("n0"), isRiskAccepted = true))
+        val accepted = Public.Trust(proposal.id, proposal.digest, isRiskAccepted = true)
+        val applying = checkNotNull(spec.resolve(risky, accepted))
         val started = applying.to.ready.proposals.single()
         assertTrue(started.isApplying)
         assertEquals(listOf(ProjectConfigEffect.Apply(started)), applying.effects)
@@ -173,12 +176,14 @@ class ProjectConfigMachineTest {
         val state = idle.copy(proposals = listOf(conflict))
         spec.assertTransition(
             state,
-            Public.KeepApp(conflict.id),
+            Public.KeepApp(conflict.id, conflict.digest),
             idle.copy(writing = setOf(ConfigWriteBack(project, review, key))),
             effects = listOf(ProjectConfigEffect.WriteBack(listOf(ConfigWriteBack(project, review, key)))),
         )
 
-        val dismissed = state.send(Public.Dismiss(conflict.id))
+        spec.assertIgnored(state, Public.KeepApp(conflict.id, ConfigDigest("f1")))
+        spec.assertIgnored(state, Public.Dismiss(conflict.id, ConfigDigest("f1")))
+        val dismissed = state.send(Public.Dismiss(conflict.id, conflict.digest))
         assertEquals(setOf(conflict.reviewKey), dismissed.dismissed)
         val hidden = dismissed.send(Public.Sync(project)).send(
             Internal.Synced(
@@ -190,7 +195,7 @@ class ProjectConfigMachineTest {
             ),
         )
         assertTrue(hidden.proposals.isEmpty())
-        spec.assertIgnored(idle, Public.KeepApp("missing"))
+        spec.assertIgnored(idle, Public.KeepApp("missing", null))
         spec.assertTransition(
             idle,
             Public.RemoveFromProject(project, review),

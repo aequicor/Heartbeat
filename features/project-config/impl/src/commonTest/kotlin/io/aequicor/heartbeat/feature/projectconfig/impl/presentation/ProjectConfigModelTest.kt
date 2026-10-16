@@ -85,16 +85,35 @@ class ProjectConfigModelTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()
 
-        screen.intent(ProjectConfigScreenIntent.Trust(safe.id))
-        screen.intent(ProjectConfigScreenIntent.Trust(risky.id))
+        screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(safe.id, "d")))
+        screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(risky.id, "d")))
         runCurrent()
-        assertEquals(listOf<ProjectConfigIntent>(Public.Trust(safe.id)), fixture.machine.sent)
-        assertEquals(risky.id, screen.states.value.confirming)
+        assertEquals(listOf<ProjectConfigIntent>(Public.Trust(safe.id, ConfigDigest("d"))), fixture.machine.sent)
+        assertEquals(ProposalVersionUi(risky.id, "d"), screen.states.value.confirming)
 
         screen.intent(ProjectConfigScreenIntent.ConfirmRisk)
         runCurrent()
-        assertEquals(Public.Trust(risky.id, isRiskAccepted = true), fixture.machine.sent.last())
+        assertEquals(Public.Trust(risky.id, ConfigDigest("d"), isRiskAccepted = true), fixture.machine.sent.last())
         assertNull(screen.states.value.confirming)
+    }
+
+    @Test
+    fun `decisions name the version the user saw and a changed proposal closes its confirmation`() = runTest {
+        val fixture = Fixture(this, ready)
+        val screen = fixture.subscribe()
+
+        screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(risky.id, "d")))
+        runCurrent()
+        // The files change while the risk dialog is open: the new version waits for its own decision.
+        val changed = risky.copy(digest = ConfigDigest("d2"), review = ProposalReview.Done(ReviewVerdict.Risk, "exec"))
+        fixture.machine.state.value = ready.copy(proposals = listOf(changed, safe))
+        runCurrent()
+        assertNull(screen.states.value.confirming)
+        screen.intent(ProjectConfigScreenIntent.ConfirmRisk)
+        screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(safe.id, "old")))
+        screen.intent(ProjectConfigScreenIntent.Dismiss(ProposalVersionUi(changed.id, "d2")))
+        runCurrent()
+        assertEquals(listOf<ProjectConfigIntent>(Public.Dismiss(changed.id, ConfigDigest("d2"))), fixture.machine.sent)
     }
 
     @Test

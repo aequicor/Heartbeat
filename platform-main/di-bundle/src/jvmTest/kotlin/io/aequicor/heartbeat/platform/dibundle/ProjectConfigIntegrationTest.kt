@@ -86,7 +86,7 @@ class ProjectConfigIntegrationTest {
         assertEquals(ProposalReview.Unavailable, proposal.review)
         accessors.machines.send(
             ProjectConfigMachineKey,
-            ProjectConfigIntent.Public.Trust(proposal.id, isRiskAccepted = true),
+            ProjectConfigIntent.Public.Trust(proposal.id, proposal.digest, isRiskAccepted = true),
         )
         val lesson = withContext(Dispatchers.Default) {
             withTimeout(TIMEOUT) {
