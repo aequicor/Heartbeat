@@ -42,6 +42,15 @@ internal class PiStorage(private val storageRoot: StorageRoot, private val legac
     }
 
     /**
+     * Persistent Pi home of the profile: resources and packages the profile configures, which outlive the
+     * per-process agent directory. Relative resource paths of the profile configuration resolve here.
+     */
+    fun profileHome(profileId: String): Path {
+        log.d { "Resolving Pi profile home" }
+        return profileRoot(profileId).resolve("home")
+    }
+
+    /**
      * Pi names transcripts `<timestamp>_<session id>.jsonl` directly in `--session-dir` ([directory]).
      * Returns the newest match for [nativeId], or null when there is none or the directory cannot be read.
      */

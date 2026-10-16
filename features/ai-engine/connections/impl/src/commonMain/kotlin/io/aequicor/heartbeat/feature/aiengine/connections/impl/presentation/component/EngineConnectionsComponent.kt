@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsR
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.EngineConnectionsScope
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.UnifiedSettingsPolicy
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsModel
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlPanelRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
@@ -72,6 +73,12 @@ class EngineConnectionsComponent(
     fun openWizard(engine: String?) {
         log.i { "open connection wizard preselected=${engine != null}" }
         navigator.navigate(ConnectEngineRoute(engine?.let(::EngineId)))
+    }
+
+    /** Opens the engine control panel of [engine]: switching on, installation, sign-in and launch settings. */
+    fun openEngineControl(engine: String) {
+        log.i { "open engine control panel engine=$engine" }
+        navigator.navigate(EngineControlPanelRoute(EngineId(engine)))
     }
 
     /** Opens the description of [model] of [engine] for adaptive subagents. */

@@ -20,6 +20,7 @@ internal class EngineConnectionsUiComponent(private val component: EngineConnect
             if (presentation == ConnectionsPresentation.Embedded) null else component::close,
             component::openModelDescription,
             modifier,
+            component::openEngineControl,
         )
     }
 }

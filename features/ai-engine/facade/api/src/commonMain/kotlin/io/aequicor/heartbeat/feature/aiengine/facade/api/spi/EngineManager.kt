@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.api.spi
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -12,13 +13,24 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginCode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 
 /**
- * What an adapter starts its processes with: the profile's [settings] and Heartbeat's verified copy ([managed]),
- * if one is installed. Paths are never logged.
+ * What an adapter starts its processes with: the profile's [settings], Heartbeat's verified copy ([managed]) if one
+ * is installed and, while engine configuration is on ([isConfigured]), the profile [config] of the engine's schema
+ * and the project [trust] decisions. Paths and values are never logged.
  */
-public data class LaunchContext(val settings: LaunchSettings = LaunchSettings(), val managed: ManagedInstall? = null) {
-    override fun toString(): String = "LaunchContext(isDefault=${settings.isDefault}, hasManaged=${managed != null})"
+public data class LaunchContext(
+    val settings: LaunchSettings = LaunchSettings(),
+    val managed: ManagedInstall? = null,
+    val config: EngineConfigValues = EngineConfigValues(),
+    val trust: Map<WorkspaceRef, ProjectTrust> = emptyMap(),
+    /** Engine configuration is on: undecided projects get the adapter's restricted project mode. */
+    val isConfigured: Boolean = false,
+) {
+    override fun toString(): String = "LaunchContext(isDefault=${settings.isDefault}, hasManaged=${managed != null}, " +
+        "configured=$isConfigured, hasConfig=${!config.isEmpty}, trusted=${trust.size})"
 }
 
 /**

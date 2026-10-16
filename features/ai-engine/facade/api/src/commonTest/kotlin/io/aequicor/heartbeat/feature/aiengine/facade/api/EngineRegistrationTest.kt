@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineConfigurator
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
@@ -135,6 +136,30 @@ class EngineRegistrationTest {
             lazy { AcceptingFactory() },
         )
         validateEngineRegistrations(listOf(windows, android, secondary))
+    }
+
+    @Test
+    fun `a configuration schema needs a configurator that is not constructed eagerly`() {
+        assertFailsWith<IllegalArgumentException> {
+            EngineRegistration(descriptor, owner, lazy { AcceptingFactory() }, configuration = TestConfig.schema)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            EngineRegistration(descriptor, owner, lazy { AcceptingFactory() }, configurator = lazy { error("unused") })
+        }
+        var isConstructed = false
+        val configurator = lazy<EngineConfigurator> {
+            isConstructed = true
+            error("The registration must not construct its configurator")
+        }
+        val registration = EngineRegistration(
+            descriptor,
+            owner,
+            lazy { AcceptingFactory() },
+            configuration = TestConfig.schema,
+            configurator = configurator,
+        )
+        assertEquals(TestConfig.schema, registration.configuration)
+        assertFalse(isConstructed)
     }
 
     @Test

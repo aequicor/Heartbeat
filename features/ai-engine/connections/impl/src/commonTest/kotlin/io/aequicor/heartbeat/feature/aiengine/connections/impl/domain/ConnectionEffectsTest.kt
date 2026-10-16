@@ -21,10 +21,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.OllamaMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.RecordingScope
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -229,7 +227,7 @@ class ConnectionEffectsTest {
     }
 
     @Test
-    fun `engine management reaches the snapshot and receives the panel's commands`() = runTest {
+    fun `engine management reaches the snapshot`() = runTest {
         backgroundScope.launch { settings.handle(EngineConnectionsEffect.Observe, settingsScope) }
         runCurrent()
         val managed = EngineManagementState(isEnabled = true, platform = EnginePlatform.DesktopMacOs)
@@ -238,11 +236,6 @@ class ConnectionEffectsTest {
 
         val snapshot = assertIs<EngineConnectionsIntent.Internal.Snapshot>(settingsScope.intents.last()).snapshot
         assertEquals(managed, snapshot.management)
-
-        val install = ConnectionOperation.ManageEngine(KoogId, EngineCommand.Start(EngineAction.Install))
-        settings.handle(EngineConnectionsEffect.Execute(install), settingsScope)
-        assertEquals(listOf(KoogId to install.command), management.commands)
-        assertEquals(EngineConnectionsIntent.Internal.Applied, settingsScope.intents.last())
     }
 
     @Test

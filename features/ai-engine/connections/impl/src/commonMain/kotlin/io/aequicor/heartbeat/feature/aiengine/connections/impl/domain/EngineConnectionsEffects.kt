@@ -105,12 +105,6 @@ class EngineConnectionsEffects(private val services: EngineServices, private val
                 log.i { "set default model present=${operation.target != null}" }
                 selections.update { it.withDefault(operation.target) }
             }
-
-            is ConnectionOperation.ManageEngine -> {
-                val command = operation.command::class.simpleName.orEmpty()
-                log.i { "manage engine=${operation.engine.value} command=$command" }
-                services.management.execute(operation.engine, operation.command)
-            }
         }
     }
 

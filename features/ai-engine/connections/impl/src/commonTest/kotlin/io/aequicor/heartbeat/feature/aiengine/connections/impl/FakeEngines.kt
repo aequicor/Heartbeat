@@ -227,12 +227,10 @@ internal class RecordingScope<I : MachineIntent> : EffectScope<I> {
     }
 }
 
-/** Records management commands and publishes the state a test sets. */
+/** Publishes the state a test sets; the settings space only observes engine management. */
 internal class FakeEngineManagement : EngineManagement {
     override val state = MutableStateFlow(EngineManagementState.Off)
-    val commands = mutableListOf<Pair<EngineId, EngineCommand>>()
 
-    override suspend fun execute(engine: EngineId, command: EngineCommand) {
-        commands += engine to command
-    }
+    override suspend fun execute(engine: EngineId, command: EngineCommand) =
+        error("the settings space does not manage engines")
 }

@@ -14,6 +14,7 @@ kotlin {
             implementation(projects.features.togglesPanel.api)
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiEngine.connections.api)
+            implementation(projects.features.aiEngine.controlPanel.api)
             implementation(projects.features.computerUse.api)
             implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.agentLearning.api)

@@ -15,6 +15,10 @@ public enum class SettingsSection {
     @SerialName("models")
     Models,
 
+    /** The engine control panel: managing, updating and configuring each engine. */
+    @SerialName("engines")
+    Engines,
+
     /** Confirmation policy for ordinary agent turns in the studio. */
     @SerialName("security")
     Security,
@@ -101,6 +105,7 @@ public val UnifiedSettings: FeatureToggle.Flag = FeatureToggle.Flag(
 public val SettingsSection.deepLinkName: String
     get() = when (this) {
         SettingsSection.Models -> "models"
+        SettingsSection.Engines -> "engines"
         SettingsSection.Security -> "security"
         SettingsSection.Subagents -> "subagents"
         SettingsSection.Search -> "search"

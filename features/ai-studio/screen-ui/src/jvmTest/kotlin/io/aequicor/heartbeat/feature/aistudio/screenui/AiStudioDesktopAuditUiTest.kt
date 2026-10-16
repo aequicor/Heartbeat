@@ -327,6 +327,7 @@ private fun AiStudioScreenState.auditIntent(intent: StudioIntent): AiStudioScree
     is StudioIntent.OpenApp,
     is StudioIntent.RemoteApplied,
     is StudioIntent.Embed,
+    is StudioIntent.DecideProjectTrust,
     StudioIntent.InstallAppUpdate,
     -> this
 }

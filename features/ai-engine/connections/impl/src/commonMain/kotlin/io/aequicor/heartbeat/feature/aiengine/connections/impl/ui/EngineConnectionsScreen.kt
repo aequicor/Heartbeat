@@ -24,6 +24,8 @@ import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbEmptyState
+import io.aequicor.heartbeat.ds.components.HbIcon
+import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
 import io.aequicor.heartbeat.ds.components.HbSearchField
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
@@ -68,6 +70,9 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.setting
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_enabled_models
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_engines
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_make_default
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_manage_engine
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_manage_engine_description
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_manage_engine_off
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_model_describe
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_model_description
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_models
@@ -90,18 +95,28 @@ internal fun EngineConnectionsScreen(
     onBack: (() -> Unit)?,
     onOpenDescription: (engine: String, model: String) -> Unit,
     modifier: Modifier = Modifier,
+    onManageEngine: (engine: String) -> Unit = {},
 ) {
     val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
-    EngineConnectionsContent(state, model.store::intent, onAddConnection, onBack, onOpenDescription, modifier)
+    EngineConnectionsContent(
+        state,
+        model.store::intent,
+        onAddConnection,
+        onBack,
+        onOpenDescription,
+        modifier,
+        onManageEngine,
+    )
 }
 
 /**
  * "Engine × connection × model" as one settings column: engines, then the connections of the selected engine,
  * then the models of the selected connection, each level as settings rows. Disconnecting asks in [HbDialog].
  * Inside the settings host [onBack] is null and only this content is drawn. [onOpenDescription] opens the
- * adaptive subagents description of a model, offered only while descriptions are on.
+ * adaptive subagents description of a model, offered only while descriptions are on. With engine management on,
+ * [onManageEngine] opens the selected engine's control panel.
  */
 @Composable
 internal fun EngineConnectionsContent(
@@ -111,7 +126,9 @@ internal fun EngineConnectionsContent(
     onBack: (() -> Unit)?,
     onOpenDescription: (engine: String, model: String) -> Unit,
     modifier: Modifier = Modifier,
+    onManageEngine: (engine: String) -> Unit = {},
 ) {
+    val selected = state.engines.firstOrNull { it.id == state.selectedEngine }
     // Input follows the actual write immediately; only its visual feedback waits to avoid a brief flash.
     val isSavingVisible = rememberHbBusyReveal(state.isSaving)
     HbColumn(
@@ -129,18 +146,8 @@ internal fun EngineConnectionsContent(
                 ConnectionsToolbar(onAddEngine = { onAddConnection(null) })
                 SettingsStatus(state, onIntent, isSavingVisible = isSavingVisible)
                 EnginesSection(state, onIntent, isSavingVisible = isSavingVisible)
-                state.engines.firstOrNull { it.id == state.selectedEngine }?.preparation?.let {
-                    EnginePreparationStatus(it)
-                }
-                state.panel?.let {
-                    EngineManagementSection(
-                        it,
-                        state.loginCode,
-                        state.isSaving,
-                        onIntent,
-                        isSavingVisible = isSavingVisible,
-                    )
-                }
+                if (selected != null && state.isManaged) EngineControlLink(selected, { onManageEngine(selected.id) })
+                selected?.preparation?.let { EnginePreparationStatus(it) }
                 ConnectionsSection(state, onIntent, onAddConnection)
                 ModelsSection(state, onIntent, onOpenDescription, isSavingVisible = isSavingVisible)
             }
@@ -148,9 +155,6 @@ internal fun EngineConnectionsContent(
     }
     val confirming = state.connections.firstOrNull { it.id == state.confirmDisconnect }
     if (confirming != null) DisconnectDialog(confirming.label, isEnabled = !state.isSaving, onIntent)
-    val panel = state.panel
-    val action = state.confirmAction
-    if (panel != null && action != null) EngineActionDialog(action, panel, isEnabled = !state.isSaving, onIntent)
 }
 
 @Composable
@@ -212,8 +216,7 @@ private fun EnginesSection(
         stringResource(Res.string.settings_engines),
         modifier,
         trailingContent = {
-            // With engine management the panel below inspects the engine; one such button is enough.
-            if (state.selectedEngine != null && state.panel == null) {
+            if (state.selectedEngine != null) {
                 HbButton(
                     stringResource(Res.string.settings_probe),
                     { onIntent(EngineConnectionsScreenIntent.ProbeEngine) },
@@ -256,6 +259,25 @@ private fun EngineEntry(engine: EngineRowUi, isSelected: Boolean, onClick: () ->
     }
 }
 
+/** The selected engine is switched on, installed and signed in from its engine control panel. */
+@Composable
+private fun EngineControlLink(engine: EngineRowUi, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+    HbSettingsRow(
+        stringResource(Res.string.settings_manage_engine),
+        modifier.testTag("settings-manage-engine"),
+        description = stringResource(
+            if (engine.isEnabled) {
+                Res.string.settings_manage_engine_description
+            } else {
+                Res.string.settings_manage_engine_off
+            },
+        ),
+        onClick = onOpen,
+    ) {
+        HbIcon(HbIcons.ChevronRight, contentDescription = null)
+    }
+}
+
 @Composable
 private fun ConnectionsSection(
     state: EngineConnectionsScreenState,
@@ -263,7 +285,7 @@ private fun ConnectionsSection(
     onAddConnection: (engine: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // A switched-off engine has no connections to manage; its panel explains why.
+    // A switched-off engine has no connections to manage; the engine control panel switches it on.
     val engine = state.engines.firstOrNull { it.id == state.selectedEngine }?.takeIf { it.isEnabled } ?: return
     HbSettingsSection(
         stringResource(Res.string.settings_connections),

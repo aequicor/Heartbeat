@@ -8,19 +8,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.validateLaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiAdapter
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiConfigSchema
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiConfigurator
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiEngineManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PiRegistrationBindingsTest {
-    private val registration = PiRegistrationBindings.registration(
-        lazy<PiAdapter> { error("Must stay lazy") },
-        lazy<PiEngineManager> { error("Must stay lazy") },
-        object : PlatformInfo {
-            override val host = HostPlatform.MacOs
-        },
-    )
+    private val registration = registration(HostPlatform.MacOs)
 
     /**
      * Revision 4 replaces synthetic compatible context windows with explicit catalog limits.
@@ -47,4 +44,24 @@ class PiRegistrationBindingsTest {
 
         assertEquals(listOf(1, 2), problems.map { it.index })
     }
+
+    @Test
+    fun `Pi declares its configuration on the desktop only and stays lazy`() {
+        assertEquals(PiConfigSchema, registration.configuration)
+        assertTrue(registration.configurator != null)
+        listOf(HostPlatform.Android, HostPlatform.Ios).forEach { host ->
+            val mobile = registration(host)
+            assertNull(mobile.configuration)
+            assertNull(mobile.configurator)
+        }
+    }
+
+    private fun registration(host: HostPlatform) = PiRegistrationBindings.registration(
+        lazy<PiAdapter> { error("Must stay lazy") },
+        lazy<PiEngineManager> { error("Must stay lazy") },
+        lazy<PiConfigurator> { error("Must stay lazy") },
+        object : PlatformInfo {
+            override val host = host
+        },
+    )
 }

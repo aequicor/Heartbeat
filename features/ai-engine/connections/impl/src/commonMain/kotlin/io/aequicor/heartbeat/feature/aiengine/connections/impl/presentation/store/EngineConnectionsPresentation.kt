@@ -42,18 +42,12 @@ data class EngineConnectionsScreenState(
     val models: ModelsPaneUi? = null,
     val modelQuery: String = "",
     val confirmDisconnect: String? = null,
+    /** Engine management is on: the selected engine is switched on and installed in its engine control panel. */
+    val isManaged: Boolean = false,
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val loadFailure: FailureUi? = null,
     val failure: FailureUi? = null,
-    /** Management of the selected engine; null while engine management is off. */
-    val panel: EnginePanelUi? = null,
-    /** Launch settings being edited for the selected engine; null shows the saved ones. */
-    val launchDraft: LaunchDraftUi? = null,
-    /** A code pasted from a sign-in page, kept until sent or its sign-in prompt ends. Never logged. */
-    val loginCode: String = "",
-    /** An action waiting for confirmation (uninstall, an unverified update, sign-out). */
-    val confirmAction: EngineActionUi? = null,
     /** Models described for adaptive subagents; null while that feature is off. */
     val descriptions: ImmutableSet<DescribedModel>? = null,
 ) : MVIState {
@@ -63,7 +57,7 @@ data class EngineConnectionsScreenState(
 /** Rebuilds the three levels, keeping the selection while it still exists and otherwise picking the first entry. */
 internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState): EngineConnectionsScreenState =
     when (state) {
-        EngineConnectionsState.Idle -> copy(isLoading = true, loadFailure = null, loginCode = "")
+        EngineConnectionsState.Idle -> copy(isLoading = true, loadFailure = null)
 
         is EngineConnectionsState.Active -> {
             val base = copy(
@@ -71,7 +65,6 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
                 isSaving = state.pending != null,
                 loadFailure = state.loadFailure?.toUi(),
                 failure = state.failed?.failure?.toUi(),
-                loginCode = loginCode.takeIf { state.snapshot != null }.orEmpty(),
             )
             val snapshot = state.snapshot
             when {
@@ -83,7 +76,7 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
                     connections = persistentListOf(),
                     models = null,
                     confirmDisconnect = null,
-                    panel = null,
+                    isManaged = false,
                 )
 
                 else -> base
@@ -92,8 +85,8 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
     }
 
 /**
- * With engine management on, every registered engine is listed (switched-off ones too) and the selected one gets
- * its panel; connections and models exist only for engines that are on. Off, the space is exactly as before.
+ * With engine management on, every registered engine is listed (switched-off ones too; the engine control panel
+ * manages them); connections and models exist only for engines that are on. Off, the space is exactly as before.
  */
 private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnapshot): EngineConnectionsScreenState {
     val management = snapshot.management.takeIf { it.isEnabled }
@@ -110,8 +103,6 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
     } ?: snapshot.engines.map { it.toRow() }
     val engineId = selectedEngine?.takeIf { id -> engineRows.any { it.id == id } } ?: engineRows.firstOrNull()?.id
     val engine = snapshot.engines.firstOrNull { it.descriptor.id.value == engineId }
-    val panel = management?.engines?.firstOrNull { it.descriptor.id.value == engineId }
-        ?.toPanel(launchDraft.takeIf { engineId == selectedEngine }, management.platform)
     val providers = engine?.descriptor?.connectionMethods.orEmpty().associate { it.provider.id to it.provider.title }
     val connectionRows = engine?.bindings.orEmpty().map { binding ->
         val source = snapshot.sources.firstOrNull { it.info.id == binding.authSource }
@@ -140,7 +131,6 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
             isNeverSynced = cached?.observation?.checkedAt == null,
         )
     }
-    val isSameEngine = engineId == selectedEngine
     return copy(
         engines = engineRows.toImmutableList(),
         selectedEngine = engineId,
@@ -148,10 +138,7 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
         selectedConnection = connectionId,
         models = models,
         confirmDisconnect = confirmDisconnect?.takeIf { id -> connectionRows.any { it.id == id } },
-        panel = panel,
-        launchDraft = launchDraft.takeIf { isSameEngine && panel != null },
-        loginCode = loginCode.takeIf { isSameEngine && panel?.job?.phase is JobPhaseUi.AwaitingCode }.orEmpty(),
-        confirmAction = confirmAction.takeIf { isSameEngine && panel?.job?.isRunning != true },
+        isManaged = management != null,
     )
 }
 

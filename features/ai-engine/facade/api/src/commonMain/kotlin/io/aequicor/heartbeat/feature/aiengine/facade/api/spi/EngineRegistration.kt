@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.isVisibleTo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigSchema
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -53,8 +54,13 @@ public class EngineRegistration(
     public val management: ManagementSpec = ManagementSpec(),
     /** Installation and CLI sign-in of the adapter; required when [management] installs or signs in a CLI. */
     public val manager: Lazy<EngineManager>? = null,
+    /** What the engine control panel may configure; static, never IO. */
+    public val configuration: EngineConfigSchema? = null,
+    /** File side of [configuration]; required exactly when a schema is declared. */
+    public val configurator: Lazy<EngineConfigurator>? = null,
 ) {
     init {
+        require((configuration == null) == (configurator == null)) { "A configuration schema needs a configurator" }
         require(manager != null || !management.needsManager()) { "Managed installation or CLI login needs a manager" }
         require(sessionSources.all { it.source.engine == descriptor.id }) { "Foreign engine session source" }
         require(

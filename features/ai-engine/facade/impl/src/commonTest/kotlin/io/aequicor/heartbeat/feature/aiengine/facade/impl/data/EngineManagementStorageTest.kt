@@ -7,6 +7,10 @@ import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocumentId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -15,10 +19,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.InstallStep
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ManagedInstallStore
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ProfileEngineConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ProfileEnginePreferences
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.StagedInstall
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +33,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -133,6 +142,48 @@ class EngineManagementStorageTest {
         assertEquals(LaunchContext(settings, installs.loaded.getValue(engine)), config.context(engine))
         assertEquals(LaunchContext(), config.context(EngineId("pi")))
         assertEquals(1, installs.refreshes)
+    }
+
+    @Test
+    fun `engine configuration round trips and drops undecided trust`() = runTest {
+        val store = MemoryStore()
+        val workspace = WorkspaceRef("project")
+        val config = ProfileEngineConfig(
+            values = EngineConfigValues(
+                mapOf(
+                    ConfigDocumentId("settings") to ConfigDocument.Json(buildJsonObject { put("retry", true) }),
+                    ConfigDocumentId("agents") to ConfigDocument.Text("Be brief"),
+                ),
+                secrets = mapOf("SLOT" to 2L),
+            ),
+            revision = 3,
+            trust = mapOf(workspace to ProjectTrust.Trusted, WorkspaceRef("other") to ProjectTrust.Undecided),
+        )
+        val pi = EngineId("pi")
+        EngineManagementStorage(store).update { it.copy(config = mapOf(engine to config, pi to ProfileEngineConfig())) }
+
+        val loaded = EngineManagementStorage(store).load()
+        assertEquals(mapOf(engine to config.copy(trust = mapOf(workspace to ProjectTrust.Trusted))), loaded.config)
+        assertEquals(ProfileEngineConfig(), loaded.configOf(pi))
+    }
+
+    @Test
+    fun `adapters get the configuration only while engine configuration is on too`() = runTest {
+        val flags = Flags(mapOf(EngineManagementEnabled to true))
+        val values = EngineConfigValues(mapOf(ConfigDocumentId("agents") to ConfigDocument.Text("Be brief")))
+        val trust = mapOf(WorkspaceRef("project") to ProjectTrust.Content)
+        val chosen = ProfileEnginePreferences(
+            launch = mapOf(engine to settings),
+            config = mapOf(engine to ProfileEngineConfig(values, revision = 1, trust = trust)),
+        )
+        val config = ProfileLaunchConfig(flags, MemoryEnginePreferences(chosen), Installs(emptyMap()))
+
+        assertEquals(LaunchContext(settings), config.context(engine))
+        flags.values[EngineConfigurationEnabled] = true
+        val configured = LaunchContext(settings, config = values, trust = trust, isConfigured = true)
+        assertEquals(configured, config.context(engine))
+        flags.values[EngineManagementEnabled] = false
+        assertEquals(LaunchContext(), config.context(engine))
     }
 
     private class Flags(initial: Map<FeatureToggle<*>, Any>) : FeatureToggles {

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
@@ -11,6 +12,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.isNewerVersion
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubDownloadHosts
@@ -29,6 +32,12 @@ internal data class PiStartup(
     val executable: Path?,
     val source: InstallSource,
     val environment: List<EnvironmentEntry> = emptyList(),
+    /** The profile's configuration of Pi; empty while engine configuration is off. */
+    val config: EngineConfigValues = EngineConfigValues(),
+    /** Saved project trust decisions. */
+    val trust: Map<WorkspaceRef, ProjectTrust> = emptyMap(),
+    /** Engine configuration is on: an untrusted project loads only its content. */
+    val isConfigured: Boolean = false,
 ) {
     override fun toString(): String = "PiStartup(source=$source)"
 }
@@ -43,7 +52,7 @@ internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVer
     val custom = context.settings.executable?.takeIf { it.isNotBlank() }
     val managed = context.managed?.executable
     val environment = context.settings.environment
-    return when {
+    val selected = when {
         custom != null -> PiStartup(pathOrNull(custom), InstallSource.Custom, environment)
 
         managed != null && (
@@ -55,6 +64,7 @@ internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVer
 
         else -> PiStartup(null, InstallSource.Missing, environment)
     }
+    return selected.copy(config = context.config, trust = context.trust, isConfigured = context.isConfigured)
 }
 
 /** The user's entries on top of the retained host environment; Heartbeat's own variables are set after them. */
