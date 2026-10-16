@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.HarnessContentTools
 import io.aequicor.heartbeat.feature.harness.impl.data.services.SchedulerAccessToggles
+import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_USAGE
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
@@ -47,6 +48,49 @@ class HarnessContentToolsTest {
         },
     )
     private val scope = AgentToolScope(null, session = dispatchSession)
+
+    @Test
+    fun `automatic instructions remain available without tools and skill bodies stay on demand`() = runTest {
+        val automatic = scope.copy(isRefreshedPerTurn = true, declared = emptySet())
+        val first = tools.instructions(automatic)
+        assertTrue(first.contains(instruction.text))
+        assertTrue(first.contains(HARNESS_CONTEXT_USAGE))
+        assertTrue(first.contains(skill.description))
+        assertFalse(first.contains(skill.body))
+        assertFalse(first.contains(HarnessTools.CONTEXT))
+        assertFalse(first.contains(HarnessTools.SKILL_LOAD))
+        assertEquals(first, tools.instructions(automatic))
+        val updated = instruction.copy(text = "Updated instruction")
+        active = listOf(harness.copy(items = listOf(updated, skill)))
+        val refreshed = tools.instructions(automatic)
+        assertTrue(refreshed.contains(updated.text))
+        assertFalse(refreshed.contains(instruction.text))
+    }
+
+    @Test
+    fun `only refreshed blocks promise automatic delivery while frozen guidance keeps context reads`() = runTest {
+        // Frozen scopes also cover hook-less sessions (transfers, organic cells) that never receive the block.
+        val frozen = tools.instructions(scope)
+        assertFalse(frozen.contains(HARNESS_CONTEXT_USAGE))
+        assertTrue(frozen.contains("нет в контексте, прочитай их через harness_context"))
+        assertTrue(frozen.contains("Перед задачей загрузи подходящий скилл"))
+        val refreshed = tools.instructions(scope.copy(isRefreshedPerTurn = true))
+        assertTrue(refreshed.contains(HARNESS_CONTEXT_USAGE))
+        active = emptyList()
+        assertFalse(tools.instructions(scope.copy(isRefreshedPerTurn = true)).contains(HARNESS_CONTEXT_USAGE))
+    }
+
+    @Test
+    fun `skill load returns the updated body while the delivered index stays unchanged`() = runTest {
+        val automatic = scope.copy(isRefreshedPerTurn = true)
+        val index = tools.instructions(automatic)
+        val args = buildJsonObject { put("name", "skill") }
+        assertEquals(skill.body, tools.execute(context, HarnessTools.SKILL_LOAD, args).text)
+        val updated = skill.copy(body = "Updated private body")
+        active = listOf(harness.copy(revision = harness.revision + 1, items = listOf(instruction, updated, template)))
+        assertEquals(index, tools.instructions(automatic))
+        assertEquals(updated.body, tools.execute(context, HarnessTools.SKILL_LOAD, args).text)
+    }
 
     @Test
     fun `frozen instructions stay stable while refreshed instructions use the latest committed text`() = runTest {

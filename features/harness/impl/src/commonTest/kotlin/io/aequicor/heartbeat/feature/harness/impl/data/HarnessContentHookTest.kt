@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.HarnessContentHook
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.KeyValueHarnessDeliveryStorage
+import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_USAGE
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessContextDelivery
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
@@ -33,11 +34,13 @@ class HarnessContentHookTest {
     )
 
     @Test
-    fun `production hook forwards receipts and sends removals after acknowledged context`() = runTest {
+    fun `hook preloads instructions once and restores them after compaction without loading skill bodies`() = runTest {
         val clock = RunDeliveryClock()
         val storage = KeyValueHarnessDeliveryStorage(RunDeliveryTestStore(clock), clock)
         val delivery = HarnessContextDelivery(storage, backgroundScope) { it.encodeUtf8().sha256().hex() }
-        var active = listOf(harness)
+        val instruction = HarnessItem.Instruction(ItemId("note"), ItemName("note"), "Follow this instruction")
+        val skill = HarnessItem.Skill(ItemId("skill"), ItemName("skill"), "Use for coding", "On-demand skill body")
+        var active = listOf(harness.copy(items = listOf(instruction, skill)))
         val hook = HarnessContentHook(
             { true },
             { false },
@@ -45,13 +48,28 @@ class HarnessContentHookTest {
             lazy { delivery },
         )
         val first = assertNotNull(hook.preparePrompt(context, "hello", "retained"))
+        assertTrue(first.text.contains(instruction.text))
+        assertTrue(first.text.contains(HARNESS_CONTEXT_USAGE))
+        assertTrue(first.text.contains(skill.description))
+        assertFalse(first.text.contains(skill.body))
         assertNull(storage.snapshot(context.session).activeSetSha)
         first.receipt!!.accepted(context, "retained")
         assertNull(hook.preparePrompt(context, "next", "retained"))
-        assertNotNull(hook.preparePrompt(context, "next", "compacted"))
+        val restored = assertNotNull(hook.preparePrompt(context, "next", "compacted"))
+        assertEquals(first.text, restored.text)
+        restored.receipt!!.accepted(context, "compacted")
+        assertNull(hook.preparePrompt(context, "next", "compacted"))
+        val updated = instruction.copy(text = "Updated instruction")
+        active = listOf(harness.copy(revision = harness.revision + 1, items = listOf(updated, skill)))
+        val changed = assertNotNull(hook.preparePrompt(context, "next", "compacted"))
+        assertTrue(changed.text.contains(updated.text))
+        assertFalse(changed.text.contains(instruction.text))
+        changed.receipt!!.accepted(context, "compacted")
+        assertNull(hook.preparePrompt(context, "next", "compacted"))
         active = emptyList()
         val disabled = assertNotNull(hook.preparePrompt(context, "next", "compacted"))
         assertTrue(disabled.text.contains("отключён"))
+        assertFalse(disabled.text.contains(HARNESS_CONTEXT_USAGE))
     }
 
     @Test

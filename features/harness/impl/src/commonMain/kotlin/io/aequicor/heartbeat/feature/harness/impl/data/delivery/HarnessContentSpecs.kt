@@ -10,7 +10,12 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
 internal val HARNESS_CONTENT_SPECS = listOf(
-    AgentToolSpec(HarnessTools.CONTEXT, "Read all active harness instructions and skill/template indexes", schema()),
+    AgentToolSpec(
+        HarnessTools.CONTEXT,
+        "Read active harness instructions and skill/template indexes when the harness block is missing " +
+            "from context, or recover truncated details; do not call on every turn.",
+        schema(),
+    ),
     AgentToolSpec(
         HarnessTools.SKILL_LOAD,
         "Read an enabled harness skill before the task it applies to; name is harness/name or an unambiguous name",

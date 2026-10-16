@@ -42,10 +42,13 @@ internal class HarnessContent(active: List<Harness>, private val isFullContextRe
     /** Explicit context reads return the whole instruction/index projection rather than its prompt prefix. */
     fun fullText(): String = lines().joinToString("\n")
 
-    /** Complete canonical projection and renderer version for hashing, never only revisions or a truncated prefix. */
+    /**
+     * Complete canonical projection and renderer version for hashing, never only revisions or a truncated prefix.
+     * Protocol and guidance text are not hashed: bump the version whenever they change so accepted sessions get them.
+     */
     fun canonical(contextRevision: String?, instructions: String): String = Json.encodeToString(
         listOf(
-            "harness-context-v2",
+            "harness-context-v3",
             contextRevision,
             Json.encodeToString(markers),
             lines().joinToString("\n"),

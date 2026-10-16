@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
+import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_USAGE
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessContent
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessScriptInstructionAccess
@@ -51,7 +52,10 @@ internal class HarnessContentTools(
         val isFullContextReadable = declared == null || HarnessTools.CONTEXT in declared
         val dynamic = scripts.value.instructions(scope)
         if (!toggles.get(HarnessEnabled)) return ""
-        return HarnessContent(active, isFullContextReadable).block(guide, dynamic).text
+        val content = HarnessContent(active, isFullContextReadable)
+        // Only this refreshed block is re-rendered every turn; frozen guidance cannot promise delivery.
+        val usage = if (content.markers.isEmpty()) emptyList() else listOf(HARNESS_CONTEXT_USAGE)
+        return content.block(guide + usage, dynamic).text
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
@@ -127,6 +131,9 @@ internal fun harnessContentGuide(declared: Set<String>?): List<String> = buildLi
         add("Шаблон шага получи через harness_prompt_get с именем harness/name и строковыми args.")
     }
     if (declared == null || HarnessTools.CONTEXT in declared) {
-        add("Актуальные инструкции и индексы доступны через harness_context.")
+        add(
+            "Если блока инструкций харнессов нет в контексте, прочитай их через harness_context; " +
+                "при полученном блоке вызывай его только для восстановления усечённых деталей.",
+        )
     }
 }

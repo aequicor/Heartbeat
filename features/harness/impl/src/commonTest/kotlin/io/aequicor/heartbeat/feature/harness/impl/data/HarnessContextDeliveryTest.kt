@@ -15,13 +15,16 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessDeliverySnapshot
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessDeliveryStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_PROTOCOL
+import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_USAGE
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessContent
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessContextDelivery
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import okio.ByteString.Companion.encodeUtf8
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -40,6 +43,27 @@ class HarnessContextDeliveryTest {
     private val content = HarnessContent(listOf(harness))
 
     @Test
+    fun `sessions with an accepted old renderer receive the new guidance once`() = runTest {
+        val previous = Json.encodeToString(
+            listOf(
+                "harness-context-v2",
+                "native",
+                Json.encodeToString(content.markers),
+                content.fullText(),
+                "",
+                "true",
+            ),
+        )
+        val pending = assertNotNull(storage.begin(context.session, storage.snapshot(context.session).generation))
+        assertTrue(storage.accepted(context.session, pending.generation, digest(previous), content.markers, emptySet()))
+        val delivery = HarnessContextDelivery(storage, backgroundScope, ::digest)
+        val updated = assertNotNull(delivery.prepare(context, "native", content))
+        assertTrue(updated.text.contains(HARNESS_CONTEXT_USAGE))
+        updated.receipt!!.accepted(context, "native")
+        assertNull(delivery.prepare(context, "native", content))
+    }
+
+    @Test
     fun `late uncertain acceptance after an accepted disable must revoke possible instructions again`() = runTest {
         val delivery = HarnessContextDelivery(storage, backgroundScope, ::digest)
         val old = assertNotNull(delivery.prepare(context, "native", content))
@@ -49,6 +73,7 @@ class HarnessContextDeliveryTest {
         old.receipt!!.accepted(context, "native")
         val repeated = assertNotNull(delivery.prepare(context, "native", HarnessContent(emptyList())))
         assertTrue(repeated.text.contains("Все харнессы отключены."))
+        assertFalse(repeated.text.contains(HARNESS_CONTEXT_USAGE))
         repeated.receipt!!.accepted(context, "native")
         assertNull(delivery.prepare(context, "native", HarnessContent(emptyList())))
     }
