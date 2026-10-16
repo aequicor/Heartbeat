@@ -89,11 +89,41 @@ class ProjectConfigMachineTest {
         assertTrue(applied.to.ready.proposals.isEmpty())
         assertEquals(listOf(binding, learned), applied.to.ready.bindings)
         assertEquals(
-            listOf(ProjectConfigEffect.SaveBindings(listOf(binding, learned), 1)),
+            listOf(
+                ProjectConfigEffect.SaveBindings(listOf(binding, learned), 1),
+                // The entity may have changed while it was applied: the project is synced again.
+                ProjectConfigEffect.Sync(listOf(SyncRequest(project, 3, listOf(binding, learned)))),
+            ),
             applied.effects,
         )
         val failed = applying.to.ready.send(Internal.ApplyFailed(proposal.id, ConfigRejection.Duplicate))
         assertEquals(ConfigRejection.Duplicate, failed.proposals.single().failure)
+    }
+
+    @Test
+    fun `a sync while a proposal is applied keeps it and its result still commits the binding`() {
+        val learning = ConfigUnitRef(ConfigSectionId.Learning, "style")
+        val applying = ConfigProposal(
+            ConfigSource.Project(project),
+            learning,
+            ProposalKind.Create,
+            null,
+            ConfigDigest("n1"),
+            isApplying = true,
+        )
+        val state = idle.copy(proposals = listOf(applying)).send(Public.Sync(project))
+        val entity = EntityDigest(ConfigSectionId.Learning, ConfigEntityKey("l1"), "style", ConfigDigest("edited"))
+        val units = listOf(unit("f1"), ScannedUnit(learning, ConfigDigest("n1"), valid("c1")))
+        val synced = state.send(Internal.Synced(ProjectSnapshot(project, 2, units, listOf(entity))))
+        assertEquals(listOf(applying), synced.proposals)
+
+        val bound = ConfigBinding(project, learning, ConfigEntityKey("l1"), ConfigDigest("n1"), ConfigDigest("c1"))
+        val applied = synced.send(Internal.Applied(applying.id, bound))
+        assertTrue(applied.proposals.isEmpty())
+        assertTrue(bound in applied.bindings)
+        // Even a replaced proposal cannot drop the binding its applied unit created.
+        val late = idle.send(Internal.Applied(applying.id, bound))
+        assertTrue(bound in late.bindings)
     }
 
     @Test
@@ -116,8 +146,16 @@ class ProjectConfigMachineTest {
         spec.assertTransition(
             writing.to.ready,
             Internal.WrittenBack(writeBack, written),
-            writing.to.ready.copy(bindings = listOf(written), writing = emptySet(), revision = 1),
-            effects = listOf(ProjectConfigEffect.SaveBindings(listOf(written), 1)),
+            writing.to.ready.copy(
+                bindings = listOf(written),
+                writing = emptySet(),
+                revision = 1,
+                projects = mapOf(project to ProjectSync(3, isSyncing = true, hasFolder = true)),
+            ),
+            effects = listOf(
+                ProjectConfigEffect.SaveBindings(listOf(written), 1),
+                ProjectConfigEffect.Sync(listOf(SyncRequest(project, 3, listOf(written)))),
+            ),
         )
         val removal = writing.to.ready.send(Internal.WrittenBack(writeBack, null))
         assertTrue(removal.bindings.isEmpty())

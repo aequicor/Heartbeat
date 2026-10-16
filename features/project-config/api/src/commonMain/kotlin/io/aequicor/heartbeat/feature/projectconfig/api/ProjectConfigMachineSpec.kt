@@ -27,12 +27,12 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Publi
  * | Ready | SyncFailed | current generation | idle with failure | Sync if dirty |
  * | Ready | Reviewed / ReviewsFailed | | review of the proposal at that digest | |
  * | Ready | Trust | trustable (valid; safe, accepted risk or a removal) | applying | Apply |
- * | Ready | Applied | applying | proposal gone, binding committed | SaveBindings |
+ * | Ready | Applied | applying | proposal gone, binding committed | SaveBindings, Sync(project) |
  * | Ready | ApplyFailed | | proposal with failure | |
  * | Ready | KeepApp | project Update/Conflict/Remove with a target | proposal gone, writing | WriteBack |
  * | Ready | Dismiss | not applying | proposal gone until its digest changes | |
  * | Ready | RemoveFromProject | bound unit | writing the deletion | WriteBack |
- * | Ready | WrittenBack | | binding committed or dropped, proposals of the unit gone | SaveBindings |
+ * | Ready | WrittenBack | | binding committed or dropped, proposals of the unit gone | SaveBindings, Sync |
  * | Ready | WriteBackFailed | | not writing | |
  * | Ready | SaveToProject / Export / OpenBundle / ImportToProject | no task | task | the task's effect |
  * | Ready | the same | another task | Ready | TaskFinished(Busy) |

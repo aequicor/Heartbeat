@@ -16,11 +16,15 @@ internal fun Ready.trusted(proposal: ConfigProposal): ConfigStep {
 
 /** Commits an applied proposal and the binding it created or removed. */
 internal fun Ready.applied(intent: ProjectConfigIntent.Internal.Applied): ConfigStep {
-    val proposal = proposals.firstOrNull { it.id == intent.proposal && it.isApplying } ?: return ConfigStep(this)
-    val next = copy(proposals = proposals - proposal)
-    val project = proposal.projectOrNull ?: return ConfigStep(next)
-    val others = bindings.filterNot { it.project == project && it.unit == proposal.unit }
-    return ConfigStep(next).then { it.withBindings(others + listOfNotNull(intent.binding)) }
+    val proposal = proposals.firstOrNull { it.id == intent.proposal && it.isApplying }
+    val next = copy(proposals = proposals.filterNot { it == proposal })
+    val project = intent.binding?.project ?: proposal?.projectOrNull ?: return ConfigStep(next)
+    val unit = intent.binding?.unit ?: proposal?.unit ?: return ConfigStep(next)
+    val others = bindings.filterNot { it.project == project && it.unit == unit }
+    // The entity may have changed while it was applied: a new sync reconciles it against the committed binding.
+    return ConfigStep(next)
+        .then { it.withBindings(others + listOfNotNull(intent.binding)) }
+        .then { it.changed(project) }
 }
 
 /** Ends task [intent] with its bindings and output; a task that wrote into a project syncs it. */

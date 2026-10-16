@@ -43,7 +43,10 @@ internal fun Ready.synced(intent: ProjectConfigIntent.Internal.Synced): ConfigSt
     val sync = checkNotNull(projects[project])
     val previous = proposals.filter { it.projectOrNull == project }
     val result = reconcile(bindings, snapshot, previous)
-    val shown = result.proposals.filterNot { it.reviewKey in dismissed }
+    // A proposal being applied stays as it is: its result commits the binding the sync could not know yet.
+    val applying = previous.filter { it.isApplying }
+    val applyingIds = applying.map { it.id }.toSet()
+    val shown = applying + result.proposals.filterNot { it.reviewKey in dismissed || it.id in applyingIds }
     val writes = result.writeBacks.filterNot { it in writing }
     val reviews = shown.filter { it.isReviewDue && it.reviewKey !in reviewing }
     val next = copy(
@@ -95,5 +98,7 @@ internal fun Ready.writtenBack(intent: ProjectConfigIntent.Internal.WrittenBack)
     val writeBack = intent.writeBack
     val others = bindings.filterNot { it.project == writeBack.project && it.unit == writeBack.unit }
     val next = copy(writing = writing - writeBack, proposals = proposals.filterNot { it.isFor(writeBack) })
-    return ConfigStep(next).then { it.withBindings(others + listOfNotNull(intent.binding)) }
+    return ConfigStep(next)
+        .then { it.withBindings(others + listOfNotNull(intent.binding)) }
+        .then { it.changed(writeBack.project) }
 }

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.projectconfig.impl.data
 
 import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
@@ -9,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigApplyContext
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigApplyResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigBinding
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigCheck
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigProposal
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigRejection
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSource
@@ -28,6 +30,7 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteExcept
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Executes the machine's effects: reads folders through [ConfigFolderAccess], checks and applies units only through
@@ -41,12 +44,17 @@ internal class ProjectConfigEffects(
     private val storage: ConfigBindingStorage,
     private val reviewer: Lazy<AgentSafetyReviewer>,
     private val selections: ModelSelections,
+    private val dispatchers: DispatcherProvider,
 ) : EffectHandler<ProjectConfigEffect, ProjectConfigIntent> {
     private val log = Log.tag("ProjectConfigEffects")
     private val saving = Mutex()
     private var savedRevision = -1L
 
-    override suspend fun handle(effect: ProjectConfigEffect, machine: EffectScope<ProjectConfigIntent>) {
+    // Sections check, compile and encode units (interface specs up to 2 MiB): the work stays off the main thread.
+    override suspend fun handle(effect: ProjectConfigEffect, machine: EffectScope<ProjectConfigIntent>): Unit =
+        withContext(dispatchers.default) { dispatch(effect, machine) }
+
+    private suspend fun dispatch(effect: ProjectConfigEffect, machine: EffectScope<ProjectConfigIntent>) {
         when (effect) {
             ProjectConfigEffect.Load -> {
                 val bindings = storage.load()
@@ -140,8 +148,9 @@ internal class ProjectConfigEffects(
             is ConfigApplyResult.Applied -> Internal.Applied(
                 proposal.id,
                 project?.let { ref ->
-                    val encoded = section.encode(result.key, unit.ref.name)
-                    ConfigBinding(ref, unit.ref, result.key, unit.digest, (encoded ?: unit).digest)
+                    // The entity as applied, not as it may already be edited again: such an edit is written back.
+                    val canonical = (section.check(unit) as? ConfigCheck.Valid)?.canonical ?: unit
+                    ConfigBinding(ref, unit.ref, result.key, unit.digest, canonical.digest)
                 },
             )
         }

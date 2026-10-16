@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigState
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ProjectConfigMachine
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ProjectFolders
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
@@ -23,13 +24,15 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
  * Starts the machine with the profile and feeds it what no state effect may observe, since effects end with their
- * state: the toggle and the user's projects, changes of `.heartbeat` folders (their fingerprints are polled; a sync
- * reads a folder only when it changed) and changes of entities in the profile libraries. Desktop only.
+ * state: the toggle and the user's projects, and while the feature is on, changes of `.heartbeat` folders (their
+ * fingerprints are polled; a sync reads a folder only when it changed) and of entities in the profile libraries.
+ * Desktop only.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -65,8 +68,19 @@ internal class ProjectConfigStartup(
                     }
                 }
         }
-        scope.coroutineScope.launch { watchFolders(machine) }
-        scope.coroutineScope.launch { watchEntities(machine) }
+        // Folders and entities are watched only while the feature is on: nothing polls in a profile that never uses it.
+        scope.coroutineScope.launch {
+            machine.state.map { it is ProjectConfigState.Ready }
+                .distinctUntilChanged()
+                .collectLatest { isReady ->
+                    if (isReady) {
+                        coroutineScope {
+                            launch { watchFolders(machine) }
+                            launch { watchEntities(machine) }
+                        }
+                    }
+                }
+        }
     }
 
     private suspend fun watchFolders(machine: ProjectConfigMachine) {

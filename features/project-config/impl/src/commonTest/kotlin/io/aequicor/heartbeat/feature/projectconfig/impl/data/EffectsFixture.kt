@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.projectconfig.impl.data
 
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.connections.api.BindingModels
@@ -28,6 +29,7 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigBundles
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigRead
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigTree
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ProjectFolders
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -44,7 +46,18 @@ internal class EffectsFixture(vararg sections: ConfigSection) {
     val reviewer = Reviewer()
     val selections = Selections(TARGET)
     val access = ConfigFolderAccess(workspaces, folders, lazyOf(sections.toSet()))
-    val effects = ProjectConfigEffects(access, ConfigTasks(access, bundles), storage, lazyOf(reviewer), selections)
+    val effects = ProjectConfigEffects(
+        access,
+        ConfigTasks(access, bundles),
+        storage,
+        lazyOf(reviewer),
+        selections,
+        object : DispatcherProvider {
+            override val main = Dispatchers.Unconfined
+            override val default = Dispatchers.Unconfined
+            override val io = Dispatchers.Unconfined
+        },
+    )
     var state: ProjectConfigState = ProjectConfigState.Off
     val outputs = mutableListOf<ProjectConfigOutput>()
 
