@@ -16,6 +16,17 @@ class BrowserShortcutTest {
     }
 
     @Test
+    fun `zoom keys follow Chromium with or without shift`() {
+        val zoomIn = BrowserShortcut.Zoom(BrowserZoomDirection.In)
+        assertEquals(zoomIn, accelerated('='))
+        assertEquals(zoomIn, accelerated('+', isShift = true))
+        assertEquals(BrowserShortcut.Zoom(BrowserZoomDirection.Out), accelerated('-'))
+        assertEquals(BrowserShortcut.Zoom(BrowserZoomDirection.Reset), accelerated('0'))
+        assertNull(browserShortcut('=', isAccelerator = false, isControl = false, isShift = false, isAlt = false))
+        assertNull(browserShortcut('-', isAccelerator = true, isControl = false, isShift = false, isAlt = true))
+    }
+
+    @Test
     fun `control tab switches tabs on every host`() {
         assertEquals(BrowserShortcut.NextTab, browserShortcut('\t', false, isControl = true, isShift = false, false))
         assertEquals(BrowserShortcut.PreviousTab, browserShortcut('\t', false, isControl = true, isShift = true, false))
