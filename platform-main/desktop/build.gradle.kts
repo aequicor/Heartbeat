@@ -180,6 +180,9 @@ val packageChromiumExtension = tasks.register<Zip>("packageChromiumExtension") {
     destinationDirectory.set(layout.buildDirectory.dir("release-components"))
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
+    // Only the Linux job's archive is published, yet every installer pins its own host's archive. The panel artifact
+    // loses empty Compose resource directories in transit, so entries for them would change the bytes per host.
+    includeEmptyDirs = false
 }
 val prepareExtensionMetadata = tasks.register<WriteComponentMetadata>("prepareExtensionMetadata") {
     artifact.set(packageChromiumExtension.flatMap { it.archiveFile })
