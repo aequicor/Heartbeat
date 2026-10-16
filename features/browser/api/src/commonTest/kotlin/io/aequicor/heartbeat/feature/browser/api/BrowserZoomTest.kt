@@ -78,13 +78,20 @@ class BrowserZoomTest {
     }
 
     @Test
-    fun `zoom without an enabled web page is ignored`() {
+    fun `zoom without a committed web page is absorbed without an effect`() {
+        val blank = zoomable.copy(page = BrowserPage())
+        BrowserMachineSpec.assertTransition(blank, BrowserIntent.Public.Zoom(BrowserZoom.In), blank)
+        val pending = zoomable.copy(page = page.copy(isAwaitingResponse = true))
+        BrowserMachineSpec.assertTransition(pending, BrowserIntent.Public.Zoom(BrowserZoom.In), pending)
+    }
+
+    @Test
+    fun `zoom without an enabled browser or toggle is ignored`() {
         BrowserMachineSpec.assertIgnored(
             zoomable.copy(isZoomEnabled = false),
             BrowserIntent.Public.Zoom(BrowserZoom.In),
         )
         BrowserMachineSpec.assertIgnored(zoomable.copy(isEnabled = false), BrowserIntent.Public.Zoom(BrowserZoom.In))
-        BrowserMachineSpec.assertIgnored(zoomable.copy(page = BrowserPage()), BrowserIntent.Public.Zoom(BrowserZoom.In))
         BrowserMachineSpec.assertIgnored(BrowserState.Idle, BrowserIntent.Public.Zoom(BrowserZoom.In))
     }
 

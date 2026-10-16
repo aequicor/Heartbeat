@@ -6,11 +6,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
@@ -145,6 +150,9 @@ class BrowserZoomUiTest {
         onNodeWithTag("browser-zoom-percent").assertIsDisplayed()
         onNodeWithTag("browser-zoom-out").performClick()
         runOnIdle { assertEquals(90, state.zoomPercent) }
+        onNodeWithTag("browser-zoom-percent")
+            .assertTextEquals("90%")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         onNodeWithTag("browser-zoom-in").performClick()
         runOnIdle { assertEquals(100, state.zoomPercent) }
         onNodeWithTag("browser-zoom-percent").assertIsDisplayed()

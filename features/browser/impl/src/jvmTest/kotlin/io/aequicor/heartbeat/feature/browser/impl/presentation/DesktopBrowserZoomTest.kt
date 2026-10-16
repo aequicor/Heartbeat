@@ -51,6 +51,17 @@ class DesktopBrowserZoomTest {
     }
 
     @Test
+    fun `unreadable saved levels leave the browser working at the default zoom`() = runTest {
+        val fixture = Fixture(this, zoomStorage = UnreadableZoomStorage())
+        fixture.session.setZoomEnabled(true)
+        fixture.create()
+        fixture.session.execute(BrowserCommand.Load("https://example.com/"))
+        runCurrent()
+        assertEquals(100, fixture.session.pages.value.zoomPercent)
+        assertEquals("https://example.com/", fixture.session.pages.value.url)
+    }
+
+    @Test
     fun `rapid queued steps use each preceding result while persistence is suspended`() = runTest {
         val storage = BlockingZoomStorage()
         val fixture = Fixture(this, zoomStorage = storage)
@@ -161,6 +172,15 @@ class DesktopBrowserZoomTest {
         fixture.request(BrowserOperation.ClearData)
         assertEquals(emptyMap(), storage.load())
     }
+}
+
+/** A closed or corrupt profile store fails every read. */
+private class UnreadableZoomStorage : BrowserZoomStorage {
+    override suspend fun load(): Map<String, Int> = throw IllegalStateException("Profile store closed")
+
+    override suspend fun save(host: String, percent: Int) = Unit
+
+    override suspend fun clear() = Unit
 }
 
 /** Holds the first write open so navigation and queued commands can interleave without real-time sleeps. */

@@ -13,6 +13,9 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
@@ -29,6 +32,7 @@ import io.aequicor.heartbeat.feature.browser.impl.resources.Res
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_zoom
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_zoom_in
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_zoom_out
+import io.aequicor.heartbeat.feature.browser.impl.resources.browser_zoom_percent
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_zoom_reset
 import org.jetbrains.compose.resources.stringResource
 
@@ -40,7 +44,7 @@ internal fun BrowserZoomControl(
     modifier: Modifier = Modifier,
 ) {
     var isOpen by remember(state.selectedTabId, state.url, state.isZoomEnabled) { mutableStateOf(false) }
-    if (!state.isZoomEnabled || (state.zoomPercent == 100 && !isOpen)) return
+    if (!state.isZoomEnabled || (state.isZoomDefault && !isOpen)) return
     val trigger = remember { FocusRequester() }
     val label = stringResource(Res.string.browser_zoom, state.zoomPercent)
     val zoom: (BrowserZoomDirection) -> Unit = {
@@ -49,7 +53,7 @@ internal fun BrowserZoomControl(
     }
     Box(modifier) {
         HbIconButton(
-            if (state.zoomPercent > 100) HbIcons.ZoomIn else HbIcons.ZoomOut,
+            if (state.isZoomedIn) HbIcons.ZoomIn else HbIcons.ZoomOut,
             label,
             { isOpen = !isOpen },
             Modifier.testTag("browser-zoom").focusRequester(trigger),
@@ -73,7 +77,11 @@ internal fun BrowserZoomControl(
             },
         ) {
             HbRow {
-                HbText("${state.zoomPercent}%", Modifier.testTag("browser-zoom-percent"))
+                HbText(
+                    stringResource(Res.string.browser_zoom_percent, state.zoomPercent),
+                    // Screen readers announce each step; the popover title is read only when it opens.
+                    Modifier.testTag("browser-zoom-percent").semantics { liveRegion = LiveRegionMode.Polite },
+                )
                 HbIconButton(
                     HbIcons.Minus,
                     stringResource(Res.string.browser_zoom_out),

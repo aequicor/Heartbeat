@@ -102,7 +102,7 @@ internal class DesktopBrowserSession(
 
     override suspend fun setZoomEnabled(isEnabled: Boolean): Unit = withContext(dispatchers.main) {
         zoomLock.withLock {
-            if (isEnabled) zoomLevels = zoomStorage.load()
+            if (isEnabled) zoomLevels = loadZoomLevels()
             isZoomEnabled = isEnabled
             entries.values.forEach { entry -> entry.update(entry.surface.pages.value) }
             projectTabs()
@@ -128,6 +128,16 @@ internal class DesktopBrowserSession(
         zoomLevels = if (percent == BROWSER_DEFAULT_ZOOM) zoomLevels - host else zoomLevels + (host to percent)
         entries.values.forEach { it.update(it.surface.pages.value) }
         projectTabs()
+    }
+
+    /** Saved levels are a preference: an unreadable store leaves pages at the default and keeps the browser running. */
+    private suspend fun loadZoomLevels(): Map<String, Int> = try {
+        zoomStorage.load()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(error.redactedFailure()) { "Saved page zoom levels could not be read" }
+        emptyMap()
     }
 
     private fun zoomPercent(url: String): Int =
@@ -632,9 +642,10 @@ internal class DesktopBrowserSession(
         }
     }
 
-    /** A tab key pressed inside a page, on CEF's UI thread; the strip acts on it as on a key pressed in Compose. */
+    /** A key or wheel step inside the selected tab's page; the strip acts on it as on a key pressed in Compose. */
+    @HighFrequency
     private fun pagePressed(shortcut: BrowserShortcut) {
-        log.i { "Browser tab shortcut pressed in a page: $shortcut" }
+        log.v { "Browser shortcut pressed in a page: $shortcut" }
         if (!shortcuts.tryEmit(shortcut)) log.w { "Browser tab shortcut dropped: $shortcut" }
     }
 

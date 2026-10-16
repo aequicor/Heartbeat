@@ -150,10 +150,15 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                 stay { state.copy(isZoomEnabled = intent.isEnabled) }
             }
             on<BrowserIntent.Public.Zoom>(
-                guard = { state.isEnabled && state.isZoomEnabled && isBrowserUrlAllowed(state.page.url) },
+                guard = { state.isEnabled && state.isZoomEnabled && state.page.isZoomable() },
             ) {
                 effect { BrowserEffect.Zoom(state.selectedTabId, intent.zoom, state.page.url) }
             }
+            // Zoom keys on a new tab, a non-web page or before the next document responds are routine input, not a
+            // rejected command; the address of a pending navigation is not the page on screen.
+            on<BrowserIntent.Public.Zoom>(
+                guard = { state.isEnabled && state.isZoomEnabled && !state.page.isZoomable() },
+            ) {}
             on<BrowserIntent.Internal.PageChanged>(
                 guard = {
                     state.isEnabled && (intent.page.url.isEmpty() || isBrowserUrlAllowed(intent.page.url))
@@ -220,3 +225,6 @@ private fun BrowserState.Running.disabled(): BrowserState.Running = copy(
         error = null,
     ),
 )
+
+/** Zoom applies to a committed web document; a pending navigation's address is not the page on screen. */
+private fun BrowserPage.isZoomable(): Boolean = isBrowserUrlAllowed(url) && !isAwaitingResponse

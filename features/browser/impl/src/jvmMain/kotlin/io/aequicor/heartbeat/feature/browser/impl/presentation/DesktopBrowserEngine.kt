@@ -89,7 +89,7 @@ internal class DesktopBrowserEngine(
 
     @Volatile
     private var isZoomEnabled = false
-    private var zoomPercent = 100
+    private var zoomPercent = BROWSER_DEFAULT_ZOOM
     private var zoomUrl = ""
     private var committedUrl = ""
     private val wheelZoom = onShortcut?.let {
@@ -97,17 +97,24 @@ internal class DesktopBrowserEngine(
     }
 
     override fun setZoom(isEnabled: Boolean, percent: Int, url: String) = onSwing {
+        val isAvailabilityChanged = isZoomEnabled != isEnabled
         isZoomEnabled = isEnabled
         zoomUrl = url
         zoomPercent = if (isEnabled) percent else BROWSER_DEFAULT_ZOOM
         if (isReady) {
             applyZoom()
-            browser.frameIdentifiers.forEach { id -> browser.getFrameByIdentifier(id)?.let { wheelZoom?.install(it) } }
+            // A zoom step keeps each listener and its wheel throttle; new documents get theirs in onLoadStart.
+            if (isAvailabilityChanged) {
+                browser.frameIdentifiers.forEach { id ->
+                    browser.getFrameByIdentifier(id)?.let { wheelZoom?.install(it) }
+                }
+            }
         }
     }
 
     private fun applyZoom() {
         // A provisional Load already changes the UI URL, but must never change the old document's host setting.
+        // While zoom is off every document is reset: Chromium keeps its own per-host levels in the profile.
         if (!isZoomEnabled || browserZoomHost(committedUrl) == browserZoomHost(zoomUrl)) {
             browser.zoomLevel = ln(zoomPercent.toDouble() / BROWSER_DEFAULT_ZOOM) / ln(CHROMIUM_ZOOM_FACTOR)
         }
@@ -260,7 +267,7 @@ internal class DesktopBrowserEngine(
                         frame: CefFrame,
                         transitionType: CefRequest.TransitionType,
                     ) {
-                        wheelZoom?.install(frame)
+                        if (isZoomEnabled) wheelZoom?.install(frame)
                         val url = frame.url
                         if (frame.isMain && !isBootstrap.get()) {
                             onSwing {
@@ -269,6 +276,11 @@ internal class DesktopBrowserEngine(
                                 navigation?.started()
                             }
                         }
+                    }
+
+                    // A script sent at load start can miss a context that is not ready yet; installs are idempotent.
+                    override fun onLoadEnd(browser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
+                        if (isZoomEnabled) wheelZoom?.install(frame)
                     }
 
                     override fun onLoadError(
