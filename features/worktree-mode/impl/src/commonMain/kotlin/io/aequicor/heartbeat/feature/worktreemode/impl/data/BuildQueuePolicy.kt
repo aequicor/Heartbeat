@@ -24,7 +24,7 @@ internal fun WorktreeBuildKind.cost(): BuildCost = when (this) {
 /** Machine-wide capacity shared by the builds of every project and profile. */
 internal data class BuildBudget(val units: Int, val memoryMb: Long) {
     /** Whole standard builds that fit; also bounds the number of warm build slots of one repository. */
-    val parallelBuilds: Int get() = (units / UNITS_PER_BUILD).coerceAtLeast(1)
+    val parallelBuilds: Int get() = (units / UNITS_PER_BUILD).coerceIn(1, MAX_PARALLEL_BUILDS)
 
     companion object {
         const val UNITS_PER_BUILD = 2
@@ -43,6 +43,9 @@ internal data class BuildBudget(val units: Int, val memoryMb: Long) {
             } ?: Long.MAX_VALUE
             return BuildBudget(units, memory)
         }
+
+        /** Without the build queue only exclusive resources limit admission, as before it existed. */
+        val Unlimited: BuildBudget = BuildBudget(Int.MAX_VALUE / 2, Long.MAX_VALUE / 2)
 
         /** An explicit user limit replaces the estimate; memory is then the user's responsibility. */
         fun parallel(builds: Int): BuildBudget =
@@ -109,7 +112,8 @@ private class AdmissionRound(running: List<RunningBuild>, private val budget: Bu
     fun offer(build: QueuedBuild) {
         val isConflicting = build.resources.any { it in owned || it in preceding }
         preceding += build.resources
-        if (isConflicting || isCapacityBlocked) return
+        // Hold leases consume no capacity, so a heavy build waiting for capacity never delays them.
+        if (isConflicting || (isCapacityBlocked && build.cost != BuildCost.None)) return
         val demand = build.slot
         val slot = demand?.let { freeSlot(it, occupied) }
         when {

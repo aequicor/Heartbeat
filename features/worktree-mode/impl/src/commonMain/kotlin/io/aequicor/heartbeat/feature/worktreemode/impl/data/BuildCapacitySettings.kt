@@ -27,8 +27,8 @@ internal class BuildCapacitySettings(
 
     suspend fun set(parallelBuilds: Int?) {
         val value = parallelBuilds.normalized()
-        log.i { "Build capacity limit changed parallelBuilds=${value ?: "auto"}" }
         if (value == null) store.remove(KEY) else store.set(KEY, value)
+        log.i { "Build capacity limit changed parallelBuilds=${value ?: "auto"}" }
     }
 
     private fun Int?.normalized(): Int? = this?.takeIf { it > 0 }?.coerceAtMost(BuildBudget.MAX_PARALLEL_BUILDS)

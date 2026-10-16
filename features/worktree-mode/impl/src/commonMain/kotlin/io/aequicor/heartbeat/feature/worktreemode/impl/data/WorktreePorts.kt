@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCommand
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -128,11 +130,14 @@ internal interface WorktreeBuildCoordinator {
 
 /** Current machine-wide budget; the application coordinator reads it on every admission. */
 internal interface BuildCapacity {
-    /** The effective budget: the user limit when set, otherwise [automatic]. */
-    fun budget(): BuildBudget
-
     /** Estimate from this machine's processors and memory, shown next to the user limit. */
-    val automatic: BuildBudget get() = budget()
+    val automatic: BuildBudget
+
+    /** The effective budget: unlimited without the build queue, else the user limit when set, else [automatic]. */
+    suspend fun budget(): BuildBudget
+
+    /** Emits whenever the effective budget may have changed, so waiting builds are admitted again. */
+    fun changes(): Flow<Unit> = emptyFlow()
 }
 
 /** Command workers inherit the same restricted environment as the facade's local command tools. */

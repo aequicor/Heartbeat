@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.SupervisorJob
@@ -40,13 +42,18 @@ class BuildCapacitySettingsTest {
     }
 
     @Test
-    fun `desktop budget follows the stored limit`() = runTest {
+    fun `desktop budget follows the build queue toggle and the stored limit`() = runTest {
         withContext(RealTestDispatchers.default) {
             val scope = SettingsScope()
             try {
                 val settings = BuildCapacitySettings(lazy { SettingsStores() })
-                val capacity = DesktopBuildCapacity(scope, settings)
-                assertEquals(capacity.automatic, capacity.budget())
+                val toggles = QueueToggles()
+                val capacity = DesktopBuildCapacity(scope, settings, toggles)
+                assertEquals(BuildBudget.Unlimited, capacity.budget())
+                toggles.isQueueEnabled.value = true
+                withTimeout(AWAIT_MILLIS) {
+                    while (capacity.budget() != capacity.automatic) kotlinx.coroutines.yield()
+                }
                 settings.set(2)
                 withTimeout(AWAIT_MILLIS) {
                     while (capacity.budget() != BuildBudget.parallel(2)) kotlinx.coroutines.yield()
@@ -64,6 +71,18 @@ class BuildCapacitySettingsTest {
     private companion object {
         const val AWAIT_MILLIS = 5_000L
     }
+}
+
+private class QueueToggles : FeatureToggles {
+    val isQueueEnabled = MutableStateFlow(false)
+
+    // The capacity only reads the build queue flag.
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = isQueueEnabled as Flow<T>
+
+    // The capacity only reads the build queue flag.
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = isQueueEnabled.value as T
 }
 
 private class SettingsScope : ScopeHandle {

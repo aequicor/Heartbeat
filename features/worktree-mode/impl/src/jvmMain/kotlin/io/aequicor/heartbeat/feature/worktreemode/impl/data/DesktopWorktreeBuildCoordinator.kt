@@ -42,8 +42,17 @@ internal class DesktopWorktreeBuildCoordinator(
     private val waiting = mutableListOf<Job>()
     private val jobs = mutableMapOf<String, Job>()
 
-    /** Last slot of each sandbox task: rebuilding there keeps its incremental outputs warm. */
-    private val affinity = mutableMapOf<String, Int>()
+    /** Last slot of recent sandbox tasks: rebuilding there keeps their incremental outputs warm. */
+    private val affinity = object : LinkedHashMap<String, Int>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>): Boolean = size > MAX_AFFINITY
+    }
+
+    init {
+        // A raised limit or a disabled queue admits waiting builds without waiting for the next enqueue.
+        app.coroutineScope.launch {
+            capacity.changes().collect { mutex.withLock { admit() } }
+        }
+    }
 
     override suspend fun execute(
         execution: BuildExecution,
@@ -119,7 +128,7 @@ internal class DesktopWorktreeBuildCoordinator(
         }
     }
 
-    private fun admit() {
+    private suspend fun admit() {
         val running = jobs.values.filter { it !in waiting }.map { job ->
             val sandbox = job.execution.sandbox
             RunningBuild(
@@ -310,6 +319,7 @@ internal class DesktopWorktreeBuildCoordinator(
 
         /** Warm slots of one repository; each keeps its own build outputs on disk. */
         const val MAX_SLOTS_PER_PROJECT = 4
+        const val MAX_AFFINITY = 256
         val terminal = setOf(
             WorktreeBuildPhase.Completed,
             WorktreeBuildPhase.Failed,

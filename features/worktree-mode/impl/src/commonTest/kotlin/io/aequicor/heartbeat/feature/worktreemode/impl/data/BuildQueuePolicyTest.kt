@@ -99,6 +99,31 @@ class BuildQueuePolicyTest {
         assertEquals(setOf("hold"), admission.admitted.keys)
     }
 
+    @Test
+    fun `a hold lease is not delayed by another project's build waiting for capacity`() {
+        val admission = admitBuilds(
+            listOf(
+                build("native", "p", WorktreeBuildKind.Native),
+                QueuedBuild("hold", "q", BuildCost.None, setOf("repo-q")),
+            ),
+            running = listOf(running("compile", "r")),
+            budget,
+        )
+        assertEquals(setOf("hold"), admission.admitted.keys)
+        assertEquals(mapOf("native" to 1), admission.positions)
+    }
+
+    @Test
+    fun `the unlimited budget keeps only exclusive resources as limits`() {
+        val admission = admitBuilds(
+            List(20) { build("b$it", "p$it", WorktreeBuildKind.Native) },
+            running = emptyList(),
+            BuildBudget.Unlimited,
+        )
+        assertEquals(20, admission.admitted.size)
+        assertEquals(BuildBudget.MAX_PARALLEL_BUILDS, BuildBudget.Unlimited.parallelBuilds)
+    }
+
     private fun build(
         id: String,
         project: String,

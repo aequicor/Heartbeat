@@ -296,7 +296,8 @@ private class CoordinatorFixture(budget: BuildBudget = BuildBudget.parallel(Buil
         app,
         RealTestDispatchers,
         object : BuildCapacity {
-            override fun budget(): BuildBudget = budget
+            override val automatic: BuildBudget = budget
+            override suspend fun budget(): BuildBudget = budget
         },
     )
 

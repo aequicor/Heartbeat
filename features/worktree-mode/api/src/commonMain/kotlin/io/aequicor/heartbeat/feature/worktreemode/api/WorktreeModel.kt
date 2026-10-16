@@ -27,6 +27,17 @@ public val WorktreeSandboxEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     default = false,
 )
 
+/**
+ * Weighs every coordinated build against the machine's CPU and memory budget (or the user limit in the "Builds"
+ * settings section) and shares it fairly between projects. Off keeps the previous admission: builds wait only for
+ * their exclusive resources.
+ */
+public val WorktreeBuildQueueEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "worktree_mode.build_queue",
+    "Очередь сборок по ёмкости машины: веса типов сборок, лимит и справедливость между проектами",
+    default = false,
+)
+
 /** Lifecycle of one chat's checkout; native turn completion alone never completes a task. */
 @Serializable
 public enum class WorktreePhase {

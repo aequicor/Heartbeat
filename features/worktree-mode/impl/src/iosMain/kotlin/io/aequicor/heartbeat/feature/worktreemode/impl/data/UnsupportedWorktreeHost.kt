@@ -44,5 +44,6 @@ internal class UnsupportedWorktreeBuildCoordinator : WorktreeBuildCoordinator {
 @Inject
 @ContributesBinding(AppScope::class)
 internal class UnsupportedBuildCapacity : BuildCapacity {
-    override fun budget(): BuildBudget = BuildBudget.parallel(1)
+    override val automatic: BuildBudget = BuildBudget.parallel(1)
+    override suspend fun budget(): BuildBudget = automatic
 }

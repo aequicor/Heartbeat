@@ -53,7 +53,8 @@ class BuildCapacityModelTest {
     private suspend fun TestScope.screen(): CapacityProvider {
         val factory = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(testScheduler)))
         val capacity = object : BuildCapacity {
-            override fun budget(): BuildBudget = BuildBudget.parallel(3)
+            override val automatic: BuildBudget = BuildBudget.parallel(3)
+            override suspend fun budget(): BuildBudget = automatic
         }
         val model = BuildCapacityModel(StoredBuildLimits(settings, capacity), factory, backgroundScope)
         val screen = CompletableDeferred<CapacityProvider>()
