@@ -18,6 +18,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportSelection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NativeImport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.PackageOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFile
@@ -71,6 +73,14 @@ internal class DesktopPiConfigurator(
     }
 
     private val log = Log.tag("PiConfigurator")
+
+    override suspend fun resources(
+        profile: EngineConfigValues,
+        directory: String?,
+        trust: ProjectTrust,
+    ): ResourceInventory = files {
+        piResourceInventory(home() ?: unsupported(), profile, directory, trust)
+    }
 
     override suspend fun previewNative(): ImportPreview = files { importer().preview() }
 
@@ -196,7 +206,7 @@ private fun unsupportedCommand(): Nothing =
     throw ManagementException(ManagementFailure.Install(InstallFailureReason.Unsupported))
 
 /** Whether [path] (followed through at most [links] links, existing or not) stays inside the real directory [root]. */
-private fun isInside(root: Path, path: Path, links: Int): Boolean {
+internal fun isInside(root: Path, path: Path, links: Int): Boolean {
     // The nearest part of the path that is a link or exists decides; a missing tail is created inside it.
     val known = generateSequence(path.normalize()) { it.parent }
         .firstOrNull { Files.isSymbolicLink(it) || Files.exists(it) }
