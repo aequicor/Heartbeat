@@ -93,12 +93,16 @@ class LearningConfigSectionTest {
         assertTrue(learned.isEnabled)
 
         val replacement = unit("x", """{"kind":"general","title":"Short answers v2"}""", "Answer very briefly.")
+        val before = section.entities.first().orEmpty().single { it.key.value == "2" }.revision
         val replaced = section.apply(replacement, ConfigEntityKey("2"), ConfigApplyContext(project))
         assertEquals(ConfigApplyResult.Applied(ConfigEntityKey("2")), replaced)
         val updated = ready().instructions.single { it.id == model.id }
         assertEquals(InstructionKind.General, updated.kind)
         assertEquals("Short answers v2", updated.title)
         assertFalse(updated.isEnabled)
+        // The revision follows the portable content: a cached encoding of the old version is not reused.
+        val after = section.entities.first().orEmpty().single { it.key.value == "2" }.revision
+        assertTrue(before != after && after.length == SHA256_HEX)
         assertEquals(
             ConfigApplyResult.Rejected(ConfigRejection.NotFound),
             section.apply(replacement, ConfigEntityKey("404"), ConfigApplyContext(project)),
@@ -157,3 +161,5 @@ class LearningConfigSectionTest {
         ),
     )
 }
+
+private const val SHA256_HEX = 64

@@ -37,6 +37,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withTimeoutOrNull
+import okio.Buffer
+import okio.ByteString.Companion.encodeUtf8
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -148,11 +150,32 @@ preferences are safe.
                 name = name,
                 identity = LearningConfigCodec.identity(instruction),
                 title = instruction.title,
-                revision = instruction.lesson().hashCode().toString(),
+                revision = revisionOf(instruction.lesson()),
                 description = instruction.description,
                 project = instruction.project,
             )
         }
+
+    /**
+     * SHA-256 of the portable fields, each prefixed with its length: the revision changes with every change of the
+     * encoded files, so a cached encoding is never reused for another version of the lesson.
+     */
+    private fun revisionOf(lesson: LearningLesson): String {
+        val buffer = Buffer()
+        listOf(
+            lesson.kind.name,
+            lesson.title,
+            lesson.description,
+            lesson.content,
+            lesson.scope?.engine?.value.orEmpty(),
+            lesson.scope?.model?.value.orEmpty(),
+        ).forEach { field ->
+            val bytes = field.encodeUtf8()
+            buffer.writeLong(bytes.size.toLong())
+            buffer.write(bytes)
+        }
+        return buffer.readByteString().sha256().hex()
+    }
 
     private fun AgentLearningOutput.resultOf(requestId: String): ConfigApplyResult? = when (this) {
         is AgentLearningOutput.Learned -> takeIf { it.requestId == requestId }

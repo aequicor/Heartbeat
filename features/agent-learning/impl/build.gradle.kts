@@ -29,6 +29,7 @@ kotlin {
             implementation(libs.kotlinx.collectionsImmutable)
             implementation(libs.kotlinx.serialization.core)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.okio)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
         }
