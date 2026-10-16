@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.impl.di.scope.SettingsScope
 import io.aequicor.heartbeat.feature.settings.impl.domain.SettingsSections
 import io.aequicor.heartbeat.feature.settings.impl.domain.availableSections
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildQueueEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.Flow
@@ -56,7 +57,12 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             combine(
                 toggles.observe(AdaptiveSubagentsEnabled),
                 toggles.observe(ProjectConfigEnabled),
-                toggles.observe(WorktreeModeEnabled),
+                combine(
+                    toggles.observe(WorktreeModeEnabled),
+                    toggles.observe(WorktreeBuildQueueEnabled),
+                ) { worktree, queue ->
+                    worktree && queue
+                },
             ) { subagents, config, builds ->
                 Triple(subagents, config, builds)
             },
@@ -79,7 +85,8 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isProjectConfigEnabled = profile.isProjectConfig,
             isLogsEnabled = logs,
             isDesktop = isDesktop,
-            isBuildsEnabled = profile.isBuilds,
+            // Builds run only on Desktop; mobile hosts have no build queue to configure.
+            isBuildsEnabled = profile.isBuilds && isDesktop,
         )
     }
         // No placeholder of ungated sections first: it made a requested section open only after a second fade, and

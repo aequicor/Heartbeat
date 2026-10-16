@@ -7,6 +7,6 @@
     <string name="builds_auto">Automatic (%1$d)</string>
     <string name="builds_auto_hint">Estimated from processors and memory of this computer</string>
     <string name="builds_parallel">%1$d at a time</string>
-    <string name="builds_sandbox_hint">Sandbox tasks build in shared warm build slots of their repository: at most four slots per repository and no more than the limit.</string>
+    <string name="builds_sandbox_hint">With sandboxes on, sandbox tasks build in shared warm build slots of their repository: at most four slots per repository and no more than the limit.</string>
     <string name="builds_save_failed">The limit could not be saved. Try again.</string>
 </resources>

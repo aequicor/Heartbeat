@@ -7,6 +7,6 @@
     <string name="builds_auto">Автоматически (%1$d)</string>
     <string name="builds_auto_hint">Оценка по процессорам и памяти этого компьютера</string>
     <string name="builds_parallel">%1$d одновременно</string>
-    <string name="builds_sandbox_hint">Песочницы собираются в общих тёплых слотах своего репозитория: не больше четырёх слотов на репозиторий и не больше лимита.</string>
+    <string name="builds_sandbox_hint">Если включены песочницы, они собираются в общих тёплых слотах своего репозитория: не больше четырёх слотов на репозиторий и не больше лимита.</string>
     <string name="builds_save_failed">Не удалось сохранить лимит. Попробуйте ещё раз.</string>
 </resources>

@@ -39,7 +39,7 @@ public enum class SettingsSection {
     @SerialName("context")
     Context,
 
-    /** The machine-wide build queue: automatic or user limit of parallel agent builds. */
+    /** The machine-wide build queue (Desktop): automatic or user limit of parallel agent builds. */
     @SerialName("builds")
     Builds,
 
