@@ -105,7 +105,7 @@ public class HeartbeatStoreFactory(private val dispatchers: DispatcherProvider) 
  * default with a one-frame "loading" flash on every entry. Updates still arrive through the subscription, which
  * also starts the store's `whileSubscribed` plugins such as `reflect`.
  */
-public class ScreenStore<S : MVIState, I : MVIIntent, A : MVIAction> internal constructor(
+public data class ScreenStore<S : MVIState, I : MVIIntent, A : MVIAction> internal constructor(
     public val store: Store<S, I, A>,
     public val current: StateFlow<S>,
 )
