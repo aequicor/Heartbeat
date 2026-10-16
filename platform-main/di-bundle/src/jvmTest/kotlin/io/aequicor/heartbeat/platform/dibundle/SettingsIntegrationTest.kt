@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.navigation.RootHost
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
+import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
+import io.aequicor.heartbeat.feature.applogs.api.AppLogsMachineKey
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelMachineKey
@@ -20,6 +22,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -100,6 +104,7 @@ class SettingsIntegrationTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val process = Process()
         advanceUntilIdle()
+        (process.graph as TestToggleAccessors).toggleControl.setOverride(AppLogsEnabled, false)
         process.root.handleDeepLink("heartbeat://settings/unknown")
         advanceUntilIdle()
         assertEquals(listOf<Route>(ProductionWelcomeRoute), process.host.routes, "an unknown section is rejected")
@@ -107,8 +112,34 @@ class SettingsIntegrationTest {
         process.root.handleDeepLink("heartbeat://settings")
         advanceUntilIdle()
         assertEquals(listOf(ProductionWelcomeRoute, SettingsRoute()), process.host.routes)
-        // Feature flags are the only section of the guest tree, so they open without a profile.
+        // With diagnostics disabled the guest tree opens feature flags without a profile.
         assertNotNull(process.graph.machines.find(TogglesPanelMachineKey))
+        process.close()
+    }
+
+    @Test
+    fun `application logs open inside guest settings and close with the window`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val process = Process()
+        val toggles = process.graph as TestToggleAccessors
+        toggles.toggleControl.setOverride(AppLogsEnabled, true)
+        advanceUntilIdle()
+        assertNull(process.graph.machines.find(AppLogsMachineKey))
+
+        process.root.handleDeepLink("heartbeat://settings/logs")
+        // Settings waits for persisted flags on the IO dispatcher before exposing the logs section.
+        process.graph.machines.observe(AppLogsMachineKey).filterNotNull().first()
+        advanceUntilIdle()
+        assertEquals(
+            listOf(ProductionWelcomeRoute, SettingsRoute(SettingsSection.Logs)),
+            process.host.routes,
+        )
+        assertNotNull(process.graph.machines.find(AppLogsMachineKey))
+
+        process.host.onBack()
+        advanceUntilIdle()
+        assertEquals(listOf<Route>(ProductionWelcomeRoute), process.host.routes)
+        assertNull(process.graph.machines.find(AppLogsMachineKey))
         process.close()
     }
 

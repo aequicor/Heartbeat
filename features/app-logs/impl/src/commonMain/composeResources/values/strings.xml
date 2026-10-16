@@ -1,0 +1,24 @@
+<resources>
+    <string name="logs_title">Application logs</string>
+    <string name="logs_back">Back</string>
+    <string name="logs_description">Copy or save logs to help investigate an issue. Logs are stored locally for up to 5 days; available history also depends on its size.</string>
+    <string name="logs_recent">Last 10 minutes</string>
+    <string name="logs_copy">Copy logs</string>
+    <string name="logs_copy_description">Copy the last 10 minutes to the clipboard.</string>
+    <string name="logs_save">Save logs to a file</string>
+    <string name="logs_save_description">Save the last 10 minutes as a UTF-8 .log file.</string>
+    <string name="logs_retained">Available history</string>
+    <string name="logs_archive">Save log archive</string>
+    <string name="logs_archive_description">Save all available logs, up to 5 days, in a ZIP archive.</string>
+    <string name="logs_folder">Open logs folder</string>
+    <string name="logs_folder_description">Show the application log folder in the system file manager.</string>
+    <string name="logs_working">Preparing logs…</string>
+    <string name="logs_copied">Logs copied to the clipboard.</string>
+    <string name="logs_saved">Log file saved.</string>
+    <string name="logs_opened">Log folder opened.</string>
+    <string name="logs_cancelled">Saving cancelled.</string>
+    <string name="logs_empty">No logs are available for this time range.</string>
+    <string name="logs_error">Could not complete the log operation. Check access to the clipboard or destination folder, then try again.</string>
+    <string name="logs_disabled">Log tools are disabled in feature flags.</string>
+    <string name="logs_retry">Try again</string>
+</resources>
