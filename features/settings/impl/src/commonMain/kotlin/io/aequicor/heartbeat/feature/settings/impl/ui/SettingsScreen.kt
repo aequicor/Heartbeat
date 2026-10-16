@@ -64,7 +64,7 @@ import pro.respawn.flowmvi.dsl.collect
 
 @Composable
 internal fun SettingsScreen(component: SettingsComponent, modifier: Modifier = Modifier) {
-    val state by produceState(SettingsScreenState(), component.model) {
+    val state by produceState(component.model.current.value, component.model) {
         component.model.store.collect { states.collect { value = it } }
     }
     SettingsContent(state, component::select, component::back, component::close, modifier) {

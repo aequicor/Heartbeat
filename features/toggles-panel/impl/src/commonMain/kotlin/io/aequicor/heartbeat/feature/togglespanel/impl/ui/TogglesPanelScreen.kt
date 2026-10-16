@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.rememberHbBusyReveal
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
@@ -59,7 +60,6 @@ import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_override
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_reset
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_reset_all
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_retry
-import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_saving
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_search
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_search_clear
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_title
@@ -70,7 +70,7 @@ import pro.respawn.flowmvi.dsl.collect
 
 @Composable
 internal fun TogglesPanelScreen(model: TogglesPanelModel, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
-    val state by produceState(TogglesPanelScreenState(), model) {
+    val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
     TogglesPanelContent(state, model.store::intent, onBack, modifier)
@@ -88,6 +88,7 @@ internal fun TogglesPanelContent(
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val isSavingVisible = rememberHbBusyReveal(state.isSaving)
     val introDescription = stringResource(Res.string.flags_intro_description)
     val groups = remember(state.rows, state.query, introDescription) {
         state.rows.filter { row -> matchesQuery(row, state.query.trim(), introDescription) }.groupBy { it.owner }
@@ -120,11 +121,17 @@ internal fun TogglesPanelContent(
                 gap = HbTheme.spacing.l,
                 contentPadding = PaddingValues(HbTheme.spacing.xl),
             ) {
-                item(key = "toolbar") { TogglesToolbar(state, onIntent) }
-                panelStatus(state, groups.isEmpty(), onIntent)
+                item(key = "toolbar") { TogglesToolbar(state, onIntent, isSavingVisible = isSavingVisible) }
+                panelStatus(state, groups.isEmpty(), onIntent, isSavingVisible)
                 groups.forEach { (owner, rows) ->
                     item(key = "owner:$owner") {
-                        ToggleGroup(owner, rows, enabled = !state.isSaving && !state.hasLoadError, onIntent)
+                        ToggleGroup(
+                            owner,
+                            rows,
+                            enabled = !state.hasLoadError && !state.isSaving,
+                            onApply = onIntent,
+                            visualEnabled = !state.hasLoadError && !isSavingVisible,
+                        )
                     }
                 }
             }
@@ -142,6 +149,7 @@ private fun TogglesToolbar(
     state: TogglesPanelScreenState,
     onIntent: (TogglesPanelScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isSavingVisible: Boolean = state.isSaving,
 ) {
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
         HbText(
@@ -163,6 +171,7 @@ private fun TogglesToolbar(
                 Modifier.testTag("flags-reset-all"),
                 HbButtonStyle.Secondary,
                 enabled = !state.isLoading && !state.hasLoadError && !state.isSaving,
+                visualEnabled = !state.isLoading && !state.hasLoadError && !isSavingVisible,
             )
         }
     }
@@ -172,14 +181,16 @@ private fun LazyListScope.panelStatus(
     state: TogglesPanelScreenState,
     empty: Boolean,
     event: (TogglesPanelScreenIntent) -> Unit,
+    isSavingVisible: Boolean,
 ) {
-    if (state.isLoading || state.isSaving) {
-        item(key = "progress") {
-            HbLoadingState(stringResource(if (state.isLoading) Res.string.flags_loading else Res.string.flags_saving))
-        }
+    // Saving never inserts a status row: it would push every group down and back on each switch.
+    if (state.isLoading) {
+        item(key = "progress") { HbLoadingState(stringResource(Res.string.flags_loading)) }
     }
     if (state.hasLoadError || state.hasWriteError) {
-        item(key = "error") { PanelError(state.hasLoadError, state.isSaving, event) }
+        item(key = "error") {
+            PanelError(state.hasLoadError, state.isSaving, event, isSavingVisible = isSavingVisible)
+        }
     }
     if (!state.isLoading && !state.hasLoadError && empty) {
         item(key = "empty") { HbEmptyState(stringResource(Res.string.flags_empty)) }
@@ -192,6 +203,7 @@ private fun PanelError(
     isSaving: Boolean,
     event: (TogglesPanelScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isSavingVisible: Boolean = isSaving,
 ) {
     val retry = if (hasLoadError) TogglesPanelScreenIntent.RetryLoad else TogglesPanelScreenIntent.RetryWrite
     HbBanner(stringResource(if (hasLoadError) Res.string.flags_error else Res.string.flags_write_error), modifier) {
@@ -209,6 +221,7 @@ private fun PanelError(
             Modifier.testTag("flags-retry"),
             style = HbButtonStyle.Secondary,
             enabled = !isSaving,
+            visualEnabled = !isSavingVisible,
             size = HbButtonSize.Small,
         )
     }
@@ -221,11 +234,12 @@ private fun ToggleGroup(
     enabled: Boolean,
     onApply: (TogglesPanelScreenIntent.Mutation) -> Unit,
     modifier: Modifier = Modifier,
+    visualEnabled: Boolean = enabled,
 ) {
     HbSettingsSection(owner, modifier) {
         rows.forEachIndexed { index, row ->
             if (index > 0) HbDivider()
-            ToggleRow(row, enabled, onApply)
+            ToggleRow(row, enabled, onApply, visualEnabled = visualEnabled)
         }
     }
 }
@@ -236,6 +250,7 @@ private fun ToggleRow(
     enabled: Boolean,
     onApply: (TogglesPanelScreenIntent.Mutation) -> Unit,
     modifier: Modifier = Modifier,
+    visualEnabled: Boolean = enabled,
 ) {
     val title = if (row.key == INTRO_KEY) stringResource(Res.string.flags_intro_description) else row.description
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.none) {
@@ -247,6 +262,7 @@ private fun ToggleRow(
                     Modifier.testTag("reset:${row.key}"),
                     style = HbButtonStyle.Ghost,
                     enabled = enabled,
+                    visualEnabled = visualEnabled,
                     size = HbButtonSize.Small,
                 )
             }
@@ -258,11 +274,14 @@ private fun ToggleRow(
                     title,
                     Modifier.testTag("flag:${row.key}"),
                     enabled,
+                    visualEnabled = visualEnabled,
                 )
             }
         }
         val control = row.control
-        if (control is ToggleControlUi.Choice) ChoiceOptions(row.key, control, enabled, onApply)
+        if (control is ToggleControlUi.Choice) {
+            ChoiceOptions(row.key, control, enabled, onApply, visualEnabled = visualEnabled)
+        }
     }
 }
 
@@ -283,6 +302,7 @@ private fun ChoiceOptions(
     enabled: Boolean,
     onApply: (TogglesPanelScreenIntent.Mutation) -> Unit,
     modifier: Modifier = Modifier,
+    visualEnabled: Boolean = enabled,
 ) {
     HbFlowRow(
         modifier.fillMaxWidth().padding(start = HbTheme.spacing.m, bottom = HbTheme.spacing.s),
@@ -295,6 +315,7 @@ private fun ChoiceOptions(
                 Modifier.testTag("choice:$key:$option").semantics { selected = option == control.value },
                 style = if (option == control.value) HbButtonStyle.Primary else HbButtonStyle.Ghost,
                 enabled = enabled,
+                visualEnabled = visualEnabled,
                 size = HbButtonSize.Small,
             )
         }

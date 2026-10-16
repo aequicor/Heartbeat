@@ -7,7 +7,6 @@
     <string name="flags_reset_all">Reset all</string>
     <string name="flags_override">Local override · default: %1$s</string>
     <string name="flags_loading">Loading flags…</string>
-    <string name="flags_saving">Saving…</string>
     <string name="flags_empty">No flags found</string>
     <string name="flags_error">Could not load flags. Please try again.</string>
     <string name="flags_write_error">Could not save the change. The previous value was kept.</string>

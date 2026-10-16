@@ -76,7 +76,11 @@ internal class ContextSettingsModel(
     private val log = Log.tag("ContextSettingsModel")
 
     /** The settings store, retained for the lifetime of this screen. */
-    val store = factory.create<ContextSettingsScreenState, ContextSettingsScreenIntent, ContextSettingsScreenAction>(
+    private val screen = factory.createScreen<
+        ContextSettingsScreenState,
+        ContextSettingsScreenIntent,
+        ContextSettingsScreenAction,
+    >(
         "ContextSettings",
         ContextSettingsScreenState().reflecting(machine.state.value),
         onError = { this },
@@ -97,6 +101,10 @@ internal class ContextSettingsModel(
             if (result == SendResult.Accepted) updateState { copy(isSaveFailed = false) }
         }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope)

@@ -11,6 +11,9 @@ interface StudioProjects {
     /** Isolated execution is offered only by Desktop engine-backed projects. */
     val worktreeAvailability: Flow<Boolean> get() = flowOf(false)
 
+    /** Ids of registered projects whose folder is a Git repository; empty while isolation is unavailable. */
+    val repositoryProjects: Flow<Set<String>> get() = flowOf(emptySet())
+
     /** Returns a registered opaque project id, or null when the user cancels. */
     suspend fun choose(): String?
 }
@@ -22,4 +25,7 @@ interface StudioDirectoryPicker {
 
     /** Returns the selected directory, or null when cancelled; does not read its contents. */
     suspend fun pick(): String?
+
+    /** Whether [directory] lies inside a Git working tree; platforms without local folders answer false. */
+    suspend fun isRepository(directory: String): Boolean = false
 }

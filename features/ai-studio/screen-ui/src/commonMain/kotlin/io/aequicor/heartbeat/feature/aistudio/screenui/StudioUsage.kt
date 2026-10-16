@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_all_models
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compact
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compacting
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_credits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_expires
@@ -54,7 +55,8 @@ internal fun StudioUsage(content: PaneContent, onIntent: (StudioIntent) -> Unit)
     val modelId = content.settings.modelId
     var isOpen by remember(content.pane.id, content.pane.sessionId, modelId) { mutableStateOf(false) }
     val title = stringResource(Res.string.usage_title)
-    val accessible = context?.let { "$title: ${stringResource(Res.string.usage_percent, it.percent)}" } ?: title
+    val percent = context?.let { "$title: ${stringResource(Res.string.usage_percent, it.percent)}" } ?: title
+    val accessible = if (content.isCompacting) "$percent · ${stringResource(Res.string.usage_compacting)}" else percent
     HbComposerUsageButton(
         contextPercent = context?.percent,
         label = stringResource(Res.string.usage_limits),
@@ -65,6 +67,7 @@ internal fun StudioUsage(content: PaneContent, onIntent: (StudioIntent) -> Unit)
         },
         modifier = Modifier.testTag("usage-${content.pane.id}"),
         accessibleLabel = accessible,
+        isCompacting = content.isCompacting,
     ) {
         UsageDetails(content, context, provider) {
             isOpen = false

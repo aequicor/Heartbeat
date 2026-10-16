@@ -193,6 +193,9 @@ class AiStudioModel(
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
                 launch { compactions.availability.collect { updateState { copy(isCompactEnabled = it) } } }
                 launch {
+                    compactions.compacting.collect { updateState { copy(compactingChats = it.toImmutableSet()) } }
+                }
+                launch {
                     compactions.feed.collect {
                         updateState {
                             copy(

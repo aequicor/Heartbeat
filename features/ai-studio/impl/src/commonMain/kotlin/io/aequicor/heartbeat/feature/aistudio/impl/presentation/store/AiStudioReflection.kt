@@ -33,6 +33,7 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         providerUsage = machine.providerUsage.mapValues { it.value.toUi() }.toImmutableMap(),
         isProjectAddingAvailable = machine.isProjectAddingAvailable,
         isWorktreeAvailable = machine.isWorktreeAvailable,
+        repositoryProjects = machine.repositoryProjects.toImmutableSet(),
         addingProjectTo = machine.addingProjectTo,
         projectErrorPane = machine.projectErrorPane,
         permissions = machine.permissions.map { request ->
