@@ -54,6 +54,22 @@ class BrowserModelTest {
     }
 
     @Test
+    fun `each tab reflects its own page loading`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(
+                BrowserTab("loading", BrowserPage("https://example.com/", isLoading = true)),
+                BrowserTab("idle", BrowserPage("https://example.org/", "Idle")),
+            ),
+            selectedTabId = "idle",
+        )
+        runCurrent()
+        assertEquals(listOf(true, false), screen.states.value.tabs.map { it.isLoading })
+        assertFalse(screen.states.value.isLoading)
+    }
+
+    @Test
     fun `address submit normalizes host before machine validation`() = runTest {
         val fixture = Fixture(this)
         val screen = fixture.subscribe()

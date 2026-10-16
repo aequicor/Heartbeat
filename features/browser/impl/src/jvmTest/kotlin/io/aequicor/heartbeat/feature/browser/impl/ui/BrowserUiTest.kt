@@ -7,12 +7,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.MouseButton
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
@@ -132,6 +134,38 @@ class BrowserUiTest {
         onNodeWithTag("browser-tab-two").performClick()
         runOnIdle { assertEquals(BrowserScreenIntent.SelectTab("two"), events.last()) }
     }
+
+    @Test
+    fun `loading tab shows activity in place of its icon and middle click closes it`() =
+        runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+            val events = mutableListOf<BrowserScreenIntent>()
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    BrowserScreenContent(
+                        BrowserScreenState(
+                            phase = BrowserPhase.Ready,
+                            hasTabs = true,
+                            isLoading = true,
+                            selectedTabId = "one",
+                            tabs = persistentListOf(
+                                BrowserTabUi("one", "First", true, false, isLoading = true),
+                                BrowserTabUi("two", "Second", true, false),
+                            ),
+                        ),
+                        { events += it },
+                    )
+                }
+            }
+            onNodeWithTag("browser-tab-loading-one", useUnmergedTree = true).assertIsDisplayed()
+            onNodeWithTag("browser-tab-loading-two", useUnmergedTree = true).assertDoesNotExist()
+            onNodeWithTag("browser-loading").assertDoesNotExist()
+            onNodeWithTag("browser-tab-two").performMouseInput {
+                moveTo(centerLeft + Offset(width / 4f, 0f))
+                press(MouseButton.Tertiary)
+                release(MouseButton.Tertiary)
+            }
+            runOnIdle { assertEquals(listOf<BrowserScreenIntent>(BrowserScreenIntent.CloseTab("two")), events) }
+        }
 
     @Test
     fun `overflow keeps creation accessible and menu selection reveals the last tab`() =

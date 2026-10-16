@@ -13,12 +13,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isTertiaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
+import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
@@ -30,6 +36,7 @@ import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScre
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserTabUi
 import io.aequicor.heartbeat.feature.browser.impl.resources.Res
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_close_tab
+import io.aequicor.heartbeat.feature.browser.impl.resources.browser_loading
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_new_tab
 import org.jetbrains.compose.resources.stringResource
 
@@ -113,8 +120,22 @@ private fun BrowserTab(
     HbNavigationItem(
         label = title,
         onClick = { onIntent(BrowserScreenIntent.SelectTab(tab.id)) },
-        modifier = Modifier.width(width).bringIntoViewRequester(bringIntoView).testTag("browser-tab-${tab.id}"),
-        icon = HbIcons.Globe,
+        modifier = Modifier.width(width).bringIntoViewRequester(bringIntoView)
+            .onMiddleClick { onIntent(BrowserScreenIntent.CloseTab(tab.id)) }
+            .testTag("browser-tab-${tab.id}"),
+        // As in Chromium, the activity indicator takes the site icon's place while the page loads.
+        icon = HbIcons.Globe.takeUnless { tab.isLoading },
+        leadingContent = if (tab.isLoading) {
+            {
+                HbActivityIndicator(
+                    Modifier.testTag("browser-tab-loading-${tab.id}"),
+                    contentDescription = stringResource(Res.string.browser_loading),
+                    size = HbTheme.dimensions.iconSize,
+                )
+            }
+        } else {
+            null
+        },
         isSelected = isSelected,
         role = Role.Tab,
         selectedBackground = HbTheme.surfaces.backdrop,
@@ -132,4 +153,31 @@ private fun BrowserTab(
             )
         },
     )
+}
+
+/** Middle click closes a tab, as in desktop browsers; the press must also be released over the tab. */
+@Composable
+private fun Modifier.onMiddleClick(action: () -> Unit): Modifier {
+    val currentAction by rememberUpdatedState(action)
+    return pointerInput(Unit) {
+        awaitPointerEventScope {
+            var isArmed = false
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                when (event.type) {
+                    PointerEventType.Press -> isArmed = event.buttons.isTertiaryPressed
+
+                    PointerEventType.Exit -> isArmed = false
+
+                    PointerEventType.Release -> {
+                        if (isArmed) {
+                            currentAction()
+                            event.changes.forEach { it.consume() }
+                        }
+                        isArmed = false
+                    }
+                }
+            }
+        }
+    }
 }

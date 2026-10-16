@@ -43,13 +43,9 @@ internal class DesktopBrowserPanel(
     private val runtimes = mutableListOf<DesktopBrowserRuntime>()
     private val ready = MutableStateFlow<DesktopBrowserRuntime?>(null)
     private val preparationState = MutableStateFlow<BrowserRuntimeUi>(BrowserRuntimeUi.Preparing)
-    private val loadingState = MutableStateFlow(false)
 
-    /** Bootstrap progress belongs to this viewport and is displayed instead of ordinary page loading. */
+    /** Bootstrap progress belongs to this viewport; ordinary page loading is shown by the tab. */
     val preparation = preparationState.asStateFlow()
-
-    /** Normal page loading resumes in the viewport after the shared runtime has been prepared. */
-    val loading = loadingState.asStateFlow()
 
     /** A timeout fails the call with IllegalStateException; only the caller's own cancellation cancels it. */
     suspend fun devTools(method: String, arguments: JsonObject): String =
@@ -252,7 +248,6 @@ internal class DesktopBrowserPanel(
     private fun publish(state: BrowserViewState) {
         if (isReleased.get()) return
         log.v { "Browser page projection changed" }
-        loadingState.value = state.isLoading
         if (isBrowserUrlAllowed(state.url)) currentUrl = state.url
         surface.changed(this, state)
     }

@@ -173,6 +173,7 @@ internal fun BrowserScreenState.reflectState(state: BrowserState): BrowserScreen
                         it.owner != null,
                         it.controlRequestId,
                         it.owner,
+                        it.page.isLoading,
                     )
                 }
                 .toImmutableList(),

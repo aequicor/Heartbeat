@@ -45,6 +45,7 @@ internal data class BrowserTabUi(
     val hasAgent: Boolean,
     val controlRequestId: String? = null,
     val groupId: String? = null,
+    val isLoading: Boolean = false,
 )
 
 internal sealed interface BrowserScreenIntent : MVIIntent {
