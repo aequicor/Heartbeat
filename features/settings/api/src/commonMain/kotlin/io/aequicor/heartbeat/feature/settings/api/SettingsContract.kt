@@ -43,6 +43,10 @@ public enum class SettingsSection {
     @SerialName("interfaces")
     Interfaces,
 
+    /** Project `.heartbeat` folders, changes waiting for trust and `.hbai` transfer. */
+    @SerialName("project_config")
+    ProjectConfig,
+
     /** Device-local feature flags. */
     @SerialName("feature_flags")
     FeatureFlags,
@@ -88,6 +92,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Context -> "context"
         SettingsSection.Harness -> "harness"
         SettingsSection.Interfaces -> "interfaces"
+        SettingsSection.ProjectConfig -> "project_config"
         SettingsSection.FeatureFlags -> "feature_flags"
     }
 

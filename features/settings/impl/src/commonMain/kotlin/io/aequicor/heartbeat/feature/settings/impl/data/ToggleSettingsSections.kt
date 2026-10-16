@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
@@ -42,7 +43,10 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(HarnessEnabled),
             toggles.observe(ContextOptimizationEnabled),
             toggles.observe(ServiceUiEnabled),
-        ) { learning, harness, context, interfaces -> ProfileSections(learning, harness, context, interfaces) },
+            toggles.observe(ProjectConfigEnabled),
+        ) { learning, harness, context, interfaces, config ->
+            ProfileSections(learning, harness, context, interfaces, config)
+        },
         sessions.active,
     ) { connections, search, (computerUse, chromium), profile, session ->
         availableSections(
@@ -55,6 +59,7 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isHarnessEnabled = profile.isHarness,
             isContextEnabled = profile.isContext,
             isInterfacesEnabled = profile.isInterfaces,
+            isProjectConfigEnabled = profile.isProjectConfig,
         )
     }
         // Sections without a toggle appear at once; gated ones join when their toggles are read from storage.
@@ -68,4 +73,5 @@ private data class ProfileSections(
     val isHarness: Boolean,
     val isContext: Boolean,
     val isInterfaces: Boolean,
+    val isProjectConfig: Boolean,
 )

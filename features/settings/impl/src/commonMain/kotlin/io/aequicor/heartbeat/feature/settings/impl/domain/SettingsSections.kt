@@ -22,6 +22,7 @@ internal fun availableSections(
     isHarnessEnabled: Boolean = false,
     isContextEnabled: Boolean = false,
     isInterfacesEnabled: Boolean = false,
+    isProjectConfigEnabled: Boolean = false,
 ): ImmutableList<SettingsSection> = SettingsSection.entries.filter { section ->
     // Feature flags are device-local and need no profile; every other section needs its toggle and a profile.
     val isToggledOn = when (section) {
@@ -33,6 +34,7 @@ internal fun availableSections(
         SettingsSection.Context -> isContextEnabled
         SettingsSection.Harness -> isHarnessEnabled
         SettingsSection.Interfaces -> isInterfacesEnabled
+        SettingsSection.ProjectConfig -> isProjectConfigEnabled
         SettingsSection.FeatureFlags -> return@filter true
     }
     isToggledOn && hasProfile
