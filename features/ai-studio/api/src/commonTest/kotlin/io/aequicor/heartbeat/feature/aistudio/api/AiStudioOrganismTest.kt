@@ -69,7 +69,7 @@ class AiStudioOrganismTest {
 
     @Test
     fun `organism mode and an isolated checkout exclude each other`() {
-        val available = ready.copy(isWorktreeAvailable = true, focusedPaneId = 1)
+        val available = ready.copy(isWorktreeAvailable = true, repositoryProjects = setOf("project"), focusedPaneId = 1)
         val worktree = available.copy(panes = listOf(ready.panes[0], ready.panes[1].copy(isWorktree = true)))
         val organism = available.copy(panes = listOf(ready.panes[0], ready.panes[1].copy(isOrganism = true)))
         AiStudioMachineSpec.assertTransition(worktree, AiStudioIntent.Public.SelectOrganism(1, true), organism)

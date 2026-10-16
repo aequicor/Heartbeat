@@ -25,7 +25,6 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.onStart
 
 /**
  * Sections gated like their former entry points: models and search are profile routes behind their own toggles
@@ -80,8 +79,8 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isDesktop = isDesktop,
         )
     }
-        // Sections without a toggle appear at once; gated ones join when their toggles are read from storage.
-        .onStart { emit(availableSections(isModelsEnabled = false, isSearchEnabled = false, hasProfile = false)) }
+        // No placeholder of ungated sections first: it made a requested section open only after a second fade, and
+        // the list grew in steps. The window keeps its blank section until the toggles are read.
         .distinctUntilChanged()
 }
 

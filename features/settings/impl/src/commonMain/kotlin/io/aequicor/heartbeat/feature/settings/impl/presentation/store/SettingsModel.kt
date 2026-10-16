@@ -112,7 +112,7 @@ class SettingsModel(
 ) {
     private val log = Log.tag("SettingsModel")
 
-    val store = factory.create<SettingsScreenState, SettingsScreenIntent, SettingsScreenAction>(
+    private val screen = factory.createScreen<SettingsScreenState, SettingsScreenIntent, SettingsScreenAction>(
         "Settings",
         SettingsScreenState(),
         onError = { this },
@@ -147,6 +147,10 @@ class SettingsModel(
             }
         }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope.coroutineScope)

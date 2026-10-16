@@ -93,7 +93,7 @@ internal class ComputerUseModel(
     private val log = Log.tag("ComputerUseModel")
 
     /** The settings store, retained for the lifetime of this screen. */
-    val store = factory.create<ComputerUseScreenState, ComputerUseScreenIntent, ComputerUseScreenAction>(
+    private val screen = factory.createScreen<ComputerUseScreenState, ComputerUseScreenIntent, ComputerUseScreenAction>(
         "ComputerUse",
         ComputerUseScreenState().reflectState(machine.state.value),
         // Saving handles its own failures, so what reaches here is the preference stream: the value stays unknown.
@@ -112,6 +112,10 @@ internal class ComputerUseModel(
             }
         }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope)

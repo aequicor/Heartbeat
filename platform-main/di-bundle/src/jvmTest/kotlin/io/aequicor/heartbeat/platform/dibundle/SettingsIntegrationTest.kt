@@ -91,7 +91,9 @@ class SettingsIntegrationTest {
             listOf(ProductionWelcomeRoute, SettingsRoute(SettingsSection.FeatureFlags)),
             process.host.routes,
         )
-        assertNotNull(process.graph.machines.find(TogglesPanelMachineKey), "the section runs inside the window")
+        // Sections wait for DataStore reads on IO; advanceUntilIdle only drains the test dispatcher.
+        val section = process.graph.machines.observe(TogglesPanelMachineKey).filterNotNull().first()
+        assertNotNull(section, "the section runs inside the window")
 
         process.host.onBack()
         advanceUntilIdle()
@@ -112,8 +114,9 @@ class SettingsIntegrationTest {
         process.root.handleDeepLink("heartbeat://settings")
         advanceUntilIdle()
         assertEquals(listOf(ProductionWelcomeRoute, SettingsRoute()), process.host.routes)
-        // With diagnostics disabled the guest tree opens feature flags without a profile.
-        assertNotNull(process.graph.machines.find(TogglesPanelMachineKey))
+        // With diagnostics disabled the guest flags section still waits for DataStore reads on IO.
+        val section = process.graph.machines.observe(TogglesPanelMachineKey).filterNotNull().first()
+        assertNotNull(section)
         process.close()
     }
 

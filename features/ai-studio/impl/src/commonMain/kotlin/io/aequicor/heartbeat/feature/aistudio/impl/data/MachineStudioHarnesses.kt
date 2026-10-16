@@ -33,11 +33,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -70,12 +72,22 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
     override val choices: Flow<StudioHarnessChoices> = toggles.observe(HarnessEnabled).flatMapLatest { isEnabled ->
         if (isEnabled) {
             machines.observe(HarnessMachineKey).flatMapLatest { it?.state ?: flowOf(null) }
+                // Initial or transient loading must not erase a choice already visible in the composer.
+                .filter { it is HarnessState.Ready || it is HarnessState.Failed }
+                .map(::studioChoices)
+                .onStart {
+                    val ready = machines.find(HarnessMachineKey)?.state?.value as? HarnessState.Ready
+                    if (ready == null || ready.isSuspended) emit(StudioHarnessChoices(isReady = false))
+                }
         } else {
-            flowOf(null)
+            flowOf(StudioHarnessChoices())
         }
-    }.map { state ->
-        val ready = (state as? HarnessState.Ready)?.takeUnless { it.isSuspended } ?: return@map StudioHarnessChoices()
-        StudioHarnessChoices(
+    }
+
+    private fun studioChoices(state: HarnessState?): StudioHarnessChoices {
+        val ready = (state as? HarnessState.Ready)?.takeUnless { it.isSuspended }
+            ?: return StudioHarnessChoices(isReady = false, isLoadFailed = state is HarnessState.Failed)
+        return StudioHarnessChoices(
             harnesses = ready.harnesses.asSequence().map { it.harness }
                 .filter { it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove }
                 .sortedBy { it.name.value }
@@ -87,10 +99,21 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
                         (harness.scope as? HarnessScope.Projects)?.projects?.mapTo(
                             mutableSetOf(),
                         ) { it.value }.orEmpty(),
+                        harness.isDefaultForNewSessions,
                     )
                 }.toList(),
             attached = ready.attachments.mapValues { (_, ids) -> ids.mapTo(mutableSetOf()) { it.value } },
         )
+    }
+
+    override suspend fun reload(): Boolean {
+        log.i { "Retry harness library load from the composer" }
+        val isAccepted = machines.send(
+            HarnessMachineKey,
+            HarnessIntent.Public.Reload(RequestId(Uuid.random().toHexString())),
+        ) == SendResult.Accepted
+        if (!isAccepted) log.w { "Harness library reload was not accepted" }
+        return isAccepted
     }
 
     override suspend fun connect(session: SessionRef, harness: String, isSelected: Boolean): Boolean {

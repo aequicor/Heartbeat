@@ -14,10 +14,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessChoices
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModelTest.Fixture
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.pendingSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenui.harnessChoices
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
@@ -25,13 +32,16 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
+import io.aequicor.heartbeat.feature.harness.api.HarnessLoad
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineSpec
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
@@ -47,6 +57,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -59,6 +70,84 @@ import kotlin.time.Instant
 class MachineStudioHarnessesTest {
     private val session = SessionRef(EngineId("test"), SessionSourceId("local"), "native")
     private val other = SessionRef(EngineId("test"), SessionSourceId("local"), "other")
+
+    @Test
+    fun `each failed library retry restores the retry action after loading`() = runTest {
+        val library = SpecHarnessLibrary(backgroundScope)
+        library.state.value = HarnessState.Failed()
+        val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
+        val ready = AiStudioState.Ready(
+            panes = listOf(StudioPane(0)),
+            focusedPaneId = 0,
+            settings = DefaultRunSettings,
+            defaultProjectId = null,
+        )
+        val fixture = Fixture(this, ready, harnesses = harnesses)
+        val screen = fixture.subscribe()
+        assertTrue(screen.states.value.harnessChoices.isLoadFailed)
+        repeat(2) {
+            fixture.model.store.intent(AiStudioScreenIntent.ReloadHarnesses)
+            runCurrent()
+            assertTrue(library.state.value is HarnessState.Loading)
+            assertFalse(screen.states.value.harnessChoices.isLoadFailed)
+
+            library.failLoad()
+            runCurrent()
+            assertTrue(screen.states.value.harnessChoices.isLoadFailed)
+            assertFalse(screen.states.value.harnessChoices.isReady)
+        }
+        assertEquals(2, library.sent.filterIsInstance<HarnessIntent.Public.Reload>().size)
+    }
+
+    @Test
+    fun `default choices declare native tools and connect before the first prompt`() = runTest {
+        val library = SpecHarnessLibrary(backgroundScope)
+        library.state.value = HarnessState.Ready(
+            harnesses = listOf(
+                libraryEntry("compose").let { it.copy(harness = it.harness.copy(isDefaultForNewSessions = true)) },
+                libraryEntry("verify").let {
+                    it.copy(harness = it.harness.copy(isDefaultForNewSessions = true, isEnabled = false))
+                },
+            ),
+        )
+        val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
+        val choices = harnesses.choices.first()
+        val screen = AiStudioScreenState(
+            panes = persistentListOf(PaneUi(0)),
+            harnessChoices = HarnessChoicesUi(options = choices.harnesses.map { it.toUi() }.toImmutableList()),
+        )
+        val selected = screen.pendingSubmission(0, "send").harnesses
+        assertEquals(setOf("compose"), selected)
+        assertTrue(library.attached(session).isEmpty())
+        harnesses.claim("send", selected)
+        assertEquals(mapOf(HarnessTools.GROUP to setOf("compose")), harnesses.preselected("send"))
+        harnesses.beforeSubmit("send", session)
+        assertEquals(setOf(HarnessId("compose")), library.attached(session))
+        assertTrue(harnesses.preselected("send").isEmpty())
+    }
+
+    @Test
+    fun `transient loading retains visible choices and disabling the feature clears them`() = runTest {
+        val library = SpecHarnessLibrary(backgroundScope)
+        val enabled = MutableStateFlow(true)
+        val toggles = object : FeatureToggles by HarnessToggleOn {
+            @Suppress("UNCHECKED_CAST") // Only the Boolean harness toggle is observed by this test.
+            override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = enabled as Flow<T>
+        }
+        val harnesses = MachineStudioHarnesses(HarnessRegistry(library), toggles)
+        val snapshots = mutableListOf<StudioHarnessChoices>()
+        backgroundScope.launch { harnesses.choices.collect { snapshots += it } }
+        runCurrent()
+        assertEquals(listOf("compose", "verify"), snapshots.last().harnesses.map { it.id })
+
+        library.state.value = HarnessState.Loading(HarnessLoad(1, 0))
+        runCurrent()
+        assertEquals(1, snapshots.size)
+        enabled.value = false
+        runCurrent()
+        assertTrue(snapshots.last().harnesses.isEmpty())
+        assertEquals(2, snapshots.size)
+    }
 
     @Test
     fun `only a globally disabled feature defers reading carried connections`() = runTest {
@@ -275,6 +364,10 @@ private class SpecHarnessLibrary(
     fun attached(session: SessionRef): Set<HarnessId> =
         (state.value as HarnessState.Ready).attachments[session].orEmpty()
 
+    suspend fun failLoad() {
+        apply(HarnessIntent.Internal.LoadFailed((state.value as HarnessState.Loading).load))
+    }
+
     override suspend fun send(intent: HarnessIntent.Public): SendResult {
         sent += intent
         return if (isSilent) SendResult.Accepted else apply(intent)
@@ -315,7 +408,7 @@ private class HarnessRegistry(private val library: MachineRef<HarnessState, Harn
     override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
         key: MachineKey<S, I, P, E, O>,
         intent: P,
-    ): SendResult = SendResult.NotRunning
+    ): SendResult = find(key)?.send(intent) ?: SendResult.NotRunning
 }
 
 private object HarnessToggleOn : FeatureToggles {

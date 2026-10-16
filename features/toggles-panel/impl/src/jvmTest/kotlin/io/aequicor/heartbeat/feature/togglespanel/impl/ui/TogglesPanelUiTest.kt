@@ -12,10 +12,12 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
@@ -25,6 +27,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.ToggleSource
 import io.aequicor.heartbeat.core.featuretoggles.ToggleState
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.ds.tokens.HbMotion
 import io.aequicor.heartbeat.feature.togglespanel.impl.presentation.store.TogglesPanelScreenIntent
 import io.aequicor.heartbeat.feature.togglespanel.impl.presentation.store.TogglesPanelScreenState
 import io.aequicor.heartbeat.feature.togglespanel.impl.presentation.store.toUi
@@ -66,7 +69,7 @@ class TogglesPanelUiTest {
     }
 
     @Test
-    fun `flag choice and reset emit typed operations and isSaving disables mutations`() = runSkikoComposeUiTest(
+    fun `flag choice and reset emit typed operations and saving keeps rows in place`() = runSkikoComposeUiTest(
         size = Size(1000f, 1100f),
     ) {
         var state by mutableStateOf(loaded)
@@ -80,12 +83,31 @@ class TogglesPanelUiTest {
         assertEquals(TogglesPanelScreenIntent.Reset(flag.key), events.last())
         onNodeWithTag("flags-reset-all").performClick()
         assertEquals(TogglesPanelScreenIntent.ResetAll, events.last())
+        val row = onNodeWithTag("row:alpha.enabled").getUnclippedBoundsInRoot()
+        mainClock.autoAdvance = false
         runOnIdle { state = loaded.copy(isSaving = true) }
-        onNodeWithTag("flag:alpha.enabled").assertIsNotEnabled()
-        onNodeWithTag("choice:beta.mode:Two").assertIsNotEnabled()
-        onNodeWithTag("reset:alpha.enabled").assertIsNotEnabled()
-        onNodeWithTag("flags-reset-all").assertIsNotEnabled()
+        mainClock.advanceTimeByFrame()
+        val mutations = listOf("flag:alpha.enabled", "choice:beta.mode:Two", "reset:alpha.enabled", "flags-reset-all")
+        mutations.forEach { tag ->
+            onNodeWithTag(tag).assertIsNotEnabled()
+            onNodeWithTag(tag).performMouseInput {
+                moveTo(center)
+                press()
+                release()
+                exit()
+            }
+        }
+        assertEquals(4, events.size, "Pending writes must not accept further mutations")
+        assertEquals(row, onNodeWithTag("row:alpha.enabled").getUnclippedBoundsInRoot())
         onNodeWithTag("flags-search").assertIsEnabled()
+        mainClock.advanceTimeBy(HbMotion().busyRevealDelayMillis.toLong() * 2)
+        mutations.forEach { onNodeWithTag(it).assertIsNotEnabled() }
+        assertEquals(row, onNodeWithTag("row:alpha.enabled").getUnclippedBoundsInRoot())
+        runOnIdle { state = loaded }
+        mainClock.advanceTimeByFrame()
+        mutations.forEach { onNodeWithTag(it).assertIsEnabled() }
+        onNodeWithTag("choice:beta.mode:Two").performClick()
+        assertEquals(5, events.size)
     }
 
     @Test

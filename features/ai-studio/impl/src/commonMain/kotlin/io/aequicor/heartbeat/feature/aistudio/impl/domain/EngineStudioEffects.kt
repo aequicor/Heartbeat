@@ -136,7 +136,10 @@ class EngineStudioEffects(
         combine(
             projects?.availability ?: flowOf(false),
             projects?.worktreeAvailability ?: flowOf(false),
-        ) { folders, worktree -> AiStudioIntent.Internal.ProjectAvailabilityChanged(folders, worktree) }.collect {
+            projects?.repositoryProjects ?: flowOf(emptySet()),
+        ) { folders, worktree, repositories ->
+            AiStudioIntent.Internal.ProjectAvailabilityChanged(folders, worktree, repositories)
+        }.collect {
             machine.send(it)
         }
     }

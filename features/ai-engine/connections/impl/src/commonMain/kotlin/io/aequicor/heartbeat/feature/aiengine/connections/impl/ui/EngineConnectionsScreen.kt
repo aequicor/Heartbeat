@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
+import io.aequicor.heartbeat.ds.components.rememberHbBusyReveal
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
@@ -90,7 +91,7 @@ internal fun EngineConnectionsScreen(
     onOpenDescription: (engine: String, model: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val state by produceState(EngineConnectionsScreenState(), model) {
+    val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
     EngineConnectionsContent(state, model.store::intent, onAddConnection, onBack, onOpenDescription, modifier)
@@ -111,6 +112,8 @@ internal fun EngineConnectionsContent(
     onOpenDescription: (engine: String, model: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Input follows the actual write immediately; only its visual feedback waits to avoid a brief flash.
+    val isSavingVisible = rememberHbBusyReveal(state.isSaving)
     HbColumn(
         modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).testTag("engine-connections"),
         gap = HbTheme.spacing.none,
@@ -124,14 +127,22 @@ internal fun EngineConnectionsContent(
                 gap = HbTheme.spacing.xxl,
             ) {
                 ConnectionsToolbar(onAddEngine = { onAddConnection(null) })
-                SettingsStatus(state, onIntent)
-                EnginesSection(state, onIntent)
+                SettingsStatus(state, onIntent, isSavingVisible = isSavingVisible)
+                EnginesSection(state, onIntent, isSavingVisible = isSavingVisible)
                 state.engines.firstOrNull { it.id == state.selectedEngine }?.preparation?.let {
                     EnginePreparationStatus(it)
                 }
-                state.panel?.let { EngineManagementSection(it, state.loginCode, state.isSaving, onIntent) }
+                state.panel?.let {
+                    EngineManagementSection(
+                        it,
+                        state.loginCode,
+                        state.isSaving,
+                        onIntent,
+                        isSavingVisible = isSavingVisible,
+                    )
+                }
                 ConnectionsSection(state, onIntent, onAddConnection)
-                ModelsSection(state, onIntent, onOpenDescription)
+                ModelsSection(state, onIntent, onOpenDescription, isSavingVisible = isSavingVisible)
             }
         }
     }
@@ -160,6 +171,7 @@ private fun SettingsStatus(
     state: EngineConnectionsScreenState,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isSavingVisible: Boolean = state.isSaving,
 ) {
     when {
         state.loadFailure != null ->
@@ -169,6 +181,8 @@ private fun SettingsStatus(
             state.failure,
             modifier,
             onRetry = { onIntent(EngineConnectionsScreenIntent.RetryFailed) },
+            retryEnabled = !state.isSaving,
+            retryVisualEnabled = !isSavingVisible,
         ) {
             HbButton(
                 stringResource(Res.string.settings_dismiss),
@@ -180,7 +194,10 @@ private fun SettingsStatus(
 
         state.isLoading -> HbLoadingState(stringResource(Res.string.conn_loading), modifier)
 
-        state.isSaving -> HbLoadingState(stringResource(Res.string.settings_saving), modifier)
+        isSavingVisible -> HbLoadingState(
+            stringResource(Res.string.settings_saving),
+            modifier.testTag("settings-saving"),
+        )
     }
 }
 
@@ -189,6 +206,7 @@ private fun EnginesSection(
     state: EngineConnectionsScreenState,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isSavingVisible: Boolean = state.isSaving,
 ) {
     HbSettingsSection(
         stringResource(Res.string.settings_engines),
@@ -202,6 +220,7 @@ private fun EnginesSection(
                     Modifier.testTag("settings-probe"),
                     HbButtonStyle.Ghost,
                     enabled = !state.isSaving,
+                    visualEnabled = !isSavingVisible,
                     size = HbButtonSize.Small,
                 )
             }
@@ -307,6 +326,7 @@ private fun ModelsSection(
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     onOpenDescription: (engine: String, model: String) -> Unit,
     modifier: Modifier = Modifier,
+    isSavingVisible: Boolean = state.isSaving,
 ) {
     val connection = state.connections.firstOrNull { it.id == state.selectedConnection }
     val pane = state.models
@@ -316,11 +336,11 @@ private fun ModelsSection(
             HbEmptyState(stringResource(Res.string.settings_select_connection))
             return@HbSettingsSection
         }
-        ConnectionControls(connection, isEnabled = !state.isSaving, onIntent)
+        ConnectionControls(connection, isEnabled = !state.isSaving, onIntent, visualEnabled = !isSavingVisible)
         HbDivider()
         val engine = state.selectedEngine
         val onOpenModel = { id: String -> engine?.let { onOpenDescription(it, id) } ?: Unit }
-        ModelsList(pane, state.modelQuery, !state.isSaving, onIntent, onOpenModel)
+        ModelsList(pane, state.modelQuery, !state.isSaving, onIntent, onOpenModel, visualEnabled = !isSavingVisible)
     }
 }
 
@@ -330,6 +350,7 @@ private fun ConnectionControls(
     isEnabled: Boolean,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
+    visualEnabled: Boolean = isEnabled,
 ) {
     val active = stringResource(Res.string.settings_connection_active)
     HbSettingsRow(active, modifier, description = connection.origin) {
@@ -340,6 +361,7 @@ private fun ConnectionControls(
             HbButtonStyle.Ghost,
             isEnabled,
             HbButtonSize.Small,
+            visualEnabled = visualEnabled,
         )
         HbButton(
             stringResource(Res.string.settings_disconnect),
@@ -348,6 +370,7 @@ private fun ConnectionControls(
             HbButtonStyle.Ghost,
             isEnabled,
             HbButtonSize.Small,
+            visualEnabled = visualEnabled,
         )
         HbSwitch(
             connection.isEnabled,
@@ -355,6 +378,7 @@ private fun ConnectionControls(
             active,
             Modifier.testTag("settings-connection-enabled"),
             isEnabled,
+            visualEnabled = visualEnabled,
         )
     }
 }
@@ -391,6 +415,7 @@ private fun ModelsList(
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     onOpenDescription: (model: String) -> Unit,
     modifier: Modifier = Modifier,
+    visualEnabled: Boolean = enabled,
 ) {
     val visible = remember(pane.models, query) { pane.models.filter { matches(query, it.title, it.id) } }
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
@@ -405,15 +430,19 @@ private fun ModelsList(
             HbButton(
                 stringResource(Res.string.conn_models_all),
                 { onIntent(EngineConnectionsScreenIntent.SetAllModels(true)) },
+                Modifier.testTag("settings-models-all"),
                 style = HbButtonStyle.Ghost,
                 enabled = enabled && pane.models.isNotEmpty(),
+                visualEnabled = visualEnabled && pane.models.isNotEmpty(),
                 size = HbButtonSize.Small,
             )
             HbButton(
                 stringResource(Res.string.conn_models_none),
                 { onIntent(EngineConnectionsScreenIntent.SetAllModels(false)) },
+                Modifier.testTag("settings-models-none"),
                 style = HbButtonStyle.Ghost,
                 enabled = enabled && pane.models.any { it.isEnabled },
+                visualEnabled = visualEnabled && pane.models.any { it.isEnabled },
                 size = HbButtonSize.Small,
             )
         }
@@ -431,9 +460,16 @@ private fun ModelsList(
                 ModelRow(
                     model,
                     enabled = enabled,
+                    visualEnabled = visualEnabled,
                     onEnabledChange = { onIntent(EngineConnectionsScreenIntent.SetModelEnabled(model.id, it)) },
                 ) {
-                    ModelActions(model, enabled, onIntent, { onOpenDescription(model.id) })
+                    ModelActions(
+                        model,
+                        enabled,
+                        onIntent,
+                        { onOpenDescription(model.id) },
+                        visualEnabled = visualEnabled,
+                    )
                 }
             }
         }
@@ -451,6 +487,7 @@ private fun ModelActions(
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     onOpenDescription: () -> Unit,
     modifier: Modifier = Modifier,
+    visualEnabled: Boolean = enabled,
 ) {
     HbRow(modifier, gap = HbTheme.spacing.l) {
         model.description?.let { description ->
@@ -476,6 +513,7 @@ private fun ModelActions(
                 HbButtonStyle.Ghost,
                 enabled,
                 HbButtonSize.Small,
+                visualEnabled = visualEnabled,
             )
         }
     }

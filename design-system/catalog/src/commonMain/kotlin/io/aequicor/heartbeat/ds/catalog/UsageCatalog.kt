@@ -28,7 +28,7 @@ internal fun UsageCatalog(modifier: Modifier = Modifier) {
     HbCard(modifier.fillMaxWidth().testTag("usage-catalog")) {
         HbText(title, style = HbTheme.typography.title)
         HbFlowRow {
-            listOf(0, 61, 100, null).forEachIndexed { index, percent ->
+            listOf(0, 61, 85, 100, null).forEachIndexed { index, percent ->
                 HbComposerUsageButton(
                     percent,
                     limits,
@@ -45,6 +45,7 @@ internal fun UsageCatalog(modifier: Modifier = Modifier) {
                 enabled = false,
                 accessibleLabel = hbString(HbString.Disabled),
             ) { }
+            HbComposerUsageButton(48, limits, false, {}, accessibleLabel = title, isCompacting = true) { }
         }
         HbProgressBar(0f)
         HbProgressBar(0.61f)

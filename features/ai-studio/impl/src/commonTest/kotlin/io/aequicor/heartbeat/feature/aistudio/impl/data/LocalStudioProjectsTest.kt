@@ -43,6 +43,21 @@ class LocalStudioProjectsTest {
     }
 
     @Test
+    fun `only folders inside a git working tree offer isolation and nothing is probed while it is off`() = runTest {
+        val registry = Registry(
+            projects = listOf(
+                LocalWorkspace(WorkspaceRef("repo"), "repo"),
+                LocalWorkspace(WorkspaceRef("folder"), "folder"),
+            ),
+        )
+        val picker = Picker(null, repositories = setOf("/test/repo"))
+        assertEquals(setOf("repo"), LocalStudioProjects(registry, picker, Toggles(true)).repositoryProjects.first())
+        val probes = picker.probes
+        assertEquals(emptySet(), LocalStudioProjects(registry, picker, Toggles(false)).repositoryProjects.first())
+        assertEquals(probes, picker.probes)
+    }
+
+    @Test
     fun `registration error reaches the state machine failure handler`() = runTest {
         val registry = Registry(isFailing = true)
         assertFailsWith<IllegalArgumentException> {
@@ -50,17 +65,25 @@ class LocalStudioProjectsTest {
         }
     }
 
-    private class Picker(private val result: String?, override val isAvailable: Boolean = true) :
-        StudioDirectoryPicker {
+    private class Picker(
+        private val result: String?,
+        override val isAvailable: Boolean = true,
+        private val repositories: Set<String> = emptySet(),
+    ) : StudioDirectoryPicker {
         var calls = 0
+        var probes = 0
         override suspend fun pick(): String? = result.also { calls++ }
+        override suspend fun isRepository(directory: String): Boolean = (directory in repositories).also { probes++ }
     }
 
-    private class Registry(private val isFailing: Boolean = false) : LocalWorkspaces {
+    private class Registry(
+        private val isFailing: Boolean = false,
+        private val projects: List<LocalWorkspace> = emptyList(),
+    ) : LocalWorkspaces {
         override val isAvailable: Boolean = true
         val registered = mutableListOf<String>()
-        override fun observe(): Flow<List<LocalWorkspace>> = flowOf(emptyList())
-        override suspend fun resolve(ref: WorkspaceRef): String? = null
+        override fun observe(): Flow<List<LocalWorkspace>> = flowOf(projects)
+        override suspend fun resolve(ref: WorkspaceRef): String = "/test/${ref.value}"
         override suspend fun register(directory: String): LocalWorkspace {
             require(!isFailing) { "Folder unavailable" }
             registered += directory

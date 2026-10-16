@@ -109,7 +109,7 @@ import pro.respawn.flowmvi.dsl.collect
 /** The registry of learned instructions: approval level, project filter and the instructions by kind. */
 @Composable
 internal fun AgentLearningScreen(model: AgentLearningModel, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
-    val state by produceState(AgentLearningScreenState(), model) {
+    val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
     AgentLearningContent(state, model.store::intent, onBack, modifier)
