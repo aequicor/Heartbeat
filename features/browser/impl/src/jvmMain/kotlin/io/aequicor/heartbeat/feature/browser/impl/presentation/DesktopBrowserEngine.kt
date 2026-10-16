@@ -90,7 +90,7 @@ internal class DesktopBrowserEngine(
     override suspend fun loadIcon(url: String): ByteArray = icons.capture(url)
 
     private fun cancelTransfers() {
-        cancelTransfers()
+        downloads.cancel()
         icons.cancel()
     }
 
