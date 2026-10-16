@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
+package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -15,20 +15,18 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CodexId
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineActionUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenState
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineManagementIntent
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.InstallFailureUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.JobPhaseUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.KeyValueUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.LaunchDraftUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.LaunchProblemReasonUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.managedCodex
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.managedSnapshot
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.settingsSnapshot
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.CodexId
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineActionUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineManagementIntent
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.InstallFailureUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.JobPhaseUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.KeyValueUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LaunchDraftUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LaunchProblemReasonUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedCodex
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedSnapshot
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineEnablement
@@ -51,7 +49,7 @@ import kotlin.time.Instant
 class EngineManagementUiTest {
     @Test
     fun `without engine management the panel is not shown`() = runSkikoComposeUiTest {
-        val state = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(settingsSnapshot()))
+        val state = EngineControlPanelState(CodexId.value).reflect(CodexId, managedSnapshot(isManaged = false))
         setContent { Host(state) }
         onNodeWithTag("engine-panel").assertDoesNotExist()
     }
@@ -67,7 +65,6 @@ class EngineManagementUiTest {
             setContent { Host(selected(codex)) { intents += it } }
 
             onNodeWithTag("engine-panel").assertExists()
-            onNodeWithTag("settings-connections").assertDoesNotExist()
             onNodeWithTag("engine-install").performClick()
             onNodeWithTag("engine-enabled").performClick()
             runOnIdle {
@@ -215,15 +212,15 @@ class EngineManagementUiTest {
         assertEquals(2 to (1L to 5L), scaledSize(1_610_612_736))
     }
 
-    private fun selected(codex: ManagedEngine): EngineConnectionsScreenState =
-        EngineConnectionsScreenState(selectedEngine = CodexId.value).observe(codex)
+    private fun selected(codex: ManagedEngine): EngineControlPanelState =
+        EngineControlPanelState(CodexId.value).observe(codex)
 
-    private fun EngineConnectionsScreenState.observe(codex: ManagedEngine = managedCodex()) =
-        reflect(EngineConnectionsState.Active(managedSnapshot(codex)))
+    private fun EngineControlPanelState.observe(codex: ManagedEngine = managedCodex()) =
+        reflect(CodexId, managedSnapshot(codex))
 
     /** Shows [state] on its screen, passing on only the management block's intents. */
     @Composable
-    private fun Host(state: EngineConnectionsScreenState, onIntent: (EngineManagementIntent) -> Unit = {}) {
-        HbTheme { EngineConnectionsContent(state, { if (it is EngineManagementIntent) onIntent(it) }, {}, {}) }
+    private fun Host(state: EngineControlPanelState, onIntent: (EngineManagementIntent) -> Unit = {}) {
+        HbTheme { EngineControlPanelContent(state, { if (it is EngineManagementIntent) onIntent(it) }, {}) }
     }
 }

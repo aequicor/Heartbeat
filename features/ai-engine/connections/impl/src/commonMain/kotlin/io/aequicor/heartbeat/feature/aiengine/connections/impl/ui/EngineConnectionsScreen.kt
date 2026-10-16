@@ -122,7 +122,6 @@ internal fun EngineConnectionsContent(
                 state.engines.firstOrNull { it.id == state.selectedEngine }?.preparation?.let {
                     EnginePreparationStatus(it)
                 }
-                state.panel?.let { EngineManagementSection(it, state.loginCode, state.isSaving, onIntent) }
                 ConnectionsSection(state, onIntent, onAddConnection)
                 ModelsSection(state, onIntent)
             }
@@ -130,9 +129,6 @@ internal fun EngineConnectionsContent(
     }
     val confirming = state.connections.firstOrNull { it.id == state.confirmDisconnect }
     if (confirming != null) DisconnectDialog(confirming.label, isEnabled = !state.isSaving, onIntent)
-    val panel = state.panel
-    val action = state.confirmAction
-    if (panel != null && action != null) EngineActionDialog(action, panel, isEnabled = !state.isSaving, onIntent)
 }
 
 @Composable
@@ -187,8 +183,7 @@ private fun EnginesSection(
         stringResource(Res.string.settings_engines),
         modifier,
         trailingContent = {
-            // With engine management the panel below inspects the engine; one such button is enough.
-            if (state.selectedEngine != null && state.panel == null) {
+            if (state.selectedEngine != null) {
                 HbButton(
                     stringResource(Res.string.settings_probe),
                     { onIntent(EngineConnectionsScreenIntent.ProbeEngine) },
@@ -237,7 +232,7 @@ private fun ConnectionsSection(
     onAddConnection: (engine: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // A switched-off engine has no connections to manage; its panel explains why.
+    // A switched-off engine has no connections to manage; the engine control panel switches it on.
     val engine = state.engines.firstOrNull { it.id == state.selectedEngine }?.takeIf { it.isEnabled } ?: return
     HbSettingsSection(
         stringResource(Res.string.settings_connections),

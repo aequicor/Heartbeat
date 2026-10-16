@@ -179,4 +179,6 @@
     <string name="control_failure_quota">The provider quota is exhausted. Check your subscription and remaining allowance in the provider account, or choose another connection.</string>
     <string name="control_failure_unknown">Something went wrong. Try again.</string>
     <string name="control_dismiss">Dismiss</string>
+    <string name="control_cancel">Cancel</string>
+    <string name="control_probe">Check installation</string>
 </resources>

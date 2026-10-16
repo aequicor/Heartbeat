@@ -30,8 +30,6 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.contro
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_no_settings
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_settings
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_settings_description
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_version
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_version_unknown
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
@@ -47,7 +45,7 @@ internal fun EngineControlPanelScreen(
     EngineControlPanelContent(state, { model.store.intent(it) }, onBack, modifier)
 }
 
-/** One engine: its summary and the pages of its configuration. */
+/** One engine: its management block, then the pages of its configuration. */
 @Composable
 internal fun EngineControlPanelContent(
     state: EngineControlPanelState,
@@ -70,23 +68,14 @@ internal fun EngineControlPanelContent(
                         onDismiss = { onIntent(EngineControlPanelIntent.DismissError) },
                     )
                 }
-                Summary(state)
+                state.panel?.let { EngineManagementSection(it, state.loginCode, state.isSaving, onIntent) }
                 SettingsPages(state)
             }
         }
     }
-}
-
-@Composable
-private fun Summary(state: EngineControlPanelState, modifier: Modifier = Modifier) {
-    HbSettingsRow(
-        state.title,
-        modifier.testTag("engine-control-summary"),
-        description = state.version?.let { stringResource(Res.string.control_version, it) }
-            ?: stringResource(Res.string.control_version_unknown),
-    ) {
-        StatusBadge(state.status)
-    }
+    val panel = state.panel
+    val action = state.confirmAction
+    if (panel != null && action != null) EngineActionDialog(action, panel, isEnabled = !state.isSaving, onIntent)
 }
 
 @Composable

@@ -116,14 +116,8 @@ class EngineConnectionsModel(
     ) {
         when (intent) {
             is EngineConnectionsScreenIntent.SelectEngine -> updateState {
-                copy(
-                    selectedEngine = intent.id,
-                    selectedConnection = null,
-                    confirmDisconnect = null,
-                    launchDraft = null,
-                    loginCode = "",
-                    confirmAction = null,
-                ).reflect(machine.state.value)
+                copy(selectedEngine = intent.id, selectedConnection = null, confirmDisconnect = null)
+                    .reflect(machine.state.value)
             }
 
             is EngineConnectionsScreenIntent.SelectConnection -> updateState {
@@ -143,55 +137,7 @@ class EngineConnectionsModel(
             EngineConnectionsScreenIntent.DismissError -> sendTo(machine, EngineConnectionsIntent.Public.DismissError)
 
             is EngineConnectionsScreenIntent.Change -> apply(intent)
-
-            is EngineManagementIntent -> manage(intent)
         }
-    }
-
-    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
-    @Suppress("SuspendFunWithCoroutineScopeReceiver")
-    private suspend fun PipelineContext<
-        EngineConnectionsScreenState,
-        EngineConnectionsScreenIntent,
-        EngineConnectionsScreenAction,
-    >.manage(
-        intent: EngineManagementIntent,
-    ) {
-        when (intent) {
-            // Only a launch draft changes the panel (its errors); other input is local text or a flag.
-            is EngineManagementIntent.EngineInput -> updateState {
-                if (intent.isLaunchEdit) edit(intent).reflect(machine.state.value) else edit(intent)
-            }
-
-            is EngineManagementIntent.EngineRequest -> request(intent)
-        }
-    }
-
-    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
-    @Suppress("SuspendFunWithCoroutineScopeReceiver")
-    private suspend fun PipelineContext<
-        EngineConnectionsScreenState,
-        EngineConnectionsScreenIntent,
-        EngineConnectionsScreenAction,
-    >.request(
-        intent: EngineManagementIntent.EngineRequest,
-    ) {
-        var screen = EngineConnectionsScreenState()
-        withState { screen = this }
-        if (intent is EngineManagementIntent.RequestEngineAction && screen.needsConfirmation(intent.action)) {
-            updateState { copy(confirmAction = intent.action) }
-            return
-        }
-        val engine = screen.selectedEngine
-        val command = screen.commandFor(intent)
-        if (engine == null || command == null) {
-            log.w { "ignore ${intent::class.simpleName.orEmpty()} without an applicable engine command" }
-            return
-        }
-        val operation = ConnectionOperation.ManageEngine(EngineId(engine), command)
-        val result = sendTo(machine, EngineConnectionsIntent.Public.Apply(operation))
-        // Local input is cleared only once the machine took it; a rejected one stays to be sent again.
-        if (result == SendResult.Accepted) updateState { sent(intent) }
     }
 
     // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.

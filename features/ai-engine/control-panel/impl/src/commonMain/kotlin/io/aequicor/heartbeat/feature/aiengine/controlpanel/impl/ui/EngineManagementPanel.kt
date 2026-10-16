@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
+package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,39 +26,39 @@ import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CompatibilityUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineActionKindUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineActionUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineManagementIntent
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EnginePanelUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.InstallSupportUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.JobPhaseUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.JobUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ManagementFailureUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_cancel
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_check_updates
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_copy_failed
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_enabled
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_enabled_hint
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_install
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_installation
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_status
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_not_runnable
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_path_copied
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_path_copy
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_restart
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_revert
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_runtime
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_runtime_exited
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_runtime_stale
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_section
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_uninstall
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_unverified
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_update
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_update_available
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_dismiss
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_probe
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.CompatibilityUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineActionKindUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineActionUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineManagementIntent
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EnginePanelUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.InstallSupportUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.JobPhaseUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.JobUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ManagementFailureUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_cancel
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_dismiss
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_probe
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_check_updates
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_copy_failed
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_enabled
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_enabled_hint
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_install
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_installation
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_job_status
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_not_runnable
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_path_copied
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_path_copy
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_restart
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_revert
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_exited
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_stale
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_section
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_uninstall
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_unverified
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_update
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_update_available
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -81,7 +81,7 @@ internal fun EngineManagementSection(
         description = panel.title,
         trailingContent = {
             HbButton(
-                stringResource(Res.string.settings_probe),
+                stringResource(Res.string.control_probe),
                 { onIntent(EngineManagementIntent.InspectEngine) },
                 Modifier.testTag("engine-inspect"),
                 HbButtonStyle.Ghost,
@@ -247,11 +247,11 @@ private fun JobBlock(
         }
         if (phase is JobPhaseUi.Failed) JobFailure(phase.failure)
         if (job.isRunning) {
-            ActionButton(stringResource(Res.string.conn_cancel), "engine-job-cancel", !isSaving) {
+            ActionButton(stringResource(Res.string.control_cancel), "engine-job-cancel", !isSaving) {
                 onIntent(EngineManagementIntent.CancelEngineJob)
             }
         } else {
-            ActionButton(stringResource(Res.string.settings_dismiss), "engine-job-dismiss", !isSaving) {
+            ActionButton(stringResource(Res.string.control_dismiss), "engine-job-dismiss", !isSaving) {
                 onIntent(EngineManagementIntent.DismissEngineJob)
             }
         }
@@ -324,7 +324,7 @@ internal fun EngineActionDialog(
         onDismissRequest = { onIntent(EngineManagementIntent.DismissEngineAction) },
         actions = {
             HbButton(
-                stringResource(Res.string.conn_cancel),
+                stringResource(Res.string.control_cancel),
                 { onIntent(EngineManagementIntent.DismissEngineAction) },
                 style = HbButtonStyle.Ghost,
             )

@@ -1,15 +1,15 @@
-package io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store
+package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
-import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionsSnapshot
-import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.ControlSnapshot
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineActionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineEnablement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
@@ -72,15 +72,14 @@ internal fun managedCodex(
     job = job,
 )
 
-/** [settingsSnapshot] with engine management on, listing Koog (on) and [codex]. */
-internal fun managedSnapshot(codex: ManagedEngine = managedCodex()): ConnectionsSnapshot {
-    val base = settingsSnapshot()
-    val koog = base.engines.single()
-    val managedKoog = ManagedEngine(koog.descriptor, ManagementSpec(), EngineEnablement(), koog.availability)
-    return base.copy(
-        management = EngineManagementState(true, EnginePlatform.DesktopMacOs, listOf(managedKoog, codex)),
+/** The panel machine observing engine management with [codex] (configuration off). */
+internal fun managedSnapshot(codex: ManagedEngine = managedCodex(), isManaged: Boolean = true): EngineControlState =
+    EngineControlState.Active(
+        ControlSnapshot(
+            EngineManagementState(isManaged, EnginePlatform.DesktopMacOs, listOf(codex)),
+            EngineConfigurationState.Off,
+        ),
     )
-}
 
 class EngineManagementPresentationTest {
     @Test
@@ -94,7 +93,7 @@ class EngineManagementPresentationTest {
                 ),
             ),
         )
-        val screen = EngineConnectionsScreenState(selectedEngine = CodexId.value, loginCode = "secret")
+        val screen = EngineControlPanelState(CodexId.value, loginCode = "secret")
             .observe(awaiting)
         assertEquals("secret", screen.loginCode)
         val completed = managedSnapshot(
@@ -107,8 +106,8 @@ class EngineManagementPresentationTest {
             ),
         )
         assertEquals("", screen.observe(completed).loginCode)
-        assertEquals("", screen.reflect(EngineConnectionsState.Active()).loginCode)
-        assertEquals("", screen.reflect(EngineConnectionsState.Idle).loginCode)
+        assertEquals("", screen.reflect(CodexId, EngineControlState.Active()).loginCode)
+        assertEquals("", screen.reflect(CodexId, EngineControlState.Idle).loginCode)
         listOf(
             screen,
             LoginUi.SignedIn("secret"),
@@ -134,36 +133,19 @@ class EngineManagementPresentationTest {
     }
 
     @Test
-    fun `with engine management off the space is exactly as before`() {
-        val disabled = managedCodex(EngineEnablement(reasons = setOf(DisabledReason.EngineFlagOff)))
-        val off = managedSnapshot(disabled).let { it.copy(management = it.management.copy(isEnabled = false)) }
+    fun `with engine management off the panel has no management block`() {
+        val now = EngineControlPanelState(CodexId.value).reflect(CodexId, managedSnapshot(isManaged = false))
 
-        val before = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(settingsSnapshot()))
-        val now = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(off))
-
-        assertEquals(before, now)
         assertNull(now.panel)
-        assertEquals(listOf(KoogId.value), now.engines.map { it.id })
+        assertEquals("Codex", now.title)
     }
 
     @Test
-    fun `every engine is listed and a switched-off one has a panel but no connections`() {
+    fun `a switched-off engine keeps its management block with the reasons`() {
         val disabled = managedCodex(EngineEnablement(reasons = setOf(DisabledReason.EngineFlagOff)))
-        val loaded = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(managedSnapshot(disabled)))
-        assertEquals(listOf(true, false), loaded.engines.map { it.isEnabled })
-        assertEquals(KoogId.value, loaded.panel?.id)
 
-        val codex = loaded.copy(
-            selectedEngine = CodexId.value,
-        ).reflect(EngineConnectionsState.Active(managedSnapshot(disabled)))
+        val panel = selected(disabled).panel!!
 
-        assertEquals(
-            EngineRowUi("codex", "Codex", AvailabilityUi.Available, 2, false, isEnabled = false),
-            codex.engines[1],
-        )
-        assertTrue(codex.connections.isEmpty())
-        assertNull(codex.models)
-        val panel = codex.panel!!
         assertEquals(listOf(DisabledReasonUi(DisabledReasonUi.Kind.EngineFlagOff, "ai.codex")), panel.reasons)
         assertTrue(panel.isSwitchable)
         assertEquals(setOf(EngineActionKindUi.Configure), panel.actions)
@@ -241,7 +223,7 @@ class EngineManagementPresentationTest {
                 confirmAction = EngineActionUi.Uninstall,
             ).commandFor(EngineManagementIntent.ConfirmEngineAction),
         )
-        assertNull(EngineConnectionsScreenState().commandFor(EngineManagementIntent.InspectEngine))
+        assertNull(EngineControlPanelState(CodexId.value).commandFor(EngineManagementIntent.InspectEngine))
         assertTrue(panel.needsConfirmation(EngineActionUi.Uninstall))
         assertTrue(panel.needsConfirmation(EngineActionUi.Logout))
         assertFalse(panel.needsConfirmation(EngineActionUi.Update))
@@ -263,9 +245,9 @@ class EngineManagementPresentationTest {
         assertEquals(DisabledReason.entries.size, DisabledReasonUi.Kind.entries.size)
     }
 
-    private fun selected(codex: ManagedEngine): EngineConnectionsScreenState =
-        EngineConnectionsScreenState(selectedEngine = CodexId.value).observe(managedSnapshot(codex))
+    private fun selected(codex: ManagedEngine): EngineControlPanelState =
+        EngineControlPanelState(CodexId.value).observe(managedSnapshot(codex))
 
-    private fun EngineConnectionsScreenState.observe(snapshot: ConnectionsSnapshot = managedSnapshot()) =
-        reflect(EngineConnectionsState.Active(snapshot))
+    private fun EngineControlPanelState.observe(snapshot: EngineControlState = managedSnapshot()) =
+        reflect(CodexId, snapshot)
 }

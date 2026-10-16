@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store
+package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines

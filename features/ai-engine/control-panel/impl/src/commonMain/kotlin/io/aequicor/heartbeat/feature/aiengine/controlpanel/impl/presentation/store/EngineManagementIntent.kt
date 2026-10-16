@@ -1,17 +1,17 @@
-package io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store
+package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginCode
 
-/** Management of the focused engine: requests the machine executes and edits of local input. */
-sealed interface EngineManagementIntent : EngineConnectionsScreenIntent {
+/** Management of the panel's engine: requests the machine executes and edits of local input. */
+sealed interface EngineManagementIntent : EngineControlPanelIntent {
     /** A request the machine executes as an engine management command. */
     sealed interface EngineRequest : EngineManagementIntent
 
     /** An edit of local input (a launch draft, a sign-in code, a pending confirmation). */
     sealed interface EngineInput : EngineManagementIntent
 
-    /** Switches the focused engine on or off in this profile. */
+    /** Switches the engine on or off in this profile. */
     data class SetEngineEnabled(val isEnabled: Boolean) : EngineRequest
 
     /** Inspects the installation and the CLI login. */
@@ -61,7 +61,7 @@ sealed interface EngineManagementIntent : EngineConnectionsScreenIntent {
 }
 
 /** Removals, an update replacing the verified bundled copy and sign-out ask first. */
-internal fun EngineConnectionsScreenState.needsConfirmation(action: EngineActionUi): Boolean = when (action) {
+internal fun EngineControlPanelState.needsConfirmation(action: EngineActionUi): Boolean = when (action) {
     EngineActionUi.Uninstall, EngineActionUi.Logout -> true
     EngineActionUi.Update -> panel?.installation?.support == InstallSupportUi.Bundled
     EngineActionUi.Install, EngineActionUi.Login, EngineActionUi.SyncPackages, EngineActionUi.UpdatePackages -> false
@@ -73,7 +73,7 @@ internal val EngineManagementIntent.EngineInput.isLaunchEdit: Boolean
         this == EngineManagementIntent.ResetLaunch
 
 /** The local input after [intent]. */
-internal fun EngineConnectionsScreenState.edit(intent: EngineManagementIntent.EngineInput) = when (intent) {
+internal fun EngineControlPanelState.edit(intent: EngineManagementIntent.EngineInput) = when (intent) {
     is EngineManagementIntent.EditLaunch -> copy(launchDraft = intent.draft)
     EngineManagementIntent.DiscardLaunch -> copy(launchDraft = null)
     EngineManagementIntent.ResetLaunch -> copy(launchDraft = LaunchDraftUi())
@@ -82,7 +82,7 @@ internal fun EngineConnectionsScreenState.edit(intent: EngineManagementIntent.En
 }
 
 /** The local input once the machine accepted [intent]: what it sent is cleared. */
-internal fun EngineConnectionsScreenState.sent(intent: EngineManagementIntent.EngineRequest) = when (intent) {
+internal fun EngineControlPanelState.sent(intent: EngineManagementIntent.EngineRequest) = when (intent) {
     EngineManagementIntent.SaveLaunch -> copy(launchDraft = null)
 
     EngineManagementIntent.SubmitLoginCode -> copy(loginCode = "")
@@ -97,7 +97,7 @@ internal fun EngineConnectionsScreenState.sent(intent: EngineManagementIntent.En
 }
 
 /** The management command of an engine request, or null when the panel's state does not allow it. */
-internal fun EngineConnectionsScreenState.commandFor(intent: EngineManagementIntent.EngineRequest): EngineCommand? {
+internal fun EngineControlPanelState.commandFor(intent: EngineManagementIntent.EngineRequest): EngineCommand? {
     if (panel == null) return null
     return when (intent) {
         is EngineManagementIntent.SetEngineEnabled -> EngineCommand.SetEnabled(intent.isEnabled)
@@ -114,10 +114,10 @@ internal fun EngineConnectionsScreenState.commandFor(intent: EngineManagementInt
 }
 
 /** Saves a changed draft without errors. */
-private fun EngineConnectionsScreenState.launchCommand(): EngineCommand? = panel?.launch
+private fun EngineControlPanelState.launchCommand(): EngineCommand? = panel?.launch
     ?.takeIf { it.errors.isEmpty() && it.isDirty }
     ?.let { EngineCommand.Configure(it.draft.toSettings()) }
 
 /** Passes a non-blank pasted code. */
-private fun EngineConnectionsScreenState.codeCommand(): EngineCommand? =
+private fun EngineControlPanelState.codeCommand(): EngineCommand? =
     loginCode.trim().takeIf { it.isNotEmpty() }?.let { EngineCommand.AnswerLogin(LoginCode(it)) }
