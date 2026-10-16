@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
@@ -40,7 +41,18 @@ internal data class BrowserScreenState(
     val selectedTabId: String? = null,
     val isExpanded: Boolean = false,
     val favicons: ImmutableMap<String, BrowserFaviconImage> = persistentMapOf(),
-) : MVIState
+    /** Addresses of tabs the user closed here, most recent last; [MAX_CLOSED_TABS] at most. */
+    val closedTabUrls: ImmutableList<String> = persistentListOf(),
+) : MVIState {
+    /** The tabs of the selected tab's group: the ones the strip shows. */
+    val visibleTabs: List<BrowserTabUi>
+        get() {
+            val selected = tabs.firstOrNull { it.id == selectedTabId } ?: tabs.firstOrNull()
+            return tabs.filter { it.groupId == selected?.groupId }
+        }
+}
+
+internal const val MAX_CLOSED_TABS = 25
 
 internal data class BrowserTabUi(
     val id: String,
@@ -52,6 +64,7 @@ internal data class BrowserTabUi(
     val isLoading: Boolean = false,
     val faviconUrl: String = "",
     val isAwaitingResponse: Boolean = false,
+    val url: String = "",
 )
 
 internal sealed interface BrowserScreenIntent : MVIIntent {
@@ -73,6 +86,8 @@ internal sealed interface BrowserScreenIntent : MVIIntent {
     data object ToggleControl : BrowserScreenIntent
 
     data object ToggleExpanded : BrowserScreenIntent
+
+    data class Shortcut(val shortcut: BrowserShortcut) : BrowserScreenIntent
 
     data object Hide : BrowserScreenIntent
     data object Back : BrowserScreenIntent

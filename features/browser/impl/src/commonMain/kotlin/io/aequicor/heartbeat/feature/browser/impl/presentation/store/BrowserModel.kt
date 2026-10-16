@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.browser.api.browserAddress
 import io.aequicor.heartbeat.feature.browser.impl.di.scope.BrowserScope
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -62,29 +63,21 @@ internal class BrowserModel(
                     BrowserIntent.Public.Perform(BrowserRequest(Uuid.random().toString(), BrowserOperation.ClearData)),
                 )
 
-                BrowserScreenIntent.NewTab -> withState {
-                    sendTo(
-                        machine,
-                        BrowserIntent.Public.Perform(
-                            BrowserRequest(Uuid.random().toString(), BrowserOperation.NewTab, selectedTabId),
-                        ),
-                    )
-                }
+                BrowserScreenIntent.NewTab -> withState { sendTo(machine, newTab(selectedTabId)) }
 
                 is BrowserScreenIntent.SelectTab ->
                     sendTo(machine, BrowserIntent.Public.SelectTab(intent.id))
 
-                is BrowserScreenIntent.CloseTab ->
-                    sendTo(
-                        machine,
-                        BrowserIntent.Public.Perform(
-                            BrowserRequest(
-                                Uuid.random().toString(),
-                                BrowserOperation.CloseTab,
-                                intent.id,
-                            ),
-                        ),
-                    )
+                is BrowserScreenIntent.CloseTab -> {
+                    updateState { closing(intent.id) }
+                    sendTo(machine, closeRequest(intent.id))
+                }
+
+                is BrowserScreenIntent.Shortcut -> {
+                    var action: BrowserIntent.Public? = null
+                    updateState { shortcut(intent.shortcut).also { action = it.second }.first }
+                    action?.let { sendTo(machine, it) }
+                }
 
                 BrowserScreenIntent.Hide ->
                     sendTo(machine, BrowserIntent.Public.Display(BrowserDisplay.Hidden))
@@ -164,6 +157,63 @@ internal class BrowserModel(
     }
 }
 
+/** Remembers the closed tab's address for [BrowserShortcut.ReopenClosedTab]. */
+private fun BrowserScreenState.closing(id: String): BrowserScreenState {
+    val url = tabs.firstOrNull { it.id == id }?.url.orEmpty()
+    if (url.isEmpty()) return this
+    return copy(closedTabUrls = (closedTabUrls + url).takeLast(MAX_CLOSED_TABS).toImmutableList())
+}
+
+private fun closeRequest(id: String) =
+    BrowserIntent.Public.Perform(BrowserRequest(Uuid.random().toString(), BrowserOperation.CloseTab, id))
+
+/** What [shortcut] changes in this state and the machine intent, if any, that carries it out. */
+internal fun BrowserScreenState.shortcut(shortcut: BrowserShortcut): Pair<BrowserScreenState, BrowserIntent.Public?> =
+    when (shortcut) {
+        BrowserShortcut.NewTab -> this to newTab(selectedTabId)
+
+        BrowserShortcut.CloseTab -> selectedTabId?.let { closing(it) to closeRequest(it) } ?: (this to null)
+
+        BrowserShortcut.ReopenClosedTab -> closedTabUrls.lastOrNull()?.let { url ->
+            copy(closedTabUrls = closedTabUrls.dropLast(1).toImmutableList()) to newTab(selectedTabId, url)
+        } ?: (this to null)
+
+        BrowserShortcut.NextTab,
+        BrowserShortcut.PreviousTab,
+        is BrowserShortcut.SelectTab,
+        -> this to shortcutTarget(shortcut)?.let { BrowserIntent.Public.SelectTab(it.id) }
+    }
+
+/** The visible tab a switching shortcut selects: neighbors wrap around, a missing position selects nothing. */
+private fun BrowserScreenState.shortcutTarget(shortcut: BrowserShortcut): BrowserTabUi? {
+    val visible = visibleTabs.ifEmpty { return null }
+    val index = visible.indexOfFirst { it.id == selectedTabId }
+    return when (shortcut) {
+        BrowserShortcut.NextTab -> visible[(index + 1).mod(visible.size)]
+
+        BrowserShortcut.PreviousTab -> visible[(index - 1).mod(visible.size)]
+
+        is BrowserShortcut.SelectTab -> {
+            val position = shortcut.position
+            if (position == null) visible.last() else visible.getOrNull(position - 1)
+        }
+
+        BrowserShortcut.NewTab,
+        BrowserShortcut.CloseTab,
+        BrowserShortcut.ReopenClosedTab,
+        -> null
+    }
+}
+
+private fun newTab(parentId: String?, url: String? = null) = BrowserIntent.Public.Perform(
+    BrowserRequest(
+        Uuid.random().toString(),
+        BrowserOperation.NewTab,
+        parentId,
+        arguments = buildJsonObject { url?.let { put("url", it) } },
+    ),
+)
+
 internal fun BrowserScreenState.reflectState(state: BrowserState): BrowserScreenState = when (state) {
     BrowserState.Idle -> copy(phase = BrowserPhase.Preparing)
 
@@ -181,6 +231,7 @@ internal fun BrowserScreenState.reflectState(state: BrowserState): BrowserScreen
                         it.page.isLoading,
                         it.page.faviconUrl,
                         it.page.isLoading && it.page.isAwaitingResponse,
+                        it.page.url,
                     )
                 }
                 .toImmutableList(),

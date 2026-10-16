@@ -13,7 +13,12 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -28,6 +33,9 @@ import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
+import io.aequicor.heartbeat.feature.browser.impl.presentation.browserShortcut
+import io.aequicor.heartbeat.feature.browser.impl.presentation.isBrowserMetaShortcut
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserModel
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserPhase
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenError
@@ -74,7 +82,11 @@ internal fun BrowserScreenContent(
 ) {
     HbColumn(
         modifier.fillMaxSize().safeDrawingPadding()
-            .background(HbTheme.surfaces.backdrop).testTag("browser"),
+            .background(HbTheme.surfaces.backdrop).testTag("browser")
+            .onPreviewKeyEvent { event ->
+                val shortcut = event.browserShortcut().takeIf { state.hasTabs && event.type == KeyEventType.KeyDown }
+                shortcut?.let { onIntent(BrowserScreenIntent.Shortcut(it)) } != null
+            },
         gap = HbTheme.spacing.none,
     ) {
         BrowserTabs(state, onIntent)
@@ -92,6 +104,28 @@ internal fun BrowserScreenContent(
         BrowserViewport(state, Modifier.weight(1f).fillMaxWidth(), browser)
     }
 }
+
+/** The tab key this event presses, with the host's modifier conventions. */
+private fun KeyEvent.browserShortcut(): BrowserShortcut? {
+    val isMeta = isBrowserMetaShortcut()
+    val character = when (key) {
+        Key.T -> 't'
+        Key.W -> 'w'
+        Key.Tab -> '\t'
+        in DIGIT_KEYS -> '1' + DIGIT_KEYS.indexOf(key)
+        else -> return null
+    }
+    return browserShortcut(
+        character,
+        isAccelerator = if (isMeta) isMetaPressed && !isCtrlPressed else isCtrlPressed && !isMetaPressed,
+        isControl = isCtrlPressed,
+        isShift = isShiftPressed,
+        isAlt = isAltPressed,
+    )
+}
+
+private val DIGIT_KEYS =
+    listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight, Key.Nine)
 
 @Composable
 private fun BrowserViewport(

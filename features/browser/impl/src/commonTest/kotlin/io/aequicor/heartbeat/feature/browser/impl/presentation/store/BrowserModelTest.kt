@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurfaceAdapter
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestDispatchers
@@ -88,6 +89,65 @@ class BrowserModelTest {
         runCurrent()
         val state = screen.states.value
         assertEquals(icon, state.favicons[state.tabs.single().faviconUrl])
+    }
+
+    @Test
+    fun `tab shortcuts cycle the visible group and pick positions`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(
+                BrowserTab("a"),
+                BrowserTab("b"),
+                BrowserTab("c"),
+                BrowserTab("agent", owner = "session"),
+            ),
+            selectedTabId = "c",
+        )
+        runCurrent()
+        assertEquals(3, screen.states.value.visibleTabs.size)
+        listOf(
+            BrowserShortcut.NextTab,
+            BrowserShortcut.PreviousTab,
+            BrowserShortcut.SelectTab(2),
+            BrowserShortcut.SelectTab(null),
+            BrowserShortcut.SelectTab(7),
+        ).forEach { fixture.model.store.intent(BrowserScreenIntent.Shortcut(it)) }
+        runCurrent()
+        assertEquals(
+            listOf("a", "b", "b", "c"),
+            fixture.machine.sent.filterIsInstance<BrowserIntent.Public.SelectTab>().map { it.id },
+        )
+    }
+
+    @Test
+    fun `a closed tab reopens at its address next to the selected tab`() = runTest {
+        val fixture = Fixture(this)
+        fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(BrowserTab("a", BrowserPage("https://example.com/a")), BrowserTab("b")),
+            selectedTabId = "a",
+        )
+        runCurrent()
+        fixture.model.store.intent(BrowserScreenIntent.Shortcut(BrowserShortcut.CloseTab))
+        fixture.model.store.intent(BrowserScreenIntent.CloseTab("b"))
+        fixture.model.store.intent(BrowserScreenIntent.Shortcut(BrowserShortcut.ReopenClosedTab))
+        fixture.model.store.intent(BrowserScreenIntent.Shortcut(BrowserShortcut.ReopenClosedTab))
+        runCurrent()
+        val performed = fixture.machine.performed().map { it.copy(id = "") }
+        assertEquals(
+            listOf(
+                BrowserRequest("", BrowserOperation.CloseTab, "a"),
+                BrowserRequest("", BrowserOperation.CloseTab, "b"),
+                BrowserRequest(
+                    "",
+                    BrowserOperation.NewTab,
+                    "a",
+                    arguments = JsonObject(mapOf("url" to JsonPrimitive("https://example.com/a"))),
+                ),
+            ),
+            performed,
+        )
     }
 
     @Test

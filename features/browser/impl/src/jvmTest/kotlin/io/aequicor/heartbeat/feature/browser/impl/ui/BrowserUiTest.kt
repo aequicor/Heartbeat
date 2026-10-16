@@ -32,12 +32,15 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.test.withKeyDown
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
+import io.aequicor.heartbeat.feature.browser.impl.presentation.isBrowserMetaShortcut
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserPhase
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenIntent
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenState
@@ -212,6 +215,40 @@ class BrowserUiTest {
             waitForIdle()
             assertTrue(width() > before)
         }
+
+    @Test
+    fun `tab keys reach the store from the browser while ordinary keys stay with the field`() = runSkikoComposeUiTest {
+        val events = mutableListOf<BrowserScreenIntent>()
+        setContent {
+            HbTheme {
+                BrowserScreenContent(
+                    BrowserScreenState(
+                        phase = BrowserPhase.Ready,
+                        hasTabs = true,
+                        selectedTabId = "one",
+                        tabs = persistentListOf(BrowserTabUi("one", "First", true, false)),
+                    ),
+                    { events += it },
+                )
+            }
+        }
+        val accelerator = if (isBrowserMetaShortcut()) Key.MetaLeft else Key.CtrlLeft
+        onNodeWithTag("browser-address").performClick()
+        onNodeWithTag("browser-address").performKeyInput {
+            withKeyDown(accelerator) { pressKey(Key.T) }
+            withKeyDown(Key.CtrlLeft) { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
+            pressKey(Key.T)
+        }
+        runOnIdle {
+            assertEquals(
+                listOf(
+                    BrowserScreenIntent.Shortcut(BrowserShortcut.NewTab),
+                    BrowserScreenIntent.Shortcut(BrowserShortcut.PreviousTab),
+                ),
+                events.filterIsInstance<BrowserScreenIntent.Shortcut>(),
+            )
+        }
+    }
 
     @Test
     fun `overflow keeps creation accessible and menu selection reveals the last tab`() =

@@ -55,8 +55,8 @@ internal fun BrowserTabStrip(
     onIntent: (BrowserScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val selectedTab = state.tabs.firstOrNull { it.id == state.selectedTabId } ?: state.tabs.firstOrNull()
-    val tabs = state.tabs.filter { it.groupId == selectedTab?.groupId }
+    val tabs = state.visibleTabs
+    val groupId = tabs.firstOrNull()?.groupId
     var revealRequest by remember { mutableIntStateOf(0) }
     var frozenTabWidth by remember { mutableStateOf<Dp?>(null) }
     var isPointerOver by remember { mutableStateOf(false) }
@@ -92,7 +92,7 @@ internal fun BrowserTabStrip(
                     onIntent(BrowserScreenIntent.CloseTab(id))
                 }
                 HbRow(
-                    Modifier.testTag("browser-group-${selectedTab?.groupId ?: "personal"}")
+                    Modifier.testTag("browser-group-${groupId ?: "personal"}")
                         .selectableGroup().hbHorizontalScroll(rememberScrollState()),
                     gap = HbTheme.spacing.xxs,
                 ) {
