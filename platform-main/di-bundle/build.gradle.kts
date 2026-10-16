@@ -73,6 +73,8 @@ kotlin {
             implementation(projects.features.appUpdate.impl)
             implementation(projects.features.serviceAsUi.api)
             implementation(projects.features.serviceAsUi.impl)
+            implementation(projects.features.projectConfig.api)
+            implementation(projects.features.projectConfig.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)
