@@ -168,4 +168,15 @@
     <string name="engine_preparation_storage">Could not save engine components. Check free disk space and retry the operation.</string>
     <string name="engine_preparation_invalid">Engine components could not be verified. Retry the operation to download them again.</string>
     <string name="engine_preparation_unavailable">Engine components are unavailable. Retry the operation.</string>
+    <string name="control_failure_authentication">Could not authenticate with the provider. Check the API key for the selected provider or sign in to the CLI again, then test the connection.</string>
+    <string name="control_failure_network">No connection to the provider. Check the network and the address.</string>
+    <string name="control_failure_limit">The provider temporarily limited request frequency. Wait and test the connection again.</string>
+    <string name="control_failure_engine">The engine is unavailable on this device. Check that it is installed and enabled, then restart the engine.</string>
+    <string name="control_failure_access">Access to this operation or model was denied. Check permissions and your subscription, or choose an available model. If the account is restricted, contact the provider to restore access.</string>
+    <string name="control_failure_rejected">The engine rejected the request. Check the connection method and model; for a custom server, also check the base URL and API path.</string>
+    <string name="control_failure_credentials_missing">Credentials for this connection are unavailable on this device. Add the connection again with an API key or sign in to the CLI.</string>
+    <string name="control_failure_connection_changed">The connection credentials changed or do not match the engine. Check the provider and authentication method, then connect it again.</string>
+    <string name="control_failure_quota">The provider quota is exhausted. Check your subscription and remaining allowance in the provider account, or choose another connection.</string>
+    <string name="control_failure_unknown">Something went wrong. Try again.</string>
+    <string name="control_dismiss">Dismiss</string>
 </resources>

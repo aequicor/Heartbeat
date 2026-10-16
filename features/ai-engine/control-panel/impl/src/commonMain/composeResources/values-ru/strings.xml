@@ -168,4 +168,15 @@
     <string name="engine_preparation_storage">Не удалось сохранить компоненты движка. Проверьте свободное место и повторите операцию.</string>
     <string name="engine_preparation_invalid">Не удалось проверить компоненты движка. Повторите операцию для повторного скачивания.</string>
     <string name="engine_preparation_unavailable">Компоненты движка недоступны. Повторите операцию.</string>
+    <string name="control_failure_authentication">Не удалось авторизоваться у провайдера. Проверьте API-ключ выбранного провайдера или заново войдите в CLI, затем проверьте подключение.</string>
+    <string name="control_failure_network">Нет связи с провайдером. Проверьте сеть и адрес.</string>
+    <string name="control_failure_limit">Провайдер временно ограничил частоту запросов. Подождите и повторите проверку.</string>
+    <string name="control_failure_engine">Движок недоступен на этом устройстве. Проверьте его установку и включение, затем перезапустите движок.</string>
+    <string name="control_failure_access">Нет доступа к операции или модели. Проверьте права и подписку или выберите доступную модель. Если аккаунт ограничен, обратитесь к провайдеру для восстановления доступа.</string>
+    <string name="control_failure_rejected">Движок отклонил запрос. Проверьте выбранный способ подключения и модель; для своего сервера также проверьте базовый URL и путь API.</string>
+    <string name="control_failure_credentials_missing">Учётные данные выбранного подключения недоступны на этом устройстве. Добавьте подключение заново с API-ключом или войдите в CLI.</string>
+    <string name="control_failure_connection_changed">Данные подключения изменились или не подходят движку. Проверьте провайдера и способ авторизации, затем подключите его заново.</string>
+    <string name="control_failure_quota">Квота провайдера исчерпана. Проверьте подписку и доступный лимит в кабинете провайдера или выберите другое подключение.</string>
+    <string name="control_failure_unknown">Что-то пошло не так. Повторите попытку.</string>
+    <string name="control_dismiss">Скрыть</string>
 </resources>

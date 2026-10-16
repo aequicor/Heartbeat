@@ -7,6 +7,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbBanner
+import io.aequicor.heartbeat.ds.components.HbButton
+import io.aequicor.heartbeat.ds.components.HbButtonSize
+import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbLoadingState
@@ -18,7 +21,9 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelModel
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_dismiss
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_loading
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_configuration_off
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_missing
@@ -59,6 +64,12 @@ internal fun EngineControlPanelContent(
             state.isMissing -> HbEmptyState(stringResource(Res.string.control_panel_missing))
 
             else -> {
+                state.failure?.let {
+                    OperationFailure(
+                        it,
+                        onDismiss = { onIntent(EngineControlPanelIntent.DismissError) },
+                    )
+                }
                 Summary(state)
                 SettingsPages(state)
             }
@@ -75,6 +86,18 @@ private fun Summary(state: EngineControlPanelState, modifier: Modifier = Modifie
             ?: stringResource(Res.string.control_version_unknown),
     ) {
         StatusBadge(state.status)
+    }
+}
+
+@Composable
+private fun OperationFailure(failure: FailureUi, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    HbBanner(stringResource(failure.message()), modifier.testTag("engine-control-failure")) {
+        HbButton(
+            stringResource(Res.string.control_dismiss),
+            onDismiss,
+            style = HbButtonStyle.Ghost,
+            size = HbButtonSize.Small,
+        )
     }
 }
 

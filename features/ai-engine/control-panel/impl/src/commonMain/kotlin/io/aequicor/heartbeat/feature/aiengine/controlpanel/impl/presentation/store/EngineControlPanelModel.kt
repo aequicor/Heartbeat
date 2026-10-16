@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.ControlFailure
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlOutput
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState
@@ -32,7 +33,8 @@ data class PageItemUi(val id: String, val title: TextUi)
 
 /**
  * One engine's panel. [pages] are the engine's configuration pages; [isConfigurationOff] while engine configuration
- * is off, [isMissing] when the engine is not registered (any more).
+ * is off, [isMissing] when the engine is not registered (any more), [failure] — the last failed operation until
+ * dismissed.
  */
 @Immutable
 data class EngineControlPanelState(
@@ -41,6 +43,7 @@ data class EngineControlPanelState(
     val status: EngineStatusUi = EngineStatusUi.On,
     val version: String? = null,
     val pages: ImmutableList<PageItemUi> = persistentListOf(),
+    val failure: FailureUi? = null,
     val isConfigurationOff: Boolean = false,
     val isLoading: Boolean = true,
     val isMissing: Boolean = false,
@@ -51,6 +54,9 @@ data class EngineControlPanelState(
 sealed interface EngineControlPanelIntent : MVIIntent {
     /** Restarts a failed observation. */
     data object RetryLoad : EngineControlPanelIntent
+
+    /** Hides the failure of the last operation. */
+    data object DismissError : EngineControlPanelIntent
 }
 
 /** The panel has no one-off actions yet. */
@@ -77,6 +83,7 @@ class EngineControlPanelModel(
         reduce { intent ->
             when (intent) {
                 EngineControlPanelIntent.RetryLoad -> sendTo(machine, EngineControlIntent.Public.RetryLoad)
+                EngineControlPanelIntent.DismissError -> sendTo(machine, EngineControlIntent.Public.DismissError)
             }
         }
     }
@@ -100,7 +107,14 @@ internal fun panelState(engine: EngineId, state: EngineControlState): EngineCont
         status = managed.statusUi(),
         version = managed.versionUi(),
         pages = config?.schema?.pages.orEmpty().map { PageItemUi(it.id, it.title.toUi()) }.toImmutableList(),
+        failure = active.failed?.failure?.toUi(),
         isConfigurationOff = !snapshot.configuration.isEnabled,
         isLoading = false,
     )
+}
+
+/** The panel's failure text of an operation failure. */
+internal fun ControlFailure.toUi(): FailureUi = when (this) {
+    is ControlFailure.Engine -> failure.toUi()
+    is ControlFailure.Config -> FailureUi.Unknown
 }

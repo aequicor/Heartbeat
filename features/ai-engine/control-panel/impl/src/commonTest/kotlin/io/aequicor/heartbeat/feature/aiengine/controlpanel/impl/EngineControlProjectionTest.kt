@@ -1,17 +1,24 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl
 
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.ControlFailure
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.ControlOperation
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.ControlSnapshot
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.FailedOperation
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ControlTestData.codex
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ControlTestData.pi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineStatusUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.listState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.panelState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -70,5 +77,17 @@ class EngineControlProjectionTest {
         assertTrue(panelState(EngineId("gone"), observed).isMissing)
         val off = observed.copy(snapshot = ControlSnapshot(management, EngineConfigurationState.Off))
         assertTrue(panelState(pi, off).isConfigurationOff)
+    }
+
+    @Test
+    fun `the panel shows the failure of the last operation`() {
+        val restart = ControlOperation.Manage(pi, EngineCommand.Restart)
+        val network = ControlFailure.Engine(EngineFailure.Transport(TransportFailureReason.Timeout))
+        val failed = observed.copy(failed = FailedOperation(restart, network))
+        assertEquals(FailureUi.Network, panelState(pi, failed).failure)
+
+        val config = observed.copy(failed = FailedOperation(restart, ControlFailure.Config(ConfigFailure.Conflict)))
+        assertEquals(FailureUi.Unknown, panelState(pi, config).failure)
+        assertEquals(null, panelState(pi, observed).failure)
     }
 }
