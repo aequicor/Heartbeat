@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.feature.browser.impl.di.scope.BrowserScope
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserAvailability
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserEffects
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserSession
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserZoomPolicy
 import io.aequicor.heartbeat.feature.browser.impl.presentation.component.BrowserComponent
 import io.aequicor.heartbeat.feature.browser.impl.ui.BrowserUiComponent
 
@@ -57,8 +58,11 @@ interface BrowserGraph {
 @BindingContainer
 object BrowserBindings {
     @Provides
-    internal fun effects(availability: BrowserAvailability, session: BrowserSession): BrowserEffects =
-        BrowserEffects(availability, session)
+    internal fun effects(
+        availability: BrowserAvailability,
+        session: BrowserSession,
+        zoom: BrowserZoomPolicy,
+    ): BrowserEffects = BrowserEffects(availability, session, zoom)
 
     @Provides
     @SingleIn(ProfileScope::class)
@@ -92,6 +96,11 @@ object BrowserToggleBindings {
     @Provides
     @IntoSet
     fun favicons(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserFavicons
+
+    /** Page zoom; disabled until explicitly enabled. */
+    @Provides
+    @IntoSet
+    fun pageZoom(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserPageZoom
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

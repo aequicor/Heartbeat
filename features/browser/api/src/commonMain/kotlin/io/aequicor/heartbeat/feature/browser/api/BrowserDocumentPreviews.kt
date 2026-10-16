@@ -82,7 +82,7 @@ public data class BrowserDocumentPreviewMetrics(
     val viewportHeight: Int,
     val contentWidth: Int,
     val contentHeight: Int,
-    val horizontalOverflow: Boolean,
+    val hasHorizontalOverflow: Boolean,
 )
 
 /** One visible element's diagnostic. [element] is a bounded DOM identifier, not its private text or value. */

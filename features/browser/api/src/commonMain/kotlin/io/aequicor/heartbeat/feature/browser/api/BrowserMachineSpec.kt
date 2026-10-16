@@ -19,6 +19,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * contents are retained in machine state. Running + ObserverFailed -> stay disabled and hidden
  * [Reobserve]; the effect already revoked the session. Running + Failed -> stay with
  * EngineUnavailable. Disabled navigation and duplicate Start are ignored.
+ * Running + ZoomAvailabilityChanged -> stay with isZoomEnabled. Enabled + Zoom (zoom enabled, HTTP/S page, level
+ * changes) -> stay with the page at [browserZoomStep]'s level [Zoom(selected tab, level)]; a zoom that changes
+ * nothing (the last preset, a reset at 100 %) is ignored. The page's level comes back with PageChanged.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -30,12 +33,13 @@ import kotlin.coroutines.cancellation.CancellationException
  *     Running --> Running: Perform / Perform, Completed / output Completed
  *     Running --> Running: CancelOperation / CancelOperation, OperationCancelled / output Cancelled
  *     Running --> Running: ObserverFailed / Reobserve
+ *     Running --> Running: ZoomAvailabilityChanged, Zoom / Zoom
  * ```
  *
  * All running updates use stay so the live toggle observer survives navigation, errors and
  * disabling. Effect failures never leave a request unanswered: Perform maps to an error result
  * ("cancelled" for a cancellation raised inside the operation), CancelOperation to its
- * acknowledgement, observation to a delayed restart; a failed SelectTab is only logged.
+ * acknowledgement, observation to a delayed restart; a failed SelectTab or Zoom is only logged.
  */
 public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserEffect, BrowserOutput> =
     machineSpec(BrowserMachineKey, BrowserState.Idle) {
@@ -141,6 +145,13 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                 stay { state.copy(page = state.page.copy(isLoading = false)) }
                 effect { BrowserEffect.Stop }
             }
+            on<BrowserIntent.Internal.ZoomAvailabilityChanged> {
+                stay { state.copy(isZoomEnabled = intent.isEnabled) }
+            }
+            on<BrowserIntent.Public.Zoom>(guard = { state.zoomed(intent.zoom) != null }) {
+                stay { state.copy(page = state.page.copy(zoomPercent = requireNotNull(state.zoomed(intent.zoom)))) }
+                effect { BrowserEffect.Zoom(state.selectedTabId, requireNotNull(state.zoomed(intent.zoom))) }
+            }
             on<BrowserIntent.Internal.PageChanged>(
                 guard = {
                     state.isEnabled && (intent.page.url.isEmpty() || isBrowserUrlAllowed(intent.page.url))
@@ -178,8 +189,8 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
 
                 is BrowserEffect.CancelOperation -> BrowserIntent.Internal.OperationCancelled(effect.id)
 
-                // Selection is presentation-only; a stale tab must not mark the whole engine unavailable.
-                is BrowserEffect.SelectTab -> null
+                // Selection and zoom are presentation-only; a stale tab must not mark the whole engine unavailable.
+                is BrowserEffect.SelectTab, is BrowserEffect.Zoom -> null
 
                 BrowserEffect.Observe -> BrowserIntent.Internal.ObserverFailed(attempt = 1)
 
@@ -194,6 +205,12 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
             }
         }
     }
+
+/** The level [zoom] moves the current page to, or null when the page cannot be zoomed or would not change. */
+private fun BrowserState.Running.zoomed(zoom: BrowserZoom): Int? {
+    if (!isEnabled || !isZoomEnabled || !isBrowserUrlAllowed(page.url)) return null
+    return browserZoomStep(page.zoomPercent, zoom).takeIf { it != page.zoomPercent }
+}
 
 /** Revoked availability hides the surface and drops transient native state, keeping the address. */
 private fun BrowserState.Running.disabled(): BrowserState.Running = copy(

@@ -13,6 +13,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -27,8 +28,11 @@ import kotlin.time.Duration.Companion.seconds
  * propagates, and the runtime answers it once through the spec's `onEffectFailure`. Cancellation of the
  * effect itself needs no answer: it only happens when the machine stops and would drop any feedback.
  */
-internal class BrowserEffects(private val availability: BrowserAvailability, private val session: BrowserSession) :
-    EffectHandler<BrowserEffect, BrowserIntent> {
+internal class BrowserEffects(
+    private val availability: BrowserAvailability,
+    private val session: BrowserSession,
+    private val zoom: BrowserZoomPolicy = BrowserZoomPolicy { flowOf(false) },
+) : EffectHandler<BrowserEffect, BrowserIntent> {
     private val log = Log.tag("BrowserEffects")
 
     override suspend fun handle(effect: BrowserEffect, machine: EffectScope<BrowserIntent>) {
@@ -56,6 +60,8 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
             BrowserEffect.Reload -> session.execute(BrowserCommand.Reload)
 
             BrowserEffect.Stop -> session.execute(BrowserCommand.Stop)
+
+            is BrowserEffect.Zoom -> session.zoom(effect.tabId, effect.percent)
         }
     }
 
@@ -76,6 +82,13 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
                 launch {
                     session.pages.collect {
                         machine.send(BrowserIntent.Internal.PageChanged(it))
+                    }
+                }
+                launch {
+                    zoom.observe().collect { enabled ->
+                        val isZoomed = enabled && session.isZoomSupported
+                        session.setZoomEnabled(isZoomed)
+                        machine.send(BrowserIntent.Internal.ZoomAvailabilityChanged(isZoomed))
                     }
                 }
                 availability.observe().collect { enabled ->
