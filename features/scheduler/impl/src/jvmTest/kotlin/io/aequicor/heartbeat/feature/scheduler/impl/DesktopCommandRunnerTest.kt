@@ -1,7 +1,11 @@
 package io.aequicor.heartbeat.feature.scheduler.impl
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandRequest
 import io.aequicor.heartbeat.feature.scheduler.api.TaskProcess
 import io.aequicor.heartbeat.feature.scheduler.impl.data.DesktopCommandRunner
+import io.aequicor.heartbeat.feature.scheduler.impl.data.RunnerLocalCommands
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -54,6 +58,22 @@ class DesktopCommandRunnerTest {
         val outcome = withContext(Dispatchers.Default) { runner.run(directory, "echo scheduled", 30.seconds) }
         assertEquals(0, outcome.exitCode)
         assertTrue("scheduled" in outcome.output, outcome.output)
+    }
+
+    @Test
+    fun `local command arguments reach the program unchanged`() = runTest {
+        val tricky = listOf("it's", "\$HOME", "a;b", "*", "two words")
+        val program = if (isWindows) "cmd.exe" else "printf"
+        val arguments = if (isWindows) listOf("/c", "echo", "it's") else listOf("[%s]") + tricky
+        val workspace = WorkspaceRef("local")
+        val commands = RunnerLocalCommands(runner, Projects(mapOf(workspace to directory)))
+        val outcome = withContext(Dispatchers.Default) {
+            commands.run(LocalCommandRequest(workspace, program, arguments, 30.seconds))
+        }
+        assertTrue(outcome is LocalCommandOutcome.Exited && outcome.exitCode == 0, outcome.toString())
+        val expected = if (isWindows) "it's" else tricky.joinToString("") { "[$it]" }
+        assertTrue(expected in outcome.output, outcome.output)
+        assertFalse(Files.exists(Path.of(directory, "b")))
     }
 
     @Test
