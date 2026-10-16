@@ -11,7 +11,10 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Publi
  * Live project configuration of the profile. The profile libraries stay where entities run: a unit from a project
  * folder or a bundle reaches them only after its automatic review and the user's trust, so they always hold a version
  * the user trusted; changes made in the app are written back into bound folders. The machine never reads files or
- * calls the owners of entities: effects read folders, review, apply through the sections and write.
+ * calls the owners of entities: effects read folders, review, apply through the sections and write. Other features
+ * send only Public intents (Reload, Sync, Dismiss, OpenBundle, CloseBundle); trusting proposals and writing folders or
+ * bundles (Trust, KeepApp, RemoveFromProject, SaveToProject, Export, ImportToProject) are Internal commands of the
+ * feature's own screen.
  *
  * | From | Intent | Guard | To | Effect / output |
  * |---|---|---|---|---|
@@ -117,7 +120,7 @@ private fun ReadyBuilder.decisions() {
     on<Internal.ReviewsFailed> {
         stay { state.reviewed(intent.proposals.map { it.reviewKey to ProposalReview.Unavailable }) }
     }
-    on<Public.Trust>(
+    on<Internal.Trust>(
         guard = { state.proposal(intent.proposal, intent.digest)?.isTrustable(intent.isRiskAccepted) == true },
     ) {
         step { state.trusted(checkNotNull(state.proposal(intent.proposal))) }
@@ -139,7 +142,7 @@ private fun ReadyBuilder.decisions() {
             )
         }
     }
-    on<Public.KeepApp>(guard = { state.keptWriteBack(intent.proposal, intent.digest) != null }) {
+    on<Internal.KeepApp>(guard = { state.keptWriteBack(intent.proposal, intent.digest) != null }) {
         step { state.writing(checkNotNull(state.keptWriteBack(intent.proposal, intent.digest))) }
     }
     on<Public.Dismiss>(guard = { state.proposal(intent.proposal, intent.digest)?.isApplying == false }) {
@@ -148,7 +151,7 @@ private fun ReadyBuilder.decisions() {
             state.copy(proposals = state.proposals - proposal, dismissed = state.dismissed + proposal.reviewKey)
         }
     }
-    on<Public.RemoveFromProject>(
+    on<Internal.RemoveFromProject>(
         guard = { state.bindings.any { it.project == intent.project && it.unit == intent.unit } },
     ) {
         step { state.writing(ConfigWriteBack(intent.project, intent.unit, null)) }
@@ -156,7 +159,7 @@ private fun ReadyBuilder.decisions() {
 }
 
 private fun ReadyBuilder.tasks() {
-    on<Public.SaveToProject>(guard = { intent.project in state.projects && intent.entities.isNotEmpty() }) {
+    on<Internal.SaveToProject>(guard = { intent.project in state.projects && intent.entities.isNotEmpty() }) {
         step {
             state.started(
                 ConfigTask(intent.requestId, ConfigTaskKind.SaveToProject, intent.project),
@@ -164,7 +167,7 @@ private fun ReadyBuilder.tasks() {
             )
         }
     }
-    on<Public.Export>(guard = { intent.entities.isNotEmpty() }) {
+    on<Internal.Export>(guard = { intent.entities.isNotEmpty() }) {
         step {
             state.started(
                 ConfigTask(intent.requestId, ConfigTaskKind.Export),
@@ -180,7 +183,7 @@ private fun ReadyBuilder.tasks() {
             )
         }
     }
-    on<Public.ImportToProject>(guard = { intent.project in state.projects }) {
+    on<Internal.ImportToProject>(guard = { intent.project in state.projects }) {
         step {
             state.started(
                 ConfigTask(intent.requestId, ConfigTaskKind.ImportToProject, intent.project),

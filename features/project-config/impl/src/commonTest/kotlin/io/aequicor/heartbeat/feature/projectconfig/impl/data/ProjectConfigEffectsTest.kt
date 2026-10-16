@@ -44,7 +44,7 @@ class ProjectConfigEffectsTest {
         val (policy, change) = fixture.reviewer.changes.single()
         assertTrue("fake policy" in policy && "rules" in change)
 
-        fixture.run(Public.Trust(proposal.id, proposal.digest))
+        fixture.run(Internal.Trust(proposal.id, proposal.digest))
         assertEquals(PROJECT, harnesses.applied.single().second.project)
         assertEquals(listOf("rules"), harnesses.state.value.orEmpty().map { it.text })
         assertEquals(1, fixture.storage.bindings.size)
@@ -62,7 +62,7 @@ class ProjectConfigEffectsTest {
         val update = fixture.ready.proposals.single()
         assertEquals(ProposalKind.Update, update.kind)
         assertEquals("rules v2", harnesses.state.value.orEmpty().single().text)
-        fixture.run(Public.Trust(update.id, update.digest))
+        fixture.run(Internal.Trust(update.id, update.digest))
         assertEquals("rules v3", harnesses.state.value.orEmpty().single().text)
 
         // Removed from the folder: removal is confirmed without review.
@@ -70,7 +70,7 @@ class ProjectConfigEffectsTest {
         fixture.run(Internal.Changed(PROJECT))
         val removal = fixture.ready.proposals.single()
         assertEquals(ProposalReview.NotNeeded, removal.review)
-        fixture.run(Public.Trust(removal.id, removal.digest))
+        fixture.run(Internal.Trust(removal.id, removal.digest))
         assertTrue(harnesses.state.value.orEmpty().isEmpty())
         assertTrue(fixture.storage.bindings.isEmpty())
     }
@@ -83,9 +83,9 @@ class ProjectConfigEffectsTest {
         fixture.run(Internal.ProjectsChanged(setOf(PROJECT)))
         val risky = fixture.ready.proposals.single()
         assertEquals(ReviewVerdict.Risk, (risky.review as ProposalReview.Done).verdict)
-        fixture.run(Public.Trust(risky.id, risky.digest))
+        fixture.run(Internal.Trust(risky.id, risky.digest))
         assertTrue(harnesses.applied.isEmpty())
-        fixture.run(Public.Trust(risky.id, risky.digest, isRiskAccepted = true))
+        fixture.run(Internal.Trust(risky.id, risky.digest, isRiskAccepted = true))
         assertEquals(1, harnesses.applied.size)
 
         fixture.selections.selection.value = fixture.selections.selection.value.withDefault(null)
@@ -113,8 +113,8 @@ class ProjectConfigEffectsTest {
             fixture.results(ProjectConfigEffect.Apply(harness)),
         )
         fixture.files["harnesses/review.md"] = "rules\n"
-        fixture.run(Public.Trust(harness.id, harness.digest))
-        fixture.run(Public.Trust(board.id, board.digest))
+        fixture.run(Internal.Trust(harness.id, harness.digest))
+        fixture.run(Internal.Trust(board.id, board.digest))
         assertEquals(ConfigEntityKey("k-review"), interfaces.applied.single().second.parent)
     }
 
@@ -131,7 +131,7 @@ class ProjectConfigEffectsTest {
             ConfigEntityRef(ConfigSectionId.Learning, ConfigEntityKey("l1")),
         )
 
-        fixture.run(Public.SaveToProject("r1", PROJECT, refs))
+        fixture.run(Internal.SaveToProject("r1", PROJECT, refs))
 
         assertEquals(ProjectConfigOutput.TaskFinished("r1", ConfigTaskResult.Saved(2, 1)), fixture.outputs.last())
         assertEquals("rules\n", fixture.files["harnesses/review.md"])
@@ -150,12 +150,12 @@ class ProjectConfigEffectsTest {
             ConfigEntityRef(ConfigSectionId.Learning, ConfigEntityKey("l1")),
         )
         // Only a bundle file is written: an export never replaces another file.
-        fixture.run(Public.Export("x", "/tmp/notes.txt", refs))
+        fixture.run(Internal.Export("x", "/tmp/notes.txt", refs))
         assertEquals(
             ProjectConfigOutput.TaskFinished("x", ConfigTaskResult.Failed(ConfigTaskFailure.Unwritable)),
             fixture.outputs.last(),
         )
-        fixture.run(Public.Export("e", "/tmp/out.hbai", refs))
+        fixture.run(Internal.Export("e", "/tmp/out.hbai", refs))
         assertEquals(ProjectConfigOutput.TaskFinished("e", ConfigTaskResult.Exported(2)), fixture.outputs.last())
 
         harnesses.state.value = emptyList()
@@ -164,12 +164,12 @@ class ProjectConfigEffectsTest {
         // The lesson belongs to a project, so for the profile it is a new one; the harness is gone and created again.
         assertEquals(listOf(ProposalKind.Create, ProposalKind.Create), fixture.ready.proposals.map { it.kind })
         val lesson = fixture.ready.proposals.single { it.unit.section == ConfigSectionId.Learning }
-        fixture.run(Public.Trust(lesson.id, lesson.digest))
+        fixture.run(Internal.Trust(lesson.id, lesson.digest))
         assertNull(learning.applied.single().second.project)
         fixture.run(Public.CloseBundle)
         assertTrue(fixture.ready.proposals.isEmpty())
 
-        fixture.run(Public.ImportToProject("i", "/tmp/out.hbai", PROJECT))
+        fixture.run(Internal.ImportToProject("i", "/tmp/out.hbai", PROJECT))
         assertEquals(ProjectConfigOutput.TaskFinished("i", ConfigTaskResult.Imported(2)), fixture.outputs.last())
         assertEquals("rules\n", fixture.files["harnesses/review.md"])
     }

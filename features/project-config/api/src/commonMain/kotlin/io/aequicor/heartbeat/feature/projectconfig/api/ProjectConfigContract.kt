@@ -106,9 +106,12 @@ public sealed interface ProjectConfigState : MachineState {
     ) : ProjectConfigState
 }
 
-/** Commands of screens and the feature's watchers, and results of effects. */
+/**
+ * Commands of other features and of the feature's screen, the feature's own commands, watchers' input and results of
+ * effects.
+ */
 public sealed interface ProjectConfigIntent : MachineIntent {
-    /** Commands of the feature's screens. */
+    /** Commands any feature may send: they read folders and bundles or hide proposals, never trust or write. */
     public sealed interface Public : ProjectConfigIntent {
         /** Reads the bindings again after a failed load. */
         public data object Reload : Public
@@ -116,52 +119,56 @@ public sealed interface ProjectConfigIntent : MachineIntent {
         /** Reads the folder of [project] again. */
         public data class Sync(val project: WorkspaceRef) : Public
 
-        /**
-         * Applies [proposal] the user trusts in the version with [digest] they saw; [isRiskAccepted] confirms a risky,
-         * uncertain or unreviewed one. A proposal whose files changed since is ignored.
-         */
-        public data class Trust(val proposal: String, val digest: ConfigDigest?, val isRiskAccepted: Boolean = false) :
-            Public
-
-        /** Rejects the files of a project [proposal] with [digest] and writes the profile's version back instead. */
-        public data class KeepApp(val proposal: String, val digest: ConfigDigest?) : Public
-
         /** Sets [proposal] with [digest] aside until its files change. */
         public data class Dismiss(val proposal: String, val digest: ConfigDigest?) : Public
 
-        /** Deletes the files of [unit] from the folder of [project]; the profile entity stays. */
-        public data class RemoveFromProject(val project: WorkspaceRef, val unit: ConfigUnitRef) : Public
-
-        /** Writes [entities] into the folder of [project] and binds them there. */
-        public data class SaveToProject(
-            val requestId: String,
-            val project: WorkspaceRef,
-            val entities: List<ConfigEntityRef>,
-        ) : Public
-
-        /** Writes [entities] into a bundle at [path]. */
-        public data class Export(val requestId: String, val path: String, val entities: List<ConfigEntityRef>) :
-            Public {
-            override fun toString(): String = "Export($requestId, ${entities.size} entities)"
-        }
-
-        /** Opens the bundle at [path] for import into the profile. */
+        /** Opens the bundle at [path] for import into the profile; its proposals still need the user's trust. */
         public data class OpenBundle(val requestId: String, val path: String) : Public {
             override fun toString(): String = "OpenBundle($requestId)"
-        }
-
-        /** Copies the units of the bundle at [path] into the folder of [project]. */
-        public data class ImportToProject(val requestId: String, val path: String, val project: WorkspaceRef) :
-            Public {
-            override fun toString(): String = "ImportToProject($requestId)"
         }
 
         /** Closes the open bundle and drops its proposals. */
         public data object CloseBundle : Public
     }
 
-    /** Watchers' input and results of effects. */
+    /**
+     * Decisions and writes of the feature's own screen (trusting a proposal, writing project folders and bundles),
+     * watchers' input and results of effects. Only `project-config:impl` sends them, like
+     * `HarnessIntent.Internal.Edit`: no other feature can trust configuration or write files through the machine.
+     */
     public sealed interface Internal : ProjectConfigIntent {
+        /**
+         * Applies [proposal] the user trusts in the version with [digest] they saw; [isRiskAccepted] confirms a risky,
+         * uncertain or unreviewed one. A proposal whose files changed since is ignored.
+         */
+        public data class Trust(val proposal: String, val digest: ConfigDigest?, val isRiskAccepted: Boolean = false) :
+            Internal
+
+        /** Rejects the files of a project [proposal] with [digest] and writes the profile's version back instead. */
+        public data class KeepApp(val proposal: String, val digest: ConfigDigest?) : Internal
+
+        /** Deletes the files of [unit] from the folder of [project]; the profile entity stays. */
+        public data class RemoveFromProject(val project: WorkspaceRef, val unit: ConfigUnitRef) : Internal
+
+        /** Writes [entities] into the folder of [project] and binds them there. */
+        public data class SaveToProject(
+            val requestId: String,
+            val project: WorkspaceRef,
+            val entities: List<ConfigEntityRef>,
+        ) : Internal
+
+        /** Writes [entities] into a bundle at [path]. */
+        public data class Export(val requestId: String, val path: String, val entities: List<ConfigEntityRef>) :
+            Internal {
+            override fun toString(): String = "Export($requestId, ${entities.size} entities)"
+        }
+
+        /** Copies the units of the bundle at [path] into the folder of [project]. */
+        public data class ImportToProject(val requestId: String, val path: String, val project: WorkspaceRef) :
+            Internal {
+            override fun toString(): String = "ImportToProject($requestId)"
+        }
+
         /** The feature is on for the local [projects]. */
         public data class Enabled(val projects: Set<WorkspaceRef>) : Internal
 

@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigEntityRef
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLayout
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSectionId
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Public
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigOutput
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
@@ -94,7 +95,7 @@ internal class ProjectConfigModel(
 
             ProjectConfigScreenIntent.CancelRisk -> updateState { copy(confirming = null) }
 
-            is ProjectConfigScreenIntent.KeepApp -> with(intent.version) { sendTo(machine, Public.KeepApp(id, seen)) }
+            is ProjectConfigScreenIntent.KeepApp -> with(intent.version) { sendTo(machine, Internal.KeepApp(id, seen)) }
 
             is ProjectConfigScreenIntent.Dismiss -> with(intent.version) { sendTo(machine, Public.Dismiss(id, seen)) }
 
@@ -119,7 +120,7 @@ internal class ProjectConfigModel(
         // The files changed since the user saw them: the new version waits for its own decision.
         val proposal = proposals.firstOrNull { it.version == version } ?: return@withState
         when (proposal.review) {
-            ReviewUi.NotNeeded, is ReviewUi.Safe -> sendTo(machine, Public.Trust(version.id, version.seen))
+            ReviewUi.NotNeeded, is ReviewUi.Safe -> sendTo(machine, Internal.Trust(version.id, version.seen))
             ReviewUi.Unavailable, is ReviewUi.Risky -> updateState { copy(confirming = version) }
             ReviewUi.Pending -> Unit
         }
@@ -131,7 +132,7 @@ internal class ProjectConfigModel(
         val removal = removing ?: return@withState
         updateState { copy(removing = null) }
         val unit = ConfigUnitRef(ConfigSectionId(removal.unit.sectionId), removal.unit.name)
-        sendTo(machine, Public.RemoveFromProject(WorkspaceRef(removal.projectKey), unit))
+        sendTo(machine, Internal.RemoveFromProject(WorkspaceRef(removal.projectKey), unit))
     }
 
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
@@ -139,7 +140,7 @@ internal class ProjectConfigModel(
     private suspend fun ConfigPipeline.confirmRisk() = withState {
         val version = confirmed?.version ?: return@withState
         updateState { copy(confirming = null) }
-        sendTo(machine, Public.Trust(version.id, version.seen, isRiskAccepted = true))
+        sendTo(machine, Internal.Trust(version.id, version.seen, isRiskAccepted = true))
     }
 
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
@@ -167,7 +168,7 @@ internal class ProjectConfigModel(
             }
 
             is ProjectConfigScreenIntent.ImportToProject -> dialogs.pickBundle()?.let {
-                sendTo(machine, Public.ImportToProject(requestId(), it, WorkspaceRef(intent.projectKey)))
+                sendTo(machine, Internal.ImportToProject(requestId(), it, WorkspaceRef(intent.projectKey)))
             }
 
             ProjectConfigScreenIntent.CloseBundle -> sendTo(machine, Public.CloseBundle)
@@ -189,9 +190,9 @@ internal class ProjectConfigModel(
         if (refs.isEmpty()) return@withState
         val project = chosen.projectKey
         if (project != null) {
-            sendTo(machine, Public.SaveToProject(requestId(), WorkspaceRef(project), refs))
+            sendTo(machine, Internal.SaveToProject(requestId(), WorkspaceRef(project), refs))
         } else {
-            dialogs.pickBundleTarget(BUNDLE_NAME)?.let { sendTo(machine, Public.Export(requestId(), it, refs)) }
+            dialogs.pickBundleTarget(BUNDLE_NAME)?.let { sendTo(machine, Internal.Export(requestId(), it, refs)) }
         }
     }
 

@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSummary
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Public
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigOutput
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigState
@@ -88,12 +89,12 @@ class ProjectConfigModelTest {
         screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(safe.id, "d")))
         screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(risky.id, "d")))
         runCurrent()
-        assertEquals(listOf<ProjectConfigIntent>(Public.Trust(safe.id, ConfigDigest("d"))), fixture.machine.sent)
+        assertEquals(listOf<ProjectConfigIntent>(Internal.Trust(safe.id, ConfigDigest("d"))), fixture.machine.sent)
         assertEquals(ProposalVersionUi(risky.id, "d"), screen.states.value.confirming)
 
         screen.intent(ProjectConfigScreenIntent.ConfirmRisk)
         runCurrent()
-        assertEquals(Public.Trust(risky.id, ConfigDigest("d"), isRiskAccepted = true), fixture.machine.sent.last())
+        assertEquals(Internal.Trust(risky.id, ConfigDigest("d"), isRiskAccepted = true), fixture.machine.sent.last())
         assertNull(screen.states.value.confirming)
     }
 
@@ -128,7 +129,7 @@ class ProjectConfigModelTest {
         screen.intent(ProjectConfigScreenIntent.ConfirmPicker)
         runCurrent()
 
-        val export = fixture.machine.sent.single() as Public.Export
+        val export = fixture.machine.sent.single() as Internal.Export
         assertEquals("/tmp/out.hbai", export.path)
         assertEquals(
             setOf(
@@ -149,7 +150,7 @@ class ProjectConfigModelTest {
         screen.intent(ProjectConfigScreenIntent.ImportToProject(PROJECT.value))
         runCurrent()
         assertTrue(fixture.machine.sent[0] is Public.OpenBundle)
-        assertEquals(PROJECT, (fixture.machine.sent[1] as Public.ImportToProject).project)
+        assertEquals(PROJECT, (fixture.machine.sent[1] as Internal.ImportToProject).project)
 
         fixture.machine.outputs.emit(ProjectConfigOutput.TaskFinished("r", ConfigTaskResult.Exported(2)))
         runCurrent()
@@ -179,7 +180,7 @@ class ProjectConfigModelTest {
 
         screen.intent(ProjectConfigScreenIntent.ConfirmRemove)
         runCurrent()
-        assertEquals(listOf<ProjectConfigIntent>(Public.RemoveFromProject(PROJECT, review)), fixture.machine.sent)
+        assertEquals(listOf<ProjectConfigIntent>(Internal.RemoveFromProject(PROJECT, review)), fixture.machine.sent)
         assertNull(screen.states.value.removing)
     }
 

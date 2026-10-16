@@ -4,6 +4,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningIntent
@@ -14,6 +15,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSectionId
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEnabled
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigMachineKey
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigOutput
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigState
 import io.aequicor.heartbeat.feature.projectconfig.api.ProposalReview
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
@@ -84,10 +86,7 @@ class ProjectConfigIntegrationTest {
         }
         // The test profile has no default model, so the review is unavailable and the user accepts the risk.
         assertEquals(ProposalReview.Unavailable, proposal.review)
-        accessors.machines.send(
-            ProjectConfigMachineKey,
-            ProjectConfigIntent.Public.Trust(proposal.id, proposal.digest, isRiskAccepted = true),
-        )
+        trust(accessors, ProjectConfigIntent.Internal.Trust(proposal.id, proposal.digest, isRiskAccepted = true))
         val lesson = withContext(Dispatchers.Default) {
             withTimeout(TIMEOUT) {
                 accessors.machines.observe(AgentLearningMachineKey).filterNotNull().flatMapLatest { it.state }
@@ -109,6 +108,14 @@ class ProjectConfigIntegrationTest {
         }
         assertTrue(File(project, ".heartbeat/manifest.json").exists())
         app.profileSessions.close()
+    }
+
+    /** Trust is Internal and only project-config:impl holds the full machine; the cast stands in for its screen. */
+    private suspend fun trust(accessors: TestProjectConfigAccessors, intent: ProjectConfigIntent.Internal.Trust) {
+        @Suppress("UNCHECKED_CAST") // The registry reference dispatches every intent of its spec.
+        val machine = checkNotNull(accessors.machines.find(ProjectConfigMachineKey))
+            as MachineRef<ProjectConfigState, ProjectConfigIntent, ProjectConfigOutput>
+        machine.send(intent)
     }
 
     private suspend fun <T : Any> awaitConfig(
