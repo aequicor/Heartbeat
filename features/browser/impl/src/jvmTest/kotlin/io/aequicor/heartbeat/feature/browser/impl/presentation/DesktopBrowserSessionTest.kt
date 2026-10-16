@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
@@ -41,6 +42,88 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DesktopBrowserSessionTest {
+    @Test
+    fun `profile restores conservative certificate labels before opening tabs`() = runTest {
+        val storage = MemoryBrowserWorkspaceStorage()
+        val first = Fixture(this, storage = storage)
+        first.create()
+        first.exceptions.remember("https://example.com:8443/")
+        first.create()
+        val restored = Fixture(this, storage = storage)
+        restored.session.setEnabled(true)
+        assertTrue(restored.exceptions.contains("https://example.com/"))
+        assertFalse(restored.exceptions.contains("https://other.example/"))
+    }
+
+    @Test
+    fun `network recovery reloads only idle human network failures while enabled`() = runTest {
+        val fixture = Fixture(this)
+        val cases = listOf(
+            Triple(null, "ERR_NAME_NOT_RESOLVED", false),
+            Triple("agent", "ERR_CONNECTION_RESET", false),
+            Triple(null, "ERR_CERT_AUTHORITY_INVALID", false),
+            Triple(null, "ERR_TOO_MANY_REDIRECTS", false),
+            Triple(null, "ERR_INTERNET_DISCONNECTED", true),
+        )
+        val controllers = cases.map { (owner, code, loading) ->
+            fixture.create(owner)
+            val controller = RecordingBrowserController()
+            val surface = fixture.surfaces.last()
+            surface.attached(controller)
+            surface.changed(
+                controller,
+                BrowserViewState(
+                    url = "https://example.com/",
+                    isLoading = loading,
+                    failure = BrowserLoadFailure(
+                        "https://example.com/",
+                        code,
+                        isCertificate = code.startsWith("ERR_CERT_"),
+                    ),
+                ),
+            )
+            controller
+        }
+        runCurrent()
+        fixture.errorPages.value = false
+        fixture.session.retryNetworkErrors()
+        assertTrue(controllers.all { it.commands.isEmpty() })
+        fixture.errorPages.value = true
+        fixture.session.retryNetworkErrors()
+        runCurrent()
+        assertEquals(listOf<BrowserViewCommand>(BrowserViewCommand.Reload), controllers.first().commands)
+        assertTrue(controllers.drop(1).all { it.commands.isEmpty() })
+    }
+
+    @Test
+    fun `a human certificate warning cannot be handed to an agent`() = runTest {
+        val fixture = Fixture(this, nativeCommand = { error("Unexpected native access") })
+        val tab = fixture.create()
+        fixture.attach()
+        runCurrent()
+        fixture.emit(
+            BrowserViewState(
+                url = "https://example.com/",
+                failure = BrowserLoadFailure(
+                    "https://example.com/",
+                    "ERR_CERT_AUTHORITY_INVALID",
+                    isCertificate = true,
+                ),
+            ),
+        )
+        runCurrent()
+        val pending = fixture.request(BrowserOperation.RequestControl, tab, "session-a")
+        assertNotNull(fixture.request(BrowserOperation.ApproveControl, tab, controlRequestId = pending.requestId).error)
+        for (operation in listOf(BrowserOperation.Read, BrowserOperation.Click, BrowserOperation.Key)) {
+            assertNotNull(fixture.request(operation, tab, "session-a").error)
+        }
+        assertTrue(fixture.session.tabs.value.first.single().isHumanControlled)
+        fixture.emit(BrowserViewState(url = "https://example.com/", isCertificateWarningActive = true))
+        runCurrent()
+        assertNotNull(fixture.request(BrowserOperation.ApproveControl, tab, controlRequestId = pending.requestId).error)
+        assertNotNull(fixture.request(BrowserOperation.Key, tab, "session-a").error)
+    }
+
     @Test
     fun `linked navigation retains referrer alongside the inherited session and origin`() = runTest {
         val fixture = Fixture(this)
@@ -221,14 +304,17 @@ class DesktopBrowserSessionTest {
         val released = CompletableDeferred<Unit>()
         val fixture = Fixture(this, released)
         fixture.create()
+        fixture.exceptions.remember("https://example.com/")
         val clearing = async { fixture.request(BrowserOperation.ClearData) }
         runCurrent()
         assertFalse(clearing.isCompleted)
+        assertEquals(listOf("https://example.com/"), fixture.storage.load().certificateExceptionUrls)
         assertTrue(fixture.session.tabs.value.first.isEmpty())
         assertNotNull(fixture.request(BrowserOperation.NewTab, owner = "session-a").error)
         assertEquals(1, fixture.clearCount)
         released.complete(Unit)
         assertNull(clearing.await().error)
+        assertTrue(fixture.storage.load().certificateExceptionUrls.isEmpty())
         assertNull(fixture.request(BrowserOperation.NewTab, owner = "session-a").error)
         assertEquals(1, fixture.session.tabs.value.first.size)
     }
@@ -513,6 +599,8 @@ class DesktopBrowserSessionTest {
         private val areFaviconsEnabled: Boolean = true,
         private val icons: suspend (String) -> ByteArray = { error("No site icon") },
     ) {
+        val errorPages = MutableStateFlow(true)
+        val exceptions = DesktopCertificateExceptions()
         private val nativeStates = mutableListOf<(BrowserViewState) -> Unit>()
         val closed = mutableListOf<BrowserSurface>()
         val surfaces = mutableListOf<BrowserSurface>()
@@ -537,9 +625,14 @@ class DesktopBrowserSessionTest {
             },
         )
         private val resources = object : DesktopBrowserPanelFactory {
+            override val errorPagesEnabled = errorPages
+            override fun rememberCertificateException(url: String) = exceptions.remember(url)
+            override fun hasCertificateException(url: String): Boolean = exceptions.contains(url)
+            override fun certificateExceptionUrls(): List<String> = exceptions.urls()
             override suspend fun clearData() {
                 clearCount++
                 clearRelease?.await()
+                exceptions.clear()
             }
 
             override fun close(surface: BrowserSurface) {

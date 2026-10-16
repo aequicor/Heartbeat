@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.isBrowserRequestAllowed
 import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
+import org.cef.callback.CefCallback
+import org.cef.handler.CefLoadHandler
 import org.cef.handler.CefRequestContextHandlerAdapter
 import org.cef.handler.CefRequestHandlerAdapter
 import org.cef.handler.CefResourceRequestHandler
@@ -36,6 +38,7 @@ internal class DesktopBrowserPolicy(
     unavailable: () -> Unit,
     private val guard: DesktopBrowserAgentGuard,
     private val areLinksOpenedInTabs: Boolean = false,
+    private val certificateExceptions: DesktopCertificateExceptions = DesktopCertificateExceptions(),
 ) {
     private val log = Log.tag("DesktopBrowserPolicy")
     private val linkedNavigation = AtomicReference<BrowserViewCommand.Load?>(null)
@@ -137,7 +140,21 @@ internal class DesktopBrowserPolicy(
             }
         }
 
-        // Default getAuthCredentials and onCertificateError reject without bypassing TLS verification.
+        override fun onCertificateError(
+            browser: CefBrowser,
+            certError: CefLoadHandler.ErrorCode,
+            requestUrl: String,
+            callback: CefCallback?,
+        ): Boolean {
+            if (guard.isRestricted || isReleased()) {
+                // Cancel instead of default Chrome handling: an agent must not click the native bypass link.
+                callback?.cancel()
+                return callback != null
+            }
+            return false
+        }
+
+        // Default authentication handling rejects; user certificate decisions belong to Chrome's interstitial.
     }
 
     /** Only clicked main-frame GET links fork a tab; forms, history and redirects keep their document. */
@@ -204,6 +221,8 @@ internal class DesktopBrowserPolicy(
 
     fun allows(url: String?, kind: BrowserRequestKind): Boolean {
         if (isReleased() || !isBrowserRequestAllowed(url.orEmpty(), kind, isOwnBlank = isBootstrap())) return false
+        // Chromium caches accepted certificates across this profile. Never lend that trust to an agent tab.
+        if (guard.isRestricted && certificateExceptions.contains(url.orEmpty())) return false
         return guard.allows(url.orEmpty(), kind)
     }
 }

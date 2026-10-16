@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
+import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
 import kotlinx.coroutines.flow.Flow
@@ -25,6 +27,10 @@ internal data class BrowserViewState(
     val isForwardAvailable: Boolean = false,
     val error: BrowserViewError? = null,
     val isAwaitingResponse: Boolean = false,
+    val failure: BrowserLoadFailure? = null,
+    /** Survives a cancelled navigation until a new main document replaces the native certificate warning. */
+    val isCertificateWarningActive: Boolean = false,
+    val security: BrowserSecurity = BrowserSecurity.Unknown,
 )
 
 internal enum class BrowserViewError {

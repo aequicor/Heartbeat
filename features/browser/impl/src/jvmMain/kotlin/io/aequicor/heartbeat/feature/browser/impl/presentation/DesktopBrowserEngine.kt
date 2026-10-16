@@ -47,6 +47,7 @@ internal class DesktopBrowserEngine(
     guard: DesktopBrowserAgentGuard,
     openTab: ((BrowserCommand.Load) -> Unit)? = null,
     onShortcut: ((BrowserShortcut) -> Unit)? = null,
+    private val certificateExceptions: DesktopCertificateExceptions = DesktopCertificateExceptions(),
     createContext: (CefRequestContextHandler) -> CefRequestContext,
 ) : DesktopBrowserRuntime {
     private val log = Log.tag("DesktopBrowserEngine")
@@ -69,6 +70,7 @@ internal class DesktopBrowserEngine(
         areLinksOpenedInTabs = openTab != null,
         unavailable = { onSwing { changed(BrowserViewState(error = BrowserViewError.EngineUnavailable)) } },
         guard = guard,
+        certificateExceptions = certificateExceptions,
     )
     private val context = try {
         createContext(policy.contextHandler)
@@ -197,7 +199,8 @@ internal class DesktopBrowserEngine(
                             "profile.default_content_setting_values.geolocation",
                             "profile.default_content_setting_values.notifications",
                         )
-                        val isDenied = preferences.all { context.setPreference(it, CONTENT_SETTING_BLOCK) == null }
+                        val isDenied = preferences.all { context.setPreference(it, CONTENT_SETTING_BLOCK) == null } &&
+                            certificateExceptions.restore(context.getPreference(SSL_CERTIFICATE_DECISIONS))
                         onSwing {
                             // A hidden host can miss SHOWING_CHANGED while its native browser is still being created.
                             if (OS.isMacintosh()) browser.setWindowVisibility(browser.uiComponent.isShowing)
@@ -257,6 +260,7 @@ internal class DesktopBrowserEngine(
                         canGoBack: Boolean,
                         canGoForward: Boolean,
                     ) {
+                        if (!isLoading) certificateExceptions.restore(context.getPreference(SSL_CERTIFICATE_DECISIONS))
                         if (!isBootstrap.get()) {
                             onSwing { navigation?.loading(isLoading, canGoBack, canGoForward) }
                         }
@@ -273,7 +277,7 @@ internal class DesktopBrowserEngine(
                             onSwing {
                                 committedUrl = url
                                 applyZoom()
-                                navigation?.started()
+                                navigation?.started(url)
                             }
                         }
                     }
@@ -295,7 +299,7 @@ internal class DesktopBrowserEngine(
                                 log.w(IllegalStateException("JCEF load error code=$errorCode")) {
                                     "Main document load failed"
                                 }
-                                navigation?.failed()
+                                navigation?.failed(failedUrl, errorCode.name)
                             }
                         }
                     }
@@ -308,7 +312,12 @@ internal class DesktopBrowserEngine(
             }
             installDesktopBrowserRestrictions(client)
             browser = client.createBrowser("about:blank", false, false, context)
-            navigation = DesktopBrowserNavigation(browser, changed, policy::prepareNavigation)
+            navigation = DesktopBrowserNavigation(
+                browser,
+                changed,
+                policy::prepareNavigation,
+                certificateExceptions::security,
+            )
             isCreated = true
         } finally {
             if (!isCreated) {

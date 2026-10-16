@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
+import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
 import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import org.cef.browser.CefBrowser
 
@@ -12,6 +14,7 @@ internal class DesktopBrowserNavigation(
     private val browser: CefBrowser,
     private val changed: (BrowserViewState) -> Unit,
     private val prepareNavigation: (BrowserViewCommand) -> Unit = {},
+    private val security: (String) -> BrowserSecurity = ::browserConnectionSecurity,
 ) {
     private var state = BrowserViewState()
     private var isStopped = false
@@ -43,8 +46,11 @@ internal class DesktopBrowserNavigation(
     }
 
     fun address(url: String) {
-        if (isBrowserUrlAllowed(url)) update(state.copy(url = url))
+        if (isBrowserUrlAllowed(url)) update(state.copy(url = url, security = connectionSecurity(url)))
     }
+
+    private fun connectionSecurity(url: String): BrowserSecurity =
+        if (state.isLoading || state.error != null || state.failure != null) BrowserSecurity.Unknown else security(url)
 
     fun title(title: String) = update(state.copy(title = title))
 
@@ -53,6 +59,17 @@ internal class DesktopBrowserNavigation(
         update(
             state.copy(
                 isLoading = isActive,
+                security = if (isActive) {
+                    BrowserSecurity.Unknown
+                } else if (state.error != null ||
+                    state.failure != null
+                ) {
+                    BrowserSecurity.Unknown
+                } else {
+                    security(
+                        state.url,
+                    )
+                },
                 // A load the page started itself (a link, a redirect) begins here, before any response.
                 isAwaitingResponse = isActive && (state.isAwaitingResponse || !state.isLoading),
                 isBackAvailable = isBackAvailable,
@@ -61,20 +78,56 @@ internal class DesktopBrowserNavigation(
         )
     }
 
-    fun started() {
+    fun started(url: String = state.url) {
+        // Chromium commits its own error document after onLoadError. It must not erase our warning.
+        if (!isBrowserUrlAllowed(url)) return
         isStopped = false
-        update(state.copy(isLoading = true, isAwaitingResponse = false, error = null))
+        update(
+            state.copy(
+                isLoading = true,
+                isAwaitingResponse = false,
+                error = null,
+                failure = null,
+                isCertificateWarningActive = false,
+            ),
+        )
     }
 
-    fun failed() =
-        update(state.copy(isLoading = false, isAwaitingResponse = false, error = BrowserViewError.LoadFailed))
+    fun failed(url: String = state.url, code: String = "ERR_FAILED") {
+        if (url.isNotEmpty() && !isBrowserUrlAllowed(url)) return
+        val isCertificate = code.startsWith("ERR_CERT_") || code == "ERR_SSL_PINNED_KEY_NOT_IN_CERT_CHAIN"
+        update(
+            state.copy(
+                url = url,
+                isLoading = false,
+                isAwaitingResponse = false,
+                error = BrowserViewError.LoadFailed,
+                isCertificateWarningActive = state.isCertificateWarningActive || isCertificate,
+                failure = BrowserLoadFailure(
+                    url,
+                    code,
+                    isCertificate = isCertificate,
+                    id = kotlin.uuid.Uuid.random().toString(),
+                ),
+                security = BrowserSecurity.Unknown,
+            ),
+        )
+    }
 
     fun unsupported() =
         update(state.copy(isLoading = false, isAwaitingResponse = false, error = BrowserViewError.UnsupportedAddress))
 
     private fun begin(action: () -> Unit) {
         isStopped = false
-        update(state.copy(isLoading = true, isAwaitingResponse = true, error = null))
+        update(
+            state.copy(
+                isLoading = true,
+                isAwaitingResponse = true,
+                error = null,
+                failure = null,
+                security = BrowserSecurity.Unknown,
+            ),
+        )
         action()
     }
 

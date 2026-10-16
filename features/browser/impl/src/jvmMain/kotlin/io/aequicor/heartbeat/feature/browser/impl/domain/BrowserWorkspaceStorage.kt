@@ -8,6 +8,8 @@ import kotlinx.serialization.Serializable
 internal data class SavedBrowserWorkspace(
     val tabs: List<SavedBrowserTab> = emptyList(),
     val selectedTabId: String? = null,
+    /** Conservative warning labels only; never grants TLS trust or agent control. */
+    val certificateExceptionUrls: List<String> = emptyList(),
 ) {
     /** Ignore unusable records without navigating to unsupported schemes or creating duplicate identities. */
     fun validated(): SavedBrowserWorkspace {

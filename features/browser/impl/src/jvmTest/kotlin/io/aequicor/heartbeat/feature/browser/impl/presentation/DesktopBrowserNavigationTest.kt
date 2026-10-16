@@ -10,6 +10,17 @@ class DesktopBrowserNavigationTest {
     private val navigation = DesktopBrowserNavigation(browser(), { states += it })
 
     @Test
+    fun `cancelled reload retains native certificate warning until a new document commits`() {
+        navigation.failed("https://example.com/", "ERR_CERT_AUTHORITY_INVALID")
+        navigation.execute(BrowserViewCommand.Reload)
+        navigation.execute(BrowserViewCommand.Stop)
+        assertEquals(null, states.last().failure)
+        assertEquals(true, states.last().isCertificateWarningActive)
+        navigation.started("https://example.com/")
+        assertEquals(false, states.last().isCertificateWarningActive)
+    }
+
+    @Test
     fun `a typed load awaits the response until the main frame starts loading`() {
         navigation.execute(BrowserViewCommand.Load("https://example.com/"))
         assertEquals(true to true, states.last().phase())
@@ -30,6 +41,23 @@ class DesktopBrowserNavigationTest {
         navigation.execute(BrowserViewCommand.Load("https://example.com/"))
         navigation.execute(BrowserViewCommand.Stop)
         assertEquals(false to false, states.last().phase())
+    }
+
+    @Test
+    fun `failed redirect keeps exact URL and error through native error document commit`() {
+        navigation.execute(BrowserViewCommand.Load("https://example.com/start"))
+        navigation.failed("https://example.org/failed", "ERR_CERT_AUTHORITY_INVALID")
+        val failure = states.last().failure
+        navigation.started("chrome-error://chromewebdata/")
+        navigation.address("https://example.org/failed")
+        navigation.loading(false, true, false)
+        assertEquals(io.aequicor.heartbeat.feature.browser.api.BrowserSecurity.Unknown, states.last().security)
+        assertEquals(failure, states.last().failure)
+        assertEquals("https://example.org/failed", states.last().url)
+        navigation.execute(BrowserViewCommand.Reload)
+        assertEquals(null, states.last().failure)
+        navigation.failed("https://example.org/failed", "ERR_CERT_AUTHORITY_INVALID")
+        kotlin.test.assertNotEquals(failure?.id, states.last().failure?.id)
     }
 
     private fun BrowserViewState.phase() = isLoading to isAwaitingResponse
