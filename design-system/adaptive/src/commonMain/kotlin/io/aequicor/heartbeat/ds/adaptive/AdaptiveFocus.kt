@@ -83,7 +83,8 @@ private fun Modifier.onFocusNavigation(onKeyboard: () -> Unit): Modifier = onPre
  * Whether a key event is keyboard work on the focused control. Bare modifier presses and chords with
  * Alt, Ctrl or Meta (window switching, shortcuts) are not: they never move focus inside the window.
  */
-internal fun KeyEvent.isFocusNavigation(): Boolean = !isAltPressed && !isCtrlPressed && !isMetaPressed && key !in ModifierKeys
+internal fun KeyEvent.isFocusNavigation(): Boolean =
+    !isAltPressed && !isCtrlPressed && !isMetaPressed && key !in ModifierKeys
 
 private val ModifierKeys = setOf(
     Key.AltLeft,
