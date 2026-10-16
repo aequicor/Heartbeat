@@ -377,6 +377,10 @@ afterEvaluate {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
             dependsOn(collectDevelopmentAppResources)
             appResourcesDir.set(layout.dir(collectDevelopmentAppResources.map { it.destinationDir }))
+            // Compose marks appResourcesDir @Internal; changed extension files must invalidate packaging.
+            inputs.dir(appResourcesDir)
+                .withPropertyName("developmentAppResources")
+                .withPathSensitivity(PathSensitivity.RELATIVE)
         } else {
             // Stage the ProGuard output separately: development and verified upstream JCEF jars stay intact.
             // Compose still extracts and signs the host's Skiko dylib from the filtered jar on macOS.
