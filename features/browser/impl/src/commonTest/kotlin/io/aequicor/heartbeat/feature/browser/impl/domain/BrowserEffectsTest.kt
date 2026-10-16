@@ -182,6 +182,41 @@ class BrowserEffectsTest {
         runCurrent()
         assertEquals(listOf(true), session.availability)
     }
+
+    @Test
+    fun `zoom toggle reaches the session and the machine only where pages can be zoomed`() = runTest {
+        val toggle = MutableStateFlow(true)
+        val session = TestBrowserSession(isZoomSupported = true)
+        val feedback = RecordingFeedback()
+        val effects = BrowserEffects(BrowserAvailability { MutableStateFlow(true) }, session) { toggle }
+        backgroundScope.launch { effects.handle(BrowserEffect.Observe, feedback) }
+        runCurrent()
+        toggle.value = false
+        runCurrent()
+        assertEquals(listOf(true, false), session.zoomAvailability)
+        assertEquals(
+            listOf(true, false),
+            feedback.sent.filterIsInstance<BrowserIntent.Internal.ZoomAvailabilityChanged>().map { it.isEnabled },
+        )
+
+        val mobile = TestBrowserSession()
+        val mobileFeedback = RecordingFeedback()
+        backgroundScope.launch {
+            BrowserEffects(BrowserAvailability { MutableStateFlow(true) }, mobile) { MutableStateFlow(true) }
+                .handle(BrowserEffect.Observe, mobileFeedback)
+        }
+        runCurrent()
+        assertEquals(listOf(false), mobile.zoomAvailability)
+        assertTrue(BrowserIntent.Internal.ZoomAvailabilityChanged(false) in mobileFeedback.sent)
+    }
+
+    @Test
+    fun `zoom effect sets the level for the tab's site`() = runTest {
+        val session = TestBrowserSession(isZoomSupported = true)
+        BrowserEffects(BrowserAvailability { MutableStateFlow(true) }, session)
+            .handle(BrowserEffect.Zoom("tab", 125), RecordingFeedback())
+        assertEquals(listOf<Pair<String?, Int>>("tab" to 125), session.zooms)
+    }
 }
 
 private val request = BrowserRequest("operation", BrowserOperation.NewTab)
@@ -200,10 +235,21 @@ private class TestBrowserSession(
     private val cancel: suspend () -> Unit = {},
     private val select: suspend () -> Unit = {},
     private val onEnable: () -> BrowserPage = { BrowserPage() },
+    override val isZoomSupported: Boolean = false,
 ) : BrowserSession {
     override val pages = MutableStateFlow(BrowserPage())
     val availability = mutableListOf<Boolean>()
     val commands = mutableListOf<BrowserCommand>()
+    val zoomAvailability = mutableListOf<Boolean>()
+    val zooms = mutableListOf<Pair<String?, Int>>()
+
+    override suspend fun setZoomEnabled(isEnabled: Boolean) {
+        zoomAvailability += isEnabled
+    }
+
+    override suspend fun zoom(tabId: String?, percent: Int) {
+        zooms += tabId to percent
+    }
 
     override suspend fun perform(request: BrowserRequest): BrowserResult = perform()
 

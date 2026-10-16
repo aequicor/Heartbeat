@@ -24,6 +24,16 @@ internal interface BrowserSession {
 
     suspend fun cancelOperation(id: String): Unit = Unit
 
+    /** Whether this session's surfaces can zoom pages; platforms without tabs cannot. */
+    val isZoomSupported: Boolean
+        get() = false
+
+    /** Applies the live page zoom toggle; a disabled zoom shows every page at its default level. */
+    suspend fun setZoomEnabled(isEnabled: Boolean): Unit = Unit
+
+    /** Sets [percent] for the site of tab [tabId] (the selected one when null), on all its tabs and future visits. */
+    suspend fun zoom(tabId: String?, percent: Int): Unit = Unit
+
     val pages: Flow<BrowserPage>
     suspend fun setEnabled(isEnabled: Boolean)
     suspend fun execute(command: BrowserCommand)
@@ -36,6 +46,11 @@ internal sealed interface BrowserCommand {
     data object Forward : BrowserCommand
     data object Reload : BrowserCommand
     data object Stop : BrowserCommand
+}
+
+/** The page zoom toggle, read through a port like availability. */
+internal fun interface BrowserZoomPolicy {
+    fun observe(): Flow<Boolean>
 }
 
 /** Agent control policy is observed for revocation and rechecked after queued operations. */
