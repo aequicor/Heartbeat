@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.uuid.Uuid
 
 /**
  * Executes the machine's effects: reads folders through [ConfigFolderAccess], checks and applies units only through
@@ -115,7 +116,7 @@ internal class ProjectConfigEffects(
         val current = proposal.target?.let { target ->
             section?.encode(target, proposal.unit.name)
         }
-        val change = ConfigReviews.change(proposal, unit, current)
+        val change = ConfigReviews.change(proposal, unit, current, Uuid.random().toHexString())
         val target = selections.observe().first().defaultTarget
         val result = if (section == null || change == null || target == null) {
             ProposalReview.Unavailable
