@@ -17,7 +17,7 @@ import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineActionKindUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineActionUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenIntent
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineManagementIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EnginePanelUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.JobPhaseUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.LoginMethodUi
@@ -56,14 +56,14 @@ internal fun EngineLoginBlock(
     login: LoginUi,
     loginCode: String,
     isIdle: Boolean,
-    onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     HbColumn(modifier.fillMaxWidth().testTag("engine-login"), gap = HbTheme.spacing.s) {
         HbSettingsRow(stringResource(Res.string.engine_login_title), description = loginText(login)) {
             if (EngineActionKindUi.Logout in panel.actions) {
                 ActionButton(stringResource(Res.string.engine_logout), "engine-logout", isIdle) {
-                    onIntent(EngineConnectionsScreenIntent.RequestEngineAction(EngineActionUi.Logout))
+                    onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Logout))
                 }
             }
         }
@@ -75,12 +75,12 @@ internal fun EngineLoginBlock(
                     isIdle,
                     style = HbButtonStyle.Primary,
                 ) {
-                    onIntent(EngineConnectionsScreenIntent.RequestEngineAction(EngineActionUi.Login))
+                    onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Login))
                 }
                 if (LoginMethodUi.DeviceCode in panel.loginMethods) {
                     ActionButton(stringResource(Res.string.engine_login_device), "engine-login-device", isIdle) {
                         onIntent(
-                            EngineConnectionsScreenIntent.RequestEngineAction(
+                            EngineManagementIntent.RequestEngineAction(
                                 EngineActionUi.Login,
                                 LoginMethodUi.DeviceCode,
                             ),
@@ -132,7 +132,7 @@ private fun BrowserPrompt(url: String, userCode: String?, modifier: Modifier = M
 private fun CodePrompt(
     url: String?,
     code: String,
-    onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -141,7 +141,7 @@ private fun CodePrompt(
         HbText(label, style = HbTheme.typography.label)
         HbTextField(
             code,
-            { onIntent(EngineConnectionsScreenIntent.EditLoginCode(it)) },
+            { onIntent(EngineManagementIntent.EditLoginCode(it)) },
             Modifier.fillMaxWidth().testTag("engine-login-code"),
             placeholder = stringResource(Res.string.engine_login_code_placeholder),
             accessibleLabel = label,
@@ -153,7 +153,7 @@ private fun CodePrompt(
                 "engine-login-submit",
                 enabled = code.isNotBlank(),
                 style = HbButtonStyle.Primary,
-            ) { onIntent(EngineConnectionsScreenIntent.SubmitLoginCode) }
+            ) { onIntent(EngineManagementIntent.SubmitLoginCode) }
             if (url != null) {
                 ActionButton(stringResource(Res.string.engine_login_open_page), "engine-login-open", enabled = true) {
                     openProviderPage(uriHandler, url)

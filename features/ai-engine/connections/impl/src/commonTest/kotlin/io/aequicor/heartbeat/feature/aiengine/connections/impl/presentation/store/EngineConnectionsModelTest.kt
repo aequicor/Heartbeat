@@ -106,11 +106,11 @@ class EngineConnectionsModelTest {
         val screen = subscribe(model.store)
         model.store.intent(EngineConnectionsScreenIntent.SelectEngine(CodexId.value))
         val draft = LaunchDraftUi(executable = "/opt/codex/bin/codex")
-        model.store.intent(EngineConnectionsScreenIntent.EditLaunch(draft))
+        model.store.intent(EngineManagementIntent.EditLaunch(draft))
         runCurrent()
         assertEquals(draft, screen.states.value.panel?.launch?.draft)
 
-        model.store.intent(EngineConnectionsScreenIntent.SaveLaunch)
+        model.store.intent(EngineManagementIntent.SaveLaunch)
         runCurrent()
 
         val configure = EngineCommand.Configure(LaunchSettings(executable = "/opt/codex/bin/codex"))
@@ -127,13 +127,13 @@ class EngineConnectionsModelTest {
         val model = model()
         val screen = subscribe(model.store)
         model.store.intent(EngineConnectionsScreenIntent.SelectEngine(CodexId.value))
-        model.store.intent(EngineConnectionsScreenIntent.RequestEngineAction(EngineActionUi.Uninstall))
+        model.store.intent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Uninstall))
         runCurrent()
         assertEquals(EngineActionUi.Uninstall, screen.states.value.confirmAction)
         assertTrue(machine.sent.none { it is EngineConnectionsIntent.Public.Apply })
 
-        model.store.intent(EngineConnectionsScreenIntent.ConfirmEngineAction)
-        model.store.intent(EngineConnectionsScreenIntent.RequestEngineAction(EngineActionUi.Logout))
+        model.store.intent(EngineManagementIntent.ConfirmEngineAction)
+        model.store.intent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Logout))
         model.store.intent(EngineConnectionsScreenIntent.SelectEngine(KoogId.value))
         runCurrent()
 

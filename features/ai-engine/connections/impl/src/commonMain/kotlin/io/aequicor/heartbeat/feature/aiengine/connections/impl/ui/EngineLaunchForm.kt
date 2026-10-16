@@ -17,7 +17,7 @@ import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenIntent
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineManagementIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.KeyValueUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.LaunchDraftUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.LaunchOptionUi
@@ -74,7 +74,7 @@ import org.jetbrains.compose.resources.stringResource
 internal fun EngineLaunchForm(
     launch: LaunchUi,
     isIdle: Boolean,
-    onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val draft = launch.draft
@@ -89,7 +89,7 @@ internal fun EngineLaunchForm(
         HbSettingsRow(stringResource(Res.string.engine_launch_title), description = summary) {
             if (!launch.isEditing) {
                 ActionButton(stringResource(Res.string.engine_launch_edit), "engine-launch-edit", isIdle) {
-                    onIntent(EngineConnectionsScreenIntent.EditLaunch(draft))
+                    onIntent(EngineManagementIntent.EditLaunch(draft))
                 }
             }
         }
@@ -105,11 +105,11 @@ internal fun EngineLaunchForm(
 private fun LaunchEditor(
     launch: LaunchUi,
     isIdle: Boolean,
-    onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val draft = launch.draft
-    val edit: (LaunchDraftUi) -> Unit = { onIntent(EngineConnectionsScreenIntent.EditLaunch(it)) }
+    val edit: (LaunchDraftUi) -> Unit = { onIntent(EngineManagementIntent.EditLaunch(it)) }
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
         LaunchPaths(launch, edit)
         if (LaunchOptionUi.ConfigOverrides in launch.options) {
@@ -140,12 +140,12 @@ private fun LaunchEditor(
                 "engine-launch-save",
                 enabled = isIdle && launch.errors.isEmpty() && launch.isDirty,
                 style = HbButtonStyle.Primary,
-            ) { onIntent(EngineConnectionsScreenIntent.SaveLaunch) }
+            ) { onIntent(EngineManagementIntent.SaveLaunch) }
             ActionButton(stringResource(Res.string.engine_launch_discard), "engine-launch-discard", enabled = true) {
-                onIntent(EngineConnectionsScreenIntent.DiscardLaunch)
+                onIntent(EngineManagementIntent.DiscardLaunch)
             }
             ActionButton(stringResource(Res.string.engine_launch_reset), "engine-launch-reset", enabled = true) {
-                onIntent(EngineConnectionsScreenIntent.ResetLaunch)
+                onIntent(EngineManagementIntent.ResetLaunch)
             }
         }
     }

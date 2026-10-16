@@ -95,7 +95,7 @@ class EngineManagementPresentationTest {
             ),
         )
         val screen = EngineConnectionsScreenState(selectedEngine = CodexId.value, loginCode = "secret")
-            .reflect(EngineConnectionsState.Active(awaiting))
+            .observe(awaiting)
         assertEquals("secret", screen.loginCode)
         val completed = managedSnapshot(
             managedCodex(
@@ -106,7 +106,7 @@ class EngineManagementPresentationTest {
                 ),
             ),
         )
-        assertEquals("", screen.reflect(EngineConnectionsState.Active(completed)).loginCode)
+        assertEquals("", screen.observe(completed).loginCode)
         assertEquals("", screen.reflect(EngineConnectionsState.Active()).loginCode)
         assertEquals("", screen.reflect(EngineConnectionsState.Idle).loginCode)
         listOf(
@@ -115,7 +115,7 @@ class EngineManagementPresentationTest {
             JobPhaseUi.AwaitingBrowser("secret", "secret"),
             JobPhaseUi.AwaitingCode("secret"),
             KeyValueUi("key", "secret"),
-            EngineConnectionsScreenIntent.EditLoginCode("secret"),
+            EngineManagementIntent.EditLoginCode("secret"),
         ).forEach {
             assertFalse("secret" in it.toString())
         }
@@ -194,20 +194,19 @@ class EngineManagementPresentationTest {
     @Test
     fun `a launch draft is checked against the engine's launch settings before saving`() {
         val secret = LaunchDraftUi(environment = persistentListOf(KeyValueUi("OPENAI_API_KEY", "sk")))
-        val rejected = selected(managedCodex()).copy(launchDraft = secret)
-            .reflect(EngineConnectionsState.Active(managedSnapshot()))
+        val rejected = selected(managedCodex()).copy(launchDraft = secret).observe()
         val launch = rejected.panel!!.launch!!
         assertEquals(
             listOf(LaunchProblemUi(LaunchOptionUi.Environment, LaunchProblemReasonUi.Secret, 0)),
             launch.errors,
         )
-        assertNull(rejected.commandFor(EngineConnectionsScreenIntent.SaveLaunch))
+        assertNull(rejected.commandFor(EngineManagementIntent.SaveLaunch))
 
         val proxy = LaunchDraftUi(
             homeDirectory = " /Users/me/.codex-work ",
             environment = persistentListOf(KeyValueUi("HTTPS_PROXY", "http://p"), KeyValueUi()),
         )
-        val valid = rejected.copy(launchDraft = proxy).reflect(EngineConnectionsState.Active(managedSnapshot()))
+        val valid = rejected.copy(launchDraft = proxy).observe()
         assertEquals(
             EngineCommand.Configure(
                 LaunchSettings(
@@ -215,7 +214,7 @@ class EngineManagementPresentationTest {
                     environment = listOf(EnvironmentEntry("HTTPS_PROXY", "http://p")),
                 ),
             ),
-            valid.commandFor(EngineConnectionsScreenIntent.SaveLaunch),
+            valid.commandFor(EngineManagementIntent.SaveLaunch),
         )
         val saved = selected(managedCodex().copy(launch = LaunchState(proxy.toSettings())))
         assertFalse(saved.panel!!.launch!!.isDirty)
@@ -228,21 +227,21 @@ class EngineManagementPresentationTest {
         assertEquals(
             EngineCommand.Start(EngineAction.Login(LoginMethod.DeviceCode)),
             panel.commandFor(
-                EngineConnectionsScreenIntent.RequestEngineAction(EngineActionUi.Login, LoginMethodUi.DeviceCode),
+                EngineManagementIntent.RequestEngineAction(EngineActionUi.Login, LoginMethodUi.DeviceCode),
             ),
         )
         assertEquals(
             EngineCommand.AnswerLogin(LoginCode("abc")),
-            panel.copy(loginCode = " abc ").commandFor(EngineConnectionsScreenIntent.SubmitLoginCode),
+            panel.copy(loginCode = " abc ").commandFor(EngineManagementIntent.SubmitLoginCode),
         )
-        assertNull(panel.commandFor(EngineConnectionsScreenIntent.SubmitLoginCode))
+        assertNull(panel.commandFor(EngineManagementIntent.SubmitLoginCode))
         assertEquals(
             EngineCommand.Start(EngineAction.Uninstall),
             panel.copy(
                 confirmAction = EngineActionUi.Uninstall,
-            ).commandFor(EngineConnectionsScreenIntent.ConfirmEngineAction),
+            ).commandFor(EngineManagementIntent.ConfirmEngineAction),
         )
-        assertNull(EngineConnectionsScreenState().commandFor(EngineConnectionsScreenIntent.InspectEngine))
+        assertNull(EngineConnectionsScreenState().commandFor(EngineManagementIntent.InspectEngine))
         assertTrue(panel.needsConfirmation(EngineActionUi.Uninstall))
         assertTrue(panel.needsConfirmation(EngineActionUi.Logout))
         assertFalse(panel.needsConfirmation(EngineActionUi.Update))
@@ -265,6 +264,8 @@ class EngineManagementPresentationTest {
     }
 
     private fun selected(codex: ManagedEngine): EngineConnectionsScreenState =
-        EngineConnectionsScreenState(selectedEngine = CodexId.value)
-            .reflect(EngineConnectionsState.Active(managedSnapshot(codex)))
+        EngineConnectionsScreenState(selectedEngine = CodexId.value).observe(managedSnapshot(codex))
+
+    private fun EngineConnectionsScreenState.observe(snapshot: ConnectionsSnapshot = managedSnapshot()) =
+        reflect(EngineConnectionsState.Active(snapshot))
 }
