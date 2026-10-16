@@ -14,11 +14,13 @@ kotlin {
             implementation(projects.core.di.api)
             implementation(projects.core.datastore.api)
             implementation(projects.core.featureToggles.api)
+            implementation(projects.core.network.api)
             implementation(libs.kotlinx.serialization.core)
             implementation(libs.kotlinx.serialization.json)
         }
         commonTest.dependencies {
             implementation(projects.core.featureToggles.api)
+            implementation(libs.ktor.client.mock)
         }
     }
 }
