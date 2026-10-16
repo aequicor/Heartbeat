@@ -22,7 +22,8 @@ internal val HARNESS_AUTHORING_SPECS = listOf(
     AgentToolSpec(
         HarnessTools.CREATE,
         "Create a reusable harness: a named environment of skills, instructions, templates, scripts, workflows and " +
-            "tool policy for a task or project. Changes require automatic safety review.",
+            "tool policy for a task or project. Saved in the current project (worktrees use their source project), " +
+            "or the shared library without a project. Changes require automatic safety review.",
         schema(required = listOf("name", "title")) {
             text("name", "Immutable slug [a-z][a-z0-9_]{1,19}, e.g. compose_ui")
             text("title", "Short single-line title")

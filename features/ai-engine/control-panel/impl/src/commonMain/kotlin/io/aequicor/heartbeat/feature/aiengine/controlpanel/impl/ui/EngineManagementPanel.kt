@@ -77,8 +77,10 @@ internal fun EngineManagementSection(
     isSaving: Boolean,
     onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isSavingVisible: Boolean = isSaving,
 ) {
     val isIdle = !isSaving && panel.job?.isRunning != true
+    val isVisuallyIdle = !isSavingVisible && panel.job?.isRunning != true
     HbSettingsSection(
         stringResource(Res.string.engine_section),
         modifier.testTag("engine-panel"),
@@ -90,30 +92,40 @@ internal fun EngineManagementSection(
                 Modifier.testTag("engine-inspect"),
                 HbButtonStyle.Ghost,
                 enabled = isIdle && EngineActionKindUi.Inspect in panel.actions,
+                visualEnabled = isVisuallyIdle && EngineActionKindUi.Inspect in panel.actions,
                 size = HbButtonSize.Small,
             )
         },
     ) {
-        EngineSwitchRow(panel, isIdle, onIntent)
+        EngineSwitchRow(panel, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         HbDivider()
-        InstallationBlock(panel, isIdle, onIntent)
+        InstallationBlock(panel, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         panel.login?.let { login ->
             HbDivider()
-            EngineLoginBlock(panel, login, loginCode, isIdle, onIntent)
+            EngineLoginBlock(
+                panel,
+                login,
+                loginCode,
+                isIdle,
+                onIntent,
+                isVisuallyIdle = isVisuallyIdle,
+                isSaving = isSaving,
+                isSavingVisible = isSavingVisible,
+            )
         }
         panel.job?.let { job ->
             HbDivider()
-            JobBlock(job, isSaving, onIntent)
+            JobBlock(job, isSaving, onIntent, isSavingVisible = isSavingVisible)
         }
         if (EngineActionKindUi.Packages in panel.actions) {
             HbDivider()
-            PackagesRow(isIdle, onIntent)
+            PackagesRow(isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         }
         HbDivider()
-        RuntimeRow(panel, isIdle, onIntent)
+        RuntimeRow(panel, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         panel.launch?.let { launch ->
             HbDivider()
-            EngineLaunchForm(launch, isIdle, onIntent)
+            EngineLaunchForm(launch, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         }
     }
 }
@@ -124,6 +136,7 @@ private fun EngineSwitchRow(
     isIdle: Boolean,
     onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isVisuallyIdle: Boolean = isIdle,
 ) {
     val title = stringResource(Res.string.engine_enabled)
     val reasons = panel.reasons.map { reasonText(it) }
@@ -138,6 +151,7 @@ private fun EngineSwitchRow(
             title,
             Modifier.testTag("engine-enabled"),
             enabled = isIdle && panel.isSwitchable,
+            visualEnabled = isVisuallyIdle && panel.isSwitchable,
         )
     }
 }
@@ -148,6 +162,7 @@ private fun InstallationBlock(
     isIdle: Boolean,
     onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isVisuallyIdle: Boolean = isIdle,
 ) {
     val installation = panel.installation
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
@@ -172,7 +187,7 @@ private fun InstallationBlock(
             )
         }
         if (installation.support != InstallSupportUi.BuiltIn) {
-            InstallationActions(panel, isIdle, onIntent)
+            InstallationActions(panel, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         }
     }
 }
@@ -201,6 +216,7 @@ private fun InstallationActions(
     isIdle: Boolean,
     onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isVisuallyIdle: Boolean = isIdle,
 ) {
     val actions = panel.actions
     val isBundled = panel.installation.support == InstallSupportUi.Bundled
@@ -210,6 +226,7 @@ private fun InstallationActions(
                 stringResource(Res.string.engine_install),
                 "engine-install",
                 isIdle,
+                visualEnabled = isVisuallyIdle,
                 style = HbButtonStyle.Primary,
             ) {
                 onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Install))
@@ -220,6 +237,7 @@ private fun InstallationActions(
                 stringResource(Res.string.engine_update),
                 "engine-update",
                 isIdle,
+                visualEnabled = isVisuallyIdle,
                 style = HbButtonStyle.Primary,
             ) {
                 onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Update))
@@ -229,12 +247,14 @@ private fun InstallationActions(
             stringResource(Res.string.engine_check_updates),
             "engine-check-updates",
             isIdle && EngineActionKindUi.CheckForUpdates in actions,
+            visualEnabled = isVisuallyIdle && EngineActionKindUi.CheckForUpdates in actions,
         ) { onIntent(EngineManagementIntent.CheckUpdates) }
         if (EngineActionKindUi.Uninstall in actions) {
             ActionButton(
                 stringResource(if (isBundled) Res.string.engine_revert else Res.string.engine_uninstall),
                 "engine-uninstall",
                 isIdle,
+                visualEnabled = isVisuallyIdle,
             ) { onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Uninstall)) }
         }
     }
@@ -246,6 +266,7 @@ private fun JobBlock(
     isSaving: Boolean,
     onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isSavingVisible: Boolean = isSaving,
 ) {
     val phase = job.phase
     HbColumn(modifier.fillMaxWidth().padding(HbTheme.spacing.m).testTag("engine-job"), gap = HbTheme.spacing.s) {
@@ -255,11 +276,21 @@ private fun JobBlock(
         }
         if (phase is JobPhaseUi.Failed) JobFailure(phase.failure)
         if (job.isRunning) {
-            ActionButton(stringResource(Res.string.control_cancel), "engine-job-cancel", !isSaving) {
+            ActionButton(
+                stringResource(Res.string.control_cancel),
+                "engine-job-cancel",
+                !isSaving,
+                visualEnabled = !isSavingVisible,
+            ) {
                 onIntent(EngineManagementIntent.CancelEngineJob)
             }
         } else {
-            ActionButton(stringResource(Res.string.control_dismiss), "engine-job-dismiss", !isSaving) {
+            ActionButton(
+                stringResource(Res.string.control_dismiss),
+                "engine-job-dismiss",
+                !isSaving,
+                visualEnabled = !isSavingVisible,
+            ) {
                 onIntent(EngineManagementIntent.DismissEngineJob)
             }
         }
@@ -292,16 +323,31 @@ private fun JobFailure(failure: ManagementFailureUi, modifier: Modifier = Modifi
 
 /** Installs the packages the configuration lists, or updates the installed ones, as a job of the engine. */
 @Composable
-private fun PackagesRow(isIdle: Boolean, onIntent: (EngineManagementIntent) -> Unit, modifier: Modifier = Modifier) {
+private fun PackagesRow(
+    isIdle: Boolean,
+    onIntent: (EngineManagementIntent) -> Unit,
+    modifier: Modifier = Modifier,
+    isVisuallyIdle: Boolean = isIdle,
+) {
     HbSettingsRow(
         stringResource(Res.string.engine_packages),
         modifier.testTag("engine-packages"),
         description = stringResource(Res.string.engine_packages_description),
     ) {
-        ActionButton(stringResource(Res.string.engine_packages_update), "engine-packages-update", isIdle) {
+        ActionButton(
+            stringResource(Res.string.engine_packages_update),
+            "engine-packages-update",
+            isIdle,
+            visualEnabled = isVisuallyIdle,
+        ) {
             onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.UpdatePackages))
         }
-        ActionButton(stringResource(Res.string.engine_packages_sync), "engine-packages-sync", isIdle) {
+        ActionButton(
+            stringResource(Res.string.engine_packages_sync),
+            "engine-packages-sync",
+            isIdle,
+            visualEnabled = isVisuallyIdle,
+        ) {
             onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.SyncPackages))
         }
     }
@@ -313,6 +359,7 @@ private fun RuntimeRow(
     isIdle: Boolean,
     onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isVisuallyIdle: Boolean = isIdle,
 ) {
     val runtime = panel.runtime
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
@@ -323,6 +370,7 @@ private fun RuntimeRow(
                 Modifier.testTag("engine-restart"),
                 HbButtonStyle.Ghost,
                 enabled = isIdle && EngineActionKindUi.Restart in panel.actions,
+                visualEnabled = isVisuallyIdle && EngineActionKindUi.Restart in panel.actions,
                 size = HbButtonSize.Small,
             )
         }
@@ -374,7 +422,16 @@ internal fun ActionButton(
     enabled: Boolean,
     modifier: Modifier = Modifier,
     style: HbButtonStyle = HbButtonStyle.Secondary,
+    visualEnabled: Boolean = enabled,
     onClick: () -> Unit,
 ) {
-    HbButton(label, onClick, modifier.testTag(tag), style, enabled = enabled, size = HbButtonSize.Small)
+    HbButton(
+        label,
+        onClick,
+        modifier.testTag(tag),
+        style,
+        enabled = enabled,
+        size = HbButtonSize.Small,
+        visualEnabled = visualEnabled,
+    )
 }

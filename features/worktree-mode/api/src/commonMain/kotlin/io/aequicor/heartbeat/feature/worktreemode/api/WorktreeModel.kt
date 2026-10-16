@@ -16,6 +16,28 @@ public val WorktreeModeEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     default = false,
 )
 
+/**
+ * New isolated tasks become source-only sandboxes: their builds never run in the task checkout but in a shared pool
+ * of warm build slots of the repository, from an immutable snapshot of the task's files. Existing tasks keep the
+ * isolation they were created with.
+ */
+public val WorktreeSandboxEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "worktree_mode.sandbox",
+    "Песочницы: задачи без сборочных выходов, сборки в общих слотах проекта",
+    default = false,
+)
+
+/**
+ * Weighs every coordinated build against the machine's CPU and memory budget (or the user limit in the "Builds"
+ * settings section) and shares it fairly between projects. Off keeps the previous admission: builds wait only for
+ * their exclusive resources.
+ */
+public val WorktreeBuildQueueEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "worktree_mode.build_queue",
+    "Очередь сборок по ёмкости машины: веса типов сборок, лимит и справедливость между проектами",
+    default = false,
+)
+
 /** Lifecycle of one chat's checkout; native turn completion alone never completes a task. */
 @Serializable
 public enum class WorktreePhase {
@@ -63,6 +85,28 @@ public data class WorktreeActionRequest(val operation: String, val kind: Worktre
 @Serializable
 public data class WorktreeExpectedAction(val operation: String, val kind: WorktreeRunKind)
 
+/**
+ * Declared load class of a build command. The application build queue weighs concurrent builds by kind against the
+ * machine's CPU and memory budget; an undeclared command is treated as [Compile].
+ */
+@Serializable
+public enum class WorktreeBuildKind {
+    /** Static analysis, formatting and other light single-pass checks. */
+    Check,
+
+    /** Compilation of one or more modules. */
+    Compile,
+
+    /** Compilation followed by test execution. */
+    Test,
+
+    /** Packaging of application artifacts. */
+    Assemble,
+
+    /** Native toolchains (Kotlin/Native, Xcode, linkers) with the highest CPU and memory demand. */
+    Native,
+}
+
 /** An argv command runs in a directory relative to the isolated checkout, without an implicit shell. */
 @Serializable
 public data class WorktreeBuildCommand(
@@ -72,11 +116,20 @@ public data class WorktreeBuildCommand(
     val directory: String = ".",
     val environment: Map<String, String> = emptyMap(),
     val timeoutMillis: Long = 900_000L,
+    val kind: WorktreeBuildKind = WorktreeBuildKind.Compile,
 )
 
-/** Cache locations are relative to the original project or absolute; commands refer to `{cache:id}`. */
+/**
+ * Cache locations are relative to the original project or absolute; commands refer to `{cache:id}`. A cache is an
+ * exclusive build resource unless [isConcurrent] declares that its tool coordinates concurrent processes itself
+ * (for example `GRADLE_USER_HOME`); only then may builds of different slots share it at the same time.
+ */
 @Serializable
-public data class WorktreeBuildCache(val id: String, val directory: String)
+public data class WorktreeBuildCache(
+    val id: String,
+    val directory: String,
+    @SerialName("concurrent") val isConcurrent: Boolean = false,
+)
 
 /** Agent-discovered build configuration; approval belongs to this exact revision of the declaration. */
 @Serializable
@@ -104,7 +157,10 @@ public data class WorktreeBuildOperation(
     val configurationRevision: Long = 0,
 )
 
-/** Path-free, durable task projection; the execution workspace is an opaque adapter reference. */
+/**
+ * Path-free, durable task projection; the execution workspace is an opaque adapter reference. A sandbox task
+ * ([isSandbox]) keeps only sources in its checkout: hosted builds run in shared build slots of the repository.
+ */
 @Serializable
 public data class WorktreeTask(
     val chatId: String,
@@ -126,4 +182,5 @@ public data class WorktreeTask(
     val buildConfigurationRevision: Long = 0,
     val verifiedPullRequestUrl: String? = null,
     val expectedAction: WorktreeExpectedAction? = null,
+    @SerialName("sandbox") val isSandbox: Boolean = false,
 )

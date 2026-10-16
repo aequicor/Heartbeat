@@ -19,6 +19,14 @@ public enum class SettingsSection {
     @SerialName("engines")
     Engines,
 
+    /** Confirmation policy for ordinary agent turns in the studio. */
+    @SerialName("security")
+    Security,
+
+    /** Adaptive subagents: selection preferences, service models, connection billing and model descriptions. */
+    @SerialName("subagents")
+    Subagents,
+
     /** Search providers of the profile. */
     @SerialName("search")
     Search,
@@ -39,6 +47,10 @@ public enum class SettingsSection {
     @SerialName("context")
     Context,
 
+    /** The machine-wide build queue (Desktop): automatic or user limit of parallel agent builds. */
+    @SerialName("builds")
+    Builds,
+
     /** Harnesses the agent built: their approval level, scope, items, tools and workflow runs. */
     @SerialName("harness")
     Harness,
@@ -46,6 +58,14 @@ public enum class SettingsSection {
     /** Interfaces the agent built for harnesses: their switches, specs and previews. */
     @SerialName("interfaces")
     Interfaces,
+
+    /** Project `.heartbeat` folders, changes waiting for trust and `.hbai` transfer. */
+    @SerialName("project_config")
+    ProjectConfig,
+
+    /** Desktop application diagnostics: recent logs, archive and the logs directory. */
+    @SerialName("logs")
+    Logs,
 
     /** Device-local feature flags. */
     @SerialName("feature_flags")
@@ -86,13 +106,18 @@ public val SettingsSection.deepLinkName: String
     get() = when (this) {
         SettingsSection.Models -> "models"
         SettingsSection.Engines -> "engines"
+        SettingsSection.Security -> "security"
+        SettingsSection.Subagents -> "subagents"
         SettingsSection.Search -> "search"
         SettingsSection.ComputerUse -> "computer_use"
         SettingsSection.ChromiumBrowser -> "chromium_browser"
         SettingsSection.AgentLearning -> "agent_learning"
         SettingsSection.Context -> "context"
+        SettingsSection.Builds -> "builds"
         SettingsSection.Harness -> "harness"
         SettingsSection.Interfaces -> "interfaces"
+        SettingsSection.ProjectConfig -> "project_config"
+        SettingsSection.Logs -> "logs"
         SettingsSection.FeatureFlags -> "feature_flags"
     }
 

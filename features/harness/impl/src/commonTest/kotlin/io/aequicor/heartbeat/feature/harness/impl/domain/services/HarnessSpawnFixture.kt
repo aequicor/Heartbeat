@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
+import io.aequicor.heartbeat.feature.harness.api.workflow.AdaptiveAgent
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
@@ -15,18 +16,19 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadata
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import kotlinx.coroutines.CoroutineScope
 
-internal class HarnessSpawnFixture(scope: CoroutineScope) {
+internal class HarnessSpawnFixture(scope: CoroutineScope, models: HarnessHelperModels = HarnessHelperModels.Inherit) {
     val trace = mutableListOf<String>()
     val journal = SpawnTestJournal(trace)
     val helpers = SpawnTestHelpers(trace)
     val bindings = SpawnTestBindings(trace)
-    val operations = HarnessSpawnOperations(scope, journal, lazyOf(helpers), bindings)
+    val operations = HarnessSpawnOperations(scope, journal, lazyOf(helpers), bindings, models)
     val record = HarnessSpawnRecord(
         ActionId("slot"),
         ActionId("spawn"),
@@ -38,12 +40,14 @@ internal class HarnessSpawnFixture(scope: CoroutineScope) {
     )
     var isAdmitted = true
 
-    fun submission(record: HarnessSpawnRecord = this.record): HarnessSpawnSubmission = HarnessSpawnSubmission(
-        record,
-        null,
-        "Private title",
-        HelperPrompt(record.request, "Private prompt"),
-    ) { isAdmitted }
+    fun submission(record: HarnessSpawnRecord = this.record, adaptive: AdaptiveAgent? = null): HarnessSpawnSubmission =
+        HarnessSpawnSubmission(
+            record,
+            null,
+            "Private title",
+            HelperPrompt(record.request, "Private prompt"),
+            adaptive,
+        ) { isAdmitted }
 }
 
 internal class SpawnTestJournal(private val trace: MutableList<String>) : HarnessSpawnJournal {
@@ -101,6 +105,8 @@ internal data class SpawnTestAcquisition(
     val slot: ActionId?,
 )
 
+internal data class SpawnTestCreated(val target: EngineTarget?, val model: HelperModelOptions)
+
 internal class SpawnTestHelpers(private val trace: MutableList<String>) : HelperAgents {
     val acquisitions = mutableListOf<SpawnTestAcquisition>()
     val leases = mutableListOf<SpawnTestLease>()
@@ -115,6 +121,7 @@ internal class SpawnTestHelpers(private val trace: MutableList<String>) : Helper
     var submission: (HelperPrompt) -> HelperSubmission = { HelperSubmission.Accepted(it.request, dispatchSession) }
     var creates = 0
     val workspaces = mutableListOf<WorkspaceRef?>()
+    val created = mutableListOf<SpawnTestCreated>()
     var releases = 0
 
     override suspend fun acquire(
@@ -139,11 +146,13 @@ internal class SpawnTestHelpers(private val trace: MutableList<String>) : Helper
         target: EngineTarget?,
         title: String,
         trustCap: TrustLevel,
+        model: HelperModelOptions,
     ): HelperId {
-        check(trustCap == TrustLevel.Ask && target == null)
+        check(trustCap == TrustLevel.Ask)
         beforeCreate()
         creates++
         workspaces += workspace
+        created += SpawnTestCreated(target, model)
         trace += "create"
         return helper
     }

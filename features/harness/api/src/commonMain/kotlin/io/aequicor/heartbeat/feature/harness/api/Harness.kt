@@ -8,10 +8,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.time.Instant
 
-/** Legacy stored scope, retained for decoding existing harnesses; activation uses explicit chat connections. */
+/** Library availability in project pickers; activation always requires explicit chat connections. */
 @Serializable
 public sealed interface HarnessScope {
-    /** Value of new harnesses; like the legacy values, activation comes only from chat connections and helpers. */
+    /** Shared library entry, used when created without a project; it never activates chats automatically. */
     @Serializable
     @SerialName("attached")
     public data object Attached : HarnessScope
@@ -21,7 +21,7 @@ public sealed interface HarnessScope {
     @SerialName("profile")
     public data object Profile : HarnessScope
 
-    /** Legacy project list: no longer activates chats automatically. */
+    /** Available in the listed source projects, including their worktrees; does not activate chats automatically. */
     @Serializable
     @SerialName("projects")
     public data class Projects(val projects: Set<WorkspaceRef>) : HarnessScope {
@@ -57,7 +57,12 @@ public enum class HarnessApproval {
     AcceptAll,
 }
 
-/** A committed library revision. Attachments are stored separately and do not change [revision]. */
+/**
+ * A committed library revision. Attachments are stored separately and do not change [revision].
+ *
+ * [isDefaultForNewSessions] is the profile preference to preselect this harness in new chats where it is
+ * available. The host still attaches it explicitly; changing the preference never changes existing connections.
+ */
 @Serializable
 public data class Harness(
     val id: HarnessId,
@@ -72,6 +77,7 @@ public data class Harness(
     val revision: Long,
     val createdAt: Instant,
     val updatedAt: Instant,
+    val isDefaultForNewSessions: Boolean = false,
 ) {
     init {
         require(revision >= 0)

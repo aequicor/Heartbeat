@@ -22,7 +22,7 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Decides whether a project may load what it configures for an engine, or only its instructions. */
     @Serializable
     @SerialName("AiStudioScreenIntent.DecideProjectTrust")
-    data class DecideProjectTrust(val projectId: String, val engine: String, val isTrusted: Boolean) : Composer
+    data class DecideProjectTrust(val projectId: String, val engine: String, val isTrusted: Boolean) : Answer
 
     /** Requests a native app update after the UI confirms active agents. */
     @Serializable
@@ -52,7 +52,12 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Explicit reply to an engine permission request. */
     @Serializable
     @SerialName("AiStudioScreenIntent.RespondPermission")
-    data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) : Composer
+    data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) : Answer
+
+    /** An answer to a request the chat panel shows: an engine permission or the trust of a project. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.Answer")
+    sealed interface Answer : Composer
 
     /** Composer input, runs and model preferences. */
     @Serializable
@@ -63,6 +68,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @Serializable
     @SerialName("AiStudioScreenIntent.SelectHarness")
     data class SelectHarness(val paneId: Int, val harness: String, val isSelected: Boolean) : AiStudioScreenIntent
+
+    /** Retries unavailable harness defaults before the first message creates a native session. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.ReloadHarnesses")
+    data object ReloadHarnesses : Composer
 
     /** Organic AI chats: the mode of a new chat, the shown sub-session, control and the user's decisions. */
     @Serializable

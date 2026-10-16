@@ -24,10 +24,13 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
 
     is AiStudioScreenIntent.Attachment -> isAllowedAttachment(intent)
 
+    is AiStudioScreenIntent.Suggestions -> isAllowedSuggestion(intent)
+
     is AiStudioScreenIntent.QuestionInput,
     is AiStudioScreenIntent.ChecklistInput,
     is AiStudioScreenIntent.RespondPermission,
     is AiStudioScreenIntent.SelectHarness,
+    AiStudioScreenIntent.ReloadHarnesses,
     is AiStudioScreenIntent.DismissNotice, is AiStudioScreenIntent.DecideProjectTrust,
     is AiStudioScreenIntent.SelectSubSession,
     is AiStudioScreenIntent.DecideOrganism,
@@ -37,12 +40,6 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.OpenSession,
     is AiStudioScreenIntent.ClosePane,
     is AiStudioScreenIntent.FocusPane,
-    is AiStudioScreenIntent.Suggestions.DraftChanged,
-    is AiStudioScreenIntent.Suggestions.CaretMoved,
-    is AiStudioScreenIntent.Suggestions.CaretRequestApplied,
-    is AiStudioScreenIntent.Suggestions.MoveSuggestion,
-    is AiStudioScreenIntent.Suggestions.AcceptSuggestion,
-    is AiStudioScreenIntent.Suggestions.DismissSuggestions,
     is AiStudioScreenIntent.SelectWorktree,
     is AiStudioScreenIntent.DecideWorktree,
     is AiStudioScreenIntent.RecheckWorktree,
@@ -71,6 +68,17 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.ToggleRecentSection, is AiStudioScreenIntent.ToggleNoProjectSection,
     is AiStudioScreenIntent.ToggleSidebar,
     is AiStudioScreenIntent.SetDrawerOpen,
+    -> true
+}
+
+/** Remote input may edit the draft and navigate its suggestions; new suggestion actions stay explicit. */
+private fun isAllowedSuggestion(intent: AiStudioScreenIntent.Suggestions): Boolean = when (intent) {
+    is AiStudioScreenIntent.Suggestions.DraftChanged,
+    is AiStudioScreenIntent.Suggestions.CaretMoved,
+    is AiStudioScreenIntent.Suggestions.CaretRequestApplied,
+    is AiStudioScreenIntent.Suggestions.MoveSuggestion,
+    is AiStudioScreenIntent.Suggestions.AcceptSuggestion,
+    is AiStudioScreenIntent.Suggestions.DismissSuggestions,
     -> true
 }
 

@@ -6,6 +6,9 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.removeSlot
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.tryLockResource
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.validateSlotOwnership
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -157,20 +160,139 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             arguments = foregroundArguments(selected.executable, selected.arguments.map(::substitute)),
             environment = selected.environment.mapValues { substitute(it.value) },
         )
-        val resources = listOf(record.commonDirectory) + caches.values + plan.exclusiveResources.map {
+        // Concurrent caches coordinate their own processes and must not serialize otherwise independent builds.
+        val exclusiveCaches = plan.caches.filterNot { it.isConcurrent }.map { checkNotNull(caches[it.id]) }
+        // A sandbox builds in its own slot, so only the original-checkout tasks serialize on the repository.
+        val repository = if (record.task.isSandbox) emptyList() else listOf(record.commonDirectory)
+        val resources = repository + exclusiveCaches + plan.exclusiveResources.map {
             canonicalResource(record, it).toString()
         }
-        val job = Path.of(record.commonDirectory).resolve("heartbeat-worktree-data").resolve("jobs").resolve(id)
+        val data = Path.of(record.commonDirectory).resolve("heartbeat-worktree-data")
+        val job = data.resolve("jobs").resolve(id)
+        val directory = checkoutDirectory(record, selected.directory)
+        val sandbox = if (record.task.isSandbox) {
+            SandboxBuild(
+                snapshot = "",
+                pool = data.resolve(SLOT_POOL).toString(),
+                // The original checkout outlives the task, so slots stay creatable after the sandbox is removed.
+                repository = record.sourceDirectory,
+                relativeDirectory = Path.of(record.directory).toRealPath().relativize(directory).toString()
+                    .ifEmpty { "." },
+                affinity = record.provisioning,
+            )
+        } else {
+            null
+        }
         BuildExecution(
             id,
             resolved,
-            checkoutDirectory(record, selected.directory).toString(),
+            directory.toString(),
             resources.distinct().sorted(),
             job.toString(),
             parentProcess = ProcessHandle.current().pid(),
             parentStartedAt = ProcessHandle.current().info().startInstant().orElse(null)?.toString(),
             configurationRevision = record.task.buildConfigurationRevision,
+            project = projectKey(record),
+            sandbox = sandbox,
         )
+    }
+
+    override suspend fun reclaim(record: WorktreeRecord) = withContext(dispatchers.io) {
+        check(record.task.isSandbox && exists(record)) { "SandboxUnavailable" }
+        git(record.directory, "clean", "-d", "-X", "--force", "--quiet")
+        Unit
+    }
+
+    override suspend fun discardSnapshot(record: WorktreeRecord, id: String) = withContext(dispatchers.io) {
+        require(id.matches(IDENTIFIER)) { "InvalidBuildIdentity" }
+        gitOptional(record.sourceDirectory, "update-ref", "-d", "$SNAPSHOT_REFS$id")
+        Unit
+    }
+
+    override suspend fun pruneSnapshots(record: WorktreeRecord, active: Set<String>) = withContext(dispatchers.io) {
+        val listing = gitOptional(
+            record.sourceDirectory,
+            "for-each-ref",
+            "--format=%(refname) %(committerdate:unix)",
+            SNAPSHOT_REFS,
+        ) ?: return@withContext
+        val cutoff = System.currentTimeMillis() / MILLIS_PER_SECOND - SNAPSHOT_GRACE_SECONDS
+        val stale = listing.lineSequence().mapNotNull { line ->
+            val (ref, time) = line.split(' ').takeIf { it.size == 2 } ?: return@mapNotNull null
+            val id = ref.removePrefix(SNAPSHOT_REFS)
+            ref.takeIf { id.matches(IDENTIFIER) && id !in active && (time.toLongOrNull() ?: 0) < cutoff }
+        }.toList()
+        stale.forEach { gitOptional(record.sourceDirectory, "update-ref", "-d", it) }
+        if (stale.isNotEmpty()) log.i { "Pruned stale sandbox snapshots count=${stale.size}" }
+    }
+
+    override suspend fun sweepSlots(record: WorktreeRecord, keep: Int) = withContext(dispatchers.io) {
+        require(keep >= 0) { "InvalidSlotCount" }
+        val data = Path.of(record.commonDirectory).toRealPath().resolve("heartbeat-worktree-data")
+        val pool = data.resolve(SLOT_POOL)
+        if (Files.isSymbolicLink(data) || Files.isSymbolicLink(pool)) return@withContext false
+        val registered = gitOptional(record.sourceDirectory, "worktree", "list", "--porcelain").orEmpty()
+            .lineSequence().filter { it.startsWith("worktree ") }
+            .map { Path.of(it.removePrefix("worktree ")).normalize() }
+        val present = if (Files.isDirectory(pool)) Files.list(pool).use { it.toList() } else emptyList()
+        val surplus = (registered + present).filter { it.parent == pool }.distinct().filter { slot ->
+            SLOT_NAME.matchEntire(
+                slot.fileName.toString(),
+            )?.groupValues?.get(1)?.toIntOrNull()?.let { it >= keep } == true
+        }.toList()
+        val removed = surplus.count { slot -> removeFreeSlot(record, slot) }
+        if (removed > 0) log.i { "Removed surplus build slots count=$removed keep=$keep" }
+        removed < surplus.size
+    }
+
+    /** The slot's worker lock is held for the whole removal, so no build can start in it meanwhile. */
+    private suspend fun removeFreeSlot(record: WorktreeRecord, slot: Path): Boolean {
+        val held = tryLockResource(slot.toString()) ?: return false
+        return try {
+            validateSlotOwnership(slot, Path.of(record.commonDirectory).toRealPath())
+            gitOptional(record.sourceDirectory, "worktree", "remove", "--force", slot.toString())
+            if (Files.exists(slot, java.nio.file.LinkOption.NOFOLLOW_LINKS)) removeSlot(slot)
+            true
+        } finally {
+            held.close()
+        }
+    }
+
+    override suspend fun snapshot(record: WorktreeRecord, id: String): String = withContext(dispatchers.io) {
+        require(id.matches(IDENTIFIER)) { "InvalidBuildIdentity" }
+        check(record.task.isSandbox && exists(record)) { "SandboxUnavailable" }
+        val gitDirectory = Path.of(git(record.directory, "rev-parse", "--absolute-git-dir"))
+        val index = Files.createTempFile("heartbeat-snapshot-", ".index")
+        try {
+            // A copy of the agent's index keeps stat data, so only changed files are hashed again.
+            val current = gitDirectory.resolve("index")
+            if (Files.isRegularFile(current)) {
+                Files.copy(current, index, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            } else {
+                Files.delete(index)
+            }
+            val environment = mapOf("GIT_INDEX_FILE" to index.toString()) + SNAPSHOT_IDENTITY
+            git(record.directory, "add", "--all", environment = environment)
+            val tree = git(record.directory, "write-tree", environment = environment)
+            val head = checkNotNull(gitOptional(record.directory, "rev-parse", "--verify", "HEAD^{commit}")) {
+                "SandboxBaseUnavailable"
+            }
+            val commit = git(
+                record.directory,
+                "commit-tree",
+                tree,
+                "-p",
+                head,
+                "-m",
+                "Heartbeat sandbox snapshot",
+                environment = environment,
+            )
+            git(record.sourceDirectory, "update-ref", "$SNAPSHOT_REFS$id", commit)
+            log.d { "Sandbox snapshot captured operation=$id" }
+            commit
+        } finally {
+            Files.deleteIfExists(index)
+        }
     }
 
     override suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String {
@@ -210,6 +332,7 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             isHold = true,
             parentProcess = ProcessHandle.current().pid(),
             parentStartedAt = ProcessHandle.current().info().startInstant().orElse(null)?.toString(),
+            project = common.toString(),
         )
     }
 
@@ -289,6 +412,8 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         "refs/remotes/origin/HEAD",
     )?.removePrefix("origin/")
 
+    private fun projectKey(record: WorktreeRecord): String = Path.of(record.commonDirectory).toRealPath().toString()
+
     private fun validateRecord(record: WorktreeRecord) {
         if (!record.task.isIsolated) {
             check(
@@ -361,20 +486,28 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         return ancestor.toRealPath().resolve(ancestor.relativize(resolved)).normalize()
     }
 
-    private suspend fun git(directory: String, vararg arguments: String): String =
-        checkNotNull(process(directory, listOf("git", "--no-optional-locks") + arguments, optional = false))
+    private suspend fun git(
+        directory: String,
+        vararg arguments: String,
+        environment: Map<String, String> = emptyMap(),
+    ): String = checkNotNull(
+        process(directory, listOf("git", "--no-optional-locks") + arguments, optional = false, environment),
+    )
 
     private suspend fun gitOptional(directory: String, vararg arguments: String): String? =
         process(directory, listOf("git", "--no-optional-locks") + arguments, optional = true)
 
-    private suspend fun process(directory: String, arguments: List<String>, optional: Boolean): String? = withContext(
-        dispatchers.io,
-    ) {
+    private suspend fun process(
+        directory: String,
+        arguments: List<String>,
+        optional: Boolean,
+        environment: Map<String, String> = emptyMap(),
+    ): String? = withContext(dispatchers.io) {
         val output = Files.createTempFile("heartbeat-git-", ".out")
         var child: Process? = null
         try {
             child = ProcessBuilder(arguments).directory(Path.of(directory).toFile()).redirectErrorStream(true)
-                .redirectOutput(output.toFile()).start()
+                .redirectOutput(output.toFile()).apply { environment().putAll(environment) }.start()
             awaitChild(child)
             readGitOutput(child, output, optional)
         } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
@@ -419,6 +552,21 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
     private companion object {
         /** Task branches stay in the application namespace and never reuse an agent or user prefix. */
         const val BRANCH_PREFIX = "heartbeat/worktree-"
+        const val SLOT_POOL = "slots"
+        val SLOT_NAME = Regex("slot-([0-9]{1,3})")
+        const val SNAPSHOT_REFS = "refs/heartbeat/snapshots/"
+
+        /** Another profile may still queue a build of an older snapshot; a day covers any build timeout. */
+        const val SNAPSHOT_GRACE_SECONDS = 86_400L
+        const val MILLIS_PER_SECOND = 1_000L
+
+        /** Snapshots are private build inputs and must not depend on a configured user identity. */
+        val SNAPSHOT_IDENTITY = mapOf(
+            "GIT_AUTHOR_NAME" to "Heartbeat",
+            "GIT_AUTHOR_EMAIL" to "sandbox@heartbeat.invalid",
+            "GIT_COMMITTER_NAME" to "Heartbeat",
+            "GIT_COMMITTER_EMAIL" to "sandbox@heartbeat.invalid",
+        )
         const val MAX_NAME = 256
         const val MAX_COMMANDS = 64
         const val MAX_ARGUMENTS = 256

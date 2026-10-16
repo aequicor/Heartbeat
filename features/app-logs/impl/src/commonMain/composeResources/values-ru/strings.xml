@@ -1,0 +1,24 @@
+<resources>
+    <string name="logs_title">Логи приложения</string>
+    <string name="logs_back">Назад</string>
+    <string name="logs_description">Скопируйте или сохраните логи для диагностики проблемы. Логи хранятся на устройстве не более 5 дней; доступная история также зависит от их объёма.</string>
+    <string name="logs_recent">Последние 10 минут</string>
+    <string name="logs_copy">Скопировать логи</string>
+    <string name="logs_copy_description">Скопировать логи за последние 10 минут в буфер обмена.</string>
+    <string name="logs_save">Сохранить логи в файл</string>
+    <string name="logs_save_description">Сохранить последние 10 минут в файл .log в кодировке UTF-8.</string>
+    <string name="logs_retained">Доступная история</string>
+    <string name="logs_archive">Сохранить архив логов</string>
+    <string name="logs_archive_description">Сохранить все доступные логи, не старше 5 дней, в ZIP-архив.</string>
+    <string name="logs_folder">Открыть папку с логами</string>
+    <string name="logs_folder_description">Показать папку логов приложения в файловом менеджере.</string>
+    <string name="logs_working">Подготовка логов…</string>
+    <string name="logs_copied">Логи скопированы в буфер обмена.</string>
+    <string name="logs_saved">Файл с логами сохранён.</string>
+    <string name="logs_opened">Папка с логами открыта.</string>
+    <string name="logs_cancelled">Сохранение отменено.</string>
+    <string name="logs_empty">За выбранный период доступных логов нет.</string>
+    <string name="logs_error">Не удалось выполнить операцию с логами. Проверьте доступ к буферу обмена или папке сохранения и повторите попытку.</string>
+    <string name="logs_disabled">Инструменты логов отключены в настройках фича-тоглов.</string>
+    <string name="logs_retry">Повторить</string>
+</resources>

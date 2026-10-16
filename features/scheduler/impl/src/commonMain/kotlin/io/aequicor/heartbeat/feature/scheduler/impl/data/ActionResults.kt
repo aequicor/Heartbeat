@@ -133,10 +133,29 @@ internal class ActionResults(
         )
         val ready = machine.state.value as? SchedulerState.Ready ?: return
         if (ready.wakes.none { it.matches(event) }) {
-            if (persistence.revision.value >= ready.revision) journal.remove(record.id)
+            if (record.retainedBy == null && persistence.revision.value >= ready.revision) journal.remove(record.id)
         } else if (ready.isAwaited(event)) {
             // The bus has no replay: recovery also works before the driver has subscribed.
             machine.send(SchedulerIntent.Internal.Observed(event))
+        }
+    }
+
+    /** Running and finished records [owner] retains, read without acknowledging them. */
+    suspend fun retained(owner: String): List<ActionRecord> =
+        lock.withLock { journal.readAll().filter { it.retainedBy == owner } }
+
+    /**
+     * Ends [owner]'s retention of [id]. A finished result nobody awaits is then retired by recovery; a running one
+     * when it finishes. Acknowledging a record of another owner, or an unknown one, does nothing.
+     */
+    suspend fun acknowledge(id: ActionId, owner: String) {
+        val isReleased = lock.withLock {
+            val record = journal.readAll().firstOrNull { it.id == id && it.retainedBy == owner }
+            record?.let { journal.add(it.copy(retainedBy = null)) } != null
+        }
+        if (isReleased) {
+            log.d { "action $id: retention released" }
+            recover()
         }
     }
 

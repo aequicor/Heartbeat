@@ -2,13 +2,13 @@
     <string name="learning_title">Самообучение</string>
     <string name="learning_back">Назад</string>
     <string name="learning_section_approval">Принятие новых инструкций</string>
-    <string name="learning_section_approval_hint">Как принимать инструкции, которые агент пишет сам или по команде /remember. Каждая видна в чате как вызов инструмента remember.</string>
+    <string name="learning_section_approval_hint">Действует для новых инструкций в ручном или доверенном режиме. «Спрашивать» в разделе «Безопасность» может потребовать подтверждение. При автоматической проверке каждая инструкция оценивается независимо. Все вызовы видны в чате.</string>
     <string name="learning_approval_ask">Требовать подтверждение</string>
     <string name="learning_approval_ask_hint">Каждая новая инструкция ждёт вашего решения в чате.</string>
     <string name="learning_approval_automatic">Принимать автоматически</string>
-    <string name="learning_approval_automatic_hint">Агент оценивает каждую инструкцию: безопасные сохраняются сразу, остальные ждут вашего решения.</string>
+    <string name="learning_approval_automatic_hint">Агент оценивает каждую инструкцию: безопасным не нужно дополнительное подтверждение самообучения, остальные ждут вашего решения.</string>
     <string name="learning_approval_all">Принимать любые</string>
-    <string name="learning_approval_all_hint">Все инструкции сохраняются без вопросов.</string>
+    <string name="learning_approval_all_hint">Без дополнительного подтверждения самообучения. Настройки безопасности продолжают действовать.</string>
     <string name="learning_filter">Показывать инструкции</string>
     <string name="learning_filter_all">Все проекты</string>
     <string name="learning_filter_none">Чаты без проекта</string>

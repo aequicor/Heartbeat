@@ -9,8 +9,10 @@ import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
 import io.aequicor.heartbeat.feature.browser.api.BrowserEnabled
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEnabled
@@ -42,7 +44,15 @@ internal class ToggleStudioEntries(
     sessions: ProfileSessions,
     questions: Lazy<StudioQuestionBridge>,
     checklists: Lazy<StudioChecklists>,
+    security: Lazy<StudioSecurityPolicy>,
 ) : StudioEntries {
+    override val securityLevels: Flow<StudioSecurityLevel> = combine(
+        toggles.observe(StudioEngineRuntime),
+        sessions.active,
+    ) { runtime, session -> runtime && session != null }.flatMapLatest { isNative ->
+        if (isNative) security.value.levels else flowOf(StudioSecurityLevel.Automatic)
+    }
+
     override val showsAttachments: Flow<Boolean> = toggles.observe(AttachmentsEnabled)
 
     override val showsBrowser: Flow<Boolean> =

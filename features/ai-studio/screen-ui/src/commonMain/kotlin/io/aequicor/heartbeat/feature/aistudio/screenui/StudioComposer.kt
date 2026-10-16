@@ -70,6 +70,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_ask
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_helper_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_settings_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_trust
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_unsupported
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_skills
@@ -92,6 +98,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SuggestionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SuggestionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
@@ -164,7 +171,7 @@ private fun StudioComposerInput(
         stopLabel = stringResource(Res.string.composer_stop),
         modifier = Modifier.testTag("composer-${pane.id}"),
         hasAttachments = content.attachments.isNotEmpty(),
-        canSend = !content.isAttachmentPending && (
+        canSend = content.isHarnessSelectionReady && !content.isAttachmentPending && (
             support?.accepts(
                 content.attachments,
             ) ?: content.attachments.isEmpty()
@@ -324,7 +331,9 @@ private fun StudioComposerLeading(
         onDraft = { onIntent(StudioIntent.Suggestions.DraftChanged(content.pane.id, it)) },
         onApproval = { onIntent(StudioIntent.SelectApproval(it, content.pane.id)) },
         approvalEnabled = !content.isSettingPending && content.organism == null,
-        isAutomaticSafety = content.usesAutomaticSafety(hasRunPreferences),
+        securityLevel = content.securityLevel.takeIf { content.usesProfileSecurity(hasRunPreferences) },
+        isTrustSupported = content.isTrustSupported(),
+        isHelper = content.session?.isHelper == true,
         organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },
         onOrganism = { onIntent(StudioIntent.SelectOrganism(content.pane.id, it)) },
         onAttach = { onIntent(StudioIntent.PickAttachments(content.pane.id)) }.takeIf {
@@ -345,9 +354,10 @@ private fun StudioComposerLeading(
     )
 }
 
-/** Ordinary native chats use host safety review; demo preferences and organism decisions keep their own modes. */
-private fun PaneContent.usesAutomaticSafety(hasRunPreferences: Boolean): Boolean =
-    !hasRunPreferences && organism == null && !pane.isOrganism && models.any { it.id == settings.modelId }
+/** Ordinary native chats show the profile choice; demo preferences and organism decisions keep their own modes. */
+private fun PaneContent.usesProfileSecurity(hasRunPreferences: Boolean): Boolean =
+    !hasRunPreferences && organism == null && session?.isOrganism != true &&
+        !pane.isOrganism && models.any { it.id == settings.modelId }
 
 @Composable
 private fun StudioComposerContext(
@@ -428,12 +438,13 @@ private fun StudioComposerModes(content: PaneContent, onIntent: (StudioIntent) -
     val pane = content.pane
     OrganismModeToggle(content, onIntent)
     if (content.worktree != null || content.session?.isWorktree == true) {
+        val isSandbox = content.worktree?.isSandbox == true
         HbComposerToggle(
-            label = stringResource(Res.string.worktree_mode),
+            label = stringResource(if (isSandbox) Res.string.sandbox_mode else Res.string.worktree_mode),
             isChecked = true,
             onCheckedChange = {},
             enabled = false,
-            icon = HbIcons.Branch,
+            icon = if (isSandbox) HbIcons.Layers else HbIcons.Branch,
             modifier = Modifier.testTag("worktree-pinned-${pane.id}"),
         )
         val branch = content.worktree?.branch ?: stringResource(Res.string.worktree_mode)
@@ -583,7 +594,9 @@ private fun TemplatesMenu(
     onDraft: (String) -> Unit,
     onApproval: (ApprovalUi) -> Unit,
     approvalEnabled: Boolean,
-    isAutomaticSafety: Boolean,
+    securityLevel: SecurityLevelUi?,
+    isTrustSupported: Boolean,
+    isHelper: Boolean,
     organism: Boolean?,
     onOrganism: (Boolean) -> Unit,
     onAttach: (() -> Unit)?,
@@ -622,7 +635,7 @@ private fun TemplatesMenu(
     )
     val actions = attachments + templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
         listOfNotNull(rememberAction.takeIf { isRememberEnabled }, organismAction) +
-        approvalActions(approval, approvalEnabled, isAutomaticSafety)
+        approvalActions(approval, approvalEnabled, securityLevel, isTrustSupported, isHelper)
     HbComposerMenuButton(
         label = stringResource(Res.string.composer_add),
         actions = actions.toImmutableList(),
@@ -719,13 +732,31 @@ private fun EffortMenu(
 private fun approvalActions(
     selected: ApprovalUi?,
     enabled: Boolean,
-    isAutomaticSafety: Boolean,
+    securityLevel: SecurityLevelUi?,
+    isTrustSupported: Boolean,
+    isHelper: Boolean,
 ): List<HbComposerAction> {
-    if (isAutomaticSafety) {
+    if (securityLevel != null) {
         return listOf(
             HbComposerAction(
-                id = "automatic-safety",
-                label = stringResource(Res.string.approval_safety),
+                id = "profile-security",
+                label = stringResource(
+                    when (securityLevel) {
+                        SecurityLevelUi.Ask -> Res.string.security_ask
+                        SecurityLevelUi.Automatic -> Res.string.approval_safety
+                        SecurityLevelUi.Trust -> Res.string.security_trust
+                    },
+                ),
+                supportingText = stringResource(
+                    when {
+                        isHelper -> Res.string.security_helper_hint
+
+                        securityLevel != SecurityLevelUi.Automatic && !isTrustSupported ->
+                            Res.string.security_unsupported
+
+                        else -> Res.string.security_settings_hint
+                    },
+                ),
                 sectionLabel = stringResource(Res.string.approval_menu),
                 isEnabled = false,
             ),

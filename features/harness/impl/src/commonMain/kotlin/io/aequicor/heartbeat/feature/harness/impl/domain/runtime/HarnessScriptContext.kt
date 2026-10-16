@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.script.HarnessScriptScope
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptAgent
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommands
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptEvents
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptHooks
@@ -13,6 +14,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptUi
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflows
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessScriptPrompts
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptCommands
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptScheduler
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessions
 
@@ -40,10 +42,12 @@ internal class HarnessScriptContext(
         override val workflows: ScriptWorkflows get() = services.workflows
         override val ui: ScriptUi get() = registrations
         override val data: ScriptData get() = services.data
+        override val commands: ScriptCommands get() = services.commands
     })
 
     override fun sealForPublication(): Boolean {
         registrations.sealTools()
+        services.commands.seal()
         return true
     }
 
@@ -51,6 +55,7 @@ internal class HarnessScriptContext(
 
     override fun close() {
         registrations.close()
+        services.commands.close()
         services.scheduler.close()
         services.sessions.close()
     }
@@ -62,4 +67,5 @@ internal data class HarnessScriptServices(
     val workflows: ScriptWorkflows,
     val sessions: HarnessScriptSessions,
     val data: ScriptData,
+    val commands: HarnessScriptCommands,
 )

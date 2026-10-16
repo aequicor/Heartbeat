@@ -106,6 +106,7 @@
     <string name="stopping">Останавливаем…</string>
     <string name="stopped_after">Вы остановили выполнение через %1$s</string>
     <string name="usage_compact">Сжать контекст</string>
+    <string name="usage_compacting">Сжимаем контекст…</string>
     <string name="collapsed_tool_calls">Вызовов инструментов: %1$d</string>
     <string name="context_compacted">Контекст сжат: агент продолжает по выжимке</string>
     <string name="context_rolled_over">Продолжено в новой сессии с выжимкой этой</string>
@@ -173,6 +174,7 @@
     <string name="usage_window_minutes">Лимит на %1$d мин</string>
     <string name="usage_all_models">Все модели</string>
     <string name="worktree_mode">Worktree</string>
+    <string name="sandbox_mode">Песочница</string>
     <string name="worktree_this_computer">Этот компьютер</string>
     <string name="worktree_preparing">Подготовка изолированной рабочей папки…</string>
     <string name="worktree_journal_loading">Восстановление изолированной рабочей папки…</string>
@@ -332,4 +334,6 @@
     <string name="project_trust_message">Проект «%1$s» настраивает %2$s: настройки, серверы инструментов или расширения. Загружать их? До решения загружаются только инструкции проекта.</string>
     <string name="project_trust_content">Только инструкции</string>
     <string name="project_trust_trusted">Доверять проекту</string>
+    <string name="harness_defaults_loading">Загрузка харнессов…</string>
+    <string name="harness_defaults_retry">Харнессы недоступны · Повторить</string>
 </resources>

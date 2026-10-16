@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.script.HarnessScriptScope
+import io.aequicor.heartbeat.feature.harness.impl.data.services.commandsTestFactory
 import io.aequicor.heartbeat.feature.harness.impl.data.services.harnessTestData
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
@@ -36,6 +37,7 @@ internal class HarnessRegistrationFixture(
     val scripts = mutableListOf<HarnessScriptScope>()
     val origins = RegistrationTestOrigins()
     private val data = harnessTestData()
+    var commands = commandsTestFactory()
     private val admission = object : HarnessRuntimeAdmission {
         override fun canPublish(request: HarnessActivationRequest) = isEnabled && request == desired
         override fun canInvoke(request: HarnessActivationRequest) = isEnabled
@@ -52,6 +54,7 @@ internal class HarnessRegistrationFixture(
                 workflowTestFactory(origins).create(request, access),
                 sessionServices(HarnessInstanceTarget(request, access), origins),
                 HarnessScriptData(request.harness.id, access, data),
+                commands.create(request, access),
             ),
         )
     }

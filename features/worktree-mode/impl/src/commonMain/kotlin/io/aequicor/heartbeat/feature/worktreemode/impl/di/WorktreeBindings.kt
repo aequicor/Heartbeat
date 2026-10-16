@@ -16,10 +16,12 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildQueueEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineSpec
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.WorktreeEffects
 import kotlinx.coroutines.launch
@@ -52,7 +54,7 @@ internal class WorktreeStartup(
     }
 }
 
-/** Registers the disabled-by-default worktree switch. */
+/** Registers the disabled-by-default worktree, sandbox and build queue switches. */
 @ContributesTo(AppScope::class)
 @BindingContainer
 public object WorktreeToggleBindings {
@@ -60,4 +62,14 @@ public object WorktreeToggleBindings {
     @Provides
     @IntoSet
     public fun toggle(): FeatureToggle<*> = WorktreeModeEnabled
+
+    /** Exact FeatureToggle wildcard joins the application registry. */
+    @Provides
+    @IntoSet
+    public fun sandboxToggle(): FeatureToggle<*> = WorktreeSandboxEnabled
+
+    /** Exact FeatureToggle wildcard joins the application registry. */
+    @Provides
+    @IntoSet
+    public fun buildQueueToggle(): FeatureToggle<*> = WorktreeBuildQueueEnabled
 }

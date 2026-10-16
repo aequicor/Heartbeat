@@ -79,6 +79,8 @@
     <string name="settings_manage_engine">Управление движком</string>
     <string name="settings_manage_engine_description">Включение, установка, обновления, вход и параметры запуска</string>
     <string name="settings_manage_engine_off">Движок выключен. Включите его в панели движка, чтобы добавить подключения.</string>
+    <string name="settings_model_description">Описание</string>
+    <string name="settings_model_describe">Описать</string>
     <string name="settings_models_stale">Список из кэша. Обновите, чтобы получить актуальный.</string>
     <string name="settings_models_never">Модели ещё не получены.</string>
     <string name="settings_saving">Сохранение…</string>

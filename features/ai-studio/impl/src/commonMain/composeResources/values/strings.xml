@@ -1,0 +1,17 @@
+<resources>
+    <string name="security_title">Security</string>
+    <string name="security_back">Back</string>
+    <string name="security_level">Confirmation level</string>
+    <string name="security_scope">Applies from the next message in ordinary chats of this profile. Restrictions of individual tools and background agents remain in effect.</string>
+    <string name="security_ask">Ask</string>
+    <string name="security_ask_hint">Ask for your confirmation before actions that make changes.</string>
+    <string name="security_automatic">Automatic review</string>
+    <string name="security_automatic_hint">Independent review allows safe actions. Actions that cannot be approved are refused.</string>
+    <string name="security_trust">Full trust</string>
+    <string name="security_trust_hint">Approve actions within the engine’s policy. Individual tools may still require additional permission.</string>
+    <string name="security_loading">Loading settings…</string>
+    <string name="security_saving">Saving…</string>
+    <string name="security_load_failed">Could not load settings. Confirmation is required until the saved level can be restored.</string>
+    <string name="security_save_failed">Could not save the level. The previous setting still applies. Select a level to try again.</string>
+    <string name="security_retry">Retry</string>
+</resources>

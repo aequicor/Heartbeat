@@ -91,6 +91,26 @@ class HeartbeatStoreFactoryTest {
         assertFalse(records.any { "private prompt" in it })
     }
 
+    @Test
+    fun `current state starts from the initial one and keeps the last committed state without a subscriber`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val factory = HeartbeatStoreFactory(object : DispatcherProvider {
+                override val main = dispatcher
+                override val default = dispatcher
+                override val io = dispatcher
+            })
+            val screen = factory.createScreen<State, Intent, Action>("CurrentTest", State("derived"), { this }) {
+                reduce { intent -> updateState { State(text = intent.text) } }
+            }
+            assertEquals(State("derived"), screen.current.value)
+            screen.store.subscribeAndTest {
+                Intent("edited", fail = false) resultsIn { advanceUntilIdle() }
+                assertEquals(states.value, screen.current.value)
+            }
+            assertEquals(State("edited"), screen.current.value)
+        }
+
     private data class State(val text: String = "", val error: Boolean = false) : MVIState
     private data class Intent(val text: String, val fail: Boolean) : MVIIntent
     private data class CaretMoved(val caret: Int) : MVIIntent

@@ -8,7 +8,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HARNESS_COMMANDS_POLICY
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessApiReference
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviewer
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
@@ -47,6 +49,7 @@ internal fun harnessSafetySnapshot(
         put("request", context.request?.value)
         put("call", context.callId?.value)
         put("target", Json.encodeToJsonElement(context.target))
+        context.reviewTarget?.let { put("reviewTarget", Json.encodeToJsonElement(it)) }
         put("trust", context.trust.name)
         put("operation", approval.name)
         put("binding", approval.binding)
@@ -65,14 +68,14 @@ internal suspend fun reviewHarnessChange(
     canStart: Boolean,
 ): AgentToolAutomaticAuthorization {
     val snapshot = harnessSafetySnapshot(context, approval, change)
-    val review = reviews.check(snapshot.key, context.target, snapshot.change, canStart)
+    val review = reviews.check(snapshot.key, context.reviewModel, snapshot.change, canStart)
         ?: return AgentToolAutomaticAuthorization.Denied("The safety review expired or the snapshot changed; retry")
     if (!review.isSafe) return AgentToolAutomaticAuthorization.Denied("Safety review refused: ${review.reason}")
     return AgentToolAutomaticAuthorization.Allowed(snapshot.approval)
 }
 
-private fun harnessSafetyPolicy(): String = HARNESS_SAFETY_POLICY + "\n\nHost API:\n" +
-    referenceText(HarnessApiReference.Api)
+private fun harnessSafetyPolicy(): String = HARNESS_SAFETY_POLICY + "\n" + HARNESS_COMMANDS_POLICY +
+    "\n\nHost API:\n" + referenceText(HarnessApiReference.Api)
 
 private const val HARNESS_SAFETY_POLICY = """
 Assess the complete proposed Heartbeat harness operation and the previous harness, not only the changed text.

@@ -25,6 +25,8 @@
         <item quantity="other">%1$d элемента</item>
     </plurals>
     <string name="harness_enabled">Включён</string>
+    <string name="harness_default_new_sessions">Включать в новых сессиях</string>
+    <string name="harness_default_new_sessions_hint">Автоматически подключать харнесс к новым обычным чатам, пока он включён. Если харнесс ограничен проектами — только в них. Подключения существующих чатов не меняются.</string>
     <string name="harness_edit">Изменить</string>
     <string name="harness_delete">Удалить</string>
     <string name="harness_delete_title">Удалить харнесс?</string>
@@ -38,7 +40,7 @@
     <string name="harness_save">Сохранить</string>
     <string name="harness_saving">Сохранение…</string>
     <string name="harness_attachments">Подключённые чаты</string>
-    <string name="harness_attachments_hint">Чаты, к которым харнесс подключён явно.</string>
+    <string name="harness_attachments_hint">Чаты, к которым подключён харнесс.</string>
     <string name="harness_detach">Отключить</string>
     <string name="harness_kind_instruction">Инструкции</string>
     <string name="harness_kind_skill">Скиллы</string>

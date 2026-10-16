@@ -5,6 +5,9 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
@@ -23,6 +26,37 @@ public class HeartbeatStoreFactory(private val dispatchers: DispatcherProvider) 
         onError: S.(Exception) -> S,
         block: StoreBuilder<S, I, A>.() -> Unit,
     ): Store<S, I, A> = store(initial) {
+        configureHeartbeat(name, onError)
+        block()
+    }
+
+    /** Same as [create], plus the store's latest state readable synchronously for the screen's first frame. */
+    public fun <S : MVIState, I : MVIIntent, A : MVIAction> createScreen(
+        name: String,
+        initial: S,
+        onError: S.(Exception) -> S,
+        block: StoreBuilder<S, I, A>.() -> Unit,
+    ): ScreenStore<S, I, A> {
+        val current = MutableStateFlow(initial)
+        val store = store(initial) {
+            configureHeartbeat(name, onError)
+            block()
+            // Last in the chain, so it records the state other plugins settled on.
+            install {
+                this.name = "heartbeat-current"
+                onState { _, new ->
+                    current.value = new
+                    new
+                }
+            }
+        }
+        return ScreenStore(store, current.asStateFlow())
+    }
+
+    private fun <S : MVIState, I : MVIIntent, A : MVIAction> StoreBuilder<S, I, A>.configureHeartbeat(
+        name: String,
+        onError: S.(Exception) -> S,
+    ) {
         val log = Log.tag("MVI/$name")
         configure {
             this.name = name
@@ -61,9 +95,20 @@ public class HeartbeatStoreFactory(private val dispatchers: DispatcherProvider) 
             updateState { onError(error) }
             null
         }
-        block()
     }
 }
+
+/**
+ * A screen [store] with its latest state readable synchronously through [current]. Screens start drawing from it,
+ * `produceState(model.current.value, model) { model.store.collect { states.collect { value = it } } }`,
+ * so the first frame shows the state the model already derived (usually from its machine) instead of a fresh
+ * default with a one-frame "loading" flash on every entry. Updates still arrive through the subscription, which
+ * also starts the store's `whileSubscribed` plugins such as `reflect`.
+ */
+public data class ScreenStore<S : MVIState, I : MVIIntent, A : MVIAction> internal constructor(
+    public val store: Store<S, I, A>,
+    public val current: StateFlow<S>,
+)
 
 /** Input and caret events can alternate on every keystroke; all incoming intents require trace mode. */
 @HighFrequency

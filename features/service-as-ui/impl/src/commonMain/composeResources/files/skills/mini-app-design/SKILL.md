@@ -39,6 +39,7 @@ Use declarative host components for simple forms, lists, quick actions and porta
 - Show units, appropriate input modes, and local number/date formats. Put actionable errors next to fields and keep entered values. Offer relevant previous values for frequent operations, clearly distinguished from saved records or examples.
 - Provide undo or editing for reversible mistakes. Restore timers from a saved deadline instead of counting page ticks. Background execution and notifications need separate platform support; a restored timer alone does not provide them.
 - Handle applicable loading, empty, pending, success, and retryable error states. Empty history should suggest a useful next action. Do not fabricate metrics, synchronization, or notifications.
+- Make core actions work without the agent: owner methods and declared script commands run on a press with no model turn. Use chat prompts only for work that needs the model, and show their dependence on the agent in the label.
 - Use the host's automatic safety review. Do not add manual permission prompts to routine actions or bypass a refusal. Correct the cause within the authorized task; stop repeating a refused operation without new evidence or a changed proposal.
 
 ## Make the interface native and expressive

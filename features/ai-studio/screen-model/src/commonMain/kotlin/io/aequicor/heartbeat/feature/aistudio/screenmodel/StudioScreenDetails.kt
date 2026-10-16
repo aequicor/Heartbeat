@@ -55,6 +55,8 @@ data class SessionUi(
     val isReady: Boolean = false,
     val scheduledWait: SessionWaitUi? = null,
     val parentChatId: String? = null,
+    /** The conversation is a restricted helper, including when it has no parent chat. */
+    val isHelper: Boolean = false,
     /** Sidebar-only indentation, derived after filtering and grouping the visible helper tree. */
     val depth: Int = 0,
     val isAwaitingPermission: Boolean = false,

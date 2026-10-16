@@ -31,10 +31,13 @@ kotlin {
             implementation(libs.flowmvi.test)
         }
         commonMain.dependencies {
+            implementation(projects.features.projectConfig.api)
             implementation(projects.features.harness.api)
+            implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.aiEngine.facade.api)
             implementation(projects.features.scheduler.api)
             implementation(projects.features.serviceAsUi.api)
+            implementation(projects.features.worktreeMode.api)
             implementation(projects.core.common)
             implementation(projects.core.logging)
             implementation(projects.core.di.api)

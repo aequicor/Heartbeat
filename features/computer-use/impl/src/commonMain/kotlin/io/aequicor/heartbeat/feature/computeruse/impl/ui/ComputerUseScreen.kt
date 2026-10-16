@@ -68,7 +68,7 @@ import pro.respawn.flowmvi.dsl.collect
 /** Settings expose the tool switch and missing permissions; capture choices belong to the agent. */
 @Composable
 internal fun ComputerUseScreen(model: ComputerUseModel, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
-    val state by produceState(ComputerUseScreenState(), model) {
+    val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
     ComputerUseContent(state, model.store::intent, onBack, modifier)

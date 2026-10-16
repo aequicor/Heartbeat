@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -32,7 +33,8 @@ class EngineConnectionsModelTest {
         EngineConnectionsState.Active(snapshot),
     )
 
-    private fun TestScope.model() = EngineConnectionsModel(machine, testScopeHandle(), testStoreFactory())
+    private fun TestScope.model() =
+        EngineConnectionsModel(machine, testScopeHandle(), testStoreFactory()) { flowOf(null) }
 
     @Test
     fun `the space starts observing and focuses the first engine and connection`() = runTest {

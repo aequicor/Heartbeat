@@ -70,14 +70,14 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         val awake = mutex.withLock {
             if (key in lysed || generation < (generations[key] ?: 0)) throw closed()
             generations[key] = generation
-            handles[key]?.takeIf { it.isOpen() }?.let { return FacadeCellHandle(it) }
+            handles[key]?.takeIf { it.isOpen() }?.let { return FacadeCellHandle(it, checked(route)) }
             sleeps
         }
         // From its creation until it is cached nobody owns the handle: a cancelled caller would drop it unclosed, so
         // neither step may be cancelled.
         return withContext(NonCancellable) {
             val opened = if (existing == null) create(route) else resume(existing, route)
-            retainOpened(key, opened, isCreated = existing == null, generation, awake)
+            retainOpened(key, opened, isCreated = existing == null, generation, awake, checked(route))
         }
     }
 
@@ -88,6 +88,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         isCreated: Boolean,
         generation: Int,
         awake: Int,
+        route: CellRoute,
     ): CellHandle {
         var isLysed = false
         var isStale = false
@@ -100,10 +101,10 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
             }
         }
         return when {
-            kept === opened -> FacadeCellHandle(opened)
+            kept === opened -> FacadeCellHandle(opened, route)
 
             // Another opener of the cell won; a session created here is an unused duplicate.
-            kept != null -> FacadeCellHandle(kept).also {
+            kept != null -> FacadeCellHandle(kept, route).also {
                 discard(opened, isStopped = false, isArchived = isCreated)
             }
 
@@ -182,6 +183,16 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
             log.w(e) { "unused cell session on ${opened.ref.engine.value} was not closed" }
         }
         if (isArchived) archiveQuietly(opened.ref)
+    }
+
+    /** An effort the model no longer advertises is dropped: the engine would refuse the turn. */
+    private fun checked(route: CellRoute): CellRoute {
+        val effort = route.reasoningEffort ?: return route
+        val supported = facade.models.observe(route.target.engine, route.target.binding).value.models
+            .firstOrNull { it.target == route.target }?.reasoningEfforts.orEmpty()
+        if (effort in supported) return route
+        log.d { "cell effort no longer advertised by ${route.target.model.value}; using the default" }
+        return route.copy(reasoningEffort = null)
     }
 
     private suspend fun create(route: CellRoute): ActiveSession {
@@ -264,8 +275,8 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
     }
 }
 
-/** One cell's open session. */
-private class FacadeCellHandle(private val active: ActiveSession) : CellHandle {
+/** One cell's open session; its turns run at the [route]'s effort and review model. */
+private class FacadeCellHandle(private val active: ActiveSession, private val route: CellRoute) : CellHandle {
     /** Turns followed only because the session remembered them after an ambiguous delivery. */
     private val doubtful = mutableSetOf<TurnId>()
 
@@ -278,7 +289,7 @@ private class FacadeCellHandle(private val active: ActiveSession) : CellHandle {
         text: String,
         trust: TrustLevel?,
         attachments: List<ResourceRef>,
-    ): TurnId = active.submit(request, text, trust, attachments).also {
+    ): TurnId = active.submit(request, text, trust, attachments, route.reasoningEffort, route.reviewTarget).also {
         if (active.state.value is ActiveSessionState.Unavailable) doubtful += it
     }
 

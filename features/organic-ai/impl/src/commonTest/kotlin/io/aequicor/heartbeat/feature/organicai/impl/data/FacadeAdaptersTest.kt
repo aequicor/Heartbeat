@@ -5,6 +5,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
@@ -72,6 +74,20 @@ class FacadeAdaptersTest {
             listOf(ContentPart.Text("work"), ContentPart.Image(image), ContentPart.Resource(document)),
             native.prompts.single().parts,
         )
+    }
+
+    @Test
+    fun `a cell turn carries its effort and review model while the model advertises the effort`() = runTest {
+        val native = FakeSession(session("tuned"))
+        val catalog = listOf(ModelInfo(TARGET, "Model", reasoningEfforts = listOf("low", "high")))
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native)), catalog = catalog))
+        val parent = TARGET.copy(model = ModelId("strong"))
+        val handle = cells.open(key, route.copy(reasoningEffort = "low", reviewTarget = parent), existing = null)
+        handle.submit(RequestId("r1"), "work", TrustLevel.AutoEdits)
+        assertEquals("low" to parent, native.prompts.single().reasoningEffort to native.prompts.single().reviewTarget)
+        val stale = cells.open(key, route.copy(reasoningEffort = "max"), existing = null)
+        stale.submit(RequestId("r2"), "more", TrustLevel.AutoEdits)
+        assertEquals(null, native.prompts.last().reasoningEffort)
     }
 
     @Test

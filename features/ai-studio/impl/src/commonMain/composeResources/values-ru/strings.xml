@@ -1,0 +1,17 @@
+<resources>
+    <string name="security_title">Безопасность</string>
+    <string name="security_back">Назад</string>
+    <string name="security_level">Уровень подтверждения</string>
+    <string name="security_scope">Действует со следующего сообщения в обычных чатах этого профиля. Ограничения отдельных инструментов и фоновых агентов сохраняются.</string>
+    <string name="security_ask">Спрашивать</string>
+    <string name="security_ask_hint">Запрашивать ваше подтверждение перед действиями, которые вносят изменения.</string>
+    <string name="security_automatic">Автоматическая проверка</string>
+    <string name="security_automatic_hint">Независимая проверка разрешает безопасные действия. Действия, которые не удалось одобрить, отклоняются.</string>
+    <string name="security_trust">Полное доверие</string>
+    <string name="security_trust_hint">Одобрять действия в пределах политики движка. Отдельные инструменты могут потребовать дополнительных разрешений.</string>
+    <string name="security_loading">Загрузка настроек…</string>
+    <string name="security_saving">Сохранение…</string>
+    <string name="security_load_failed">Не удалось загрузить настройки. Пока сохранённый уровень недоступен, требуется подтверждение действий.</string>
+    <string name="security_save_failed">Не удалось сохранить уровень. Действует предыдущая настройка. Выберите уровень, чтобы повторить.</string>
+    <string name="security_retry">Повторить</string>
+</resources>

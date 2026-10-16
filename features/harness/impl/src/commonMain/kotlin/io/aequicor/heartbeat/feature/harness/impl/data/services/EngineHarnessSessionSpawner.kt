@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnOp
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnOwner
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnRecord
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnSubmission
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnTask
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.spawnRetryDelay
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
@@ -45,8 +46,7 @@ internal class EngineHarnessSessionSpawner(
     override suspend fun spawn(
         owner: HarnessInstanceTarget,
         parent: SessionRef?,
-        title: String,
-        prompt: String,
+        task: HarnessSpawnTask,
         origin: HarnessCallOrigin,
     ): ScriptHelper {
         check(!origin.isHookRestricted) { "Hooks cannot spawn helpers" }
@@ -73,12 +73,13 @@ internal class EngineHarnessSessionSpawner(
         val submission = HarnessSpawnSubmission(
             record,
             route?.workspace,
-            title,
+            task.title,
             HelperPrompt(
                 record.request,
-                prompt,
+                task.prompt,
                 handoff = HelperHandoff(ownerFeature = HARNESS_WAKE_OWNER, ownerContext = context),
             ),
+            task.adaptive,
         ) {
             publisher.isCurrent() && (parentPermit == null || parentPermit.isCurrent()) &&
                 sessions.isCurrent(owner) && (route == null || route.isCurrent())

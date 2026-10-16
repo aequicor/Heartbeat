@@ -171,4 +171,5 @@ internal fun StudioHarness.toUi(): HarnessOptionUi = HarnessOptionUi(
     title,
     description,
     projectIds.toImmutableSet(),
+    isDefaultForNewSessions,
 )

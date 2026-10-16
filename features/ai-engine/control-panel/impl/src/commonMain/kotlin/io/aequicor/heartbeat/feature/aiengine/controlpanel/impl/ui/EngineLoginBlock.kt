@@ -58,11 +58,19 @@ internal fun EngineLoginBlock(
     isIdle: Boolean,
     onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isVisuallyIdle: Boolean = isIdle,
+    isSaving: Boolean = false,
+    isSavingVisible: Boolean = isSaving,
 ) {
     HbColumn(modifier.fillMaxWidth().testTag("engine-login"), gap = HbTheme.spacing.s) {
         HbSettingsRow(stringResource(Res.string.engine_login_title), description = loginText(login)) {
             if (EngineActionKindUi.Logout in panel.actions) {
-                ActionButton(stringResource(Res.string.engine_logout), "engine-logout", isIdle) {
+                ActionButton(
+                    stringResource(Res.string.engine_logout),
+                    "engine-logout",
+                    isIdle,
+                    visualEnabled = isVisuallyIdle,
+                ) {
                     onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Logout))
                 }
             }
@@ -73,12 +81,18 @@ internal fun EngineLoginBlock(
                     stringResource(Res.string.engine_login),
                     "engine-login-browser",
                     isIdle,
+                    visualEnabled = isVisuallyIdle,
                     style = HbButtonStyle.Primary,
                 ) {
                     onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.Login))
                 }
                 if (LoginMethodUi.DeviceCode in panel.loginMethods) {
-                    ActionButton(stringResource(Res.string.engine_login_device), "engine-login-device", isIdle) {
+                    ActionButton(
+                        stringResource(Res.string.engine_login_device),
+                        "engine-login-device",
+                        isIdle,
+                        visualEnabled = isVisuallyIdle,
+                    ) {
                         onIntent(
                             EngineManagementIntent.RequestEngineAction(
                                 EngineActionUi.Login,
@@ -93,7 +107,13 @@ internal fun EngineLoginBlock(
         when (val phase = job?.phase) {
             is JobPhaseUi.AwaitingBrowser -> BrowserPrompt(phase.url, phase.userCode)
 
-            is JobPhaseUi.AwaitingCode -> CodePrompt(phase.url, loginCode, onIntent)
+            is JobPhaseUi.AwaitingCode -> CodePrompt(
+                phase.url,
+                loginCode,
+                onIntent,
+                enabled = !isSaving,
+                visualEnabled = !isSavingVisible,
+            )
 
             is JobPhaseUi.Failed -> (phase.failure as? ManagementFailureUi.Login)?.terminalCommand?.let {
                 TerminalCommand(
@@ -134,6 +154,8 @@ private fun CodePrompt(
     code: String,
     onIntent: (EngineManagementIntent) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    visualEnabled: Boolean = enabled,
 ) {
     val uriHandler = LocalUriHandler.current
     val label = stringResource(Res.string.engine_login_code_label)
@@ -151,7 +173,8 @@ private fun CodePrompt(
             ActionButton(
                 stringResource(Res.string.engine_login_submit),
                 "engine-login-submit",
-                enabled = code.isNotBlank(),
+                enabled = enabled && code.isNotBlank(),
+                visualEnabled = visualEnabled && code.isNotBlank(),
                 style = HbButtonStyle.Primary,
             ) { onIntent(EngineManagementIntent.SubmitLoginCode) }
             if (url != null) {

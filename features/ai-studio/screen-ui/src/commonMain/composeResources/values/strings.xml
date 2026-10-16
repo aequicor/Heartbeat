@@ -113,6 +113,7 @@
     <string name="stopping">Stopping…</string>
     <string name="stopped_after">You stopped the run after %1$s</string>
     <string name="usage_compact">Compact context</string>
+    <string name="usage_compacting">Compacting context…</string>
     <string name="collapsed_tool_calls">Tool calls: %1$d</string>
     <string name="context_compacted">Context compacted: the agent continues from a summary</string>
     <string name="context_rolled_over">Continued in a new session with a summary of this one</string>
@@ -180,6 +181,7 @@
     <string name="usage_window_minutes">%1$d-minute limit</string>
     <string name="usage_all_models">All models</string>
     <string name="worktree_mode">Worktree</string>
+    <string name="sandbox_mode">Sandbox</string>
     <string name="worktree_this_computer">This computer</string>
     <string name="worktree_preparing">Preparing isolated checkout…</string>
     <string name="worktree_journal_loading">Restoring isolated checkout…</string>
@@ -338,4 +340,6 @@
     <string name="project_trust_message">The project «%1$s» configures %2$s: settings, tool servers or extensions. Load them? Until you decide, only its instructions load.</string>
     <string name="project_trust_content">Instructions only</string>
     <string name="project_trust_trusted">Trust the project</string>
+    <string name="harness_defaults_loading">Loading harnesses…</string>
+    <string name="harness_defaults_retry">Harnesses unavailable · Retry</string>
 </resources>

@@ -23,6 +23,8 @@
         <item quantity="other">%1$d items</item>
     </plurals>
     <string name="harness_enabled">Enabled</string>
+    <string name="harness_default_new_sessions">Enable in new sessions</string>
+    <string name="harness_default_new_sessions_hint">Automatically connect this harness to new regular chats while it is enabled. If limited to projects, connect only there. Existing chat connections stay unchanged.</string>
     <string name="harness_edit">Edit</string>
     <string name="harness_delete">Delete</string>
     <string name="harness_delete_title">Delete the harness?</string>
@@ -36,7 +38,7 @@
     <string name="harness_save">Save</string>
     <string name="harness_saving">Saving…</string>
     <string name="harness_attachments">Connected chats</string>
-    <string name="harness_attachments_hint">Chats the harness was connected to explicitly.</string>
+    <string name="harness_attachments_hint">Chats connected to this harness.</string>
     <string name="harness_detach">Disconnect</string>
     <string name="harness_kind_instruction">Instructions</string>
     <string name="harness_kind_skill">Skills</string>

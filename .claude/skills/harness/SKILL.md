@@ -25,9 +25,11 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 | Доставка скиллов/инструкций, политика инструментов | `harness/impl/data/delivery` |
 | Экраны настроек | `harness/impl/presentation`, `ui`; раздел — `settings` (`SettingsSection.Harness`) |
 | Подключение из чата («+», чипы) | `ai-studio/impl` (`MachineStudioHarnesses`, `StudioTurnExecutor`) |
+| Раздел `harnesses` конфигурации проекта (`.heartbeat`, `.hbai`) | `impl/domain/config/HarnessConfigCodec.kt` (раскладка файлов), `impl/data/config/HarnessConfigSection.kt` (проверка кода и политики, `Create`/`Update(Content)`) |
 | UI-методы для интерфейсов service-as-ui (`ui.method`) | `harness/api/script/ScriptUi.kt`; `impl/domain/runtime/HarnessUiDispatch.kt` (`connectedAdmission`); провайдер `impl/data/serviceui/HarnessServiceUiProvider.kt` |
 | Постоянные данные мини-приложения (`data.read/write/update`) | `api/script/ScriptData.kt`; `impl/domain/services/HarnessScriptData`, `impl/data/services/ProtectedHarnessData` |
 | Хуки сессий, политика, гейт нативных вызовов | `ai-engine/facade:{api,impl}` (`SessionHooks`, `ToolPolicy`, `authorizeNative`) |
+| Адаптивные помощники (`AgentOptions.adaptive`, `sessions.spawn(..., adaptive)`) | `api/workflow/AdaptiveAgent.kt`; порт `impl/domain/services/HarnessHelperModels.kt`, адаптер над `AdaptiveModels` (`adaptive-subagents:api`) — `impl/data/services/AdaptiveHarnessHelperModels.kt` |
 
 ## Правила
 
@@ -42,10 +44,13 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   агента после автоматической проверки). Другие фичи шлют только `Public.Attach`/`Detach`/`Reload`;
   у `HarnessRunsMachineKey` публичных интентов нет.
 - Хуки только ужесточают (Deny / Ask / контекст). Вердикта «разрешить» нет.
-- Харнессы активируются только явным подключением к чату: пользователь выбирает их в меню «+» или
-  агент вызывает `harness_attach`. Старые области `Profile`/`Projects` сохраняются для чтения данных, но не
-  дают автоматической активации.
-- Новый чат: харнессы, выбранные в «+», передаются движку при открытии сессии
+- Харнессы активируются через сохранённое подключение к чату: пользователь выбирает их в меню «+» или
+  агент вызывает `harness_attach`. Настройка `isDefaultForNewSessions` (изначально false) заранее выбирает
+  включённый харнесс в новом обычном чате студии с учётом доступности в проекте. Пользователь может снять выбор,
+  в том числе всех харнессов; подключения существующих чатов не меняются. Служебные и органические сессии
+  не получают этот выбор. Сами области `Profile`/`Projects` автоматической активации не дают. Смена настройки
+  сохраняет новую ревизию харнесса со штатной реактивацией кода, как другие правки его метаданных.
+- Новый чат: харнессы, выбранные по умолчанию или в «+», передаются движку при открытии сессии
   (`CreateSessionRequest.preselected` → `AgentToolScope`/`ToolPolicyScope.preselected` под `HarnessTools.GROUP`),
   поэтому Codex объявляет их `hs_*` уже при `thread/start`; подключение записывается до первого промпта.
   Треду Codex, открытому раньше, харнесс, подключённый позже, новых `hs_*` не добавит — объявления заморожены.
@@ -62,6 +67,14 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   доверенный хост), без чата — работающая активация. `ScriptUiResult.Error` и слишком большой результат не считаются
   сбоем скрипта, исключение — считается. Харнесс — владелец поверхностей через `HarnessServiceUiProvider`: полный
   снимок владельцев только в Ready (не suspended, не reloading, тогл включён), иначе поверхности не удаляются.
+- Команды скриптов (`commands`, `ScriptCommands`; тогл `harness.commands`, по умолчанию false) — оффлайн мини-аппы:
+  `define` только при вычислении скрипта (печать при публикации), программа и аргументы фиксированы в исходнике,
+  параметр — только целый аргумент `{name}` с полным совпадением regex. `run` проверяет опубликованную активацию,
+  тогл, платформу, область проекта харнесса (`HarnessCreationScope`, worktree → исходный проект) и
+  `HarnessLimits.COMMAND_RUNS` на харнесс, запрещён из хуков; запуск — `LocalCommands` (`scheduler:api`).
+  Ревью исходника — единственная проверка команд (`HARNESS_COMMANDS_POLICY` и для агентских правок, и для
+  конфигурации проекта): нажатия, таймеры и события не перепроверяются. Прямой `ProcessBuilder` — риск для ревьюера.
+  Логируются только харнесс, итог и длительность, без программы, параметров и вывода.
 - Логи: никогда не логируются исходники, тексты, payload, wake note, диагностика компилятора и сообщения
   исключений скриптов — только класс исключения. Частые события — `log.v` и `@HighFrequency`.
 - Данные `ScriptData` принадлежат харнессу целиком и сохраняются в профильном `SecretStore`; ключ не содержит
@@ -76,6 +89,8 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   неудачную загрузку библиотеки через `Public.Reload` (в `Failed` без приостановки — новая загрузка).
 - Выбор харнессов нового чата живёт в сторе студии; при отправке он заявляется по submissionId
   (`StudioHarnesses.claim`) и подключается до первого промпта; ходы ждут только при заявке в полёте.
+  До первого известного снимка библиотеки отправка из нового обычного чата недоступна, черновик сохраняется;
+  ошибка загрузки показывает повтор через `Public.Reload`. Выключенная фича даёт известный пустой снимок.
 
 ## Изменение API скриптов и workflow
 
@@ -89,6 +104,12 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
    Примеры `EXAMPLE_VERIFY_SCRIPT` и `EXAMPLE_SCREEN_WORKFLOW` компилирует `HarnessReferenceExamplesTest` (jvmTest) —
    он должен оставаться зелёным.
 5. Новое событие: тип в `harness/api/event`, источник в `data/events/HarnessEventSources.kt`, маппинг и тест.
+
+Адаптивные помощники: модель выбирается один раз до `acquire` слота (`WorkflowHelperDriver.prepare`,
+`HarnessSpawnOperations.produce`) и передаётся в `HelperAgents.create` как target + `HelperModelOptions(effort)`;
+явный `target` главнее, восстановленный шаг или помощник не выбирают заново. Digest шага workflow меняется только
+при `adaptive != null` — старые журналы не расходятся. `Inherit` (фича выключена, нет кандидатов) оставляет
+прежнее поведение; ревью действий помощника идёт на модели родителя (хост помощника задаёт `reviewTarget`).
 
 ## После апгрейда Kotlin
 

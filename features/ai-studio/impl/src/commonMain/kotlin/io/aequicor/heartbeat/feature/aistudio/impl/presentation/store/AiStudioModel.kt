@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
@@ -41,9 +42,11 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectTrustNoticeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.afterNavigation
@@ -164,7 +167,10 @@ class AiStudioModel(
     }
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
-        initial = AiStudioScreenState(now = clock.now()).reflectMachine(machine.state.value),
+        initial = AiStudioScreenState(
+            now = clock.now(),
+            harnessChoices = HarnessChoicesUi(isReady = harnesses === StudioHarnesses.None),
+        ).reflectMachine(machine.state.value),
         // Failures are logged by the store factory; the workspace stays usable instead of a dead-end error.
         onError = { this },
     ) {
@@ -199,8 +205,16 @@ class AiStudioModel(
                 launch {
                     entries.showsAttachments.collect { updateState { copy(isAttachmentsEnabled = it) } }
                 }
+                launch {
+                    entries.securityLevels.collect { level ->
+                        updateState { copy(securityLevel = level.toUi()) }
+                    }
+                }
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
                 launch { compactions.availability.collect { updateState { copy(isCompactEnabled = it) } } }
+                launch {
+                    compactions.compacting.collect { updateState { copy(compactingChats = it.toImmutableSet()) } }
+                }
                 launch {
                     compactions.feed.collect {
                         updateState {
@@ -548,18 +562,11 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.Usage -> usage(pipeline, intent)
 
-            is AiStudioScreenIntent.DecideProjectTrust -> {
-                var notice: ProjectTrustNoticeUi? = null
-                withState { notice = projectTrust }
-                this@AiStudioModel.projectTrust.decide(intent, notice)
-            }
-
-            is AiStudioScreenIntent.RespondPermission -> sendTo(
-                machine,
-                AiStudioIntent.Public.RespondPermission(intent.sessionId, intent.requestId, intent.optionId),
-            )
+            is AiStudioScreenIntent.Answer -> answer(pipeline, intent)
 
             is AiStudioScreenIntent.Suggestions -> suggestions.handle(pipeline, intent)
+
+            AiStudioScreenIntent.ReloadHarnesses -> harnessSelection.reload(pipeline)
 
             is AiStudioScreenIntent.Submit -> submit(pipeline, intent.paneId, environment)
 
@@ -585,10 +592,18 @@ class AiStudioModel(
         }
     }
 
-    private suspend fun selectEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEffort) {
-        val effort = if (intent.effort == EffortUi.VeryHigh) "xhigh" else intent.effort.name.lowercase()
-        selectSetting(pipeline, intent.paneId, StudioSettingChange.Effort(effort)) {
-            copy(effort = intent.effort.toDomain())
+    private suspend fun answer(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Answer) = with(pipeline) {
+        when (intent) {
+            is AiStudioScreenIntent.DecideProjectTrust -> {
+                var notice: ProjectTrustNoticeUi? = null
+                withState { notice = projectTrust }
+                this@AiStudioModel.projectTrust.decide(intent, notice)
+            }
+
+            is AiStudioScreenIntent.RespondPermission -> sendTo(
+                machine,
+                AiStudioIntent.Public.RespondPermission(intent.sessionId, intent.requestId, intent.optionId),
+            )
         }
     }
 
@@ -672,6 +687,13 @@ class AiStudioModel(
         }
     }
 
+    private suspend fun selectEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEffort) {
+        val effort = if (intent.effort == EffortUi.VeryHigh) "xhigh" else intent.effort.name.lowercase()
+        selectSetting(pipeline, intent.paneId, StudioSettingChange.Effort(effort)) {
+            copy(effort = intent.effort.toDomain())
+        }
+    }
+
     private suspend fun selectEngineEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEngineEffort) =
         with(pipeline) {
             log.i { "select effort: ${intent.effort ?: "default"}" }
@@ -747,4 +769,10 @@ sealed interface StudioAttachmentNavigation {
 
     /** Opens an existing file; optional export starts its native save dialog. */
     data class Preview(val id: String, val isExportRequested: Boolean = false) : StudioAttachmentNavigation
+}
+
+private fun StudioSecurityLevel.toUi(): SecurityLevelUi = when (this) {
+    StudioSecurityLevel.Ask -> SecurityLevelUi.Ask
+    StudioSecurityLevel.Automatic -> SecurityLevelUi.Automatic
+    StudioSecurityLevel.Trust -> SecurityLevelUi.Trust
 }

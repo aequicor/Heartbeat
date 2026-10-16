@@ -23,43 +23,26 @@ import pro.respawn.flowmvi.plugins.reduce
 enum class SettingsSectionUi {
     Models,
     Engines,
+    Security,
+    Subagents,
     Search,
     ComputerUse,
     ChromiumBrowser,
     AgentLearning,
     Context,
+    Builds,
     Harness,
     Interfaces,
+    ProjectConfig,
+    Logs,
     FeatureFlags,
 }
 
-/** Screen value of a contract section. */
-fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
-    SettingsSection.Models -> SettingsSectionUi.Models
-    SettingsSection.Engines -> SettingsSectionUi.Engines
-    SettingsSection.Search -> SettingsSectionUi.Search
-    SettingsSection.ComputerUse -> SettingsSectionUi.ComputerUse
-    SettingsSection.ChromiumBrowser -> SettingsSectionUi.ChromiumBrowser
-    SettingsSection.AgentLearning -> SettingsSectionUi.AgentLearning
-    SettingsSection.Context -> SettingsSectionUi.Context
-    SettingsSection.Harness -> SettingsSectionUi.Harness
-    SettingsSection.Interfaces -> SettingsSectionUi.Interfaces
-    SettingsSection.FeatureFlags -> SettingsSectionUi.FeatureFlags
-}
+/** Screen value of a contract section; both enums declare the same names in the same order. */
+fun SettingsSection.toUi(): SettingsSectionUi = SettingsSectionUi.valueOf(name)
 
-/** Contract section of a screen value. */
-fun SettingsSectionUi.toSection(): SettingsSection = when (this) {
-    SettingsSectionUi.Models -> SettingsSection.Models
-    SettingsSectionUi.Engines -> SettingsSection.Engines
-    SettingsSectionUi.Search -> SettingsSection.Search
-    SettingsSectionUi.ComputerUse -> SettingsSection.ComputerUse
-    SettingsSectionUi.ChromiumBrowser -> SettingsSection.ChromiumBrowser
-    SettingsSectionUi.AgentLearning -> SettingsSection.AgentLearning
-    SettingsSectionUi.Context -> SettingsSection.Context
-    SettingsSectionUi.Harness -> SettingsSection.Harness
-    SettingsSectionUi.Interfaces -> SettingsSection.Interfaces
-    SettingsSectionUi.FeatureFlags -> SettingsSection.FeatureFlags
-}
+/** Contract section of a screen value; both enums declare the same names in the same order. */
+fun SettingsSectionUi.toSection(): SettingsSection = SettingsSection.valueOf(name)
 
 /**
  * State of the settings window. [selected] is the section shown next to the list; [requested] is the section
@@ -106,7 +89,7 @@ class SettingsModel(
 ) {
     private val log = Log.tag("SettingsModel")
 
-    val store = factory.create<SettingsScreenState, SettingsScreenIntent, SettingsScreenAction>(
+    private val screen = factory.createScreen<SettingsScreenState, SettingsScreenIntent, SettingsScreenAction>(
         "Settings",
         SettingsScreenState(),
         onError = { this },
@@ -141,6 +124,10 @@ class SettingsModel(
             }
         }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope.coroutineScope)

@@ -27,7 +27,9 @@ private val GUIDE = """
 
     A harness is a reusable environment for a task or project, including an embedded mini-app. Steps:
     1. For scripts, read harness_api_reference(topic="api") and topic="examples" before writing code.
-    2. harness_create(name, title, description, attach). The harness is connected only to chats selected
+    2. harness_create(name, title, description, attach). It belongs to the current project (a worktree uses its
+       source project), or the shared library when created without a project. The attach flag only controls
+       connection to this chat; it does not change that library scope. Other chats connect it explicitly
        from the composer’s + menu or by the agent with harness_attach.
     3. harness_item_put for each item:
        - instruction: a short rule every session follows (≤ ${HarnessLimits.INSTRUCTION_CHARS} chars);
@@ -66,6 +68,8 @@ private val GUIDE = """
     source and affected chats. Code also compiles before review. Only a safe verdict permits execution;
     risk, uncertainty or unavailable review returns a tool error with a reason, without asking the user.
     Fix the concrete issue before retrying; profile approval levels and full trust never bypass this gate.
+    Commands declared with commands.define are reviewed with the script, once: later runs from buttons, timers
+    and events are not checked again, so declare only commands safe to repeat unattended.
     Off switches and Deny/Ask hooks apply in every chat a harness is connected to; everything else comes from the
     first ${HarnessLimits.ACTIVE_PER_SESSION} connected harnesses of a chat by name.
     Never put secrets, tokens or personal data in harness source, instructions or templates. Runtime mini-app
@@ -80,7 +84,8 @@ private val GUIDE = """
 
 private val API = """
     Kotlin API (scripts: base class HarnessScriptBase; workflows: HarnessWorkflowBase). Imported by default:
-    ItemName, events.on<…>, AgentOptions, ScriptUiResult, ScriptDataSnapshot, ScriptDataWriteResult, launch,
+    ItemName, events.on<…>, AgentOptions, AdaptiveAgent, AgentPriority, AgentComplexity, AgentNeed, ScriptUiResult,
+    ScriptDataSnapshot, ScriptDataWriteResult, ScriptCommand, ScriptCommandResult, ScriptCommandRefusal, launch,
     JsonElement/JsonObject/JsonArray/JsonPrimitive/JsonNull, buildJsonObject/buildJsonArray, put/add/addJsonObject/putJsonArray/putJsonObject, seconds/minutes/hours.
     Import other types explicitly (package io.aequicor.heartbeat.feature.harness.api.*
     and io.aequicor.heartbeat.feature.aiengine.facade.api.*).
@@ -124,6 +129,23 @@ private val API = """
       ${HarnessLimits.UI_RESULT_BYTES} bytes; at most ${HarnessLimits.UI_METHODS} methods. Return ScriptUiResult.Error
       for expected problems (missing login, bad input): thrown exceptions count as failures. Put UI methods in their
       own script item: an activation runs its callbacks one at a time, so a slow method delays hooks of its item.
+    - commands.define(ItemName("test"), ScriptCommand(program, arguments, parameters, timeout)) during evaluation;
+      commands.run(ItemName("test"), call.workspace, mapOf("filter" to value)): ScriptCommandResult (Desktop).
+      The program and arguments are fixed in this source; an argument that is exactly {name} takes parameter
+      name, whose value must fully match its Regex. Words are not expanded or split. On Windows program selects
+      an external application or .bat/.cmd, never a PowerShell cmdlet/function or .ps1; wildcard/backtick syntax
+      in program is refused. Empty words, & | < > ^ % ! ( ) " and line breaks are refused; values with , ; = stay
+      one argument, but a trailing \ with whitespace or , ; = is refused. Relative programs run from the
+      project directory (./gradlew; on Windows .\gradlew.bat). Results: Exited(exitCode, output) — a non-zero
+      code is ordinary —, TimedOut(output) or Refused(reason: Disabled, Unsupported, NoProject, OutsideScope,
+      NotDefined, InvalidParameter, Busy). Output keeps the head and tail of stdout and stderr. Timeout
+      ≤ ${HarnessLimits.COMMAND_TIMEOUT}, ≤ ${HarnessLimits.COMMANDS} commands, ${HarnessLimits.COMMAND_RUNS} runs at once per harness;
+      hooks cannot run commands. Pass the trusted call.workspace, never a WorkspaceRef built from input; keep
+      parameter patterns simple anchored character classes. The safety review of this script is the only check: button presses (native or
+      WebView heartbeat.call), timers and events then run the declared commands with no agent turn, review or
+      confirmation, so a mini-app keeps working while no agent is available. A UI method waits at most its
+      budget: start longer commands in script.scope.launch { } and save the outcome in data. Never use
+      ProcessBuilder or Runtime.exec: undeclared processes are arbitrary execution and fail the review.
     - data.read("state"): ScriptDataSnapshot(value: JsonElement?, revision: Long) — durable JSON shared by all
       script items of this harness. Source/item replacement, detach, disable and restart keep data; deleting the
       harness removes it. Each call requires the current published activation; evaluation cannot read or write.
@@ -137,15 +159,17 @@ private val API = """
       data by writing on every load. Use defaults on read, initialize through an explicit user action.
     - sessions.list(), sessions.history(session) — only chats where this harness is active.
     - sessions.send(session, text) — a visible message to that chat (quota ${HarnessLimits.SENDS_PER_MINUTE}/min).
-    - sessions.spawn(parent, title, prompt) — a helper chat with Ask trust.
+    - sessions.spawn(parent, title, prompt, adaptive = null) — a helper chat with Ask trust; adaptive picks its
+      model like AgentOptions.adaptive below.
     - scheduler.every(5.minutes) { } / scheduler.at(instant) { } — in-process timers.
     - scheduler.wake(session, condition, note) / scheduler.cancel(id) — owned wakes of a chat; a wake shares the
       ${HarnessLimits.SENDS_PER_MINUTE}/min quota with sessions.send.
     - scheduler.publish(ItemName("built"), payload) — bus event custom.harness.<harness>.<name>.
     - prompts.render(ItemName("step"), mapOf("arg" to "value")) — render a template of this harness.
     - workflows.start(ItemName("screen"), input) — start a workflow of this harness (covered by script approval).
-    Hooks cannot send, wake, spawn or start workflows. Not available: top-level suspend (use script.scope.launch),
-    @Serializable, println, exitProcess, global coroutine scopes, blocking bridges and @file annotations.
+    Hooks cannot send, wake, spawn, run commands or start workflows. Not available: top-level suspend (use
+    script.scope.launch), @Serializable, println, exitProcess, global coroutine scopes, blocking bridges and @file
+    annotations.
     Harness turns in a chat: after ${HarnessLimits.SEND_CHAIN} agent turns in a row started by harnesses (sends,
     wakes and their follow-ups) without a turn of the user, sessions.send and scheduler.wake throw
     IllegalStateException and pending script wakes of that chat are dropped until the user writes again.
@@ -153,7 +177,13 @@ private val API = """
     the turn limit above are not failures: an uncaught one ends the callback without counting towards the limit.
 
     Workflow source registers one definition: workflow { input -> … JsonElement }. Inside (WorkflowScope):
-    - agent(prompt, AgentOptions(title, target = null)): String — runs a helper chat and returns its answer;
+    - agent(prompt, AgentOptions(title, target = null, adaptive = null)): String — runs a helper chat and returns
+      its answer. target pins the model; otherwise adaptive = AdaptiveAgent(priority, complexity, needs, tags) lets
+      the host choose engine, model and reasoning effort among the user's enabled models when adaptive subagents
+      are on: priority Quality/Balanced/Speed/Cost (null — the user's default), complexity Low/Medium/High, needs
+      Images/Pdf/LongContext, tags such as coding, review, research, docs. Without both, or when nothing fits,
+      the helper keeps the default model. The model is chosen once per step and kept on replay and recovery;
+      changing adaptive for a recorded step fails the run as Diverged;
     - parallel({ … }, { … }) — branches run concurrently;
     - step("name") { … JsonElement } — memoized local work; now() — memoized clock;
     - prompt(ItemName("t"), args) / skill(ItemName("s")) — pinned content of the harness.
@@ -213,29 +243,46 @@ internal val EXAMPLE_VERIFY_SCRIPT = """
     events.on<SessionEvent.TurnFinished> { _ -> }
 """.trimIndent()
 
-/** Desktop script of a pull request map: a UI method lists PRs of a repository with dependencies and a diagram. */
+/** Desktop script of a pull request map: a declared gh command behind a UI method, with dependencies and a diagram. */
 internal val EXAMPLE_UI_SCRIPT = """
-    import io.aequicor.heartbeat.feature.harness.api.script.ScriptUiCall
-    import kotlinx.coroutines.Dispatchers
-    import kotlinx.coroutines.withContext
     import kotlinx.serialization.json.Json
+    import kotlinx.serialization.json.contentOrNull
     import kotlinx.serialization.json.jsonArray
     import kotlinx.serialization.json.jsonObject
     import kotlinx.serialization.json.jsonPrimitive
 
-    val repository = Regex("[\\w.-]+/[\\w.-]+")
+    val prList = ItemName("pr_list")
+    val fields = "number,title,url,headRefName,baseRefName"
+
+    commands.define(
+        prList,
+        ScriptCommand(
+            "gh",
+            listOf("pr", "list", "--repo", "{repo}", "--limit", "10", "--json", fields),
+            parameters = mapOf("repo" to Regex("\\w[\\w.-]*/[\\w.-]+")),
+            timeout = 30.seconds,
+        ),
+    )
 
     fun field(pr: JsonObject, name: String): String = pr[name]?.jsonPrimitive?.content.orEmpty()
 
-    fun pullRequests(call: ScriptUiCall): ScriptUiResult {
-        val repo = call.arguments["repo"]?.jsonPrimitive?.content.orEmpty()
-        if (!repository.matches(repo)) return ScriptUiResult.Error("Enter the repository as owner/name")
-        val process = ProcessBuilder(
-            "gh", "pr", "list", "--repo", repo, "--limit", "50", "--json", "number,title,url,headRefName,baseRefName",
-        ).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().readText()
-        if (process.waitFor() != 0) return ScriptUiResult.Error("gh failed; sign in with: gh auth login")
-        val prs = Json.parseToJsonElement(output).jsonArray.map { it.jsonObject }
+    fun refusal(reason: ScriptCommandRefusal): String = when (reason) {
+        ScriptCommandRefusal.InvalidParameter -> "Enter the repository as owner/name"
+        ScriptCommandRefusal.NoProject, ScriptCommandRefusal.OutsideScope -> "Open this app in a project chat"
+        ScriptCommandRefusal.Busy -> "A request is already running"
+        else -> "Commands are unavailable here"
+    }
+
+    fun pullRequests(output: String): ScriptUiResult {
+        val invalidOutput = ScriptUiResult.Error("gh output was incomplete or invalid; request fewer pull requests")
+        // The runner's omission marker may land inside a JSON string and still parse as a partial list.
+        if (Regex("\\n… [0-9]+ bytes omitted …\\n").containsMatchIn(output)) return invalidOutput
+        val prs = try {
+            Json.parseToJsonElement(output).jsonArray.map { it.jsonObject }
+        } catch (_: IllegalArgumentException) {
+            // Bounded command output may be incomplete; never include it in errors or logs.
+            return invalidOutput
+        }
         val byBranch = prs.associateBy { field(it, "headRefName") }
         val items = buildJsonArray {
             prs.forEach { pr ->
@@ -269,8 +316,19 @@ internal val EXAMPLE_UI_SCRIPT = """
         )
     }
 
-    ui.method(ItemName("prs"), "Open PRs of {repo: owner/name} with dependencies and a PlantUML map") { call ->
-        withContext(Dispatchers.IO) { pullRequests(call) }
+    fun shown(result: ScriptCommandResult): ScriptUiResult = when (result) {
+        is ScriptCommandResult.Exited -> if (result.exitCode == 0) {
+            pullRequests(result.output)
+        } else {
+            ScriptUiResult.Error("gh failed; run: gh auth login")
+        }
+        is ScriptCommandResult.TimedOut -> ScriptUiResult.Error("gh did not answer in time")
+        is ScriptCommandResult.Refused -> ScriptUiResult.Error(refusal(result.reason))
+    }
+
+    ui.method(ItemName("prs"), "Up to 10 open PRs of {repo: owner/name} with dependencies and a PlantUML map") { call ->
+        val repo = (call.arguments["repo"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        shown(commands.run(prList, call.workspace, mapOf("repo" to repo)))
     }
 """.trimIndent()
 
@@ -327,6 +385,7 @@ internal val EXAMPLE_MINIAPP_SCRIPT = """
 internal val EXAMPLE_SCREEN_WORKFLOW = """
     workflow { input ->
         val screen = (input["screen"] as? JsonPrimitive)?.content ?: "Screen"
+        val checklist = AdaptiveAgent(AgentPriority.Cost, AgentComplexity.Low, tags = setOf("review"))
         val design = agent(
             prompt(ItemName("design_step"), mapOf("screen" to screen)),
             AgentOptions("Design ${'$'}screen"),
@@ -338,7 +397,7 @@ internal val EXAMPLE_SCREEN_WORKFLOW = """
             },
             {
                 val brief = "List previews and tests needed for ${'$'}screen"
-                JsonPrimitive(agent(brief, AgentOptions("Tests ${'$'}screen")))
+                JsonPrimitive(agent(brief, AgentOptions("Tests ${'$'}screen", adaptive = checklist)))
             },
         )
         buildJsonObject {
@@ -384,13 +443,16 @@ ${EXAMPLE_VERIFY_SCRIPT.prependIndent("    ")}
     harness_tools_set(harness="compose_ui", hosted_off=["web_search"], native={"claude": {"WebFetch": "off"}})
 
     Why: the instruction keeps every chat on tokens; the skill carries detail without filling the prompt; the
-    workflow splits design and implementation into helper chats; the script tightens destructive commands and
+    workflow splits design and implementation into helper chats, and the cheap test checklist may run on a
+    lighter model chosen by the host; the script tightens destructive commands and
     adds a reminder after edits; the policy removes tools the task does not need.
 
-    Advanced external integration: only when the task actually needs repository data and gh is already available
-    and authenticated. This example runs an external command and receives its own automatic safety review;
-    it is not a prerequisite or a setup step for local mini-apps. Harness pr_map gets script "methods", then a
-    surface built with ui_put calls it from a button without another agent turn:
+    Mini-app with commands: only when the task actually needs a local program (here gh, already installed and
+    authenticated). The command is declared in the script, so the script's safety review covers it; afterwards a
+    button runs it without another agent turn or confirmation, also while no agent is available. It is not a
+    prerequisite or a setup step for local mini-apps. Harness pr_map gets script "methods", then a surface built
+    with ui_put calls it from a button to show up to 10 open PRs
+    (a web card: heartbeat.call("prs", {repo: "owner/name"})):
 
 ${EXAMPLE_UI_SCRIPT.prependIndent("    ")}
 """.trimIndent()

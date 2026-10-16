@@ -3,18 +3,27 @@ package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.ds.tokens.HbMotion
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.DescribedModel
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.managedSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.settingsSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import kotlinx.collections.immutable.persistentSetOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -27,7 +36,7 @@ class EngineConnectionsUiTest {
         val intents = mutableListOf<EngineConnectionsScreenIntent>()
         val wizard = mutableListOf<String?>()
         setContent {
-            HbTheme { EngineConnectionsContent(loaded, { intents += it }, { wizard += it }, {}) }
+            HbTheme { EngineConnectionsContent(loaded, { intents += it }, { wizard += it }, {}, { _, _ -> }) }
         }
         onNodeWithTag("settings-engine:koog").assertIsSelected()
         onNodeWithTag("settings-connection:home").assertIsSelected()
@@ -50,10 +59,75 @@ class EngineConnectionsUiTest {
     }
 
     @Test
+    fun `a model description opens for the selected engine only while descriptions are on`() = runSkikoComposeUiTest {
+        val opened = mutableListOf<Pair<String, String>>()
+        val described = loaded.copy(descriptions = persistentSetOf(DescribedModel(KoogId, ModelId("qwen"))))
+            .reflect(EngineConnectionsState.Active(settingsSnapshot()))
+        var state by mutableStateOf(loaded)
+        setContent {
+            HbTheme { EngineConnectionsContent(state, {}, {}, {}, { engine, model -> opened += engine to model }) }
+        }
+        onNodeWithTag("settings-description:qwen").assertDoesNotExist()
+        state = described
+        onNodeWithTag("settings-description:llama").assertExists()
+        onNodeWithTag("settings-description:qwen").performClick()
+        runOnIdle { assertEquals(listOf("koog" to "qwen"), opened) }
+    }
+
+    @Test
+    fun `pending writes disable mutations before progress appears and enable them on completion`() =
+        runSkikoComposeUiTest(size = Size(1000f, 1600f)) {
+            var state by mutableStateOf(loaded)
+            val intents = mutableListOf<EngineConnectionsScreenIntent>()
+            val tags = listOf(
+                "settings-probe",
+                "settings-refresh-models",
+                "settings-disconnect",
+                "settings-connection-enabled",
+                "settings-models-all",
+                "settings-models-none",
+                "model-switch:qwen",
+                "settings-default:qwen",
+            )
+            setContent { HbTheme { EngineConnectionsContent(state, intents::add, {}, null, { _, _ -> }) } }
+            tags.forEach { onNodeWithTag(it).assertIsEnabled() }
+            mainClock.autoAdvance = false
+            runOnIdle { state = loaded.copy(isSaving = true) }
+            mainClock.advanceTimeByFrame()
+            onNodeWithTag("settings-saving").assertDoesNotExist()
+            tags.forEach { tag ->
+                onNodeWithTag(tag).assertIsNotEnabled()
+                onNodeWithTag(tag).performMouseInput {
+                    moveTo(center)
+                    press()
+                    release()
+                    exit()
+                }
+            }
+            runOnIdle { assertEquals(emptyList(), intents) }
+            onNodeWithTag("settings-model-search").assertIsEnabled()
+            mainClock.advanceTimeBy(HbMotion().busyRevealDelayMillis.toLong() * 2)
+            onNodeWithTag("settings-saving").assertExists()
+            tags.forEach { onNodeWithTag(it).assertIsNotEnabled() }
+            runOnIdle { state = loaded }
+            mainClock.advanceTimeByFrame()
+            onNodeWithTag("settings-saving").assertDoesNotExist()
+            tags.forEach { onNodeWithTag(it).assertIsEnabled() }
+            onNodeWithTag("model-switch:qwen").performClick()
+            runOnIdle {
+                assertEquals(
+                    listOf<EngineConnectionsScreenIntent>(EngineConnectionsScreenIntent.SetModelEnabled("qwen", true)),
+                    intents,
+                )
+            }
+        }
+
+    @Test
     fun `disconnect asks for confirmation`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineConnectionsScreenIntent>()
         setContent {
-            HbTheme { EngineConnectionsContent(loaded.copy(confirmDisconnect = "home"), { intents += it }, {}, {}) }
+            val confirming = loaded.copy(confirmDisconnect = "home")
+            HbTheme { EngineConnectionsContent(confirming, { intents += it }, {}, {}, { _, _ -> }) }
         }
         onNodeWithTag("settings-disconnect-confirm").performClick()
         runOnIdle {
@@ -68,7 +142,9 @@ class EngineConnectionsUiTest {
     fun `with engine management the selected engine opens its control panel`() = runSkikoComposeUiTest {
         val opened = mutableListOf<String>()
         var state by mutableStateOf(loaded)
-        setContent { HbTheme { EngineConnectionsContent(state, {}, {}, {}, onManageEngine = { opened += it }) } }
+        setContent {
+            HbTheme { EngineConnectionsContent(state, {}, {}, {}, { _, _ -> }, onManageEngine = { opened += it }) }
+        }
         onNodeWithTag("settings-manage-engine").assertDoesNotExist()
 
         state = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(managedSettingsSnapshot()))

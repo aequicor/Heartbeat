@@ -29,7 +29,7 @@ Use realistic empty/populated/long sample data, rerender at narrow and wide widt
 ## Bridge and lifecycle
 
 - Initial data is `heartbeat.data`. Read later values from `window`'s `heartbeat:data` event, using `event.detail`.
-- With `bridge:true`, `await heartbeat.call(method, args)` invokes a published owner method. `args` is an object. It returns the method value or rejects with an `Error` containing the owner's message.
+- With `bridge:true`, `await heartbeat.call(method, args)` invokes a published owner method. `args` is an object. It returns the method value or rejects with an `Error` containing the owner's message. The call needs no agent turn. A method may run commands its script declared with `commands.define`; a WebView button follows the same rules as a native one: reviewed once with the script, not again on each press.
 - It is not a general tool API: there is no supported `heartbeat.open`, file API or arbitrary tool execution. Native actions can surround the WebView when host operations are needed.
 - Call mutation methods from user actions, keep an in-flight guard, and display errors near the action. Retain the same operation ID for a retry if a write's outcome is uncertain and the owner supports deduplication.
 - Owner-data changes refresh auto sources and deliver new data to the page. Merge new saved state without replacing focused inputs or clearing local drafts. Avoid snapshot polling after every call.

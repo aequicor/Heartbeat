@@ -8,7 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
 import kotlinx.coroutines.CoroutineScope
 
 /** Script ABI revision included in compiled artifact cache keys; change it when this public contract changes. */
-public const val HARNESS_API_VERSION: Int = 3
+public const val HARNESS_API_VERSION: Int = 5
 
 /**
  * Host-issued services of one approved item revision. Its scope, subscriptions and registrations belong to that
@@ -57,6 +57,9 @@ public interface HarnessScriptScope {
 
     /** Methods for this harness's interfaces, called by user actions. */
     public val ui: ScriptUi
+
+    /** Fixed local commands declared in this approved source. */
+    public val commands: ScriptCommands
 }
 
 /**
@@ -92,6 +95,9 @@ public abstract class HarnessScriptBase(public val script: HarnessScriptScope) {
 
     /** Methods for this harness's interfaces. */
     public val ui: ScriptUi get() = script.ui
+
+    /** Fixed local commands of this script. */
+    public val commands: ScriptCommands get() = script.commands
 }
 
 /** Workflow evaluation only registers its definition; execution and replay belong to the workflow driver. */

@@ -5,11 +5,13 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.DescribedModel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import pro.respawn.flowmvi.api.MVIState
@@ -46,6 +48,8 @@ data class EngineConnectionsScreenState(
     val isSaving: Boolean = false,
     val loadFailure: FailureUi? = null,
     val failure: FailureUi? = null,
+    /** Models described for adaptive subagents; null while that feature is off. */
+    val descriptions: ImmutableSet<DescribedModel>? = null,
 ) : MVIState {
     override fun toString(): String = "EngineConnectionsScreenState(***)"
 }
@@ -121,6 +125,7 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
         ModelsPaneUi(
             models = cached?.models.orEmpty().map { model ->
                 model.toRow(model.target.model in enabled, model.target == snapshot.selection.defaultTarget)
+                    .copy(description = descriptionOf(model.target))
             }.toImmutableList(),
             isStale = cached?.observation?.isStale ?: true,
             isNeverSynced = cached?.observation?.checkedAt == null,
@@ -136,6 +141,15 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
         isManaged = management != null,
     )
 }
+
+private fun EngineConnectionsScreenState.descriptionOf(target: EngineTarget): ModelDescriptionUi? =
+    descriptions?.let { described ->
+        if (DescribedModel(target.engine, target.model) in described) {
+            ModelDescriptionUi.Described
+        } else {
+            ModelDescriptionUi.Missing
+        }
+    }
 
 private fun AuthSource.kind(): MethodKindUi = when (this) {
     is AuthSource.ManagedKey, is AuthSource.ExternalKey, is AuthSource.CredentialHelper -> MethodKindUi.ApiKey

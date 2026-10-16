@@ -13,6 +13,9 @@ internal interface CommandRunner {
     /** False on platforms without local processes. */
     val isAvailable: Boolean
 
+    /** Shell that receives [run]'s command text; null where there are no local processes. */
+    val shell: CommandShell? get() = null
+
     /** User code cannot run until the native identity callback has completed successfully. */
     val isStartTracked: Boolean get() = false
 

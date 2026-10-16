@@ -1,7 +1,11 @@
 package io.aequicor.heartbeat.feature.scheduler.impl
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandRequest
 import io.aequicor.heartbeat.feature.scheduler.api.TaskProcess
 import io.aequicor.heartbeat.feature.scheduler.impl.data.DesktopCommandRunner
+import io.aequicor.heartbeat.feature.scheduler.impl.data.RunnerLocalCommands
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -15,6 +19,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardWatchEventKinds
 import java.nio.file.WatchService
+import java.util.Base64
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -54,6 +59,77 @@ class DesktopCommandRunnerTest {
         val outcome = withContext(Dispatchers.Default) { runner.run(directory, "echo scheduled", 30.seconds) }
         assertEquals(0, outcome.exitCode)
         assertTrue("scheduled" in outcome.output, outcome.output)
+    }
+
+    @Test
+    fun `local command arguments and native exit codes survive stderr`() = runTest {
+        // The Windows Java launcher converts argv through CP_ACP; Windows-1252 cannot encode U+201B.
+        val typographicQuotes = if (isWindows) "\u2019\u2018\u201A" else "\u2019\u2018\u201A\u201B"
+        val words = listOf(
+            "it's", "\$HOME", "a;b", "a=b", "number,title", "*", "two words", "C:\\dir\\", typographicQuotes,
+        )
+        val workspace = WorkspaceRef("local")
+        val commands = RunnerLocalCommands(runner, Projects(mapOf(workspace to directory)))
+        for (exitCode in listOf(0, 7)) {
+            val invocation = LocalCommandTestProcess.arguments(exitCode, words)
+            val outcome = withContext(Dispatchers.Default) {
+                commands.run(LocalCommandRequest(workspace, invocation.first(), invocation.drop(1), 30.seconds))
+            }
+            assertTrue(outcome is LocalCommandOutcome.Exited, outcome.toString())
+            assertEquals(exitCode, outcome.exitCode, outcome.output)
+            assertTrue("native stderr" in outcome.output, outcome.output)
+            val received = outcome.output.lineSequence().filter { it.startsWith("argv:") }.map {
+                String(Base64.getDecoder().decode(it.removePrefix("argv:")), Charsets.UTF_8)
+            }.toList()
+            assertEquals(words, received, "exitCode=$exitCode; output=${outcome.output}")
+        }
+    }
+
+    @Test
+    fun `windows batch parameters keep separators in one argument`() = runTest {
+        if (!isWindows) return@runTest
+        Files.writeString(
+            Path.of(directory, "argument reader.cmd"),
+            "@echo off\r\necho [%~1]\r\necho [%~2]\r\necho [%~3]\r\n" +
+                "echo [%~4]\r\necho [%~5]\r\necho [%~6]\r\nexit /b 0\r\n",
+        )
+        val words = listOf("a,b", "a;b", "a=b", "two words", "number,title")
+        val workspace = WorkspaceRef("local")
+        val commands = RunnerLocalCommands(runner, Projects(mapOf(workspace to directory)))
+        for (program in listOf(".\\argument reader.cmd", ".\\argument reader")) {
+            val outcome = withContext(Dispatchers.Default) {
+                commands.run(LocalCommandRequest(workspace, program, words, 30.seconds))
+            }
+            assertTrue(outcome is LocalCommandOutcome.Exited, outcome.toString())
+            assertEquals(0, outcome.exitCode, outcome.output)
+            assertEquals(
+                words.map { "[$it]" } + "[]",
+                outcome.output.lineSequence().filter { it.isNotBlank() }.toList(),
+            )
+        }
+    }
+
+    @Test
+    fun `a missing local program never reports success`() = runTest {
+        val workspace = WorkspaceRef("local")
+        val commands = RunnerLocalCommands(runner, Projects(mapOf(workspace to directory)))
+        val program = if (isWindows) ".\\heartbeat-missing-command.exe" else "./heartbeat-missing-command"
+        val outcome = withContext(Dispatchers.Default) {
+            commands.run(LocalCommandRequest(workspace, program, timeout = 30.seconds))
+        }
+        assertTrue(outcome is LocalCommandOutcome.Exited && outcome.exitCode != 0, outcome.toString())
+    }
+
+    @Test
+    fun `an invalid Windows executable never reports success`() = runTest {
+        if (!isWindows) return@runTest
+        Files.writeString(Path.of(directory, "invalid-command.exe"), "This is not a Windows executable")
+        val workspace = WorkspaceRef("local")
+        val commands = RunnerLocalCommands(runner, Projects(mapOf(workspace to directory)))
+        val outcome = withContext(Dispatchers.Default) {
+            commands.run(LocalCommandRequest(workspace, ".\\invalid-command.exe", timeout = 30.seconds))
+        }
+        assertTrue(outcome is LocalCommandOutcome.Exited && outcome.exitCode != 0, outcome.toString())
     }
 
     @Test

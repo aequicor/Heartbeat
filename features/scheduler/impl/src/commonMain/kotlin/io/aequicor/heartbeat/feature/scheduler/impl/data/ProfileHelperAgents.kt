@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadataLimits
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
@@ -192,10 +193,11 @@ internal class ProfileHelperAgents(
         target: EngineTarget?,
         title: String,
         trustCap: TrustLevel,
+        model: HelperModelOptions,
     ): HelperId {
         val owned = lease as? ManagedHelperLease
         check(owned != null && owned.service === this) { "Foreign helper lease" }
-        return owned.create(HelperCreateRequest(owned.owner, owned.parent, workspace, target, title, trustCap))
+        return owned.create(HelperCreateRequest(owned.owner, owned.parent, workspace, target, title, trustCap, model))
     }
 
     override suspend fun prompt(helper: HelperId, prompt: HelperPrompt): HelperSubmission = bound(

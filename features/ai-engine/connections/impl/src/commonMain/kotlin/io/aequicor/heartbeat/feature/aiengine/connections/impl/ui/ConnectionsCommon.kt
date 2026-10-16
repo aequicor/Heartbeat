@@ -135,6 +135,8 @@ internal fun FailurePanel(
     failure: FailureUi,
     modifier: Modifier = Modifier,
     onRetry: (() -> Unit)? = null,
+    retryEnabled: Boolean = true,
+    retryVisualEnabled: Boolean = retryEnabled,
     extra: @Composable () -> Unit = {},
 ) {
     HbBanner(stringResource(failure.message()), modifier) {
@@ -144,6 +146,8 @@ internal fun FailurePanel(
                 stringResource(Res.string.conn_retry),
                 onRetry,
                 style = HbButtonStyle.Secondary,
+                enabled = retryEnabled,
+                visualEnabled = retryVisualEnabled,
                 size = HbButtonSize.Small,
             )
         }

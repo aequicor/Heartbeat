@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.actionPrepared
 import io.aequicor.heartbeat.feature.worktreemode.api.actionVerified
@@ -55,6 +56,11 @@ import kotlin.uuid.Uuid
 
 internal val WorktreeJournalSpec = KeyValueSpec("worktree_mode_journal")
 private val JournalKey = stringKey("records")
+private val terminalBuildPhases = setOf(
+    WorktreeBuildPhase.Completed,
+    WorktreeBuildPhase.Cancelled,
+    WorktreeBuildPhase.Failed,
+)
 
 /** Durable side-effect journal. Corrupt storage fails closed and never becomes an empty worktree registry. */
 @Inject
@@ -71,6 +77,7 @@ internal class WorktreeJournal(
     private val mutex = Mutex()
     private var records: Map<String, WorktreeRecord>? = null
     private val preparations = mutableMapOf<String, Mutex>()
+    private val upkeep = SandboxUpkeep(git)
 
     suspend fun load(): Map<String, WorktreeTask> {
         val saved = mutex.withLock { read() }
@@ -87,6 +94,11 @@ internal class WorktreeJournal(
 
     suspend fun taskProjection(chatId: String): WorktreeTask? = record(chatId)?.task
 
+    /** Provisioned sandbox tasks; their repositories own build slots. */
+    suspend fun sandboxRecords(): List<WorktreeRecord> = mutex.withLock {
+        read().values.filter { it.task.isSandbox && it.provisioning.isNotBlank() }
+    }
+
     /** Captures the concrete immutable command for the facade's single authorization gate. */
     suspend fun buildPreview(context: AgentToolContext, command: String): BuildExecution? {
         val task = authenticated(context) ?: return null
@@ -96,6 +108,10 @@ internal class WorktreeJournal(
     }
 
     suspend fun observeWorkers(emit: suspend (WorktreeTask) -> Unit) {
+        val restored = mutex.withLock { read().values.toList() }
+        // Sandbox upkeep runs after Loaded is published, so restoration is never delayed by Git.
+        restored.forEach { reclaimOutputs(it.task.chatId) }
+        pruneSandboxSnapshots(git, restored)
         val saved = mutex.withLock { read().values.toList() }
         observeRecords(saved, emit)
     }
@@ -144,6 +160,27 @@ internal class WorktreeJournal(
     }
 
     suspend fun apply(command: WorktreeIntent.Public, emit: suspend (WorktreeTask) -> Unit) {
+        applyCommand(command, emit)
+        command.chatId()?.let { reclaimOutputs(it) }
+    }
+
+    /** See [reclaimRetainedSandbox]; new turns and cleanup share this lock independently of completion choices. */
+    private suspend fun reclaimOutputs(chatId: String) {
+        val preparation = mutex.withLock { preparations.getOrPut(chatId) { Mutex() } }
+        upkeep.reclaim(chatId, preparation, { record(chatId) }) { markReclaimed(chatId, it) }
+    }
+
+    /** Path-side bookkeeping only: the visible task and its revision stay unchanged. */
+    private suspend fun markReclaimed(chatId: String, isReclaimed: Boolean) = mutex.withLock {
+        val saved = read()
+        val previous = saved[chatId] ?: return@withLock
+        val isCurrent = !isReclaimed || previous.task.phase == WorktreePhase.Retained
+        if (previous.isOutputsReclaimed != isReclaimed && isCurrent) {
+            write(saved + (chatId to previous.copy(isOutputsReclaimed = isReclaimed)))
+        }
+    }
+
+    private suspend fun applyCommand(command: WorktreeIntent.Public, emit: suspend (WorktreeTask) -> Unit) {
         when (command) {
             is WorktreeIntent.Public.Prepare -> prepare(command, emit)
 
@@ -228,17 +265,20 @@ internal class WorktreeJournal(
         }
     }
 
-    private suspend fun beginRun(command: WorktreeIntent.Public.RunStarted): WorktreeRecord? {
-        requireAvailable()
-        val pending = commitTransition(command) ?: return null
-        return if (pending.task.run?.request != command.request || pending.task.run?.isPrepared == true) {
-            pending
-        } else {
-            check(pending.task.builds.values.none { it.phase == WorktreeBuildPhase.Unknown }) { "WorkerOutcomeUnknown" }
-            check(git.exists(pending)) { "WorktreeUnavailable" }
-            update(command.chatId) { it.copy(task = it.task.runPrepared(command.request)) }
+    private suspend fun beginRun(command: WorktreeIntent.Public.RunStarted): WorktreeRecord? =
+        upkeep.prepareRun(command.chatId) {
+            requireAvailable()
+            val pending = update(command.chatId) { it.startingRun(command) } ?: return@prepareRun null
+            if (pending.task.run?.request != command.request || pending.task.run?.isPrepared == true) {
+                pending
+            } else {
+                check(pending.task.builds.values.none { it.phase == WorktreeBuildPhase.Unknown }) {
+                    "WorkerOutcomeUnknown"
+                }
+                check(git.exists(pending)) { "WorktreeUnavailable" }
+                update(command.chatId) { it.copy(task = it.task.runPrepared(command.request)) }
+            }
         }
-    }
 
     private suspend fun cancelBuild(command: WorktreeIntent.Public.CancelBuild): WorktreeRecord? {
         val owned = record(command.chatId)?.task?.builds?.get(command.operation) ?: return null
@@ -340,6 +380,7 @@ internal class WorktreeJournal(
                 sourceBranch = plan.sourceBranch,
                 branch = plan.branch,
                 baseCommit = plan.baseCommit,
+                isSandbox = toggles.get(WorktreeSandboxEnabled),
             )
             val pending = WorktreeRecord(
                 task,
@@ -551,8 +592,29 @@ internal class WorktreeJournal(
         ) { "BuildConfigurationChanged" }
         check(current.task.run?.outcome == null && current.task.run?.turn != null) { "TurnUnavailable" }
         check(current.task.hasActiveRun(command.expectedRun)) { "TurnUnavailable" }
-        val execution = git.build(current, command.operation, command.command)
-        val queued = update(command.chatId) {
+        val execution = git.build(current, command.operation, command.command).let { prepared ->
+            val sandbox = prepared.sandbox ?: return@let prepared
+            prepared.copy(sandbox = sandbox.copy(snapshot = git.snapshot(current, command.operation)))
+        }
+        val queued = try {
+            queueBuild(command, execution)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (execution.sandbox != null) git.discardSnapshot(current, command.operation)
+            throw error
+        }
+        queued?.let { emit(it.task) }
+        val accepted = checkNotNull(queued?.jobs?.get(command.operation))
+        val projection = coroutineContext
+        val result = builds.execute(accepted) { build ->
+            project(projection) { buildUpdate(command.chatId, build)?.let { emit(it.task) } }
+        }
+        buildUpdate(command.chatId, result)?.let { emit(it.task) }
+    }
+
+    private suspend fun queueBuild(command: WorktreeIntent.Public.RunBuild, execution: BuildExecution) =
+        update(command.chatId) {
             check(
                 it.task.buildConfigurationRevision == command.expectedConfigurationRevision,
             ) { "BuildConfigurationChanged" }
@@ -573,14 +635,6 @@ internal class WorktreeJournal(
                 jobs = it.jobs + (command.operation to immutable),
             )
         }
-        queued?.let { emit(it.task) }
-        val accepted = checkNotNull(queued?.jobs?.get(command.operation))
-        val projection = coroutineContext
-        val result = builds.execute(accepted) { build ->
-            project(projection) { buildUpdate(command.chatId, build)?.let { emit(it.task) } }
-        }
-        buildUpdate(command.chatId, result)?.let { emit(it.task) }
-    }
 
     private suspend fun buildUpdate(chatId: String, build: WorktreeBuildOperation): WorktreeRecord? = update(chatId) {
         if (build.id !in it.task.builds) return@update it
@@ -663,14 +717,6 @@ internal class WorktreeJournal(
         log.d { "Persist worktree journal count=${next.size}" }
         store.set(JournalKey, Json.encodeToString(next.values.toList()))
         records = next
-    }
-
-    private companion object {
-        val terminalBuildPhases = setOf(
-            WorktreeBuildPhase.Completed,
-            WorktreeBuildPhase.Cancelled,
-            WorktreeBuildPhase.Failed,
-        )
     }
 }
 

@@ -5,11 +5,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 
 /**
  * Empty helper creation. Persist identity, owner, parent, helper marker and trust cap before returning.
  * A null [target] inherits the durable target of [parent], failing if it is unknown. Only a parentless helper
- * may leave its target unset for the host to select its current default on the first prompt.
+ * may leave its target unset for the host to select its current default on the first prompt. [model] is persisted
+ * with the helper and applied to every turn.
  */
 public data class HelperCreateRequest(
     val owner: ActionId,
@@ -18,6 +20,7 @@ public data class HelperCreateRequest(
     val target: EngineTarget?,
     val title: String,
     val trustCap: TrustLevel,
+    val model: HelperModelOptions = HelperModelOptions(),
 ) {
     override fun toString(): String = "HelperCreateRequest(owner=$owner, hasParent=${parent != null})"
 }

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.navigation.NavOptions
 import io.aequicor.heartbeat.core.navigation.NavTarget
 import io.aequicor.heartbeat.core.navigation.NavTransition
 import io.aequicor.heartbeat.core.navigation.Navigator
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfileRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.EngineConnectionsScope
@@ -78,6 +79,12 @@ class EngineConnectionsComponent(
     fun openEngineControl(engine: String) {
         log.i { "open engine control panel engine=$engine" }
         navigator.navigate(EngineControlPanelRoute(EngineId(engine)))
+    }
+
+    /** Opens the description of [model] of [engine] for adaptive subagents. */
+    fun openModelDescription(engine: String, model: String) {
+        log.i { "open model description" }
+        navigator.navigate(ModelProfileRoute(engine, model))
     }
 
     /** Closes the settings space. */

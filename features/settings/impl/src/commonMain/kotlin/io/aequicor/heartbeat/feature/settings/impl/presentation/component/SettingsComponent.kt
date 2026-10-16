@@ -18,11 +18,15 @@ import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.core.navigation.StackHost
 import io.aequicor.heartbeat.core.navigation.routeEntry
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsRoute
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfileRoute
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlPanelRoute
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlRoute
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityRoute
+import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
@@ -30,6 +34,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessItemRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessToolsRoute
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLibraryRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSurfaceRoute
@@ -43,6 +48,7 @@ import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsSe
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.toSection
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.toUi
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildsRoute
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -152,36 +158,50 @@ class SettingsComponent(
             EngineConnectionsRoute::class,
             EngineControlRoute::class,
             EngineControlPanelRoute::class,
+            StudioSecurityRoute::class,
+            AdaptiveSubagentsRoute::class,
+            ModelProfileRoute::class,
             ComputerUseRoute::class,
             ChromiumBridgeRoute::class,
             AgentLearningRoute::class,
             ContextOptimizationRoute::class,
+            WorktreeBuildsRoute::class,
             HarnessRoute::class,
             HarnessDetailRoute::class,
             HarnessItemRoute::class,
             HarnessToolsRoute::class,
             ServiceUiLibraryRoute::class,
             ServiceUiSurfaceRoute::class,
+            ProjectConfigRoute::class,
             ConnectEngineRoute::class,
             ProfileSettingsRoute::class,
             TogglesPanelRoute::class,
+            AppLogsRoute::class,
         )
     }
 }
 
 /** The embedded route of each section, owned by the section's feature. */
-internal fun SettingsSection.route(): Route = when (this) {
-    SettingsSection.Models -> EngineConnectionsRoute(isEmbedded = true)
-    SettingsSection.Engines -> EngineControlRoute(isEmbedded = true)
-    SettingsSection.Search -> ProfileSettingsRoute(isEmbedded = true)
-    SettingsSection.ComputerUse -> ComputerUseRoute(isEmbedded = true)
-    SettingsSection.ChromiumBrowser -> ChromiumBridgeRoute(isEmbedded = true)
-    SettingsSection.AgentLearning -> AgentLearningRoute(isEmbedded = true)
-    SettingsSection.Context -> ContextOptimizationRoute(isEmbedded = true)
-    SettingsSection.Harness -> HarnessRoute(isEmbedded = true)
-    SettingsSection.Interfaces -> ServiceUiLibraryRoute(isEmbedded = true)
-    SettingsSection.FeatureFlags -> TogglesPanelRoute(isEmbedded = true)
-}
+internal fun SettingsSection.route(): Route = EMBEDDED_ROUTES.getValue(this)
+
+// A table instead of a `when`: one entry per section keeps the mapping flat as sections are added.
+private val EMBEDDED_ROUTES: Map<SettingsSection, Route> = mapOf(
+    SettingsSection.Models to EngineConnectionsRoute(isEmbedded = true),
+    SettingsSection.Engines to EngineControlRoute(isEmbedded = true),
+    SettingsSection.Security to StudioSecurityRoute(isEmbedded = true),
+    SettingsSection.Subagents to AdaptiveSubagentsRoute(isEmbedded = true),
+    SettingsSection.Search to ProfileSettingsRoute(isEmbedded = true),
+    SettingsSection.ComputerUse to ComputerUseRoute(isEmbedded = true),
+    SettingsSection.ChromiumBrowser to ChromiumBridgeRoute(isEmbedded = true),
+    SettingsSection.AgentLearning to AgentLearningRoute(isEmbedded = true),
+    SettingsSection.Context to ContextOptimizationRoute(isEmbedded = true),
+    SettingsSection.Builds to WorktreeBuildsRoute(isEmbedded = true),
+    SettingsSection.Harness to HarnessRoute(isEmbedded = true),
+    SettingsSection.Interfaces to ServiceUiLibraryRoute(isEmbedded = true),
+    SettingsSection.ProjectConfig to ProjectConfigRoute(isEmbedded = true),
+    SettingsSection.Logs to AppLogsRoute(isEmbedded = true),
+    SettingsSection.FeatureFlags to TogglesPanelRoute(isEmbedded = true),
+)
 
 /** Base entry of [SettingsComponent.sections] before a section is chosen. */
 @Serializable

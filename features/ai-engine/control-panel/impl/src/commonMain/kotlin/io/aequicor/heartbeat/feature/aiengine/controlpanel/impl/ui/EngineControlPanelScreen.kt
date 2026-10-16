@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
+import io.aequicor.heartbeat.ds.components.rememberHbBusyReveal
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigFormUi
@@ -106,8 +107,12 @@ internal fun EngineControlPanelContent(
 /** The management block, the configuration pages and files, the projects and the import of the engine. */
 @Composable
 private fun Overview(state: EngineControlPanelState, onIntent: (EngineControlPanelIntent) -> Unit) {
+    // Input follows the actual write immediately; only its visual feedback waits to avoid a brief flash.
+    val isSavingVisible = rememberHbBusyReveal(state.isSaving)
     state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
-    state.panel?.let { EngineManagementSection(it, state.loginCode, state.isSaving, onIntent) }
+    state.panel?.let {
+        EngineManagementSection(it, state.loginCode, state.isSaving, onIntent, isSavingVisible = isSavingVisible)
+    }
     SettingsPages(state, onIntent)
     state.config?.takeIf { it.files.isNotEmpty() }?.let { ConfigFiles(it, onIntent) }
     if (state.projects.isNotEmpty()) ProjectsSection(state.projects, onIntent)

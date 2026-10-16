@@ -121,3 +121,22 @@ object NapierStoreLogger : StoreLogger {
    Ошибку, чьё сообщение может содержать URL, заголовки страниц, пути или текст пользователя, логируй как `log.w(error.redactedFailure())` (`core:logging`: тип и стек без message и causes), а не исключением, собранным из имени типа.
 
 Итог — список `[файл:строка] что не логируется / что логируется лишнее`.
+
+## Desktop: хранение и экспорт
+
+`RotatingFileLogSink` сохраняет UTF-8 в `desktopLogDirectory()`: macOS — `~/Library/Logs/Heartbeat`,
+Windows — `%LOCALAPPDATA%/Aequicor/Heartbeat/logs`, Linux — `$XDG_STATE_HOME/heartbeat/logs`
+(по умолчанию `~/.local/state/heartbeat/logs`). `desktopLegacyLogDirectories()` оставляет доступными прежние
+Linux-логи из `~/AppData/Local/Aequicor/Heartbeat/logs`; desktop передаёт эти каталоги sink для очистки.
+JUL сохраняет независимые файлы параллельных процессов (`heartbeat-%u-%g.log`), ротацию 5 × 5 MiB.
+При старте и каждую минуту sink удаляет записи старше пяти дней по timestamp заголовка вместе с полным
+стеком; живой чужой JUL-stream не перезаписывает. Экспорт фильтрует старые записи даже у legacy-процесса.
+
+`DesktopLogFiles` — блокирующий JVM API, вызывай на `DispatcherProvider.io`: `recentText()` возвращает
+последние десять минут по времени (пустая строка означает отсутствие записей); `writeRecent(Path)` сохраняет
+тот же текст, `writeArchive(Path)` потоково пишет ZIP за доступные пять дней, пустой ZIP допустим.
+Экспортируются только обычные файлы с известными именами, без симлинков, `.lck` и постороннего содержимого;
+строки повторно проходят редактирование секретов. Под межпроцессной блокировкой создаётся локальный файловый
+snapshot, чтение, сортировка и сжатие происходят после её освобождения. `validateExportDestination(Path)`
+защищает текущий и legacy-каталоги от перезаписи экспортом, в том числе через симлинк; вызывай его и при
+сохранении заранее подготовленного snapshot после системного диалога.

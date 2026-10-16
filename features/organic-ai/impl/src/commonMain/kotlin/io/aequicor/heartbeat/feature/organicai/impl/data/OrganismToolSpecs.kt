@@ -1,5 +1,10 @@
 package io.aequicor.heartbeat.feature.organicai.impl.data
 
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelTags
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentComplexity
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentNeed
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentPriority
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.argument
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
@@ -11,6 +16,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentTools.Arguments as Hints
 
 /**
  * Declarations of the organism tools. They only file requests the organism carries out later, so the trust gate
@@ -22,10 +28,16 @@ internal val organismToolSpecs: List<AgentToolSpec> = listOf(
         OrganismTools.DIVIDE,
         "Organic AI cells only. Split off a child cell that works on a substantial, self-contained subtask in " +
             "parallel. The child does not see your conversation, so the task must say everything it needs. Its " +
-            "result stays in your inbox; request it with ${OrganismTools.RECEIVE} when ready.",
+            "result stays in your inbox; request it with ${OrganismTools.RECEIVE} when ready. With adaptive " +
+            "subagents on, the host picks the child's model and reasoning effort from the optional priority, " +
+            "complexity, needs and tags.",
         schema(required = listOf(OrganismTools.Arguments.TASK)) {
             text(OrganismTools.Arguments.TASK, "The complete subtask, up to ${OrganismBounds.MAX_TASK} characters")
             text(OrganismTools.Arguments.NAME, "A short name for the child, e.g. \"tests\"")
+            choice(Hints.PRIORITY, "What the child's model is optimised for", SubagentPriority.entries.map { it.name })
+            choice(Hints.COMPLEXITY, "How demanding the subtask is", SubagentComplexity.entries.map { it.name })
+            list(Hints.NEEDS, "Required inputs", SubagentNeed.entries.map { it.argument })
+            list(Hints.TAGS, "Kinds of the subtask", ModelTags.KNOWN)
         },
         AgentToolAction.Read,
     ),
@@ -93,6 +105,25 @@ private fun schema(required: List<String>, properties: JsonObjectBuilder.() -> U
     put("type", "object")
     putJsonObject("properties", properties)
     put("required", buildJsonArray { required.forEach { add(JsonPrimitive(it)) } })
+}
+
+private fun JsonObjectBuilder.choice(name: String, description: String, values: List<String>) {
+    putJsonObject(name) {
+        put("type", "string")
+        put("description", description)
+        put("enum", buildJsonArray { values.forEach { add(JsonPrimitive(it.lowercase())) } })
+    }
+}
+
+private fun JsonObjectBuilder.list(name: String, description: String, values: List<String>) {
+    putJsonObject(name) {
+        put("type", "array")
+        put("description", description)
+        putJsonObject("items") {
+            put("type", "string")
+            put("enum", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } })
+        }
+    }
 }
 
 private fun JsonObjectBuilder.text(name: String, description: String) {

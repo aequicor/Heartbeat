@@ -54,7 +54,7 @@ data class MethodRowUi(
     val credentialsPage: String?,
 )
 
-/** Model row; [isEnabled] means offered to model pickers. */
+/** Model row; [isEnabled] means offered to model pickers; [description] is null while descriptions are off. */
 @Immutable
 data class ModelRowUi(
     val id: String,
@@ -62,7 +62,11 @@ data class ModelRowUi(
     val contextLimit: Long?,
     val isEnabled: Boolean,
     val isDefault: Boolean = false,
+    val description: ModelDescriptionUi? = null,
 )
+
+/** Whether a model has a description for adaptive subagents. */
+enum class ModelDescriptionUi { Described, Missing }
 
 internal fun EngineInfo.toRow(): EngineRowUi = EngineRowUi(
     id = descriptor.id.value,

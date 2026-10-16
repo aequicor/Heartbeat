@@ -37,9 +37,11 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.test.withKeyDown
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_checkout_dirty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_unknown
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_merge_target
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_preparing
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_result
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_this_computer
@@ -60,6 +62,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentSetOf
 import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import java.io.IOException
@@ -158,6 +161,19 @@ class StudioWorktreeUiTest {
         }
 
     @Test
+    fun `a sandbox chat pins the sandbox label instead of worktree`() = runSkikoComposeUiTest(size = Size(520f, 700f)) {
+        val pane = PaneUi(7, sessionId = "chat")
+        var labels = "" to ""
+        setContent {
+            labels = stringResource(Res.string.sandbox_mode) to stringResource(Res.string.worktree_mode)
+            PaneHost(savedWorkspace(pane, task(WorktreePhaseUi.Idle).copy(isSandbox = true)), pane, onIntent = {})
+        }
+        onNodeWithTag("worktree-pinned-7").assertIsDisplayed()
+        assertTrue(onAllNodesWithText(labels.first, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithText(labels.second, useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
     fun `compact composer wraps selected context without consuming keyboard submit`() {
         for (dark in listOf(false, true)) {
             runSkikoComposeUiTest(size = Size(520f, 700f)) {
@@ -212,7 +228,7 @@ class StudioWorktreeUiTest {
     }
 
     @Test
-    fun `new pane mode selection has its own identity and disappears when unavailable`() =
+    fun `new pane mode selection has its own identity and disappears when unavailable or outside git`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
             val events = mutableListOf<StudioIntent>()
             val pane = PaneUi(7, projectId = "project")
@@ -230,7 +246,11 @@ class StudioWorktreeUiTest {
             onNodeWithTag("worktree-mode-7").performClick()
             runOnIdle {
                 assertEquals(listOf<StudioIntent>(StudioIntent.SelectWorktree(7, true)), events)
-                state = state.copy(isWorktreeAvailable = false)
+                state = state.copy(repositoryProjects = persistentSetOf())
+            }
+            onNodeWithTag("worktree-mode-7").assertDoesNotExist()
+            runOnIdle {
+                state = state.copy(isWorktreeAvailable = false, repositoryProjects = persistentSetOf("project"))
             }
             onNodeWithTag("worktree-mode-7").assertDoesNotExist()
         }
@@ -445,6 +465,7 @@ class StudioWorktreeUiTest {
         val initial = AiStudioScreenState(panes = persistentListOf(pane))
         return initial.copy(
             projects = persistentListOf(ProjectUi("project", "Heartbeat", EnvironmentUi.Local, "master")),
+            repositoryProjects = persistentSetOf("project"),
             models = persistentListOf(ModelUi("route", "Model", isLocalProjectSupported = true)),
             settings = initial.settings.copy(modelId = "route"),
         )

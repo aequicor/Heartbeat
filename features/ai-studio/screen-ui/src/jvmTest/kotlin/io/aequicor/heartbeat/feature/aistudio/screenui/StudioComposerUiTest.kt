@@ -33,6 +33,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_men
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_section
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_ask
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_helper_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_settings_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_trust
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_remember
@@ -43,7 +47,9 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
@@ -51,6 +57,7 @@ import kotlinx.collections.immutable.persistentSetOf
 import org.jetbrains.compose.resources.stringResource
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Instant
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 @OptIn(ExperimentalTestApi::class)
@@ -236,6 +243,86 @@ class StudioComposerUiTest {
             runOnIdle {
                 assertEquals(emptyList(), events)
             }
+        }
+
+    @Test
+    fun `native composer reflects profile confirmation changes without offering local trust choices`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val pane = PaneUi(0)
+            val native = ModelUi("native-route", "Native model", isTrustSupported = true)
+            val initial = AiStudioScreenState(panes = persistentListOf(pane))
+            var state by mutableStateOf(
+                initial.copy(
+                    models = persistentListOf(native),
+                    settings = initial.settings.copy(modelId = native.id),
+                    securityLevel = SecurityLevelUi.Ask,
+                ),
+            )
+            var askLabel = ""
+            var trustLabel = ""
+            var safetyLabel = ""
+            var addLabel = ""
+            var settingsHint = ""
+            setContent {
+                askLabel = stringResource(Res.string.security_ask)
+                trustLabel = stringResource(Res.string.security_trust)
+                safetyLabel = stringResource(Res.string.approval_safety)
+                addLabel = stringResource(Res.string.composer_add)
+                settingsHint = stringResource(Res.string.security_settings_hint)
+                NativeComposerFixture(state.paneContent(pane)) {}
+            }
+            onNodeWithContentDescription(addLabel).performClick()
+            onNodeWithText(askLabel).assertIsDisplayed().assertIsNotEnabled()
+            onNodeWithText(safetyLabel).assertDoesNotExist()
+            onNodeWithText(settingsHint).assertIsDisplayed()
+            onNodeWithText(trustLabel).assertDoesNotExist()
+            runOnIdle { state = state.copy(securityLevel = SecurityLevelUi.Trust) }
+            onNodeWithText(trustLabel).assertIsDisplayed().assertIsNotEnabled()
+            onNodeWithText(askLabel).assertDoesNotExist()
+            onNodeWithText(safetyLabel).assertDoesNotExist()
+            onNodeWithText(settingsHint).assertIsDisplayed()
+        }
+
+    @Test
+    fun `open helper menu explains fixed automatic review when the profile level changes`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val pane = PaneUi(0, sessionId = "helper")
+            val native = ModelUi("native-route", "Native model", isTrustSupported = true)
+            val session = SessionUi(
+                "helper",
+                "Background helper",
+                projectId = null,
+                updatedAt = Instant.fromEpochSeconds(0),
+                modelId = native.id,
+                isHelper = true,
+            )
+            val initial = AiStudioScreenState(panes = persistentListOf(pane), sessions = persistentListOf(session))
+            var state by mutableStateOf(
+                initial.copy(
+                    models = persistentListOf(native),
+                    settings = initial.settings.copy(modelId = native.id),
+                    securityLevel = SecurityLevelUi.Trust,
+                ),
+            )
+            var safetyLabel = ""
+            var helperHint = ""
+            var settingsHint = ""
+            var addLabel = ""
+            setContent {
+                safetyLabel = stringResource(Res.string.approval_safety)
+                helperHint = stringResource(Res.string.security_helper_hint)
+                settingsHint = stringResource(Res.string.security_settings_hint)
+                addLabel = stringResource(Res.string.composer_add)
+                NativeComposerFixture(state.paneContent(pane)) {}
+            }
+            onNodeWithContentDescription(addLabel).performClick()
+            onNodeWithText(safetyLabel).assertIsDisplayed().assertIsNotEnabled()
+            onNodeWithText(helperHint).assertIsDisplayed()
+            onNodeWithText(settingsHint).assertDoesNotExist()
+            runOnIdle { state = state.copy(securityLevel = SecurityLevelUi.Ask) }
+            onNodeWithText(safetyLabel).assertIsDisplayed().assertIsNotEnabled()
+            onNodeWithText(helperHint).assertIsDisplayed()
+            onNodeWithText(settingsHint).assertDoesNotExist()
         }
 
     @Test

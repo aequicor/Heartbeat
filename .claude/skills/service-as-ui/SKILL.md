@@ -27,6 +27,7 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
 | Файлы и даты платформы | `domain/UiPlatform`; `DesktopUiPlatform` (jvm), `MobileUiPlatform` (Android/iOS) |
 | Web-документы | `domain/UiWebDocuments` → `data/BrowserUiWebDocuments` (`browser:api` `BrowserDocuments`); хосты `presentation/component/WebDocumentHosts` |
 | Студия: слоты композера, старта и плавающей сводки справа сверху, панель дока, карточки в ленте | `ai-studio/impl` (`MachineStudioSurfaces`, `StudioSurfaceBinding`, `StudioSidePanel`, `AiStudioComponent`) |
+| Раздел `interfaces` конфигурации проекта (`.heartbeat`, `.hbai`) | `impl/domain/config/InterfaceConfigCodec.kt`, `impl/data/config/InterfaceConfigSection.kt` (владелец — харнесс по имени) |
 | Раздел настроек «Интерфейсы» | `settings` (`SettingsSection.Interfaces` → `ServiceUiLibraryRoute(isEmbedded = true)`) |
 
 ## Правила
@@ -108,6 +109,8 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
 - Агентский `ui_call` получает исходник и непрозрачный binding текущего callback через `ServiceUiProvider.review`.
   Провайдер повторно проверяет binding сразу перед callback после очереди. Рестарт с тем же исходником и повторная
   регистрация метода меняют binding. Нажатия пользователя используют уже проверенный код без нового ревью.
+  Это касается и команд, объявленных скриптом (`commands.define`), и кнопок WebView (`heartbeat.call`): они идут
+  тем же путём `calls.call`, без агента и без подтверждения; runtime-скиллы направляют команды в методы, а не в `prompt`.
 - Логи: никогда не логируются спеки, HTML, данные, аргументы, результаты, URL, пути и тексты промптов; вызовы — INFO с
   владельцем, методом, исходом и длительностью; сбои провайдеров — `redactedFailure()`.
 - UI (`impl/ui`) не импортирует api: презентационные модели (`UiNodeUi` и др.) `@Immutable`, отображения исчерпывающие.

@@ -3,13 +3,27 @@ package io.aequicor.heartbeat.feature.organicai.impl.data
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveModels
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ChoiceSource
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.InheritReason
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelChoice
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.Ratings
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionContext
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionOption
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentHost
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentNeed
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentPriority
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentRequest
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.organicai.api.CaseId
+import io.aequicor.heartbeat.feature.organicai.api.CellConfiguration
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.GrowthLimits
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
@@ -31,6 +45,7 @@ import io.aequicor.heartbeat.feature.organicai.api.zygote
 import io.aequicor.heartbeat.feature.organicai.impl.C1
 import io.aequicor.heartbeat.feature.organicai.impl.C2
 import io.aequicor.heartbeat.feature.organicai.impl.ORGANISM
+import io.aequicor.heartbeat.feature.organicai.impl.TARGET
 import io.aequicor.heartbeat.feature.organicai.impl.ZYGOTE
 import io.aequicor.heartbeat.feature.organicai.impl.cell
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
@@ -54,9 +69,19 @@ import kotlin.test.assertTrue
 
 class OrganismAgentToolsTest {
     private val toggles = Toggles()
+    private var choice: ModelChoice = ModelChoice.Inherit(InheritReason.Disabled)
+    private val requests = mutableListOf<Pair<SubagentRequest, SelectionContext>>()
+    private val adaptive = object : AdaptiveModels {
+        override suspend fun select(request: SubagentRequest, context: SelectionContext): ModelChoice {
+            requests += request to context
+            return choice
+        }
+
+        override suspend fun preview(request: SubagentRequest, context: SelectionContext) = emptyList<SelectionOption>()
+    }
 
     private fun tools(vararg organisms: Organism, machine: SpecMachine = SpecMachine(*organisms)) =
-        OrganismAgentTools(lazyOf(machine), toggles) to machine
+        OrganismAgentTools(lazyOf(machine), toggles, lazyOf(adaptive)) to machine
 
     private fun context(session: SessionRef = session("z")) = AgentToolContext(session, null, TurnId("turn"))
 
@@ -89,7 +114,7 @@ class OrganismAgentToolsTest {
         val (finished, _) = tools(organism().copy(status = OrganismStatus.Aborted))
         assertEquals(emptyList(), finished.specifications(null))
         assertEquals(emptyList(), developing.specifications(WorkspaceRef("another project")))
-        val unlaunched = OrganismAgentTools(lazy { error("launched off the main thread") }, toggles)
+        val unlaunched = OrganismAgentTools(lazy { error("launched off the main thread") }, toggles, lazyOf(adaptive))
         assertEquals(emptyList(), unlaunched.specifications(null))
         assertTrue(unlaunched.execute(context(), OrganismTools.STATUS, args()).isError)
         toggles.isEnabled = false
@@ -119,6 +144,27 @@ class OrganismAgentToolsTest {
         val child = machine.organism().cells.last()
         assertEquals(listOf(C1, "tests", "write tests"), listOf(child.id, child.name, child.task))
         assertTrue(machine.effects.any { it is OrganicAiEffect.Drive && it.cell == C1 })
+    }
+
+    @Test
+    fun `a child gets the adaptively chosen model from the hints`() = runTest {
+        val mini = TARGET.copy(model = ModelId("mini"))
+        choice = ModelChoice.Selected(mini, "low", "Mini", Ratings(3, 5, 5), "cheap and fast", ChoiceSource.Scoring, 2)
+        val (tools, machine) = tools(organism())
+        val result = tools.execute(
+            context(),
+            OrganismTools.DIVIDE,
+            args(
+                OrganismTools.Arguments.TASK to "rename a field",
+                SubagentTools.Arguments.PRIORITY to "cost",
+                SubagentTools.Arguments.NEEDS to listOf("images"),
+            ),
+        )
+        assertTrue("mini" in result.text && "effort low" in result.text, result.text)
+        assertEquals(CellConfiguration(mini, "low", "cheap and fast"), machine.organism().cells.last().configuration)
+        val (request, selection) = requests.single()
+        assertEquals(SubagentPriority.Cost to setOf(SubagentNeed.Images), request.priority to request.needs)
+        assertEquals(SubagentHost.OrganismCell to TARGET, selection.host to selection.parentTarget)
     }
 
     @Test

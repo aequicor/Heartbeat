@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.Retention
@@ -63,6 +64,10 @@ internal class LoggingKeyValueStore(
 
     private val data: Flow<Preferences> = dataStore.data.catch { error ->
         if (error !is IOException) throw error
+        if (spec.readPolicy == KeyValueReadPolicy.Strict) {
+            log.w(error) { "$label: strict read failed" }
+            throw error
+        }
         log.w(error) { "$label: read failed, using empty data" }
         emit(emptyPreferences())
     }
@@ -210,6 +215,11 @@ internal class LoggingKeyValueStore(
         val raw = this[key.preferencesKey()] ?: return null
         if (!key.type.accepts(raw)) {
             val stored = raw::class.simpleName ?: "a value"
+            if (spec.readPolicy == KeyValueReadPolicy.Strict) {
+                val error = IllegalStateException("Stored value type does not match ${key.type}")
+                log.w(error) { "$label: ${key.name} holds $stored, strict read failed" }
+                throw error
+            }
             log.w { "$label: ${key.name} holds $stored, not ${key.type}: treated as absent" }
             return null
         }
@@ -221,17 +231,25 @@ internal class LoggingKeyValueStore(
 
     private fun <T : Any> decode(key: StoreKey<T>, type: StoreValueType.Json<T>, raw: String): T? = try {
         json.decodeFromString(type.serializer, raw)
-    } catch (e: SerializationException) {
-        log.w(e.withoutStoredValue()) { "$label: ${key.name} is not a valid $type, treated as absent" }
-        null
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: IllegalArgumentException) {
-        log.w(e.withoutStoredValue()) { "$label: ${key.name} does not match $type, treated as absent" }
+        // SerializationException is an IllegalArgumentException; Recover keeps both existing fallback cases.
+        val outcome = if (spec.readPolicy == KeyValueReadPolicy.Strict) "strict read failed" else "treated as absent"
+        log.w(e.withoutStoredValue()) { "$label: ${key.name} is not a valid ${key.type}, $outcome" }
+        if (spec.readPolicy == KeyValueReadPolicy.Strict) throw e.withoutStoredValue()
         null
+    } catch (e: Exception) {
+        if (spec.readPolicy != KeyValueReadPolicy.Strict) throw e
+        log.w(e.withoutStoredValue()) { "$label: ${key.name} decoding failed under strict read policy" }
+        throw e.withoutStoredValue()
     }
 
     /** Decoder messages and causes can contain the stored value, including from custom serializers. */
-    private fun Throwable.withoutStoredValue(): Throwable =
-        SerializationException("Stored value decoding failed (${this::class.simpleName ?: "unknown error"})")
+    private fun Throwable.withoutStoredValue(): SerializationException {
+        val errorType = this::class.simpleName ?: "Exception"
+        return SerializationException("Stored value decoding failed ($errorType)")
+    }
 
     private fun <T : Any> MutablePreferences.write(key: StoreKey<T>, value: T) {
         val stored: Any = when (val type = key.type) {

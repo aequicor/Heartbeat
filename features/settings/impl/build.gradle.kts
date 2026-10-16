@@ -8,6 +8,9 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.settings.api)
+            implementation(projects.features.aiStudio.api)
+            implementation(projects.features.appLogs.api)
+            implementation(projects.core.common)
             implementation(projects.features.togglesPanel.api)
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiEngine.connections.api)
@@ -15,9 +18,12 @@ kotlin {
             implementation(projects.features.computerUse.api)
             implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.agentLearning.api)
+            implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.contextWindowOptimization.api)
             implementation(projects.features.harness.api)
             implementation(projects.features.serviceAsUi.api)
+            implementation(projects.features.projectConfig.api)
+            implementation(projects.features.worktreeMode.api)
             implementation(projects.core.profileFacade.api)
             implementation(projects.core.di.ext)
             implementation(projects.core.mvi)

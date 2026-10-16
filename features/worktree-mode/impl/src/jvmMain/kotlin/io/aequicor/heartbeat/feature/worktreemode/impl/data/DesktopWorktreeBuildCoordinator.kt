@@ -11,7 +11,9 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.WorkerState
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.releaseSnapshot
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.resourceLockKey
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.withFreeResource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -21,30 +23,49 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** FIFO admission per overlapping resources; non-overlapping projects may run concurrently. */
+/**
+ * App-wide build queue: FIFO per overlapping exclusive resources, weighted by build kind against the machine budget
+ * and fair across projects ([admitBuilds]). Reattached workers already run and are counted without admission.
+ */
 @Inject
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
 internal class DesktopWorktreeBuildCoordinator(
     @ForScope(AppScope::class) private val app: ScopeHandle,
     private val dispatchers: DispatcherProvider,
+    private val capacity: BuildCapacity,
 ) : WorktreeBuildCoordinator {
     private val log = Log.tag("WorktreeBuildCoordinator")
     private val mutex = Mutex()
     private val waiting = mutableListOf<Job>()
     private val jobs = mutableMapOf<String, Job>()
-    private val ownedResources = mutableSetOf<String>()
+    private var isRecheckPending = false
+
+    /** Last slot of recent sandbox tasks: rebuilding there keeps their incremental outputs warm. */
+    private val affinity = object : LinkedHashMap<String, Int>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>): Boolean = size > MAX_AFFINITY
+    }
+
+    init {
+        // A raised limit or a disabled queue admits waiting builds without waiting for the next enqueue.
+        app.coroutineScope.launch {
+            capacity.changes().collect { mutex.withLock { admit() } }
+        }
+    }
 
     override suspend fun execute(
         execution: BuildExecution,
         isReattachment: Boolean,
         update: suspend (WorktreeBuildOperation) -> Unit,
     ): WorktreeBuildOperation {
-        val job = enqueue(execution, isReattachment, update)
+        val adopted = if (isReattachment) adoptedSlot(execution) else execution
+        if (adopted == null) return execution.operation(WorktreeBuildPhase.Unknown, "WorkerOutcomeUnknown")
+        val job = enqueue(adopted, isReattachment, update)
         // Only the waiter is cancelled; an accepted job belongs to the app/worker until explicit cancellation.
         return job.result.await()
     }
@@ -71,7 +92,7 @@ internal class DesktopWorktreeBuildCoordinator(
     ): Job = mutex.withLock {
         jobs[execution.id]?.also { it.update.set(update) } ?: Job(execution, update, isReattachment).also {
             jobs[execution.id] = it
-            waiting += it
+            if (isReattachment) launchJob(it) else waiting += it
             admit()
         }
     }
@@ -81,6 +102,7 @@ internal class DesktopWorktreeBuildCoordinator(
             val found = jobs[id] ?: return@withLock null
             if (waiting.remove(found)) {
                 found.result.complete(found.execution.operation(WorktreeBuildPhase.Cancelled))
+                releaseUnstartedSnapshot(found.execution)
                 found.started.completeExceptionally(IllegalStateException("LeaseCancelled"))
                 jobs.remove(id)
                 admit()
@@ -109,23 +131,89 @@ internal class DesktopWorktreeBuildCoordinator(
         }
     }
 
-    private fun admit() {
-        val preceding = mutableSetOf<String>()
-        val eligible = mutableListOf<Job>()
-        waiting.forEach { job ->
-            if (job.resources.none { it in ownedResources || it in preceding }) {
-                ownedResources += job.resources
-                eligible += job
-            }
-            preceding += job.resources
+    private suspend fun admit() {
+        val running = jobs.values.filter { it !in waiting }.map { job ->
+            val sandbox = job.execution.sandbox
+            RunningBuild(
+                job.execution.id,
+                job.execution.project,
+                job.execution.cost,
+                job.resources,
+                sandbox?.pool,
+                sandbox?.slot,
+            )
         }
+        val budget = capacity.budget()
+        val slots = budget.slotsPerRepository
+        val external = externalSlots(running, slots)
+        val queued = waiting.map { job ->
+            val sandbox = job.execution.sandbox
+            QueuedBuild(
+                job.execution.id,
+                job.execution.project,
+                job.execution.cost,
+                job.resources,
+                sandbox?.let { SlotDemand(it.pool, slots, affinity[it.affinity]) },
+            )
+        }
+        val admission = admitBuilds(queued, running + external, budget)
+        val eligible = waiting.filter { it.execution.id in admission.admitted }
         waiting.removeAll(eligible.toSet())
-        waiting.forEachIndexed { index, job ->
+        eligible.forEach { job ->
+            val slot = admission.admitted[job.execution.id] ?: return@forEach
+            job.execution = job.execution.inSlot(slot)
+            affinity[checkNotNull(job.execution.sandbox).affinity] = slot
+        }
+        if (eligible.isNotEmpty()) {
+            log.d { "Admit builds count=${eligible.size} waiting=${waiting.size} budgetUnits=${budget.units}" }
+        }
+        waiting.forEach { job ->
+            val position = admission.positions[job.execution.id]
             app.coroutineScope.launch {
-                notify(job, job.execution.operation(WorktreeBuildPhase.Queued).copy(queuePosition = index + 1))
+                notify(job, job.execution.operation(WorktreeBuildPhase.Queued).copy(queuePosition = position))
             }
         }
         eligible.forEach(::launchJob)
+        if (external.isNotEmpty() && waiting.any { it.execution.sandbox != null }) scheduleRecheck()
+    }
+
+    /**
+     * Slots locked by workers this coordinator does not track: another profile's builds or workers not reattached
+     * yet. They count as occupied, so a new build takes a free slot instead of waiting on the lock.
+     */
+    private suspend fun externalSlots(running: List<RunningBuild>, slots: Int): List<RunningBuild> {
+        val pools = waiting.mapNotNull { it.execution.sandbox?.pool }.distinct()
+        if (pools.isEmpty()) return emptyList()
+        val owned = running.mapNotNull { build -> build.slot?.let { build.slotPool to it } }.toSet()
+        return withContext(dispatchers.io) {
+            pools.flatMap { pool ->
+                (0 until slots).filter { (pool to it) !in owned && isSlotLocked(pool, it) }.map { index ->
+                    RunningBuild("external:$index:$pool", EXTERNAL_PROJECT, BuildCost.None, emptySet(), pool, index)
+                }
+            }
+        }
+    }
+
+    private fun isSlotLocked(pool: String, index: Int): Boolean = try {
+        withFreeResource(slotDirectory(pool, index).toString()) {} == null
+    } catch (error: java.io.IOException) {
+        log.w(IllegalStateException("SlotProbeFailed (${error::class.simpleName.orEmpty()})")) {
+            "Build slot availability is unknown; it stays assignable"
+        }
+        false
+    }
+
+    /** An external holder releases its slot without telling this process, so waiting builds are re-admitted. */
+    private fun scheduleRecheck() {
+        if (isRecheckPending) return
+        isRecheckPending = true
+        app.coroutineScope.launch {
+            delay(SLOT_RECHECK_MILLIS)
+            mutex.withLock {
+                isRecheckPending = false
+                admit()
+            }
+        }
     }
 
     private fun launchJob(job: Job) {
@@ -148,17 +236,24 @@ internal class DesktopWorktreeBuildCoordinator(
                 job.result.complete(job.execution.operation(WorktreeBuildPhase.Unknown, "WorkerMonitoringFailed"))
                 job.started.completeExceptionally(IllegalStateException("WorkerMonitoringFailed"))
             } finally {
+                releaseUnstartedSnapshot(job.execution)
                 if (!job.result.isCompleted) job.result.cancel()
                 if (!job.started.isCompleted) job.started.cancel()
                 withContext(NonCancellable) {
                     mutex.withLock {
-                        ownedResources.removeAll(job.resources)
                         jobs.remove(job.execution.id)
                         admit()
                     }
                 }
             }
         }
+    }
+
+    /** A sandbox build whose worker never started still owns its snapshot ref; the worker releases it otherwise. */
+    private fun releaseUnstartedSnapshot(execution: BuildExecution) {
+        val sandbox = execution.sandbox ?: return
+        if (Files.exists(Path.of(execution.jobDirectory).resolve("state.json"))) return
+        app.coroutineScope.launch(dispatchers.io) { releaseSnapshot(sandbox, execution.id) }
     }
 
     private suspend fun runWorker(job: Job): WorktreeBuildOperation {
@@ -248,13 +343,37 @@ internal class DesktopWorktreeBuildCoordinator(
         return listOf(packaged.toString(), "--heartbeat-worktree-build-worker", directory.toString())
     }
 
-    private data class Job(
-        val execution: BuildExecution,
-        val initialUpdate: suspend (WorktreeBuildOperation) -> Unit,
+    /**
+     * Reattached sandbox workers keep the slot recorded in their private job file. An unreadable or foreign job
+     * file yields null: the outcome is unknown and no other reattachment is affected.
+     */
+    private suspend fun adoptedSlot(execution: BuildExecution): BuildExecution? = withContext(dispatchers.io) {
+        val file = Path.of(execution.jobDirectory).resolve("job.json")
+        if (execution.sandbox == null || !Files.isRegularFile(file)) return@withContext execution
+        try {
+            Json.decodeFromString<BuildExecution>(Files.readString(file)).takeIf {
+                it.id == execution.id && it.sandbox?.slot != null
+            }
+        } catch (error: SerializationException) {
+            log.w(IllegalStateException("InvalidWorkerJob (${error::class.simpleName.orEmpty()})")) {
+                "Reattached sandbox job file is unreadable"
+            }
+            null
+        } catch (error: java.io.IOException) {
+            log.w(IllegalStateException("InvalidWorkerJob (${error::class.simpleName.orEmpty()})")) {
+                "Reattached sandbox job file is unreadable"
+            }
+            null
+        }
+    }
+
+    private class Job(
+        @Volatile var execution: BuildExecution,
+        initialUpdate: suspend (WorktreeBuildOperation) -> Unit,
         val isReattachment: Boolean,
     ) {
         val update = java.util.concurrent.atomic.AtomicReference(initialUpdate)
-        val resources = execution.resources.map(::resourceLockKey).toSet()
+        val resources: Set<String> get() = execution.resources.map(::resourceLockKey).toSet()
         val result = CompletableDeferred<WorktreeBuildOperation>()
         val started = CompletableDeferred<Unit>()
     }
@@ -263,6 +382,10 @@ internal class DesktopWorktreeBuildCoordinator(
         const val WORKER_MAIN = "io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.WorktreeBuildWorkerKt"
         const val POLL_MILLIS = 100L
         const val CANCEL_TIMEOUT = 10_000L
+
+        const val SLOT_RECHECK_MILLIS = 2_000L
+        const val EXTERNAL_PROJECT = "external"
+        const val MAX_AFFINITY = 256
         val terminal = setOf(
             WorktreeBuildPhase.Completed,
             WorktreeBuildPhase.Failed,
@@ -271,6 +394,19 @@ internal class DesktopWorktreeBuildCoordinator(
         fun isWindows(): Boolean = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
     }
 }
+
+/** Places a sandbox build into slot [index] of its pool; the slot directory becomes an exclusive resource. */
+internal fun BuildExecution.inSlot(index: Int): BuildExecution {
+    val target = checkNotNull(sandbox) { "SandboxUnavailable" }
+    val slot = slotDirectory(target.pool, index)
+    return copy(
+        directory = slot.resolve(target.relativeDirectory).normalize().toString(),
+        resources = (resources + slot.toString()).distinct().sorted(),
+        sandbox = target.copy(slot = index),
+    )
+}
+
+internal fun slotDirectory(pool: String, index: Int): Path = Path.of(pool).resolve("slot-$index")
 
 private fun BuildExecution.operation(phase: WorktreeBuildPhase, failure: String? = null): WorktreeBuildOperation =
     WorktreeBuildOperation(id, command.id, phase, failure = failure, configurationRevision = configurationRevision)

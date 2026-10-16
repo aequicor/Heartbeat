@@ -1,11 +1,15 @@
 package io.aequicor.heartbeat.feature.settings.impl
 
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsRoute
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlRoute
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityRoute
+import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLibraryRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.api.deepLinkName
@@ -17,6 +21,7 @@ import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsSe
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.resolve
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.toSection
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.toUi
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildsRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -34,12 +39,18 @@ class SettingsSectionsTest {
                 isSearchEnabled = true,
                 hasProfile = true,
                 isEnginesEnabled = true,
+                isSecurityEnabled = true,
                 isComputerUseEnabled = true,
                 isChromiumBridgeEnabled = true,
                 isLearningEnabled = true,
                 isHarnessEnabled = true,
                 isContextEnabled = true,
                 isInterfacesEnabled = true,
+                isSubagentsEnabled = true,
+                isProjectConfigEnabled = true,
+                isLogsEnabled = true,
+                isDesktop = true,
+                isBuildsEnabled = true,
             ),
         )
         assertEquals(
@@ -100,6 +111,18 @@ class SettingsSectionsTest {
     }
 
     @Test
+    fun `subagents are offered only with their toggle and an active profile and open embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isSubagentsEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Subagents in sections)
+            }
+        }
+        assertEquals(AdaptiveSubagentsRoute(isEmbedded = true), SettingsSection.Subagents.route())
+        assertEquals("subagents", SettingsSection.Subagents.deepLinkName)
+    }
+
+    @Test
     fun `harnesses are offered only with their toggle and an active profile and open embedded`() {
         for (enabled in listOf(false, true)) {
             for (profile in listOf(false, true)) {
@@ -124,6 +147,31 @@ class SettingsSectionsTest {
     }
 
     @Test
+    fun `project configuration is offered only with its toggle and an active profile and opens embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isProjectConfigEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.ProjectConfig in sections)
+            }
+        }
+        assertEquals(ProjectConfigRoute(isEmbedded = true), SettingsSection.ProjectConfig.route())
+        assertEquals(SettingsSection.ProjectConfig, settingsSectionOf("project_config"))
+    }
+
+    @Test
+    fun `builds are offered only with worktree mode and an active profile and open embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isBuildsEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Builds in sections)
+            }
+        }
+        assertEquals(WorktreeBuildsRoute(isEmbedded = true), SettingsSection.Builds.route())
+        assertEquals("builds", SettingsSection.Builds.deepLinkName)
+        assertEquals(SettingsSection.Builds, settingsSectionOf("builds"))
+    }
+
+    @Test
     fun `context is offered only with its toggle and an active profile and opens embedded`() {
         for (enabled in listOf(false, true)) {
             for (profile in listOf(false, true)) {
@@ -133,6 +181,27 @@ class SettingsSectionsTest {
         }
         assertEquals(ContextOptimizationRoute(isEmbedded = true), SettingsSection.Context.route())
         assertEquals("context", SettingsSection.Context.deepLinkName)
+    }
+
+    @Test
+    fun `security requires studio runtime and a profile and opens embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isSecurityEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Security in sections)
+            }
+        }
+        assertEquals(StudioSecurityRoute(isEmbedded = true), SettingsSection.Security.route())
+        assertEquals(SettingsSection.Security, settingsSectionOf("security"))
+    }
+
+    @Test
+    fun `every section maps to its screen value and an embedded route`() {
+        SettingsSection.entries.forEach { section ->
+            assertEquals(section, section.toUi().toSection())
+            section.route()
+        }
+        assertEquals(SettingsSection.entries.size, SettingsSectionUi.entries.size)
     }
 
     private val allUi = all.map { it.toUi() }
@@ -154,6 +223,26 @@ class SettingsSectionsTest {
             wanted = null,
         )
         assertEquals(SettingsSectionUi.FeatureFlags, state.selected)
+    }
+
+    @Test
+    fun `application logs need desktop and their toggle but no profile`() {
+        for (desktop in listOf(false, true)) {
+            for (enabled in listOf(false, true)) {
+                for (profile in listOf(false, true)) {
+                    val sections = availableSections(
+                        false,
+                        false,
+                        profile,
+                        isLogsEnabled = enabled,
+                        isDesktop = desktop,
+                    )
+                    assertEquals(desktop && enabled, SettingsSection.Logs in sections)
+                }
+            }
+        }
+        assertEquals(AppLogsRoute(isEmbedded = true), SettingsSection.Logs.route())
+        assertEquals(SettingsSection.Logs, settingsSectionOf("logs"))
     }
 
     @Test

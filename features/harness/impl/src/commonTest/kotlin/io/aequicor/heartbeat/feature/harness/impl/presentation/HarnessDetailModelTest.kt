@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.harness.api.HarnessAuthor
 import io.aequicor.heartbeat.feature.harness.api.HarnessChange
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
@@ -24,6 +25,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -85,6 +87,41 @@ class HarnessDetailModelTest {
         runCurrent()
         val detach = assertIs<HarnessIntent.Public.Detach>(library.sent.single())
         assertEquals(harness.id to session, detach.id to detach.session)
+    }
+
+    @Test
+    fun `new session default follows durable saves and preserves the value on failure`() = runTest {
+        val initial = ready()
+        val library = RecordingLibrary(initial)
+        val screen = subscribe(detail(library).store)
+        assertFalse(screen.states.value.isDefaultForNewSessions)
+
+        screen.intent(HarnessDetailIntent.SetDefaultForNewSessions(true))
+        runCurrent()
+        val enable = assertIs<HarnessIntent.Internal.Update>(library.sent.single())
+        assertEquals(HarnessChange.DefaultForNewSessions(true), enable.change)
+        assertEquals(HarnessAuthor.User, enable.author)
+        assertEquals(harness.id, enable.id)
+        assertEquals(3L, enable.expectedRevision)
+        assertFalse(screen.states.value.isDefaultForNewSessions, "the pending save is not yet committed")
+
+        library.state.value = initial.copy(
+            harnesses = initial.harnesses.map {
+                it.copy(harness = it.harness.copy(isDefaultForNewSessions = true, revision = 4))
+            },
+        )
+        runCurrent()
+        assertTrue(screen.states.value.isDefaultForNewSessions)
+
+        screen.intent(HarnessDetailIntent.SetDefaultForNewSessions(false))
+        runCurrent()
+        val disable = assertIs<HarnessIntent.Internal.Update>(library.sent.last())
+        assertEquals(HarnessChange.DefaultForNewSessions(false), disable.change)
+        assertEquals(4L, disable.expectedRevision)
+        library.outputs.emit(HarnessOutput.StorageFailed(disable.requestId))
+        runCurrent()
+        assertTrue(screen.states.value.isDefaultForNewSessions, "a failed save retains the committed default")
+        assertEquals(DetailErrorUi.SaveFailed, screen.states.value.error)
     }
 
     @Test

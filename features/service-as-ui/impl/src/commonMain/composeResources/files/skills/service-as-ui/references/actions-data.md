@@ -27,6 +27,10 @@ A source has `method`, optional object `args`, and `load:"auto"|"manual"` (defau
 
 Buttons call published owner methods without invoking the model. Harness methods are registered with `ui.method`; discover the available method names and descriptions through `ui_list`. Read the harness API reference before creating or changing their implementation. Harness item/method names use `[a-z][a-z0-9_]{0,31}`, for example `save_note`, not `saveNote`.
 
+### Offline apps and commands
+
+Owner methods run without a model turn, so the app keeps working while no agent is available: no engine connection, failed engine or offline network. When a button should run a local program (build, tests, a linter, a read-only `git`/`gh` query), declare it in the harness script with `commands.define` and call it from a method with `commands.run`; do not make the button a `prompt` that asks the agent to run it. The script's safety review covers the declared commands once. Later presses of native buttons and WebView `heartbeat.call` run them without another review, agent turn or confirmation, so declare only commands safe to repeat unattended and pass user input only as declared parameters. Commands run in the chat's project on Desktop and require the `harness.commands` setting; return `ScriptUiResult.Error` with a clear message for a refusal, a timeout or a non-zero exit. Reserve `prompt` actions for work that needs the model.
+
 A mutation should validate input and current state, save atomically, and then return a useful result. A validation error must leave existing data intact. Read-modify-write operations must recheck inside the atomic update; repeated starts must not reset an active session. For retryable record creation, choose a stable operation ID and deduplicate in the owner. A UI timeout alone does not prove that a write failed.
 
 Use only the actual method's arguments and return shape. A missing undo/edit or deduplication method is a service-contract gap: implement it within the authorized task, or state the limitation. Do not invent callable methods or extra arguments. A snapshot flag cannot validate a draft that was never sent to that method.
@@ -45,7 +49,7 @@ These are action fragments for a button's `action`, a table's `onRowClick`, or a
 | `focusCard` | `surface` as an owner-local name; opens the canonical app, with chat-card focus as fallback; unavailable to anonymous cards/previews | `{"type":"focusCard","surface":"journal"}` |
 | `open` | Exactly one of local `modal` or a host-supported same-owner `surface`; optional `args`, `presentation:modal|panel` (default modal); see navigation scope below | `{"type":"open","modal":"details","args":{"record":"{{item}}"}}` |
 | `close` | Closes the top named local modal opened by `open.modal`; does not close the host's app or placement dialog | `{"type":"close"}` |
-| `prompt` | `text`, optional `submit:false`; inserts into chat input, or submits when supported by the live owner-backed host | `{"type":"prompt","text":"Help me plan this week.","submit":false}` |
+| `prompt` | `text`, optional `submit:false`; inserts into chat input, or submits when supported by the live owner-backed host; needs an available agent — run local programs through owner methods instead | `{"type":"prompt","text":"Help me plan this week.","submit":false}` |
 | `openUrl` | `url`, HTTP or HTTPS only; uses the host browser | `{"type":"openUrl","url":"https://example.com/help"}` |
 | `copy` | `text`; copies the evaluated text | `{"type":"copy","text":"{{data.snapshot.summary}}"}` |
 | `saveFile` | `text`, optional `name` (default `export.txt`), `extensions`; user selects destination, Desktop-only | `{"type":"saveFile","text":"{{data.snapshot.csv}}","name":"journal.csv","extensions":["csv"]}` |

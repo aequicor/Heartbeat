@@ -54,9 +54,7 @@ open class JcefRuntimeExtension(private val project: Project) {
      * JBR may bundle an older `jcef` module. Limiting the root modules to these keeps the pinned classpath
      * API/native pair authoritative in development, tests and the jlink runtime of packaged distributions.
      */
-    val jdkModules: List<String> = listOf(
-        "java.se", "jdk.unsupported", "jdk.httpserver", "jdk.crypto.ec", "jdk.zipfs", "jdk.attach", "jdk.compiler",
-    )
+    val jdkModules: List<String> = desktopJdkModules
 
     /** JVM arguments of every process embedding JCEF: [jdkModules] roots and the AWT internals of macOS. */
     val jvmArguments: List<String> = listOf("--limit-modules=${jdkModules.joinToString(",")}") + if (isMac) {
@@ -185,3 +183,9 @@ internal fun jcefNativePlatform(osName: String, architecture: String): String? {
         else -> null
     }
 }
+
+/** Roots shared by desktop launchers and packaging; physical-memory estimates need `jdk.management`. */
+internal val desktopJdkModules: List<String> = listOf(
+    "java.se", "jdk.unsupported", "jdk.httpserver", "jdk.crypto.ec", "jdk.zipfs", "jdk.attach", "jdk.compiler",
+    "jdk.management",
+)

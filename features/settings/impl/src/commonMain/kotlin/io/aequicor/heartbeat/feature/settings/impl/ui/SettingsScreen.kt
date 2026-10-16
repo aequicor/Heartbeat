@@ -47,6 +47,7 @@ import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsSe
 import io.aequicor.heartbeat.feature.settings.impl.resources.Res
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_back
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_agent_learning
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_builds
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_chromium_browser
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_computer_use
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_context
@@ -54,8 +55,12 @@ import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_en
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_feature_flags
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_harness
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_interfaces
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_logs
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_models
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_project_config
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_search
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_security
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_subagents
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_title
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
@@ -63,7 +68,7 @@ import pro.respawn.flowmvi.dsl.collect
 
 @Composable
 internal fun SettingsScreen(component: SettingsComponent, modifier: Modifier = Modifier) {
-    val state by produceState(SettingsScreenState(), component.model) {
+    val state by produceState(component.model.current.value, component.model) {
         component.model.store.collect { states.collect { value = it } }
     }
     SettingsContent(state, component::select, component::back, component::close, modifier) {
@@ -250,33 +255,46 @@ private fun BackButton(onBack: () -> Unit) {
 }
 
 @Composable
-private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
-    when (section) {
-        SettingsSectionUi.Models -> Res.string.settings_section_models
-        SettingsSectionUi.Engines -> Res.string.settings_section_engines
-        SettingsSectionUi.Search -> Res.string.settings_section_search
-        SettingsSectionUi.ComputerUse -> Res.string.settings_section_computer_use
-        SettingsSectionUi.ChromiumBrowser -> Res.string.settings_section_chromium_browser
-        SettingsSectionUi.AgentLearning -> Res.string.settings_section_agent_learning
-        SettingsSectionUi.Context -> Res.string.settings_section_context
-        SettingsSectionUi.Harness -> Res.string.settings_section_harness
-        SettingsSectionUi.Interfaces -> Res.string.settings_section_interfaces
-        SettingsSectionUi.FeatureFlags -> Res.string.settings_section_feature_flags
-    },
+private fun sectionTitle(section: SettingsSectionUi): String = stringResource(SECTION_TITLES.getValue(section))
+
+// Tables instead of `when`: one entry per section keeps the mappings flat as sections are added.
+private val SECTION_TITLES = mapOf(
+    SettingsSectionUi.Models to Res.string.settings_section_models,
+    SettingsSectionUi.Engines to Res.string.settings_section_engines,
+    SettingsSectionUi.Security to Res.string.settings_section_security,
+    SettingsSectionUi.Subagents to Res.string.settings_section_subagents,
+    SettingsSectionUi.Search to Res.string.settings_section_search,
+    SettingsSectionUi.ComputerUse to Res.string.settings_section_computer_use,
+    SettingsSectionUi.ChromiumBrowser to Res.string.settings_section_chromium_browser,
+    SettingsSectionUi.AgentLearning to Res.string.settings_section_agent_learning,
+    SettingsSectionUi.Context to Res.string.settings_section_context,
+    SettingsSectionUi.Builds to Res.string.settings_section_builds,
+    SettingsSectionUi.Harness to Res.string.settings_section_harness,
+    SettingsSectionUi.Interfaces to Res.string.settings_section_interfaces,
+    SettingsSectionUi.ProjectConfig to Res.string.settings_section_project_config,
+    SettingsSectionUi.Logs to Res.string.settings_section_logs,
+    SettingsSectionUi.FeatureFlags to Res.string.settings_section_feature_flags,
 )
 
-private fun SettingsSectionUi.icon(): ImageVector = when (this) {
-    SettingsSectionUi.Models -> HbIcons.Layers
-    SettingsSectionUi.Engines -> HbIcons.Terminal
-    SettingsSectionUi.Search -> HbIcons.Search
-    SettingsSectionUi.ComputerUse -> HbIcons.Layers
-    SettingsSectionUi.ChromiumBrowser -> HbIcons.Globe
-    SettingsSectionUi.AgentLearning -> HbIcons.Sparkles
-    SettingsSectionUi.Context -> HbIcons.Minimize
-    SettingsSectionUi.Harness -> HbIcons.Code
-    SettingsSectionUi.Interfaces -> HbIcons.Grid
-    SettingsSectionUi.FeatureFlags -> HbIcons.Sliders
-}
+private fun SettingsSectionUi.icon(): ImageVector = SECTION_ICONS.getValue(this)
+
+private val SECTION_ICONS: Map<SettingsSectionUi, ImageVector> = mapOf(
+    SettingsSectionUi.Models to HbIcons.Layers,
+    SettingsSectionUi.Engines to HbIcons.Terminal,
+    SettingsSectionUi.Security to HbIcons.Shield,
+    SettingsSectionUi.Subagents to HbIcons.Users,
+    SettingsSectionUi.Search to HbIcons.Search,
+    SettingsSectionUi.ComputerUse to HbIcons.Layers,
+    SettingsSectionUi.ChromiumBrowser to HbIcons.Globe,
+    SettingsSectionUi.AgentLearning to HbIcons.Sparkles,
+    SettingsSectionUi.Context to HbIcons.Minimize,
+    SettingsSectionUi.Builds to HbIcons.Terminal,
+    SettingsSectionUi.Harness to HbIcons.Code,
+    SettingsSectionUi.Interfaces to HbIcons.Grid,
+    SettingsSectionUi.ProjectConfig to HbIcons.FolderOpen,
+    SettingsSectionUi.Logs to HbIcons.FileText,
+    SettingsSectionUi.FeatureFlags to HbIcons.Sliders,
+)
 
 @Preview
 @Composable

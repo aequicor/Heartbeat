@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -22,14 +24,18 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_section
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessOptionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 import org.jetbrains.compose.resources.stringResource
 import java.io.File
@@ -40,6 +46,35 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class StudioHarnessPickerUiTest {
+    @Test
+    fun `initial harness loading keeps input editable and a failed load offers retry`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            var screen by mutableStateOf(
+                state.copy(
+                    drafts = persistentMapOf("pane:0" to "Build the screen"),
+                    models = persistentListOf(ModelUi("pulse-pro", "Pulse Pro")),
+                    harnessChoices = HarnessChoicesUi(isReady = false),
+                ),
+            )
+            val intents = mutableListOf<AiStudioScreenIntent>()
+            var sendLabel = ""
+            setContent {
+                sendLabel = stringResource(Res.string.composer_send)
+                HbTheme { StudioComposer(screen.paneContent(PaneUi(0)), intents::add, isCompact = false) }
+            }
+            onNodeWithTag("harness-loading-0").assertIsDisplayed()
+            onNodeWithText("Build the screen").assertIsEnabled()
+            onNodeWithContentDescription(sendLabel).assertIsNotEnabled()
+            runOnIdle {
+                screen = screen.copy(harnessChoices = screen.harnessChoices.copy(isLoadFailed = true))
+            }
+            onNodeWithTag("harness-reload-0").assertIsDisplayed().performClick()
+            assertEquals(1, intents.count { it == AiStudioScreenIntent.ReloadHarnesses })
+            runOnIdle { screen = screen.copy(harnessChoices = HarnessChoicesUi()) }
+            onNodeWithTag("harness-reload-0").assertDoesNotExist()
+            onNodeWithContentDescription(sendLabel).assertIsEnabled()
+        }
+
     @Test
     fun `switching to a project without harnesses removes the control and its open picker`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
@@ -114,6 +149,7 @@ class StudioHarnessPickerUiTest {
     private val state = AiStudioScreenState(
         projects = persistentListOf(ProjectUi("project", "Heartbeat", EnvironmentUi.Local, "master")),
         isWorktreeAvailable = true,
+        repositoryProjects = persistentSetOf("project"),
         harnessChoices = HarnessChoicesUi(
             options = persistentListOf(
                 HarnessOptionUi("code", "Разработка", "Код и тесты", persistentSetOf("project")),

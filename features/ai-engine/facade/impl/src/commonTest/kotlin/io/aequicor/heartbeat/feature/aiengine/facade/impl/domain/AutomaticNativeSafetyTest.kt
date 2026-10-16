@@ -83,6 +83,27 @@ class AutomaticNativeSafetyTest {
     }
 
     @Test
+    fun `a host bound review model reviews the turn instead of its own model`() = runTest {
+        val f = NativeSafetyFixture()
+        val parent = Target.copy(model = ModelId("parent"))
+        f.tools.bindTurn(Session, Request, TurnId("facade"), Target, AgentToolDecisionMode.AutomaticSafety, parent)
+        val adapter = Context.copy(reviewTarget = Target.copy(model = ModelId("forged")))
+        assertEquals(NativeVerdict.Allow, f.tools.authorizeNative(adapter, Call))
+        assertEquals(parent, f.target)
+        val snapshot = Json.parseToJsonElement(f.reviews.single()).jsonObject
+        assertEquals(Json.encodeToJsonElement(Target), snapshot["target"])
+        assertEquals(Json.encodeToJsonElement(parent), snapshot["reviewTarget"])
+    }
+
+    @Test
+    fun `without a review model the turn reviews on its own model`() = runTest {
+        val f = NativeSafetyFixture()
+        assertEquals(NativeVerdict.Allow, f.tools.authorizeNative(Context, Call))
+        assertEquals(Target, f.target)
+        assertTrue("reviewTarget" !in Json.parseToJsonElement(f.reviews.single()).jsonObject)
+    }
+
+    @Test
     fun `risk uncertainty malformed verdict and reviewer failure never use full trust or permissions`() = runTest {
         for (verdict in listOf("risk", "uncertain", "SAFE", "")) {
             val f = NativeSafetyFixture().apply { assess = { AgentSafetyReview(verdict, "Refused") } }

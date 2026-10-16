@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
@@ -836,6 +837,7 @@ class AiStudioModelTest {
         showsSafetyReviews: kotlinx.coroutines.flow.Flow<Boolean> = flowOf(false),
         configuration: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration =
             io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineConfiguration(),
+        securityLevels: kotlinx.coroutines.flow.Flow<StudioSecurityLevel> = flowOf(StudioSecurityLevel.Automatic),
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts(attachments)
@@ -858,6 +860,7 @@ class AiStudioModelTest {
                 override val showsConnections = flowOf(false)
                 override val showsProfileSettings = flowOf(false)
                 override val showsSafetyReviews = showsSafetyReviews
+                override val securityLevels = securityLevels
             },
             efforts = efforts,
             machines = efforts,
