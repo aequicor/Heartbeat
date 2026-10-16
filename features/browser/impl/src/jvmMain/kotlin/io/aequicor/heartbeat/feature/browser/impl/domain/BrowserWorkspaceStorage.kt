@@ -12,7 +12,9 @@ internal data class SavedBrowserWorkspace(
     /** Ignore unusable records without navigating to unsupported schemes or creating duplicate identities. */
     fun validated(): SavedBrowserWorkspace {
         val valid = tabs.asSequence().filter { it.id.isNotBlank() && (it.url.isEmpty() || isBrowserUrlAllowed(it.url)) }
-            .distinctBy { it.id }.take(MAX_BROWSER_TABS).toList()
+            .distinctBy { it.id }.take(MAX_BROWSER_TABS)
+            .map { tab -> tab.takeIf { it.faviconUrl.isEmpty() || isFaviconValid(it) } ?: tab.copy(faviconUrl = "") }
+            .toList()
         return copy(
             tabs = valid,
             selectedTabId = selectedTabId?.takeIf { id -> valid.any { it.id == id } } ?: valid.firstOrNull()?.id,
@@ -27,7 +29,11 @@ internal data class SavedBrowserTab(
     val url: String = "",
     val title: String = "",
     val owner: String? = null,
+    val faviconUrl: String = "",
 )
+
+private fun isFaviconValid(tab: SavedBrowserTab): Boolean =
+    tab.url.isNotEmpty() && tab.faviconUrl.length <= MAX_FAVICON_URL_LENGTH && isBrowserUrlAllowed(tab.faviconUrl)
 
 /** Profile-owned, main-safe journal. Writes finish before user operations report completion. */
 internal interface BrowserWorkspaceStorage {

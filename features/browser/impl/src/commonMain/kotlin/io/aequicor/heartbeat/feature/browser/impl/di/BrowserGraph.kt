@@ -87,6 +87,11 @@ object BrowserToggleBindings {
     @Provides
     @IntoSet
     fun researchAccess(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserResearchAccess
+
+    /** Site icons in tabs; on by default under the opt-in browser flag. */
+    @Provides
+    @IntoSet
+    fun favicons(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserFavicons
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

@@ -22,6 +22,13 @@ public val BrowserEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     default = false,
 )
 
+/** Site icons in desktop tabs, loaded from the site itself through the tab's own browser profile. */
+public val BrowserFavicons: FeatureToggle.Flag = FeatureToggle.Flag(
+    key = "browser.favicons",
+    description = "Иконки сайтов во вкладках встроенного браузера",
+    default = true,
+)
+
 /** Safe error categories, without native diagnostics or potentially sensitive URLs. */
 public enum class BrowserError {
     InvalidAddress,
@@ -30,7 +37,10 @@ public enum class BrowserError {
     EngineUnavailable,
 }
 
-/** Current main frame; native history belongs to the currently attached surface. */
+/**
+ * Current main frame; native history belongs to the currently attached surface. [faviconUrl] is the HTTP(S) address
+ * of the site's icon found after the page loaded, or empty while it is unknown; like [url], it is never logged.
+ */
 public data class BrowserPage(
     val url: String = "",
     val title: String = "",
@@ -38,6 +48,7 @@ public data class BrowserPage(
     val isBackAvailable: Boolean = false,
     val isForwardAvailable: Boolean = false,
     val error: BrowserError? = null,
+    val faviconUrl: String = "",
 )
 
 /** Runtime projection; desktop restores tab metadata from profile storage, without native history or approvals. */
