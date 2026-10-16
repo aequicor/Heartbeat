@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import kotlinx.coroutines.test.runTest
@@ -11,6 +12,17 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class PiSessionStartupTest {
+    @Test
+    fun `isolated compatible session carries its selected model into process startup`() = runTest {
+        val model = ModelId("openai-compatible/glm-5.3")
+        val fixture = fixture(this, targetModel = model, project = null) { _, connection ->
+            connection.provider = "openai-compatible"
+        }
+        assertEquals(model, fixture.connection.plan?.selectedModel)
+        assertTrue(fixture.connection.plan?.hosted == null)
+        fixture.session.shutdown()
+    }
+
     @Test
     fun `startup accepts thinking events before the native identity is known`() = runTest {
         var delivered = false
