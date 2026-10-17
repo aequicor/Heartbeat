@@ -43,6 +43,10 @@ internal fun <F : EngineFeature> EngineFeatures.available(key: EngineFeatureKey<
 internal class FakeClaudeTransport : ClaudeTransport {
     var versionValue: String? = null
     override suspend fun version(): String? = versionValue
+
+    /** Whether the native history holds the conversation; null is an unreadable history. */
+    var transcript: Boolean? = null
+    override suspend fun hasTranscript(id: String): Boolean? = transcript
     var duplexGeneration: suspend (List<String>, suspend (ClaudeDuplex) -> Unit) -> Int = { _, _ ->
         error("Unexpected gated native turn")
     }

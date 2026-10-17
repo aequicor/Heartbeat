@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import java.io.File
+import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.HexFormat
@@ -102,6 +103,23 @@ internal fun claudeNativeStore(configDirectory: String?, userHome: String = Syst
     val digest = MessageDigest.getInstance("SHA-256")
         .digest(Path.of(root).toAbsolutePath().normalize().toString().toByteArray())
     return HexFormat.of().formatHex(digest)
+}
+
+/**
+ * Whether the native history under [configDirectory] (the CLI's default when null) holds the conversation [id]:
+ * a `<id>.jsonl` file in any project directory. A history that does not exist holds none. Throws [IOException] when
+ * it exists but cannot be read.
+ */
+internal fun claudeTranscriptExists(
+    configDirectory: String?,
+    id: String,
+    userHome: String = System.getProperty("user.home"),
+): Boolean {
+    val projects = Path.of(configDirectory ?: Path.of(userHome, ".claude").toString(), "projects")
+    if (!Files.isDirectory(projects)) return false
+    return Files.newDirectoryStream(projects).use { directories ->
+        directories.any { Files.isRegularFile(it.resolve("$id.jsonl")) }
+    }
 }
 
 /** File checks of launch settings; they never block saving, the panel shows them. */

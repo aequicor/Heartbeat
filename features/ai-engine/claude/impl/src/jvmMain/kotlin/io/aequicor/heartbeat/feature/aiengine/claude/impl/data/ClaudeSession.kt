@@ -295,7 +295,7 @@ internal class ClaudeSession(
         try {
             log.i { "Submitting Claude prompt effort=${submission.request.reasoningEffort ?: "default"}" }
             val tools = hosted.prepare()
-            val isResume = launch != ClaudeLaunch.Prepared
+            val isResume = isConversationStarted()
             val plan = promptArguments(submission.request, isResume, submission.areDetachedToolsEnabled)
             launch = ClaudeLaunch.Attempted
             persist()
@@ -555,12 +555,27 @@ internal class ClaudeSession(
     private suspend fun reconcile(lease: Lease) = commands.withLock {
         lease.ensureAttached()
         awaitSettled()
+        val transcript = if (hasNativeSession) null else environment.transport.hasTranscript(ref.nativeId)
         synchronized(lock) {
             lease.ensureAttached()
             ensureOpen()
-            reconcileState()
+            reconcileState(transcript)
         }
         persist()
+    }
+
+    /**
+     * Whether the next prompt resumes the conversation. A launch that was attempted but never showed a session frame
+     * may or may not have created it, so the CLI's history decides; an unreadable history keeps resuming.
+     */
+    private suspend fun isConversationStarted(): Boolean = when {
+        launch == ClaudeLaunch.Prepared -> false
+
+        launch == ClaudeLaunch.Confirmed || hasNativeSession -> true
+
+        else -> (environment.transport.hasTranscript(ref.nativeId) ?: true).also { exists ->
+            if (!exists) log.i { "Claude conversation was never created; the next prompt starts it" }
+        }
     }
 
     /** Storage writes are serialized so an older frame never overwrites a newer checkpoint. */
@@ -621,7 +636,8 @@ internal class ClaudeSession(
         pending?.cancelAndJoin()
     }
 
-    private fun reconcileState() {
+    /** [transcript] is whether the CLI's history holds this conversation, read only while none is confirmed. */
+    private fun reconcileState(transcript: Boolean?) {
         val unavailable = current as? ActiveSessionState.Unavailable ?: return
         val turn = unavailable.activeTurn
         val last = unavailable.lastTurn
@@ -637,7 +653,7 @@ internal class ClaudeSession(
             update(ActiveSessionState.Ready(turn.copy(outcome = outcome)))
             return
         }
-        if (!hasNativeSession) throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
+        if (!hasNativeSession) confirmFromTranscript(unavailable, transcript)
         if (turn == null) {
             update(ActiveSessionState.Ready(last))
             return
@@ -645,6 +661,26 @@ internal class ClaudeSession(
         log.i { "Claude turn recorded with unknown outcome" }
         history.publish { SessionEvent.TurnFinished(it, turn.id, TurnOutcome.Unknown) }
         update(ActiveSessionState.Ready(turn.copy(outcome = TurnOutcome.Unknown)))
+    }
+
+    /**
+     * No session frame was ever seen. A CLI that died before its first frame ([EngineFailureReason.Crashed]) decides by
+     * its history: a conversation there is resumed, none means the next prompt starts it. Any other unresolved case,
+     * or a history that cannot be read, stays unresolved.
+     */
+    private fun confirmFromTranscript(unavailable: ActiveSessionState.Unavailable, transcript: Boolean?) {
+        val isCrashBeforeFrame = unavailable.failure == EngineFailure.Engine(EngineFailureReason.Crashed)
+        when {
+            !isCrashBeforeFrame || transcript == null ->
+                throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
+
+            transcript -> {
+                hasNativeSession = true
+                launch = ClaudeLaunch.Confirmed
+            }
+
+            else -> launch = ClaudeLaunch.Prepared
+        }
     }
 
     /**

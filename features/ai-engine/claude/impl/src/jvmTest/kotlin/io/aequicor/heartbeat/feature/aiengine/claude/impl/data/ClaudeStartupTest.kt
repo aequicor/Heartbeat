@@ -170,6 +170,26 @@ class ClaudeStartupTest {
     }
 
     @Test
+    fun `the native history is searched for a conversation in every project directory`() {
+        val home = Files.createTempDirectory("claude-history").toFile()
+        try {
+            val id = "0b7c6e0e-6a3b-4f0e-9d51-4f5f6e1d9a11"
+            assertFalse(claudeTranscriptExists(null, id, home.path), "no history holds no conversation")
+            File(home, ".claude/projects/-Users-me-project").mkdirs()
+            File(home, ".claude/projects/-Users-me-other").mkdirs()
+            assertFalse(claudeTranscriptExists(null, id, home.path))
+            File(home, ".claude/projects/-Users-me-other/$id.jsonl").writeText("{}")
+            assertTrue(claudeTranscriptExists(null, id, home.path))
+            assertFalse(claudeTranscriptExists(null, "another-id", home.path))
+            val custom = File(home, "custom").apply { File(this, "projects/p").mkdirs() }
+            File(custom, "projects/p/$id.jsonl").writeText("{}")
+            assertTrue(claudeTranscriptExists(custom.path, id, "/nowhere"), "a config directory has its own history")
+        } finally {
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `the native history follows the config directory`() {
         val default = claudeNativeStore(null, "/Users/me")
         assertEquals(default, claudeNativeStore("/Users/me/.claude", "/Users/other"))
