@@ -21,10 +21,12 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * |---|---|---|---|
  * | Working / ActionWorking | RunSubmissionObservationLost | Matching pending identity; no turn | RecoveryRequired |
  * | RecoveryRequired | RunSubmissionReconciled | Matching request/session; no turn | Failed; clear run and lease |
+ * | RecoveryRequired | RunAdopted | Pending Coding run with exactly this recorded session and turn | Working |
  * | Any | Either submission command | Accepted, settled or mismatched identity | Unchanged |
  *
  * Lost submission observation retains the lease and never proves rejection or native completion. Recovery needs
  * the same session and either confirmed terminal identity or fresh native idle inspection before releasing ownership.
+ * A restarted host that finds the recorded native turn still running adopts it instead: ownership never changes hands.
  */
 public val WorktreeMachineSpec: MachineSpec<WorktreeState, WorktreeIntent, WorktreeEffect, WorktreeOutput> =
     machineSpec(WorktreeMachineKey, WorktreeState.Idle) {

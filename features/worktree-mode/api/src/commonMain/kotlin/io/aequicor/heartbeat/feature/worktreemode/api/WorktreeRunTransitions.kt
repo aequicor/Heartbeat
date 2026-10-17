@@ -87,6 +87,19 @@ internal fun WorktreeTask.runObservationLost(command: WorktreeIntent.Public.RunO
     }
 }
 
+internal fun WorktreeTask.runAdopted(command: WorktreeIntent.Public.RunAdopted): WorktreeTask {
+    val active = pendingRun(command.chatId, command.request) ?: return this
+    val isRecorded = active.session == command.session && active.turn == command.turn
+    return if (phase == WorktreePhase.RecoveryRequired && active.kind == WorktreeRunKind.Coding && isRecorded) {
+        copy(
+            phase = if (active.isCompletionSignaled) WorktreePhase.CompletionSignaled else WorktreePhase.Working,
+            failure = null,
+        )
+    } else {
+        this
+    }
+}
+
 internal fun WorktreeTask.runSettled(command: WorktreeIntent.Public.RunSettled): WorktreeTask {
     val active = pendingRun(command.chatId, command.request) ?: return this
     return if (active.canAttach(command.session, command.turn)) {

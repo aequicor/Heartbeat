@@ -186,6 +186,46 @@ class WorktreeMachineTest {
     }
 
     @Test
+    fun `a restarted host adopts the recorded running turn and keeps its identity`() {
+        val lost = running.reconciled(true, running.executionWorkspace, restart = true)
+        assertEquals(WorktreePhase.RecoveryRequired, lost.phase)
+        val adopt = WorktreeIntent.Public.RunAdopted(task.chatId, request, session, turn)
+        val ready = WorktreeState.Ready(mapOf(task.chatId to lost))
+        WorktreeMachineSpec.assertTransition(ready, adopt, ready, effects = listOf(WorktreeEffect.Apply(adopt)))
+        val adopted = lost.transition(adopt)
+        assertEquals(WorktreePhase.Working, adopted.phase)
+        assertNull(adopted.failure)
+        assertEquals(running.run, adopted.run)
+        assertEquals(WorktreePhase.Idle, adopted.transition(settled).phase)
+        val signaled = running.transition(signal).reconciled(true, running.executionWorkspace, restart = true)
+        assertEquals(WorktreePhase.CompletionSignaled, signaled.transition(adopt).phase)
+    }
+
+    @Test
+    fun `adoption needs the exact recorded identity of a pending coding run in recovery`() {
+        val lost = running.reconciled(true, running.executionWorkspace, restart = true)
+        val adopt = WorktreeIntent.Public.RunAdopted(task.chatId, request, session, turn)
+        val other = SessionRef(session.engine, session.source, "other")
+        assertEquals(lost, lost.transition(adopt.copy(turn = TurnId("another"))))
+        assertEquals(lost, lost.transition(adopt.copy(session = other)))
+        assertEquals(lost, lost.transition(adopt.copy(request = RequestId("other"))))
+        assertEquals(lost, lost.transition(adopt.copy(chatId = "other")))
+        assertEquals(running, running.transition(adopt))
+        val finished = running.transition(settled)
+        assertEquals(finished, finished.transition(adopt))
+        // A run that never recorded a turn proves nothing about a live one.
+        val pending = task.transition(WorktreeIntent.Public.RunStarted(task.chatId, request)).runPrepared(request)
+        val unaccepted = pending.transition(
+            WorktreeIntent.Public.RunSubmissionObservationLost(task.chatId, request, session, "Lost"),
+        )
+        assertEquals(unaccepted, unaccepted.transition(adopt))
+        val action = task.transition(WorktreeIntent.Public.RunStarted(task.chatId, request, WorktreeRunKind.Merge))
+            .transition(WorktreeIntent.Public.RunAccepted(task.chatId, request, session, turn))
+            .needsRecovery("NativeOutcomeUnknown")
+        assertEquals(action, action.transition(adopt))
+    }
+
+    @Test
     fun `lost submission observation requires recovery without inventing acceptance or completion`() {
         for (kind in listOf(WorktreeRunKind.Coding, WorktreeRunKind.Merge)) {
             val pending = task.transition(WorktreeIntent.Public.RunStarted(task.chatId, request, kind))

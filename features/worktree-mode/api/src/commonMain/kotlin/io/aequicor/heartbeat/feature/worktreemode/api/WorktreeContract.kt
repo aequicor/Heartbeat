@@ -100,6 +100,18 @@ public sealed interface WorktreeIntent : MachineIntent {
             val reason: String,
         ) : Public
 
+        /**
+         * A restarted host found the native turn of a pending Coding run still running and observes it again. Takes the
+         * run out of recovery only when [session] and [turn] are exactly the identity the run already recorded;
+         * a turn the run never recorded is never adopted, since nothing proves it belongs to [request].
+         */
+        public data class RunAdopted(
+            val chatId: String,
+            val request: RequestId,
+            val session: SessionRef,
+            val turn: TurnId,
+        ) : Public
+
         /** Native terminal result; successful completion also requires a signal from the same turn. */
         public data class RunSettled(
             val chatId: String,

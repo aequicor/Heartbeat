@@ -18,6 +18,8 @@ public fun WorktreeTask.transition(command: WorktreeIntent.Public): WorktreeTask
 
     is WorktreeIntent.Public.RunObservationLost -> runObservationLost(command)
 
+    is WorktreeIntent.Public.RunAdopted -> runAdopted(command)
+
     is WorktreeIntent.Public.RunSettled -> runSettled(command)
 
     is WorktreeIntent.Public.TaskCompleteSignaled -> completionSignaled(command)
@@ -48,7 +50,8 @@ private fun WorktreeTask.actionTransition(command: WorktreeIntent.Public): Workt
     is WorktreeIntent.Public.Recheck, is WorktreeIntent.Public.RunBuild, is WorktreeIntent.Public.CancelBuild,
     is WorktreeIntent.Public.RunStarted, is WorktreeIntent.Public.RunAccepted, is WorktreeIntent.Public.RunRejected,
     is WorktreeIntent.Public.RunSubmissionObservationLost, is WorktreeIntent.Public.RunSubmissionReconciled,
-    is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.RunSettled,
+    is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.RunAdopted,
+    is WorktreeIntent.Public.RunSettled,
     is WorktreeIntent.Public.TaskCompleteSignaled,
     -> this
 }

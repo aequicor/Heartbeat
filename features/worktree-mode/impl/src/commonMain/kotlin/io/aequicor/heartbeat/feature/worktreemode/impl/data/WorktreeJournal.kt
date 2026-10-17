@@ -200,7 +200,8 @@ internal class WorktreeJournal(
             is WorktreeIntent.Public.RunStarted, is WorktreeIntent.Public.RunSettled,
             is WorktreeIntent.Public.RunRejected, is WorktreeIntent.Public.RunAccepted,
             is WorktreeIntent.Public.RunSubmissionObservationLost, is WorktreeIntent.Public.RunSubmissionReconciled,
-            is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.TaskCompleteSignaled,
+            is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.RunAdopted,
+            is WorktreeIntent.Public.TaskCompleteSignaled,
             is WorktreeIntent.Public.ActionDelivered, is WorktreeIntent.Public.ActionDeliveryFailed,
             is WorktreeIntent.Public.ApproveBuildPlan,
             -> applyLifecycle(command, emit)
@@ -234,7 +235,7 @@ internal class WorktreeJournal(
             is WorktreeIntent.Public.ProposeBuildPlan, is WorktreeIntent.Public.RunBuild,
             is WorktreeIntent.Public.CancelBuild, is WorktreeIntent.Public.RunAccepted,
             is WorktreeIntent.Public.RunSubmissionObservationLost, is WorktreeIntent.Public.RunObservationLost,
-            is WorktreeIntent.Public.ActionDelivered,
+            is WorktreeIntent.Public.RunAdopted, is WorktreeIntent.Public.ActionDelivered,
             is WorktreeIntent.Public.ApproveBuildPlan,
             -> commitTransition(command)?.let { emit(it.task) }
         }
@@ -758,6 +759,8 @@ private fun WorktreeIntent.Public.chatId(): String? = when (this) {
 
     is WorktreeIntent.Public.RunObservationLost -> chatId
 
+    is WorktreeIntent.Public.RunAdopted -> chatId
+
     is WorktreeIntent.Public.RunSettled -> chatId
 
     is WorktreeIntent.Public.TaskCompleteSignaled -> chatId
@@ -792,7 +795,7 @@ private fun WorktreeIntent.Public.actionOrBuildChatId(): String? = when (this) {
     is WorktreeIntent.Public.RunStarted, is WorktreeIntent.Public.RunAccepted,
     is WorktreeIntent.Public.RunRejected, is WorktreeIntent.Public.RunSubmissionObservationLost,
     is WorktreeIntent.Public.RunSubmissionReconciled, is WorktreeIntent.Public.RunObservationLost,
-    is WorktreeIntent.Public.RunSettled, is WorktreeIntent.Public.TaskCompleteSignaled,
-    is WorktreeIntent.Public.Recheck,
+    is WorktreeIntent.Public.RunAdopted, is WorktreeIntent.Public.RunSettled,
+    is WorktreeIntent.Public.TaskCompleteSignaled, is WorktreeIntent.Public.Recheck,
     -> null
 }
