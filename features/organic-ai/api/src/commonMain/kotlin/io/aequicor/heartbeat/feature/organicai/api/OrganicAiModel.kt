@@ -394,6 +394,13 @@ public sealed interface Breakdown {
     /** The engine could not confirm how the turn ended and its history holds no answer. */
     @Serializable
     public data object Unconfirmed : Breakdown
+
+    /**
+     * The harnesses chosen for the organism ([Organism.harnesses]) could not be connected to the cell's session, so
+     * no prompt was sent: a turn never runs in a smaller environment than the user chose.
+     */
+    @Serializable
+    public data object Harnesses : Breakdown
 }
 
 /** Why a cell ended without an answer. */

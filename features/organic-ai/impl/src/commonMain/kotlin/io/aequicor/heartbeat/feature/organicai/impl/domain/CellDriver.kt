@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
+import io.aequicor.heartbeat.feature.organicai.api.Cell
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
@@ -16,14 +17,21 @@ import io.aequicor.heartbeat.feature.organicai.api.Settlement
 import io.aequicor.heartbeat.feature.organicai.api.Work
 import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.targetOf
+import kotlinx.coroutines.CancellationException
 
 /**
- * Runs one turn of a cell: opens its session, submits the turn's prompt (or adopts the native turn a recovery finds
- * still running), reports acceptance and pending permission requests, and settles the turn with its final answer.
- * The organism is journaled before a submission, so a request id never reaches an engine unsaved and a restart never
- * reuses it. Feedback the machine no longer takes means the cell ended meanwhile: the driver lets go and stops.
+ * Runs one turn of a cell: opens its session, connects the organism's harnesses to it, submits the turn's prompt (or
+ * adopts the native turn a recovery finds still running), reports acceptance and pending permission requests, and
+ * settles the turn with its final answer. The organism is journaled before a submission, so a request id never
+ * reaches an engine unsaved and a restart never reuses it. A harness that cannot be connected fails the turn before
+ * any prompt: the cell never works in a smaller environment than the user chose. Feedback the machine no longer takes
+ * means the cell ended meanwhile: the driver lets go and stops.
  */
-internal class CellDriver(private val cells: CellSessions, private val journal: OrganismJournal) {
+internal class CellDriver(
+    private val cells: CellSessions,
+    private val journal: OrganismJournal,
+    private val harnesses: CellHarnesses,
+) {
     private val log = Log.tag("CellDriver")
 
     suspend fun drive(organism: Organism, id: CellId, request: RequestId, machine: EffectScope<OrganicAiIntent>) {
@@ -42,21 +50,10 @@ internal class CellDriver(private val cells: CellSessions, private val journal: 
             organism.trust,
             cell.configuration?.reasoningEffort,
             organism.target?.takeIf { it != target },
+            organism.harnesses,
         )
         val handle = cells.open(key, route, cell.session, cell.turns)
-        if (cell.session == null) {
-            val bound = OrganicAiIntent.Internal.SessionBound(organism.id, id, request, handle.session)
-            if (machine.send(bound) != SendResult.Accepted) return abandon(key, handle, turn = null)
-        }
-        val turn = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() } ?: run {
-            journal.save(organism)
-            val attachments = when (val work = phase.work) {
-                Work.Genesis -> organism.attachments
-                is Work.FollowUp -> work.attachments
-                Work.CheckInbox, is Work.Letters -> emptyList()
-            }
-            handle.submit(request, turnPrompt(organism, cell), organism.trust, attachments)
-        }
+        val turn = start(organism, cell, phase, handle, machine) ?: return
         val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, id, request, turn)
         if (machine.send(accepted) != SendResult.Accepted) return abandon(key, handle, turn)
         val outcome = handle.await(turn) { pending ->
@@ -66,6 +63,66 @@ internal class CellDriver(private val cells: CellSessions, private val journal: 
         val result = machine.send(OrganicAiIntent.Internal.TurnSettled(organism.id, id, request, settlement))
         log.i {
             "organism ${organism.id.value} cell ${id.value}: turn ${cell.turns} ${settlement.kind()}, machine $result"
+        }
+    }
+
+    /**
+     * Binds a new session to its cell and starts the turn: the native turn a recovery finds still running, or a new
+     * one. Null when the cell ended meanwhile (its session is let go) or the turn was settled unsent.
+     */
+    private suspend fun start(
+        organism: Organism,
+        cell: Cell,
+        phase: CellPhase.Working,
+        handle: CellHandle,
+        machine: EffectScope<OrganicAiIntent>,
+    ): TurnId? {
+        if (cell.session == null) {
+            val bound = OrganicAiIntent.Internal.SessionBound(organism.id, cell.id, phase.request, handle.session)
+            if (machine.send(bound) != SendResult.Accepted) {
+                abandon(CellKey(organism.id, cell.id), handle, turn = null)
+                return null
+            }
+        }
+        // A turn the engine still runs started under an earlier connection; every new prompt needs a fresh check.
+        val running = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() }
+        return running ?: submit(organism, cell, phase, handle, machine)
+    }
+
+    /** Connects the harnesses, journals the organism and submits the prompt; without the harnesses nothing is sent. */
+    private suspend fun submit(
+        organism: Organism,
+        cell: Cell,
+        phase: CellPhase.Working,
+        handle: CellHandle,
+        machine: EffectScope<OrganicAiIntent>,
+    ): TurnId? {
+        if (!isConnected(organism, cell.id, handle)) {
+            val broke = Settlement.Broke(Breakdown.Harnesses)
+            val result = machine.send(OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, broke))
+            log.w { "organism ${organism.id.value} cell ${cell.id.value}: harnesses not connected, unsent, $result" }
+            return null
+        }
+        journal.save(organism)
+        val attachments = when (val work = phase.work) {
+            Work.Genesis -> organism.attachments
+            is Work.FollowUp -> work.attachments
+            Work.CheckInbox, is Work.Letters -> emptyList()
+        }
+        return handle.submit(phase.request, turnPrompt(organism, cell), organism.trust, attachments)
+    }
+
+    /** Whether the organism's harnesses are connected to the cell's session; a failure's reason stays in the log. */
+    private suspend fun isConnected(organism: Organism, id: CellId, handle: CellHandle): Boolean {
+        if (organism.harnesses.isEmpty()) return true
+        return try {
+            harnesses.connect(handle.session, organism.harnesses)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "organism ${organism.id.value} cell ${id.value}: harnesses were not connected" }
+            false
         }
     }
 
