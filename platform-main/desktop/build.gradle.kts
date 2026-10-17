@@ -48,6 +48,13 @@ val heartbeatApplicationVersion = providers.gradleProperty("heartbeat.version").
         "heartbeat.version must be MAJOR.MINOR.PATCH with a major of at least 1: $version"
     }
 }
+// The testing flavor (-Pheartbeat.flavor=testing) is a release build for end-to-end checks: its launcher keeps
+// credentials in the local development files, so a test run never asks for Keychain, DPAPI or Secret Service, and its
+// own name and bundle id keep it apart from an installed Heartbeat. Release workflows never pass it.
+val heartbeatFlavor = providers.gradleProperty("heartbeat.flavor").orNull.also { flavor ->
+    require(flavor == null || flavor == "testing") { "heartbeat.flavor must be testing: $flavor" }
+}
+val isTestingFlavor = heartbeatFlavor == "testing"
 // Installed release builds update themselves from this repository's GitHub releases (owner/name).
 val heartbeatUpdateRepository = providers.gradleProperty("heartbeat.updateRepository").get().also { repository ->
     require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(repository)) {
@@ -208,7 +215,11 @@ val collectDevelopmentAppResources = tasks.register<Sync>("collectDevelopmentApp
 
 compose.desktop {
     application {
-        mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
+        mainClass = if (isTestingFlavor) {
+            "io.aequicor.heartbeat.platform.desktop.TestingMainKt"
+        } else {
+            "io.aequicor.heartbeat.platform.desktop.MainKt"
+        }
         jvmArgs += jcefJvmArgs
         jvmArgs("-Dheartbeat.app.version=$heartbeatApplicationVersion")
         buildTypes.release.proguard {
@@ -236,13 +247,14 @@ compose.desktop {
             )
             // The installed app's name: Heartbeat.app on macOS, Heartbeat.exe on Windows (heartbeat.iss cleans up the
             // launcher of installations made before the rename).
-            packageName = "Heartbeat"
+            packageName = if (isTestingFlavor) "HeartbeatE2E" else "Heartbeat"
             packageVersion = heartbeatApplicationVersion
             description = "Heartbeat AI Studio"
             vendor = "Aequicor"
             macOS {
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.icns"))
-                dockName = "Heartbeat"
+                dockName = if (isTestingFlavor) "Heartbeat E2E" else "Heartbeat"
+                if (isTestingFlavor) bundleID = "io.aequicor.heartbeat.platform.desktop.testing"
             }
             windows {
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.ico"))
@@ -389,8 +401,9 @@ afterEvaluate {
             launcherMainJar.set(prepareReleaseRuntimeJars.flatMap { prepared ->
                 releaseJars.flatMap { original -> prepared.outputDirectory.file(original.mainJar.get().asFile.name) }
             })
-            // Only the release launcher names the update source: development launches never replace themselves.
-            launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
+            // Only the release launcher names the update source: development launches never replace themselves,
+            // and the testing flavor must not swap itself for a published release.
+            if (!isTestingFlavor) launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
         }
     }
     tasks.withType<JavaExec>().configureEach {
