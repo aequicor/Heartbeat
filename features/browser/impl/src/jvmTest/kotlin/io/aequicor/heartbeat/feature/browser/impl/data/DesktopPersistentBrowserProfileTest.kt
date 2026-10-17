@@ -38,6 +38,7 @@ class DesktopPersistentBrowserProfileTest {
             assertTrue(Files.exists(browser.resolveSibling("616c696365.clearing")))
             // Until a clear succeeds, the native context stays closed.
             assertFailsWith<IllegalStateException> { profile.useContext { } }
+            assertFailsWith<IllegalStateException> { profile.useAgentContext("session") { } }
             Files.delete(browser)
             Files.createDirectories(browser)
             Files.writeString(browser.resolve("Cookies"), "partially deleted")
@@ -46,6 +47,16 @@ class DesktopPersistentBrowserProfileTest {
             assertFalse(Files.exists(browser))
             assertFalse(Files.exists(browser.resolveSibling("616c696365.clearing")))
             assertTrue(Files.isDirectory(outside))
+        }
+    }
+
+    @Test
+    fun `discarding the storage of an agent session without one is harmless`() = runTest {
+        withStorage { application, _ ->
+            val profile = profile(application)
+            profile.releaseAgentContext("session") { false }
+            profile.releaseAgentContext("session") { true }
+            assertTrue(profile.isAvailable)
         }
     }
 

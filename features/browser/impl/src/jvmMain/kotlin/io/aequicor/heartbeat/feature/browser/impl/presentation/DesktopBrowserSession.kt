@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserSession
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserWorkspaceStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserZoomStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.MAX_BROWSER_TABS
@@ -49,7 +50,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -65,6 +65,10 @@ import kotlin.uuid.Uuid
  * All registry mutations run on main; each tab serializes its native
  * operations. Each tab's [DesktopBrowserAgentGuard] keeps an agent's documents on the public web and the
  * origin its owner approved; what it refuses is reported to the agent with its next operation on the tab.
+ * A tab's pages use the Chromium storage chosen when the tab is created ([BrowserStorage]): the user's profile for the
+ * user's tabs, a separate in-memory storage per agent session for the tabs an agent opens, so an agent never meets
+ * the sites the user is signed in to. A tab the user hands over keeps the user's storage, and so do the links its
+ * page opens.
  * When a page finishes loading, its site icon is looked up and kept with the tab while the tab stays on that origin;
  * turning the icon flag off forgets every icon, including those restored with the tabs.
  */
@@ -247,7 +251,7 @@ internal class DesktopBrowserSession(
     }
 
     private suspend fun dispatch(request: BrowserRequest): BrowserResult {
-        if (request.operation == BrowserOperation.ListTabs) return listTabs(request)
+        if (request.operation == BrowserOperation.ListTabs) return entries.values.listTabs(request)
         if (request.operation == BrowserOperation.ClearData) return clearData(request)
         if (request.operation == BrowserOperation.RequestControl) return requestControl(request)
         return operate(request)
@@ -286,29 +290,6 @@ internal class DesktopBrowserSession(
         } finally {
             isClearingData = false
         }
-    }
-
-    private fun listTabs(request: BrowserRequest): BrowserResult {
-        val visible =
-            entries.values.filter { request.owner == null || it.tab.owner == request.owner }
-        return BrowserResult(
-            request.id,
-            buildJsonObject {
-                put(
-                    "tabs",
-                    JsonArray(
-                        visible.map { entry ->
-                            buildJsonObject {
-                                put("id", entry.tab.id)
-                                put("url", entry.tab.page.url)
-                                put("title", entry.tab.page.title)
-                                put("humanControlled", entry.tab.isHumanControlled)
-                            }
-                        },
-                    ),
-                )
-            },
-        )
     }
 
     private suspend fun newTab(request: BrowserRequest): DesktopBrowserEntry {
@@ -550,17 +531,24 @@ internal class DesktopBrowserSession(
         owner: String?,
         parent: DesktopBrowserEntry? = null,
         restored: SavedBrowserTab? = null,
+        storage: BrowserStorage = BrowserStorage.of(owner),
     ): DesktopBrowserEntry {
         require(entries.size < MAX_BROWSER_TABS) { "Close a tab before opening another" }
         val id = restored?.id ?: Uuid.random().toString()
         val surface = BrowserSurfaceAdapter(scope, dispatchers, nativeResources)
         surface.setEnabled(true)
         val guard = DesktopBrowserAgentGuard()
-        val panel = factory.create(surface, guard, { url -> openLinkedTab(id, url) }) { shortcut ->
-            scope.coroutineScope.launch(dispatchers.main) {
-                if (entries[id]?.surface === surface && selected == id) pagePressed(shortcut)
-            }
-        }
+        val panel = factory.create(
+            surface,
+            guard,
+            openTab = { url -> openLinkedTab(id, url) },
+            onShortcut = { shortcut ->
+                scope.coroutineScope.launch(dispatchers.main) {
+                    if (entries[id]?.surface === surface && selected == id) pagePressed(shortcut)
+                }
+            },
+            storage = storage,
+        )
         val entry =
             DesktopBrowserEntry(
                 BrowserTab(
@@ -574,6 +562,7 @@ internal class DesktopBrowserSession(
                 guard,
                 panel,
                 zooms,
+                storage,
             ) { entry ->
                 val launch: (suspend () -> Unit) -> Job = { scope.coroutineScope.launch(dispatchers.main) { it() } }
                 val probe = DesktopBrowserFaviconProbe(panel::devTools)
@@ -659,7 +648,8 @@ internal class DesktopBrowserSession(
             if (!isBrowserEnabled || isClearingData || !isBrowserUrlAllowed(url)) return@launch
             if (!parent.guard.allows(url, BrowserRequestKind.MainDocument)) return@launch
             try {
-                val child = create(parent.tab.owner, parent)
+                // A link stays in the storage of the page that opened it, even in a tab the user handed over.
+                val child = create(parent.tab.owner, parent, storage = parent.storage)
                 child.surface.execute(command)
                 child.update(child.surface.pages.value)
                 publish()

@@ -27,7 +27,8 @@ import org.cef.browser.CefRequestContext
 import kotlin.coroutines.resume
 
 /**
- * Owns persistent Chromium storage independently of the presentation layer and active profile job.
+ * Owns persistent Chromium storage independently of the presentation layer and active profile job. Agent sessions
+ * get separate incognito contexts (an empty `cache_path`: memory only) that never touch this storage or its files.
  * A failed [clearData] may be retried; until a clear succeeds the profile does not reopen Chromium storage,
  * and the on-disk pending marker makes the next open finish the deletion even after a restart.
  */
@@ -51,6 +52,7 @@ internal class DesktopPersistentBrowserProfile(
     }
     private val files = profiles.files(profileId)
     private var anchor: CefRequestContext? = null
+    private val agentAnchors = mutableMapOf<String, CefRequestContext>()
     private var closeSurfaces: (suspend () -> Unit)? = null
     private var clearJob: Deferred<Unit>? = null
     private var isClearing = false
@@ -76,6 +78,24 @@ internal class DesktopPersistentBrowserProfile(
             check(isAvailable) { "Browser profile is unavailable" }
             // Store the context before cancellation can discard a newly allocated native resource.
             withContext(NonCancellable) { block(context()) }
+        }
+    }
+
+    override suspend fun <T> useAgentContext(owner: String, block: (CefRequestContext) -> T): T {
+        lifetime.awaitAvailable()
+        return contextLock.withLock {
+            check(isAvailable) { "Browser profile is unavailable" }
+            withContext(NonCancellable) { block(agentContext(owner)) }
+        }
+    }
+
+    override suspend fun releaseAgentContext(owner: String, isInUse: () -> Boolean) {
+        contextLock.withLock {
+            if (isInUse()) return@withLock
+            agentAnchors.remove(owner)?.let { context ->
+                withContext(NonCancellable) { dispose(context) }
+                log.v { "Agent browser session storage discarded" }
+            }
         }
     }
 
@@ -135,6 +155,13 @@ internal class DesktopPersistentBrowserProfile(
         ) { "Persistent browser context is unavailable" }.also { anchor = it }
     }
 
+    /** No `cache_path`: Chromium keeps this context in memory only, apart from the profile's files. */
+    private fun agentContext(owner: String): CefRequestContext = agentAnchors.getOrPut(owner) {
+        checkNotNull(CefRequestContext.createContext(CefRequestContextSettings(), null)) {
+            "Agent browser context is unavailable"
+        }
+    }
+
     private suspend fun shutdown() {
         val clearing = synchronized(monitor) { clearJob }
         try {
@@ -153,13 +180,19 @@ internal class DesktopPersistentBrowserProfile(
         synchronized(monitor) { closeSurfaces }?.invoke()
         log.v { "Persistent browser surfaces closed; releasing profile context" }
         contextLock.withLock {
+            agentAnchors.values.toList().forEach { dispose(it) }
+            agentAnchors.clear()
             anchor?.let { context ->
-                suspendCancellableCoroutine { continuation ->
-                    context.dispose { continuation.resume(Unit) }
-                }
+                dispose(context)
                 anchor = null
             }
         }
         log.v { "Persistent browser context released" }
+    }
+
+    private suspend fun dispose(context: CefRequestContext) {
+        suspendCancellableCoroutine { continuation ->
+            context.dispose { continuation.resume(Unit) }
+        }
     }
 }

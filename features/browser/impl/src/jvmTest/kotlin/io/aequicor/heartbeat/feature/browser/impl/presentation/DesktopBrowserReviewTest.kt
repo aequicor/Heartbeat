@@ -38,6 +38,23 @@ class DesktopBrowserReviewTest {
     }
 
     @Test
+    fun `inspection tells that an agent tab runs in the agent's own storage`() = runTest {
+        val page = ReviewedPage()
+        val tab = openAgentTab(page)
+        assertEquals("agent", page.fixture.inspect(tab).data.getValue("storage").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `inspection tells that a handed over tab still runs in the user's storage`() = runTest {
+        val page = ReviewedPage()
+        val tab = openAgentTab(page, owner = null)
+        val pending = page.fixture.request(BrowserOperation.RequestControl, tab, AGENT)
+        val approval = page.fixture.request(BrowserOperation.ApproveControl, tab, controlRequestId = pending.requestId)
+        assertNull(approval.error)
+        assertEquals("user", page.fixture.inspect(tab).data.getValue("storage").jsonPrimitive.content)
+    }
+
+    @Test
     fun `only the owning agent session can inspect its tab`() = runTest {
         val page = ReviewedPage()
         val tab = openAgentTab(page)
@@ -116,8 +133,8 @@ class DesktopBrowserReviewTest {
         assertTrue(page.methods.none { it == "Runtime.evaluate" })
     }
 
-    private suspend fun TestScope.openAgentTab(page: ReviewedPage): String {
-        val tab = page.open(this).create(AGENT)
+    private suspend fun TestScope.openAgentTab(page: ReviewedPage, owner: String? = AGENT): String {
+        val tab = page.open(this).create(owner)
         page.fixture.attach()
         runCurrent()
         page.fixture.emit(BrowserViewState(url = page.url))

@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserReview
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.reviewedBrowserState
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -36,6 +37,7 @@ private suspend fun DesktopBrowserEntry.observe(review: BrowserReview, request: 
         put("tabId", tab.id)
         put("url", page.url)
         put("title", page.title.take(MAX_REVIEW_TITLE))
+        put("storage", if (storage is BrowserStorage.User) "user" else "agent")
         put("page", driver.safetySnapshot(review.operation, request.arguments))
     }
 }
