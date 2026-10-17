@@ -32,7 +32,7 @@ paths:
   области передаются вместе, PNG декодируется на `dispatchers.default`) и передаёт в `App(root, diagramRenderer = …)`, пока `availability` фичи true; `App` оборачивает
   дерево в `HbDiagramsProvider` с подписями из ресурсов `shared`. Что и как рисовать, решает фича; мобильные хосты
   рендерера не передают — fence остаётся кодом. Рисует процесс-воркер фичи: в упакованном jlink-рантайме нет `java`,
-  поэтому `Main`/`DevelopmentMain` до любой инициализации передают аргумент `--heartbeat-plantuml-worker` в
+  поэтому `Main`/`DevelopmentMain`/`TestingMain` до любой инициализации передают аргумент `--heartbeat-plantuml-worker` в
   `runPackagedPlantUmlWorker` (как `runPackagedBuildWorker`), а `compose-desktop.pro` сохраняет его `main`.
   Так же K2 харнесса компилирует в процессе-воркере: аргумент `--heartbeat-harness-compiler-worker` →
   `runPackagedHarnessCompilerWorker`, `main` воркера сохраняет `compose-desktop.pro`.

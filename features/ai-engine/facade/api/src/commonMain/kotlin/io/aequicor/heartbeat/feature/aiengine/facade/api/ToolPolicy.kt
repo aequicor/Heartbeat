@@ -77,4 +77,5 @@ public fun List<AgentToolSpec>.toolCatalog(): List<ToolCatalogEntry> = map { Too
 public val HarnessNativeTools: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "harness.native_tools",
     description = "Включение нативных инструментов через харнессы",
+    default = true,
 )

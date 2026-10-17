@@ -73,36 +73,36 @@ object BrowserBindings {
     ): Machine<BrowserState, BrowserIntent, BrowserOutput> = launcher.launch(BrowserMachineSpec, scope, effects)
 }
 
-/** Registers the opt-in browser flag in the existing toggle panel. */
+/** Registers the browser flags in the existing toggle panel. */
 @ContributesTo(AppScope::class)
 @BindingContainer
 object BrowserToggleBindings {
-    /** Off by default until explicitly enabled. */
+    /** The embedded browser itself; every other browser flag works under it. */
     @Provides
     @IntoSet
     fun browser(): FeatureToggle<*> = BrowserEnabled
 
-    /** Opt-in agent control. */
+    /** Agent control of browser tabs. */
     @Provides
     @IntoSet
     fun agentControl(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserAgentControl
 
-    /** Opt-in manual source recovery. */
+    /** Manual source recovery. */
     @Provides
     @IntoSet
     fun researchAccess(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserResearchAccess
 
-    /** Opt-in desktop error pages and certificate decisions. */
+    /** Desktop error pages and certificate decisions. */
     @Provides
     @IntoSet
     fun errorPages(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserErrorPages
 
-    /** Site icons in tabs; on by default under the opt-in browser flag. */
+    /** Site icons in tabs, under the browser flag. */
     @Provides
     @IntoSet
     fun favicons(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserFavicons
 
-    /** Page zoom; disabled until explicitly enabled. */
+    /** Page zoom. */
     @Provides
     @IntoSet
     fun pageZoom(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserPageZoom

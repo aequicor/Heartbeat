@@ -49,17 +49,17 @@ private const val KOOG_MODEL_CATALOG_REVISION = 2
 @BindingContainer
 @ContributesTo(AppScope::class)
 public object KoogToggleBindings {
-    /** Registers the disabled-by-default engine switch. */
+    /** Registers the engine switch. */
     @Provides
     @IntoSet
     public fun toggle(): FeatureToggle<*> = KoogEngineEnabled
 
-    /** Registers the disabled-by-default reasoning catalog switch. */
+    /** Registers the reasoning catalog switch. */
     @Provides
     @IntoSet
     public fun reasoningCatalog(): FeatureToggle<*> = KoogReasoningCatalogEnabled
 
-    /** Registers the disabled-by-default Desktop coding tools switch. */
+    /** Registers the Desktop coding tools switch. */
     @Provides
     @IntoSet
     public fun codingTools(): FeatureToggle<*> = KoogCodingTools

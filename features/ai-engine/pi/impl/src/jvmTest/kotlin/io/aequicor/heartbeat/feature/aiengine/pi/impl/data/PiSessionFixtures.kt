@@ -44,6 +44,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NativeCallClassifier
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -167,7 +168,12 @@ private class DefaultPiTestToggles(private val isUsageEnabled: Boolean, private 
     @Suppress("UNCHECKED_CAST")
     private fun <T : Any> value(toggle: FeatureToggle<T>): T = when (toggle) {
         EngineUsageEnabled -> isUsageEnabled as T
+
         AiEngines, PiEnabled -> areEnginesEnabled as T
+
+        // Search tools are covered by PiSearchRegistrationTest; the plan tests expect only the tools they declare.
+        SearchEngineTools -> false as T
+
         is FeatureToggle.Flag, is FeatureToggle.Choice -> toggle.default
     }
 }

@@ -33,7 +33,6 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -53,16 +52,16 @@ class AdaptiveSubagentsIntegrationTest {
     }
 
     @Test
-    fun `adaptive subagent toggles are registered and off by default`() {
-        val flags = listOf(
-            AdaptiveSubagentsEnabled,
-            AdaptiveSubagentsResearch,
-            AdaptiveSubagentsRouter,
-            AdaptiveSubagentsSessionTools,
+    fun `adaptive subagent toggles are registered with their release defaults`() {
+        val defaults = mapOf(
+            AdaptiveSubagentsEnabled to true,
+            AdaptiveSubagentsResearch to true,
+            AdaptiveSubagentsRouter to true,
+            AdaptiveSubagentsSessionTools to true,
         )
-        for (flag in flags) {
+        for ((flag, isEnabled) in defaults) {
             assertTrue(flag in toggles.toggleControl.registered, flag.key)
-            assertFalse(flag.default, flag.key)
+            assertEquals(isEnabled, flag.default, flag.key)
             assertEquals("adaptive_subagents", flag.owner)
         }
     }
