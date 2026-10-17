@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
@@ -28,6 +29,8 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.hasActiveBuilds
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.WorktreeBuildSafety.Companion.isAutomatic
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.WorktreeBuildSafety.Companion.revisionBinding
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.filterNotNull
@@ -52,6 +55,7 @@ internal class WorktreeAgentTools(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
     private val workspaces: LocalWorkspaces,
+    private val safety: WorktreeBuildSafety,
 ) : AgentToolContribution {
     override val group: String = "worktree"
     override val title: String = "Рабочие копии и сборки"
@@ -112,17 +116,44 @@ internal class WorktreeAgentTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): AgentToolApproval = when (spec.name) {
-        "configure_build" -> {
-            val plan = Json.decodeFromJsonElement<WorktreeBuildPlan>(arguments)
-            reviewableApproval(spec, "Configure build", "Save this build plan:\n${approvalJson.encodeToString(plan)}")
+    ): AgentToolApproval {
+        val approval = when (spec.name) {
+            "configure_build" -> {
+                val plan = Json.decodeFromJsonElement<WorktreeBuildPlan>(arguments)
+                reviewableApproval(
+                    spec,
+                    "Configure build",
+                    "Save this build plan:\n${approvalJson.encodeToString(plan)}",
+                )
+            }
+
+            "cancel_build" -> cancelApproval(context, spec, arguments)
+
+            "run_build" -> buildApproval(context, spec, arguments)
+
+            else -> approval(spec, arguments)
         }
+        // Automatic mode replaces the user decision with an independent review of this exact operation.
+        return if (spec.name in reviewedTools && context.isAutomatic()) safety.bind(context, approval) else approval
+    }
 
-        "cancel_build" -> cancelApproval(context, spec, arguments)
-
-        "run_build" -> buildApproval(context, spec, arguments)
-
-        else -> approval(spec, arguments)
+    override suspend fun automaticAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolAutomaticAuthorization? {
+        if (spec.name !in reviewedTools || !context.isAutomatic()) return null
+        val bound = try {
+            approval(context, spec, arguments)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(IllegalStateException("WorktreeApprovalUnavailable (${error::class.simpleName.orEmpty()})")) {
+                "Build action cannot be captured for review name=${spec.name}"
+            }
+            return AgentToolAutomaticAuthorization.Denied("The build action cannot be captured safely")
+        }
+        return safety.authorize(context, bound)
     }
 
     private suspend fun buildApproval(
@@ -201,6 +232,10 @@ internal class WorktreeAgentTools(
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
         try {
+            // The verdict covers the state the dispatcher captured, so it is consumed before the task is tracked.
+            val isReviewConsumed = name !in reviewedTools || !context.isAutomatic() ||
+                safety.consume(context, approval(context, toolSpecs.single { it.name == name }, arguments))
+            if (!isReviewConsumed) return failure("SafetyReviewExpired")
             val task = authenticateOrTrack(context)
             if (task == null) failure("TurnUnavailable") else dispatch(task, context, name, arguments)
         } catch (error: CancellationException) {
@@ -283,7 +318,8 @@ internal class WorktreeAgentTools(
     private suspend fun build(task: WorktreeTask, context: AgentToolContext, arguments: JsonObject): AgentToolResult {
         if (task.run?.kind == WorktreeRunKind.Merge) return failure("MergeInProgress")
         if (!task.isBuildApproved || task.buildPlan == null) return failure("NeedsConfiguration")
-        val expected = context.authorization?.binding?.toLongOrNull() ?: return failure("BuildAuthorizationUnavailable")
+        val expected = context.authorization?.revisionBinding()?.toLongOrNull()
+            ?: return failure("BuildAuthorizationUnavailable")
         if (expected != task.buildConfigurationRevision) return failure("BuildConfigurationChanged")
         val command = arguments["command"]?.jsonPrimitive?.content ?: return failure("MissingCommand")
         val operation = Uuid.random().toString()
@@ -460,6 +496,9 @@ internal class WorktreeAgentTools(
             ),
         )
         val buildToolSpecs = toolSpecs.filterNot { it.name == "mark_task_complete" }
+
+        /** Tools that change the saved plan or the machine's processes: reviewed in automatic mode. */
+        val reviewedTools = setOf("configure_build", "run_build", "cancel_build")
 
         fun schema(field: String): JsonObject = Json.parseToJsonElement(
             """{"type":"object","properties":{"$field":{"type":"string"}},

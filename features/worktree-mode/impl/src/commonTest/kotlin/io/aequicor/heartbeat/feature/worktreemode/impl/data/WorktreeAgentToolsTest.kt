@@ -20,15 +20,23 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCache
@@ -54,6 +62,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WorktreeAgentToolsTest {
@@ -182,11 +192,92 @@ class WorktreeAgentToolsTest {
         assertTrue("Working directory" !in build, build)
     }
 
+    @Test
+    fun `automatic mode reviews build changes and leaves reads and interactive callers alone`() = runTest {
+        val fixture = Fixture()
+        val plan = planArguments(WorktreeBuildCommand("test", "build"))
+        val configure = fixture.spec("configure_build")
+        val reviewed = fixture.tools.automaticAuthorization(AUTOMATIC, configure, plan)
+        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(reviewed)
+        assertEquals(fixture.tools.approval(AUTOMATIC, configure, plan), allowed.approval)
+        assertTrue("|safety=" in checkNotNull(allowed.approval.binding))
+        assertEquals(1, fixture.reviews.size)
+        assertTrue("\"operation\":\"configure_build\"" in fixture.reviews.single(), fixture.reviews.single())
+        assertNull(fixture.tools.automaticAuthorization(CONTEXT, configure, plan))
+        val status = fixture.spec("build_status")
+        assertNull(fixture.tools.automaticAuthorization(AUTOMATIC, status, operationArguments()))
+        val worktree = fixture.spec("worktree_status")
+        assertNull(fixture.tools.automaticAuthorization(AUTOMATIC, worktree, JsonObject(emptyMap())))
+    }
+
+    @Test
+    fun `automatic mode refuses a plan the reviewer does not call safe or cannot capture`() = runTest {
+        val fixture = Fixture()
+        val configure = fixture.spec("configure_build")
+        val plan = planArguments(WorktreeBuildCommand("test", "curl"))
+        fixture.verdict = AgentSafetyReview("risk", "Downloads and runs code")
+        val denied = assertIs<AgentToolAutomaticAuthorization.Denied>(
+            fixture.tools.automaticAuthorization(AUTOMATIC, configure, plan),
+        )
+        assertTrue("Downloads and runs code" in denied.reason)
+        fixture.verdict = AgentSafetyReview("safe", "Bounded build")
+        val huge = planArguments(WorktreeBuildCommand("test", "build", listOf("a".repeat(20_000))))
+        assertIs<AgentToolAutomaticAuthorization.Denied>(
+            fixture.tools.automaticAuthorization(AUTOMATIC, configure, huge),
+        )
+        assertIs<AgentToolAutomaticAuthorization.Denied>(
+            fixture.tools.automaticAuthorization(AUTOMATIC.copy(target = null), configure, plan),
+        )
+    }
+
+    @Test
+    fun `a build verdict is consumed once and does not outlive a changed operation`() = runTest {
+        val fixture = Fixture()
+        val configure = fixture.spec("configure_build")
+        val plan = planArguments(WorktreeBuildCommand("test", "build"))
+        val other = planArguments(WorktreeBuildCommand("test", "other"))
+        assertEquals("SafetyReviewExpired", fixture.tools.execute(AUTOMATIC, "configure_build", plan).text)
+        val bound = fixture.tools.approval(AUTOMATIC, configure, plan)
+        val authorized = AUTOMATIC.copy(authorization = bound)
+        fixture.tools.automaticAuthorization(AUTOMATIC, configure, plan)
+        assertEquals("SafetyReviewExpired", fixture.tools.execute(authorized, "configure_build", other).text)
+        assertTrue(fixture.tools.execute(authorized, "configure_build", plan).text != "SafetyReviewExpired")
+        assertEquals("SafetyReviewExpired", fixture.tools.execute(authorized, "configure_build", plan).text)
+    }
+
+    @Test
+    fun `the build keeps the configuration revision inside the review binding`() = runTest {
+        val fixture = Fixture()
+        fixture.queue(WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))))
+        val run = fixture.spec("run_build")
+        val arguments = JsonObject(mapOf("command" to JsonPrimitive("test")))
+        val interactive = fixture.tools.approval(CONTEXT, run, arguments)
+        val automatic = fixture.tools.approval(AUTOMATIC, run, arguments)
+        assertEquals("1", interactive.binding)
+        assertTrue(checkNotNull(automatic.binding).startsWith("1|safety="))
+        assertEquals(interactive.description, automatic.description)
+    }
+
     private class Fixture {
         private val workspaces = PreviewWorkspaces()
         val toggles = PreviewToggles()
+        val reviews = mutableListOf<String>()
+        var verdict = AgentSafetyReview("safe", "Bounded build")
         private val journal = WorktreeJournal(PreviewStores(), PreviewGit(), PreviewBuilds(), workspaces, toggles)
-        val tools = WorktreeAgentTools(journal, PreviewRegistry(), toggles, workspaces)
+        val tools = WorktreeAgentTools(
+            journal,
+            PreviewRegistry(),
+            toggles,
+            workspaces,
+            WorktreeBuildSafety(
+                AgentSafetyReviewer { _, _, change ->
+                    reviews += change
+                    verdict
+                },
+            ),
+        )
+
+        suspend fun spec(name: String) = tools.specifications(PROJECT).single { it.name == name }
 
         suspend fun approval(
             name: String,
@@ -216,9 +307,17 @@ class WorktreeAgentToolsTest {
         val TURN = TurnId("turn")
         val SESSION = SessionRef(EngineId("test"), SessionSourceId("test"), "native")
         val CONTEXT = AgentToolContext(SESSION, CHECKOUT, TURN, REQUEST)
+        val AUTOMATIC = CONTEXT.copy(
+            callId = ToolCallId("call"),
+            target = EngineTarget(EngineId("test"), EngineBindingId("binding"), ModelId("model")),
+            decisionMode = AgentToolDecisionMode.AutomaticSafety,
+        )
         val IDENTITY = WorktreeRunIdentity(REQUEST, SESSION, TURN)
 
         fun operationArguments(id: String = "operation") = JsonObject(mapOf("operation" to JsonPrimitive(id)))
+
+        fun planArguments(command: WorktreeBuildCommand): JsonObject =
+            Json.encodeToJsonElement(WorktreeBuildPlan("test", listOf(command))).jsonObject
     }
 }
 
