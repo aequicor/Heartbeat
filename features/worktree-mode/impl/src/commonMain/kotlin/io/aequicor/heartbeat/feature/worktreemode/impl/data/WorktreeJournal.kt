@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.preflightRecovered
 import io.aequicor.heartbeat.feature.worktreemode.api.prepared
 import io.aequicor.heartbeat.feature.worktreemode.api.reconciled
 import io.aequicor.heartbeat.feature.worktreemode.api.runPrepared
+import io.aequicor.heartbeat.feature.worktreemode.api.sealed
 import io.aequicor.heartbeat.feature.worktreemode.api.trackingMain
 import io.aequicor.heartbeat.feature.worktreemode.api.transition
 import kotlinx.coroutines.CancellationException
@@ -201,7 +202,7 @@ internal class WorktreeJournal(
             is WorktreeIntent.Public.RunRejected, is WorktreeIntent.Public.RunAccepted,
             is WorktreeIntent.Public.RunSubmissionObservationLost, is WorktreeIntent.Public.RunSubmissionReconciled,
             is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.RunAdopted,
-            is WorktreeIntent.Public.TaskCompleteSignaled,
+            is WorktreeIntent.Public.Seal, is WorktreeIntent.Public.TaskCompleteSignaled,
             is WorktreeIntent.Public.ActionDelivered, is WorktreeIntent.Public.ActionDeliveryFailed,
             is WorktreeIntent.Public.ApproveBuildPlan,
             -> applyLifecycle(command, emit)
@@ -216,8 +217,6 @@ internal class WorktreeJournal(
 
     private suspend fun applyLifecycle(command: WorktreeIntent.Public, emit: suspend (WorktreeTask) -> Unit) {
         when (command) {
-            WorktreeIntent.Public.Start, WorktreeIntent.Public.RetryLoad -> Unit
-
             is WorktreeIntent.Public.RunStarted -> beginRun(command)?.let { emit(it.task) }
 
             is WorktreeIntent.Public.RunSettled -> settleRun(command, emit)
@@ -230,6 +229,10 @@ internal class WorktreeJournal(
 
             is WorktreeIntent.Public.TaskCompleteSignaled -> signalCompletion(command, emit)
 
+            is WorktreeIntent.Public.Seal -> seal(command, emit)
+
+            // Start and RetryLoad have no task: committing them finds no chat and changes nothing.
+            WorktreeIntent.Public.Start, WorktreeIntent.Public.RetryLoad,
             is WorktreeIntent.Public.Prepare, is WorktreeIntent.Public.TrackMainSession,
             is WorktreeIntent.Public.Recheck, is WorktreeIntent.Public.ChooseAction,
             is WorktreeIntent.Public.ProposeBuildPlan, is WorktreeIntent.Public.RunBuild,
@@ -280,6 +283,16 @@ internal class WorktreeJournal(
                 update(command.chatId) { it.copy(task = it.task.runPrepared(command.request)) }
             }
         }
+
+    /** Serialized with run preparation, so a new native turn cannot start between the check and the capture. */
+    private suspend fun seal(command: WorktreeIntent.Public.Seal, emit: suspend (WorktreeTask) -> Unit) {
+        val sealed = upkeep.prepareRun(command.chatId) {
+            sealCheckout(git, command, { record(command.chatId) }) { seal ->
+                update(command.chatId) { it.copy(task = it.task.sealed(seal)) }
+            }
+        }
+        sealed?.let { emit(it.task) }
+    }
 
     private suspend fun cancelBuild(command: WorktreeIntent.Public.CancelBuild): WorktreeRecord? {
         val owned = record(command.chatId)?.task?.builds?.get(command.operation) ?: return null
@@ -659,23 +672,12 @@ internal class WorktreeJournal(
             git.mergePreflight(current)
             task = task.preflightRecovered()
         }
-        if (isPresent) task = recoverBuilds(current, task)
+        if (isPresent) task = builds.recoverBuilds(current, task)
         val restored = task
         val changed = update(chatId) {
             if (it.task.revision == current.task.revision) it.copy(task = restored) else it
         }
         return if (!restart && changed != null) verifyAction(changed) else changed
-    }
-
-    private suspend fun recoverBuilds(record: WorktreeRecord, previous: WorktreeTask): WorktreeTask {
-        var task = previous
-        record.jobs.values.forEach { execution ->
-            val known = task.builds[execution.id]
-            if (known != null && known.phase !in terminalBuildPhases) {
-                task = task.buildUpdated(builds.recover(execution))
-            }
-        }
-        return task
     }
 
     private suspend fun requireEnabled() {
@@ -771,7 +773,7 @@ private fun WorktreeIntent.Public.chatId(): String? = when (this) {
     is WorktreeIntent.Public.TrackMainSession, is WorktreeIntent.Public.ChooseAction,
     is WorktreeIntent.Public.ActionDelivered, is WorktreeIntent.Public.ActionDeliveryFailed,
     is WorktreeIntent.Public.ProposeBuildPlan, is WorktreeIntent.Public.ApproveBuildPlan,
-    is WorktreeIntent.Public.RunBuild, is WorktreeIntent.Public.CancelBuild,
+    is WorktreeIntent.Public.RunBuild, is WorktreeIntent.Public.CancelBuild, is WorktreeIntent.Public.Seal,
     -> actionOrBuildChatId()
 }
 
@@ -790,6 +792,8 @@ private fun WorktreeIntent.Public.actionOrBuildChatId(): String? = when (this) {
 
     is WorktreeIntent.Public.CancelBuild -> chatId
 
+    is WorktreeIntent.Public.Seal -> chatId
+
     WorktreeIntent.Public.Start, WorktreeIntent.Public.RetryLoad,
     is WorktreeIntent.Public.TrackMainSession, is WorktreeIntent.Public.Prepare,
     is WorktreeIntent.Public.RunStarted, is WorktreeIntent.Public.RunAccepted,
@@ -798,4 +802,19 @@ private fun WorktreeIntent.Public.actionOrBuildChatId(): String? = when (this) {
     is WorktreeIntent.Public.RunAdopted, is WorktreeIntent.Public.RunSettled,
     is WorktreeIntent.Public.TaskCompleteSignaled, is WorktreeIntent.Public.Recheck,
     -> null
+}
+
+/** Asks the worker coordinator for the outcome of every build the saved task still counts as unfinished. */
+private suspend fun WorktreeBuildCoordinator.recoverBuilds(
+    record: WorktreeRecord,
+    previous: WorktreeTask,
+): WorktreeTask {
+    var task = previous
+    record.jobs.values.forEach { execution ->
+        val known = task.builds[execution.id]
+        if (known != null && known.phase !in terminalBuildPhases) {
+            task = task.buildUpdated(recover(execution))
+        }
+    }
+    return task
 }

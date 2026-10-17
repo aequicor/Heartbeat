@@ -261,6 +261,23 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
     override suspend fun snapshot(record: WorktreeRecord, id: String): String = withContext(dispatchers.io) {
         require(id.matches(IDENTIFIER)) { "InvalidBuildIdentity" }
         check(record.task.isSandbox && exists(record)) { "SandboxUnavailable" }
+        val commit = commitFiles(record, "Heartbeat sandbox snapshot")
+        git(record.sourceDirectory, "update-ref", "$SNAPSHOT_REFS$id", commit)
+        log.d { "Sandbox snapshot captured operation=$id" }
+        commit
+    }
+
+    override suspend fun seal(record: WorktreeRecord, id: String): String = withContext(dispatchers.io) {
+        require(id.matches(IDENTIFIER)) { "InvalidSealIdentity" }
+        check(record.task.isIsolated && exists(record)) { "SealUnavailable" }
+        val commit = commitFiles(record, "Heartbeat result")
+        git(record.sourceDirectory, "update-ref", "$RESULT_REFS$id", commit)
+        log.d { "Checkout result sealed operation=$id" }
+        commit
+    }
+
+    /** The files of the checkout as a commit over HEAD, built in a private index copy: nothing of the agent changes. */
+    private suspend fun commitFiles(record: WorktreeRecord, message: String): String {
         val gitDirectory = Path.of(git(record.directory, "rev-parse", "--absolute-git-dir"))
         val index = Files.createTempFile("heartbeat-snapshot-", ".index")
         try {
@@ -277,19 +294,7 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             val head = checkNotNull(gitOptional(record.directory, "rev-parse", "--verify", "HEAD^{commit}")) {
                 "SandboxBaseUnavailable"
             }
-            val commit = git(
-                record.directory,
-                "commit-tree",
-                tree,
-                "-p",
-                head,
-                "-m",
-                "Heartbeat sandbox snapshot",
-                environment = environment,
-            )
-            git(record.sourceDirectory, "update-ref", "$SNAPSHOT_REFS$id", commit)
-            log.d { "Sandbox snapshot captured operation=$id" }
-            commit
+            return git(record.directory, "commit-tree", tree, "-p", head, "-m", message, environment = environment)
         } finally {
             Files.deleteIfExists(index)
         }
@@ -555,6 +560,9 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         const val SLOT_POOL = "slots"
         val SLOT_NAME = Regex("slot-([0-9]{1,3})")
         const val SNAPSHOT_REFS = "refs/heartbeat/snapshots/"
+
+        /** Sealed results are kept for their integrators, so the snapshot pruner never scans this namespace. */
+        const val RESULT_REFS = "refs/heartbeat/results/"
 
         /** Another profile may still queue a build of an older snapshot; a day covers any build timeout. */
         const val SNAPSHOT_GRACE_SECONDS = 86_400L

@@ -226,6 +226,30 @@ class WorktreeMachineTest {
     }
 
     @Test
+    fun `a seal command is applied by the journal and changes no run or phase on its own`() {
+        val seal = WorktreeIntent.Public.Seal(task.chatId, "seal-1")
+        val ready = WorktreeState.Ready(mapOf(task.chatId to running))
+        WorktreeMachineSpec.assertTransition(ready, seal, ready, effects = listOf(WorktreeEffect.Apply(seal)))
+        assertEquals(running, running.transition(seal))
+        val sealed = running.sealed(WorktreeSeal("seal-1", "abc"))
+        assertEquals(WorktreeSeal("seal-1", "abc"), sealed.seal)
+        assertEquals(running.run, sealed.run)
+        assertEquals(running.phase, sealed.phase)
+    }
+
+    @Test
+    fun `a failed seal is recorded in the task without failing the checkout or a native run`() {
+        val seal = WorktreeIntent.Public.Seal(task.chatId, "seal-1")
+        val failed = running.operationFailed(seal, "TurnActive")
+        assertEquals(WorktreeSeal("seal-1", failure = "TurnActive"), failed.seal)
+        assertEquals(running.phase, failed.phase)
+        assertEquals(running.run, failed.run)
+        assertNull(failed.failure)
+        // A later seal replaces the earlier outcome.
+        assertEquals(WorktreeSeal("seal-2", "def"), failed.sealed(WorktreeSeal("seal-2", "def")).seal)
+    }
+
+    @Test
     fun `lost submission observation requires recovery without inventing acceptance or completion`() {
         for (kind in listOf(WorktreeRunKind.Coding, WorktreeRunKind.Merge)) {
             val pending = task.transition(WorktreeIntent.Public.RunStarted(task.chatId, request, kind))

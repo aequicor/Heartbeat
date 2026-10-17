@@ -29,7 +29,7 @@ public fun WorktreeTask.transition(command: WorktreeIntent.Public): WorktreeTask
     is WorktreeIntent.Public.Recheck, is WorktreeIntent.Public.RunBuild, is WorktreeIntent.Public.CancelBuild,
     is WorktreeIntent.Public.ProposeBuildPlan, is WorktreeIntent.Public.ApproveBuildPlan,
     is WorktreeIntent.Public.ActionDelivered, is WorktreeIntent.Public.ActionDeliveryFailed,
-    is WorktreeIntent.Public.ChooseAction,
+    is WorktreeIntent.Public.ChooseAction, is WorktreeIntent.Public.Seal,
     -> actionTransition(command)
 }
 
@@ -50,7 +50,7 @@ private fun WorktreeTask.actionTransition(command: WorktreeIntent.Public): Workt
     is WorktreeIntent.Public.Recheck, is WorktreeIntent.Public.RunBuild, is WorktreeIntent.Public.CancelBuild,
     is WorktreeIntent.Public.RunStarted, is WorktreeIntent.Public.RunAccepted, is WorktreeIntent.Public.RunRejected,
     is WorktreeIntent.Public.RunSubmissionObservationLost, is WorktreeIntent.Public.RunSubmissionReconciled,
-    is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.RunAdopted,
+    is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.RunAdopted, is WorktreeIntent.Public.Seal,
     is WorktreeIntent.Public.RunSettled,
     is WorktreeIntent.Public.TaskCompleteSignaled,
     -> this
@@ -98,12 +98,17 @@ public fun WorktreeTask.failed(reason: String): WorktreeTask = if (reason.starts
     copy(failure = reason, phase = WorktreePhase.Failed)
 }
 
+/** The outcome of the latest seal of the checkout. */
+public fun WorktreeTask.sealed(seal: WorktreeSeal): WorktreeTask = copy(seal = seal)
+
 /** Delayed effects report failure only to their owning request; rejected builds never poison a newer run. */
 public fun WorktreeTask.operationFailed(command: WorktreeIntent.Public, reason: String): WorktreeTask {
     val isStaleBuild = command is WorktreeIntent.Public.RunBuild && !hasActiveRun(command.expectedRun)
     val isStalePlan = command is WorktreeIntent.Public.ProposeBuildPlan && isStaleConfiguration(command)
     val isStaleRun = command is WorktreeIntent.Public.RunStarted && run?.request != command.request
     if (isStaleBuild || isStalePlan || isStaleRun) return this
+    // A seal that fails says so in the task; the checkout itself is fine and keeps working.
+    if (command is WorktreeIntent.Public.Seal) return sealed(WorktreeSeal(command.operation, failure = reason))
     return if (command is WorktreeIntent.Public.RunBuild) {
         buildUpdated(
             WorktreeBuildOperation(command.operation, command.command, WorktreeBuildPhase.Failed, failure = reason),
