@@ -26,6 +26,17 @@ public val OrganicAiEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "Органический ИИ: зигота, деление клеток-сессий и иммунитет",
 )
 
+/**
+ * New organisms of a chat with a project run every cell in a sandbox of its own ([OrganismIsolation.Sandbox]) instead
+ * of in the project's checkout. Needs worktree mode: a conception fails rather than falling back to the shared
+ * checkout. An organism keeps the isolation it was conceived with when the toggle changes.
+ */
+public val OrganicAiSandbox: FeatureToggle.Flag = FeatureToggle.Flag(
+    "organic_ai.sandbox",
+    "Органический ИИ: каждая клетка работает в своей песочнице",
+    default = false,
+)
+
 /** Caller-generated identity of an organism; never contains native paths, accounts or credentials. */
 @Serializable
 public data class OrganismId(val value: String) {

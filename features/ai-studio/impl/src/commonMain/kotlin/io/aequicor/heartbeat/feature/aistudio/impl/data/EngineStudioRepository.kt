@@ -367,7 +367,7 @@ internal class EngineStudioRepository(
             worktreeTaskId = id.takeIf { isWorktree },
             isSandbox = isSandbox.takeIf { isWorktree },
             executionWorkspace = executionWorkspace,
-            organismId = organism?.let { organisms.admit(id, it, isWorktree) },
+            organismId = organism?.let { organisms.admit(id, it, isWorktree, projectId) },
         )
         val record = conversations.create(pending, ::saveConversation)
         log.i { "Created studio conversation" }

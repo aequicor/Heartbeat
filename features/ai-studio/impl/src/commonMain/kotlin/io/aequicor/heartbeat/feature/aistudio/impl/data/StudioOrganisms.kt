@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
@@ -17,9 +18,12 @@ import io.aequicor.heartbeat.feature.organicai.api.Conception
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineKey
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiOutput
+import io.aequicor.heartbeat.feature.organicai.api.OrganicAiSandbox
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
+import io.aequicor.heartbeat.feature.organicai.api.OrganismIsolation
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -31,18 +35,24 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The machine runs only while organic AI is on in the profile.
  */
 @Inject
-internal class StudioOrganisms(private val machines: MachineRegistry, private val selections: ModelSelections) {
+internal class StudioOrganisms(
+    private val machines: MachineRegistry,
+    private val selections: ModelSelections,
+    private val toggles: FeatureToggles,
+) {
     private val log = Log.tag("StudioOrganisms")
 
     /**
      * The organism id of the new chat [chat] created for [request]: the chat's own id. Fails when its organism could
-     * not be conceived now: the goal is too long, no model is chosen, organic AI is off or asleep, or the chat runs
-     * in an isolated checkout, which organism turns bypass. Asked before the chat is saved.
+     * not be conceived now: the goal is too long, no model is chosen, organic AI is off or asleep, the profile asks for
+     * sandboxes of [projectId] without worktree mode, or the chat itself is an isolated checkout (an organism isolates
+     * its own cells). Asked before the chat is saved.
      */
-    suspend fun admit(chat: String, request: OrganismRequest, isWorktree: Boolean): String {
-        require(!isWorktree) { "An organism does not run in an isolated checkout" }
+    suspend fun admit(chat: String, request: OrganismRequest, isWorktree: Boolean, projectId: String?): String {
+        require(!isWorktree) { "An organism isolates its cells itself and does not run in a chat's isolated checkout" }
         require(request.goal.length <= OrganismBounds.MAX_GOAL) { "The goal is too long for an organism" }
         target(request.settings.modelId, stored = null)
+        isolation(hasProject = projectId != null)
         living()
         return chat
     }
@@ -71,19 +81,31 @@ internal class StudioOrganisms(private val machines: MachineRegistry, private va
             return RunOutcome.Completed
         }
         val chosen = chat.configuration?.modelId ?: chat.target?.studioModelId() ?: settings.modelId
+        val workspace = chat.executionWorkspace ?: chat.projectId?.let(::WorkspaceRef)
         val conception = Conception(
             OrganismId(chat.id),
             goal,
             target = target(chosen, chat.target),
-            workspace = chat.executionWorkspace ?: chat.projectId?.let(::WorkspaceRef),
+            workspace = workspace,
             trust = settings.approval.toTrust(),
             attachments = attachments,
+            isolation = isolation(hasProject = workspace != null),
         )
         val result = machine.send(OrganicAiIntent.Public.Conceive(conception))
         log.i { "organism ${conception.id.value} conception for a studio chat: $result" }
         check(result == SendResult.Accepted) { "The organism was not conceived" }
         onAccepted()
         return RunOutcome.Completed
+    }
+
+    /**
+     * Sandboxes for the cells of an organism with a project while the profile asks for them. It fails closed: without
+     * worktree mode the organism is not conceived, since its cells would otherwise share the project's checkout.
+     */
+    private suspend fun isolation(hasProject: Boolean): OrganismIsolation {
+        if (!hasProject || !toggles.get(OrganicAiSandbox)) return OrganismIsolation.Shared
+        check(toggles.get(WorktreeModeEnabled)) { "Sandboxed organisms need worktree mode" }
+        return OrganismIsolation.Sandbox
     }
 
     private suspend fun target(chosen: String, stored: EngineTarget?): EngineTarget {
