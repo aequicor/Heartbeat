@@ -50,10 +50,11 @@ val heartbeatApplicationVersion = providers.gradleProperty("heartbeat.version").
 }
 // The testing flavor (-Pheartbeat.flavor=testing) is a release build for end-to-end checks: its launcher keeps
 // credentials in the local development files, so a test run never asks for Keychain, DPAPI or Secret Service. Only its
-// application name and macOS bundle id differ: it is not isolated from an installed Heartbeat and shares the data root,
-// the single-instance lock, the logs and the Native Messaging registration with it, so it opens the real profiles (their
-// secrets are not in the development files). Run it where no Heartbeat is installed or running. Release workflows never
-// pass it, and its installers are refused below because they would reuse the production package names.
+// application name (not on Linux) and macOS bundle id differ: it is not isolated from an installed Heartbeat and
+// shares the data root, the single-instance lock, the logs and the Native Messaging registration with it, so it opens
+// the real profiles (their secrets are not in the development files). Run it where no Heartbeat is installed or
+// running. Release workflows never pass it. Its installers are refused below: on Linux (package name) and Windows
+// (Inno Setup AppId and file names) they would reuse the production names, on macOS the refusal is conservative.
 val heartbeatFlavor = providers.gradleProperty("heartbeat.flavor").orNull.also { flavor ->
     require(flavor == null || flavor == "testing") { "heartbeat.flavor must be testing: $flavor" }
 }
@@ -62,8 +63,8 @@ if (isTestingFlavor) {
     val rejectTestingInstallers = tasks.register("rejectTestingInstallers") {
         doFirst {
             throw GradleException(
-                "The testing flavor builds createReleaseDistributable only: an installer or package would reuse " +
-                    "the production package name, AppId and file names and replace an installed Heartbeat",
+                "The testing flavor builds createReleaseDistributable only: an installer (Dmg, Deb, Inno Setup) " +
+                    "could reuse the production package name, AppId and file names and replace an installed Heartbeat",
             )
         }
     }

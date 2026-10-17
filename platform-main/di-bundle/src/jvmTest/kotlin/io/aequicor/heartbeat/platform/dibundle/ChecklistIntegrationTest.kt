@@ -89,7 +89,7 @@ class ChecklistIntegrationTest {
     }
 
     @Test
-    fun `checklists off under the test baseline and ready mode persists with automatic wakes disabled`() = runTest {
+    fun `checklist ready mode persists with automatic wakes disabled`() = runTest {
         assertTrue(ChecklistEnabled in toggles.toggleControl.registered)
         assertTrue(ChecklistEnabled.default)
         toggles.toggleControl.setOverride(ChecklistEnabled, true)

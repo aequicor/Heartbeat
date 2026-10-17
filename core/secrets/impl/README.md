@@ -34,8 +34,10 @@ Release-задачи используют `MainKt`, который всегда 
 DPAPI и Secret Service. Релизные workflow флейвор не передают; `MainKt` и переменные окружения backend не переключают.
 Флейвор **не изолирован** от установленного Heartbeat: корень данных, lock единственного экземпляра, логи и регистрация
 Native Messaging общие, поэтому он открывает настоящие профили (их секреты в `development-secrets` отсутствуют) и не запустится
-рядом с работающим Heartbeat. Запускай его там, где Heartbeat не установлен и не запущен. Установщики и пакеты (`package*`)
-с флейвором отклоняются: они взяли бы продовые имя пакета, AppId и имена файлов.
+рядом с работающим Heartbeat. Запускай его там, где Heartbeat не установлен и не запущен. Установщики (`package[Release]` Dmg, Deb,
+Inno Setup и `package[Release]DistributionForCurrentOS`) с флейвором отклоняются: на Linux (`packageName = "heartbeat"`) и в Windows
+(`AppId`, имена файлов в `heartbeat.iss`) они взяли бы продовые имена, на macOS запрет консервативный. Имя образа
+`HeartbeatE2E` относится к macOS и Windows; на Linux образ называется как продовый.
 `SecretStorageInfo` отдаёт метаданные выбранного backend без доступа к ключам; экраны подключения и Querit показывают их пользователю.
 
 Закрытие профиля ничего не удаляет. Явный `StorageMaintenance.wipeProfile` вызывает
