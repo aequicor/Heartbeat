@@ -93,5 +93,5 @@ public object AttachmentsPicked : ResultContract<AttachmentSelection>(
 public val AttachmentsEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "attachments.enabled",
     "Вложения изображений и документов",
-    default = false,
+    default = true,
 )

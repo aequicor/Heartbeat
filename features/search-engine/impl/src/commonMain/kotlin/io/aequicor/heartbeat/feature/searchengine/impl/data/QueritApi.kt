@@ -19,6 +19,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -69,7 +70,7 @@ internal class QueritApi(private val client: HttpClient, private val preferences
             else -> root["data"] as? JsonArray
         } ?: fail(SearchFailure.InvalidResponse)
         val item = items.firstOrNull() as? JsonObject ?: fail(SearchFailure.InvalidResponse)
-        if (item.string("status")?.lowercase() == "failed") fail(SearchFailure.Unavailable)
+        if (root.pageStatus(item)?.lowercase() == "failed") fail(SearchFailure.Unavailable)
         val content = item.string("content") ?: item.string("text")
             ?: fail(SearchFailure.InvalidResponse)
         if (content.isBlank()) fail(SearchFailure.InvalidResponse)
@@ -151,5 +152,15 @@ internal class QueritApi(private val client: HttpClient, private val preferences
 
 private fun fail(failure: SearchFailure): Nothing = throw SearchException(failure)
 
+/** The crawl status of [item]: Querit reports it inside the result or, by result id, in the separate `statuses`. */
+private fun JsonObject.pageStatus(item: JsonObject): String? {
+    val id = item.string("id")
+    val statuses = this["statuses"] as? JsonArray
+    return item.string("status") ?: statuses?.firstNotNullOfOrNull { entry ->
+        (entry as? JsonObject)?.takeIf { id != null && it.string("id") == id }?.string("status")
+    }
+}
+
+/** A JSON null is no text: its content would read as the word "null". */
 private fun JsonObject.string(name: String): String? =
-    (get(name) as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+    (get(name) as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content?.takeIf { it.isNotBlank() }

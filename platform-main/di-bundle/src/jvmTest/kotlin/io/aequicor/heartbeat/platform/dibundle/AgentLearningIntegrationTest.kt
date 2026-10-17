@@ -47,9 +47,9 @@ class AgentLearningIntegrationTest {
     }
 
     @Test
-    fun `learning is a registered toggle disabled by default`() = runTest {
+    fun `learning is a registered toggle that the test baseline starts off`() = runTest {
         assertTrue(AgentLearningEnabled in toggles.toggleControl.registered)
-        assertFalse(AgentLearningEnabled.default)
+        assertTrue(AgentLearningEnabled.default)
         assertEquals("agent_learning", AgentLearningEnabled.owner)
         val profile = app.profileSessions.open(ProfileId("learning-off"))
         assertTrue((profile.graph as TestLearningAccessors).agentTools.specifications(null).isEmpty())

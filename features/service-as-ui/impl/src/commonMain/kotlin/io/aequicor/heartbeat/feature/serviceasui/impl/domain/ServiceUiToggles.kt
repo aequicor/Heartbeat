@@ -6,7 +6,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 internal val ServiceUiWeb: FeatureToggle.Flag = FeatureToggle.Flag(
     "service_ui.web",
     "Веб-документы в интерфейсах агента (Desktop)",
-    default = false,
+    default = true,
 )
 
 /** Persisted app-wide policy; changing it reloads pages, including active previews. */

@@ -19,7 +19,7 @@ public data object BrowserRoute : Route
 public val BrowserEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "browser.enabled",
     description = "Встроенный браузер",
-    default = false,
+    default = true,
 )
 
 /** Site icons in desktop tabs, loaded from the site itself through the tab's own browser profile. */

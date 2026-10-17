@@ -159,7 +159,7 @@
     <string name="usage_title">Контекст и лимиты</string>
     <string name="usage_limits">Лимиты</string>
     <string name="usage_context">Контекстное окно</string>
-    <string name="usage_percent">Использовано %1$d%%</string>
+    <string name="usage_percent">Использовано %1$d%</string>
     <string name="usage_tokens">%1$s / %2$s токенов</string>
     <string name="usage_resets">Сброс %1$s</string>
     <string name="usage_credits">Кредиты</string>
@@ -308,7 +308,7 @@
     <string name="safety_reviews_queued">В очереди: %1$d</string>
     <string name="safety_reviews_finishing">Остановлены, ждут завершения сессии: %1$d</string>
     <string name="safety_reviews_abandoned">Освобождены без подтверждённой остановки с начала работы профиля: %1$d</string>
-    <string name="app_update_percent">%1$d%%</string>
+    <string name="app_update_percent">%1$d%</string>
     <string name="app_update_manual_reason">Доступна версия Heartbeat %1$s. Эта установка не может обновить себя сама: скачайте и установите релиз.</string>
     <string name="app_update_downloading_status">Загрузка Heartbeat %1$s</string>
     <string name="app_update_preparing_status">Подготовка Heartbeat %1$s к установке</string>

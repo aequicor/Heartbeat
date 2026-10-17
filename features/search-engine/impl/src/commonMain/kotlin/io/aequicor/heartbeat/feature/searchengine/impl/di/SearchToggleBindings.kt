@@ -8,7 +8,7 @@ import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 
-/** App-wide registration of the disabled-by-default search tools switch. */
+/** App-wide registration of the search tools switch. */
 @BindingContainer
 @ContributesTo(AppScope::class)
 public object SearchToggleBindings {

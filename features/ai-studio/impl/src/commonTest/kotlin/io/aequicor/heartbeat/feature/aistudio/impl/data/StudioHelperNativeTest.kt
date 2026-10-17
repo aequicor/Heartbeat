@@ -72,6 +72,33 @@ class StudioHelperNativeTest {
     }
 
     @Test
+    fun `a completed turn answers with the messages after its prompt when history marks the engine's own turn id`() =
+        runTest {
+            val fixture = NativeHelperFixture()
+            fixture.stop = OwnedTurnStop.Confirmed(fixture.turn)
+            val engineTurn = TurnId("engine-turn")
+            val prompt = SessionItem.Message(
+                ItemInfo(ItemId("prompt"), 0, 0, engineTurn),
+                MessageRole.User,
+                listOf(ContentPart.Text("question")),
+            )
+            fixture.messages = listOf(prompt, fixture.message("answer", "Paris", engineTurn))
+            val result = fixture.native.result(fixture.record, fixture.turn.request!!) { fixture }
+            assertEquals("Paris", result?.answer)
+        }
+
+    @Test
+    fun `a cancelled turn never borrows an answer from messages marked with another turn`() = runTest {
+        val fixture = NativeHelperFixture()
+        val cancelled = fixture.turn.copy(outcome = TurnOutcome.Cancelled)
+        fixture.state.value = ActiveSessionState.Ready(cancelled)
+        fixture.stop = OwnedTurnStop.Confirmed(cancelled)
+        fixture.messages = listOf(fixture.message("own", "previous answer", TurnId("engine-turn")))
+        val result = fixture.native.result(fixture.record, cancelled.request!!) { fixture }
+        assertEquals("", result?.answer)
+    }
+
+    @Test
     fun `native terminal is neither saved nor exposed while adapter hosted drain is unconfirmed`() = runTest {
         val fixture = NativeHelperFixture()
         fixture.prepare()
