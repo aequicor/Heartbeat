@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommands
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptEvents
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptHooks
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptPrompts
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptScheduler
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptSessions
@@ -42,6 +43,7 @@ internal class HarnessScriptContext(
         override val workflows: ScriptWorkflows get() = services.workflows
         override val ui: ScriptUi get() = registrations
         override val data: ScriptData get() = services.data
+        override val processes: ScriptProcesses get() = services.processes
         override val commands: ScriptCommands get() = services.commands
     })
 
@@ -67,5 +69,6 @@ internal data class HarnessScriptServices(
     val workflows: ScriptWorkflows,
     val sessions: HarnessScriptSessions,
     val data: ScriptData,
+    val processes: ScriptProcesses,
     val commands: HarnessScriptCommands,
 )

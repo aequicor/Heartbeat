@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommands
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptEvents
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptHooks
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptPrompts
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptRegistration
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptScheduler
@@ -104,6 +105,7 @@ private class UiExampleScope(override val scope: CoroutineScope) : HarnessScript
     override val prompts: ScriptPrompts get() = error("Unexpected service")
     override val workflows: ScriptWorkflows get() = error("Unexpected service")
     override val data: ScriptData get() = error("Unexpected service")
+    override val processes: ScriptProcesses get() = error("Unexpected service")
 
     suspend fun call(call: ScriptUiCall): ScriptUiResult = checkNotNull(handler)(call)
 }
