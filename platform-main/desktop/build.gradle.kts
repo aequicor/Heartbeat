@@ -49,12 +49,28 @@ val heartbeatApplicationVersion = providers.gradleProperty("heartbeat.version").
     }
 }
 // The testing flavor (-Pheartbeat.flavor=testing) is a release build for end-to-end checks: its launcher keeps
-// credentials in the local development files, so a test run never asks for Keychain, DPAPI or Secret Service, and its
-// own name and bundle id keep it apart from an installed Heartbeat. Release workflows never pass it.
+// credentials in the local development files, so a test run never asks for Keychain, DPAPI or Secret Service. Only its
+// application name and macOS bundle id differ: it is not isolated from an installed Heartbeat and shares the data root,
+// the single-instance lock, the logs and the Native Messaging registration with it, so it opens the real profiles (their
+// secrets are not in the development files). Run it where no Heartbeat is installed or running. Release workflows never
+// pass it, and its installers are refused below because they would reuse the production package names.
 val heartbeatFlavor = providers.gradleProperty("heartbeat.flavor").orNull.also { flavor ->
     require(flavor == null || flavor == "testing") { "heartbeat.flavor must be testing: $flavor" }
 }
 val isTestingFlavor = heartbeatFlavor == "testing"
+if (isTestingFlavor) {
+    val rejectTestingInstallers = tasks.register("rejectTestingInstallers") {
+        doFirst {
+            throw GradleException(
+                "The testing flavor builds createReleaseDistributable only: an installer or package would reuse " +
+                    "the production package name, AppId and file names and replace an installed Heartbeat",
+            )
+        }
+    }
+    val installerTask = Regex("package(Release)?(Dmg|Pkg|Msi|Exe|Deb|Rpm|InnoSetup)")
+    // Compose registers its packaging tasks after evaluation; the callback also covers those.
+    tasks.configureEach { if (installerTask.matches(name)) dependsOn(rejectTestingInstallers) }
+}
 // Installed release builds update themselves from this repository's GitHub releases (owner/name).
 val heartbeatUpdateRepository = providers.gradleProperty("heartbeat.updateRepository").get().also { repository ->
     require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(repository)) {
@@ -283,7 +299,8 @@ tasks.withType<ComposeHotRun>().configureEach {
     }
 }
 
-// The default Compose build is development; release tasks retain the protected MainKt entry point.
+// The default Compose build is development; release tasks use the protected MainKt entry point (TestingMainKt in the
+// testing flavor).
 // Configure after Compose has registered and initialized its tasks, without an environment/property escape hatch.
 afterEvaluate {
     val releaseJars = tasks.named<AbstractProguardTask>("proguardReleaseJars")

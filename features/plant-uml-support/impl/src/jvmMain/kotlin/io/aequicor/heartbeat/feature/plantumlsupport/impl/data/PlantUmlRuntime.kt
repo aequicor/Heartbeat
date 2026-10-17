@@ -32,6 +32,10 @@ internal class PlantUmlRuntime(
     @Volatile
     private var prepared: Path? = null
 
+    /** A rejected bundled jar stays rejected for the process, so renders neither rehash it nor repeat the warning. */
+    @Volatile
+    private var rejectedBundled: Path? = null
+
     /** Revalidates completed cache entries before rendering; concurrent callers share only the active preparation. */
     suspend fun prepare(): Path = mutex.withLock {
         preparation?.takeIf { it.isActive } ?: scope.async(io) {
@@ -50,10 +54,12 @@ internal class PlantUmlRuntime(
      */
     private fun verifiedBundled(): Path? {
         val path = bundled() ?: return null
+        if (path == rejectedBundled) return null
         return try {
             validatePlantUmlRuntimeJar(path)
             path
         } catch (e: IllegalArgumentException) {
+            rejectedBundled = path
             log.w(e) { "Bundled PlantUML component does not match the pin; using the verified download" }
             null
         }

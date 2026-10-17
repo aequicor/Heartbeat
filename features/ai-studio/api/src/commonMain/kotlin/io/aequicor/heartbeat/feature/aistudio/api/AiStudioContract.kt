@@ -21,7 +21,7 @@ public data object AiStudioRoute : Route
 
 /**
  * Profile chats executed through the engine facade and the studio as the start screen of a profile.
- * Off (default): the in-memory demo workspace with the scripted agent and the welcome screen as the profile start.
+ * On (default). Off: the in-memory demo workspace with the scripted agent and the welcome screen as the profile start.
  */
 public val StudioEngineRuntime: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "ai_studio.engine_runtime",

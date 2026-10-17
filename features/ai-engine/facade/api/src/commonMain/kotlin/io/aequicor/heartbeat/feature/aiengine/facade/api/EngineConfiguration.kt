@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Configuration of engines through the control panel: settings, instructions, resources and tool servers declared by
- * an engine's [EngineConfigSchema]. Off by default; while off (or while [EngineManagementEnabled] is off) adapters
+ * an engine's [EngineConfigSchema]. On by default; while off (or while [EngineManagementEnabled] is off) adapters
  * start exactly as without configuration and every engine command line stays unchanged.
  */
 public val EngineConfigurationEnabled: FeatureToggle.Flag = FeatureToggle.Flag(

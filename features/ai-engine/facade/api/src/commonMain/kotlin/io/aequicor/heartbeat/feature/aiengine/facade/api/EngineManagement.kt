@@ -8,7 +8,7 @@ import kotlin.time.Instant
 
 /**
  * Engine management in the engine settings: every registered engine with its switch, installation, CLI login,
- * launch settings and runtimes. Off by default; while off, profile switches and launch settings are ignored and
+ * launch settings and runtimes. On by default; while off, profile switches and launch settings are ignored and
  * engines run exactly as their developer flags and defaults say.
  */
 public val EngineManagementEnabled: FeatureToggle.Flag = FeatureToggle.Flag(

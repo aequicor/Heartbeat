@@ -101,7 +101,7 @@ class HarnessIntegrationTest {
     }
 
     @Test
-    fun `registered default off remains lazy then loads and reuses the library through toggle cycles`() = runTest {
+    fun `baseline-off harness stays lazy then loads and reuses the library through toggle cycles`() = runTest {
         assertTrue(HarnessEnabled in toggles.toggleControl.registered)
         assertTrue(HarnessEnabled.default)
         val profileId = ProfileId("harness")

@@ -96,7 +96,7 @@ class EngineConnectionsIntegrationTest {
     }
 
     @Test
-    fun `connection settings toggle is registered and off by default`() = runTest {
+    fun `connection settings toggle is registered and off under the test baseline`() = runTest {
         val control = (app as TestToggleAccessors).toggleControl
         val state = control.observeStates().first().single { it.toggle == EngineConnectionsEnabled }
         assertEquals(false, state.value)

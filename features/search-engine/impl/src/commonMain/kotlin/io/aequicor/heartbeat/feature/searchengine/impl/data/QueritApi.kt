@@ -19,6 +19,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -160,5 +161,6 @@ private fun JsonObject.pageStatus(item: JsonObject): String? {
     }
 }
 
+/** A JSON null is no text: its content would read as the word "null". */
 private fun JsonObject.string(name: String): String? =
-    (get(name) as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+    (get(name) as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content?.takeIf { it.isNotBlank() }

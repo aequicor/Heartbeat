@@ -112,13 +112,20 @@ private fun JsonObject.basicParameterType(): ToolParameterType = when (schemaTyp
     "object" -> ToolParameterType.Object(
         parameters(),
         requiredFields(),
-        if (get("additionalProperties") is JsonObject) {
-            true
-        } else {
-            (get("additionalProperties") as? JsonPrimitive)?.booleanOrNull
-        },
+        additionalProperties(),
         (get("additionalProperties") as? JsonObject)?.parameterType(),
     )
 
     else -> error("Unsupported hosted tool schema")
+}
+
+/** Free-form JSON (no declared type) stays open: providers that close an object with an absent flag would reject it. */
+private fun JsonObject.additionalProperties(): Boolean? {
+    val declared = get("additionalProperties")
+    return when {
+        declared is JsonObject -> true
+        declared is JsonPrimitive && declared.booleanOrNull != null -> declared.booleanOrNull
+        "type" !in this -> true
+        else -> null
+    }
 }

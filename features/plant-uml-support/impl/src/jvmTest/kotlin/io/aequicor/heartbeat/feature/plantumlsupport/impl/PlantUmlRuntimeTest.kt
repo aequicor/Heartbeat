@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.plantumlsupport.impl
 
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.LogLevel
+import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.core.network.release.ReleaseArtifact
 import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.PlantUmlRuntime
@@ -19,6 +22,7 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -96,6 +100,46 @@ class PlantUmlRuntimeTest {
             assertEquals(verified, runtime.prepare())
             assertEquals(1, requests)
         } finally {
+            Files.deleteIfExists(repackaged)
+        }
+    }
+
+    @Test
+    fun `a rejected bundled jar is warned about once however many renders ask for the component`() = runTest {
+        val repackaged = Files.createTempFile("plantuml-repackaged", ".jar")
+        val warnings = CopyOnWriteArrayList<String>()
+        Log.init(
+            isDebug = true,
+            sinks = listOf(
+                LogSink { level, _, _, message ->
+                    if (level == LogLevel.WARNING) warnings += message
+                },
+            ),
+        )
+        try {
+            Files.write(repackaged, byteArrayOf(1, 2, 3))
+            val verified = Path.of("verified.jar")
+            var requests = 0
+            val cache = object : VerifiedArtifactCache {
+                override suspend fun prepare(
+                    artifact: ReleaseArtifact,
+                    progress: suspend (Long, Long?) -> Unit,
+                ): Path {
+                    requests++
+                    return verified
+                }
+            }
+            val runtime = PlantUmlRuntime(
+                cache,
+                backgroundScope,
+                StandardTestDispatcher(testScheduler),
+                bundled = { repackaged },
+            )
+            repeat(3) { assertEquals(verified, runtime.prepare()) }
+            assertEquals(3, requests)
+            assertEquals(1, warnings.count { "does not match the pin" in it })
+        } finally {
+            Log.init(isDebug = false)
             Files.deleteIfExists(repackaged)
         }
     }

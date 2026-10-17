@@ -47,7 +47,7 @@ class AgentLearningIntegrationTest {
     }
 
     @Test
-    fun `learning is a registered toggle and starts off on a fresh device baseline`() = runTest {
+    fun `learning is a registered toggle that the test baseline starts off`() = runTest {
         assertTrue(AgentLearningEnabled in toggles.toggleControl.registered)
         assertTrue(AgentLearningEnabled.default)
         assertEquals("agent_learning", AgentLearningEnabled.owner)

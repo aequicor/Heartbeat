@@ -74,6 +74,31 @@ class KoogHostedSchemaTest {
         val tool = AgentToolSpec("ui_preview", "Preview", schema).koogDescriptor()
         val data = assertIs<ToolParameterType.Object>(tool.optionalParameters.single().type)
         assertEquals(emptyList(), data.properties)
+        assertEquals(true, data.additionalProperties)
+    }
+
+    @Test
+    fun `a typed object without the flag keeps its provider default`() {
+        val schema = Json.parseToJsonElement(
+            """{"type":"object","properties":{"data":{"type":"object","properties":{}}}}""",
+        ).jsonObject
+        val data = AgentToolSpec("typed", "Typed", schema).koogDescriptor().optionalParameters.single().type
+        assertNull(assertIs<ToolParameterType.Object>(data).additionalProperties)
+    }
+
+    @Test
+    fun `a tool whose schema cannot be described is skipped and the others stay offered`() {
+        val broken = AgentToolSpec(
+            "broken",
+            "Unsupported type",
+            Json.parseToJsonElement(
+                """{"type":"object","properties":{"value":{"type":["string","null"]}}}""",
+            ).jsonObject,
+        )
+        val good = AgentToolSpec("good", "Plain", JsonObject(mapOf("type" to JsonPrimitive("object"))))
+        val context = AgentToolContext(SessionRef(KoogEngineId, SessionSourceId("test"), "s"), null, TurnId("turn"))
+        val offered = koogHostedTools(listOf(broken, good, broken), NoAgentTools, context)
+        assertEquals(listOf("good"), offered.map { it.descriptor.name })
     }
 
     @Test

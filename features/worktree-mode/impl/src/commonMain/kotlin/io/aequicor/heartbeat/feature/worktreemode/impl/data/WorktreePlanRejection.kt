@@ -21,9 +21,17 @@ internal suspend fun WorktreeJournal.planRejection(chatId: String, plan: Worktre
     } catch (error: CancellationException) {
         throw error
     } catch (error: IllegalArgumentException) {
-        // Only plain codes reach the agent: other messages may contain filesystem text.
-        val code = error.message?.takeIf { it.matches(rejectionCode) } ?: "InvalidBuildPlan"
-        log.w(error.redactedFailure()) { "Build plan rejected" }
+        val code = plainCode(error, "InvalidBuildPlan")
+        log.w(error.redactedFailure()) { "Build plan rejected code=$code" }
+        code
+    } catch (error: Exception) {
+        // The machine answers the same way for a failure of the checkout itself (WorktreeUnavailable and the like).
+        val code = plainCode(error, "OperationFailed")
+        log.w(error.redactedFailure()) { "Build plan rejected code=$code" }
         code
     }
 }
+
+/** Only plain codes reach the agent: other messages may contain filesystem text. */
+private fun plainCode(error: Exception, fallback: String): String =
+    error.message?.takeIf { it.matches(rejectionCode) } ?: fallback

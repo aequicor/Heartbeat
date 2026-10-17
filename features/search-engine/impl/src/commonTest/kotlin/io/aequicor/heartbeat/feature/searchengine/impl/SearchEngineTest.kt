@@ -282,6 +282,20 @@ class SearchEngineTest {
         )
     }
 
+    @Test fun `a null status in the result falls back to the separate statuses list`() = runTest {
+        val api = api {
+            respond(
+                """{"results":[{"id":"r1","url":"https://example.com/","status":null,"content":""}],""" +
+                    """"statuses":[{"id":"r1","status":"failed"}]}""",
+                headers = jsonHeaders,
+            )
+        }
+        assertEquals(
+            SearchFailure.Unavailable,
+            assertFailsWith<SearchException> { api.fetch("https://example.com/") }.failure,
+        )
+    }
+
     @Test fun `connection checks issue independent minimal requests`() = runTest {
         val paths = mutableListOf<String>()
         val api = api { request ->

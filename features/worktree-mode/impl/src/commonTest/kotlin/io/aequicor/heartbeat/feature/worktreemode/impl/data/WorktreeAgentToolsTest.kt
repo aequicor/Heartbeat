@@ -271,6 +271,17 @@ class WorktreeAgentToolsTest {
         assertEquals("InvalidBuildPlan", fixture.tools.execute(CONTEXT, "configure_build", plan).text)
     }
 
+    @Test
+    fun `a checkout failure during plan validation keeps its plain code for the agent`() = runTest {
+        val fixture = Fixture()
+        fixture.prepare()
+        val plan = planArguments(WorktreeBuildCommand("test", "build"))
+        fixture.git.failure = IllegalStateException("WorktreeUnavailable")
+        assertEquals("WorktreeUnavailable", fixture.tools.execute(CONTEXT, "configure_build", plan).text)
+        fixture.git.failure = IllegalStateException("git failed in /Users/secret/repo")
+        assertEquals("OperationFailed", fixture.tools.execute(CONTEXT, "configure_build", plan).text)
+    }
+
     private class Fixture {
         private val workspaces = PreviewWorkspaces()
         val toggles = PreviewToggles()
@@ -357,6 +368,7 @@ private class PreviewRegistry : MachineRegistry {
 
 private class PreviewGit : WorktreeGit {
     var rejection: String? = null
+    var failure: Exception? = null
     override val isAvailable = true
     override suspend fun plan(source: String, identity: String) =
         WorktreeProvision("/source", "/checkout", "/common", "master", "heartbeat/test", "sha")
@@ -364,6 +376,7 @@ private class PreviewGit : WorktreeGit {
     override suspend fun materialize(record: WorktreeRecord) = Unit
     override suspend fun exists(record: WorktreeRecord) = true
     override suspend fun validatePlan(record: WorktreeRecord, plan: WorktreeBuildPlan) {
+        failure?.let { throw it }
         rejection?.let { throw IllegalArgumentException(it) }
     }
     override suspend fun build(record: WorktreeRecord, id: String, command: String) = BuildExecution(
