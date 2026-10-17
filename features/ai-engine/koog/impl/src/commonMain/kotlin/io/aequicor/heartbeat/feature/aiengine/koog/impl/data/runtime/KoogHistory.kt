@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
@@ -42,8 +43,9 @@ internal class KoogHistory(initial: List<SessionItem>, private val context: Coro
     /** Whether any [watch] collector is active. */
     val isObserved: Boolean get() = journal.subscriptionCount.value > 0
 
+    @HighFrequency
     fun append(event: (HistoryCheckpoint) -> SessionEvent) {
-        log.d { "Publishing history revision" }
+        log.v { "Publishing history revision" }
         sequence++
         val next = event(checkpoint())
         // A later upsert carries the whole item, so earlier upserts of it are superseded rather than lost.

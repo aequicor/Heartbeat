@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.LogLevel
+import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
@@ -25,6 +28,28 @@ import kotlin.test.assertSame
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class KoogHistoryTest {
+    @Test
+    fun `streamed history stays quiet in debug and remains visible in trace`() {
+        val levels = mutableListOf<LogLevel>()
+        val sink = LogSink { level, tag, _, _ -> if (tag == "KoogHistory") levels += level }
+        val history = KoogHistory(emptyList())
+        try {
+            Log.init(isDebug = true, sinks = listOf(sink))
+            repeat(200) { revision ->
+                history.append { SessionEvent.ItemUpserted(it, message("answer", 0, revision.toString())) }
+            }
+            assertEquals(emptyList(), levels)
+            assertEquals(listOf(ContentPart.Text("199")), assertIs<SessionItem.Message>(history.items.single()).parts)
+
+            Log.init(isDebug = true, isTrace = true, sinks = listOf(sink))
+            history.append { SessionEvent.ItemUpserted(it, message("answer", 0, "final")) }
+            assertEquals(listOf(LogLevel.VERBOSE), levels)
+            assertEquals(listOf(ContentPart.Text("final")), assertIs<SessionItem.Message>(history.items.single()).parts)
+        } finally {
+            Log.init(isDebug = false)
+        }
+    }
+
     @Test
     fun checkpointReplaysChangesIndependentlyForEachCollector() = runTest {
         val history = KoogHistory(emptyList())
