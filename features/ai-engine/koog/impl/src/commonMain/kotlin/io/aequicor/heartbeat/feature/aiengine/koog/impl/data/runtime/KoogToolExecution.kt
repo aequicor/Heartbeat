@@ -77,7 +77,7 @@ internal class KoogToolExecution(
             if (isApprovalNeeded) ToolCallStatus.Pending else ToolCallStatus.Running,
         )
         history.append { SessionEvent.ItemUpserted(it, started) }
-        val executed = executed(turn, call, tool, args, started)
+        val executed = executed(turn, call, tool, args, started, id)
         val result = offload(call.name, executed.text)?.let { executed.copy(text = it) } ?: executed
         val status = if (result.isFailed) ToolCallStatus.Failed else ToolCallStatus.Succeeded
         history.append { SessionEvent.ItemUpserted(it, started.copy(info = info.copy(revision = 2), status = status)) }
@@ -98,6 +98,7 @@ internal class KoogToolExecution(
         tool: KoogTool?,
         args: JsonObject?,
         started: SessionItem.ToolCall,
+        id: ToolCallId,
     ): KoogToolResult = when {
         tool == null -> {
             log.w { "Model called an unknown tool ${call.name}" }
@@ -106,19 +107,24 @@ internal class KoogToolExecution(
 
         args == null -> KoogToolResult("InvalidInput: arguments must be a JSON object", true)
 
-        tool.isMutating -> approve(turn, tool, args)?.let { KoogToolResult(it, true) } ?: run(tool, args, started)
+        tool.isMutating -> approve(turn, tool, args)?.let { KoogToolResult(it, true) } ?: run(tool, args, started, id)
 
         else -> {
             log.i { "Running tool ${call.name}" }
-            tool.run(args)
+            tool.run(args, id)
         }
     }
 
-    private suspend fun run(tool: KoogTool, args: JsonObject, pending: SessionItem.ToolCall): KoogToolResult {
+    private suspend fun run(
+        tool: KoogTool,
+        args: JsonObject,
+        pending: SessionItem.ToolCall,
+        id: ToolCallId,
+    ): KoogToolResult {
         val running = pending.copy(info = pending.info.copy(revision = 1), status = ToolCallStatus.Running)
         history.append { SessionEvent.ItemUpserted(it, running) }
         log.i { "Running approved tool ${tool.descriptor.name}" }
-        return tool.run(args)
+        return tool.run(args, id)
     }
 
     private fun continuePrompt(input: Prompt, text: String, calls: List<HandledToolCall>): Prompt = prompt(

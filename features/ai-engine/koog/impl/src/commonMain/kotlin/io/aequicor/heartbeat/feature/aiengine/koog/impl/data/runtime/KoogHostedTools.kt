@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -23,19 +24,32 @@ internal fun koogHostedTools(
     tools: ProfileAgentTools,
     context: AgentToolContext,
 ): List<KoogTool> = specs.mapNotNull { spec ->
-    val described = try {
-        spec.koogDescriptor()
-    } catch (e: Exception) {
-        log.w(e) { "Hosted tool ${spec.name} has an unsupported schema and is not offered" }
-        return@mapNotNull null
-    }
+    val described = spec.describedOrNull() ?: return@mapNotNull null
     object : KoogTool {
         override val descriptor = described
-        override suspend fun run(args: JsonObject): KoogToolResult {
-            val result = tools.execute(context, spec.name, args)
+        override suspend fun run(args: JsonObject): KoogToolResult = execute(context, args)
+
+        override suspend fun run(args: JsonObject, call: ToolCallId): KoogToolResult =
+            execute(context.copy(callId = call), args)
+
+        private suspend fun execute(callContext: AgentToolContext, args: JsonObject): KoogToolResult {
+            val result = tools.execute(callContext, spec.name, args)
             return KoogToolResult(result.text, result.isError, images = result.images)
         }
     }
+}
+
+private fun AgentToolSpec.describedOrNull(): ToolDescriptor? = try {
+    koogDescriptor()
+} catch (e: IllegalStateException) {
+    log.w(e) { "Hosted tool $name has an unsupported schema and is not offered" }
+    null
+} catch (e: IllegalArgumentException) {
+    log.w(e) { "Hosted tool $name has an unsupported schema and is not offered" }
+    null
+} catch (e: ClassCastException) {
+    log.w(e) { "Hosted tool $name has an unsupported schema and is not offered" }
+    null
 }
 
 internal fun AgentToolSpec.koogDescriptor(): ToolDescriptor {

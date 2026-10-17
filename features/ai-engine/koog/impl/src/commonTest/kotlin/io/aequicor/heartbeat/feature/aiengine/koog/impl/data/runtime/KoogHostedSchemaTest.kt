@@ -1,12 +1,25 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
 import ai.koog.agents.core.tools.ToolParameterType
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 
 class KoogHostedSchemaTest {
     @Test
@@ -61,5 +74,27 @@ class KoogHostedSchemaTest {
         val tool = AgentToolSpec("ui_preview", "Preview", schema).koogDescriptor()
         val data = assertIs<ToolParameterType.Object>(tool.optionalParameters.single().type)
         assertEquals(emptyList(), data.properties)
+    }
+
+    @Test
+    fun `a hosted tool runs under the call id the model assigned`() = runTest {
+        var seen: AgentToolContext? = null
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun execute(
+                context: AgentToolContext,
+                name: String,
+                arguments: JsonObject,
+            ): AgentToolResult {
+                seen = context
+                return AgentToolResult("ok")
+            }
+        }
+        val context = AgentToolContext(SessionRef(KoogEngineId, SessionSourceId("test"), "s"), null, TurnId("turn"))
+        val spec = AgentToolSpec("edit_file", "Edit", JsonObject(mapOf("type" to JsonPrimitive("object"))))
+        val tool = koogHostedTools(listOf(spec), tools, context).single()
+        tool.run(JsonObject(emptyMap()), ToolCallId("call-1"))
+        assertEquals(ToolCallId("call-1"), seen?.callId)
+        tool.run(JsonObject(emptyMap()))
+        assertNull(seen?.callId)
     }
 }
