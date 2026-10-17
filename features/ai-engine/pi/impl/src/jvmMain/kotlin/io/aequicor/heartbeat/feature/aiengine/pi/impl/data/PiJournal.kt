@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -255,12 +256,12 @@ internal class PiJournal(private val originals: (JsonObject) -> List<ContentPart
         append { SessionEvent.ItemUpserted(it, item) }
     }
 
+    @HighFrequency
     private fun append(event: (HistoryCheckpoint) -> SessionEvent) {
         val next = version.value + 1
         events += event(HistoryCheckpoint(token(next)))
         if (events.size > REPLAY_LIMIT) events.removeFirst()
-        // Streaming appends a revision per chunk; one line per stride keeps the console readable.
-        if (next % REVISION_LOG_STRIDE == 0L) log.d { "Pi history revision: $next" }
+        log.v { "Pi history revision: $next" }
         version.value = next
     }
 
@@ -275,7 +276,6 @@ internal class PiJournal(private val originals: (JsonObject) -> List<ContentPart
         const val REPLAY_LIMIT = 512
         const val COMPACTED_NOTICE = "Context compacted"
         const val CURSOR_FIELDS = 3
-        const val REVISION_LOG_STRIDE = 100L
     }
 }
 
