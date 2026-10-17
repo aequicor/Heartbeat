@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
@@ -18,9 +19,11 @@ import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.api.Settlement
 import io.aequicor.heartbeat.feature.organicai.api.Work
 import io.aequicor.heartbeat.feature.organicai.api.cell
+import io.aequicor.heartbeat.feature.organicai.api.isSandboxed
 import io.aequicor.heartbeat.feature.organicai.api.needsSandbox
 import io.aequicor.heartbeat.feature.organicai.api.targetOf
 import io.aequicor.heartbeat.feature.organicai.api.workspaceOf
+import kotlinx.coroutines.CancellationException
 
 /**
  * Runs one turn of a cell: opens its session, submits the turn's prompt (or adopts the native turn a recovery finds
@@ -58,29 +61,59 @@ internal class CellDriver(
         route: CellRoute,
         machine: EffectScope<OrganicAiIntent>,
     ) {
-        val id = cell.id
-        val request = phase.request
-        val key = CellKey(organism.id, id)
+        val key = CellKey(organism.id, cell.id)
         val handle = cells.open(key, route, cell.session, cell.turns)
         if (cell.session == null) {
-            val bound = OrganicAiIntent.Internal.SessionBound(organism.id, id, request, handle.session)
-            if (machine.send(bound) != SendResult.Accepted) return abandon(key, handle, turn = null)
+            val bound = OrganicAiIntent.Internal.SessionBound(organism.id, cell.id, phase.request, handle.session)
+            if (machine.send(bound) != SendResult.Accepted) return abandon(key, handle, turn = null, CellRun.None)
         }
-        val turn = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() } ?: run {
-            journal.save(organism)
-            val attachments = phase.inputs(organism)
-            handle.submit(request, turnPrompt(organism, cell), organism.trust, attachments)
+        val live = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() }
+        val run = runOf(organism, cell.id, phase.request, handle.session, live)
+        var turn = live
+        try {
+            turn = live ?: submit(organism, cell, phase, handle)
+            run.accepted(handle.session, turn)
+            val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, cell.id, phase.request, turn)
+            if (machine.send(accepted) != SendResult.Accepted) return abandon(key, handle, turn, run)
+            val outcome = handle.await(turn) { pending ->
+                machine.send(OrganicAiIntent.Internal.PermissionsChanged(organism.id, cell.id, phase.request, pending))
+            }
+            val settlement = settlement(handle, turn, outcome)
+            run.settled(handle.session, turn, outcome)
+            val settled = OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, settlement)
+            val result = machine.send(settled)
+            log.i {
+                "organism ${organism.id.value} cell ${cell.id.value}: turn ${cell.turns} ${settlement.kind()}, " +
+                    "machine $result"
+            }
+        } catch (e: CancellationException) {
+            // The profile sleeps or the effect is replaced: the engine keeps the turn, so the run stays with it.
+            throw e
+        } catch (e: Exception) {
+            run.lost(handle.session, turn)
+            throw e
         }
-        val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, id, request, turn)
-        if (machine.send(accepted) != SendResult.Accepted) return abandon(key, handle, turn)
-        val outcome = handle.await(turn) { pending ->
-            machine.send(OrganicAiIntent.Internal.PermissionsChanged(organism.id, id, request, pending))
-        }
-        val settlement = settlement(handle, turn, outcome)
-        val result = machine.send(OrganicAiIntent.Internal.TurnSettled(organism.id, id, request, settlement))
-        log.i {
-            "organism ${organism.id.value} cell ${id.value}: turn ${cell.turns} ${settlement.kind()}, machine $result"
-        }
+    }
+
+    /** Journals the organism, then hands the turn's prompt and inputs to the engine. */
+    private suspend fun submit(organism: Organism, cell: Cell, phase: CellPhase.Working, handle: CellHandle): TurnId {
+        journal.save(organism)
+        return handle.submit(phase.request, turnPrompt(organism, cell), organism.trust, phase.inputs(organism))
+    }
+
+    /**
+     * The worktree run of the turn: the one of a native turn that survived a restart ([live]) when the sandbox still
+     * holds it, else a new one for [request]. A cell that shares the organism's project has no run.
+     */
+    private suspend fun runOf(
+        organism: Organism,
+        cell: CellId,
+        request: RequestId,
+        session: SessionRef,
+        live: TurnId?,
+    ): CellRun = when {
+        !organism.isSandboxed -> CellRun.None
+        else -> live?.let { workspaces.adopt(organism, cell, session, it) } ?: workspaces.begin(organism, cell, request)
     }
 
     /**
@@ -137,9 +170,12 @@ internal class CellDriver(
         }
 
     /** The cell ended while its turn was being set up: its new session and turn must not live on. */
-    private suspend fun abandon(key: CellKey, handle: CellHandle, turn: TurnId?) {
+    private suspend fun abandon(key: CellKey, handle: CellHandle, turn: TurnId?, run: CellRun) {
         log.i { "organism ${key.organism.value} cell ${key.cell.value} ended meanwhile; abandoning its session" }
-        turn?.let { handle.cancel(it) }
+        turn?.let {
+            handle.cancel(it)
+            run.settled(handle.session, it, TurnOutcome.Cancelled)
+        }
         cells.release(key, handle.session, ReleaseMode.Lyse)
     }
 

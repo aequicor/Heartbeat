@@ -65,6 +65,46 @@ internal interface CellWorkspaces {
      * working in the project itself.
      */
     suspend fun prepare(organism: Organism, cell: CellId): WorkspaceRef
+
+    /**
+     * Registers the turn of [request] with the sandbox of [cell] before anything is submitted, so the hosted build
+     * tools of the sandbox act only for this turn's session. A run the cell left unsettled by an older request, such
+     * as one cut short by a restart, is closed first. Fails when the sandbox cannot take the run.
+     */
+    suspend fun begin(organism: Organism, cell: CellId, request: RequestId): CellRun
+
+    /**
+     * Takes over the run of the native [turn] of [session] that survived a restart and is still running, or null when
+     * the sandbox holds no run of exactly that turn that can be taken over.
+     */
+    suspend fun adopt(organism: Organism, cell: CellId, session: SessionRef, turn: TurnId): CellRun?
+}
+
+/**
+ * The run of one turn of a sandbox cell in worktree mode. Reporting never fails the turn: a report that is lost leaves
+ * the run unsettled, which the next [CellWorkspaces.begin] of the cell closes.
+ */
+internal interface CellRun {
+    /** The engine accepted the turn as [turn] of [session]. */
+    suspend fun accepted(session: SessionRef, turn: TurnId)
+
+    /** The turn ended with [outcome]; running builds of a cancelled turn are cancelled. */
+    suspend fun settled(session: SessionRef, turn: TurnId, outcome: TurnOutcome)
+
+    /**
+     * The turn could not be started or followed to its end. Ownership stays with the run, whose outcome is unknown,
+     * and it is never reported as finished: only a later run of the cell closes it.
+     */
+    suspend fun lost(session: SessionRef?, turn: TurnId?)
+
+    /** The run of a cell that shares the organism's project: there is nothing to register. */
+    companion object None : CellRun {
+        override suspend fun accepted(session: SessionRef, turn: TurnId) = Unit
+
+        override suspend fun settled(session: SessionRef, turn: TurnId, outcome: TurnOutcome) = Unit
+
+        override suspend fun lost(session: SessionRef?, turn: TurnId?) = Unit
+    }
 }
 
 /** Engine sessions of cells; one handle per cell is kept open while the cell lives. */

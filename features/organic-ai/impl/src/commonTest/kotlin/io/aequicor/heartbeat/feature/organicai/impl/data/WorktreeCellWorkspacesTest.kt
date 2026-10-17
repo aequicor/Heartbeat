@@ -11,7 +11,14 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismIsolation
 import io.aequicor.heartbeat.feature.organicai.api.sandboxTask
 import io.aequicor.heartbeat.feature.organicai.impl.C1
@@ -20,8 +27,12 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import io.aequicor.heartbeat.feature.worktreemode.api.failed
+import io.aequicor.heartbeat.feature.worktreemode.api.runPrepared
+import io.aequicor.heartbeat.feature.worktreemode.api.transition
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -29,6 +40,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class WorktreeCellWorkspacesTest {
     private val project = WorkspaceRef("project")
@@ -36,6 +48,8 @@ class WorktreeCellWorkspacesTest {
     private val key = sandboxed.sandboxTask(C1)
     private val prepare: WorktreeIntent.Public = WorktreeIntent.Public.Prepare(key, project, isSandbox = true)
     private val machine = WorktreeFake()
+    private val session = SessionRef(EngineId("pi"), SessionSourceId("local"), "cell")
+    private val turn = TurnId("t1")
     private val workspaces = WorktreeCellWorkspaces(registry(machine))
 
     @Test
@@ -87,6 +101,118 @@ class WorktreeCellWorkspacesTest {
         assertFailsWith<IllegalStateException> { workspaces.prepare(sandboxed.copy(workspace = null), C1) }
     }
 
+    @Test
+    fun `a run begins after the older request of the cell is closed as unknown`() = runTest {
+        val stale = RequestId("organic-o1-c1-1")
+        val fresh = RequestId("organic-o1-c1-2")
+        machine.publish(running(stale, withTurn = true))
+        workspaces.begin(sandboxed, C1, fresh)
+        assertEquals(
+            listOf<WorktreeIntent.Public>(
+                WorktreeIntent.Public.RunSettled(key, stale, session, turn, TurnOutcome.Unknown),
+                WorktreeIntent.Public.RunStarted(key, fresh, WorktreeRunKind.Coding),
+            ),
+            machine.sent,
+        )
+        val task = machine.task(key)
+        assertEquals(fresh, task.run?.request)
+        assertEquals(true, task.run?.isPrepared)
+        assertEquals(WorktreePhase.Working, task.phase)
+    }
+
+    @Test
+    fun `an older request that never reached the engine is rejected instead`() = runTest {
+        val stale = RequestId("organic-o1-c1-1")
+        machine.publish(running(stale, withTurn = false))
+        workspaces.begin(sandboxed, C1, RequestId("organic-o1-c1-2"))
+        assertEquals(WorktreeIntent.Public.RunRejected(key, stale, "InterruptedBeforeAcceptance"), machine.sent.first())
+        assertEquals(2, machine.sent.size)
+    }
+
+    @Test
+    fun `a repeated drive of a prepared request starts nothing and a failed start is a failure`() = runTest {
+        val request = RequestId("organic-o1-c1-1")
+        machine.publish(running(request, withTurn = false).copy(phase = WorktreePhase.Working))
+        workspaces.begin(sandboxed, C1, request)
+        assertEquals(emptyList(), machine.sent)
+
+        val broken = WorktreeFake()
+        broken.publish(prepared(revision = 1))
+        broken.onPrepare = {}
+        broken.failRuns = true
+        assertFailsWith<EngineException> { WorktreeCellWorkspaces(registry(broken)).begin(sandboxed, C1, request) }
+    }
+
+    @Test
+    fun `reports reach the same run and the settled one releases the sandbox for the next request`() = runTest {
+        val request = RequestId("organic-o1-c1-1")
+        val run = workspaces.begin(sandboxedWith(prepared(revision = 1)), C1, request)
+        run.accepted(session, turn)
+        assertEquals(turn, machine.task(key).run?.turn)
+        run.settled(session, turn, TurnOutcome.Completed)
+        assertEquals(TurnOutcome.Completed, machine.task(key).run?.outcome)
+        assertEquals(WorktreePhase.Idle, machine.task(key).phase)
+        // A second report of an already settled run changes nothing and does not fail.
+        run.settled(session, turn, TurnOutcome.Completed)
+        workspaces.begin(sandboxed, C1, RequestId("organic-o1-c1-2"))
+        assertEquals(RequestId("organic-o1-c1-2"), machine.task(key).run?.request)
+    }
+
+    @Test
+    fun `a lost run keeps its identity unsettled and the next request closes it`() = runTest {
+        val request = RequestId("organic-o1-c1-1")
+        machine.publish(prepared(revision = 1))
+        val run = workspaces.begin(sandboxed, C1, request)
+        run.lost(session, null)
+        assertEquals(WorktreePhase.RecoveryRequired, machine.task(key).phase)
+        assertNull(machine.task(key).run?.outcome)
+        workspaces.begin(sandboxed, C1, RequestId("organic-o1-c1-2"))
+        assertEquals(WorktreePhase.Working, machine.task(key).phase)
+    }
+
+    @Test
+    fun `a restarted run is adopted only for the exact recorded native turn`() = runTest {
+        val request = RequestId("organic-o1-c1-1")
+        machine.publish(running(request, withTurn = true).copy(phase = WorktreePhase.RecoveryRequired))
+        assertNull(workspaces.adopt(sandboxed, C1, session, TurnId("another")))
+        assertEquals(emptyList(), machine.sent)
+        val adopted = workspaces.adopt(sandboxed, C1, session, turn)
+        assertEquals(
+            listOf<WorktreeIntent.Public>(WorktreeIntent.Public.RunAdopted(key, request, session, turn)),
+            machine.sent,
+        )
+        assertEquals(WorktreePhase.Working, machine.task(key).phase)
+        adopted!!.settled(session, turn, TurnOutcome.Completed)
+        assertEquals(TurnOutcome.Completed, machine.task(key).run?.outcome)
+    }
+
+    @Test
+    fun `a run that is still working is taken over without any command`() = runTest {
+        machine.publish(running(RequestId("organic-o1-c1-1"), withTurn = true).copy(phase = WorktreePhase.Working))
+        assertEquals(true, workspaces.adopt(sandboxed, C1, session, turn) != null)
+        assertEquals(emptyList(), machine.sent)
+        assertNull(workspaces.adopt(sandboxed, C1, session.copy(nativeId = "other"), turn))
+    }
+
+    private fun sandboxedWith(task: WorktreeTask): Organism {
+        machine.publish(task)
+        return sandboxed
+    }
+
+    private fun running(request: RequestId, withTurn: Boolean): WorktreeTask {
+        val pending = prepared(
+            revision = 1,
+        ).transition(WorktreeIntent.Public.RunStarted(key, request)).runPrepared(request)
+        val accepted = if (withTurn) {
+            pending.transition(
+                WorktreeIntent.Public.RunAccepted(key, request, session, turn),
+            )
+        } else {
+            pending
+        }
+        return accepted.copy(revision = 3)
+    }
+
     private fun prepared(revision: Long) = WorktreeTask(
         key,
         project,
@@ -113,16 +239,51 @@ private class WorktreeFake : MachineRef<WorktreeState, WorktreeIntent.Public, Wo
     val sent = mutableListOf<WorktreeIntent.Public>()
     var result = SendResult.Accepted
     var onPrepare: () -> Unit = {}
+    var failRuns = false
 
     fun publish(task: WorktreeTask) {
         val tasks = (state.value as WorktreeState.Ready).tasks
         state.value = WorktreeState.Ready(tasks + (task.chatId to task))
     }
 
+    fun task(key: String): WorktreeTask = (state.value as WorktreeState.Ready).tasks.getValue(key)
+
     override suspend fun send(intent: WorktreeIntent.Public): SendResult {
         sent += intent
-        if (result == SendResult.Accepted) onPrepare()
+        if (result != SendResult.Accepted) return result
+        when (intent) {
+            is WorktreeIntent.Public.Prepare -> onPrepare()
+
+            is WorktreeIntent.Public.RunStarted -> change(intent.chatId) { task ->
+                // The journal prepares the run in the same step; this is what the real one commits.
+                if (failRuns) {
+                    task.failed(
+                        "WorktreeUnavailable",
+                    )
+                } else {
+                    task.transition(intent).runPrepared(intent.request)
+                }
+            }
+
+            else -> change(intent.runKey()) { it.transition(intent) }
+        }
         return result
+    }
+
+    private fun change(key: String, transform: (WorktreeTask) -> WorktreeTask) {
+        val before = task(key)
+        val after = transform(before)
+        if (after != before) publish(after.copy(revision = before.revision + 1))
+    }
+
+    private fun WorktreeIntent.Public.runKey(): String = when (this) {
+        is WorktreeIntent.Public.RunAccepted -> chatId
+        is WorktreeIntent.Public.RunSettled -> chatId
+        is WorktreeIntent.Public.RunRejected -> chatId
+        is WorktreeIntent.Public.RunAdopted -> chatId
+        is WorktreeIntent.Public.RunObservationLost -> chatId
+        is WorktreeIntent.Public.RunSubmissionObservationLost -> chatId
+        else -> error("unexpected $this")
     }
 }
 

@@ -48,6 +48,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.organism
 import io.aequicor.heartbeat.feature.organicai.impl.request
 import io.aequicor.heartbeat.feature.organicai.impl.session
 import io.aequicor.heartbeat.feature.organicai.impl.working
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -360,6 +361,108 @@ class OrganicAiEffectsTest {
         assertEquals(emptyList(), cells.released)
     }
 
+    @Test
+    fun `a sandbox turn is registered before it is submitted and reported to its end`() = runTest {
+        cells.handle.onSubmit = { assertEquals(listOf("begin c1 ${request(C1).value}"), workspaces.events) }
+        effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
+        assertEquals(
+            listOf("begin c1 ${request(C1).value}", "accepted t1", "settled t1 ${TurnOutcome.Completed}"),
+            workspaces.events,
+        )
+        assertEquals(1, cells.handle.submitted.size)
+    }
+
+    @Test
+    fun `a shared cell has no sandbox run to register`() = runTest {
+        effects.handle(OrganicAiEffect.Drive(organism(cell(C1)).copy(workspace = project), C1, request(C1)), machine)
+        assertEquals(emptyList(), workspaces.events)
+    }
+
+    @Test
+    fun `a failed or cancelled sandbox turn is reported with the outcome the engine gave`() = runTest {
+        cells.handle.outcome = TurnOutcome.Cancelled
+        effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
+        assertEquals("settled t1 ${TurnOutcome.Cancelled}", workspaces.events.last())
+        assertEquals(
+            Settlement.Broke(Breakdown.Interrupted),
+            (machine.sent.last() as OrganicAiIntent.Internal.TurnSettled).settlement,
+        )
+    }
+
+    @Test
+    fun `a sandbox that cannot take the run never receives a submission`() = runTest {
+        val failure = EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        workspaces.beginFailure = failure
+        val thrown = assertFailsWith<EngineException> {
+            effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
+        }
+        assertEquals(failure, thrown)
+        assertEquals(emptyList(), cells.handle.submitted)
+        assertEquals(emptyList(), workspaces.events)
+    }
+
+    @Test
+    fun `a turn that cannot be submitted or followed keeps its run as lost`() = runTest {
+        cells.handle.onSubmit = { error("engine refused") }
+        assertFailsWith<IllegalStateException> {
+            effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
+        }
+        assertEquals("lost new -", workspaces.events.last())
+        workspaces.events.clear()
+        cells.handle.onSubmit = {}
+        cells.handle.onAwait = { error("handle closed") }
+        assertFailsWith<IllegalStateException> {
+            effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
+        }
+        assertEquals(listOf("accepted t1", "lost new t1"), workspaces.events.drop(1))
+    }
+
+    @Test
+    fun `cancelling the effect leaves the engine turn and its run alone`() = runTest {
+        cells.handle.onAwait = { throw CancellationException("the profile sleeps") }
+        assertFailsWith<CancellationException> {
+            effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
+        }
+        assertEquals(listOf("begin c1 ${request(C1).value}", "accepted t1"), workspaces.events)
+    }
+
+    @Test
+    fun `a turn the machine no longer takes is cancelled and its run settled as cancelled`() = runTest {
+        machine.refuse = { it is OrganicAiIntent.Internal.TurnAccepted }
+        effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
+        assertEquals("settled t1 ${TurnOutcome.Cancelled}", workspaces.events.last())
+        assertEquals(listOf(TurnId("t1")), cells.handle.cancelled)
+    }
+
+    @Test
+    fun `a recovery adopts the live turn with the run that survived the restart`() = runTest {
+        val recovering = sandboxed(cell(C1, phase = working(C1, isRecovery = true)))
+        cells.handle.active = TurnId("live")
+        workspaces.adoptable = TurnId("live")
+        effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
+        assertEquals(
+            listOf("adopt c1 live", "accepted live", "settled live ${TurnOutcome.Completed}"),
+            workspaces.events,
+        )
+        assertEquals(emptyList(), cells.handle.submitted)
+    }
+
+    @Test
+    fun `a live turn the sandbox does not hold gets a new run and a recovery without one submits`() = runTest {
+        val recovering = sandboxed(cell(C1, phase = working(C1, isRecovery = true)))
+        cells.handle.active = TurnId("live")
+        effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
+        assertEquals("begin c1 ${request(C1).value}", workspaces.events.first())
+        assertEquals("accepted live", workspaces.events[1])
+        assertEquals(emptyList(), cells.handle.submitted)
+
+        workspaces.events.clear()
+        cells.handle.active = null
+        effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
+        assertEquals("begin c1 ${request(C1).value}", workspaces.events.first())
+        assertEquals(1, cells.handle.submitted.size)
+    }
+
     private val permission = PermissionRequest(
         PermissionRequestId("p1"),
         TurnId("t1"),
@@ -388,12 +491,41 @@ class OrganicAiEffectsTest {
 
     private class Workspaces : CellWorkspaces {
         val prepared = mutableListOf<Pair<Organism, CellId>>()
+        val events = mutableListOf<String>()
         var failure: Exception? = null
+        var beginFailure: Exception? = null
+        var adoptable: TurnId? = null
 
         override suspend fun prepare(organism: Organism, cell: CellId): WorkspaceRef {
             failure?.let { throw it }
             prepared += organism to cell
             return WorkspaceRef("sandbox-${cell.value}")
+        }
+
+        override suspend fun begin(organism: Organism, cell: CellId, request: RequestId): CellRun {
+            beginFailure?.let { throw it }
+            events += "begin ${cell.value} ${request.value}"
+            return Run()
+        }
+
+        override suspend fun adopt(organism: Organism, cell: CellId, session: SessionRef, turn: TurnId): CellRun? {
+            if (turn != adoptable) return null
+            events += "adopt ${cell.value} ${turn.value}"
+            return Run()
+        }
+
+        inner class Run : CellRun {
+            override suspend fun accepted(session: SessionRef, turn: TurnId) {
+                events += "accepted ${turn.value}"
+            }
+
+            override suspend fun settled(session: SessionRef, turn: TurnId, outcome: TurnOutcome) {
+                events += "settled ${turn.value} $outcome"
+            }
+
+            override suspend fun lost(session: SessionRef?, turn: TurnId?) {
+                events += "lost ${session?.nativeId ?: "-"} ${turn?.value ?: "-"}"
+            }
         }
     }
 
@@ -447,6 +579,7 @@ class OrganicAiEffectsTest {
         var outcome: TurnOutcome = TurnOutcome.Completed
         var answer: String? = "the answer"
         var onSubmit: () -> Unit = {}
+        var onAwait: () -> Unit = {}
         val submitted = mutableListOf<Pair<RequestId, String>>()
         val cancelled = mutableListOf<TurnId>()
         val inputs = mutableListOf<List<ResourceRef>>()
@@ -470,6 +603,7 @@ class OrganicAiEffectsTest {
         }
 
         override suspend fun await(turn: TurnId, onPending: suspend (List<PermissionRequest>) -> Unit): TurnOutcome {
+            onAwait()
             if (pending.isNotEmpty()) onPending(pending)
             return outcome
         }
