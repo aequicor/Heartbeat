@@ -68,7 +68,7 @@ internal class DesktopBrowserZoomNativeProbe(
                 awaitRatio(first, nativeScale * 2)
                 awaitRatio(second, nativeScale * 1.5)
                 awaitWheelListener(first)
-                prepareWheelTarget(first, frames.first())
+                prepareWheelTarget(first, frames)
                 wheelIn(first)
                 assertEquals(
                     BrowserShortcut.Zoom(BrowserZoomDirection.In),
@@ -92,10 +92,18 @@ internal class DesktopBrowserZoomNativeProbe(
         }
     }
 
-    private suspend fun prepareWheelTarget(engine: DesktopBrowserEngine, frame: JFrame) {
-        // The second fixture covers the first one. Linux needs a visible, rendered target for the
-        // compositor to acknowledge CDP wheel input; merely loading its document is insufficient.
-        SwingUtilities.invokeAndWait { frame.toFront() }
+    private suspend fun prepareWheelTarget(engine: DesktopBrowserEngine, frames: List<JFrame>) {
+        // Shared-host assertions are complete. Uncover the wheel target and wait for Chromium to
+        // observe the native visibility change; toFront alone is insufficient under Linux/Xvfb.
+        SwingUtilities.invokeAndWait {
+            frames.last().isVisible = false
+            frames.first().toFront()
+            frames.first().requestFocus()
+        }
+        withTimeout(10_000) {
+            val visible = "document.visibilityState === 'visible' && innerWidth > 0 && innerHeight > 0"
+            while (!evaluate(engine, visible).boolean) delay(20)
+        }
         stage("zoom wheel target rendering")
         engine.awaitNativeFixtureFrame()
     }
