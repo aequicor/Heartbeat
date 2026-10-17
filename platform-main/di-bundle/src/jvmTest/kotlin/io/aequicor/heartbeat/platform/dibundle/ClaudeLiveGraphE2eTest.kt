@@ -367,6 +367,18 @@ class ClaudeLiveGraphE2eTest {
     }
 
     @Test
+    fun `closing handles one after another never fails because the scope ended first`() = runBlocking {
+        withTimeout(SCENARIO_TIMEOUT) {
+            val profile = openProfile()
+            val target = profile.connect()
+            val creates = profile.facade.engines.features(ClaudeEngine.Id).available(CreatesSessions)
+            repeat(CLOSE_ROUNDS) {
+                creates.create(CreateSessionRequest(target)).close()
+            }
+        }
+    }
+
+    @Test
     fun `switching the toggle off hides the engine and refuses its probes`() = runBlocking {
         withTimeout(SCENARIO_TIMEOUT) {
             val profile = openProfile()
@@ -518,6 +530,7 @@ class ClaudeLiveGraphE2eTest {
         val PROCESS_EXIT_POLL = 500.milliseconds
         const val PROCESS_EXIT_POLLS = 20
         const val KILL_POLLS = 40
+        const val CLOSE_ROUNDS = 60
         const val BUSY_RETRIES = 10
         val RECONCILE_TIMEOUT = 30.seconds
     }

@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
@@ -17,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
@@ -33,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
@@ -78,6 +81,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Clock
@@ -240,16 +244,16 @@ class ClaudeLiveE2eTest {
     }
 
     @Test
-    fun `an unknown model fails the turn instead of hanging`() = live { fixture ->
+    fun `an unknown model fails the turn with a model access failure instead of hanging`() = live { fixture ->
         val runtime = fixture.runtime()
         val session = runtime.create(CreateSessionRequest(target("no-such-model-xyz")))
-        val outcome = runCatching {
-            val turn = session.say("Reply PONG.")
-            session.finished(turn)
+        val turn = session.say("Reply PONG.")
+        val ready = withTimeout(TURN_TIMEOUT) {
+            session.state.first { it is ActiveSessionState.Ready && it.lastTurn?.id == turn }
         }
-        // Either rejection before acceptance or a terminal non-success outcome is acceptable; hanging is not.
+        val outcome = assertIs<ActiveSessionState.Ready>(ready).lastTurn?.outcome
         observe("unknown model outcome: $outcome")
-        assertTrue(outcome.isFailure || outcome.getOrNull() != TurnOutcome.Completed, "unknown model: $outcome")
+        assertEquals(TurnOutcome.Failed(EngineFailure.Access(AccessFailureReason.ModelAccessDenied)), outcome)
         runtime.close()
     }
 
@@ -351,14 +355,24 @@ class ClaudeLiveE2eTest {
     }
 
     @Test
-    fun `an effort the model does not advertise does not hang`() = live { fixture ->
-        val runtime = fixture.runtime()
-        val session = runtime.create(CreateSessionRequest(target("claude-haiku-4-5-20251001")))
-        val result = runCatching { session.finished(session.say("Reply PONG.", effort = "max")) }
-        observe("unadvertised effort result: $result")
-        assertTrue(result.isFailure || result.getOrNull() != null, "no terminal outcome: $result")
-        runtime.close()
-    }
+    fun `an effort the model does not advertise is rejected before the turn and an advertised one runs`() =
+        live { fixture ->
+            val backend = fixture.backend()
+            val login = fixture.account.inspect()
+            backend.discoverModels(login.source, EngineContext(ClaudeEngine.Id, BINDING))
+            val identity = RuntimeIdentity(ClaudeEngine.Id, ClaudeEngine.AuthSource, login.check.revision)
+            val runtime = backend.createRuntime(identity)
+            val creates = runtime.features.available(CreatesSessions)
+
+            val plain = creates.create(CreateSessionRequest(target("claude-haiku-4-5-20251001")))
+            val rejected = assertFailsWith<EngineException> { plain.say("Reply PONG.", effort = "max") }
+            observe("unadvertised effort: ${rejected.failure}")
+            assertEquals(RequestFailureReason.Invalid, assertIs<EngineFailure.Request>(rejected.failure).reason)
+
+            val capable = creates.create(CreateSessionRequest(target()))
+            assertEquals(TurnOutcome.Completed, capable.finished(capable.say("Reply PONG.", effort = "low")))
+            runtime.close()
+        }
 
     @Test
     fun `an image and a document attached to a prompt reach the model on the models the CLI lists`() = live { fixture ->
