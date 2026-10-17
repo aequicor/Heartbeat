@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurface
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.UnsupportedUiPlatform
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
@@ -64,9 +65,26 @@ internal val AppSurface = surface("gym", UiPlacement.Card).let {
     )
 }
 
-internal class AppFixture(scope: TestScope, context: UiHostContext = AppStart) {
+/** A canonical app with one quick action that calls its owner and one that is hidden while `flag` is false. */
+internal val QuickAppSurface = surface("gym", UiPlacement.Card).let {
+    it.copy(
+        content = it.content.copy(
+            spec = """{"version":1,"state":{"stage":"plan","flag":false},
+        "data":{"snapshot":{"method":"read"}},
+        "quickActions":[
+          {"id":"next","label":"Next {{state.stage}}","style":"primary",
+           "action":{"type":"call","method":"advance","into":"stage"}},
+          {"id":"extra","label":"Extra","visibleWhen":"{{state.flag}}",
+           "action":{"type":"set","key":"stage","value":"extra"}}],
+        "body":{"type":"text","text":"{{state.stage}}"}}""",
+        ),
+    )
+}
+
+internal class AppFixture(scope: TestScope, context: UiHostContext = AppStart, app: UiSurface = AppSurface) {
+    val board = ProfileAppQuickActionBoard()
     val machine = AppMachine(
-        ServiceUiState.Ready(hosts = mapOf(AppHost to context), library = UiLibrary(listOf(AppSurface))),
+        ServiceUiState.Ready(hosts = mapOf(AppHost to context), library = UiLibrary(listOf(app))),
     )
     val cards = AppCards()
     val calls = AppCalls()
@@ -77,6 +95,7 @@ internal class AppFixture(scope: TestScope, context: UiHostContext = AppStart) {
         cards,
         calls,
         { session, child -> SurfaceModel(session, calls, UnsupportedUiPlatform, testStores(scope), child, web) },
+        board,
         object : PlatformInfo {
             override val host = HostPlatform.MacOs
         },

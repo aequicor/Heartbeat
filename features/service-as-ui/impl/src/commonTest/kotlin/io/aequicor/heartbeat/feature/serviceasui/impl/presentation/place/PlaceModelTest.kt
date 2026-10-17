@@ -37,11 +37,22 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebConfiguration
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiAction
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiScope
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppQuickActionsSource
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppQuickActionsUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.ProfileAppQuickActionBoard
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ButtonStyleUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.QuickActionUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiPress
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.NoticeUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceInputBinding
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceSession
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceState
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -406,6 +417,97 @@ class PlaceModelTest {
         assertEquals(emptySet(), unreadable.model.surfaces.value.keys)
     }
 
+    @Test
+    fun `the composer slot draws the quick actions of the app of its host and sends presses back to it`() = runTest {
+        val composer = ServiceUiPlace.of(ServiceUiSlotRoute(host.value, UiSlot.Composer))
+        val fixture = Fixture(this, composer, ready(docked))
+        val authority = SurfaceInputBinding()
+        val source = QuickSource(
+            AppQuickActionsUi(persistentListOf(quick("next")), isAvailable = true, authority = authority),
+        )
+        fixture.board.attach(host, source)
+        val place = fixture.subscribe()
+        runCurrent()
+
+        val shown = place.states.value.quickActions
+        assertEquals(listOf("next"), shown.actions.map { it.id })
+        assertFalse(place.states.value.isEmpty)
+        val action = shown.actions.single()
+        place.intent(PlaceIntent.RunQuickAction(action, shown.authority))
+        place.intent(PlaceIntent.DismissQuickNotice(shown.authority))
+        place.intent(PlaceIntent.RunQuickAction(action, authority = null))
+        runCurrent()
+
+        assertEquals(
+            listOf<SurfaceIntent>(
+                SurfaceIntent.Bound(authority, SurfaceIntent.Press(action.press)),
+                SurfaceIntent.Bound(authority, SurfaceIntent.DismissNotice),
+            ),
+            source.sent,
+        )
+
+        source.state.value = AppQuickActionsUi()
+        runCurrent()
+        assertEquals(PlaceState(), place.states.value)
+        assertTrue(place.states.value.isEmpty)
+    }
+
+    @Test
+    fun `a notice alone keeps the composer slot visible until it is dismissed`() = runTest {
+        val composer = ServiceUiPlace.of(ServiceUiSlotRoute(host.value, UiSlot.Composer))
+        val fixture = Fixture(this, composer, ready(docked))
+        val source = QuickSource(AppQuickActionsUi(notice = NoticeUi.Unsupported, authority = SurfaceInputBinding()))
+        fixture.board.attach(host, source)
+        val place = fixture.subscribe()
+        runCurrent()
+
+        assertFalse(place.states.value.isEmpty)
+        assertEquals(NoticeUi.Unsupported, place.states.value.quickActions.notice)
+    }
+
+    @Test
+    fun `slots other than the composer and panels ignore the app's quick actions`() = runTest {
+        val authority = SurfaceInputBinding()
+        for (route in listOf(UiSlot.Start, UiSlot.Context)) {
+            val fixture = Fixture(this, ServiceUiPlace.of(ServiceUiSlotRoute(host.value, route)), ready(docked))
+            val source = QuickSource(AppQuickActionsUi(persistentListOf(quick("next")), authority = authority))
+            fixture.board.attach(host, source)
+            val place = fixture.subscribe()
+            runCurrent()
+            val action = quick("next")
+
+            place.intent(PlaceIntent.RunQuickAction(action, authority))
+            runCurrent()
+
+            assertEquals(AppQuickActionsUi(), place.states.value.quickActions, route.name)
+            assertEquals(emptyList(), source.sent, route.name)
+        }
+        val panel = Fixture(this, ServiceUiPlace.of(ServiceUiPanelRoute(dock.value)), ready(docked))
+        val source = QuickSource(AppQuickActionsUi(persistentListOf(quick("next")), authority = authority))
+        panel.board.attach(host, source)
+        assertEquals(AppQuickActionsUi(), panel.subscribe().states.value.quickActions)
+    }
+
+    private fun quick(id: String) = QuickActionUi(
+        id = id,
+        label = id,
+        style = ButtonStyleUi.Secondary,
+        icon = null,
+        isEnabled = true,
+        isBusy = false,
+        confirm = null,
+        press = UiPress("q.$id", UiAction.Close, UiScope()),
+    )
+
+    private class QuickSource(initial: AppQuickActionsUi) : AppQuickActionsSource {
+        override val state = MutableStateFlow(initial)
+        val sent = mutableListOf<SurfaceIntent>()
+
+        override fun send(intent: SurfaceIntent) {
+            sent += intent
+        }
+    }
+
     private fun ready(context: UiHostContext, library: UiLibrary = this.library) =
         ServiceUiState.Ready(hosts = mapOf(host to context), library = library)
 
@@ -420,6 +522,7 @@ class PlaceModelTest {
     ) {
         val machine = FakeMachine(state)
         val calls = FakeCalls()
+        val board = ProfileAppQuickActionBoard()
         val drawings = mutableListOf<Pair<SurfaceSession, CoroutineScope>>()
         private val subscriptions = mutableListOf<Job>()
         private val stores = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler)))
@@ -443,6 +546,7 @@ class PlaceModelTest {
                     web,
                 )
             },
+            board,
             Desktop,
             stores,
             TestScopeHandle(scope.backgroundScope),
