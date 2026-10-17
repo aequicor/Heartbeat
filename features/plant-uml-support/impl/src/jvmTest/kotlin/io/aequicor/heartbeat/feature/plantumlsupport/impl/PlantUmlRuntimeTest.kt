@@ -72,6 +72,35 @@ class PlantUmlRuntimeTest {
     }
 
     @Test
+    fun `a bundled jar that does not match the pin gives way to the verified download`() = runTest {
+        val repackaged = Files.createTempFile("plantuml-repackaged", ".jar")
+        try {
+            Files.write(repackaged, byteArrayOf(1, 2, 3))
+            val verified = Path.of("verified.jar")
+            var requests = 0
+            val cache = object : VerifiedArtifactCache {
+                override suspend fun prepare(
+                    artifact: ReleaseArtifact,
+                    progress: suspend (Long, Long?) -> Unit,
+                ): Path {
+                    requests++
+                    return verified
+                }
+            }
+            val runtime = PlantUmlRuntime(
+                cache,
+                backgroundScope,
+                StandardTestDispatcher(testScheduler),
+                bundled = { repackaged },
+            )
+            assertEquals(verified, runtime.prepare())
+            assertEquals(1, requests)
+        } finally {
+            Files.deleteIfExists(repackaged)
+        }
+    }
+
+    @Test
     fun `the Gradle dependency matches the official lock and needs no download`() = runTest {
         val jar = assertNotNull(bundledPlantUmlJar())
         val cache = object : VerifiedArtifactCache {
