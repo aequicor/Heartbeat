@@ -29,8 +29,10 @@ internal class DesktopBrowserZoomNativeProbe(
     ) -> DesktopBrowserEngine,
     private val createFrame: () -> JFrame,
     private val awaitTitle: (LinkedBlockingQueue<BrowserViewState>, String) -> Unit,
+    private val stage: (String) -> Unit,
 ) {
     fun verify(base: String) {
+        stage("zoom navigation")
         val firstStates = LinkedBlockingQueue<BrowserViewState>()
         val secondStates = LinkedBlockingQueue<BrowserViewState>()
         val shortcuts = LinkedBlockingQueue<BrowserShortcut>()
@@ -66,6 +68,7 @@ internal class DesktopBrowserZoomNativeProbe(
                 awaitRatio(first, nativeScale * 2)
                 awaitRatio(second, nativeScale * 1.5)
                 awaitWheelListener(first)
+                prepareWheelTarget(first, frames)
                 wheelIn(first)
                 assertEquals(
                     BrowserShortcut.Zoom(BrowserZoomDirection.In),
@@ -80,12 +83,29 @@ internal class DesktopBrowserZoomNativeProbe(
                 awaitRatio(first, nativeScale)
             }
         } finally {
+            stage("zoom cleanup")
             SwingUtilities.invokeAndWait {
                 engines.forEach { it.release() }
                 frames.forEach { it.dispose() }
             }
             runBlocking { engines.forEach { it.awaitClosed() } }
         }
+    }
+
+    private suspend fun prepareWheelTarget(engine: DesktopBrowserEngine, frames: List<JFrame>) {
+        // Shared-host assertions are complete. Uncover the wheel target and wait for Chromium to
+        // observe the native visibility change; toFront alone is insufficient under Linux/Xvfb.
+        SwingUtilities.invokeAndWait {
+            frames.last().isVisible = false
+            frames.first().toFront()
+            frames.first().requestFocus()
+        }
+        withTimeout(10_000) {
+            val visible = "document.visibilityState === 'visible' && innerWidth > 0 && innerHeight > 0"
+            while (!evaluate(engine, visible).boolean) delay(20)
+        }
+        stage("zoom wheel target rendering")
+        engine.awaitNativeFixtureFrame()
     }
 
     /** The listener owns the 80 ms wheel throttle, so a zoom step must keep the same instance installed. */
@@ -104,17 +124,20 @@ internal class DesktopBrowserZoomNativeProbe(
     }
 
     private suspend fun wheelIn(first: DesktopBrowserEngine) {
-        first.devTools(
-            "Input.dispatchMouseEvent",
-            buildJsonObject {
-                put("type", "mouseWheel")
-                put("x", 100)
-                put("y", 100)
-                put("deltaX", 0)
-                put("deltaY", -120)
-                put("modifiers", 2)
-            },
-        )
+        stage("zoom Input.dispatchMouseEvent")
+        withTimeout(10_000) {
+            first.devTools(
+                "Input.dispatchMouseEvent",
+                buildJsonObject {
+                    put("type", "mouseWheel")
+                    put("x", 100)
+                    put("y", 100)
+                    put("deltaX", 0)
+                    put("deltaY", -120)
+                    put("modifiers", 2)
+                },
+            )
+        }
     }
 
     /** Load callbacks install the listener asynchronously; a wheel sent earlier would reach the page unhandled. */
@@ -130,13 +153,16 @@ internal class DesktopBrowserZoomNativeProbe(
         evaluate(engine, "window.devicePixelRatio").double
 
     private suspend fun evaluate(engine: DesktopBrowserEngine, expression: String): JsonPrimitive {
-        val result = engine.devTools(
-            "Runtime.evaluate",
-            buildJsonObject {
-                put("expression", expression)
-                put("returnByValue", true)
-            },
-        )
+        stage("zoom Runtime.evaluate: $expression")
+        val result = withTimeout(10_000) {
+            engine.devTools(
+                "Runtime.evaluate",
+                buildJsonObject {
+                    put("expression", expression)
+                    put("returnByValue", true)
+                },
+            )
+        }
         val value = Json.parseToJsonElement(result).jsonObject["result"]?.jsonObject?.get("value")
         return assertNotNull(value, result).jsonPrimitive
     }

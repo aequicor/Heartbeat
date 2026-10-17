@@ -26,8 +26,10 @@ internal class DesktopBrowserCertificateProbe(
     ) -> DesktopBrowserEngine,
     private val createFrame: () -> JFrame,
     private val awaitState: (LinkedBlockingQueue<BrowserViewState>, (BrowserViewState) -> Boolean) -> BrowserViewState,
+    private val stage: (String) -> Unit,
 ) {
     fun verify() {
+        stage("certificate fixture")
         val directory = Files.createTempDirectory("heartbeat-test-tls")
         val server = tlsServer(directory)
         val states = LinkedBlockingQueue<BrowserViewState>()
@@ -36,6 +38,7 @@ internal class DesktopBrowserCertificateProbe(
         var engine: DesktopBrowserEngine? = null
         var frame: JFrame? = null
         try {
+            stage("certificate navigation")
             SwingUtilities.invokeAndWait {
                 engine = createEngine(states, exceptions)
                 frame = createFrame().apply {
@@ -49,6 +52,7 @@ internal class DesktopBrowserCertificateProbe(
             val runtime = assertNotNull(engine)
             // The terminal native load callback follows the error-document commit.
             awaitState(states) { !it.isLoading && it.failure != null }
+            stage("certificate CDP and proceed")
             runBlocking {
                 val diagnostic = runtime.devTools("Page.getFrameTree", JsonObject(emptyMap()))
                 val interstitial = DesktopBrowserInterstitial(runtime::devTools)
@@ -67,6 +71,7 @@ internal class DesktopBrowserCertificateProbe(
                 loaded.security,
             )
         } finally {
+            stage("certificate cleanup")
             SwingUtilities.invokeAndWait {
                 engine?.release()
                 frame?.dispose()
