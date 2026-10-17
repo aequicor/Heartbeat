@@ -92,7 +92,8 @@ class PersistedProfile(
 private val LEGACY_TOGGLE_BASELINE = listOf(
     "ai.koog", "ai.koog.coding_tools", "ai_studio.engine_runtime", "ai_studio.local_projects",
     "ai_studio.safety_reviews_indicator", "ai.engine_connections", "search.engine_tools", "checklist.enabled",
-    "questionnaire.enabled", "scheduler.enabled", "scheduler.actions", "plantuml.enabled", "browser.enabled",
+    "questionnaire.enabled", "scheduler.enabled", "scheduler.actions", "scheduler.task_graphs", "plantuml.enabled",
+    "browser.enabled",
     "browser.agent_control", "browser.error_pages", "agent_learning.enabled", "harness.enabled",
     "organic_ai.enabled", "context_optimization.enabled", "worktree_mode.enabled", "worktree_mode.sandbox",
     "service_ui.enabled", "service_ui.web", "adaptive_subagents.enabled", "adaptive_subagents.router",

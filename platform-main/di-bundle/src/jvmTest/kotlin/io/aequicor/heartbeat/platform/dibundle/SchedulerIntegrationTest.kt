@@ -75,12 +75,11 @@ class SchedulerIntegrationTest {
     }
 
     @Test
-    fun `the scheduler is registered, ships enabled and offers no tools when switched off`() = runTest {
+    fun `the scheduler is registered, ships enabled with task graphs and offers no tools when off`() = runTest {
         assertTrue(SchedulerEnabled in toggles.toggleControl.registered)
         assertTrue(SchedulerActions in toggles.toggleControl.registered)
         assertTrue(SchedulerTaskGraphs in toggles.toggleControl.registered)
-        assertFalse(SchedulerTaskGraphs.default)
-        assertTrue(SchedulerEnabled.default && SchedulerActions.default)
+        assertTrue(SchedulerEnabled.default && SchedulerActions.default && SchedulerTaskGraphs.default)
         val profile = app.profileSessions.open(ProfileId("scheduler-off"))
         val names = (profile.graph as TestSchedulerAccessors).schedulerTools.specifications(null).map { it.name }
         assertTrue(names.none { it.startsWith("scheduler_") }, names.toString())

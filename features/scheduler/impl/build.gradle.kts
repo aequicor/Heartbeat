@@ -21,6 +21,7 @@ kotlin {
             implementation(projects.core.stateMachine.api)
             implementation(projects.core.logging)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.okio)
         }
     }
 }
