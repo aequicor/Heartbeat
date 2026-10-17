@@ -268,6 +268,20 @@ class SearchEngineTest {
         )
     }
 
+    @Test fun `crawl failure reported in the separate statuses list is unavailable`() = runTest {
+        val api = api {
+            respond(
+                """{"error_code":"200","results":[{"id":"r1","url":"https://example.com/","content":""}],""" +
+                    """"statuses":[{"id":"r1","status":"failed"}]}""",
+                headers = jsonHeaders,
+            )
+        }
+        assertEquals(
+            SearchFailure.Unavailable,
+            assertFailsWith<SearchException> { api.fetch("https://example.com/") }.failure,
+        )
+    }
+
     @Test fun `connection checks issue independent minimal requests`() = runTest {
         val paths = mutableListOf<String>()
         val api = api { request ->
