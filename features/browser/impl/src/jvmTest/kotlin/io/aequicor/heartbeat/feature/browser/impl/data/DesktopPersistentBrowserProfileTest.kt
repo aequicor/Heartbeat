@@ -67,21 +67,31 @@ class DesktopPersistentBrowserProfileTest {
     @Test
     fun `a failing agent context does not keep the others from being released`() = runTest {
         val released = mutableListOf<String>()
-        disposeAgentContexts(listOf("a", "b", "c"), Log.tag("Test")) { context ->
+        val isDisposed = disposeAgentContexts(listOf("a", "b", "c"), Log.tag("Test")) { context ->
             check(context != "b") { "flush was not accepted" }
             released += context
         }
+        assertFalse(isDisposed)
         assertEquals(listOf("a", "c"), released)
     }
 
     @Test
     fun `an agent context whose callback never arrives is given up on`() = runTest {
         val released = mutableListOf<String>()
-        disposeAgentContexts(listOf("a", "b"), Log.tag("Test")) { context ->
+        val isDisposed = disposeAgentContexts(listOf("a", "b"), Log.tag("Test")) { context ->
             if (context == "a") awaitCancellation()
             released += context
         }
+        assertFalse(isDisposed)
         assertEquals(listOf("b"), released)
+    }
+
+    @Test
+    fun `agent contexts that all report back are released`() = runTest {
+        val released = mutableListOf<String>()
+        assertTrue(disposeAgentContexts(listOf("a", "b"), Log.tag("Test")) { released += it })
+        assertEquals(listOf("a", "b"), released)
+        assertTrue(disposeAgentContexts(emptyList<String>(), Log.tag("Test")) { error("nothing to release") })
     }
 
     @Test

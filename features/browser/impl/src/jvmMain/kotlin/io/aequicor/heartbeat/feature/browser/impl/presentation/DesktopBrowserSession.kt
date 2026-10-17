@@ -355,11 +355,9 @@ internal class DesktopBrowserSession(
             BrowserOperation.ClearData,
             BrowserOperation.Inspect,
             -> {
-                // Looking at the page for a review must not bring the tab to the user's attention.
-                if (request.operation != BrowserOperation.Inspect) {
-                    selected = entry.tab.id
-                    publish()
-                }
+                // The page is read natively, and that runs only for a tab on screen: Inspect shows it like any input.
+                selected = entry.tab.id
+                publish()
                 entry.lock.withLock {
                     if (request.owner != null) {
                         check(agentPolicy.isEnabled()) { "Browser tools disabled" }

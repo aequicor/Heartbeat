@@ -65,6 +65,9 @@ class DesktopBrowserPanelFactoryStorageTest {
         runCurrent()
         fixture.close(tab)
         assertTrue(fixture.profile.releases.isEmpty())
+        // The old record is forgotten: the session's next and last tab is not mistaken for a sibling of a closed one.
+        fixture.close(fixture.open(BrowserStorage.Agent("session-a")))
+        assertEquals(listOf("session-a" to false), fixture.profile.releases)
     }
 
     @Test

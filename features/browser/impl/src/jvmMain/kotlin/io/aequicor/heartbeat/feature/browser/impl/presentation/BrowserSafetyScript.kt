@@ -44,6 +44,7 @@ internal fun browserSafetyScript(geometry: String, operation: BrowserOperation?,
             const value = sensitive ? null : typeof e.value === 'string' ? e.value.slice(0,2000) : null;
             return {
                 node:window.__heartbeatSafetyNodes.get(e),tag:e.tagName,role:e.getAttribute('role'),
+                isPage:e===document.body||e===document.documentElement,
                 type:e.getAttribute('type'),name:e.getAttribute('name'),autocomplete,isSensitive:sensitive,
                 label:(e.getAttribute('aria-label')||e.getAttribute('placeholder')||e.innerText||'').slice(0,1000),
                 href:e.href||null,value,isValueTruncated:!sensitive&&typeof e.value==='string'&&e.value.length>2000,

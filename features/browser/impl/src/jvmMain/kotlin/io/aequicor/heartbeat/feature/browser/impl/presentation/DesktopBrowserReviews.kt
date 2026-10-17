@@ -14,7 +14,8 @@ import kotlinx.serialization.json.put
  * The evidence an agent action's independent safety review is bound to: this tab, its page, and the target and
  * focus of the reviewed [BrowserReview.operation]. It leaves the page, the element references and the last snapshot
  * of the agent's own read untouched. A navigation does not depend on the page it leaves, so the page is not observed
- * for it: a tab that is loading or shows an error page can still be pointed elsewhere.
+ * for it: a tab that shows an error page can still be pointed elsewhere. Its address stays bound, so a tab that is
+ * still redirecting meanwhile is refused as changed.
  */
 internal suspend fun DesktopBrowserEntry.inspect(request: BrowserRequest): BrowserResult {
     require(request.owner != null) { "Only an agent session is reviewed" }

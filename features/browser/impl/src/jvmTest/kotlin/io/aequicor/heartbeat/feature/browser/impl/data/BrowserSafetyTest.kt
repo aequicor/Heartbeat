@@ -138,6 +138,13 @@ class BrowserSafetyTest {
     }
 
     @Test
+    fun `an element a page merely names BODY keeps its label and size bound`() = runTest {
+        val reviewed = request(evidence = pageElementEvidence(label = "Cancel", isPage = false))
+        val relabelled = request(evidence = pageElementEvidence(label = "Pay now", isPage = false))
+        assertNotEquals(reviewed.approval.binding, relabelled.approval.binding)
+    }
+
+    @Test
     fun `the label and size of a control the action reaches stay bound`() = runTest {
         val reviewed = request(evidence = pageElementEvidence(button = "Search"))
         val relabelled = request(evidence = pageElementEvidence(button = "Send payment"))
@@ -232,6 +239,7 @@ class BrowserSafetyTest {
         button: String = "Search",
         buttonX: Double = 10.0,
         buttonNode: Int = 11,
+        isPage: Boolean = true,
     ): JsonObject = buildJsonObject {
         put("tabId", "7")
         put("url", "https://example.com/")
@@ -246,6 +254,7 @@ class BrowserSafetyTest {
                     buildJsonObject {
                         put("node", 1)
                         put("tag", "BODY")
+                        put("isPage", isPage)
                         put("label", label)
                         put("rect", rect(0.0, 0.0, 800.0, height))
                     },

@@ -18,6 +18,8 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -94,8 +96,8 @@ internal class DesktopPersistentBrowserProfile(
         contextLock.withLock {
             if (isInUse()) return@withLock
             agentAnchors.remove(owner)?.let { context ->
-                withContext(NonCancellable) { disposeAgentContexts(listOf(context), log, ::dispose) }
-                log.v { "Agent browser session storage discarded" }
+                val isDisposed = withContext(NonCancellable) { disposeAgentContexts(listOf(context), log, ::dispose) }
+                if (isDisposed) log.v { "Agent browser session storage discarded" }
             }
         }
     }
@@ -185,9 +187,11 @@ internal class DesktopPersistentBrowserProfile(
             val agents = agentAnchors.values.toList()
             agentAnchors.clear()
             disposeAgentContexts(agents, log, ::dispose)
+            // Kept until disposed: a refused disposal leaves the context alive, and a retry must try it again
+            // before the profile's files are deleted or opened anew.
             anchor?.let { context ->
-                anchor = null
                 dispose(context)
+                anchor = null
             }
         }
         log.v { "Persistent browser context released" }
@@ -201,25 +205,29 @@ internal class DesktopPersistentBrowserProfile(
 }
 
 /**
- * Releases every one of [contexts] with [dispose], each within [AGENT_DISPOSE_TIMEOUT]. An agent session's storage
- * lives in memory only, so a failure or a lost callback is logged and never keeps the remaining contexts, the user's
- * persistent one, a data clear or the lock that guards them from being released.
+ * Releases every one of [contexts] with [dispose] at once, each within [AGENT_DISPOSE_TIMEOUT]. An agent session's
+ * storage lives in memory only, so a failure or a lost callback is logged and never keeps the remaining contexts, the
+ * user's persistent one, a data clear or the lock that guards them from being released. Returns whether all of them
+ * were confirmed released.
  */
-internal suspend fun <T> disposeAgentContexts(contexts: List<T>, log: Log, dispose: suspend (T) -> Unit) {
-    for (context in contexts) {
-        try {
-            val isDisposed = withTimeoutOrNull(AGENT_DISPOSE_TIMEOUT) { dispose(context) } != null
-            if (!isDisposed) {
-                log.w(IllegalStateException("Agent browser context disposal timed out")) {
-                    "Agent browser session storage was not confirmed as discarded in time"
-                }
-            }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            log.w(error.redactedFailure()) { "Agent browser session storage could not be discarded" }
+internal suspend fun <T> disposeAgentContexts(contexts: List<T>, log: Log, dispose: suspend (T) -> Unit): Boolean =
+    coroutineScope {
+        contexts.map { context -> async { disposeAgentContext(context, log, dispose) } }.awaitAll().all { it }
+    }
+
+private suspend fun <T> disposeAgentContext(context: T, log: Log, dispose: suspend (T) -> Unit): Boolean = try {
+    val isDisposed = withTimeoutOrNull(AGENT_DISPOSE_TIMEOUT) { dispose(context) } != null
+    if (!isDisposed) {
+        log.w(IllegalStateException("Agent browser context disposal timed out")) {
+            "Agent browser session storage was not confirmed as discarded in time"
         }
     }
+    isDisposed
+} catch (error: CancellationException) {
+    throw error
+} catch (error: Exception) {
+    log.w(error.redactedFailure()) { "Agent browser session storage could not be discarded" }
+    false
 }
 
 private const val AGENT_DISPOSE_TIMEOUT = 10_000L
