@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.runInterruptible
@@ -15,6 +16,7 @@ import java.net.StandardProtocolFamily
 import java.net.UnixDomainSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.Channels
+import java.nio.channels.ClosedByInterruptException
 import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
 import java.nio.file.Files
@@ -80,13 +82,22 @@ class UnixSocketBridgeServerTest {
         withTimeout(TIMEOUT_MILLIS) {
             Files.createDirectories(socket.parent)
             val other = ServerSocketChannel.open(StandardProtocolFamily.UNIX).bind(UnixDomainSocketAddress.of(socket))
-            val acceptor = launch(Dispatchers.IO) { runInterruptible { other.accept().close() } }
+            val acceptor = launch(Dispatchers.IO) {
+                try {
+                    runInterruptible { other.accept().close() }
+                } catch (e: ClosedByInterruptException) {
+                    // Cancellation interrupts the blocking accept, which closes the channel: that is not a failure.
+                    ensureActive()
+                    throw e
+                }
+            }
             try {
                 val result = UnixSocketBridgeServer(socket, Dispatchers.IO).serve(onListening = {}) {}
 
                 assertEquals(ServeResult.Occupied, result)
                 assertTrue(Files.exists(socket))
-                // The probe sits in the backlog until accepted; interrupting accept() fails the acceptor.
+                // The probe stays in the backlog until accepted: wait for it instead of interrupting accept(),
+                // whose ClosedByInterruptException runInterruptible does not turn into cancellation.
                 acceptor.join()
             } finally {
                 acceptor.cancelAndJoin()
