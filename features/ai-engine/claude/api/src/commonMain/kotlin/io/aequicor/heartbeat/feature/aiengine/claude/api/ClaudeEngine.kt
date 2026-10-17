@@ -20,7 +20,7 @@ public object ClaudeEngine {
     public val Enabled: FeatureToggle.Flag = FeatureToggle.Flag(
         "ai.claude",
         "Движок Claude Code CLI",
-        default = false,
+        default = true,
     )
 }
 

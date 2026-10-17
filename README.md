@@ -37,7 +37,7 @@ Material на Android и Linux, Fluent на Windows и macOS UI на Mac.
 | **Единый интерфейс** | Общая дизайн-система, светлая и тёмная темы, компоненты для каждой платформы. |
 
 > Приложение активно развивается. Часть сценариев доступна через фича-тоглы: например,
-> `ai_studio.engine_runtime`, `ai.engine_connections`, `ai.koog`, `ai.codex` и `ai.claude`.
+> `ai_studio.engine_runtime`, `ai.engine_connections`, `ai.koog` и `ai.codex`; `ai.claude` включён по умолчанию.
 > Pi, Codex и Claude Code запускают локальные процессы на Desktop; Pi на Android/iOS пока представлен заглушкой.
 > Актуальные контракты и ограничения описаны в KDoc соответствующих модулей.
 

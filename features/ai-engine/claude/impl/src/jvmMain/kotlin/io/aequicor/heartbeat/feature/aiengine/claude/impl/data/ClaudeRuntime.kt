@@ -62,6 +62,7 @@ internal class ClaudeRuntime(
     native: ClaudeNativeSupport = MissingClaudeNativeSupport,
     resources: ResourceResolver = ResourceResolver { null },
     resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
+    efforts: (ModelId) -> List<String>? = { null },
     inputSupport: (ModelId) -> PromptInputSupport = { model ->
         claudeInputSupport(
             kotlinx.serialization.json.JsonObject(
@@ -102,6 +103,7 @@ internal class ClaudeRuntime(
         resources = resources,
         resourceHistory = resourceHistory,
         inputSupport = inputSupport,
+        efforts = efforts,
     )
     private val mutex = Mutex()
     private val sessions = ConcurrentHashMap<SessionRef, ClaudeSession>()

@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -63,6 +64,28 @@ class ClaudeBackendTest {
         val second = backend.createRuntime(fixture.identity())
         assertNotSame(first, second)
         second.close()
+    }
+
+    @Test
+    fun `a stored session opens after a restart before its route is bound again`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val login = fixture.account.inspect()
+        val user = AuthSourceId("src_user")
+        val identity = RuntimeIdentity(ClaudeEngine.Id, user, login.check.revision)
+        val first = fixture.backend(backgroundScope)
+        first.bind(testTarget.binding, login.source.copy(info = login.source.info.copy(id = user)))
+        val runtime = first.createRuntime(identity)
+        val session = runtime.features.available(CreatesSessions).create(CreateSessionRequest(testTarget))
+        runtime.close()
+
+        // A restart keeps the catalog in storage, while the routes of bindings live in memory only.
+        val restarted = fixture.backend(backgroundScope)
+        assertEquals(session.ref, restarted.session(session.ref).summary.value.ref)
+        val unbound = assertFailsWith<EngineException> { restarted.createRuntime(identity) }
+        assertEquals(
+            AuthFailureReason.AuthMismatch,
+            assertIs<EngineFailure.Authentication>(unbound.failure).reason.reason,
+        )
     }
 
     @Test

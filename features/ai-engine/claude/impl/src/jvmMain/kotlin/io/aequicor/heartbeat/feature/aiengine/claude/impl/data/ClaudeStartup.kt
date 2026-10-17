@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import java.io.File
+import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.HexFormat
@@ -16,7 +17,8 @@ import java.util.HexFormat
 /**
  * How the CLI starts: [executable] and where it came from, the config directory (`CLAUDE_CONFIG_DIR`, null keeps
  * the CLI's default) and the user's environment entries. A non-runnable executable (a Windows `.cmd` shim) is
- * reported, never started.
+ * reported, never started. [isDesktopBundle] marks the CLI that the Claude Code desktop app ships: its updates
+ * belong to that app, so the CLI never updates itself.
  */
 internal data class ClaudeStartup(
     val executable: String,
@@ -24,6 +26,7 @@ internal data class ClaudeStartup(
     val isRunnable: Boolean,
     val configDirectory: String? = null,
     val environment: List<EnvironmentEntry> = emptyList(),
+    val isDesktopBundle: Boolean = false,
 ) {
     override fun toString(): String = "ClaudeStartup(source=$source, isRunnable=$isRunnable)"
 }
@@ -34,6 +37,7 @@ internal data class ClaudeHost(
     val osArch: String = System.getProperty("os.arch").orEmpty(),
     val path: String? = System.getenv("PATH"),
     val userHome: String = System.getProperty("user.home").orEmpty(),
+    val entries: (File) -> List<File> = { it.listFiles()?.toList().orEmpty() },
     val isExecutable: (File) -> Boolean = { it.isFile && it.canExecute() },
 ) {
     val isWindows: Boolean get() = osName.startsWith("Windows")
@@ -42,7 +46,8 @@ internal data class ClaudeHost(
 /**
  * The startup of [context]: the custom executable of its settings, else Heartbeat's managed copy, else the host
  * configuration's explicit executable, else a system installation (PATH, the native installer's `~/.local/bin`
- * and Homebrew). A custom config directory wins over the host configuration's.
+ * and Homebrew), else the CLI of the Claude Code desktop app, which shares that app's login. A custom config
+ * directory wins over the host configuration's.
  */
 internal fun resolveClaudeStartup(
     context: LaunchContext,
@@ -52,12 +57,12 @@ internal fun resolveClaudeStartup(
     val settings = context.settings
     val custom = settings.executable?.takeIf { it.isNotBlank() }
     val managed = context.managed?.executable
-    val (executable, source, isRunnable) = when {
-        custom != null -> Triple(custom, InstallSource.Custom, !custom.isScriptWrapper())
+    val found = when {
+        custom != null -> FoundClaude(custom, InstallSource.Custom, !custom.isScriptWrapper())
 
-        managed != null -> Triple(managed, InstallSource.Managed, true)
+        managed != null -> FoundClaude(managed, InstallSource.Managed, true)
 
-        configuration.executable != DEFAULT_COMMAND -> Triple(
+        configuration.executable != DEFAULT_COMMAND -> FoundClaude(
             configuration.executable,
             InstallSource.System,
             !configuration.executable.isScriptWrapper(),
@@ -66,19 +71,27 @@ internal fun resolveClaudeStartup(
         else -> systemClaude(host)
     }
     val configDirectory = settings.homeDirectory?.takeIf { it.isNotBlank() } ?: configuration.configDirectory
-    return ClaudeStartup(executable, source, isRunnable, configDirectory, settings.environment)
+    return ClaudeStartup(
+        found.executable,
+        found.source,
+        found.isRunnable,
+        configDirectory,
+        settings.environment,
+        found.isDesktopBundle,
+    )
 }
 
 /**
  * Host variables passed to the CLI: no API keys or endpoint overrides, then the user's entries. `CLAUDE_CONFIG_DIR`
  * is set only when configured, because an explicit value changes where the CLI looks up its default login.
- * Heartbeat's own copy never updates itself: Heartbeat installs and verifies its updates.
+ * Heartbeat's own copy never updates itself: Heartbeat installs and verifies its updates; the Claude Code desktop
+ * app's CLI is updated by that app.
  */
 internal fun claudeEnvironment(host: Map<String, String>, startup: ClaudeStartup): Map<String, String> = buildMap {
     putAll(host.filterKeys { it.uppercase() in HOST_ENVIRONMENT })
     startup.environment.forEach { put(it.name, it.value) }
     startup.configDirectory?.let { put("CLAUDE_CONFIG_DIR", it) }
-    if (startup.source == InstallSource.Managed) {
+    if (startup.source == InstallSource.Managed || startup.isDesktopBundle) {
         put("DISABLE_AUTOUPDATER", "1")
         put("DISABLE_UPDATES", "1")
     }
@@ -90,6 +103,23 @@ internal fun claudeNativeStore(configDirectory: String?, userHome: String = Syst
     val digest = MessageDigest.getInstance("SHA-256")
         .digest(Path.of(root).toAbsolutePath().normalize().toString().toByteArray())
     return HexFormat.of().formatHex(digest)
+}
+
+/**
+ * Whether the native history under [configDirectory] (the CLI's default when null) holds the conversation [id]:
+ * a `<id>.jsonl` file in any project directory. A history that does not exist holds none. Throws [IOException] when
+ * it exists but cannot be read.
+ */
+internal fun claudeTranscriptExists(
+    configDirectory: String?,
+    id: String,
+    userHome: String = System.getProperty("user.home"),
+): Boolean {
+    val projects = Path.of(configDirectory ?: Path.of(userHome, ".claude").toString(), "projects")
+    if (!Files.isDirectory(projects)) return false
+    return Files.newDirectoryStream(projects).use { directories ->
+        directories.any { Files.isRegularFile(it.resolve("$id.jsonl")) }
+    }
 }
 
 /** File checks of launch settings; they never block saving, the panel shows them. */
@@ -135,7 +165,7 @@ internal fun claudeReleasePlatform(host: ClaudeHost = ClaudeHost()): String? {
 /** The version `claude --version` prints (`2.1.3 (Claude Code)`), or null. */
 internal fun parseClaudeVersion(output: String): String? = VersionPattern.find(output)?.groupValues?.get(1)
 
-private fun systemClaude(host: ClaudeHost): Triple<String, InstallSource, Boolean> {
+private fun systemClaude(host: ClaudeHost): FoundClaude {
     val name = if (host.isWindows) "claude.exe" else DEFAULT_COMMAND
     val directories = pathEntries(host) + listOfNotNull(
         File(File(host.userHome, ".local"), "bin").path,
@@ -145,12 +175,47 @@ private fun systemClaude(host: ClaudeHost): Triple<String, InstallSource, Boolea
     val found = directories.map { File(it, name) }.firstOrNull(host.isExecutable)
     // npm installs only a `.cmd` shim on Windows: arguments passed through cmd.exe are not safe to start.
     val shim = if (host.isWindows) pathEntries(host).map { File(it, "claude.cmd") }.firstOrNull { it.isFile } else null
+    val desktop = if (found == null && shim == null) desktopClaude(host) else null
     return when {
-        found != null -> Triple(found.path, InstallSource.System, true)
-        shim != null -> Triple(shim.path, InstallSource.System, false)
-        else -> Triple(DEFAULT_COMMAND, InstallSource.Missing, false)
+        found != null -> FoundClaude(found.path, InstallSource.System, true)
+        shim != null -> FoundClaude(shim.path, InstallSource.System, false)
+        desktop != null -> FoundClaude(desktop.path, InstallSource.System, true, isDesktopBundle = true)
+        else -> FoundClaude(DEFAULT_COMMAND, InstallSource.Missing, false)
     }
 }
+
+/**
+ * The CLI the Claude Code desktop app keeps on macOS, `claude-code/<version>/<build>/claude.app/Contents/MacOS/claude`
+ * in the app's data directory: the newest version whose build carries the desktop's `.verified` integrity marker.
+ * It reads the same login as every Claude Code CLI, so a desktop user needs no second installation or sign-in.
+ */
+private fun desktopClaude(host: ClaudeHost): File? {
+    if (!host.osName.startsWith("Mac")) return null
+    val root = File(host.userHome, "Library/Application Support/Claude/claude-code")
+    return host.entries(root)
+        .mapNotNull { directory -> directory.name.toVersionParts()?.let { it to directory } }
+        .sortedWith(compareByDescending<Pair<List<Int>, File>, List<Int>>(VersionOrder) { it.first })
+        .flatMap { (_, version) -> host.entries(version).sortedByDescending(File::getName) }
+        .firstOrNull { build ->
+            host.entries(build).any { it.name == DESKTOP_VERIFIED_MARKER } &&
+                host.isExecutable(File(build, DESKTOP_EXECUTABLE))
+        }
+        ?.let { File(it, DESKTOP_EXECUTABLE) }
+}
+
+private fun String.toVersionParts(): List<Int>? =
+    split('.').map { it.toIntOrNull() ?: return null }.takeIf { it.size == VERSION_PARTS }
+
+private val VersionOrder = Comparator<List<Int>> { a, b ->
+    a.zip(b).firstNotNullOfOrNull { (x, y) -> x.compareTo(y).takeIf { it != 0 } } ?: a.size.compareTo(b.size)
+}
+
+private data class FoundClaude(
+    val executable: String,
+    val source: InstallSource,
+    val isRunnable: Boolean,
+    val isDesktopBundle: Boolean = false,
+)
 
 private fun pathEntries(host: ClaudeHost): List<String> =
     host.path.orEmpty().split(if (host.isWindows) ';' else ':').filter(String::isNotBlank)
@@ -161,6 +226,9 @@ private fun String.isScriptWrapper(): Boolean = endsWith(
 ) || endsWith(".bat", ignoreCase = true)
 
 private const val DEFAULT_COMMAND = "claude"
+private const val VERSION_PARTS = 3
+private const val DESKTOP_VERIFIED_MARKER = ".verified"
+private const val DESKTOP_EXECUTABLE = "claude.app/Contents/MacOS/claude"
 private val VersionPattern = Regex("""(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)""")
 private val HOST_ENVIRONMENT = setOf(
     "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",

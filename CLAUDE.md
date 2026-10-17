@@ -39,7 +39,12 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > точный снимок, остальные результаты дают отказ без ручного диалога. У других хостов сохраняется прежний режим доверия.
 > Локальный Desktop-адаптер `codex:{api,impl}` — app-server, сессии, текстовый стриминг, отмена и approvals (тогл `ai.codex`).
 > `claude:{api,impl}` — desktop Claude Code CLI, профильный runtime текстовых сессий, CLI-авторизация, обнаружение моделей,
-> частичная история наблюдённых ходов (тогл `ai.claude`, по умолчанию false); внешняя история CLI и tools/permissions пока нет.
+> частичная история наблюдённых ходов (тогл `ai.claude`, по умолчанию true). CLI ищется в PATH, у native installer
+> (`~/.local/bin`), в Homebrew и у приложения Claude Code desktop (macOS: `Application Support/Claude/claude-code`,
+> общий логин, обновляет его само приложение); нативные инструменты идут через гейт доверия (`ClaudeNativeGate`),
+> инструменты хоста — через MCP-мост, дерево субагентов читается из наблюдённых событий; внешняя история CLI пока нет.
+> Живой e2e на реальном CLI вне `check`: `:features:ai-engine:claude:impl:claudeLiveTest` и
+> `:platform-main:di-bundle:claudeLiveGraphTest` (нужен авторизованный CLI, расходуется квота).
 > Подключение движков — `features:ai-engine:connections` (визард «движок → авторизация → модели» и пространство
 > «движок × подключение × модель», тогл `ai.engine_connections`) поверх `EngineFacade` и `AuthSources`; экраны показывают
 > движки, объявившие `connectionMethods` (Pi, Koog, Codex, Claude); адаптеры узнают источники привязок через SPI `bind`/`unbind`.
