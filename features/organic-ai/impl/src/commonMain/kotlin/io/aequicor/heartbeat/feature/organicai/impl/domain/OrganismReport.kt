@@ -28,16 +28,17 @@ internal fun OrganicAiState.Living.locate(session: SessionRef): CellAddress? = o
     }
 
 /** What `organism_status` shows to [viewer]: the goal, every cell and the open cases. */
-internal fun statusReport(organism: Organism, viewer: CellId): String = buildString {
-    appendLine("You are ${organism.cell(viewer)?.label() ?: viewer.value}.")
-    val cell = organism.cell(viewer)
-    if (cell != null) {
-        appendLine("Unread results: ${cell.inbox.size - cell.receivedLetters}. Read them with organism_receive.")
+internal fun statusReport(organism: Organism, viewer: CellId, branches: Map<CellId, String> = emptyMap()): String =
+    buildString {
+        appendLine("You are ${organism.cell(viewer)?.label() ?: viewer.value}.")
+        val cell = organism.cell(viewer)
+        if (cell != null) {
+            appendLine("Unread results: ${cell.inbox.size - cell.receivedLetters}. Read them with organism_receive.")
+        }
+        appendLine("Organism goal:").appendLine(cut(organism.goal, GOAL_CHARS))
+        appendLine("Cells:").appendLine(organism.cellTable(branches))
+        append("Open cases:\n").append(organism.caseTable())
     }
-    appendLine("Organism goal:").appendLine(cut(organism.goal, GOAL_CHARS))
-    appendLine("Cells:").appendLine(organism.cellTable())
-    append("Open cases:\n").append(organism.caseTable())
-}
 
 /** Why a request of a cell was refused, in words for the agent. */
 internal fun Refusal.explain(): String = when (this) {

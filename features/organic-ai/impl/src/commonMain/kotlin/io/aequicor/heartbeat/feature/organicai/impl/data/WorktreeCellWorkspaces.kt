@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.data
 
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
@@ -17,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.sandboxTask
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellResult
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRun
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellWorkspaces
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
@@ -36,8 +38,11 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.uuid.Uuid
 
 /**
  * Sandboxes of cells through the profile's worktree machine, which owns the checkouts, their branches, native runs
@@ -47,10 +52,15 @@ import kotlinx.coroutines.withTimeoutOrNull
  * a silent fall back to the organism's project.
  */
 @ContributesBinding(ProfileScope::class)
+@SingleIn(ProfileScope::class)
 @Inject
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : CellWorkspaces {
     private val log = Log.tag("WorktreeCellWorkspaces")
+
+    /** One capture per cell at a time, so a result read twice at once is sealed once; guarded by [guard]. */
+    private val sealing = mutableMapOf<String, Mutex>()
+    private val guard = Mutex()
 
     override suspend fun prepare(organism: Organism, cell: CellId): WorkspaceRef {
         val project = checkNotNull(organism.workspace) { "A sandbox organism needs a project" }
@@ -90,6 +100,38 @@ internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : C
         }
         log.i { "organism ${organism.id.value} cell ${cell.value}: native turn adopted by its sandbox run" }
         return SandboxRun(key, run.request)
+    }
+
+    override suspend fun result(organism: Organism, cell: CellId): CellResult? {
+        val key = organism.sandboxTask(cell)
+        val capture = guard.withLock { sealing.getOrPut(key) { Mutex() } }
+        return capture.withLock {
+            val task = tasks().first()[key] ?: return@withLock null
+            val branch = task.branch ?: return@withLock null
+            // An ended cell never works again, so the capture it already has stays its result.
+            val existing = task.seal?.commit
+            val commit = existing ?: seal(key, task)
+            commit?.let { CellResult(branch, task.baseCommit, it) }
+        }
+    }
+
+    override suspend fun branches(organism: Organism): Map<CellId, String> {
+        val tasks = tasks().first()
+        return organism.cells.mapNotNull { cell ->
+            tasks[organism.sandboxTask(cell.id)]?.branch?.let { cell.id to it }
+        }.toMap()
+    }
+
+    /** Asks worktree mode to capture the checkout; a refusal is recorded in the task and is not an error here. */
+    private suspend fun seal(key: String, task: WorktreeTask): String? {
+        val operation = Uuid.random().toString()
+        return try {
+            dispatch(WorktreeIntent.Public.Seal(key, operation))
+            awaitTask(key, after = task.revision) { it.seal?.operation == operation }.seal?.commit
+        } catch (e: EngineException) {
+            log.w(e) { "sandbox result could not be captured" }
+            null
+        }
     }
 
     /**

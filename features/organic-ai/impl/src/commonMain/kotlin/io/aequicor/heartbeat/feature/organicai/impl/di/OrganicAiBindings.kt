@@ -54,6 +54,7 @@ public object OrganicAiBindings {
         cells = cells,
         driver = CellDriver(cells, journal, workspaces),
         court = ImmunityCourt(judges, transcripts),
+        workspaces = workspaces,
     )
 
     @Provides

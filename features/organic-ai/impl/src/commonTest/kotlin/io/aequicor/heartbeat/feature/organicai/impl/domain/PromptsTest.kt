@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.answerOf
 import io.aequicor.heartbeat.feature.aiengine.facade.api.brief
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
@@ -20,10 +21,12 @@ import io.aequicor.heartbeat.feature.organicai.api.DeathCause
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
 import io.aequicor.heartbeat.feature.organicai.api.Letter
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
+import io.aequicor.heartbeat.feature.organicai.api.OrganismIsolation
 import io.aequicor.heartbeat.feature.organicai.api.OrganismTools
 import io.aequicor.heartbeat.feature.organicai.api.Ruling
 import io.aequicor.heartbeat.feature.organicai.api.VerdictOutcome
 import io.aequicor.heartbeat.feature.organicai.api.Work
+import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.zygote
 import io.aequicor.heartbeat.feature.organicai.impl.C1
 import io.aequicor.heartbeat.feature.organicai.impl.C2
@@ -122,6 +125,36 @@ class PromptsTest {
         assertEquals("", stripHostDirectives(prompt))
         assertFalse("found" in prompt)
         assertTrue(OrganismTools.RECEIVE in prompt)
+    }
+
+    @Test
+    fun `a finished child's sandbox result comes with a trusted host note after its fenced words`() {
+        val letters = listOf(Letter.ChildFinished(C1, "writer", "all done"), Letter.ChildFinished(C2, "other", "ok"))
+        val organism = organism(cell(C1), cell(C2))
+        val results = mapOf(C1 to CellResult("heartbeat/worktree-c1", "base1", "sealed1"))
+        val body = inboxReport(organism, letters, Fence("n0nce"), results)
+        val first = body.substringBefore("\n\nLetter 2:")
+        assertTrue("`git merge --no-ff sealed1` in your checkout" in first, first)
+        assertTrue(first.endsWith("and verify with run_build."), first)
+        assertTrue(
+            "Host note: c1's work lives in its own sandbox branch heartbeat/worktree-c1, cut from base1." in first,
+        )
+        assertTrue(first.indexOf("Host note") > first.indexOf("n0nce>>>"))
+        assertFalse("Host note" in body.substringAfter("Letter 2:"))
+        val plain = inboxReport(organism, letters, Fence("n0nce"))
+        assertEquals(plain, inboxReport(organism, letters, Fence("n0nce"), emptyMap()))
+        assertFalse("Host note" in plain)
+    }
+
+    @Test
+    fun `only the cells of a sandbox organism are told about their sandbox`() {
+        val shared = organism(cell(C1))
+        assertFalse("Your checkout is a sandbox" in turnPrompt(shared, shared.zygote))
+        val sandboxed = shared.copy(workspace = WorkspaceRef("project"), isolation = OrganismIsolation.Sandbox)
+        val prompt = turnPrompt(sandboxed, sandboxed.zygote)
+        assertTrue("Your checkout is a sandbox" in prompt && "git merge" !in prompt, prompt)
+        assertTrue("host note about its sandbox branch" in prompt && "mark_task_complete is not needed" in prompt)
+        assertTrue("Your checkout is a sandbox" in turnPrompt(sandboxed, sandboxed.cell(C1)!!))
     }
 
     @Test

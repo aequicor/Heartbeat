@@ -3,13 +3,16 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineSpec
 import io.aequicor.heartbeat.feature.organicai.api.Organism
+import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.isDeveloping
+import io.aequicor.heartbeat.feature.organicai.api.isSandboxed
 import io.aequicor.heartbeat.feature.organicai.api.zygote
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -25,6 +28,7 @@ internal class OrganicAiEffects(
     private val cells: CellSessions,
     private val driver: CellDriver,
     private val court: ImmunityCourt,
+    private val workspaces: CellWorkspaces,
 ) : EffectHandler<OrganicAiEffect, OrganicAiIntent> {
     private val log = Log.tag("OrganicAiEffects")
 
@@ -148,9 +152,28 @@ internal class OrganicAiEffects(
     private suspend fun release(effect: OrganicAiEffect.Release) {
         effect.cells.forEach { id ->
             val cell = effect.organism.cell(id) ?: return@forEach
+            if (effect.mode == ReleaseMode.Retire) captureResult(effect.organism, id)
             cells.release(CellKey(effect.organism.id, id), cell.session, effect.mode, cell.turns)
         }
         log.i { "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})" }
+    }
+
+    /**
+     * A completed sandbox cell's checkout is captured, so its work survives however its parent integrates it, and the
+     * zygote's too: that is the organism's result. A capture that fails is logged and left to the reader's retry.
+     */
+    private suspend fun captureResult(organism: Organism, id: CellId) {
+        if (!organism.isSandboxed) return
+        try {
+            val result = workspaces.result(organism, id)
+            log.i {
+                "organism ${organism.id.value} cell ${id.value}: result ${if (result == null) "not " else ""}captured"
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "organism ${organism.id.value} cell ${id.value}: result was not captured" }
+        }
     }
 
     /** A snapshot that cannot be written now is written by the next change of its organism or the next sleep. */

@@ -19,11 +19,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.organicai.api.CaseId
 import io.aequicor.heartbeat.feature.organicai.api.CellConfiguration
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.GrowthLimits
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
@@ -49,6 +51,9 @@ import io.aequicor.heartbeat.feature.organicai.impl.ORGANISM
 import io.aequicor.heartbeat.feature.organicai.impl.TARGET
 import io.aequicor.heartbeat.feature.organicai.impl.ZYGOTE
 import io.aequicor.heartbeat.feature.organicai.impl.cell
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellResult
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRun
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellWorkspaces
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
 import io.aequicor.heartbeat.feature.organicai.impl.organism
 import io.aequicor.heartbeat.feature.organicai.impl.request
@@ -81,8 +86,10 @@ class OrganismAgentToolsTest {
         override suspend fun preview(request: SubagentRequest, context: SelectionContext) = emptyList<SelectionOption>()
     }
 
+    private val workspaces = Sandboxes()
+
     private fun tools(vararg organisms: Organism, machine: SpecMachine = SpecMachine(*organisms)) =
-        OrganismAgentTools(lazyOf(machine), toggles, lazyOf(adaptive)) to machine
+        OrganismAgentTools(lazyOf(machine), toggles, lazyOf(adaptive), lazyOf(workspaces)) to machine
 
     private fun context(session: SessionRef = session("z")) = AgentToolContext(session, null, TurnId("turn"))
 
@@ -115,7 +122,12 @@ class OrganismAgentToolsTest {
         val (finished, _) = tools(organism().copy(status = OrganismStatus.Aborted))
         assertEquals(emptyList(), finished.specifications(null))
         assertEquals(emptyList(), developing.specifications(WorkspaceRef("another project")))
-        val unlaunched = OrganismAgentTools(lazy { error("launched off the main thread") }, toggles, lazyOf(adaptive))
+        val unlaunched = OrganismAgentTools(
+            lazy { error("launched off the main thread") },
+            toggles,
+            lazyOf(adaptive),
+            lazyOf(workspaces),
+        )
         assertEquals(emptyList(), unlaunched.specifications(null))
         assertTrue(unlaunched.execute(context(), OrganismTools.STATUS, args()).isError)
         toggles.isEnabled = false
@@ -273,6 +285,60 @@ class OrganismAgentToolsTest {
     }
 
     @Test
+    fun `a parent reading a finished child of a sandbox organism gets the host note to integrate it`() = runTest {
+        val finished = Letter.ChildFinished(C1, "writer", "done, see my branch")
+        val sandboxed = organism(
+            cell(C1, phase = CellPhase.Completed("done")),
+            zygote = zygoteCell(inbox = listOf(finished)),
+        ).copy(workspace = WorkspaceRef("project"), isolation = OrganismIsolation.Sandbox)
+        workspaces.results[C1] = CellResult("heartbeat/worktree-c1", "base123", "sealed456")
+        val (tools, machine) = tools(sandboxed)
+        val result = tools.execute(context(), OrganismTools.RECEIVE, args())
+        assertFalse(result.isError, result.text)
+        assertTrue("sandbox branch heartbeat/worktree-c1, cut from base123" in result.text, result.text)
+        assertTrue("`git merge --no-ff sealed456`" in result.text)
+        // The note is the host's own text: it stands outside the fenced words of the child.
+        assertTrue(result.text.indexOf("Host note") > result.text.lastIndexOf(">>>"))
+        assertEquals(listOf(C1), workspaces.resultReads.distinct())
+        assertEquals(1, machine.organism().zygote.receivedLetters)
+    }
+
+    @Test
+    fun `no host note appears for a shared organism or a result worktree mode could not capture`() = runTest {
+        val finished = Letter.ChildFinished(C1, "writer", "done")
+        val shared = organism(
+            cell(C1, phase = CellPhase.Completed("done")),
+            zygote = zygoteCell(inbox = listOf(finished)),
+        )
+        workspaces.results[C1] = CellResult("branch", null, "sealed")
+        assertFalse("Host note" in tools(shared).first.execute(context(), OrganismTools.RECEIVE, args()).text)
+        assertEquals(emptyList(), workspaces.resultReads)
+        val sandboxed = shared.copy(workspace = WorkspaceRef("project"), isolation = OrganismIsolation.Sandbox)
+        workspaces.results.clear()
+        val read = tools(sandboxed).first.execute(context(), OrganismTools.RECEIVE, args())
+        assertFalse(read.isError, read.text)
+        assertFalse("Host note" in read.text)
+        assertTrue("done" in read.text)
+    }
+
+    @Test
+    fun `status names the sandbox branch of every cell of a sandbox organism`() = runTest {
+        val sandboxed = organism(cell(C1, phase = CellPhase.Resting))
+            .copy(workspace = WorkspaceRef("project"), isolation = OrganismIsolation.Sandbox)
+        workspaces.branches = mapOf(ZYGOTE to "heartbeat/worktree-z", C1 to "heartbeat/worktree-c1")
+        val status = tools(sandboxed).first.execute(context(), OrganismTools.STATUS, args())
+        assertTrue(
+            "- zygote \"zygote\" (zygote, generation 0, sandbox branch heartbeat/worktree-z)" in status.text,
+            status.text,
+        )
+        assertTrue(
+            "c1 \"cell c1\" (child of zygote, generation 1, sandbox branch heartbeat/worktree-c1)" in status.text,
+        )
+        val shared = tools(organism(cell(C1, phase = CellPhase.Resting))).first
+        assertFalse("sandbox branch" in shared.execute(context(), OrganismTools.STATUS, args()).text)
+    }
+
+    @Test
     fun `receive paginates large inboxes and the compatibility status operation reads the next page`() = runTest {
         val letters = (1..18).map { Letter.ChildFinished(C1, "child", "result $it") }
         val (tools, machine) = tools(organism(zygote = zygoteCell(inbox = letters)))
@@ -368,6 +434,26 @@ class OrganismAgentToolsTest {
     }
 
     /** Runs the real spec without a runtime, recording intents and effects. */
+    internal class Sandboxes : CellWorkspaces {
+        val results = mutableMapOf<CellId, CellResult>()
+        val resultReads = mutableListOf<CellId>()
+        var branches = emptyMap<CellId, String>()
+
+        override suspend fun prepare(organism: Organism, cell: CellId): WorkspaceRef = error("not used")
+
+        override suspend fun begin(organism: Organism, cell: CellId, request: RequestId): CellRun = error("not used")
+
+        override suspend fun adopt(organism: Organism, cell: CellId, session: SessionRef, turn: TurnId): CellRun? =
+            error("not used")
+
+        override suspend fun result(organism: Organism, cell: CellId): CellResult? {
+            resultReads += cell
+            return results[cell]
+        }
+
+        override suspend fun branches(organism: Organism): Map<CellId, String> = branches
+    }
+
     class SpecMachine(vararg organisms: Organism, private val result: SendResult? = null) : OrganicAiMachine {
         override val name: String = OrganicAiMachineSpec.name
         override val state = MutableStateFlow<OrganicAiState>(OrganicAiState.Living(organisms.associateBy { it.id }))

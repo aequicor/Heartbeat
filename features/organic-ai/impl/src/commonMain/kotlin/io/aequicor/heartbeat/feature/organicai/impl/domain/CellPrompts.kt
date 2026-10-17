@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.children
 import io.aequicor.heartbeat.feature.organicai.api.depth
 import io.aequicor.heartbeat.feature.organicai.api.isAlive
+import io.aequicor.heartbeat.feature.organicai.api.isSandboxed
 import io.aequicor.heartbeat.feature.organicai.api.isZygote
 
 /** A turn carries host instructions and the user's genesis or follow-up text. Results are tool output only. */
@@ -62,6 +63,7 @@ private fun role(organism: Organism, cell: Cell): String = buildString {
     appendLine("- ${OrganismTools.STATUS}: see the cells, their state and the open cases.")
     appendLine("- ${OrganismTools.RECEIVE}: read results when ready; wait=true requests sleep if none are ready.")
     appendLine()
+    if (organism.isSandboxed) appendLine(SANDBOX).appendLine()
     append(RULES)
 }
 
@@ -89,6 +91,15 @@ private const val RULES =
         "cases or unread results completes your cell (the zygote completes the organism). Never ask the user " +
         "questions; actions that need approval wait for the user's decision. If organism_receive is unavailable " +
         "in an older session, call organism_status with receive=true and the same arguments."
+
+private const val SANDBOX =
+    "Your checkout is a sandbox: a separate copy of the project on a branch of your own. Nothing you change there " +
+        "reaches the project or another cell by itself, and you never edit the project's original checkout. Build " +
+        "and test with run_build, not natively. Your final answer ends your task; mark_task_complete is not needed. " +
+        "When your cell completes, the host captures everything in your checkout, committed or not. When a child's " +
+        "result comes with a host note about its sandbox branch, integrate it into your own checkout before your " +
+        "final answer, as the note says. Name your own branch (git branch --show-current) in your final answer: " +
+        "the zygote's branch is the organism's result, and the user decides what reaches the project."
 
 private const val RECOVERY =
     "Heartbeat restarted or the user resumed your work. Your previous turn may have partly happened. Check " +

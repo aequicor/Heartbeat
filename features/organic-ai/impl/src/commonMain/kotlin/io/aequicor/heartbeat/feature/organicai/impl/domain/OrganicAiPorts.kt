@@ -78,7 +78,22 @@ internal interface CellWorkspaces {
      * the sandbox holds no run of exactly that turn that can be taken over.
      */
     suspend fun adopt(organism: Organism, cell: CellId, session: SessionRef, turn: TurnId): CellRun?
+
+    /**
+     * What an ended [cell] leaves: its sandbox branch and an immutable commit capturing all files of its checkout,
+     * committed or not, taken once and reused afterwards. Null when worktree mode cannot capture it now.
+     */
+    suspend fun result(organism: Organism, cell: CellId): CellResult?
+
+    /** The branch of each cell's sandbox that worktree mode knows. */
+    suspend fun branches(organism: Organism): Map<CellId, String>
 }
+
+/**
+ * The work of a finished sandbox cell: its [branch], cut from [base], and the [commit] that holds every file of its
+ * checkout on top of that branch. A parent integrates the commit into its own checkout with git.
+ */
+internal data class CellResult(val branch: String, val base: String?, val commit: String)
 
 /**
  * The run of one turn of a sandbox cell in worktree mode. Reporting never fails the turn: a report that is lost leaves

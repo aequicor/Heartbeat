@@ -67,6 +67,7 @@ class OrganicAiEffectsTest {
         cells,
         CellDriver(cells, journal, workspaces),
         ImmunityCourt(judges, transcripts),
+        workspaces,
     )
     private val machine = Recorder()
 
@@ -271,6 +272,7 @@ class OrganicAiEffectsTest {
             cells,
             CellDriver(cells, journal, workspaces),
             ImmunityCourt(judges, transcripts),
+            workspaces,
         )
         machine.sent.clear()
         missing.handle(OrganicAiEffect.Resolve(ORGANISM), machine)
@@ -360,6 +362,30 @@ class OrganicAiEffectsTest {
         assertEquals(emptyList(), cells.handle.submitted)
         assertEquals(emptyList(), cells.released)
     }
+
+    @Test
+    fun `a completed sandbox cell and the zygote have their results captured before their sessions are released`() =
+        runTest {
+            val done = sandboxed(cell(C1, phase = CellPhase.Completed("done")))
+            effects.handle(OrganicAiEffect.Release(done, listOf(C1, ZYGOTE), ReleaseMode.Retire), machine)
+            assertEquals(listOf(C1, ZYGOTE), workspaces.captured)
+            assertEquals(listOf(C1, ZYGOTE), cells.released.map { it.first.cell })
+        }
+
+    @Test
+    fun `a killed cell or a shared organism captures nothing and a failed capture never keeps a cell alive`() =
+        runTest {
+            val ended = sandboxed(cell(C1, phase = CellPhase.Completed("done")))
+            effects.handle(OrganicAiEffect.Release(ended, listOf(C1), ReleaseMode.Lyse), machine)
+            effects.handle(
+                OrganicAiEffect.Release(organism(cell(C1)).copy(workspace = project), listOf(C1), ReleaseMode.Retire),
+                machine,
+            )
+            assertEquals(emptyList(), workspaces.captured)
+            workspaces.captureFailure = IllegalStateException("git failed")
+            effects.handle(OrganicAiEffect.Release(ended, listOf(C1), ReleaseMode.Retire), machine)
+            assertEquals(3, cells.released.size)
+        }
 
     @Test
     fun `a sandbox turn is registered before it is submitted and reported to its end`() = runTest {
@@ -513,6 +539,17 @@ class OrganicAiEffectsTest {
             events += "adopt ${cell.value} ${turn.value}"
             return Run()
         }
+
+        val captured = mutableListOf<CellId>()
+        var captureFailure: Exception? = null
+
+        override suspend fun result(organism: Organism, cell: CellId): CellResult? {
+            captureFailure?.let { throw it }
+            captured += cell
+            return CellResult("branch-${cell.value}", null, "sealed-${cell.value}")
+        }
+
+        override suspend fun branches(organism: Organism): Map<CellId, String> = emptyMap()
 
         inner class Run : CellRun {
             override suspend fun accepted(session: SessionRef, turn: TurnId) {

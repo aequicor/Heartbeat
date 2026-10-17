@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Fence
 import io.aequicor.heartbeat.feature.aiengine.facade.api.cut
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.DeathCause
 import io.aequicor.heartbeat.feature.organicai.api.Letter
 import io.aequicor.heartbeat.feature.organicai.api.Organism
@@ -12,11 +13,33 @@ import io.aequicor.heartbeat.feature.organicai.api.cell
  * Results of one tool call share a budget, so many large results cannot overflow the context of the turn. What other
  * sessions wrote is fenced, so a result cannot pose as another letter.
  */
-internal fun inboxReport(organism: Organism, letters: List<Letter>, fence: Fence = Fence.random()): String {
+internal fun inboxReport(
+    organism: Organism,
+    letters: List<Letter>,
+    fence: Fence = Fence.random(),
+    results: Map<CellId, CellResult> = emptyMap(),
+): String {
     val share = (LETTERS_CHARS / letters.size.coerceAtLeast(1)).coerceAtLeast(MIN_LETTER_CHARS)
     return letters
-        .mapIndexed { index, letter -> "Letter ${index + 1}: " + letter.render(organism, share, fence) }
+        .mapIndexed { index, letter ->
+            "Letter ${index + 1}: " + letter.render(organism, share, fence) + letter.integration(results)
+        }
         .joinToString("\n\n")
+}
+
+/**
+ * What the host says about the work of a finished child in a sandbox: where it lives and how to integrate it. This is
+ * trusted host text outside the fence; nothing in it comes from the child.
+ */
+private fun Letter.integration(results: Map<CellId, CellResult>): String {
+    val finished = this as? Letter.ChildFinished ?: return ""
+    val result = results[finished.child] ?: return ""
+    val base = result.base?.let { ", cut from $it" }.orEmpty()
+    return "\nHost note: ${finished.child.value}'s work lives in its own sandbox branch ${result.branch}$base. " +
+        "Everything in its checkout, committed or not, is captured as commit ${result.commit}. It is not part of " +
+        "your checkout until you integrate it: commit your own pending work, run `git merge --no-ff " +
+        "${result.commit}` in your checkout, resolve any conflicts keeping the intent of both sides, and verify " +
+        "with run_build."
 }
 
 private fun Letter.render(organism: Organism, budget: Int, fence: Fence): String = when (this) {

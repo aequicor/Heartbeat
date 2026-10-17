@@ -18,20 +18,26 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismIsolation
 import io.aequicor.heartbeat.feature.organicai.api.sandboxTask
 import io.aequicor.heartbeat.feature.organicai.impl.C1
+import io.aequicor.heartbeat.feature.organicai.impl.ZYGOTE
+import io.aequicor.heartbeat.feature.organicai.impl.cell
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellResult
 import io.aequicor.heartbeat.feature.organicai.impl.organism
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSeal
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.failed
 import io.aequicor.heartbeat.feature.worktreemode.api.runPrepared
+import io.aequicor.heartbeat.feature.worktreemode.api.sealed
 import io.aequicor.heartbeat.feature.worktreemode.api.transition
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -194,6 +200,38 @@ class WorktreeCellWorkspacesTest {
         assertNull(workspaces.adopt(sandboxed, C1, session.copy(nativeId = "other"), turn))
     }
 
+    @Test
+    fun `the result of an ended cell is sealed once and reused by every reader`() = runTest {
+        machine.publish(prepared(revision = 1).copy(branch = "heartbeat/worktree-c1", baseCommit = "base1"))
+        val first = checkNotNull(workspaces.result(sandboxed, C1))
+        assertEquals(CellResult("heartbeat/worktree-c1", "base1", "commit-1"), first)
+        assertEquals(first, workspaces.result(sandboxed, C1))
+        assertEquals(1, machine.sent.count { it is WorktreeIntent.Public.Seal })
+        assertEquals("commit-1", machine.task(key).seal?.commit)
+    }
+
+    @Test
+    fun `a result nobody could capture is null and a later reader tries again`() = runTest {
+        assertNull(workspaces.result(sandboxed, C1))
+        machine.publish(prepared(revision = 1))
+        assertNull(workspaces.result(sandboxed, C1))
+        machine.publish(prepared(revision = 2).copy(branch = "heartbeat/worktree-c1"))
+        machine.failSeals = true
+        assertNull(workspaces.result(sandboxed, C1))
+        machine.failSeals = false
+        assertEquals("commit-1", workspaces.result(sandboxed, C1)?.commit)
+        assertEquals(2, machine.sent.count { it is WorktreeIntent.Public.Seal })
+    }
+
+    @Test
+    fun `branches lists every cell sandbox worktree mode knows`() = runTest {
+        machine.publish(prepared(revision = 1).copy(branch = "heartbeat/worktree-c1"))
+        assertEquals(mapOf(C1 to "heartbeat/worktree-c1"), workspaces.branches(sandboxed.withCells(C1, ZYGOTE)))
+    }
+
+    private fun Organism.withCells(vararg ids: CellId): Organism =
+        copy(cells = cells + ids.filter { id -> cells.none { it.id == id } }.map { cell(it) })
+
     private fun sandboxedWith(task: WorktreeTask): Organism {
         machine.publish(task)
         return sandboxed
@@ -240,6 +278,8 @@ private class WorktreeFake : MachineRef<WorktreeState, WorktreeIntent.Public, Wo
     var result = SendResult.Accepted
     var onPrepare: () -> Unit = {}
     var failRuns = false
+    var failSeals = false
+    var seals = 0
 
     fun publish(task: WorktreeTask) {
         val tasks = (state.value as WorktreeState.Ready).tasks
@@ -263,6 +303,16 @@ private class WorktreeFake : MachineRef<WorktreeState, WorktreeIntent.Public, Wo
                 } else {
                     task.transition(intent).runPrepared(intent.request)
                 }
+            }
+
+            is WorktreeIntent.Public.Seal -> change(intent.chatId) {
+                it.sealed(
+                    if (failSeals) {
+                        WorktreeSeal(intent.operation, failure = "TurnActive")
+                    } else {
+                        WorktreeSeal(intent.operation, "commit-${++seals}")
+                    },
+                )
             }
 
             else -> change(intent.runKey()) { it.transition(intent) }
