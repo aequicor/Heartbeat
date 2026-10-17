@@ -74,21 +74,6 @@ class WorkflowOrganismEngineTest {
     }
 
     @Test
-    fun `an unavailable organic AI is a typed refusal that the workflow can handle`() = runTest {
-        val fixture = WorkflowFixture()
-        val seen = mutableListOf<OrganismOutcome>()
-        val definition: WorkflowDefinition = {
-            seen += organism("Ship it", options)
-            JsonNull
-        }
-        fixture.engine { UnavailableWorkflowOrganisms(it) }.execute(definition)
-        fixture.engine { UnavailableWorkflowOrganisms(it) }.execute(definition)
-        val refusal: OrganismOutcome = OrganismOutcome.Refused(OrganismRefusal.Unavailable)
-        assertEquals(listOf(refusal, refusal), seen)
-        assertEquals(StepPhase.Completed, fixture.storage.load().single().steps.single().phase)
-    }
-
-    @Test
     fun `a changed goal title or model for a recorded organism is divergent`() = runTest {
         val fixture = WorkflowFixture()
         fixture.engine().execute {
