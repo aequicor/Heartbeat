@@ -12,6 +12,7 @@ import kotlinx.serialization.Serializable
 public val AdaptiveSubagentsEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "adaptive_subagents.enabled",
     "Адаптивные субагенты: описания моделей и подбор конфигурации",
+    default = true,
 )
 
 /** Automatic model descriptions written from web search, page reading and models.dev facts. */
@@ -24,12 +25,14 @@ public val AdaptiveSubagentsResearch: FeatureToggle.Flag = FeatureToggle.Flag(
 public val AdaptiveSubagentsRouter: FeatureToggle.Flag = FeatureToggle.Flag(
     "adaptive_subagents.router",
     "LLM-роутер подбора модели субагента",
+    default = true,
 )
 
 /** Tools `subagent_*` in ordinary chats; they also need scheduler actions. */
 public val AdaptiveSubagentsSessionTools: FeatureToggle.Flag = FeatureToggle.Flag(
     "adaptive_subagents.session_tools",
     "Субагенты в обычных чатах",
+    default = true,
 )
 
 /**

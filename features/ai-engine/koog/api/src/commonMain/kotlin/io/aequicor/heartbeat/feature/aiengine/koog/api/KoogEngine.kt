@@ -18,8 +18,12 @@ public val KoogEngineId: EngineId = EngineId("koog")
 /** Exclusive owner namespace; CLI credentials are never consumed by this adapter. */
 public val KoogAuthOwner: AuthOwnerId = AuthOwnerId("koog")
 
-/** Experimental text generation, disabled until explicitly enabled. */
-public val KoogEngineEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.koog", "Движок Koog")
+/** Koog engine: streaming text sessions over the connected providers. */
+public val KoogEngineEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "ai.koog",
+    "Движок Koog",
+    default = true,
+)
 
 /**
  * Allows reading the public models.dev catalog to learn which OpenAI and Alibaba models accept reasoning effort;
@@ -39,7 +43,7 @@ public val KoogReasoningCatalogEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val KoogCodingTools: FeatureToggle.Flag = FeatureToggle.Flag(
     "ai.koog.coding_tools",
     "Koog: кодинг-сессии с проектом (Desktop)",
-    default = false,
+    default = true,
 )
 
 /**

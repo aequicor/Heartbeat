@@ -26,13 +26,14 @@ public data object AiStudioRoute : Route
 public val StudioEngineRuntime: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "ai_studio.engine_runtime",
     description = "AI-студия: чаты профиля через подключённые движки",
-    default = false,
+    default = true,
 )
 
 /** Adds local folders for Codex/Pi; disabling stops new folder registration, while saved project chats still work. */
 public val StudioLocalProjects: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "ai_studio.local_projects",
     description = "Локальные проекты: выбор папки и работа Codex/Pi в ней",
+    default = true,
 )
 
 /** Studio workflow: workspace loading, open panes, model preferences and running agent sessions. */

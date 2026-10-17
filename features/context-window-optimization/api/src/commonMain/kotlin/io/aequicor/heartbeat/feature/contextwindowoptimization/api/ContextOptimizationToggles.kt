@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 public val ContextOptimizationEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "context_optimization.enabled",
     "Оптимизация контекстного окна: сжатие, раздел настроек «Контекст»",
+    default = true,
 )
 
 /** Compaction between turns once the context reaches the threshold of the settings; requires the main toggle. */

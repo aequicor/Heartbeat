@@ -8,7 +8,7 @@ public val BrowserAgentControl: FeatureToggle.Flag =
     FeatureToggle.Flag(
         "browser.agent_control",
         "Управление встроенным браузером агентом",
-        default = false,
+        default = true,
     )
 
 /** Human-assisted reading of research sources through the browser session. */

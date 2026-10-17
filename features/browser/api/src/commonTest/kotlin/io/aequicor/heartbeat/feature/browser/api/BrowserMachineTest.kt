@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class BrowserMachineTest {
     private val ready = BrowserState.Running(isConfigured = true, isEnabled = true)
@@ -59,14 +60,14 @@ class BrowserMachineTest {
     }
 
     @Test
-    fun `both additional capabilities start disabled`() {
-        assertFalse(BrowserAgentControl.default)
+    fun `agent control is on and research access starts disabled`() {
+        assertTrue(BrowserAgentControl.default)
         assertFalse(BrowserResearchAccess.default)
     }
 
     @Test
     fun `start observes without loading any website and duplicate start is ignored`() {
-        assertFalse(BrowserEnabled.default)
+        assertTrue(BrowserEnabled.default)
         BrowserMachineSpec.assertTransition(
             BrowserState.Idle,
             BrowserIntent.Public.Start,

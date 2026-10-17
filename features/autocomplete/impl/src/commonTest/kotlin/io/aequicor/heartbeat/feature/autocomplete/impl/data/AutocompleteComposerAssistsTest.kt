@@ -88,7 +88,7 @@ class AutocompleteComposerAssistsTest {
     @Test
     fun `attachments off or unsupported input hides the file section`() = runTest {
         val off = service(
-            toggles = mapOf(AutocompleteEnabled to true, AgentLearningEnabled to true),
+            toggles = mapOf(AutocompleteEnabled to true, AgentLearningEnabled to true, AttachmentsEnabled to false),
         )
         val none = off.suggest(
             ComposerTrigger.Mention(0..4, "read"),
@@ -114,7 +114,7 @@ class AutocompleteComposerAssistsTest {
 
     @Test
     fun `the feature toggle gates everything`() = runTest {
-        val service = service(toggles = mapOf(), assists = listOf(command("/plan", "Plan")))
+        val service = service(toggles = mapOf(AutocompleteEnabled to false), assists = listOf(command("/plan", "Plan")))
         val suggestions = service.suggest(
             ComposerTrigger.Command(0..4, "plan"),
             ComposerScope(target = target, workspace = project),

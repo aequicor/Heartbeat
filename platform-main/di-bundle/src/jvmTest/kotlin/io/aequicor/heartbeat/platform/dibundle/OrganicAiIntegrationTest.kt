@@ -35,7 +35,6 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -58,7 +57,7 @@ class OrganicAiIntegrationTest {
     @Test
     fun `organic AI is a registered toggle and its machine stays closed while off`() = runTest {
         assertTrue(OrganicAiEnabled in toggles.toggleControl.registered)
-        assertFalse(OrganicAiEnabled.default)
+        assertTrue(OrganicAiEnabled.default)
         assertEquals("organic_ai", OrganicAiEnabled.owner)
         val profile = app.profileSessions.open(ProfileId("organic-off"))
         assertNull(app.machines.find(OrganicAiMachineKey))
