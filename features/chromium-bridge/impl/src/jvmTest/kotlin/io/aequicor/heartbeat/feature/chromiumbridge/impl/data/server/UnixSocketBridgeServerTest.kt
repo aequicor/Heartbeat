@@ -86,6 +86,8 @@ class UnixSocketBridgeServerTest {
 
                 assertEquals(ServeResult.Occupied, result)
                 assertTrue(Files.exists(socket))
+                // The probe sits in the backlog until accepted; interrupting accept() fails the acceptor.
+                acceptor.join()
             } finally {
                 acceptor.cancelAndJoin()
                 other.close()
