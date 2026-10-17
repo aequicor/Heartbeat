@@ -55,7 +55,7 @@ class AdaptiveSubagentsIntegrationTest {
     fun `adaptive subagent toggles are registered with their release defaults`() {
         val defaults = mapOf(
             AdaptiveSubagentsEnabled to true,
-            AdaptiveSubagentsResearch to false,
+            AdaptiveSubagentsResearch to true,
             AdaptiveSubagentsRouter to true,
             AdaptiveSubagentsSessionTools to true,
         )

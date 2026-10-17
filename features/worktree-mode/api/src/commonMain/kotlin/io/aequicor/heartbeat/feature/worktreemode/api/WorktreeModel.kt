@@ -36,7 +36,7 @@ public val WorktreeSandboxEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val WorktreeBuildQueueEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "worktree_mode.build_queue",
     "Очередь сборок по ёмкости машины: веса типов сборок, лимит и справедливость между проектами",
-    default = false,
+    default = true,
 )
 
 /** Lifecycle of one chat's checkout; native turn completion alone never completes a task. */
