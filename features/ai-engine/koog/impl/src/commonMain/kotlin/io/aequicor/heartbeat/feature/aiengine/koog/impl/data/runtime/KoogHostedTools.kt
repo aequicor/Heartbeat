@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 import ai.koog.agents.core.tools.ToolDescriptor
 import ai.koog.agents.core.tools.ToolParameterDescriptor
 import ai.koog.agents.core.tools.ToolParameterType
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -11,14 +12,25 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
-/** The common dispatcher owns permission checks; the legacy Koog mutating gate must not run twice. */
+private val log = Log.tag("KoogHostedTools")
+
+/**
+ * The common dispatcher owns permission checks; the legacy Koog mutating gate must not run twice.
+ * A tool whose schema Koog cannot describe is skipped and reported, so it never hides the other hosted tools.
+ */
 internal fun koogHostedTools(
     specs: List<AgentToolSpec>,
     tools: ProfileAgentTools,
     context: AgentToolContext,
-): List<KoogTool> = specs.map { spec ->
+): List<KoogTool> = specs.mapNotNull { spec ->
+    val described = try {
+        spec.koogDescriptor()
+    } catch (e: Exception) {
+        log.w(e) { "Hosted tool ${spec.name} has an unsupported schema and is not offered" }
+        return@mapNotNull null
+    }
     object : KoogTool {
-        override val descriptor = spec.koogDescriptor()
+        override val descriptor = described
         override suspend fun run(args: JsonObject): KoogToolResult {
             val result = tools.execute(context, spec.name, args)
             return KoogToolResult(result.text, result.isError, images = result.images)
@@ -67,7 +79,10 @@ private fun JsonObject.parameterType(): ToolParameterType {
     }
 }
 
-private fun JsonObject.basicParameterType(): ToolParameterType = when (argText("type")) {
+/** A schema without a type is free-form JSON (sample data); Koog has no "any", so it reads as an open object. */
+private fun JsonObject.schemaType(): String = if ("type" in this) argText("type") else "object"
+
+private fun JsonObject.basicParameterType(): ToolParameterType = when (schemaType()) {
     "string" -> ToolParameterType.String
 
     "integer" -> ToolParameterType.Integer

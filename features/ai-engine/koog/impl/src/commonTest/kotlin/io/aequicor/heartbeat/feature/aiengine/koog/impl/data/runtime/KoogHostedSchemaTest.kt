@@ -52,4 +52,14 @@ class KoogHostedSchemaTest {
         }
         assertEquals(listOf("command", "agent"), kinds)
     }
+
+    @Test
+    fun `typeless free-form schema is declared as an open object`() {
+        val schema = Json.parseToJsonElement(
+            """{"type":"object","properties":{"data":{"description":"Optional sample JSON"}}}""",
+        ).jsonObject
+        val tool = AgentToolSpec("ui_preview", "Preview", schema).koogDescriptor()
+        val data = assertIs<ToolParameterType.Object>(tool.optionalParameters.single().type)
+        assertEquals(emptyList(), data.properties)
+    }
 }
