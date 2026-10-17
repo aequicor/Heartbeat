@@ -122,9 +122,14 @@ private fun claudeImage(resource: ResolvedResource): JsonObject = buildJsonObjec
 private fun unsupportedClaudeInput(request: PromptRequest): Nothing =
     throw EngineException(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
 
-/** Exact native Claude model IDs or explicit native modality flags; aliases/custom models remain unknown. */
+/**
+ * Exact native Claude model IDs or explicit native modality flags; custom models remain unknown. An alias the CLI
+ * resolves (`resolvedModel`, e.g. `sonnet` to `claude-sonnet-5-5`) is judged by the model it resolves to.
+ */
 internal fun claudeInputSupport(model: JsonObject, isVendorOriginConfirmed: Boolean = false): PromptInputSupport {
-    val id = (model["value"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+    val resolved = (model["resolvedModel"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+    val id = resolved?.takeIf { it.isNotBlank() }
+        ?: (model["value"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
     val explicit = (model["supportsVision"] as? kotlinx.serialization.json.JsonPrimitive)?.content
     val modalities = (model["inputModalities"] as? kotlinx.serialization.json.JsonArray).orEmpty()
         .mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
@@ -140,13 +145,22 @@ internal fun claudeInputSupport(model: JsonObject, isVendorOriginConfirmed: Bool
     )
 }
 
-/** Exact official IDs: https://platform.claude.com/docs/en/models/overview (no family/suffix guesses). */
+/**
+ * Exact official IDs, including every model the Claude Code CLI lists for a login
+ * (https://platform.claude.com/docs/en/models/overview); no family or suffix guesses.
+ */
 private val VendorVisionModels = setOf(
     "claude-fable-5-1",
+    "claude-fable-5",
     "claude-opus-5-5",
+    "claude-opus-5",
     "claude-sonnet-5-5",
+    "claude-sonnet-5",
+    "claude-haiku-5-5",
     "claude-haiku-4-5-20251001",
     "claude-haiku-4-5",
+    "claude-opus-4-8",
+    "claude-opus-4-7",
     "claude-sonnet-4-6",
     "claude-opus-4-6",
     "claude-opus-4-5-20251101",

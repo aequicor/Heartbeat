@@ -45,6 +45,27 @@ class ClaudePromptInputsTest {
     }
 
     @Test
+    fun `an alias takes the vision of the model the CLI resolves it to`() {
+        fun alias(value: String, resolved: String?) = kotlinx.serialization.json.buildJsonObject {
+            put("value", kotlinx.serialization.json.JsonPrimitive(value))
+            resolved?.let { put("resolvedModel", kotlinx.serialization.json.JsonPrimitive(it)) }
+        }
+        for ((value, resolved) in listOf(
+            "default" to "claude-sonnet-5-5",
+            "opus" to "claude-opus-5-5",
+            "fable" to "claude-fable-5-1",
+            "haiku" to "claude-haiku-5-5",
+            "claude-sonnet-5" to "claude-sonnet-5",
+            "claude-opus-4-8" to "claude-opus-4-8",
+        )) {
+            kotlin.test.assertTrue(claudeInputSupport(alias(value, resolved), true).accepts("image/png"), value)
+        }
+        assertFalse(claudeInputSupport(alias("custom", "claude-custom-text-only"), true).accepts("image/png"))
+        assertFalse(claudeInputSupport(alias("sonnet", "claude-sonnet-5-5")).accepts("image/png"))
+        assertFalse(claudeInputSupport(alias("sonnet", null), true).accepts("image/png"))
+    }
+
+    @Test
     fun `custom suffix and unconfirmed origin never inherit official model vision`() {
         fun nativeModel(id: String, vision: Boolean? = null) = kotlinx.serialization.json.buildJsonObject {
             put("value", kotlinx.serialization.json.JsonPrimitive(id))

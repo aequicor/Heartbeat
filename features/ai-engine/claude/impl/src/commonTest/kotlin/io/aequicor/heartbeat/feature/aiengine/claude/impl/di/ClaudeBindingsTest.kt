@@ -19,13 +19,13 @@ class ClaudeBindingsTest {
     )
 
     /**
-     * Revision 1 is the first catalog that reports image and document input support. A profile cache of an older
+     * Revision 2 judges image input of an alias by the model the CLI resolves it to. A profile cache of an older
      * revision is rediscovered in the background, so attachments never stay hidden behind a stale discovery.
      */
     @Test
-    fun `registration keeps the catalog revision that introduced input support`() {
+    fun `registration keeps the catalog revision that reports input support of resolved aliases`() {
         assertTrue(EnginePlatform.DesktopLinux in registration.descriptor.platforms)
-        assertEquals(1, registration.modelCatalogRevision)
+        assertEquals(2, registration.modelCatalogRevision)
     }
 
     @Test
