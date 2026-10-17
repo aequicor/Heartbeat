@@ -66,8 +66,9 @@ class ProcessTransitionsTest {
             .change(ProcessCommand.Wait(WaitReason.Human, answer), seconds = 10)
 
         val wait = assertIs<ProcessPhase.Waiting>(waiting.phase).wait
-        assertEquals(ProcessWait(WaitReason.Human, answer, processAt(10)), wait)
+        assertEquals(ProcessWait(1, WaitReason.Human, answer, processAt(10)), wait)
         assertNull(waiting.inFlight)
+        assertEquals(2, waiting.nextWait)
     }
 
     @Test
@@ -76,16 +77,34 @@ class ProcessTransitionsTest {
         waiting.expectRejected(ProcessCommand.Start(planStage, helperExecutor), ProcessRejection.WaitPending)
         waiting.expectRejected(ProcessCommand.Wait(WaitReason.Timer, answer), ProcessRejection.WaitPending)
 
-        val resumed = waiting.change(ProcessCommand.Resume)
+        val resumed = waiting.change(ProcessCommand.Resume(1))
         assertEquals(ProcessPhase.Idle, resumed.phase)
         resumed.change(ProcessCommand.Start(planStage, helperExecutor))
     }
 
     @Test
-    fun `resume without a wait is rejected`() {
-        newProcess().expectRejected(ProcessCommand.Resume, ProcessRejection.NotWaiting)
+    fun `resume of a wait that never existed is rejected`() {
+        newProcess().expectRejected(ProcessCommand.Resume(1), ProcessRejection.UnknownWait)
+        newProcess().expectRejected(ProcessCommand.Resume(0), ProcessRejection.UnknownWait)
         newProcess().change(ProcessCommand.Start(planStage, helperExecutor))
-            .expectRejected(ProcessCommand.Resume, ProcessRejection.NotWaiting)
+            .expectRejected(ProcessCommand.Resume(1), ProcessRejection.UnknownWait)
+        newProcess().change(ProcessCommand.Wait(WaitReason.Human, answer))
+            .expectRejected(ProcessCommand.Resume(2), ProcessRejection.UnknownWait)
+    }
+
+    @Test
+    fun `a duplicate resume of a finished wait changes nothing and cannot end a newer wait`() {
+        val resumed = newProcess().change(ProcessCommand.Wait(WaitReason.Human, answer))
+            .change(ProcessCommand.Resume(1))
+        resumed.expectUnchanged(ProcessCommand.Resume(1))
+
+        val second = resumed.change(ProcessCommand.Wait(WaitReason.Human, answer), seconds = 5)
+        assertEquals(2, assertIs<ProcessPhase.Waiting>(second.phase).wait.number)
+        second.expectUnchanged(ProcessCommand.Resume(1))
+
+        val done = second.change(ProcessCommand.Resume(2), seconds = 6)
+        assertEquals(ProcessPhase.Idle, done.phase)
+        assertEquals(3, done.nextWait)
     }
 
     @Test
@@ -201,7 +220,7 @@ class ProcessTransitionsTest {
 
         ended.expectRejected(ProcessCommand.Start(buildStage, helperExecutor), ProcessRejection.Closed)
         ended.expectRejected(ProcessCommand.Wait(WaitReason.Timer, answer), ProcessRejection.Closed)
-        ended.expectRejected(ProcessCommand.Resume, ProcessRejection.Closed)
+        ended.expectRejected(ProcessCommand.Resume(1), ProcessRejection.Closed)
         ended.expectRejected(ProcessCommand.ReviseInput(9), ProcessRejection.Closed)
         ended.expectRejected(ProcessCommand.ObserveSubject(sha('a')), ProcessRejection.Closed)
         ended.expectRejected(ProcessCommand.Close(ProcessEnd.Failed), ProcessRejection.Closed)

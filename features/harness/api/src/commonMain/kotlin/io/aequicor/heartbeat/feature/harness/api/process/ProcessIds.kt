@@ -25,8 +25,14 @@ public object ProcessLimits {
     /** Distinct stages one process may use. */
     public const val STAGES: Int = 10
 
+    /** Longest [WriteKey]. */
+    public const val WRITE_KEY_CHARS: Int = 48
+
+    /** External writes a record journals; settled ones are dropped oldest first, unresolved ones never are. */
+    public const val WRITES: Int = 8
+
     /** Ceiling of the UTF-8 JSON of one fully loaded record. */
-    public const val RECORD_BYTES: Int = 16 * 1024
+    public const val RECORD_BYTES: Int = 24 * 1024
 }
 
 /**
@@ -58,6 +64,21 @@ public value class StageName(public val value: String) {
     }
 
     override fun toString(): String = "StageName($value)"
+}
+
+/**
+ * Idempotency key of one logical external write, `[a-z][a-z0-9_]{0,47}`, chosen by the harness. The same key always
+ * means the same write: put whatever makes the operation different (a revision, a head) into it, because the journal
+ * refuses to repeat a key whose outcome is unresolved and recognizes a confirmed one as done.
+ */
+@Serializable
+@JvmInline
+public value class WriteKey(public val value: String) {
+    init {
+        require(value.length <= ProcessLimits.WRITE_KEY_CHARS && SLUG_PATTERN.matches(value)) { "Invalid WriteKey" }
+    }
+
+    override fun toString(): String = "WriteKey($value)"
 }
 
 /**

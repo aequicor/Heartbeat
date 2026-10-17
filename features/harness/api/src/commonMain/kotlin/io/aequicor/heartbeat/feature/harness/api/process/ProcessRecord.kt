@@ -27,11 +27,20 @@ public enum class WaitReason {
 
 /**
  * A durable wait: [condition] says which events or deadline end it, [since] when it began. The wait is a fact about
- * the process, not about a live session, so nothing runs while it lasts and it survives restarts. Events that
- * satisfy [condition] arrive through the scheduler bus; deduplicating them is the recovery layer's job.
+ * the process, not about a live session, so nothing runs while it lasts and it survives restarts. [number] identifies
+ * it for good: a late duplicate of "the answer arrived" names the wait it belongs to and cannot end a newer one.
  */
 @Serializable
-public data class ProcessWait(val reason: WaitReason, val condition: WakeCondition, val since: Instant)
+public data class ProcessWait(
+    val number: Int,
+    val reason: WaitReason,
+    val condition: WakeCondition,
+    val since: Instant,
+) {
+    init {
+        require(number >= 1) { "Invalid wait number" }
+    }
+}
 
 /**
  * One try at one stage by one executor. It is bound to the inputs it started from: [inputRevision] and [subject]
@@ -143,7 +152,10 @@ public sealed interface ProcessPhase {
  *   is still the latest and, if it was bound to a subject, that subject is still the same ([isCurrent]).
  * - [history] keeps the latest closed attempts, oldest first. When it overflows, the oldest record is dropped, but
  *   never the last record overall (it defines [stage]) nor the latest success of any stage (the evidence).
- * - [nextAttempt] is the number the next attempt gets; numbers are never reused.
+ * - [nextAttempt] and [nextWait] are the numbers the next attempt and the next wait get; numbers are never reused.
+ * - [grants] are the external authorities the process was given explicitly; [writes] journal what it did to external
+ *   systems. An intent is recorded before the call, so a restart finds every write whose outcome is still open
+ *   ([unresolvedWrites]) and reconciles it instead of repeating it.
  *
  * Fields added later must have defaults so that stored records stay readable.
  */
@@ -157,6 +169,9 @@ public data class ProcessRecord(
     val phase: ProcessPhase = ProcessPhase.Idle,
     val history: List<AttemptRecord> = emptyList(),
     val nextAttempt: Int = 1,
+    val nextWait: Int = 1,
+    val grants: Set<ProcessAuthority> = emptySet(),
+    val writes: List<ExternalWrite> = emptyList(),
 ) {
     init {
         require(inputRevision >= 0) { "Invalid input revision" }
@@ -175,6 +190,11 @@ public data class ProcessRecord(
         }
         require(history.all { it.attempt.inputRevision <= inputRevision }) { "Attempt from a future input revision" }
         require(stages().size <= ProcessLimits.STAGES) { "Too many stages" }
+        require(nextWait >= 1) { "Invalid next wait" }
+        val waiting = (phase as? ProcessPhase.Waiting)?.wait
+        require(waiting == null || waiting.number == nextWait - 1) { "Inconsistent wait" }
+        require(writes.size <= ProcessLimits.WRITES) { "Too many journaled writes" }
+        require(writes.map { it.key }.toSet().size == writes.size) { "Duplicate write key" }
     }
 
     /** The attempt whose executor is attached, if any. */
@@ -202,6 +222,12 @@ public data class ProcessRecord(
     public fun currentResult(stage: StageName): ResultRef? = latestSuccess(stage)
         ?.takeIf { isCurrent(it) }
         ?.let { (it.outcome as AttemptOutcome.Succeeded).result }
+
+    /** The journaled write [key], if any. */
+    public fun write(key: WriteKey): ExternalWrite? = writes.firstOrNull { it.key == key }
+
+    /** Writes whose outcome is open, oldest first: after a restart each must be reconciled, never repeated. */
+    public fun unresolvedWrites(): List<ExternalWrite> = writes.filter { it.isUnresolved }
 
     internal fun stages(): Set<StageName> {
         val stages = history.mapTo(LinkedHashSet()) { it.attempt.stage }

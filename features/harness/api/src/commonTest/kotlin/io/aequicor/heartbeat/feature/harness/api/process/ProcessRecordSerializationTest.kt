@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
@@ -32,6 +33,7 @@ class ProcessRecordSerializationTest {
                 .change(ProcessCommand.ObserveSubject(sha('c')))
                 .change(ProcessCommand.ReviseInput(4))
                 .change(ProcessCommand.Close(ProcessEnd.Completed)),
+            journaled(),
         )
         for (format in formats()) {
             for (record in records) {
@@ -52,6 +54,24 @@ class ProcessRecordSerializationTest {
         val closed = json.getValue("history").toString()
         assertTrue("\"type\":\"succeeded\"" in closed, closed)
         assertTrue("\"kind\":\"helper\"" in closed, closed)
+    }
+
+    @Test
+    fun `stored names of grants and writes are stable`() {
+        val json = Json.parseToJsonElement(Json.encodeToString(journaled())).jsonObject
+
+        assertEquals(
+            setOf("write", "merge"),
+            json.getValue("grants").jsonArray.map { it.jsonPrimitive.content }.toSet(),
+        )
+        val phases = json.getValue("writes").jsonArray.map {
+            it.jsonObject.getValue("phase").jsonObject.getValue("type").jsonPrimitive.content
+        }
+        assertEquals(listOf("confirmed", "unknown", "intended", "not_applied"), phases)
+        assertEquals(
+            listOf("write", "merge", "write", "merge"),
+            json.getValue("writes").jsonArray.map { it.jsonObject.getValue("authority").jsonPrimitive.content },
+        )
     }
 
     @Test
@@ -89,6 +109,26 @@ class ProcessRecordSerializationTest {
         }
         assertFailsWith<IllegalArgumentException> {
             running.copy(phase = ProcessPhase.Running(attempt.copy(inputRevision = 9)))
+        }
+    }
+
+    @Test
+    fun `inconsistent waits and write journals are refused when constructed`() {
+        val waiting = newProcess().change(ProcessCommand.Wait(WaitReason.Human, answer))
+        val wait = assertIs<ProcessPhase.Waiting>(waiting.phase).wait
+        val journal = journaled()
+        val entry = journal.writes.first()
+
+        assertFailsWith<IllegalArgumentException> { waiting.copy(nextWait = 0) }
+        assertFailsWith<IllegalArgumentException> { waiting.copy(nextWait = 5) }
+        assertFailsWith<IllegalArgumentException> {
+            waiting.copy(phase = ProcessPhase.Waiting(wait.copy(number = 2)))
+        }
+        assertFailsWith<IllegalArgumentException> { wait.copy(number = 0) }
+        assertFailsWith<IllegalArgumentException> { journal.copy(writes = journal.writes + entry) }
+        assertFailsWith<IllegalArgumentException> { entry.copy(tries = 0) }
+        assertFailsWith<IllegalArgumentException> {
+            journal.copy(writes = (0..ProcessLimits.WRITES).map { entry.copy(key = WriteKey("w$it")) })
         }
     }
 
@@ -147,7 +187,41 @@ class ProcessRecordSerializationTest {
             )
         }
         assertEquals(ProcessLimits.HISTORY, process.history.size)
+        return process.withFullJournal()
+    }
+
+    /** Four authorities granted and as many journaled writes as fit, each field at its maximum length. */
+    private fun ProcessRecord.withFullJournal(): ProcessRecord {
+        var process = ProcessAuthority.entries.fold(this) { acc, authority ->
+            acc.change(ProcessCommand.Grant(authority))
+        }
+        repeat(ProcessLimits.WRITES) { n ->
+            val key = WriteKey("k".repeat(ProcessLimits.WRITE_KEY_CHARS - 2) + n.toString().padStart(2, '0'))
+            val target = ResultRef("t".repeat(ProcessLimits.STAGE_CHARS), "p".repeat(ProcessLimits.REF_CHARS))
+            val evidence = ResultRef("e".repeat(ProcessLimits.STAGE_CHARS), "q".repeat(ProcessLimits.REF_CHARS))
+            process = process
+                .change(ProcessCommand.BeginWrite(key, ProcessAuthority.Release, target), seconds = 2_000L + n)
+                .change(ProcessCommand.ConfirmWrite(key, evidence), seconds = 2_000L + n)
+        }
+        assertEquals(ProcessLimits.WRITES, process.writes.size)
         return process
+    }
+
+    /** One write in each phase, two authorities granted. */
+    private fun journaled(): ProcessRecord {
+        val target = ResultRef("pull_request", "pr-7")
+        fun begin(key: String, authority: ProcessAuthority) =
+            ProcessCommand.BeginWrite(WriteKey(key), authority, target)
+        return newProcess()
+            .change(ProcessCommand.Grant(ProcessAuthority.Write))
+            .change(ProcessCommand.Grant(ProcessAuthority.Merge))
+            .change(begin("confirmed_one", ProcessAuthority.Write))
+            .change(ProcessCommand.ConfirmWrite(WriteKey("confirmed_one"), ResultRef("comment", "c-1")))
+            .change(begin("unknown_one", ProcessAuthority.Merge))
+            .change(ProcessCommand.MarkWriteUnknown(WriteKey("unknown_one")))
+            .change(begin("intended_one", ProcessAuthority.Write))
+            .change(begin("failed_one", ProcessAuthority.Merge))
+            .change(ProcessCommand.WriteNotApplied(WriteKey("failed_one")))
     }
 
     private fun stage(index: Int): StageName =
