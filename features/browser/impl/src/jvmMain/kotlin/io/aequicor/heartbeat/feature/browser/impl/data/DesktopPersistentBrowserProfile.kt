@@ -183,7 +183,7 @@ internal class DesktopPersistentBrowserProfile(
         synchronized(monitor) { closeSurfaces }?.invoke()
         log.v { "Persistent browser surfaces closed; releasing profile context" }
         contextLock.withLock {
-            // A context is forgotten before it is disposed: a disposed wrapper must never be disposed again.
+            // Agent contexts are forgotten before they are disposed: in memory only, and a refused one is not retried.
             val agents = agentAnchors.values.toList()
             agentAnchors.clear()
             disposeAgentContexts(agents, log, ::dispose)

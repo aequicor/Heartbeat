@@ -152,6 +152,16 @@ class DesktopBrowserReviewTest {
     }
 
     @Test
+    fun `inspection selects the inspected tab like any operation, as only a shown tab is read`() = runTest {
+        val page = ReviewedPage()
+        val tab = openAgentTab(page)
+        val other = page.fixture.create(null)
+        page.fixture.session.selectTab(other)
+        assertNull(page.fixture.inspect(tab).error)
+        assertEquals(tab, page.fixture.session.tabs.value.second)
+    }
+
+    @Test
     fun `an action without review evidence keeps its ordinary behaviour`() = runTest {
         val page = ReviewedPage()
         val tab = openAgentTab(page)
