@@ -38,19 +38,19 @@ class AssetCatalogUiTest {
         setContent {
             HbResources(HbLocale.English) { HbTheme { IconsCatalog(modifier = Modifier.fillMaxSize()) } }
         }
-        onNodeWithTag("icon-count").assertTextEquals("Matching icons: 111 / 111")
+        onNodeWithTag("icon-count").assertTextEquals("Matching icons: 113 / 113")
         val search = onNodeWithTag("icon-search")
         search.performTextReplacement("  fOlDeR  ")
-        onNodeWithTag("icon-count").assertTextEquals("Matching icons: 3 / 111")
+        onNodeWithTag("icon-count").assertTextEquals("Matching icons: 3 / 113")
         onNodeWithText("FolderPlus").assertIsDisplayed()
         onNodeWithText("Media").performClick()
         onNodeWithText("No icons found. Try a different name or category.").assertIsDisplayed()
         onNodeWithText("All icons").performClick()
         onNodeWithText("FolderOpen").assertIsDisplayed()
         search.performTextReplacement("does-not-exist")
-        onNodeWithTag("icon-count").assertTextEquals("Matching icons: 0 / 111")
+        onNodeWithTag("icon-count").assertTextEquals("Matching icons: 0 / 113")
         search.performTextReplacement("")
-        onNodeWithTag("icon-count").assertTextEquals("Matching icons: 111 / 111")
+        onNodeWithTag("icon-count").assertTextEquals("Matching icons: 113 / 113")
     }
 
     @Test
