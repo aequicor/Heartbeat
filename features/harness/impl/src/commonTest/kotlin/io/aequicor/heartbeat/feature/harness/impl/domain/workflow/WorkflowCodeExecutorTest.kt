@@ -126,6 +126,7 @@ private class CodeExecutionFixture(dispatcher: CoroutineDispatcher) {
             selected,
             journal,
             WorkflowAgentSteps { _, _, _, _ -> error("No helper expected") },
+            WorkflowOrganismSteps { _, _, _, _ -> error("No organism expected") },
             origin,
         )
     }

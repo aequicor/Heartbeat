@@ -42,6 +42,7 @@ class WorkflowRunJournalTest {
             fixture.initial,
             journal,
             WorkflowAgentSteps { _, _, _, _ -> error("No helper") },
+            WorkflowOrganismSteps { _, _, _, _ -> error("No organism") },
             fixture.clock,
         ) { it.encodeUtf8().sha256().hex() }
         var calls = 0

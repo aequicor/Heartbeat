@@ -39,6 +39,17 @@ public interface WorkflowScope {
     /** Runs one supervised helper and returns the exact request's bounded answer. */
     public suspend fun agent(prompt: String, options: AgentOptions): String
 
+    /**
+     * Runs one organism as the owned executor of a large stage and returns its [OrganismOutcome]. The outcome is
+     * memoized under the next structural key together with the goal and options, so replay and recovery return it
+     * and never conceive a second organism; changing them for a recorded step fails the run as Diverged. Waiting
+     * for the organism quota is not a failure. Cancelling the run or the surrounding branch stops the organism, and
+     * its quota is returned only after its work has actually ended. Only this exact step of this run can stop it:
+     * the organism's identity is never exposed to workflow code, tools or other sessions. [goal] is bounded by
+     * [io.aequicor.heartbeat.feature.harness.api.HarnessLimits.ORGANISM_GOAL_CHARS].
+     */
+    public suspend fun organism(goal: String, options: OrganismOptions): OrganismOutcome
+
     /** Runs branches concurrently with stable branch indices and preserves their declaration order. */
     public suspend fun parallel(vararg branches: suspend WorkflowScope.() -> JsonElement): List<JsonElement>
 

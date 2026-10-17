@@ -116,8 +116,9 @@ internal class WorkflowRunExecution(
             permissions::update,
             driver = currentCoroutineContext()[Job],
         )
+        val organisms = UnavailableWorkflowOrganisms(progress)
         val outcome = try {
-            WorkflowStatus.Completed(code.execute(run, progress, agents, origin))
+            WorkflowStatus.Completed(code.execute(run, progress, agents, organisms, origin))
         } catch (error: WorkflowStepFailed) {
             // Typed author failure is journaled; exception text and cause never enter storage or logs.
             log.w(error) { "Workflow ended with a typed failure" }
