@@ -26,6 +26,7 @@ tasks.register<Test>("claudeLiveTest") {
     outputs.upToDateWhen { false }
     outputs.doNotCacheIf("Live checks must reach the real CLI") { true }
     systemProperty("heartbeat.claude.liveTest", "true")
+    systemProperty("java.awt.headless", "true")
     systemProperty("heartbeat.claude.liveReport", layout.buildDirectory.file("claude-live-report.txt").get().asFile.path)
     providers.gradleProperty("heartbeat.claude.executable").orNull?.let {
         systemProperty("heartbeat.claude.executable", it)

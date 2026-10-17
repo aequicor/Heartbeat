@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
@@ -31,7 +32,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
@@ -58,10 +62,15 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assume.assumeTrue
+import java.awt.Color
+import java.awt.Font
+import java.awt.image.BufferedImage
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
+import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -347,6 +356,64 @@ class ClaudeLiveE2eTest {
         runtime.close()
     }
 
+    @Test
+    fun `an image and a document attached to a prompt reach the model on the models the CLI lists`() = live { fixture ->
+        val image = ResourceRef("picture", "image/png")
+        val note = ResourceRef("note", "text/markdown")
+        val resolver = ResourceResolver { ref ->
+            when (ref) {
+                image -> ResolvedResource("picture.png", "image/png", pngWithText("ORCHID-42"))
+                note -> ResolvedResource("note.md", "text/markdown", "The vault code is TANGERINE-8.".toByteArray())
+                else -> null
+            }
+        }
+        val backend = fixture.backend(resources = resolver)
+        val login = fixture.account.inspect()
+        val models = backend.discoverModels(login.source, EngineContext(ClaudeEngine.Id, BINDING))
+        val unsupported = models.filter { !it.inputSupport.accepts("image/png") }.map { it.target.model.value }
+        observe("models without image input: $unsupported")
+        assertTrue(
+            listOf("default", "opus", "sonnet", "haiku").all { name ->
+                models.single { it.target.model.value == name }.inputSupport.accepts("image/png")
+            },
+            "every recommended alias accepts images: $unsupported",
+        )
+        val identity = RuntimeIdentity(ClaudeEngine.Id, ClaudeEngine.AuthSource, login.check.revision)
+        val runtime = backend.createRuntime(identity)
+        val session = runtime.features.available(CreatesSessions).create(CreateSessionRequest(target()))
+        val turn = session.features.available(SendsPrompts).send(
+            PromptRequest(
+                RequestId(UUID.randomUUID().toString()),
+                listOf(
+                    ContentPart.Text(
+                        "Reply with the text drawn in the image, then the vault code of the note. Format: TEXT CODE.",
+                    ),
+                    ContentPart.Image(image),
+                    ContentPart.Resource(note),
+                ),
+            ),
+        )
+        assertEquals(TurnOutcome.Completed, session.finished(turn))
+        val answer = session.transcript().last { it.role == MessageRole.Assistant }.text
+        observe("image answer: $answer")
+        assertTrue("ORCHID-42" in answer.uppercase(), "the model read the image: $answer")
+        assertTrue("TANGERINE-8" in answer.uppercase(), "the model read the document: $answer")
+        runtime.close()
+    }
+
+    /** A white PNG with [text] in large black letters, drawn headless. */
+    private fun pngWithText(text: String): ByteArray {
+        val image = BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_RGB)
+        val graphics = image.createGraphics()
+        graphics.color = Color.WHITE
+        graphics.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
+        graphics.color = Color.BLACK
+        graphics.font = Font(Font.SANS_SERIF, Font.BOLD, IMAGE_FONT)
+        graphics.drawString(text, IMAGE_MARGIN, IMAGE_HEIGHT / 2)
+        graphics.dispose()
+        return ByteArrayOutputStream().also { ImageIO.write(image, "png", it) }.toByteArray()
+    }
+
     private fun target(model: String = DEFAULT_MODEL) = EngineTarget(ClaudeEngine.Id, BINDING, ModelId(model))
 
     private fun live(block: suspend (LiveFixture) -> Unit) = runBlocking {
@@ -427,7 +494,10 @@ class ClaudeLiveE2eTest {
         val transport = transport(executable())
         val account = ClaudeAccount(transport, Clock.System)
 
-        fun backend(executable: String? = null): JvmClaudeBackend {
+        fun backend(
+            executable: String? = null,
+            resources: ResourceResolver = ResourceResolver { null },
+        ): JvmClaudeBackend {
             val process = executable?.let(::transport) ?: transport
             return JvmClaudeBackend(
                 process,
@@ -435,6 +505,7 @@ class ClaudeLiveE2eTest {
                 toggles,
                 TestProfileHandle(scope),
                 catalog,
+                resources = resources,
             )
         }
 
@@ -505,6 +576,10 @@ class ClaudeLiveE2eTest {
         val BINDING = EngineBindingId("live")
         val WORKSPACE = WorkspaceRef("live-workspace")
         const val DEFAULT_MODEL = "haiku"
+        const val IMAGE_WIDTH = 640
+        const val IMAGE_HEIGHT = 160
+        const val IMAGE_FONT = 72
+        const val IMAGE_MARGIN = 20
         val TURN_TIMEOUT = 180.seconds
         val SCENARIO_TIMEOUT = 360.seconds
         val PROCESS_EXIT_POLL = 500.milliseconds
