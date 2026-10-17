@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 import ai.koog.agents.core.tools.ToolDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -37,6 +38,9 @@ internal interface KoogTool {
      * never exceptions. [CancellationException][kotlinx.coroutines.CancellationException] propagates.
      */
     suspend fun run(args: JsonObject): KoogToolResult
+
+    /** Executes the call the model made under [call]; hosted tools bind it to their authorization identity. */
+    suspend fun run(args: JsonObject, call: ToolCallId): KoogToolResult = run(args)
 }
 
 /** Tools of one turn, addressed by name. */

@@ -67,7 +67,7 @@ private val terminalBuildPhases = setOf(
 @SingleIn(ProfileScope::class)
 internal class WorktreeJournal(
     @ForScope(ProfileScope::class) stores: DataStores,
-    private val git: WorktreeGit,
+    internal val git: WorktreeGit,
     private val builds: WorktreeBuildCoordinator,
     private val workspaces: LocalWorkspaces,
     private val toggles: FeatureToggles,
@@ -689,7 +689,7 @@ internal class WorktreeJournal(
     private suspend fun isSandbox(command: WorktreeIntent.Public.Prepare): Boolean =
         command.isSandbox != false && toggles.get(WorktreeSandboxEnabled)
 
-    private suspend fun record(chatId: String): WorktreeRecord? = mutex.withLock { read()[chatId] }
+    internal suspend fun record(chatId: String): WorktreeRecord? = mutex.withLock { read()[chatId] }
 
     private suspend fun update(chatId: String, transform: (WorktreeRecord) -> WorktreeRecord): WorktreeRecord? =
         mutex.withLock {

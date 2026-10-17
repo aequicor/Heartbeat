@@ -48,6 +48,31 @@ val heartbeatApplicationVersion = providers.gradleProperty("heartbeat.version").
         "heartbeat.version must be MAJOR.MINOR.PATCH with a major of at least 1: $version"
     }
 }
+// The testing flavor (-Pheartbeat.flavor=testing) is a release build for end-to-end checks: its launcher keeps
+// credentials in the local development files, so a test run never asks for Keychain, DPAPI or Secret Service. Only its
+// application name and macOS bundle id differ: it is not isolated from an installed Heartbeat and shares the data
+// root, the single-instance lock, the logs and the Native Messaging registration with it, so it opens the real
+// profiles (their secrets are not in the development files). Run it where no Heartbeat is installed or running.
+// Release workflows never pass it. Its installers are refused below: the Linux package name (--linux-package-name) and
+// the Windows Inno Setup AppId, install directory and installer file name stay those of Heartbeat, on macOS the
+// refusal is conservative.
+val heartbeatFlavor = providers.gradleProperty("heartbeat.flavor").orNull.also { flavor ->
+    require(flavor == null || flavor == "testing") { "heartbeat.flavor must be testing: $flavor" }
+}
+val isTestingFlavor = heartbeatFlavor == "testing"
+if (isTestingFlavor) {
+    val rejectTestingInstallers = tasks.register("rejectTestingInstallers") {
+        doFirst {
+            throw GradleException(
+                "The testing flavor builds createReleaseDistributable only: an installer (Dmg, Deb, Inno Setup) " +
+                    "could reuse the production package name, AppId and file names and replace an installed Heartbeat",
+            )
+        }
+    }
+    val installerTask = Regex("package(Release)?(Dmg|Pkg|Msi|Exe|Deb|Rpm|InnoSetup)")
+    // Compose registers its packaging tasks after evaluation; the callback also covers those.
+    tasks.configureEach { if (installerTask.matches(name)) dependsOn(rejectTestingInstallers) }
+}
 // Installed release builds update themselves from this repository's GitHub releases (owner/name).
 val heartbeatUpdateRepository = providers.gradleProperty("heartbeat.updateRepository").get().also { repository ->
     require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(repository)) {
@@ -208,7 +233,11 @@ val collectDevelopmentAppResources = tasks.register<Sync>("collectDevelopmentApp
 
 compose.desktop {
     application {
-        mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
+        mainClass = if (isTestingFlavor) {
+            "io.aequicor.heartbeat.platform.desktop.TestingMainKt"
+        } else {
+            "io.aequicor.heartbeat.platform.desktop.MainKt"
+        }
         jvmArgs += jcefJvmArgs
         jvmArgs("-Dheartbeat.app.version=$heartbeatApplicationVersion")
         buildTypes.release.proguard {
@@ -236,13 +265,14 @@ compose.desktop {
             )
             // The installed app's name: Heartbeat.app on macOS, Heartbeat.exe on Windows (heartbeat.iss cleans up the
             // launcher of installations made before the rename).
-            packageName = "Heartbeat"
+            packageName = if (isTestingFlavor) "HeartbeatE2E" else "Heartbeat"
             packageVersion = heartbeatApplicationVersion
             description = "Heartbeat AI Studio"
             vendor = "Aequicor"
             macOS {
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.icns"))
-                dockName = "Heartbeat"
+                dockName = if (isTestingFlavor) "Heartbeat E2E" else "Heartbeat"
+                if (isTestingFlavor) bundleID = "io.aequicor.heartbeat.platform.desktop.testing"
             }
             windows {
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.ico"))
@@ -271,7 +301,8 @@ tasks.withType<ComposeHotRun>().configureEach {
     }
 }
 
-// The default Compose build is development; release tasks retain the protected MainKt entry point.
+// The default Compose build is development; release tasks use the protected MainKt entry point (TestingMainKt in the
+// testing flavor).
 // Configure after Compose has registered and initialized its tasks, without an environment/property escape hatch.
 afterEvaluate {
     val releaseJars = tasks.named<AbstractProguardTask>("proguardReleaseJars")
@@ -389,8 +420,9 @@ afterEvaluate {
             launcherMainJar.set(prepareReleaseRuntimeJars.flatMap { prepared ->
                 releaseJars.flatMap { original -> prepared.outputDirectory.file(original.mainJar.get().asFile.name) }
             })
-            // Only the release launcher names the update source: development launches never replace themselves.
-            launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
+            // Only the release launcher names the update source: development launches never replace themselves,
+            // and the testing flavor must not swap itself for a published release.
+            if (!isTestingFlavor) launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
         }
     }
     tasks.withType<JavaExec>().configureEach {

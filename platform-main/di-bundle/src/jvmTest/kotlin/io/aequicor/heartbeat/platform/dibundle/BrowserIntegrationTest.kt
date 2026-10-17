@@ -48,7 +48,7 @@ class BrowserIntegrationTest {
         try {
             val flags = (app as TestToggleAccessors).toggleControl
             assertTrue(flags.registered.contains(BrowserEnabled))
-            assertFalse(BrowserEnabled.default)
+            assertTrue(BrowserEnabled.default)
             val profile = app.profileSessions.open(ProfileId("browser"))
             (profile.graph as ProfileNavigation).navigation.create(
                 DefaultComponentContext(lifecycle),
