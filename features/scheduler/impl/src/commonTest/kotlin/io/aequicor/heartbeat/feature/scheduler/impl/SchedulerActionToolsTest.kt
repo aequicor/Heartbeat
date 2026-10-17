@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.scheduler.impl
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -28,6 +30,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SchedulerActionToolsTest {
@@ -43,6 +47,7 @@ class SchedulerActionToolsTest {
         fixture: ActionsFixture,
         toggles: Toggles = Toggles(),
         hosts: Set<ScheduledSessionHost> = setOf(FakeHost(priority = 1, owned = setOf(SESSION))),
+        reviewer: RecordingReviewer = RecordingReviewer(),
     ): SchedulerActionTools {
         persistEffects(fixture.machine, fixture.persistence)
         return SchedulerActionTools(
@@ -51,6 +56,7 @@ class SchedulerActionToolsTest {
             fixture.machine,
             toggles,
             fixture.clock,
+            safetyOf(reviewer),
         )
     }
 
@@ -124,6 +130,119 @@ class SchedulerActionToolsTest {
         for (trust in TrustLevel.entries) {
             assertTrue(tools.requiresDecision(inProject.copy(trust = trust), spec, agent), "$trust")
         }
+    }
+
+    @Test
+    fun `automatic mode reviews a command start and leaves interactive callers alone`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine())
+        val reviewer = RecordingReviewer()
+        val tools = tools(fixture, reviewer = reviewer)
+        val spec = tools.specifications(PROJECT).single()
+        val command = args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "make test")
+        val automatic = inProject.automatic()
+        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(automatic, spec, command),
+        )
+        assertEquals(tools.approval(automatic, spec, command), allowed.approval)
+        assertTrue(!allowed.approval.binding.isNullOrBlank())
+        assertEquals(1, reviewer.changes.size)
+        assertTrue("make test" in reviewer.changes.single() && "scheduler_start_action" in reviewer.changes.single())
+        assertNull(tools.automaticAuthorization(inProject, spec, command))
+        assertNull(tools.approval(inProject, spec, command).binding)
+        assertEquals(1, reviewer.changes.size)
+    }
+
+    @Test
+    fun `automatic mode reviews a helper start with its full task`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(HelperHostFake()))
+        val reviewer = RecordingReviewer()
+        val tools = tools(fixture, reviewer = reviewer)
+        val spec = tools.specifications(PROJECT).single()
+        val helper = args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "document the module")
+        assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(inProject.automatic(), spec, helper),
+        )
+        assertTrue("document the module" in reviewer.changes.single(), reviewer.changes.single())
+    }
+
+    @Test
+    fun `automatic mode refuses a start the reviewer does not call safe or cannot judge`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine())
+        val reviewer = RecordingReviewer(AgentSafetyReview("risk", "Reads credentials"))
+        val tools = tools(fixture, reviewer = reviewer)
+        val spec = tools.specifications(PROJECT).single()
+        val command = args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "cat ~/.ssh/id_rsa")
+        val denied = assertIs<AgentToolAutomaticAuthorization.Denied>(
+            tools.automaticAuthorization(inProject.automatic(), spec, command),
+        )
+        assertTrue("Reads credentials" in denied.reason, denied.reason)
+        reviewer.failure = IllegalStateException("model unavailable")
+        val unavailable = assertIs<AgentToolAutomaticAuthorization.Denied>(
+            tools.automaticAuthorization(inProject.automatic("again"), spec, command),
+        )
+        assertTrue("unavailable" in unavailable.reason, unavailable.reason)
+        reviewer.failure = null
+        reviewer.verdict = AgentSafetyReview("safe", "Fine")
+        val unknownModel = inProject.automatic("model").copy(target = null)
+        assertIs<AgentToolAutomaticAuthorization.Denied>(tools.automaticAuthorization(unknownModel, spec, command))
+    }
+
+    @Test
+    fun `a start execution would reject is refused without a review`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(HelperHostFake()))
+        val reviewer = RecordingReviewer()
+        val tools = tools(fixture, reviewer = reviewer)
+        val spec = tools.specifications(PROJECT).single()
+        val empty = args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "")
+        val denied = assertIs<AgentToolAutomaticAuthorization.Denied>(
+            tools.automaticAuthorization(inProject.automatic(), spec, empty),
+        )
+        assertEquals("The command is empty", denied.reason)
+        val agent = args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "x")
+        assertFalse(tools.execute(inProject, SchedulerTools.START_ACTION, agent).isError)
+        val nested = assertIs<AgentToolAutomaticAuthorization.Denied>(
+            tools.automaticAuthorization(inProject.automatic().copy(session = OTHER), spec, agent),
+        )
+        assertTrue("helper" in nested.reason, nested.reason)
+        assertTrue(reviewer.changes.isEmpty())
+    }
+
+    @Test
+    fun `a start verdict is consumed once and does not cover a changed operation`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine())
+        val tools = tools(fixture)
+        val spec = tools.specifications(PROJECT).single()
+        val command = args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "make test")
+        val other = args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "make other")
+        val automatic = inProject.automatic()
+        val unreviewed = tools.execute(automatic, SchedulerTools.START_ACTION, command)
+        assertTrue(unreviewed.isError && "expired" in unreviewed.text, unreviewed.text)
+        tools.automaticAuthorization(automatic, spec, command)
+        val authorized = automatic.copy(authorization = tools.approval(automatic, spec, command))
+        val changed = tools.execute(authorized, SchedulerTools.START_ACTION, other)
+        assertTrue(changed.isError && "expired" in changed.text, changed.text)
+        val started = tools.execute(authorized, SchedulerTools.START_ACTION, command)
+        assertFalse(started.isError, started.text)
+        assertEquals(1, fixture.journal.records.size)
+        val repeated = tools.execute(authorized, SchedulerTools.START_ACTION, command)
+        assertTrue(repeated.isError && "expired" in repeated.text, repeated.text)
+        assertEquals(1, fixture.journal.records.size)
+    }
+
+    @Test
+    fun `a verdict for one call is no permission for another caller or call`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine())
+        val tools = tools(fixture)
+        val spec = tools.specifications(PROJECT).single()
+        val command = args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "make test")
+        val automatic = inProject.automatic()
+        tools.automaticAuthorization(automatic, spec, command)
+        val bound = tools.approval(automatic, spec, command)
+        for (foreign in listOf(automatic.copy(session = OTHER), automatic.automatic("other-call"))) {
+            val result = tools.execute(foreign.copy(authorization = bound), SchedulerTools.START_ACTION, command)
+            assertTrue(result.isError && "expired" in result.text, result.text)
+        }
+        assertTrue(fixture.journal.records.isEmpty())
     }
 
     @Test

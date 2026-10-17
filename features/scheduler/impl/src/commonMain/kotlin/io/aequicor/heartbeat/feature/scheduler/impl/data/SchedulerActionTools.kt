@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
@@ -49,6 +50,8 @@ private const val COMMAND_APPROVAL = "Фоновая команда в прое�
 /** Approval title of a helper agent; its task follows in full. */
 private const val AGENT_APPROVAL = "Агент-помощник в новом чате"
 
+private const val NESTED_HELPER = "a helper agent cannot start helpers of its own"
+
 private const val MAX_COMMAND = 4_000
 private const val MAX_PROMPT = 8_000
 private const val MAX_TITLE = 60
@@ -58,9 +61,10 @@ private const val MAX_TIMEOUT_SECONDS = 21_600L
 /**
  * `scheduler_start_action`: a background command in the project (Desktop) or a helper agent in a new chat, whose
  * result is published as `action.<id>.finished`. With a wake note the caller sleeps until then; the wake is scheduled
- * before the action starts, so a quick action cannot finish unobserved. Commands follow the session's command trust
- * policy; helper starts always need the user's decision, and helpers cannot start helpers. Commands and prompts are
- * shown in the approval, never logged.
+ * before the action starts, so a quick action cannot finish unobserved. Interactively commands follow the session's
+ * command trust policy and helper starts always need the user's decision; helpers cannot start helpers. In automatic
+ * mode both kinds pass an independent review of the exact operation ([SchedulerSafety]) instead. Commands and
+ * prompts are shown in the approval or review, never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -71,6 +75,7 @@ internal class SchedulerActionTools(
     private val machine: SchedulerMachine,
     private val toggles: FeatureToggles,
     private val clock: Clock,
+    private val safety: SchedulerSafety,
 ) : AgentToolContribution {
     override val group: String = "scheduler"
     override val title: String = "Планировщик"
@@ -95,22 +100,52 @@ internal class SchedulerActionTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): AgentToolApproval = when (arguments.text(Arguments.KIND)) {
-        Kinds.COMMAND -> AgentToolApproval(spec.name, COMMAND_APPROVAL, arguments.text(Arguments.COMMAND))
-        Kinds.AGENT -> AgentToolApproval(spec.name, AGENT_APPROVAL, arguments.text(Arguments.PROMPT))
-        else -> AgentToolApproval(spec.name, spec.description)
+    ): AgentToolApproval {
+        val approval = when (arguments.text(Arguments.KIND)) {
+            Kinds.COMMAND -> AgentToolApproval(spec.name, COMMAND_APPROVAL, arguments.text(Arguments.COMMAND))
+            Kinds.AGENT -> AgentToolApproval(spec.name, AGENT_APPROVAL, arguments.text(Arguments.PROMPT))
+            else -> AgentToolApproval(spec.name, spec.description)
+        }
+        // Only the automatic approval carries a binding: it changes with every argument the reviewer sees.
+        return if (context.isAutomatic()) safety.bind(approval, reviewDetails(arguments)) else approval
     }
+
+    /** Automatic mode replaces the user decision with an independent review of this exact start. */
+    override suspend fun automaticAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolAutomaticAuthorization? {
+        if (spec.name != SchedulerTools.START_ACTION || !context.isAutomatic()) return null
+        // A start that execution would reject anyway is refused before it costs a review.
+        rejection(context, arguments)?.let { return AgentToolAutomaticAuthorization.Denied(it.capitalized()) }
+        return safety.authorize(context, approval(context, spec, arguments), reviewDetails(arguments))
+    }
+
+    private suspend fun rejection(context: AgentToolContext, arguments: JsonObject): String? =
+        (inspect(context, arguments) as? ParsedAction.Invalid)?.message
+
+    /** The start this call asks for, or why it cannot begin; nothing is scheduled and no review is consumed. */
+    private suspend fun inspect(context: AgentToolContext, arguments: JsonObject): ParsedAction =
+        if (arguments.text(Arguments.KIND) == Kinds.AGENT && actions.isHelper(context.session)) {
+            ParsedAction.Invalid(NESTED_HELPER)
+        } else {
+            parse(context, arguments)
+        }
+
+    /** The verdict covers the state the dispatcher captured, so it is consumed before anything is scheduled. */
+    private suspend fun isReviewConsumed(context: AgentToolContext, arguments: JsonObject): Boolean =
+        !context.isAutomatic() ||
+            safety.consume(context, approval(context, START_ACTION_SPEC, arguments), reviewDetails(arguments))
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (name != SchedulerTools.START_ACTION) return failure("unknown tool")
         if (!isEnabled()) return failure("background actions are turned off")
-        if (arguments.text(Arguments.KIND) == Kinds.AGENT && actions.isHelper(context.session)) {
-            return failure("a helper agent cannot start helpers of its own")
-        }
-        val start = when (val parsed = parse(context, arguments)) {
+        val start = when (val parsed = inspect(context, arguments)) {
             is ParsedAction.Invalid -> return failure(parsed.message)
             is ParsedAction.Valid -> parsed.start
         }
+        if (!isReviewConsumed(context, arguments)) return failure("the safety review expired; request the action again")
         val id = start.id
         val wake = arguments.text(Arguments.WAKE_NOTE)?.let { note ->
             if (note.length > SchedulerLimits.MAX_NOTE) return failure("the wake note is too long")
@@ -234,7 +269,12 @@ internal class SchedulerActionTools(
         }
     }
 
-    private fun failure(message: String) = AgentToolResult(message.replaceFirstChar(Char::uppercase), isError = true)
+    private fun failure(message: String) = AgentToolResult(message.capitalized(), isError = true)
+
+    private fun String.capitalized(): String = replaceFirstChar(Char::uppercase)
+
+    /** Everything the reviewer decides on besides the caller: the model's arguments, wake note included. */
+    private fun reviewDetails(arguments: JsonObject): JsonObject = buildJsonObject { put("arguments", arguments) }
 
     private companion object {
         val START_ACTION_SPEC = AgentToolSpec(
