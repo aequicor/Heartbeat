@@ -26,6 +26,7 @@ public val SchedulerActions: FeatureToggle.Flag = FeatureToggle.Flag(
 public val SchedulerTaskGraphs: FeatureToggle.Flag = FeatureToggle.Flag(
     "scheduler.task_graphs",
     "Планировщик: графы зависимых и параллельных задач",
+    default = true,
 )
 
 /** Names of the hosted scheduler tools and their arguments. */
