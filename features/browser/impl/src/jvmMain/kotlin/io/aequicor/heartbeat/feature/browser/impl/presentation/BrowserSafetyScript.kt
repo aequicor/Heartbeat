@@ -3,6 +3,21 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
+
+/**
+ * The arguments as the input driver reads them: an element reference and coordinates sent as numeric strings count as
+ * numbers, everything else is absent. The evidence script gets these, so it describes the target the driver reaches.
+ */
+internal fun parsedSafetyArguments(arguments: JsonObject): JsonObject = buildJsonObject {
+    (arguments["element"] as? JsonPrimitive)?.intOrNull?.let { put("element", it) }
+    for (key in listOf("x", "y", "toX", "toY")) {
+        (arguments[key] as? JsonPrimitive)?.doubleOrNull?.let { put(key, it) }
+    }
+}
 
 /** Bounded evidence from one isolated-world task, without mutating the read's element registry. */
 internal fun browserSafetyScript(geometry: String, operation: BrowserOperation?, arguments: JsonObject): String =
@@ -29,6 +44,7 @@ internal fun browserSafetyScript(geometry: String, operation: BrowserOperation?,
             const value = sensitive ? null : typeof e.value === 'string' ? e.value.slice(0,2000) : null;
             return {
                 node:window.__heartbeatSafetyNodes.get(e),tag:e.tagName,role:e.getAttribute('role'),
+                isPage:e===document.body||e===document.documentElement,
                 type:e.getAttribute('type'),name:e.getAttribute('name'),autocomplete,isSensitive:sensitive,
                 label:(e.getAttribute('aria-label')||e.getAttribute('placeholder')||e.innerText||'').slice(0,1000),
                 href:e.href||null,value,isValueTruncated:!sensitive&&typeof e.value==='string'&&e.value.length>2000,
