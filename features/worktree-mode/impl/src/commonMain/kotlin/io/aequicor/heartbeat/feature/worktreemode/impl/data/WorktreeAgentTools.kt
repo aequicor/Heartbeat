@@ -293,6 +293,16 @@ internal class WorktreeAgentTools(
     ): AgentToolResult {
         if (task.hasActiveBuilds()) return failure("BuildConfigurationBusy")
         val plan = Json.decodeFromJsonElement<WorktreeBuildPlan>(arguments)
+        // The machine would reject it too, but an identical repeated failure changes no state and only times out.
+        val rejection = journal.planRejection(task.chatId, plan)
+        return if (rejection != null) failure(planRejectionText(rejection)) else propose(task, context, plan)
+    }
+
+    private suspend fun propose(
+        task: WorktreeTask,
+        context: AgentToolContext,
+        plan: WorktreeBuildPlan,
+    ): AgentToolResult {
         val sent = machines.send(
             WorktreeMachineKey,
             WorktreeIntent.Public.ProposeBuildPlan(task.chatId, plan, task.identity(context)),
@@ -410,6 +420,15 @@ internal class WorktreeAgentTools(
             }.filterNotNull().first()
 
     private fun failure(code: String): AgentToolResult = AgentToolResult(code, isError = true)
+
+    /** A rejected plan names what to change: the bare code does not tell the agent what is missing. */
+    private fun planRejectionText(code: String): String = when (code) {
+        "NeedsConfiguration" ->
+            "NeedsConfiguration: declare at least one entry in caches (id and directory) and reference it as " +
+                "{cache:id} in a command's arguments or environment"
+
+        else -> code
+    }
 
     private companion object {
         const val COMMAND_TIMEOUT = 30_000L

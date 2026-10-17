@@ -258,12 +258,26 @@ class WorktreeAgentToolsTest {
         assertEquals(interactive.description, automatic.description)
     }
 
+    @Test
+    fun `a rejected build plan is explained at once instead of timing out`() = runTest {
+        val fixture = Fixture()
+        fixture.prepare()
+        fixture.git.rejection = "NeedsConfiguration"
+        val plan = planArguments(WorktreeBuildCommand("test", "build"))
+        val result = fixture.tools.execute(CONTEXT, "configure_build", plan)
+        assertTrue(result.isError)
+        assertTrue(result.text.startsWith("NeedsConfiguration: declare at least one entry in caches"), result.text)
+        fixture.git.rejection = "path /Users/secret is not allowed"
+        assertEquals("InvalidBuildPlan", fixture.tools.execute(CONTEXT, "configure_build", plan).text)
+    }
+
     private class Fixture {
         private val workspaces = PreviewWorkspaces()
         val toggles = PreviewToggles()
         val reviews = mutableListOf<String>()
         var verdict = AgentSafetyReview("safe", "Bounded build")
-        private val journal = WorktreeJournal(PreviewStores(), PreviewGit(), PreviewBuilds(), workspaces, toggles)
+        val git = PreviewGit()
+        private val journal = WorktreeJournal(PreviewStores(), git, PreviewBuilds(), workspaces, toggles)
         val tools = WorktreeAgentTools(
             journal,
             PreviewRegistry(),
@@ -288,11 +302,15 @@ class WorktreeAgentToolsTest {
             return tools.approval(context, spec, arguments)
         }
 
-        suspend fun queue(plan: WorktreeBuildPlan) {
+        suspend fun prepare() {
             journal.load()
             send(WorktreeIntent.Public.Prepare("chat", PROJECT))
             send(WorktreeIntent.Public.RunStarted("chat", REQUEST))
             send(WorktreeIntent.Public.RunAccepted("chat", REQUEST, SESSION, TURN))
+        }
+
+        suspend fun queue(plan: WorktreeBuildPlan) {
+            prepare()
             send(WorktreeIntent.Public.ProposeBuildPlan("chat", plan, IDENTITY))
             send(WorktreeIntent.Public.RunBuild("chat", "operation", plan.commands.single().id, 1, IDENTITY))
         }
@@ -338,13 +356,16 @@ private class PreviewRegistry : MachineRegistry {
 }
 
 private class PreviewGit : WorktreeGit {
+    var rejection: String? = null
     override val isAvailable = true
     override suspend fun plan(source: String, identity: String) =
         WorktreeProvision("/source", "/checkout", "/common", "master", "heartbeat/test", "sha")
     override suspend fun trackMain(source: String) = plan(source, "main")
     override suspend fun materialize(record: WorktreeRecord) = Unit
     override suspend fun exists(record: WorktreeRecord) = true
-    override suspend fun validatePlan(record: WorktreeRecord, plan: WorktreeBuildPlan) = Unit
+    override suspend fun validatePlan(record: WorktreeRecord, plan: WorktreeBuildPlan) {
+        rejection?.let { throw IllegalArgumentException(it) }
+    }
     override suspend fun build(record: WorktreeRecord, id: String, command: String) = BuildExecution(
         id,
         checkNotNull(record.task.buildPlan).commands.single { it.id == command },
