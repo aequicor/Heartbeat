@@ -33,6 +33,12 @@ public object ProcessLimits {
 
     /** Ceiling of the UTF-8 JSON of one fully loaded record. */
     public const val RECORD_BYTES: Int = 24 * 1024
+
+    /**
+     * Processes one harness keeps at the same time, ended ones included until they are removed. Eight records at
+     * [RECORD_BYTES] stay below `HarnessLimits.DATA_BYTES`, so the namespace quota cannot be what stops a process.
+     */
+    public const val PROCESSES: Int = 8
 }
 
 /**

@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommands
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptEvents
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptHooks
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptPrompts
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptScheduler
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptSessions
@@ -73,6 +74,7 @@ private class ProbeScriptScope(override val scope: CoroutineScope) : HarnessScri
     override val item = ItemId("script")
     override val revision = 1L
     override val data: ScriptData get() = error("unused")
+    override val processes: ScriptProcesses get() = error("unused")
     val rendered = CompletableDeferred<Unit>()
     val calls = AtomicInteger()
     override val prompts: ScriptPrompts = object : ScriptPrompts {

@@ -74,8 +74,11 @@ public sealed interface ProcessCommand {
     public data class Close(val end: ProcessEnd) : ProcessCommand
 }
 
-/** Why [reduce] refused a command. The record is left as it was. */
+/** Why a command was refused: by [reduce], or by the store before a record could be reduced. Nothing changed. */
 public enum class ProcessRejection {
+    /** No such process is stored. Only the store produces this; [reduce] always has a record. */
+    UnknownProcess,
+
     /** The process has ended. */
     Closed,
 

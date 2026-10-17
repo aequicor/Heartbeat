@@ -19,9 +19,11 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluatio
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessions
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlin.time.Clock
 
 internal class HarnessRegistrationFixture(
     scope: CoroutineScope,
@@ -45,18 +47,22 @@ internal class HarnessRegistrationFixture(
     private val schedulers = schedulerTestFactory(origins, dispatcher, schedulerHost) { runtime }
     private val contexts = object : HarnessRuntimeContextFactory {
         override val origins = this@HarnessRegistrationFixture.origins
-        override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess) = HarnessScriptContext(
-            request,
-            access,
-            origins,
-            HarnessScriptServices(
-                schedulers.create(request, access),
-                workflowTestFactory(origins).create(request, access),
-                sessionServices(HarnessInstanceTarget(request, access), origins),
-                HarnessScriptData(request.harness.id, access, data),
-                commands.create(request, access),
-            ),
-        )
+        override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessScriptContext {
+            val scriptData = HarnessScriptData(request.harness.id, access, data)
+            return HarnessScriptContext(
+                request,
+                access,
+                origins,
+                HarnessScriptServices(
+                    schedulers.create(request, access),
+                    workflowTestFactory(origins).create(request, access),
+                    sessionServices(HarnessInstanceTarget(request, access), origins),
+                    scriptData,
+                    HarnessScriptProcesses(scriptData, Clock.System),
+                    commands.create(request, access),
+                ),
+            )
+        }
     }
     private val host = object : HarnessScriptHost {
         override val isAvailable = true

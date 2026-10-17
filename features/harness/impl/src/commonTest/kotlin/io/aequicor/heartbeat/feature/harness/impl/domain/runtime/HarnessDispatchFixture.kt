@@ -29,6 +29,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.JsonObject
 import kotlin.coroutines.CoroutineContext
+import kotlin.time.Clock
 
 /** Real publication and dispatch with an in-memory evaluator; no compiler or external session services. */
 internal class HarnessDispatchFixture(
@@ -87,6 +88,7 @@ internal class HarnessDispatchFixture(
                 workflowTestFactory(origins),
                 harnessTestData(),
                 commandsTestFactory(),
+                Clock.System,
             ) { request, access ->
                 unusedScriptSessions(HarnessInstanceTarget(request, access), origins)
             },

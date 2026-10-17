@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
 import io.aequicor.heartbeat.feature.harness.api.script.HARNESS_API_VERSION
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_CHARS
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.EVENT_QUEUE_CAPACITY
@@ -161,6 +162,23 @@ private val API = """
       per harness including metadata. Invalid keys/quotas throw IllegalArgumentException before changing data.
       Only successful changed writes invalidate the owner's surfaces; a snapshot/read method must not initialize
       data by writing on every load. Use defaults on read, initialize through an explicit user action.
+    - processes — durable development processes (package io.aequicor.heartbeat.feature.harness.api.process, import it
+      explicitly): processes.open(ProcessId("issue_7"), inputRevision), get(id): ProcessRecord?, list(),
+      apply(id, ProcessCommand): ProcessReduction (Changed — already stored —, Unchanged — an exact replay — or
+      Rejected(reason)), remove(id). They live in the data namespace under the reserved keys process_<id> and
+      processes, share its quotas, allow at most ${ProcessLimits.PROCESSES} processes and need the same published
+      activation; never touch those keys through data. A record has a stage (the latest attempt's), attempts bound
+      to the input revision and subject SHA they started from, a wait that attaches no executor, grants and a
+      journal of external writes. Commands: Start(stage, executor), Finish(attempt, Succeeded(result) | Failed(why)),
+      Wait(reason, wakeCondition) / Resume(waitNumber), ReviseInput(revision), ObserveSubject(sha), Grant / Revoke
+      (Write, Publish, Merge, Release — each on its own), BeginWrite(key, authority, target), ConfirmWrite,
+      MarkWriteUnknown, WriteNotApplied, Close(end). record.currentResult(stage) is the stage's result only while its
+      input revision and subject SHA are still current. Make every command name what it refers to (attempt number,
+      wait number, revision, SHA, write key): then a duplicate event is an Unchanged replay and cannot touch newer
+      state. Write to an external system only after BeginWrite was Changed, then ConfirmWrite or WriteNotApplied. After
+      a restart look at record.unresolvedWrites(): MarkWriteUnknown, check the external system, then settle it; a
+      write key whose outcome is open is Rejected(WriteUnresolved) and must never be repeated blindly. Ended
+      processes are removed with remove(id). Never log ids, results or journal entries.
     - sessions.list(), sessions.history(session) — only chats where this harness is active.
     - sessions.send(session, text) — a visible message to that chat (quota ${HarnessLimits.SENDS_PER_MINUTE}/min).
     - sessions.spawn(parent, title, prompt, adaptive = null) — a helper chat with Ask trust; adaptive picks its
