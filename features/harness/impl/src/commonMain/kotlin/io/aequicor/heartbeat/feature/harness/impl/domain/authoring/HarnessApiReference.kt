@@ -175,10 +175,14 @@ private val API = """
       MarkWriteUnknown, WriteNotApplied, Close(end). record.currentResult(stage) is the stage's result only while its
       input revision and subject SHA are still current. Make every command name what it refers to (attempt number,
       wait number, revision, SHA, write key): then a duplicate event is an Unchanged replay and cannot touch newer
-      state. Write to an external system only after BeginWrite was Changed, then ConfirmWrite or WriteNotApplied. After
-      a restart look at record.unresolvedWrites(): MarkWriteUnknown, check the external system, then settle it; a
-      write key whose outcome is open is Rejected(WriteUnresolved) and must never be repeated blindly. Ended
-      processes are removed with remove(id). Never log ids, results or journal entries.
+      state. Write to an external system only after BeginWrite was Changed, then ConfirmWrite or WriteNotApplied. When the
+      harness activates, go through processes.list() and settle record.recovery(now) first: AttemptOpen (nobody
+      knows what became of the executor: ask its owner, then Finish, or Failed(Interrupted) when it cannot be
+      accounted for), WriteOpen (MarkWriteUnknown, check the external system itself, then ConfirmWrite or
+      WriteNotApplied) and WaitOpen (check the state the wait was about, an event may have been missed, then
+      Resume(waitNumber) or keep waiting). A write key whose outcome is open is Rejected(WriteUnresolved) and must
+      never be repeated blindly. Ended processes are removed with remove(id). Never log ids, results or journal
+      entries.
     - sessions.list(), sessions.history(session) — only chats where this harness is active.
     - sessions.send(session, text) — a visible message to that chat (quota ${HarnessLimits.SENDS_PER_MINUTE}/min).
     - sessions.spawn(parent, title, prompt, adaptive = null) — a helper chat with Ask trust; adaptive picks its
