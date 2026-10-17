@@ -41,6 +41,8 @@ internal val CatalogIconGroups: ImmutableList<CatalogIconGroup> = persistentList
             HbIcons.Close,
             HbIcons.Check,
             HbIcons.Search,
+            HbIcons.ZoomIn,
+            HbIcons.ZoomOut,
             HbIcons.Edit,
             HbIcons.Copy,
             HbIcons.Clipboard,
