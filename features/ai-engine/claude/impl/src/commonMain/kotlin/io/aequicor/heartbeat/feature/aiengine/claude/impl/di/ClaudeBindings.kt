@@ -99,11 +99,11 @@ public object ClaudeBindings {
         )
 }
 
-/** Registers the experimental adapter toggle in the application panel. */
+/** Registers the adapter toggle in the application panel. */
 @ContributesTo(AppScope::class)
 @BindingContainer
 public object ClaudeDefaults {
-    /** Disabled by default until the user enables the adapter. */
+    /** Enabled by default; the engine still needs a Claude Code CLI and its login (the desktop app's is found). */
     @Provides
     @IntoSet
     public fun toggle(): FeatureToggle<*> = ClaudeEngine.Enabled
