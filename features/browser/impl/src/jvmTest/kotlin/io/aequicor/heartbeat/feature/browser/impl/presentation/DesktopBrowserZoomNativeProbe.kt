@@ -55,7 +55,6 @@ internal class DesktopBrowserZoomNativeProbe(
             awaitTitle(secondStates, "empty-empty")
             val first = engines.first()
             val second = engines.last()
-            stage("zoom CDP and wheel input")
             runBlocking {
                 val nativeScale = pixelRatio(first) / 1.5
                 awaitRatio(first, nativeScale * 1.5)
@@ -69,6 +68,7 @@ internal class DesktopBrowserZoomNativeProbe(
                 awaitRatio(first, nativeScale * 2)
                 awaitRatio(second, nativeScale * 1.5)
                 awaitWheelListener(first)
+                prepareWheelTarget(first, frames.first())
                 wheelIn(first)
                 assertEquals(
                     BrowserShortcut.Zoom(BrowserZoomDirection.In),
@@ -92,6 +92,14 @@ internal class DesktopBrowserZoomNativeProbe(
         }
     }
 
+    private suspend fun prepareWheelTarget(engine: DesktopBrowserEngine, frame: JFrame) {
+        // The second fixture covers the first one. Linux needs a visible, rendered target for the
+        // compositor to acknowledge CDP wheel input; merely loading its document is insufficient.
+        SwingUtilities.invokeAndWait { frame.toFront() }
+        stage("zoom wheel target rendering")
+        engine.awaitNativeFixtureFrame()
+    }
+
     /** The listener owns the 80 ms wheel throttle, so a zoom step must keep the same instance installed. */
     private suspend fun assertWheelListenerKept(engine: DesktopBrowserEngine, step: suspend () -> Unit) {
         val remember = """
@@ -108,17 +116,20 @@ internal class DesktopBrowserZoomNativeProbe(
     }
 
     private suspend fun wheelIn(first: DesktopBrowserEngine) {
-        first.devTools(
-            "Input.dispatchMouseEvent",
-            buildJsonObject {
-                put("type", "mouseWheel")
-                put("x", 100)
-                put("y", 100)
-                put("deltaX", 0)
-                put("deltaY", -120)
-                put("modifiers", 2)
-            },
-        )
+        stage("zoom Input.dispatchMouseEvent")
+        withTimeout(10_000) {
+            first.devTools(
+                "Input.dispatchMouseEvent",
+                buildJsonObject {
+                    put("type", "mouseWheel")
+                    put("x", 100)
+                    put("y", 100)
+                    put("deltaX", 0)
+                    put("deltaY", -120)
+                    put("modifiers", 2)
+                },
+            )
+        }
     }
 
     /** Load callbacks install the listener asynchronously; a wheel sent earlier would reach the page unhandled. */
@@ -134,13 +145,16 @@ internal class DesktopBrowserZoomNativeProbe(
         evaluate(engine, "window.devicePixelRatio").double
 
     private suspend fun evaluate(engine: DesktopBrowserEngine, expression: String): JsonPrimitive {
-        val result = engine.devTools(
-            "Runtime.evaluate",
-            buildJsonObject {
-                put("expression", expression)
-                put("returnByValue", true)
-            },
-        )
+        stage("zoom Runtime.evaluate: $expression")
+        val result = withTimeout(10_000) {
+            engine.devTools(
+                "Runtime.evaluate",
+                buildJsonObject {
+                    put("expression", expression)
+                    put("returnByValue", true)
+                },
+            )
+        }
         val value = Json.parseToJsonElement(result).jsonObject["result"]?.jsonObject?.get("value")
         return assertNotNull(value, result).jsonPrimitive
     }

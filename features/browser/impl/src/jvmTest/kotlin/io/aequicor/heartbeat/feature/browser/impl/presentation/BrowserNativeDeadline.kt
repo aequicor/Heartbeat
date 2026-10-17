@@ -4,6 +4,7 @@ import org.junit.rules.TestRule
 import org.junit.rules.Timeout
 import org.junit.runner.Description
 import org.junit.runners.model.Statement
+import org.junit.runners.model.TestTimedOutException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -23,10 +24,11 @@ internal class BrowserNativeDeadline(private val timeoutMillis: Long = 300_000) 
             try {
                 Timeout.builder()
                     .withTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
-                    .withLookingForStuckThread(true)
                     .build()
                     .apply(base, description)
                     .evaluate()
+            } catch (failure: TestTimedOutException) {
+                throw AssertionError("Native browser timed out in stage: $currentStage", failure)
             } catch (failure: Throwable) {
                 failure.addSuppressed(AssertionError("Native browser stage: $currentStage"))
                 throw failure

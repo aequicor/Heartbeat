@@ -30,10 +30,11 @@ class BrowserNativeDeadlineTest {
             }
         }
         try {
-            val failure = assertFailsWith<TestTimedOutException> {
+            val failure = assertFailsWith<AssertionError> {
                 deadline.apply(statement, description()).evaluate()
             }
-            assertTrue(failure.suppressed.any { it.message == "Native browser stage: favicon cleanup" })
+            assertEquals("Native browser timed out in stage: favicon cleanup", failure.message)
+            assertTrue(failure.cause is TestTimedOutException)
         } finally {
             closed.complete(Unit)
             runBlocking { kotlinx.coroutines.withTimeout(5_000) { exited.await() } }
