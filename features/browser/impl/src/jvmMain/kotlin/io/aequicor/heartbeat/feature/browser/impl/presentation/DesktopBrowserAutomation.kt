@@ -130,6 +130,7 @@ internal class DesktopBrowserAutomation(
                 BrowserOperation.ReturnControl,
                 BrowserOperation.CaptureResource,
                 BrowserOperation.ClearData,
+                BrowserOperation.Inspect,
                 -> error("Unsupported native operation")
             }
         return BrowserResult(

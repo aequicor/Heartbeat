@@ -367,6 +367,7 @@ internal class DesktopBrowserSession(
             BrowserOperation.Drag,
             BrowserOperation.CaptureResource,
             BrowserOperation.ClearData,
+            BrowserOperation.Inspect,
             -> {
                 selected = entry.tab.id
                 publish()
@@ -449,8 +450,11 @@ internal class DesktopBrowserSession(
         return entry.result(request)
     }
 
-    private suspend fun tabOperation(request: BrowserRequest, entry: DesktopBrowserEntry): BrowserResult =
-        when (request.operation) {
+    private suspend fun tabOperation(request: BrowserRequest, entry: DesktopBrowserEntry): BrowserResult {
+        if (request.operation != BrowserOperation.Inspect) entry.requireReviewedState(request)
+        return when (request.operation) {
+            BrowserOperation.Inspect -> entry.inspect(request)
+
             BrowserOperation.CaptureResource -> {
                 require(request.owner == null) {
                     "Only explicit source recovery can download documents"
@@ -482,6 +486,7 @@ internal class DesktopBrowserSession(
             BrowserOperation.ClearData,
             -> error("Not a native tab operation")
         }
+    }
 
     private suspend fun navigate(request: BrowserRequest, entry: DesktopBrowserEntry): BrowserResult {
         val address = request.arguments["url"]?.jsonPrimitive?.content

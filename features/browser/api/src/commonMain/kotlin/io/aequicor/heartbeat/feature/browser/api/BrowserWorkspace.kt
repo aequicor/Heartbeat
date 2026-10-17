@@ -38,7 +38,11 @@ public data class BrowserTab(
     val controlRequestId: String? = null,
 )
 
-/** Bounded operations on a tab; native objects never cross this API. */
+/**
+ * Bounded operations on a tab; native objects never cross this API. [Inspect] only observes: it returns the page
+ * evidence an independent safety review of the operation named by [BrowserReview.operation] is bound to, and
+ * leaves the page, its element references and the last snapshot untouched.
+ */
 public enum class BrowserOperation {
     ListTabs,
     NewTab,
@@ -59,6 +63,17 @@ public enum class BrowserOperation {
     ReturnControl,
     CaptureResource,
     ClearData,
+    Inspect,
+}
+
+/**
+ * Binds an agent request to its independent safety review; only the host's tool sets it, tool arguments never carry
+ * it. [operation] is the reviewed operation. [approved] is the page evidence the review approved, or null while
+ * that evidence is still being collected by [BrowserOperation.Inspect]. A request carrying [approved] runs only
+ * while the live tab still shows the same page, target and focus, checked under the tab's operation lock.
+ */
+public data class BrowserReview(val operation: BrowserOperation, val approved: JsonObject? = null) {
+    override fun toString(): String = "BrowserReview(operation=$operation)"
 }
 
 /** Correlated request. [owner] is a trusted session identity; null is a user action. */
@@ -68,6 +83,7 @@ public data class BrowserRequest(
     val tabId: String? = null,
     val owner: String? = null,
     val arguments: JsonObject = JsonObject(emptyMap()),
+    val review: BrowserReview? = null,
 ) {
     override fun toString(): String = "BrowserRequest(operation=$operation)"
 }
