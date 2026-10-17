@@ -78,8 +78,46 @@ class PersistedProfile(
         SecretsConfig("heartbeat.test." + java.util.UUID.randomUUID(), storageRoot + "/secrets", isDevelopment = true)
     }
 
-    /** Storage directory of the "device"; created lazily, deleted by the tests that use storages. */
-    val storageRoot: String by lazy { storageRootOverride ?: Files.createTempDirectory("hb-storage").toString() }
+    /**
+     * Storage directory of the "device"; created lazily, deleted by the tests that use storages. A fresh device
+     * starts from [LEGACY_TOGGLE_BASELINE]: the integration tests drive each feature through its own explicit
+     * override, and the periodic work of features that now ship enabled never ends in virtual test time.
+     */
+    val storageRoot: String by lazy {
+        (storageRootOverride ?: Files.createTempDirectory("hb-storage").toString()).also(::seedToggleBaseline)
+    }
+}
+
+/** Toggles that ship enabled; the tests keep them off until a test turns one on explicitly. */
+private val LEGACY_TOGGLE_BASELINE = listOf(
+    "ai.koog", "ai.koog.coding_tools", "ai_studio.engine_runtime", "ai_studio.local_projects",
+    "ai_studio.safety_reviews_indicator", "ai.engine_connections", "search.engine_tools", "checklist.enabled",
+    "questionnaire.enabled", "scheduler.enabled", "scheduler.actions", "plantuml.enabled", "browser.enabled",
+    "browser.agent_control", "browser.error_pages", "agent_learning.enabled", "harness.enabled",
+    "organic_ai.enabled", "context_optimization.enabled", "worktree_mode.enabled", "worktree_mode.sandbox",
+    "service_ui.enabled", "service_ui.web", "adaptive_subagents.enabled", "adaptive_subagents.router",
+    "adaptive_subagents.session_tools", "autocomplete.enabled", "attachments.enabled", "ai.engine_management",
+    "ai.engine_configuration", "browser.page_zoom", "browser.research_access", "project_config.enabled",
+    "research_chat.enabled", "feedback.enabled", "context_optimization.continuation_brief",
+    "context_optimization.ledger_tools",
+)
+
+/**
+ * Writes the DataStore preferences file of the app-wide toggle overrides, every baseline toggle set to false.
+ * Each entry is a length-prefixed (key, boolean value) pair of the preferences protobuf; an existing file is kept.
+ */
+private fun seedToggleBaseline(root: String) {
+    val file = java.io.File(root, "storage/app/kv/core_feature_toggles.preferences_pb")
+    if (file.exists()) return
+    file.parentFile.mkdirs()
+    val bytes = java.io.ByteArrayOutputStream()
+    for (key in LEGACY_TOGGLE_BASELINE) {
+        val name = key.encodeToByteArray()
+        val entry = byteArrayOf(0x0a, name.size.toByte()) + name + byteArrayOf(0x12, 0x02, 0x08, 0x00)
+        bytes.write(byteArrayOf(0x0a, entry.size.toByte()))
+        bytes.write(entry)
+    }
+    file.writeBytes(bytes.toByteArray())
 }
 
 /** Keeps the storages of core:datastore in the temporary directory of the "device". */

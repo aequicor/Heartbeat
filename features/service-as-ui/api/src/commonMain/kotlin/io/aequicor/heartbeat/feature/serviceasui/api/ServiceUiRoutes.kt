@@ -49,5 +49,5 @@ public data class ServiceUiSurfaceRoute(public val id: String) : Route
 public val ServiceUiEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "service_ui.enabled",
     "Интерфейсы агента: библиотека, слоты студии и карточки ответов",
-    default = false,
+    default = true,
 )

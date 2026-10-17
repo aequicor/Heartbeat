@@ -4,7 +4,7 @@ import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class BrowserZoomTest {
     private val page = BrowserPage(url = "https://example.com/")
@@ -38,8 +38,8 @@ class BrowserZoomTest {
     }
 
     @Test
-    fun `page zoom requires explicit opt in`() {
-        assertFalse(BrowserPageZoom.default)
+    fun `page zoom ships enabled and a page starts at the default level`() {
+        assertTrue(BrowserPageZoom.default)
         assertEquals(BROWSER_DEFAULT_ZOOM, BrowserPage().zoomPercent)
     }
 

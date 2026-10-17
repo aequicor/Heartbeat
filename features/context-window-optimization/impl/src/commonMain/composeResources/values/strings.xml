@@ -7,7 +7,7 @@
     <string name="context_auto">Compact automatically</string>
     <string name="context_auto_hint">Between turns, never in the middle of one</string>
     <string name="context_threshold">Threshold</string>
-    <string name="context_threshold_value">%1$d%% of the context window</string>
+    <string name="context_threshold_value">%1$d% of the context window</string>
     <string name="context_strategy">Strategy</string>
     <string name="context_strategy_native">Engine summary</string>
     <string name="context_strategy_rollover">New session with a summary</string>

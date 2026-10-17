@@ -12,4 +12,5 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 public val SearchEngineTools: FeatureToggle.Flag = FeatureToggle.Flag(
     "search.engine_tools",
     "Веб-поиск и чтение страниц как инструменты ИИ-движков",
+    default = true,
 )

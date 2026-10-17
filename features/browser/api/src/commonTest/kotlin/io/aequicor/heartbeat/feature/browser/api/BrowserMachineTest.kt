@@ -5,8 +5,8 @@ import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class BrowserMachineTest {
     private val ready = BrowserState.Running(isConfigured = true, isEnabled = true)
@@ -59,14 +59,14 @@ class BrowserMachineTest {
     }
 
     @Test
-    fun `both additional capabilities start disabled`() {
-        assertFalse(BrowserAgentControl.default)
-        assertFalse(BrowserResearchAccess.default)
+    fun `agent control and research access start enabled`() {
+        assertTrue(BrowserAgentControl.default)
+        assertTrue(BrowserResearchAccess.default)
     }
 
     @Test
     fun `start observes without loading any website and duplicate start is ignored`() {
-        assertFalse(BrowserEnabled.default)
+        assertTrue(BrowserEnabled.default)
         BrowserMachineSpec.assertTransition(
             BrowserState.Idle,
             BrowserIntent.Public.Start,

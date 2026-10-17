@@ -85,7 +85,10 @@ class RegisteredEngineDefaultsTest {
         val off = ProfileEnginePreferences(disabled = setOf(EngineId("desktop")))
 
         assertNull(defaults(HostPlatform.MacOs, mapOf(EngineManagementEnabled to true), off).preferred())
-        assertEquals(EngineId("desktop"), defaults(HostPlatform.MacOs, preferences = off).preferred())
+        assertEquals(
+            EngineId("desktop"),
+            defaults(HostPlatform.MacOs, mapOf(EngineManagementEnabled to false), off).preferred(),
+        )
     }
 
     @Test

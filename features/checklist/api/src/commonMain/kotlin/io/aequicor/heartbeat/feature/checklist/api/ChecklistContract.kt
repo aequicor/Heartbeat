@@ -21,7 +21,7 @@ public data class ChecklistRoute(val id: String) : Route
 public val ChecklistEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "checklist.enabled",
     "Чеклисты в сообщениях и готовность сессии",
-    default = false,
+    default = true,
 )
 
 /** Atomic durable snapshot: a completed card cannot be stored without its outgoing event. */

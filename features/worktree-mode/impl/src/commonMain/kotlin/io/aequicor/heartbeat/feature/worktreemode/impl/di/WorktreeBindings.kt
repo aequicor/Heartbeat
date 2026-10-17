@@ -54,7 +54,7 @@ internal class WorktreeStartup(
     }
 }
 
-/** Registers the disabled-by-default worktree, sandbox and build queue switches. */
+/** Registers the worktree, sandbox and build queue switches. */
 @ContributesTo(AppScope::class)
 @BindingContainer
 public object WorktreeToggleBindings {

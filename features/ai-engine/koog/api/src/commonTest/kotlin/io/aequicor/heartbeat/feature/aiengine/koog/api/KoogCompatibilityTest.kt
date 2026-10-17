@@ -15,8 +15,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class KoogCompatibilityTest {
     private val info = AuthSourceInfo(AuthSourceId("source"), "Label", AuthRevision.Known("1"))
@@ -84,6 +84,6 @@ class KoogCompatibilityTest {
         assertFailsWith<IllegalArgumentException> {
             KoogConnection(binding.copy(authSource = AuthSourceId("different")), key)
         }
-        assertFalse(KoogEngineEnabled.default)
+        assertTrue(KoogEngineEnabled.default)
     }
 }
