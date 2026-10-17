@@ -31,4 +31,25 @@ class KoogHostedSchemaTest {
         val environment = assertIs<ToolParameterType.Object>(step.properties.single { it.name == "environment" }.type)
         assertEquals(ToolParameterType.String, environment.additionalPropertiesType)
     }
+
+    @Test
+    fun `oneOf variants with const discriminators are declared as alternatives`() {
+        val schema = Json.parseToJsonElement(
+            """{
+            "type":"object","required":["action"],"properties":{
+                "action":{"oneOf":[
+                    {"type":"object","required":["kind"],"properties":{"kind":{"const":"command"}}},
+                    {"type":"object","required":["kind"],"properties":{"kind":{"const":"agent"}}}
+                ]}
+            }}""",
+        ).jsonObject
+        val tool = AgentToolSpec("scheduler_create_graph", "Create graph", schema).koogDescriptor()
+        val action = assertIs<ToolParameterType.AnyOf>(tool.requiredParameters.single().type)
+        val kinds = action.types.map { variant ->
+            val variantObject = assertIs<ToolParameterType.Object>(variant.type)
+            val kind = assertIs<ToolParameterType.Enum>(variantObject.properties.single().type)
+            kind.entries.single()
+        }
+        assertEquals(listOf("command", "agent"), kinds)
+    }
 }

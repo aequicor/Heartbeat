@@ -49,9 +49,13 @@ private fun JsonObject.parameters(): List<ToolParameterDescriptor> =
 /** Preserves nested recipes, arrays, optional fields and dictionaries rather than flattening them to text. */
 private fun JsonObject.parameterType(): ToolParameterType {
     val enum = get("enum") as? JsonArray
-    val anyOf = get("anyOf") as? JsonArray
+    val const = get("const") as? JsonPrimitive
+    // oneOf is declared by exact variants; Koog has no exclusivity, so the variants read as anyOf.
+    val anyOf = (get("anyOf") ?: get("oneOf")) as? JsonArray
     return when {
         enum != null -> ToolParameterType.Enum(enum.map { (it as JsonPrimitive).content }.toTypedArray())
+
+        const != null -> ToolParameterType.Enum(arrayOf(const.content))
 
         anyOf != null -> ToolParameterType.AnyOf(
             anyOf.map { value ->
