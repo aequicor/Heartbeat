@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.EXAMPLE_MINIAPP_SCRIPT
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.EXAMPLE_ORGANISM_WORKFLOW
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.EXAMPLE_SCREEN_WORKFLOW
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.EXAMPLE_UI_SCRIPT
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.EXAMPLE_VERIFY_SCRIPT
@@ -37,6 +38,7 @@ class HarnessReferenceExamplesTest {
                 HarnessCodeKind.Script to EXAMPLE_UI_SCRIPT,
                 HarnessCodeKind.Script to EXAMPLE_MINIAPP_SCRIPT,
                 HarnessCodeKind.Workflow to EXAMPLE_SCREEN_WORKFLOW,
+                HarnessCodeKind.Workflow to EXAMPLE_ORGANISM_WORKFLOW,
             ).forEach { (kind, source) ->
                 assertNull(forbiddenConstruct(source))
                 assertEquals(emptyList(), validateHarnessSource(source))
