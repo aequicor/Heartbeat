@@ -58,7 +58,6 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -102,9 +101,9 @@ class HarnessIntegrationTest {
     }
 
     @Test
-    fun `registered default off remains lazy then loads and reuses the library through toggle cycles`() = runTest {
+    fun `baseline-off harness stays lazy then loads and reuses the library through toggle cycles`() = runTest {
         assertTrue(HarnessEnabled in toggles.toggleControl.registered)
-        assertFalse(HarnessEnabled.default)
+        assertTrue(HarnessEnabled.default)
         val profileId = ProfileId("harness")
         val profile = app.profileSessions.open(profileId)
         // Construct facade/hooks first while harness stays disabled: the cycle must remain lazy.

@@ -61,5 +61,5 @@ public object FeedbackMachineKey : MachineKey<
 public val FeedbackEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "feedback.enabled",
     description = "Обратная связь об изменениях параметров сессии",
-    default = false,
+    default = true,
 )

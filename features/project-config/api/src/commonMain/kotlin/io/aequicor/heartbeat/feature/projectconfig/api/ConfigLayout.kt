@@ -13,6 +13,7 @@ import kotlin.jvm.JvmInline
 public val ProjectConfigEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "project_config.enabled",
     "Конфигурация проекта: папка .heartbeat, доверие к её изменениям и перенос в файл .hbai",
+    default = true,
 )
 
 /**

@@ -76,7 +76,7 @@ internal class ProfileToolPoliciesTest {
         assertTrue(detached.nativeOn.isEmpty())
         assertEquals(setOf("read"), disabled.nativeOff)
         assertEquals(disabled.nativeOff, detached.nativeOff)
-        assertFalse(HarnessNativeTools.default)
+        assertTrue(HarnessNativeTools.default)
     }
 
     @Test

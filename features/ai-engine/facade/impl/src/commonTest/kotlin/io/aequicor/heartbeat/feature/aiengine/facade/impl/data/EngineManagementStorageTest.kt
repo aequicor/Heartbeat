@@ -57,7 +57,7 @@ class EngineManagementStorageTest {
 
     @Test
     fun `a failed managed copy refresh preserves saved launch settings`() = runTest {
-        val flags = Flags(mapOf(EngineManagementEnabled to true))
+        val flags = Flags(mapOf(EngineManagementEnabled to true, EngineConfigurationEnabled to false))
         val preferences = MemoryEnginePreferences(ProfileEnginePreferences(launch = mapOf(engine to settings)))
         val installs = Installs(emptyMap())
         installs.failure = io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException(
@@ -130,7 +130,7 @@ class EngineManagementStorageTest {
 
     @Test
     fun `adapters get defaults while management is off and saved settings with the managed copy when on`() = runTest {
-        val flags = Flags(mapOf(EngineManagementEnabled to false))
+        val flags = Flags(mapOf(EngineManagementEnabled to false, EngineConfigurationEnabled to false))
         val preferences = MemoryEnginePreferences(ProfileEnginePreferences(launch = mapOf(engine to settings)))
         val installs = Installs(mapOf(engine to ManagedInstall("1.0.0", "/data/codex", Instant.fromEpochSeconds(1))))
         val config = ProfileLaunchConfig(flags, preferences, installs)
@@ -169,7 +169,7 @@ class EngineManagementStorageTest {
 
     @Test
     fun `adapters get the configuration only while engine configuration is on too`() = runTest {
-        val flags = Flags(mapOf(EngineManagementEnabled to true))
+        val flags = Flags(mapOf(EngineManagementEnabled to true, EngineConfigurationEnabled to false))
         val values = EngineConfigValues(mapOf(ConfigDocumentId("agents") to ConfigDocument.Text("Be brief")))
         val trust = mapOf(WorkspaceRef("project") to ProjectTrust.Content)
         val chosen = ProfileEnginePreferences(

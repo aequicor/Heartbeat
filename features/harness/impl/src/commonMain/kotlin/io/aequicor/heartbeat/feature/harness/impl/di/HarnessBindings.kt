@@ -33,7 +33,7 @@ public object HarnessBindings {
     ): HarnessMachine = launcher.launch(HarnessMachineSpec, scope, HarnessEffects(storage, runtime))
 }
 
-/** Registers the disabled-by-default feature flag with its exact wildcard multibinding type. */
+/** Registers the feature flag with its exact wildcard multibinding type. */
 @ContributesTo(AppScope::class)
 @BindingContainer
 public object HarnessToggleBindings {
@@ -42,7 +42,7 @@ public object HarnessToggleBindings {
     @IntoSet
     public fun enabled(): FeatureToggle<*> = HarnessEnabled
 
-    /** Mini-app commands of approved scripts, off by default. */
+    /** Mini-app commands of approved scripts. */
     @Provides
     @IntoSet
     public fun commands(): FeatureToggle<*> = HarnessCommandsEnabled

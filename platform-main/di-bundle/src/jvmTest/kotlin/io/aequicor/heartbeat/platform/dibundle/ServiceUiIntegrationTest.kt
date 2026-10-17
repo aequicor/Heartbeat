@@ -46,7 +46,6 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -85,7 +84,7 @@ class ServiceUiIntegrationTest {
     @Test
     fun `the profile machine starts with the profile, keeps bindings and follows its toggle`() = runTest {
         assertTrue(ServiceUiEnabled in toggles.toggleControl.registered)
-        assertFalse(ServiceUiEnabled.default)
+        assertTrue(ServiceUiEnabled.default)
         val profile = app.profileSessions.open(ProfileId("service-ui"))
         val access = profile.graph as TestServiceUiAccessors
         val host = UiHostId("test.pane.1")

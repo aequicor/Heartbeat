@@ -100,7 +100,7 @@ internal class OrganicAiStartup(
     }
 }
 
-/** Registers the disabled-by-default organic AI switch. */
+/** Registers the organic AI switch. */
 @ContributesTo(AppScope::class)
 @BindingContainer
 public object OrganicAiToggleBindings {
