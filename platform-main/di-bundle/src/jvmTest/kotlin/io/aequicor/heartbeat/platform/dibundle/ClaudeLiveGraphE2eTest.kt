@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
@@ -43,9 +44,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -53,6 +57,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -375,6 +382,83 @@ class ClaudeLiveGraphE2eTest {
             repeat(CLOSE_ROUNDS) {
                 creates.create(CreateSessionRequest(target)).close()
             }
+        }
+    }
+
+    @Test
+    fun `two chats run turns at the same time without mixing their conversations`() = runBlocking {
+        withTimeout(SCENARIO_TIMEOUT) {
+            val profile = openProfile()
+            val target = profile.connect()
+            val creates = profile.facade.engines.features(ClaudeEngine.Id).available(CreatesSessions)
+            val first = creates.create(CreateSessionRequest(target))
+            val second = creates.create(CreateSessionRequest(target))
+            val turns = coroutineScope {
+                listOf(
+                    async { first to first.say("Remember the code word AMBER-1. Reply with OK only.") },
+                    async { second to second.say("Remember the code word COBALT-2. Reply with OK only.") },
+                ).awaitAll()
+            }
+            turns.forEach { (chat, turn) -> chat.finished(turn) }
+            val askFirst = first.say("What was the code word? Reply with the code word only.")
+            val askSecond = second.say("What was the code word? Reply with the code word only.")
+            first.finished(askFirst)
+            second.finished(askSecond)
+            val firstAnswer = first.transcript().last { it.first == MessageRole.Assistant }.second
+            val secondAnswer = second.transcript().last { it.first == MessageRole.Assistant }.second
+            assertTrue("AMBER-1" in firstAnswer && "COBALT-2" !in firstAnswer, "first chat: $firstAnswer")
+            assertTrue("COBALT-2" in secondAnswer && "AMBER-1" !in secondAnswer, "second chat: $secondAnswer")
+            first.close()
+            second.close()
+        }
+    }
+
+    @Test
+    fun `context occupancy and the account limits are reported after a turn`() = runBlocking {
+        withTimeout(SCENARIO_TIMEOUT) {
+            val profile = openProfile()
+            val target = profile.connect()
+            val chat = profile.facade.engines.features(ClaudeEngine.Id).available(CreatesSessions)
+                .create(CreateSessionRequest(target))
+            chat.finished(chat.say("Reply with exactly the single word PONG."))
+            val usage = chat.features.available(SessionContextUsage)
+            val context = withTimeout(RECONCILE_TIMEOUT) { usage.state.first { it != null } }
+            observe("context usage: $context")
+            assertTrue(context != null && context.usedTokens > 0 && context.capacityTokens >= context.usedTokens)
+            val limits = profile.facade.providerUsage.refresh(ClaudeEngine.Id, target.binding)
+            observe("provider usage: windows=${limits.windows.map { it.id }} plan=${limits.planName}")
+            chat.close()
+        }
+    }
+
+    @Test
+    fun `a native subagent shows up in the session tree and its transcript is readable`() = runBlocking {
+        withTimeout(SCENARIO_TIMEOUT) {
+            val profile = openProfile(EngineSubagentsEnabled)
+            val target = profile.connect()
+            val directory = File(persisted.storageRoot, "subagents").apply { mkdirs() }.canonicalFile
+            val workspace = profile.workspaces.registerManaged(directory.path).ref
+            val chat = profile.facade.engines.features(ClaudeEngine.Id).available(CreatesSessions)
+                .create(CreateSessionRequest(target, workspace))
+            val turn = chat.say(
+                "Use the Agent tool exactly once to run a subagent whose task is: reply with exactly SUBAGENT-OK. " +
+                    "Then reply with exactly what the subagent returned.",
+                trust = TrustLevel.Full,
+            )
+            chat.finished(turn, allowAsking = true)
+            val items = chat.features.available(SessionHistory).page(HistoryPageRequest(limit = 200)).items
+            observe("subagent items: ${items.filterIsInstance<SessionItem.ToolCall>().map { it.name }}")
+            val trees = profile.facade.engines.features(ClaudeEngine.Id).available(SessionTrees)
+            val access = SessionTreeAccess(target, workspace)
+            val snapshot = withTimeout(RECONCILE_TIMEOUT) {
+                trees.observe(chat.ref, access).first { it.descendants().isNotEmpty() }
+            }
+            observe("session tree: coverage=${snapshot.coverage} nodes=${snapshot.descendants().map { it.node.name }}")
+            assertTrue(snapshot.descendants().isNotEmpty(), "the subagent is a descendant of the chat")
+            val member = snapshot.descendants().first().node.ref
+            val history = trees.history(chat.ref, member, access).page(HistoryPageRequest(limit = 50))
+            assertTrue(history.items.isNotEmpty(), "the subagent's transcript is readable without resuming it")
+            chat.close()
         }
     }
 
