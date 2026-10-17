@@ -75,6 +75,12 @@ internal interface ClaudeTransport {
     /** Version of this transport's captured executable, without consulting later launch settings. */
     suspend fun version(): String? = null
 
+    /**
+     * Whether the native history of this transport holds the conversation [id]; null when it cannot be read. A CLI
+     * that died before its first session frame may or may not have created it, and only the history can tell.
+     */
+    suspend fun hasTranscript(id: String): Boolean? = null
+
     /** The executable [launch] would start and its version; never signs in or starts a session. */
     suspend fun locate(launch: LaunchContext): Installation = Installation(InstallSource.Missing)
 }
@@ -146,6 +152,17 @@ internal class ProcessClaudeTransport(
 
     /** `claude --version`, bounded; an executable that does not answer has no known version. */
     override suspend fun version(): String? = version(startup(null))
+
+    override suspend fun hasTranscript(id: String): Boolean? = transcript(startup(null).configDirectory, id)
+
+    suspend fun transcript(configDirectory: String?, id: String): Boolean? = withContext(dispatchers.io) {
+        try {
+            claudeTranscriptExists(configDirectory, id)
+        } catch (e: IOException) {
+            log.w(e.redacted()) { "Claude native history could not be read" }
+            null
+        }
+    }
 
     suspend fun version(startup: ClaudeStartup): String? = try {
         var version: String? = null
@@ -424,6 +441,8 @@ private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, pr
 
     // An unknown version is not remembered: a probe that timed out is retried by the next turn.
     override suspend fun version(): String? = knownVersion ?: base.version(startup)?.also { knownVersion = it }
+
+    override suspend fun hasTranscript(id: String): Boolean? = base.transcript(startup.configDirectory, id)
 }
 
 /**

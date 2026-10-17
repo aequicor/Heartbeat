@@ -330,6 +330,108 @@ class ClaudeRuntimeTest {
     }
 
     @Test
+    fun `a crash before any frame resumes the conversation when the history holds it`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        fixture.transport.generation = { _, _ -> 1 }
+        val rejected = async {
+            assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
+        }
+        runCurrent()
+        rejected.await()
+        fixture.transport.transcript = true
+
+        session.features.available(ReconcilesSession).synchronize()
+
+        val ready = assertIs<ActiveSessionState.Ready>(session.state.value)
+        assertEquals(TurnOutcome.Unknown, ready.lastTurn?.outcome)
+        fixture.transport.generation = FakeClaudeTransport().generation
+        session.features.available(SendsPrompts).send(prompt("again"))
+        runCurrent()
+        assertTrue(fixture.transport.calls.last().any { it.startsWith("--resume=") })
+        runtime.close()
+    }
+
+    @Test
+    fun `a crash before any frame lets the next prompt start the conversation when the history has none`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        fixture.transport.generation = { _, _ -> 1 }
+        val rejected = async {
+            assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
+        }
+        runCurrent()
+        rejected.await()
+        fixture.transport.transcript = false
+
+        session.features.available(ReconcilesSession).synchronize()
+
+        assertEquals(TurnOutcome.Unknown, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        fixture.transport.generation = FakeClaudeTransport().generation
+        session.features.available(SendsPrompts).send(prompt("again"))
+        runCurrent()
+        val arguments = fixture.transport.calls.last()
+        assertTrue(arguments.any { it.startsWith("--session-id=") })
+        assertTrue(arguments.none { it.startsWith("--resume=") })
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        runtime.close()
+    }
+
+    @Test
+    fun `after a restart an attempted launch without a conversation in the history starts it again`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val first = fixture.runtime()
+        val session = first.create(CreateSessionRequest(testTarget))
+        fixture.transport.generation = { _, _ -> 1 }
+        val rejected = async {
+            assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
+        }
+        runCurrent()
+        rejected.await()
+        val ref = session.ref
+        first.close()
+
+        fixture.transport.generation = FakeClaudeTransport().generation
+        fixture.transport.transcript = false
+        val second = fixture.runtime()
+        val reopened = second.attach(ref, ResumeSessionRequest(testTarget))
+        assertIs<ActiveSessionState.Ready>(reopened.state.value)
+        reopened.features.available(SendsPrompts).send(prompt("after the restart"))
+        runCurrent()
+
+        val arguments = fixture.transport.calls.last()
+        assertTrue(arguments.any { it.startsWith("--session-id=") })
+        assertTrue(arguments.none { it.startsWith("--resume=") })
+        second.close()
+    }
+
+    @Test
+    fun `after a restart an attempted launch with an unreadable history keeps resuming`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val first = fixture.runtime()
+        val session = first.create(CreateSessionRequest(testTarget))
+        fixture.transport.generation = { _, _ -> 1 }
+        val rejected = async {
+            assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
+        }
+        runCurrent()
+        rejected.await()
+        val ref = session.ref
+        first.close()
+
+        fixture.transport.generation = FakeClaudeTransport().generation
+        val second = fixture.runtime()
+        val reopened = second.attach(ref, ResumeSessionRequest(testTarget))
+        reopened.features.available(SendsPrompts).send(prompt("after the restart"))
+        runCurrent()
+
+        assertTrue(fixture.transport.calls.last().any { it.startsWith("--resume=") })
+        second.close()
+    }
+
+    @Test
     fun `a result followed by a nonzero exit is not reported as completed`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         fixture.transport.generation = { args, line ->
