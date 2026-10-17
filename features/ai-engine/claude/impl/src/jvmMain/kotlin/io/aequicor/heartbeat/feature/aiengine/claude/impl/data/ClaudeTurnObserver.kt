@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -14,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -44,6 +46,7 @@ internal class ClaudeTurnObserver(
         private set
     private var isAccepted = false
     private var hasText = false
+    private var apiError: String? = null
     private var isCompactionNoticed = false
 
     @Synchronized
@@ -90,6 +93,7 @@ internal class ClaudeTurnObserver(
         if (message["parent_tool_use_id"] != null && message["parent_tool_use_id"] != JsonNull) return
         val body = message["message"] as? JsonObject ?: protocolFailure()
         body.text("model")?.let { turn = turn.copy(target = turn.target.copy(model = ModelId(it))) }
+        message.text("error")?.let { apiError = it }
         accept()
         val content = body["content"] as? JsonArray ?: protocolFailure()
         for (entry in content) {
@@ -164,7 +168,7 @@ internal class ClaudeTurnObserver(
         val outcome = if (message.text("subtype") == "success" && message.text("is_error") == "false") {
             TurnOutcome.Completed
         } else {
-            TurnOutcome.Failed(EngineFailure.Unknown())
+            TurnOutcome.Failed(failureOf(message))
         }
         if (request.compaction != null) {
             // The CLI's own report is not conversation; a confirmed compaction is shown as a notice.
@@ -176,6 +180,24 @@ internal class ClaudeTurnObserver(
         }
         isFinished = true
         turn = turn.copy(outcome = outcome)
+    }
+
+    /**
+     * Only established API causes are classified: a missing model (the assistant frame names `model_not_found` and the
+     * result carries status 404) and a failing service (status 5xx). An unauthorized or rate-limited reply is
+     * ambiguous here (token expiry, quota or plain limit), so it stays unclassified.
+     */
+    private fun failureOf(result: JsonObject): EngineFailure = when (result.text("api_error_status")?.toIntOrNull()) {
+        HTTP_NOT_FOUND ->
+            if (apiError == MODEL_NOT_FOUND) {
+                EngineFailure.Access(AccessFailureReason.ModelAccessDenied)
+            } else {
+                EngineFailure.Unknown()
+            }
+
+        in HTTP_SERVER_ERRORS -> EngineFailure.Transport(TransportFailureReason.ServiceUnavailable)
+
+        else -> EngineFailure.Unknown()
     }
 
     /** Publish the result only after stdin was fully written and the process ended. */
@@ -210,3 +232,7 @@ internal class ClaudeTurnObserver(
         accepted.complete(turn.id)
     }
 }
+
+private const val MODEL_NOT_FOUND = "model_not_found"
+private const val HTTP_NOT_FOUND = 404
+private val HTTP_SERVER_ERRORS = 500..599

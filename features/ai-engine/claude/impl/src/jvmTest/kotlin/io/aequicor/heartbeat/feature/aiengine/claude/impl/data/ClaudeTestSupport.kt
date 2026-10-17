@@ -133,6 +133,9 @@ internal class TestProfileHandle(override val coroutineScope: CoroutineScope) : 
 internal class ClaudeFixture(val scope: CoroutineScope) {
     var resources: ResourceResolver = ResourceResolver { null }
     var inputSupport = PromptInputSupport.TextDocuments
+
+    /** Effort levels the CLI advertised per model; null is a model this runtime did not discover. */
+    var efforts: (ModelId) -> List<String>? = { null }
     val transport = FakeClaudeTransport()
     val toggles = TestClaudeToggles()
     val account = ClaudeAccount(
@@ -160,6 +163,7 @@ internal class ClaudeFixture(val scope: CoroutineScope) {
             native = native,
             resources = ResourceResolver { resources.resolve(it) },
             inputSupport = { inputSupport },
+            efforts = { efforts(it) },
         )
     }
 }
