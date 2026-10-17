@@ -116,9 +116,27 @@ public data class GrowthLimits(
 }
 
 /**
+ * Where the cells of an organism work. The choice is made once, when the organism is conceived, and a saved
+ * organism keeps its own.
+ */
+@Serializable
+public enum class OrganismIsolation {
+    /** Every cell works in the organism's project itself, so parallel writers share one checkout. */
+    Shared,
+
+    /**
+     * Every cell works in a sandbox of its own: a separate checkout of the project's committed HEAD on a branch of
+     * its own, managed by worktree mode. The project's checkout is never written by a cell. A cell's finished work is
+     * a branch that its parent integrates explicitly.
+     */
+    Sandbox,
+}
+
+/**
  * Request to conceive an organism. A null [target] is resolved from the profile's default model when the zygote
  * starts; [immunityTarget] runs the judge sessions and defaults to [target]. Every cell works in [workspace] (no
- * project when null) with [trust]; actions the engine still asks about are escalated to the user.
+ * project when null) with [trust]; actions the engine still asks about are escalated to the user. With
+ * [OrganismIsolation.Sandbox] [workspace] is the project the cells' sandboxes are cut from and must be set.
  */
 @Serializable
 public data class Conception(
@@ -131,11 +149,13 @@ public data class Conception(
     val limits: GrowthLimits = GrowthLimits(),
     /** Profile-owned inputs of the goal, supplied with every cell's genesis (including recovery). */
     val attachments: List<ResourceRef> = emptyList(),
+    val isolation: OrganismIsolation = OrganismIsolation.Shared,
 ) {
     init {
         require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
             "Invalid organism goal"
         }
+        require(isolation == OrganismIsolation.Shared || workspace != null) { "A sandbox organism needs a project" }
     }
 
     override fun toString(): String = "Conception(id=${id.value}, goal=${goal.length} chars)"
@@ -164,6 +184,8 @@ public data class Organism(
     val version: Long = 0,
     /** Original goal inputs; only references are journaled, never file bytes or native paths. */
     val attachments: List<ResourceRef> = emptyList(),
+    /** Where cells work; fixed at conception. A sandbox organism cuts its cells' checkouts from [workspace]. */
+    val isolation: OrganismIsolation = OrganismIsolation.Shared,
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }
@@ -208,7 +230,9 @@ public data class CellConfiguration(
 /**
  * One engine session of an organism. [parent] is null only for the zygote. [session] is set once the native
  * session exists; [inbox] is an append-only result log read by the cell's tool. [receivedLetters] is its read
- * cursor, so reads can be replayed after ambiguous tool delivery. [turns] makes request ids unique.
+ * cursor, so reads can be replayed after ambiguous tool delivery. [turns] makes request ids unique. [workspace] is
+ * the cell's own sandbox checkout once worktree mode prepared it, always before its session is created; the checkout
+ * itself, its branch and the native run of the cell belong to the worktree journal, under [Organism.sandboxTask].
  */
 @Serializable
 public data class Cell(
@@ -226,6 +250,8 @@ public data class Cell(
     val isAwaitingResults: Boolean = false,
     /** Its own model configuration; null runs it on the organism's model and the profile's effort. */
     val configuration: CellConfiguration? = null,
+    /** Its own sandbox checkout; null works in the organism's [Organism.workspace]. */
+    val workspace: WorkspaceRef? = null,
 ) {
     init {
         require(receivedLetters in 0..inbox.size) { "Invalid inbox cursor" }

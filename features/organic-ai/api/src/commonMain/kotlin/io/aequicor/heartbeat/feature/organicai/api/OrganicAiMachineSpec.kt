@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * | Living | Divide | parent working, limits, next cell id | + child Working(Genesis) | Persist; Drive(child) | — |
  * | Living | Complain / Dispute | filer working, no refusal, next case id | + case, + trial | Persist; Judge | — |
  * | Living | JudgeConvened | trial without ruling | trial judge session | Persist | — |
+ * | Living | WorkspaceBound | turn of request, sandbox cell without workspace | cell workspace | Persist | — |
  * | Living | SessionBound | turn of request, no session yet | session | Persist | — |
  * | Living | TurnAccepted / PermissionsChanged | turn of request | observed turn / awaiting | — | — |
  * | Living | ReceiveLetters | current request, valid cursor | advance read cursor, disarm wait | Persist | — |
@@ -50,6 +51,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * A user can resume a completed zygote with its goal and history; descendants and inbox cursors stay unchanged.
  * Follow-up messages start a fresh zygote turn in the same session; their text and inputs survive recovery.
  * A completed organism never restarts automatically, and an aborted organism cannot be resumed.
+ *
+ * A [OrganismIsolation.Sandbox] organism gives every cell, the zygote included, a checkout of its own: before the
+ * session of a cell is created the host prepares the cell's sandbox through worktree mode under
+ * [Organism.sandboxTask] and reports it with WorkspaceBound; the session is then opened in that checkout, never in the
+ * organism's project. Checkout, branch, native run and builds of a cell live in the worktree journal, the organism
+ * keeps only the checkout reference, so both survive a restart independently.
  *
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →
