@@ -164,7 +164,7 @@ tasks.register<Test>("claudeLiveGraphTest") {
     description = "Runs the Claude engine through the production graph against the real Claude Code CLI."
     testClassesDirs = regularJvmTest.get().testClassesDirs
     classpath = regularJvmTest.get().classpath
-    filter { includeTestsMatching("*.ClaudeLiveGraphE2eTest") }
+    filter { includeTestsMatching("*.ClaudeLive*E2eTest") }
     outputs.upToDateWhen { false }
     outputs.doNotCacheIf("Live checks must reach the real CLI") { true }
     systemProperty("heartbeat.claude.liveTest", "true")
