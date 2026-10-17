@@ -436,7 +436,7 @@ class PlaceModelTest {
 
         assertEquals(
             listOf<SurfaceIntent>(
-                SurfaceIntent.Bound(authority, SurfaceIntent.Press(action.press)),
+                SurfaceIntent.Bound(authority, SurfaceIntent.RunQuickAction(action.id)),
                 SurfaceIntent.Bound(authority, SurfaceIntent.DismissNotice),
             ),
             source.sent,

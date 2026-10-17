@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ButtonStyleUi
@@ -10,11 +11,14 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.PrMap
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.NoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -106,7 +110,7 @@ class AppQuickActionsTest {
         fixture.board.send(host, press(before, before.actions.single()))
         runCurrent()
 
-        assertEquals(listOf("advance" to AppStart.call), fixture.calls.made.filter { it.first == "advance" })
+        assertEquals(listOf(AppStart.call), fixture.advances())
         assertEquals("Next start", shown.value.actions.single().label)
         assertFalse(shown.value.actions.single().isBusy)
     }
@@ -127,11 +131,81 @@ class AppQuickActionsTest {
 
         fixture.board.send(host, press(stale, stale.actions.single()))
         runCurrent()
-        assertEquals(emptyList(), fixture.calls.made.filter { it.first == "advance" })
+        assertEquals(emptyList(), fixture.advances())
 
         fixture.board.send(host, press(fresh, fresh.actions.single()))
         runCurrent()
-        assertEquals(listOf("advance" to AppChatContext.call), fixture.calls.made.filter { it.first == "advance" })
+        assertEquals(listOf(AppChatContext.call), fixture.advances())
+    }
+
+    @Test
+    fun `the same action sent twice from the composer runs once until the first call ends`() = runTest {
+        val fixture = AppFixture(this, app = QuickAppSurface)
+        val shown = fixture.observeQuickActions(this)
+        runCurrent()
+        val gate = CompletableDeferred<UiMethodResult>()
+        fixture.holdAdvance(gate)
+        val drawn = shown.value
+
+        fixture.board.send(host, press(drawn, drawn.actions.single()))
+        fixture.board.send(host, press(drawn, drawn.actions.single()))
+        runCurrent()
+        assertEquals(1, fixture.advances().size)
+        assertTrue(shown.value.actions.single().isBusy)
+
+        gate.complete(UiMethodResult.Success(JsonPrimitive("review")))
+        runCurrent()
+        assertFalse(shown.value.actions.single().isBusy)
+        fixture.board.send(host, press(shown.value, shown.value.actions.single()))
+        runCurrent()
+        assertEquals(2, fixture.advances().size)
+    }
+
+    @Test
+    fun `a running action is revoked when the app moves to another context and nothing stays busy`() = runTest {
+        val fixture = AppFixture(this, app = QuickAppSurface)
+        val shown = fixture.observeQuickActions(this)
+        runCurrent()
+        val gate = CompletableDeferred<UiMethodResult>()
+        fixture.holdAdvance(gate)
+        val drawn = shown.value
+        fixture.board.send(host, press(drawn, drawn.actions.single()))
+        runCurrent()
+        assertTrue(shown.value.actions.single().isBusy)
+
+        fixture.bind(AppChatContext)
+        runCurrent()
+        gate.complete(UiMethodResult.Success(JsonPrimitive("late")))
+        runCurrent()
+
+        assertFalse(shown.value.actions.single().isBusy)
+        assertEquals("Next plan", shown.value.actions.single().label, "The late result is discarded")
+        fixture.calls.reply = { _, _ -> UiMethodResult.Success(JsonPrimitive("fresh")) }
+        fixture.board.send(host, press(shown.value, shown.value.actions.single()))
+        runCurrent()
+        assertEquals(listOf(AppStart.call, AppChatContext.call), fixture.advances())
+    }
+
+    @Test
+    fun `another project replaces the app and a press drawn for the old one is dropped`() = runTest {
+        val project = AppChatContext.copy(call = AppChatContext.call.copy(workspace = WorkspaceRef("one")))
+        val fixture = AppFixture(this, project, app = QuickAppSurface)
+        val shown = fixture.observeQuickActions(this)
+        runCurrent()
+        val stale = shown.value
+        assertEquals(listOf("next"), stale.actions.map { it.id })
+
+        val other = project.copy(call = project.call.copy(workspace = WorkspaceRef("two")))
+        fixture.bind(other)
+        runCurrent()
+        fixture.board.send(host, press(stale, stale.actions.single()))
+        runCurrent()
+        assertEquals(emptyList(), fixture.advances())
+
+        val fresh = shown.value
+        fixture.board.send(host, press(fresh, fresh.actions.single()))
+        runCurrent()
+        assertEquals(listOf(other.call), fixture.advances())
     }
 
     @Test
@@ -153,7 +227,15 @@ class AppQuickActionsTest {
     }
 
     private fun press(drawn: AppQuickActionsUi, action: QuickActionUi): SurfaceIntent =
-        SurfaceIntent.Bound(checkNotNull(drawn.authority), SurfaceIntent.Press(action.press))
+        SurfaceIntent.Bound(checkNotNull(drawn.authority), SurfaceIntent.RunQuickAction(action.id))
+
+    /** The contexts the owner's `advance` method was called in. */
+    private fun AppFixture.advances() = calls.made.filter { it.first == "advance" }.map { it.second }
+
+    /** Makes `advance` wait for [gate] while every other method answers at once. */
+    private fun AppFixture.holdAdvance(gate: CompletableDeferred<UiMethodResult>) {
+        calls.reply = { method, _ -> if (method == "advance") gate.await() else UiMethodResult.Success(JsonNull) }
+    }
 
     /** Observes what the app of [AppHost] publishes, as the composer slot does. */
     private fun AppFixture.observeQuickActions(scope: TestScope): MutableStateFlow<AppQuickActionsUi> {

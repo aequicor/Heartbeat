@@ -228,7 +228,7 @@ internal class PlaceModel(
 
                 is PlaceIntent.RunQuickAction -> {
                     log.i { "Quick action pressed" }
-                    sendToApp(intent.authority, SurfaceIntent.Press(intent.action.press))
+                    sendToApp(intent.authority, SurfaceIntent.RunQuickAction(intent.action.id))
                 }
 
                 is PlaceIntent.DismissQuickNotice -> sendToApp(intent.authority, SurfaceIntent.DismissNotice)

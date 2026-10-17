@@ -86,6 +86,12 @@ internal sealed interface SurfaceIntent : MVIIntent {
     /** A button or a row was pressed (after its confirmation, if any). */
     data class Press(val press: UiPress) : SurfaceIntent
 
+    /**
+     * The quick action [id] was pressed (after its confirmation, if any). The store looks the action up in its current
+     * state: one that is no longer visible, enabled or idle is ignored, so a repeated or stale press runs nothing.
+     */
+    data class RunQuickAction(val id: String) : SurfaceIntent
+
     /** An input changed the state key [key]. */
     data class Input(val key: String, val value: JsonElement) : SurfaceIntent {
         override fun toString(): String = "Input(key=$key)"

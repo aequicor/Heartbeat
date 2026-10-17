@@ -431,7 +431,7 @@ class SurfaceModelTest {
         val screen = fixture.subscribe()
         runCurrent()
 
-        assertEquals(listOf("advance", "wait"), screen.states.value.quickActions.map { it.id })
+        assertEquals(listOf("advance", "wait", "locked"), screen.states.value.quickActions.map { it.id })
         assertEquals("Advance plan (2)", screen.states.value.quickActions.first().label)
         screen.intent(SurfaceIntent.Input("stage", JsonPrimitive("build")))
         runCurrent()
@@ -439,10 +439,10 @@ class SurfaceModelTest {
 
         val gate = CompletableDeferred<UiMethodResult>()
         fixture.calls.next = { gate.await() }
-        screen.intent(SurfaceIntent.Press(screen.states.value.quickActions.first().press))
+        screen.intent(SurfaceIntent.RunQuickAction("advance"))
         runCurrent()
         assertTrue(screen.states.value.quickActions.first().isBusy)
-        assertFalse(screen.states.value.quickActions.last().isBusy)
+        assertFalse(screen.states.value.quickActions[1].isBusy)
         gate.complete(UiMethodResult.Success(JsonPrimitive("review")))
         runCurrent()
 
@@ -464,7 +464,56 @@ class SurfaceModelTest {
         screen.intent(SurfaceIntent.Input("stage", JsonPrimitive("")))
         runCurrent()
 
-        assertEquals(listOf("wait"), screen.states.value.quickActions.map { it.id })
+        assertEquals(listOf("wait", "locked"), screen.states.value.quickActions.map { it.id })
+    }
+
+    @Test
+    fun `a repeated quick action press runs once and the next one waits for the end of the first`() = runTest {
+        val fixture = Fixture(this, available = true, specText = QUICK_SPEC)
+        val screen = fixture.subscribe()
+        runCurrent()
+        val gate = CompletableDeferred<UiMethodResult>()
+        fixture.calls.next = { gate.await() }
+        val before = fixture.calls.made.size
+
+        screen.intent(SurfaceIntent.RunQuickAction("advance"))
+        screen.intent(SurfaceIntent.RunQuickAction("advance"))
+        screen.intent(SurfaceIntent.RunQuickAction("advance"))
+        runCurrent()
+        assertEquals(before + 1, fixture.calls.made.size)
+        assertTrue(screen.states.value.quickActions.first().isBusy)
+
+        gate.complete(UiMethodResult.UserError("Sign in to gh"))
+        runCurrent()
+        assertFalse(screen.states.value.quickActions.first().isBusy, "A failure releases the action")
+        assertEquals(NoticeUi.Message("Sign in to gh"), screen.states.value.notice)
+
+        fixture.calls.next = { UiMethodResult.Success(JsonPrimitive("review")) }
+        screen.intent(SurfaceIntent.RunQuickAction("advance"))
+        runCurrent()
+        assertEquals(before + 2, fixture.calls.made.size)
+        assertEquals(emptyList(), fixture.host.prompts)
+    }
+
+    @Test
+    fun `a quick action that became hidden or disabled before its press is handled runs nothing`() = runTest {
+        val fixture = Fixture(this, available = true, specText = QUICK_SPEC)
+        val screen = fixture.subscribe()
+        runCurrent()
+        val before = fixture.calls.made.size
+
+        screen.intent(SurfaceIntent.Input("stage", JsonPrimitive("")))
+        screen.intent(SurfaceIntent.RunQuickAction("advance"))
+        screen.intent(SurfaceIntent.RunQuickAction("locked"))
+        screen.intent(SurfaceIntent.RunQuickAction("unknown"))
+        runCurrent()
+        assertEquals(before, fixture.calls.made.size)
+        assertTrue(screen.states.value.quickActions.none { it.isBusy })
+
+        screen.intent(SurfaceIntent.Input("flag", JsonPrimitive(true)))
+        screen.intent(SurfaceIntent.RunQuickAction("locked"))
+        runCurrent()
+        assertEquals(before + 1, fixture.calls.made.size)
     }
 
     private fun column(screen: SurfaceProvider) = assertIs<UiNodeUi.Column>(screen.states.value.root)
@@ -602,13 +651,15 @@ class SurfaceModelTest {
 
     private companion object {
         val QUICK_SPEC = """
-            {"version":1,"state":{"stage":"plan"},
+            {"version":1,"state":{"stage":"plan","flag":false},
              "data":{"prs":{"method":"prs"}},
              "quickActions":[
                {"id":"advance","label":"Advance {{state.stage}} ({{data.prs.count}})","style":"primary",
                 "visibleWhen":"{{state.stage}}",
                 "action":{"type":"call","method":"prs","args":{"stage":"{{state.stage}}"},"into":"stage"}},
-               {"id":"wait","label":"Wait","action":{"type":"reload","source":"prs"}}],
+               {"id":"wait","label":"Wait","action":{"type":"reload","source":"prs"}},
+               {"id":"locked","label":"Locked","enabledWhen":"{{state.flag}}",
+                "action":{"type":"reload","source":"prs"}}],
              "body":{"type":"text","text":"{{state.stage}}"}}
         """.trimIndent()
 

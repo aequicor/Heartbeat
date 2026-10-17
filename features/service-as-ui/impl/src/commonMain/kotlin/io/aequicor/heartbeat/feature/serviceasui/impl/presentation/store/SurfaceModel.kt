@@ -287,6 +287,8 @@ internal class SurfaceModel(
                     pipeline.launch { execution.execute { press(intent.press) } }
                 }
 
+                is SurfaceIntent.RunQuickAction -> runQuickAction(intent.id)
+
                 is SurfaceIntent.Input -> update { it.withInput(intent.key, intent.value) }
 
                 is SurfaceIntent.OpenLink -> {
@@ -307,6 +309,33 @@ internal class SurfaceModel(
         private fun reload(source: String?) {
             val sources = source?.let { listOf(it) } ?: session.spec.data.keys.toList()
             sources.forEach { pipeline.launch { execution.execute { load(it) } } }
+        }
+
+        /**
+         * Runs the quick action [id] of the current state. Its busy key is taken before the work starts, in the same
+         * state update that checked it, so a second press queued behind this one finds the action busy and does
+         * nothing; the key is released when the work ends, even if the execution was revoked meanwhile.
+         */
+        private suspend fun runQuickAction(id: String) {
+            var claimed: UiPress? = null
+            pipeline.updateState {
+                val action = quickActions.firstOrNull { it.id == id && it.isEnabled && !it.isBusy }
+                if (!isCurrent || action == null) {
+                    this
+                } else {
+                    claimed = action.press
+                    rendered(copy(values = values.copy(busy = values.busy + action.press.origin)))
+                }
+            }
+            val press = claimed ?: return log.d { "Quick action ignored: hidden, disabled or already running" }
+            log.i { "Surface quick action ${press.action::class.simpleName ?: "UiAction"}" }
+            pipeline.launch {
+                try {
+                    execution.execute { run(press.action, press.scope) }
+                } finally {
+                    withContext(NonCancellable) { update { it.copy(busy = it.busy - press.origin) } }
+                }
+            }
         }
 
         private suspend fun press(press: UiPress) {
