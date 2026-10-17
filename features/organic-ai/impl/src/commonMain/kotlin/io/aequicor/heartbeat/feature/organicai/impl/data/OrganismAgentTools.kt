@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.organicai.api.nextCellId
 import io.aequicor.heartbeat.feature.organicai.api.targetOf
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
 import io.aequicor.heartbeat.feature.organicai.impl.domain.explain
+import io.aequicor.heartbeat.feature.organicai.impl.domain.hosts
 import io.aequicor.heartbeat.feature.organicai.impl.domain.inboxReport
 import io.aequicor.heartbeat.feature.organicai.impl.domain.locate
 import io.aequicor.heartbeat.feature.organicai.impl.domain.statusReport
@@ -74,10 +75,13 @@ internal class OrganismAgentTools(
 
     override val isDetachedSupported: Boolean get() = true
 
-    /** Declared only where a developing organism works: its project, or sessions without one. */
+    /**
+     * Declared only where a developing organism works: its project, the sandboxes of its cells when it isolates them,
+     * or sessions without a project.
+     */
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> {
         val organisms = living()?.organisms?.values.orEmpty()
-        val isDeveloping = organisms.any { it.isDeveloping && it.workspace == workspace }
+        val isDeveloping = organisms.any { it.isDeveloping && it.hosts(workspace) }
         return if (isDeveloping && toggles.get(OrganicAiEnabled)) organismToolSpecs else emptyList()
     }
 

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
@@ -18,9 +19,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
 import io.aequicor.heartbeat.feature.organicai.api.CaseId
+import io.aequicor.heartbeat.feature.organicai.api.Cell
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.DeathCause
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
@@ -28,6 +32,7 @@ import io.aequicor.heartbeat.feature.organicai.api.Letter
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.Organism
+import io.aequicor.heartbeat.feature.organicai.api.OrganismIsolation
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.api.Ruling
 import io.aequicor.heartbeat.feature.organicai.api.Settlement
@@ -46,18 +51,20 @@ import io.aequicor.heartbeat.feature.organicai.impl.working
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class OrganicAiEffectsTest {
     private val journal = Journal()
     private val cells = Cells()
+    private val workspaces = Workspaces()
     private val judges = Judges()
     private val transcripts = SessionTranscripts { listOf(message(MessageRole.Assistant, "looping again")) }
     private val effects = OrganicAiEffects(
         journal,
         { TARGET },
         cells,
-        CellDriver(cells, journal),
+        CellDriver(cells, journal, workspaces),
         ImmunityCourt(judges, transcripts),
     )
     private val machine = Recorder()
@@ -261,7 +268,7 @@ class OrganicAiEffectsTest {
             journal,
             { null },
             cells,
-            CellDriver(cells, journal),
+            CellDriver(cells, journal, workspaces),
             ImmunityCourt(judges, transcripts),
         )
         machine.sent.clear()
@@ -294,6 +301,65 @@ class OrganicAiEffectsTest {
         assertEquals(listOf(CellKey(ORGANISM, C1) to decision), cells.responses)
     }
 
+    private val project = WorkspaceRef("project")
+
+    private fun sandboxed(vararg others: Cell): Organism =
+        organism(*others).copy(workspace = project, isolation = OrganismIsolation.Sandbox)
+
+    @Test
+    fun `a sandbox cell is bound to its own checkout before its session is created`() = runTest {
+        val germinating = sandboxed(cell(C1).copy(session = null))
+        effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
+        val sandbox = WorkspaceRef("sandbox-c1")
+        assertEquals(
+            listOf<OrganicAiIntent>(
+                OrganicAiIntent.Internal.WorkspaceBound(ORGANISM, C1, request(C1), sandbox),
+                OrganicAiIntent.Internal.SessionBound(ORGANISM, C1, request(C1), cells.handle.session),
+                OrganicAiIntent.Internal.TurnAccepted(ORGANISM, C1, request(C1), TurnId("t1")),
+                OrganicAiIntent.Internal.TurnSettled(ORGANISM, C1, request(C1), Settlement.Answered("the answer")),
+            ),
+            machine.sent,
+        )
+        assertEquals(listOf(germinating to C1), workspaces.prepared)
+        assertEquals(listOf(sandbox), cells.routes.map { it.workspace })
+    }
+
+    @Test
+    fun `a cell with a bound sandbox reuses it and a shared cell works in the project`() = runTest {
+        val bound = sandboxed(cell(C1).copy(workspace = WorkspaceRef("sandbox-kept")))
+        effects.handle(OrganicAiEffect.Drive(bound, C1, request(C1)), machine)
+        assertEquals(emptyList(), workspaces.prepared)
+        assertEquals(listOf(WorkspaceRef("sandbox-kept")), cells.routes.map { it.workspace })
+        assertTrue(machine.sent.none { it is OrganicAiIntent.Internal.WorkspaceBound })
+
+        val shared = organism(cell(C1)).copy(workspace = project)
+        effects.handle(OrganicAiEffect.Drive(shared, C1, request(C1)), machine)
+        assertEquals(emptyList(), workspaces.prepared)
+        assertEquals(project, cells.routes.last().workspace)
+    }
+
+    @Test
+    fun `a cell whose sandbox cannot be prepared never opens a session in the project`() = runTest {
+        val failure = EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        workspaces.failure = failure
+        val thrown = assertFailsWith<EngineException> {
+            effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
+        }
+        assertEquals(failure, thrown)
+        assertEquals(emptyList(), cells.opened)
+        assertEquals(emptyList(), machine.sent)
+        assertEquals(emptyList(), cells.handle.submitted)
+    }
+
+    @Test
+    fun `a cell that ended before its sandbox was bound opens no session`() = runTest {
+        machine.refuse = { it is OrganicAiIntent.Internal.WorkspaceBound }
+        effects.handle(OrganicAiEffect.Drive(sandboxed(cell(C1)), C1, request(C1)), machine)
+        assertEquals(emptyList(), cells.opened)
+        assertEquals(emptyList(), cells.handle.submitted)
+        assertEquals(emptyList(), cells.released)
+    }
+
     private val permission = PermissionRequest(
         PermissionRequestId("p1"),
         TurnId("t1"),
@@ -320,6 +386,17 @@ class OrganicAiEffectsTest {
         }
     }
 
+    private class Workspaces : CellWorkspaces {
+        val prepared = mutableListOf<Pair<Organism, CellId>>()
+        var failure: Exception? = null
+
+        override suspend fun prepare(organism: Organism, cell: CellId): WorkspaceRef {
+            failure?.let { throw it }
+            prepared += organism to cell
+            return WorkspaceRef("sandbox-${cell.value}")
+        }
+    }
+
     private class Judges : JudgeSessions {
         var answer = ""
         val prompts = mutableListOf<Pair<EngineTarget, String>>()
@@ -338,6 +415,7 @@ class OrganicAiEffectsTest {
         val handle = Handle()
         var failOpen: Exception? = null
         val opened = mutableListOf<Pair<CellKey, SessionRef?>>()
+        val routes = mutableListOf<CellRoute>()
         val released = mutableListOf<Released>()
         val responses = mutableListOf<Pair<CellKey, PermissionDecision>>()
         var releasedAll = 0
@@ -345,6 +423,7 @@ class OrganicAiEffectsTest {
         override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
             failOpen?.let { throw it }
             opened += key to existing
+            routes += route
             return handle
         }
 

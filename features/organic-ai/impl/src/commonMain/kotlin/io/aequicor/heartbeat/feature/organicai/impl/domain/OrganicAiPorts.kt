@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismSession
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
+import io.aequicor.heartbeat.feature.organicai.api.sandboxTask
 
 /** The running organic AI machine of the profile. */
 internal typealias OrganicAiMachine = Machine<OrganicAiState, OrganicAiIntent, OrganicAiOutput>
@@ -55,6 +56,16 @@ internal data class CellRoute(
     /** Reviews the cell's automatic safety decisions when it runs a cheaper model than the organism. */
     val reviewTarget: EngineTarget? = null,
 )
+
+/** Own checkouts of the cells of sandbox organisms; worktree mode owns the checkouts, their branches and runs. */
+internal interface CellWorkspaces {
+    /**
+     * The sandbox of [cell], cut from the organism's project under [sandboxTask]: prepared on first use and found
+     * again, never cut twice, after a restart or a retry. Fails when it cannot be prepared; a cell never falls back to
+     * working in the project itself.
+     */
+    suspend fun prepare(organism: Organism, cell: CellId): WorkspaceRef
+}
 
 /** Engine sessions of cells; one handle per cell is kept open while the cell lives. */
 internal interface CellSessions {

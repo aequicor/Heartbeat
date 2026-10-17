@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineSpec
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellDriver
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellSessions
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellWorkspaces
 import io.aequicor.heartbeat.feature.organicai.impl.domain.DefaultTargets
 import io.aequicor.heartbeat.feature.organicai.impl.domain.ImmunityCourt
 import io.aequicor.heartbeat.feature.organicai.impl.domain.JudgeSessions
@@ -43,13 +44,14 @@ public object OrganicAiBindings {
         journal: OrganismJournal,
         targets: DefaultTargets,
         cells: CellSessions,
+        workspaces: CellWorkspaces,
         judges: JudgeSessions,
         transcripts: SessionTranscripts,
     ): OrganicAiEffects = OrganicAiEffects(
         journal = journal,
         targets = targets,
         cells = cells,
-        driver = CellDriver(cells, journal),
+        driver = CellDriver(cells, journal, workspaces),
         court = ImmunityCourt(judges, transcripts),
     )
 

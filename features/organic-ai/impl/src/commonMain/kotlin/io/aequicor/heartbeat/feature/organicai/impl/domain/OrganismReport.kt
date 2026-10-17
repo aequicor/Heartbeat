@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.organicai.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.cut
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
@@ -10,6 +11,14 @@ import io.aequicor.heartbeat.feature.organicai.api.Refusal
 import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.isAlive
 import io.aequicor.heartbeat.feature.organicai.api.isDeveloping
+import io.aequicor.heartbeat.feature.organicai.api.isSandboxed
+
+/**
+ * Whether a session in [workspace] can be a cell of this organism: one working in the organism's project, or, for a
+ * sandbox organism, in the sandbox of one of its cells. The project itself hosts no cell of a sandbox organism.
+ */
+internal fun Organism.hosts(workspace: WorkspaceRef?): Boolean =
+    if (isSandboxed) workspace != null && cells.any { it.workspace == workspace } else this.workspace == workspace
 
 /** The living cell of a developing organism that runs in [session]; the session identity is trusted host data. */
 internal fun OrganicAiState.Living.locate(session: SessionRef): CellAddress? = organisms.values.asSequence()

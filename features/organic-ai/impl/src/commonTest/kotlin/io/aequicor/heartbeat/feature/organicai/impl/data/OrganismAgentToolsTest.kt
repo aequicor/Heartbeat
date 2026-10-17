@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineSpec
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiOutput
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
+import io.aequicor.heartbeat.feature.organicai.api.OrganismIsolation
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.OrganismTools
 import io.aequicor.heartbeat.feature.organicai.api.Ruling
@@ -119,6 +120,24 @@ class OrganismAgentToolsTest {
         assertTrue(unlaunched.execute(context(), OrganismTools.STATUS, args()).isError)
         toggles.isEnabled = false
         assertEquals(emptyList(), developing.specifications(null))
+    }
+
+    @Test
+    fun `a sandbox organism declares the tools in the sandboxes of its cells and not in its project`() = runTest {
+        val project = WorkspaceRef("project")
+        val sandbox = WorkspaceRef("sandbox-zygote")
+        val zygote = zygoteCell().copy(workspace = sandbox)
+        val germinating = cell(C1).copy(session = null)
+        val (isolated, _) = tools(
+            organism(germinating, zygote = zygote).copy(workspace = project, isolation = OrganismIsolation.Sandbox),
+        )
+        assertEquals(5, isolated.specifications(sandbox).size)
+        assertEquals(emptyList(), isolated.specifications(project))
+        assertEquals(emptyList(), isolated.specifications(WorkspaceRef("sandbox-c1")))
+        assertEquals(emptyList(), isolated.specifications(null))
+        val (shared, _) = tools(organism().copy(workspace = project))
+        assertEquals(5, shared.specifications(project).size)
+        assertEquals(emptyList(), shared.specifications(sandbox))
     }
 
     @Test
