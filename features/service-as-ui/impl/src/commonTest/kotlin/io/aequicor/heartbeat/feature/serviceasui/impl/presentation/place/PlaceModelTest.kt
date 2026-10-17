@@ -37,15 +37,11 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebConfiguration
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
-import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiAction
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiScope
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppQuickActionsSource
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppQuickActionsUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.ProfileAppQuickActionBoard
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ButtonStyleUi
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.QuickActionUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiPress
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.inertQuickAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.NoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceInputBinding
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
@@ -488,16 +484,7 @@ class PlaceModelTest {
         assertEquals(AppQuickActionsUi(), panel.subscribe().states.value.quickActions)
     }
 
-    private fun quick(id: String) = QuickActionUi(
-        id = id,
-        label = id,
-        style = ButtonStyleUi.Secondary,
-        icon = null,
-        isEnabled = true,
-        isBusy = false,
-        confirm = null,
-        press = UiPress("q.$id", UiAction.Close, UiScope()),
-    )
+    private fun quick(id: String) = inertQuickAction(id, id)
 
     private class QuickSource(initial: AppQuickActionsUi) : AppQuickActionsSource {
         override val state = MutableStateFlow(initial)

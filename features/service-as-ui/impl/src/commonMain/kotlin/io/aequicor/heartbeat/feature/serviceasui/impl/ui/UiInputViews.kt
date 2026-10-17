@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ButtonStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.NativeWidgetUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
@@ -91,26 +92,40 @@ private fun ButtonView(node: UiNodeUi.Button, onIntent: (SurfaceIntent) -> Unit,
     }
     val question = node.confirm
     if (isConfirming && question != null) {
-        HbDialog(
-            title = node.label,
-            onDismissRequest = { isConfirming = false },
-            actions = {
-                HbButton(
-                    stringResource(Res.string.service_ui_cancel),
-                    { isConfirming = false },
-                    style = HbButtonStyle.Ghost,
-                )
-                HbButton(
-                    node.label.ifBlank { stringResource(Res.string.service_ui_continue) },
-                    {
-                        isConfirming = false
-                        onIntent(SurfaceIntent.Press(node.press))
-                    },
-                    style = node.style.hb().takeIf { it == HbButtonStyle.Danger } ?: HbButtonStyle.Primary,
-                )
+        ConfirmActionDialog(
+            label = node.label,
+            question = question,
+            style = node.style,
+            onDismiss = { isConfirming = false },
+            onConfirm = {
+                isConfirming = false
+                onIntent(SurfaceIntent.Press(node.press))
             },
-        ) { HbText(question) }
+        )
     }
+}
+
+/** Asks the [question] of a button or quick action named [label] before it runs. */
+@Composable
+internal fun ConfirmActionDialog(
+    label: String,
+    question: String,
+    style: ButtonStyleUi,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    HbDialog(
+        title = label,
+        onDismissRequest = onDismiss,
+        actions = {
+            HbButton(stringResource(Res.string.service_ui_cancel), onDismiss, style = HbButtonStyle.Ghost)
+            HbButton(
+                label.ifBlank { stringResource(Res.string.service_ui_continue) },
+                onConfirm,
+                style = style.hb().takeIf { it == HbButtonStyle.Danger } ?: HbButtonStyle.Primary,
+            )
+        },
+    ) { HbText(question) }
 }
 
 @Composable

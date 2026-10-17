@@ -2,11 +2,9 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app
 
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
-import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiAction
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiScope
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ButtonStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.QuickActionUi
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiPress
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.inertQuickAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.Other
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.PrMap
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.NoticeUi
@@ -36,13 +34,13 @@ class AppQuickActionsTest {
         runCurrent()
         assertEquals(listOf(AppQuickActionsUi()), seen)
 
-        val source = Source(AppQuickActionsUi(persistentListOf(action("a")), isAvailable = true))
+        val source = Source(AppQuickActionsUi(persistentListOf(inertQuickAction("a", "a")), isAvailable = true))
         val handle = board.attach(host, source)
-        board.attach(UiHostId("other"), Source(AppQuickActionsUi(persistentListOf(action("b")))))
+        board.attach(UiHostId("other"), Source(AppQuickActionsUi(persistentListOf(inertQuickAction("b", "b")))))
         runCurrent()
         assertEquals(listOf("a"), seen.last().actions.map { it.id })
 
-        source.state.value = AppQuickActionsUi(persistentListOf(action("c")), isAvailable = true)
+        source.state.value = AppQuickActionsUi(persistentListOf(inertQuickAction("c", "c")), isAvailable = true)
         runCurrent()
         assertEquals(listOf("c"), seen.last().actions.map { it.id })
 
@@ -54,8 +52,8 @@ class AppQuickActionsTest {
     @Test
     fun `the newest source of a host wins and a stale handle does not detach it`() = runTest {
         val board = ProfileAppQuickActionBoard()
-        val old = Source(AppQuickActionsUi(persistentListOf(action("old"))))
-        val new = Source(AppQuickActionsUi(persistentListOf(action("new"))))
+        val old = Source(AppQuickActionsUi(persistentListOf(inertQuickAction("old", "old"))))
+        val new = Source(AppQuickActionsUi(persistentListOf(inertQuickAction("new", "new"))))
         val oldHandle = board.attach(host, old)
         val newHandle = board.attach(host, new)
         val seen = mutableListOf<AppQuickActionsUi>()
@@ -156,17 +154,6 @@ class AppQuickActionsTest {
 
     private fun press(drawn: AppQuickActionsUi, action: QuickActionUi): SurfaceIntent =
         SurfaceIntent.Bound(checkNotNull(drawn.authority), SurfaceIntent.Press(action.press))
-
-    private fun action(id: String) = QuickActionUi(
-        id = id,
-        label = id,
-        style = ButtonStyleUi.Secondary,
-        icon = null,
-        isEnabled = true,
-        isBusy = false,
-        confirm = null,
-        press = UiPress("q.$id", UiAction.Close, UiScope()),
-    )
 
     /** Observes what the app of [AppHost] publishes, as the composer slot does. */
     private fun AppFixture.observeQuickActions(scope: TestScope): MutableStateFlow<AppQuickActionsUi> {
