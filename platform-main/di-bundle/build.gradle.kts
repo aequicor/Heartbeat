@@ -155,3 +155,19 @@ heartbeatJcef.registerNativeTest(
     classpath += recoveryNativeRuntime
     systemProperty("heartbeat.browser.recoveryNativeRoot", recoveryNativeRoot.get().asFile.absolutePath)
 }
+
+// Real Claude Code CLI through the production graph, opt-in and outside `check`: it needs an authenticated CLI
+// (the Claude Code desktop app's is found automatically) and spends model quota.
+val regularJvmTest = tasks.named<Test>("jvmTest")
+tasks.register<Test>("claudeLiveGraphTest") {
+    group = "verification"
+    description = "Runs the Claude engine through the production graph against the real Claude Code CLI."
+    testClassesDirs = regularJvmTest.get().testClassesDirs
+    classpath = regularJvmTest.get().classpath
+    filter { includeTestsMatching("*.ClaudeLiveGraphE2eTest") }
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf("Live checks must reach the real CLI") { true }
+    systemProperty("heartbeat.claude.liveTest", "true")
+    systemProperty("heartbeat.claude.liveReport", layout.buildDirectory.file("claude-live-report.txt").get().asFile.path)
+    testLogging { events("passed", "failed", "skipped") }
+}
