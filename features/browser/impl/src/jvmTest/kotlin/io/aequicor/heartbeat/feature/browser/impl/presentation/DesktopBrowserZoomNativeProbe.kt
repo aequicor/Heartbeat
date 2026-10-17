@@ -29,8 +29,10 @@ internal class DesktopBrowserZoomNativeProbe(
     ) -> DesktopBrowserEngine,
     private val createFrame: () -> JFrame,
     private val awaitTitle: (LinkedBlockingQueue<BrowserViewState>, String) -> Unit,
+    private val stage: (String) -> Unit,
 ) {
     fun verify(base: String) {
+        stage("zoom navigation")
         val firstStates = LinkedBlockingQueue<BrowserViewState>()
         val secondStates = LinkedBlockingQueue<BrowserViewState>()
         val shortcuts = LinkedBlockingQueue<BrowserShortcut>()
@@ -53,6 +55,7 @@ internal class DesktopBrowserZoomNativeProbe(
             awaitTitle(secondStates, "empty-empty")
             val first = engines.first()
             val second = engines.last()
+            stage("zoom CDP and wheel input")
             runBlocking {
                 val nativeScale = pixelRatio(first) / 1.5
                 awaitRatio(first, nativeScale * 1.5)
@@ -80,6 +83,7 @@ internal class DesktopBrowserZoomNativeProbe(
                 awaitRatio(first, nativeScale)
             }
         } finally {
+            stage("zoom cleanup")
             SwingUtilities.invokeAndWait {
                 engines.forEach { it.release() }
                 frames.forEach { it.dispose() }

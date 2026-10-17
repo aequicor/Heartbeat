@@ -9,9 +9,7 @@ import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopBrowserProfiles
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopDefaultBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.data.bundledBrowserRuntimeInstaller
-import io.aequicor.heartbeat.feature.browser.impl.domain.BROWSER_FAVICON_PIXELS
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
-import io.aequicor.heartbeat.feature.browser.impl.domain.chooseBrowserFavicon
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,8 +24,9 @@ import kotlinx.serialization.json.put
 import org.cef.browser.CefRequestContext
 import org.cef.handler.CefRequestContextHandler
 import org.junit.Assume.assumeTrue
+import org.junit.Rule
+import org.junit.rules.TestRule
 import java.awt.BorderLayout
-import java.io.ByteArrayInputStream
 import java.net.CookieHandler
 import java.net.InetSocketAddress
 import java.nio.file.Files
@@ -35,7 +34,6 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import javax.imageio.ImageIO
 import javax.swing.JFrame
 import javax.swing.SwingUtilities
 import kotlin.coroutines.resume
@@ -51,6 +49,11 @@ import kotlin.test.assertTrue
  * (`jvmTest` skips it). Requires a desktop session.
  */
 class DesktopBrowserNativeTest {
+    private val deadline = BrowserNativeDeadline()
+
+    @get:Rule
+    val nativeDeadline: TestRule = deadline
+
     private val contexts = mutableListOf<CefRequestContext>()
     private val loopRequests = AtomicInteger()
 
@@ -118,6 +121,7 @@ class DesktopBrowserNativeTest {
     }
 
     private fun verifyStandaloneEngines(app: org.cef.CefApp, server: HttpServer) {
+        deadline.stage("referrer policies")
         DesktopBrowserReferrerProbe(
             createEngine = { states, openTab -> testEngine(app, states, openTab = openTab) },
             createFrame = ::nativeFrame,
@@ -128,10 +132,16 @@ class DesktopBrowserNativeTest {
             createEngine = { states, exceptions -> testEngine(app, states, certificateExceptions = exceptions) },
             createFrame = ::nativeFrame,
             awaitState = ::awaitState,
+            stage = deadline::stage,
         ).verify()
         verifyEarlyClose(app)
         verifyDirectDocument(app, "http://127.0.0.1:${server.address.port}")
-        verifyFavicon(app, "http://127.0.0.1:${server.address.port}")
+        DesktopBrowserFaviconNativeProbe(
+            createEngine = { states -> testEngine(app, states) },
+            createFrame = ::nativeFrame,
+            awaitState = ::awaitState,
+            stage = deadline::stage,
+        ).verify("http://127.0.0.1:${server.address.port}")
         verifyAgentGuard(app, server)
         val zoomContext = temporaryContextFactory()
         DesktopBrowserZoomNativeProbe(
@@ -140,46 +150,9 @@ class DesktopBrowserNativeTest {
             },
             createFrame = ::nativeFrame,
             awaitTitle = ::awaitTitle,
+            stage = deadline::stage,
         ).verify("http://127.0.0.1:${server.address.port}")
-    }
-
-    /**
-     * A typed load first awaits the response, then the page's declared icon is found through CDP and fetched through
-     * the tab's own profile into a decoded tab bitmap.
-     */
-    private fun verifyFavicon(app: org.cef.CefApp, base: String) {
-        val states = LinkedBlockingQueue<BrowserViewState>()
-        var engine: DesktopBrowserEngine? = null
-        var frame: JFrame? = null
-        SwingUtilities.invokeAndWait {
-            engine = testEngine(app, states)
-            frame = nativeFrame().apply {
-                add(assertNotNull(engine).component, BorderLayout.CENTER)
-                validate()
-            }
-            assertNotNull(engine).start("$base/icon-page")
-        }
-        val runtime = assertNotNull(engine)
-        try {
-            awaitState(states) { it.isLoading && it.isAwaitingResponse }
-            awaitState(states) { it.isLoading && !it.isAwaitingResponse }
-            awaitTitle(states, "Icon")
-            runBlocking {
-                val candidates = DesktopBrowserFaviconProbe(runtime::devTools).candidates()
-                val icon = assertNotNull(chooseBrowserFavicon("$base/icon-page", candidates))
-                assertEquals("$base/icon.png", icon)
-                val png = decodeBrowserFavicon(runtime.loadIcon(icon) { true })
-                val image = assertNotNull(ImageIO.read(ByteArrayInputStream(png)))
-                assertEquals(BROWSER_FAVICON_PIXELS, image.width)
-                assertFailsWith<BrowserFaviconRejected> { runtime.loadIcon("$base/icon-page") { true } }
-            }
-        } finally {
-            SwingUtilities.invokeAndWait {
-                runtime.release()
-                frame?.dispose()
-            }
-            runBlocking { runtime.awaitClosed() }
-        }
+        deadline.stage("profile isolation and reopening")
     }
 
     private fun closeNativeTest(
@@ -189,6 +162,7 @@ class DesktopBrowserNativeTest {
         server: HttpServer,
         engines: List<DesktopBrowserEngine>,
     ) {
+        deadline.stage("final native cleanup")
         try {
             runBlocking {
                 withTimeout(60_000) {
@@ -228,6 +202,7 @@ class DesktopBrowserNativeTest {
     )
 
     private fun verifyLinkedTabs(app: org.cef.CefApp, base: String) {
+        deadline.stage("linked tabs")
         val opened = LinkedBlockingQueue<BrowserCommand.Load>()
         val states = LinkedBlockingQueue<BrowserViewState>()
         var engine: DesktopBrowserEngine? = null
@@ -274,6 +249,7 @@ class DesktopBrowserNativeTest {
     }
 
     private fun verifyDirectDocument(app: org.cef.CefApp, base: String) {
+        deadline.stage("direct document transfer")
         var engine: DesktopBrowserEngine? = null
         SwingUtilities.invokeAndWait { engine = testEngine(app, LinkedBlockingQueue()) }
         val runtime = assertNotNull(engine)
@@ -416,6 +392,7 @@ class DesktopBrowserNativeTest {
     }
 
     private fun verifyEarlyClose(app: org.cef.CefApp) {
+        deadline.stage("early close")
         val closed = CountDownLatch(2)
         val callbacks = AtomicInteger()
         SwingUtilities.invokeAndWait {
@@ -631,6 +608,7 @@ class DesktopBrowserNativeTest {
      * the listener in both runs.
      */
     private fun verifyAgentGuard(app: org.cef.CefApp, server: HttpServer) {
+        deadline.stage("agent guard")
         val base = "http://127.0.0.1:${server.address.port}"
         val (openSockets, openFrames) = guardProbe(app, server, DesktopBrowserAgentGuard())
         assertTrue(openSockets > 0, "Control: an unrestricted page must open the WebSocket")
