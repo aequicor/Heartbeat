@@ -30,6 +30,7 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 | Постоянные данные мини-приложения (`data.read/write/update`) | `api/script/ScriptData.kt`; `impl/domain/services/HarnessScriptData`, `impl/data/services/ProtectedHarnessData` |
 | Хуки сессий, политика, гейт нативных вызовов | `ai-engine/facade:{api,impl}` (`SessionHooks`, `ToolPolicy`, `authorizeNative`) |
 | Адаптивные помощники (`AgentOptions.adaptive`, `sessions.spawn(..., adaptive)`) | `api/workflow/AdaptiveAgent.kt`; порт `impl/domain/services/HarnessHelperModels.kt`, адаптер над `AdaptiveModels` (`adaptive-subagents:api`) — `impl/data/services/AdaptiveHarnessHelperModels.kt` |
+| Организм как этап workflow (`WorkflowScope.organism`) | `api/workflow/WorkflowOrganism.kt` (`OrganismOptions`, `OrganismOutcome`, `WorkflowOrganism`), `HarnessLimits.ORGANISM*`; `impl/domain/workflow/WorkflowOrganism{Driver,Resources,Journal,Host,Outcomes}.kt`; мост `impl/data/run/MachineOrganismHost.kt`, журнал выдачи слотов `impl/data/run/StoredWorkflowOrganismJournal.kt` |
 
 ## Правила
 
@@ -62,6 +63,16 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   `HarnessSessionAdmission.restricts`) — пустые харнессы с ранними именами не вытесняют ограничения.
 - Харнесс не может выключить инструменты `harness_*` и `hs_*` (иначе агент не починит харнесс).
 - Одобрение скрипта покрывает его запуски workflow и помощников; помощники получают доверие Ask и общие квоты.
+- Организм этапа (`WorkflowScope.organism`, тогл `organic_ai.enabled`) — owned-исполнитель крупного этапа. Результат —
+  данные `OrganismOutcome` (`Answered` / `Refused` / `Ended`), не исключение; `Answered` не доказывает бизнес-успех.
+  Идентичность организма выводит `workflowOrganism` из запуска и ключа шага: она сохраняется в `WorkflowStep.organism`
+  и в выданном слоте (`WorkflowOrganismJournal`, `ORGANISMS_PER_RUN`/`ORGANISMS_PER_PROFILE`) до зачатия, поэтому
+  повтор и рестарт сверяются с тем же организмом. Зачинать можно только пока шаг `Prepared`; увиденный живым и
+  исчезнувший организм даёт `Ended(Failed)`, а не замену. Слот возвращает только `WorkflowOrganismResources.release`
+  после того, как машина organic AI показала окончание (`OrganismView.isEnded`); спящая или недоступная машина слот
+  не освобождает. Завершение или отмена запуска останавливают организмы (`WorkflowRunExecution.releaseOrganisms`),
+  пауза — нет. Организм адресует только владелец шага через `OrganismHost`; его идентификатор не раскрывается автору,
+  инструментам и другим сессиям. `harness:api` не зависит от `organic-ai:api`.
 - UI-методы (`ui.method`) вызывает нажатие пользователя в интерфейсах service-as-ui, без хода агента; одобрение кода
   их покрывает. Допуск в чате — подключение включённого харнесса к этому чату (`connectedAdmission`, сессию передаёт
   доверенный хост), без чата — работающая активация. `ScriptUiResult.Error` и слишком большой результат не считаются

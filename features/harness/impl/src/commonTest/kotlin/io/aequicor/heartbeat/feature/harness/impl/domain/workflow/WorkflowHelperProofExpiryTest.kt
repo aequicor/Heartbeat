@@ -90,6 +90,7 @@ internal class WorkflowHelperProofExpiryTest {
             workflow.storage,
             WorkflowCodeExecutor(NoCode, HarnessExecutionLane(dispatcher), Neutral, workflow.clock) { it },
             ports,
+            OrganismTestPorts().ports,
             Admitted,
             workflow.clock,
         ) {}

@@ -13,9 +13,10 @@ internal fun WorkflowRun.isMonotonicUpdateOf(old: WorkflowRun): Boolean {
         steps.filter { it.key !in previous }.all { it.attempt == 0 && !it.isTerminal }
 }
 
+/** The organism of a step is bound when the step is created; it never changes and never appears later. */
 private fun WorkflowStep.isProgressOf(old: WorkflowStep): Boolean = when {
     this == old -> true
-    old.isTerminal || promptSha != old.promptSha -> false
+    old.isTerminal || promptSha != old.promptSha || organism != old.organism -> false
     attempt == old.attempt + 1 -> phase == StepPhase.Prepared && request != null && request != old.request
     attempt != old.attempt || helper != old.helper || request != old.request -> false
     !matchesCapturedNative(old) -> false

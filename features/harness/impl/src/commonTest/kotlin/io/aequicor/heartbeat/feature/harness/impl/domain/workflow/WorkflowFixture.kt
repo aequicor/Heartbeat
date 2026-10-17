@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOutcome
 import io.aequicor.heartbeat.feature.harness.api.workflow.PinnedWorkflow
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
@@ -41,7 +42,12 @@ internal class WorkflowFixture {
         return WorkflowRunJournal(storage.load().single(), storage) { feedback += it }
     }
 
-    suspend fun engine(): WorkflowEngine {
+    /** Organism goals that reached the default organism owner; replay must not add to it. */
+    val organismGoals = mutableListOf<Pair<StepKey, String>>()
+
+    suspend fun engine(
+        organisms: (WorkflowRunJournal) -> WorkflowOrganismSteps = ::answeringOrganisms,
+    ): WorkflowEngine {
         val journal = journal()
         val agents = WorkflowAgentSteps { key, digest, prompt, _ ->
             journal.prepare(key, digest)
@@ -50,6 +56,16 @@ internal class WorkflowFixture {
             journal.complete(key, JsonPrimitive(result))
             result
         }
-        return WorkflowEngine(journal.state.value, journal, agents, clock) { it.encodeUtf8().sha256().hex() }
+        return WorkflowEngine(journal.state.value, journal, agents, organisms(journal), clock) {
+            it.encodeUtf8().sha256().hex()
+        }
+    }
+
+    private fun answeringOrganisms(journal: WorkflowRunJournal) = WorkflowOrganismSteps { key, digest, goal, _ ->
+        journal.prepare(key, digest)
+        organismGoals += key to goal
+        val outcome = OrganismOutcome.Answered("Organism: $goal")
+        journal.complete(key, checkNotNull(outcome.toJournal()))
+        outcome
     }
 }

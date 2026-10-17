@@ -19,12 +19,16 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperB
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperModels
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsEffects
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.ProfileWorkflowDrivers
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowCodeExecutor
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelperJournal
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelperPorts
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelperResources
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowLibraryEpoch
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowOrganismJournal
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowOrganismPorts
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowOrganismResources
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowRunAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowRunExecution
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
@@ -56,6 +60,13 @@ public object HarnessWorkflowBindings {
 
     @Provides
     @SingleIn(ProfileScope::class)
+    internal fun organismResources(
+        grants: WorkflowOrganismJournal,
+        organisms: OrganismHost,
+    ): WorkflowOrganismResources = WorkflowOrganismResources(grants, organisms)
+
+    @Provides
+    @SingleIn(ProfileScope::class)
     internal fun execution(
         storage: HarnessRunStorage,
         code: WorkflowCodeExecutor,
@@ -64,6 +75,8 @@ public object HarnessWorkflowBindings {
         helpers: HelperAgents,
         bindings: HarnessHelperBindings,
         models: HarnessHelperModels,
+        organismResources: WorkflowOrganismResources,
+        organisms: OrganismHost,
         access: WorkflowRunAccess,
         clock: Clock,
         machine: Lazy<HarnessRunsMachine>,
@@ -71,6 +84,7 @@ public object HarnessWorkflowBindings {
         storage,
         code,
         WorkflowHelperPorts(grants, resources, helpers, bindings, models),
+        WorkflowOrganismPorts(organismResources, organisms) { it.encodeUtf8().sha256().hex() },
         access,
         clock,
     ) { machine.value.send(it) }

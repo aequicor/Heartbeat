@@ -16,6 +16,8 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptSessions
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptUi
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflows
 import io.aequicor.heartbeat.feature.harness.api.workflow.AgentOptions
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOutcome
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowScope
@@ -105,6 +107,7 @@ private class ProbeWorkflowScope : WorkflowScope {
         return body()
     }
     override suspend fun agent(prompt: String, options: AgentOptions): String = unexpectedProbeService()
+    override suspend fun organism(goal: String, options: OrganismOptions): OrganismOutcome = unexpectedProbeService()
     override suspend fun parallel(vararg branches: suspend WorkflowScope.() -> JsonElement): List<JsonElement> =
         unexpectedProbeService()
     override suspend fun now(): Instant = unexpectedProbeService()

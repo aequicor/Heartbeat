@@ -32,6 +32,11 @@ public object HarnessLimits {
     public const val WAKES_PER_PROFILE: Int = 16
     public const val RUNS: Int = 4
     public const val HELPERS_PER_RUN: Int = 4
+
+    /** An organism itself runs up to 16 sessions, so a run owns one at a time and the profile two. */
+    public const val ORGANISMS_PER_RUN: Int = 1
+    public const val ORGANISMS_PER_PROFILE: Int = 2
+    public const val ORGANISM_GOAL_CHARS: Int = 20_000
     public const val STEPS: Int = 64
     public val RUN_TIME: Duration = 6.hours
     public const val FAILURES: Int = 5

@@ -153,7 +153,8 @@ class WorkflowEngineTest {
         val fixture = WorkflowFixture()
         val journal = fixture.journal()
         val unavailable = WorkflowAgentSteps { _, _, _, _ -> throw WorkflowExecutionUnavailable() }
-        val engine = WorkflowEngine(journal.state.value, journal, unavailable, fixture.clock) {
+        val noOrganism = WorkflowOrganismSteps { _, _, _, _ -> error("No organism") }
+        val engine = WorkflowEngine(journal.state.value, journal, unavailable, noOrganism, fixture.clock) {
             it.encodeUtf8().sha256().hex()
         }
         val log = Log.tag("WorkflowEngineTest")

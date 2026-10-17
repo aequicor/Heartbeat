@@ -35,6 +35,7 @@ kotlin {
             implementation(projects.features.harness.api)
             implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.aiEngine.facade.api)
+            implementation(projects.features.organicAi.api)
             implementation(projects.features.scheduler.api)
             implementation(projects.features.serviceAsUi.api)
             implementation(projects.features.worktreeMode.api)
