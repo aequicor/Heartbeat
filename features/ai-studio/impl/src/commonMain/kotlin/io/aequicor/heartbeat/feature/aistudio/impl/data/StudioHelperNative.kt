@@ -183,7 +183,10 @@ internal class StudioHelperNative(
                 TurnOutcome.Cancelled -> StudioHelperTerminalOutcome.Cancelled
                 TurnOutcome.Unknown -> StudioHelperTerminalOutcome.Unknown
             },
-            answerOf(items, turn, SchedulerLimits.MAX_PAYLOAD, isMarkedOnly = true).orEmpty(),
+            // Engines mark history with their own turn ids, which differ from the facade turn (Koog), so only a turn
+            // that completed may fall back to the messages after its prompt; any other outcome needs exact marks.
+            answerOf(items, turn, SchedulerLimits.MAX_PAYLOAD, isMarkedOnly = outcome != TurnOutcome.Completed)
+                .orEmpty(),
         )
 
     private suspend fun <T> evidence(block: suspend () -> T?): T? = try {
