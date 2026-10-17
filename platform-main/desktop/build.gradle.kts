@@ -50,11 +50,12 @@ val heartbeatApplicationVersion = providers.gradleProperty("heartbeat.version").
 }
 // The testing flavor (-Pheartbeat.flavor=testing) is a release build for end-to-end checks: its launcher keeps
 // credentials in the local development files, so a test run never asks for Keychain, DPAPI or Secret Service. Only its
-// application name (not on Linux) and macOS bundle id differ: it is not isolated from an installed Heartbeat and
-// shares the data root, the single-instance lock, the logs and the Native Messaging registration with it, so it opens
-// the real profiles (their secrets are not in the development files). Run it where no Heartbeat is installed or
-// running. Release workflows never pass it. Its installers are refused below: on Linux (package name) and Windows
-// (Inno Setup AppId and file names) they would reuse the production names, on macOS the refusal is conservative.
+// application name and macOS bundle id differ: it is not isolated from an installed Heartbeat and shares the data
+// root, the single-instance lock, the logs and the Native Messaging registration with it, so it opens the real
+// profiles (their secrets are not in the development files). Run it where no Heartbeat is installed or running.
+// Release workflows never pass it. Its installers are refused below: the Linux package name (--linux-package-name) and
+// the Windows Inno Setup AppId, install directory and installer file name stay those of Heartbeat, on macOS the
+// refusal is conservative.
 val heartbeatFlavor = providers.gradleProperty("heartbeat.flavor").orNull.also { flavor ->
     require(flavor == null || flavor == "testing") { "heartbeat.flavor must be testing: $flavor" }
 }
