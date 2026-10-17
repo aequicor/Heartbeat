@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 public val EngineConfigurationEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "ai.engine_configuration",
     "Настройка ИИ-движков через панель управления: настройки, инструкции, ресурсы, MCP",
-    default = false,
+    default = true,
 )
 
 /**

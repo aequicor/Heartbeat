@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -60,9 +59,9 @@ class BrowserMachineTest {
     }
 
     @Test
-    fun `agent control is on and research access starts disabled`() {
+    fun `agent control and research access start enabled`() {
         assertTrue(BrowserAgentControl.default)
-        assertFalse(BrowserResearchAccess.default)
+        assertTrue(BrowserResearchAccess.default)
     }
 
     @Test

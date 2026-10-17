@@ -39,7 +39,7 @@ class ResearchChatIntegrationTest {
     private val target = EngineTarget(EngineId("koog"), EngineBindingId("research-test"), ModelId("model"))
 
     @Test
-    fun `flag is registered off and restoring a profile retains questions with correct source scope`() = runTest {
+    fun `flag is on by default and restoring a profile retains questions with correct source scope`() = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val persisted = PersistedProfile()
         val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)
@@ -107,7 +107,7 @@ class ResearchChatIntegrationTest {
     private suspend fun enableResearch(app: TestAppGraph) {
         val flags = (app as TestToggleAccessors).toggleControl
         assertTrue(flags.registered.contains(ResearchChatEnabled))
-        assertEquals(false, ResearchChatEnabled.default)
+        assertEquals(true, ResearchChatEnabled.default)
         flags.setOverride(ResearchChatEnabled, true)
         flags.setOverride(KoogEngineEnabled, true)
         flags.setOverride(AttachmentsEnabled, true)

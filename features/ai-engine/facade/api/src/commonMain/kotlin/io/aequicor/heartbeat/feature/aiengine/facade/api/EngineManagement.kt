@@ -14,7 +14,7 @@ import kotlin.time.Instant
 public val EngineManagementEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "ai.engine_management",
     "Управление ИИ-движками: установка, вход, параметры запуска",
-    default = false,
+    default = true,
 )
 
 /**

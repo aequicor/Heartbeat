@@ -16,7 +16,7 @@ public val BrowserResearchAccess: FeatureToggle.Flag =
     FeatureToggle.Flag(
         "browser.research_access",
         "Загрузка источников через встроенный браузер",
-        default = false,
+        default = true,
     )
 
 /** Display mode does not own native browser lifetime. */

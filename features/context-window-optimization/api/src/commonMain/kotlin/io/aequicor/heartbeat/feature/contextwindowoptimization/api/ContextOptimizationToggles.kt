@@ -28,6 +28,7 @@ public val ContextRolloverEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val ContextLedgerEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "context_optimization.ledger_tools",
     "Журнал прогресса сессии и инструменты агента context_*",
+    default = true,
 )
 
 /** Observation masking of older tool results in prompts that engines rebuild every turn (Koog). */
@@ -49,6 +50,7 @@ public val ContextOffloadEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val ContinuationBriefEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "context_optimization.continuation_brief",
     "Бриф продолжения после сжатия: сообщения пользователя, выжимка работы и последний ход",
+    default = true,
 )
 
 /** Names of the agent's hosted context tools. */
