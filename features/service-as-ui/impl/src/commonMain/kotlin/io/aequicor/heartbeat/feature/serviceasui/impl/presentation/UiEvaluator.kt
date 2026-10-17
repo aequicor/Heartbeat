@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.GapUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.NativeWidgetUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.OptionUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.PairUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.QuickActionUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.RowUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.TextStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ToneUi
@@ -25,7 +26,9 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiModal
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiPress
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.WebHeightUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.quickActionOrigin
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -56,6 +59,34 @@ internal class UiEvaluator(private val spec: UiSpec) {
             pass.node(modal.body, "m.$name", UiScope(args = values.args)),
             modal.isWide,
         )
+    }
+
+    /**
+     * The quick actions of the spec drawn with [values], in declared order. An action whose `visibleWhen` is falsy is
+     * left out, `enabledWhen` only disables it. Texts are bounded by [UiSpecLimits.QUICK_ACTION_CHARS]; bindings read
+     * the same data, state and facts as the body but never an `item`.
+     */
+    @HighFrequency
+    fun quickActions(values: UiValues): ImmutableList<QuickActionUi> {
+        if (spec.quickActions.isEmpty()) return persistentListOf()
+        val bindings = UiBindings(values, templates)
+        val scope = UiScope()
+        return spec.quickActions.asSequence()
+            .filter { quick -> quick.visibleWhen?.let { bindings.isTrue(it, scope) } ?: true }
+            .map { quick ->
+                val origin = quickActionOrigin(quick.id)
+                QuickActionUi(
+                    id = quick.id,
+                    label = bindings.text(quick.label, scope, UiSpecLimits.QUICK_ACTION_CHARS),
+                    style = quick.style.ui(),
+                    icon = quick.icon,
+                    isEnabled = quick.enabledWhen?.let { bindings.isTrue(it, scope) } ?: true,
+                    isBusy = origin in values.busy,
+                    confirm = quick.confirm?.let { bindings.text(it, scope, UiSpecLimits.QUICK_ACTION_CHARS) },
+                    press = UiPress(origin, quick.action, scope),
+                )
+            }
+            .toImmutableList()
     }
 
     /** Bindings over [values], for actions evaluated when they run. */

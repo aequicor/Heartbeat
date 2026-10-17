@@ -205,6 +205,7 @@ internal class SurfaceModel(
         return state.copy(
             root = evaluator.body(state.values),
             modal = top?.let { evaluator.modal(it.name, state.values.copy(args = it.args)) },
+            quickActions = evaluator.quickActions(state.values),
         )
     }
 

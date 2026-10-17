@@ -425,6 +425,48 @@ class SurfaceModelTest {
         assertEquals("5 open PRs", assertIs<UiNodeUi.Text>(column(screen).children[0]).text)
     }
 
+    @Test
+    fun `quick actions follow data and state and a running one is busy until its call ends`() = runTest {
+        val fixture = Fixture(this, available = true, specText = QUICK_SPEC)
+        val screen = fixture.subscribe()
+        runCurrent()
+
+        assertEquals(listOf("advance", "wait"), screen.states.value.quickActions.map { it.id })
+        assertEquals("Advance plan (2)", screen.states.value.quickActions.first().label)
+        screen.intent(SurfaceIntent.Input("stage", JsonPrimitive("build")))
+        runCurrent()
+        assertEquals("Advance build (2)", screen.states.value.quickActions.first().label)
+
+        val gate = CompletableDeferred<UiMethodResult>()
+        fixture.calls.next = { gate.await() }
+        screen.intent(SurfaceIntent.Press(screen.states.value.quickActions.first().press))
+        runCurrent()
+        assertTrue(screen.states.value.quickActions.first().isBusy)
+        assertFalse(screen.states.value.quickActions.last().isBusy)
+        gate.complete(UiMethodResult.Success(JsonPrimitive("review")))
+        runCurrent()
+
+        assertFalse(screen.states.value.quickActions.first().isBusy)
+        assertEquals("prs" to JsonObject(mapOf("stage" to JsonPrimitive("build"))), fixture.calls.made.last())
+        assertEquals("Advance review (2)", screen.states.value.quickActions.first().label)
+        assertEquals(emptyList(), fixture.host.prompts)
+    }
+
+    @Test
+    fun `a spec without quick actions has none and they follow visibility`() = runTest {
+        val plain = Fixture(this, available = true).subscribe()
+        runCurrent()
+        assertEquals(emptyList(), plain.states.value.quickActions)
+
+        val fixture = Fixture(this, available = true, specText = QUICK_SPEC)
+        val screen = fixture.subscribe()
+        runCurrent()
+        screen.intent(SurfaceIntent.Input("stage", JsonPrimitive("")))
+        runCurrent()
+
+        assertEquals(listOf("wait"), screen.states.value.quickActions.map { it.id })
+    }
+
     private fun column(screen: SurfaceProvider) = assertIs<UiNodeUi.Column>(screen.states.value.root)
 
     private fun button(screen: SurfaceProvider, index: Int) = assertIs<UiNodeUi.Button>(column(screen).children[index])
@@ -559,6 +601,17 @@ class SurfaceModelTest {
     }
 
     private companion object {
+        val QUICK_SPEC = """
+            {"version":1,"state":{"stage":"plan"},
+             "data":{"prs":{"method":"prs"}},
+             "quickActions":[
+               {"id":"advance","label":"Advance {{state.stage}} ({{data.prs.count}})","style":"primary",
+                "visibleWhen":"{{state.stage}}",
+                "action":{"type":"call","method":"prs","args":{"stage":"{{state.stage}}"},"into":"stage"}},
+               {"id":"wait","label":"Wait","action":{"type":"reload","source":"prs"}}],
+             "body":{"type":"text","text":"{{state.stage}}"}}
+        """.trimIndent()
+
         val SPEC = """
             {"version":1,"state":{"filter":"open","last":null},
              "data":{"prs":{"method":"prs","args":{"state":"{{state.filter}}"}}},

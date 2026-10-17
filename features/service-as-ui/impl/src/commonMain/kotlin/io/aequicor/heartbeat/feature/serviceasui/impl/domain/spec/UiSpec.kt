@@ -11,7 +11,8 @@ internal const val UI_SPEC_VERSION: Int = 1
 /**
  * A declarative surface: initial local [state], [data] sources filled by owner methods, named [modals] and the root
  * [body]. Strings may hold `{{path}}` bindings (see [UiTemplate]); input `bind`, `set.key` and `call.into` name
- * state keys directly.
+ * state keys directly. [quickActions] are the contextual actions of a canonical `card` app that the host may draw
+ * outside its body; the field is absent from specs that declare none, so older specs are read and stored unchanged.
  */
 @Serializable
 internal data class UiSpec(
@@ -20,11 +21,32 @@ internal data class UiSpec(
     val state: Map<String, JsonElement> = emptyMap(),
     val data: Map<String, UiDataSource> = emptyMap(),
     val modals: Map<String, UiModal> = emptyMap(),
+    val quickActions: List<UiQuickAction> = emptyList(),
     val body: UiNode,
 ) {
     override fun toString(): String =
-        "UiSpec(version=$version, state=${state.size}, data=${data.size}, modals=${modals.size})"
+        "UiSpec(version=$version, state=${state.size}, data=${data.size}, modals=${modals.size}, " +
+            "quickActions=${quickActions.size})"
 }
+
+/**
+ * One contextual action of an app, drawn by the host as a button next to the chat input. [id] is unique in the spec
+ * and names the button in logs and in its busy state; [label] is required, since it names the button for screen
+ * readers. [visibleWhen] hides the action while the binding is falsy, [enabledWhen] shows it disabled, [confirm]
+ * is a question asked first. [action] may only call an owner method, reload a data source or set local state (alone
+ * or in a `sequence`): actions that need the surface's own screen would otherwise replace the user's draft.
+ */
+@Serializable
+internal data class UiQuickAction(
+    val id: String,
+    val label: String,
+    val action: UiAction,
+    val style: UiButtonStyle = UiButtonStyle.Secondary,
+    val icon: String? = null,
+    val visibleWhen: String? = null,
+    val enabledWhen: String? = null,
+    val confirm: String? = null,
+)
 
 /** Fills `data.<name>` with the result of the owner [method] called with [args] (strings may hold bindings). */
 @Serializable
