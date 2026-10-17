@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
@@ -160,10 +161,21 @@ class ManagedActiveSession(
             log.w { "close after profile shutdown; runtime already released" }
             return
         }
-        val settled = untilStopped {
-            machine.state.first {
-                it == ActiveSessionState.Closed || (it is ActiveSessionState.Closing && it.failure != null)
+        awaitClosed()
+    }
+
+    /** Waits until the release is confirmed; a failed release is reported, the end of the scope is not one. */
+    private suspend fun awaitClosed() {
+        val settled = try {
+            untilStopped {
+                machine.state.first {
+                    it == ActiveSessionState.Closed || (it is ActiveSessionState.Closing && it.failure != null)
+                }
             }
+        } catch (e: EngineException) {
+            // The handle scope ends together with the release, so its end can be seen before the Closed state is.
+            if (machine.state.value == ActiveSessionState.Closed) return
+            throw e
         }
         (settled as? ActiveSessionState.Closing)?.failure?.let { fail(it) }
     }

@@ -335,6 +335,22 @@ class ManagedActiveSessionTest {
     }
 
     @Test
+    fun `close succeeds when the handle scope ends right after the release`() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val native = FakeNativeSession().apply { closeGate = gate }
+        val (session, handle) = open(RouteFixture(this), native)
+
+        val closing = async { session.close() }
+        runCurrent()
+        gate.complete(Unit)
+        runCurrent()
+
+        closing.await()
+        assertEquals(ActiveSessionState.Closed, session.state.value)
+        assertTrue(handle.isClosed)
+    }
+
+    @Test
     fun `turns started elsewhere are adopted through reconciliation`() = runTest {
         val native = FakeNativeSession()
         val (session, _) = open(RouteFixture(this), native)
