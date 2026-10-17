@@ -185,11 +185,18 @@ internal class JvmClaudeBackend(
         )
     }
 
-    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
+    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime =
+        open(identity, isRouteRequired = true)
+
+    /**
+     * The pooled runtime of [identity]. Only a stored session opens without a bound route ([isRouteRequired] is
+     * false): its identity comes from this profile's own catalog, and routes live in memory, so after a restart
+     * they are empty until the facade binds them again, which it does before it resumes or sends anything.
+     */
+    private suspend fun open(identity: RuntimeIdentity, isRouteRequired: Boolean): ClaudeRuntime = mutex.withLock {
         enabled()
-        if (identity.engine != ClaudeEngine.Id ||
-            (identity.source != ClaudeEngine.AuthSource && identity.source !in routes.values)
-        ) {
+        val isRouteKnown = identity.source == ClaudeEngine.AuthSource || identity.source in routes.values
+        if (identity.engine != ClaudeEngine.Id || (isRouteRequired && !isRouteKnown)) {
             log.w { "Claude runtime requested for a foreign identity" }
             authFailure(AuthFailureReason.AuthMismatch)
         }
@@ -234,8 +241,7 @@ internal class JvmClaudeBackend(
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
         val identity = RuntimeIdentity(record.route.engine, record.route.authSource, record.route.revision)
-        val owner = createRuntime(identity) as ClaudeRuntime
-        return owner.stored(ref)
+        return open(identity, isRouteRequired = false).stored(ref)
     }
 
     private suspend fun enabled() {
