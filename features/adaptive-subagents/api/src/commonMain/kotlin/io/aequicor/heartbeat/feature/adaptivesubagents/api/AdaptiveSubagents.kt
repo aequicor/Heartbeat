@@ -19,6 +19,7 @@ public val AdaptiveSubagentsEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val AdaptiveSubagentsResearch: FeatureToggle.Flag = FeatureToggle.Flag(
     "adaptive_subagents.research",
     "Автоописание моделей ресерчем",
+    default = true,
 )
 
 /** The LLM router choosing among the shortlist by the task text; off — scoring alone decides. */

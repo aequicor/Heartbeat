@@ -33,7 +33,7 @@ public val KoogEngineEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val KoogReasoningCatalogEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "ai.koog.reasoning_catalog",
     "Koog: каталог models.dev для уровней effort",
-    default = false,
+    default = true,
 )
 
 /**
