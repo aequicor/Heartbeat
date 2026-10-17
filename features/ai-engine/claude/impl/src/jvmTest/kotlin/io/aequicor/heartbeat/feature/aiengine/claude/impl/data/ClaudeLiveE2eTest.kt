@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
@@ -15,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
@@ -30,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
@@ -90,6 +93,7 @@ import kotlin.time.Duration.Companion.seconds
  * regular `jvmTest` skips the class.
  */
 class ClaudeLiveE2eTest {
+    private val log = Log.tag("ClaudeLiveE2e")
     private val job = SupervisorJob()
     private val scope = CoroutineScope(job + Dispatchers.IO)
     private lateinit var workspaceDirectory: Path
@@ -401,6 +405,61 @@ class ClaudeLiveE2eTest {
         runtime.close()
     }
 
+    @Test
+    fun `a cli process killed during a turn ends the turn and the session recovers`() = live { fixture ->
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(target()))
+        val turn = session.say("Write the numbers from 1 to 400, one per line, with a short sentence after each.")
+        session.state.first { it is ActiveSessionState.Running }
+        ProcessHandle.current().descendants()
+            .filter { it.info().command().orElse("").contains("claude") }
+            .forEach { it.destroyForcibly() }
+        // The turn's outcome is unknown, so the handle waits for a reconciliation instead of resending anything.
+        val unavailable = withTimeout(TURN_TIMEOUT) {
+            session.state.first { it is ActiveSessionState.Unavailable || it is ActiveSessionState.Ready }
+        }
+        observe("after the kill: ${unavailable::class.simpleName}")
+        if (unavailable is ActiveSessionState.Unavailable) session.features.available(ReconcilesSession).synchronize()
+        val outcome = session.finished(turn)
+        observe("killed turn outcome: $outcome")
+        assertTrue(outcome != null && outcome != TurnOutcome.Completed, "a killed turn is not a success: $outcome")
+        val next = session.say("Reply with exactly the single word READY.")
+        assertEquals(TurnOutcome.Completed, session.finished(next))
+        assertTrue(session.transcript().last { it.role == MessageRole.Assistant }.text.uppercase().contains("READY"))
+        runtime.close()
+    }
+
+    @Test
+    fun `a cli killed before it opens the session leaves a handle that can be used again`() = live { fixture ->
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(target()))
+        val turn = session.say("Write the numbers from 1 to 400, one per line, with a short sentence after each.")
+        var killed = false
+        var attempts = 0
+        while (!killed && attempts++ < KILL_POLLS) {
+            ProcessHandle.current().descendants()
+                .filter { it.isAlive && it.info().command().orElse("").contains("claude") }
+                .forEach { killed = it.destroyForcibly() || killed }
+            if (!killed) delay(10.milliseconds)
+        }
+        assertTrue(killed, "a CLI process was started")
+        val settled = withTimeout(TURN_TIMEOUT) {
+            session.state.first { it is ActiveSessionState.Unavailable || it is ActiveSessionState.Ready }
+        }
+        observe("early kill settled: ${settled::class.simpleName} $settled".take(400))
+        try {
+            session.features.available(ReconcilesSession).synchronize()
+            observe("early kill reconciled; state=${session.state.value::class.simpleName}")
+        } catch (e: EngineException) {
+            log.w(e) { "the reconciliation of a killed session was refused" }
+            observe("early kill reconcile refused: ${e.failure}")
+        }
+        val next = session.say("Reply with exactly the single word READY.")
+        assertEquals(TurnOutcome.Completed, session.finished(next))
+        observe("early kill: the next prompt on the same handle completed (turn $turn)")
+        runtime.close()
+    }
+
     /** A white PNG with [text] in large black letters, drawn headless. */
     private fun pngWithText(text: String): ByteArray {
         val image = BufferedImage(IMAGE_WIDTH, IMAGE_HEIGHT, BufferedImage.TYPE_INT_RGB)
@@ -584,5 +643,6 @@ class ClaudeLiveE2eTest {
         val SCENARIO_TIMEOUT = 360.seconds
         val PROCESS_EXIT_POLL = 500.milliseconds
         const val PROCESS_EXIT_POLLS = 20
+        const val KILL_POLLS = 400
     }
 }

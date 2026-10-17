@@ -16,23 +16,34 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -56,6 +67,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
@@ -236,6 +248,125 @@ class ClaudeLiveGraphE2eTest {
     }
 
     @Test
+    fun `engine management shows the desktop installation with its login and applies launch settings`() = runBlocking {
+        withTimeout(SCENARIO_TIMEOUT) {
+            val profile = openProfile(EngineManagementEnabled)
+            val management = profile.management
+            fun EngineManagementState.claude() = engines.single { it.descriptor.id == ClaudeEngine.Id }
+            management.state.first {
+                it.isEnabled &&
+                    it.engines.any { engine -> engine.descriptor.id == ClaudeEngine.Id }
+            }
+
+            // Inspection only reads the installation and the CLI login; nothing is installed or signed in.
+            management.execute(ClaudeEngine.Id, EngineCommand.Inspect)
+            val inspected = management.state.first { it.claude().installation.current != null }.claude()
+            observe("inspected: ${inspected.installation.current} login=${inspected.login}")
+            assertEquals(InstallSource.System, inspected.installation.current?.source)
+            assertTrue(!inspected.installation.current?.version.isNullOrBlank(), "the CLI version is known")
+            assertIs<LoginState.SignedIn>(inspected.login, "the desktop login is seen: ${inspected.login}")
+
+            management.execute(ClaudeEngine.Id, EngineCommand.CheckForUpdates)
+            val checked = management.state.first { it.claude().installation.checkedAt != null }.claude()
+            observe("update check: latest=${checked.installation.latest} failure=${checked.installation.failure}")
+            assertTrue(checked.installation.failure == null, "the update check works: ${checked.installation.failure}")
+            assertTrue(!checked.installation.latest.isNullOrBlank(), "the newest release is known")
+
+            val missing = File(persisted.storageRoot, "no-such-claude").path
+            management.execute(ClaudeEngine.Id, EngineCommand.Configure(LaunchSettings(executable = missing)))
+            val configured = management.state.first { it.claude().launch.settings.executable == missing }.claude()
+            assertTrue(
+                configured.launch.warnings.any { it.option == LaunchOption.Executable },
+                "a missing executable is flagged: ${configured.launch.warnings}",
+            )
+            val unavailable = profile.facade.engines.refresh(ClaudeEngine.Id).availability
+            assertIs<EngineAvailability.Unavailable>(unavailable, "a missing custom executable is not started")
+
+            management.execute(ClaudeEngine.Id, EngineCommand.Configure(LaunchSettings()))
+            management.state.first { it.claude().launch.settings == LaunchSettings() }
+            assertEquals(EngineAvailability.Available, profile.facade.engines.refresh(ClaudeEngine.Id).availability)
+
+            management.execute(ClaudeEngine.Id, EngineCommand.SetEnabled(false))
+            management.state.first { !it.claude().enablement.isEnabled }
+            management.execute(ClaudeEngine.Id, EngineCommand.SetEnabled(true))
+            assertTrue(management.state.first { it.claude().enablement.isEnabled }.isEnabled)
+        }
+    }
+
+    @Test
+    fun `closing the app stops a running turn and leaves no CLI process`() = runBlocking {
+        withTimeout(SCENARIO_TIMEOUT) {
+            val profile = openProfile()
+            val target = profile.connect()
+            val chat = profile.facade.engines.features(ClaudeEngine.Id).available(CreatesSessions)
+                .create(CreateSessionRequest(target))
+            chat.say("Write the numbers from 1 to 400, one per line, with a short sentence after each.")
+            chat.state.first { it is ActiveSessionState.Running }
+            profile.close()
+            var attempts = 0
+            while (claudeProcesses().isNotEmpty() && attempts++ < PROCESS_EXIT_POLLS) delay(PROCESS_EXIT_POLL)
+            assertTrue(claudeProcesses().isEmpty(), "the CLI stopped with the app: ${claudeProcesses()}")
+        }
+    }
+
+    @Test
+    fun `a CLI home without a login is reported as signed out and the engine recovers with the default home`() =
+        runBlocking {
+            withTimeout(SCENARIO_TIMEOUT) {
+                val profile = openProfile(EngineManagementEnabled)
+                val target = profile.connect()
+                val emptyHome = File(persisted.storageRoot, "empty-claude-home").apply { mkdirs() }.path
+                profile.management.execute(
+                    ClaudeEngine.Id,
+                    EngineCommand.Configure(LaunchSettings(homeDirectory = emptyHome)),
+                )
+                val login = profile.claudeAuthentication.inspect()
+                observe("signed-out login: ${login.check.verdict}")
+                assertEquals(AuthVerdict.NeedsLogin, login.check.verdict, "an empty home has no login: ${login.check}")
+                val refused = assertFailsWith<EngineException>("model discovery refuses a signed-out CLI") {
+                    profile.facade.models.refresh(ClaudeEngine.Id, target.binding)
+                }
+                observe("signed-out model discovery: ${refused.failure}")
+
+                profile.management.execute(ClaudeEngine.Id, EngineCommand.Configure(LaunchSettings()))
+                assertEquals(AuthVerdict.Authenticated, profile.claudeAuthentication.inspect().check.verdict)
+                assertTrue(profile.facade.models.refresh(ClaudeEngine.Id, target.binding).models.isNotEmpty())
+            }
+        }
+
+    @Test
+    fun `a CLI killed before its first frame leaves a handle its owner reconciles and keeps working`() = runBlocking {
+        withTimeout(SCENARIO_TIMEOUT) {
+            val profile = openProfile()
+            val target = profile.connect()
+            val chat = profile.facade.engines.features(ClaudeEngine.Id).available(CreatesSessions)
+                .create(CreateSessionRequest(target))
+            val turn = chat.say("Write the numbers from 1 to 400, one per line, with a short sentence after each.")
+            chat.state.first { it is ActiveSessionState.Running }
+            // The state flips on acceptance; the process may start a moment later.
+            var killed = emptyList<ProcessHandle>()
+            var attempts = 0
+            while (killed.isEmpty() && attempts++ < KILL_POLLS) {
+                delay(PROCESS_EXIT_POLL)
+                killed = claudeProcesses().onEach { it.destroyForcibly() }
+            }
+            assertTrue(killed.isNotEmpty(), "a CLI process was running to kill")
+            // The turn's outcome is unknown, so the handle waits for the owner to reconcile it, as a screen does.
+            withTimeout(RECONCILE_TIMEOUT) { chat.state.first { it is ActiveSessionState.Unavailable } }
+            chat.features.available(ReconcilesSession).synchronize()
+            val ready = withTimeout(RECONCILE_TIMEOUT) { chat.state.first { it is ActiveSessionState.Ready } }
+            observe("facade handle reconciled: ${assertIs<ActiveSessionState.Ready>(ready).lastTurn?.outcome}")
+            assertTrue(assertIs<ActiveSessionState.Ready>(ready).lastTurn?.id == turn)
+            val next = sayWhenIdle(chat, "Reply with exactly the single word READY.")
+            chat.finished(next)
+            assertTrue(
+                chat.transcript().last { it.first == MessageRole.Assistant }.second.uppercase().contains("READY"),
+            )
+            chat.close()
+        }
+    }
+
+    @Test
     fun `switching the toggle off hides the engine and refuses its probes`() = runBlocking {
         withTimeout(SCENARIO_TIMEOUT) {
             val profile = openProfile()
@@ -244,13 +375,10 @@ class ClaudeLiveGraphE2eTest {
             engines.state.first { list -> list.any { it.descriptor.id == ClaudeEngine.Id } }
             (graphs.last() as TestToggleAccessors).toggleControl.setOverride(ClaudeEngine.Enabled, false)
             engines.state.first { list -> list.none { it.descriptor.id == ClaudeEngine.Id } }
-            val failure = try {
+            val refused = assertFailsWith<EngineException>("a disabled engine refuses its probe") {
                 engines.refresh(ClaudeEngine.Id)
-                null
-            } catch (e: EngineException) {
-                e.failure
             }
-            assertTrue(failure != null, "a disabled engine refuses its probe")
+            observe("disabled engine probe: ${refused.failure}")
         }
     }
 
@@ -281,6 +409,7 @@ class ClaudeLiveGraphE2eTest {
             services,
             (session.graph as ClaudeAuthenticationAccessor).claudeAuthentication,
             (session.graph as AiEngineTestAccessors).localWorkspaces,
+            (session.graph as AiEngineTestAccessors).engineManagement,
             app,
         )
     }
@@ -289,6 +418,7 @@ class ClaudeLiveGraphE2eTest {
         private val services: EngineServices,
         val claudeAuthentication: ClaudeAuthentication,
         val workspaces: LocalWorkspaces,
+        val management: EngineManagement,
         private val app: TestAppGraph,
     ) {
         val facade get() = services.facade
@@ -313,6 +443,23 @@ class ClaudeLiveGraphE2eTest {
     }
 
     private var permissionsSeen = 0
+
+    /**
+     * Sends right after a reconciliation: the facade may still be finishing a second pass of it and answers Busy
+     * for a moment, so the prompt is retried for a bounded time.
+     */
+    private suspend fun sayWhenIdle(session: ActiveSession, text: String): TurnId {
+        var attempts = 0
+        while (true) {
+            try {
+                return session.say(text)
+            } catch (e: EngineException) {
+                if (e.failure != EngineFailure.Session(SessionFailureReason.Busy) || attempts++ >= BUSY_RETRIES) throw e
+                observe("send right after the reconciliation was busy (attempt $attempts)")
+                delay(PROCESS_EXIT_POLL)
+            }
+        }
+    }
 
     private suspend fun ActiveSession.say(
         text: String,
@@ -370,5 +517,8 @@ class ClaudeLiveGraphE2eTest {
         val SCENARIO_TIMEOUT = 420.seconds
         val PROCESS_EXIT_POLL = 500.milliseconds
         const val PROCESS_EXIT_POLLS = 20
+        const val KILL_POLLS = 40
+        const val BUSY_RETRIES = 10
+        val RECONCILE_TIMEOUT = 30.seconds
     }
 }
