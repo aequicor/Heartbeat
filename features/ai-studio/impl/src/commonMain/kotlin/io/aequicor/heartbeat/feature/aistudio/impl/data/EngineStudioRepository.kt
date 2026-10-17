@@ -426,7 +426,8 @@ internal class EngineStudioRepository(
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
         requireBrowserHostSupport(record(sessionId), environment)
-        return organisms.submit(record(sessionId), prompt, settings, attachments, onAccepted) ?: launchRun(
+        val organism = organisms.submit(record(sessionId), prompt, settings, attachments, submissionId, onAccepted)
+        return organism ?: launchRun(
             sessionId,
             prompt,
             settings,

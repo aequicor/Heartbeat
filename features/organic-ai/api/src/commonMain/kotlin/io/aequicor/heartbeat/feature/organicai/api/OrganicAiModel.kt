@@ -79,6 +79,12 @@ public object OrganismBounds {
 
     /** Characters of a cell result kept and passed to its parent; a longer answer is cut by the host. */
     public const val MAX_RESULT: Int = 20_000
+
+    /** Harnesses one organism carries; the harness library admits as many to a single session. */
+    public const val MAX_HARNESSES: Int = 8
+
+    /** Characters of one harness id; ids are opaque to the organism. */
+    public const val MAX_HARNESS_ID: Int = 128
 }
 
 /**
@@ -132,11 +138,21 @@ public data class Conception(
     val limits: GrowthLimits = GrowthLimits(),
     /** Profile-owned inputs of the goal, supplied with every cell's genesis (including recovery). */
     val attachments: List<ResourceRef> = emptyList(),
+    /**
+     * Harnesses the user chose for this organism before it existed, as the studio composer claimed them. The
+     * organism records them and every working cell opens its session with them; judges never get them. Only a choice
+     * made through host UI belongs here, never ids read from a prompt, a model answer or a tool argument.
+     */
+    val harnesses: Set<String> = emptySet(),
 ) {
     init {
         require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
             "Invalid organism goal"
         }
+        require(
+            harnesses.size <= OrganismBounds.MAX_HARNESSES &&
+                harnesses.all { it.isNotBlank() && it.length <= OrganismBounds.MAX_HARNESS_ID },
+        ) { "Invalid organism harnesses" }
     }
 
     override fun toString(): String = "Conception(id=${id.value}, goal=${goal.length} chars)"
@@ -165,6 +181,12 @@ public data class Organism(
     val version: Long = 0,
     /** Original goal inputs; only references are journaled, never file bytes or native paths. */
     val attachments: List<ResourceRef> = emptyList(),
+    /**
+     * The harness choice of its [Conception], fixed for the organism's life: every working cell, however it came to
+     * be, runs on exactly these, so a cell can never widen or narrow the environment. A journal written before
+     * harnesses existed reads as none.
+     */
+    val harnesses: Set<String> = emptySet(),
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }
@@ -372,6 +394,13 @@ public sealed interface Breakdown {
     /** The engine could not confirm how the turn ended and its history holds no answer. */
     @Serializable
     public data object Unconfirmed : Breakdown
+
+    /**
+     * The harnesses chosen for the organism ([Organism.harnesses]) could not be connected to the cell's session, so
+     * no prompt was sent: a turn never runs in a smaller environment than the user chose.
+     */
+    @Serializable
+    public data object Harnesses : Breakdown
 }
 
 /** Why a cell ended without an answer. */

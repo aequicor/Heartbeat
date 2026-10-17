@@ -52,12 +52,13 @@ class OrganicAiEffectsTest {
     private val journal = Journal()
     private val cells = Cells()
     private val judges = Judges()
+    private val harnesses = Harnesses()
     private val transcripts = SessionTranscripts { listOf(message(MessageRole.Assistant, "looping again")) }
     private val effects = OrganicAiEffects(
         journal,
         { TARGET },
         cells,
-        CellDriver(cells, journal),
+        CellDriver(cells, journal, harnesses),
         ImmunityCourt(judges, transcripts),
     )
     private val machine = Recorder()
@@ -169,6 +170,81 @@ class OrganicAiEffectsTest {
     }
 
     @Test
+    fun `a cell opens with the harnesses of its organism and connects them before its prompt`() = runTest {
+        val chosen = setOf("compose", "verify")
+        val germinating = organism(cell(C1).copy(session = null)).copy(harnesses = chosen)
+        cells.handle.onSubmit = { assertEquals(listOf(cells.handle.session to chosen), harnesses.connected) }
+        effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
+        assertEquals(chosen, cells.routes.single().harnesses)
+        assertEquals(listOf(cells.handle.session to chosen), harnesses.connected)
+        assertEquals(1, cells.handle.submitted.size)
+    }
+
+    @Test
+    fun `every cell of an organism runs on the same choice whoever divided it`() = runTest {
+        val chosen = setOf("compose")
+        val family = organism(cell(C1), cell(C2, parent = C1)).copy(harnesses = chosen)
+        effects.handle(OrganicAiEffect.DriveCells(family, listOf(ZYGOTE, C1, C2)), machine)
+        assertEquals(listOf(chosen, chosen, chosen), cells.routes.map { it.harnesses })
+        assertEquals(3, harnesses.connected.size)
+    }
+
+    @Test
+    fun `an organism without harnesses connects nothing and opens plain cells`() = runTest {
+        effects.handle(OrganicAiEffect.Drive(organism(cell(C1)), C1, request(C1)), machine)
+        assertEquals(emptySet(), cells.routes.single().harnesses)
+        assertEquals(emptyList(), harnesses.connected)
+        assertEquals(1, cells.handle.submitted.size)
+    }
+
+    @Test
+    fun `a harness that cannot be connected breaks the turn before any prompt`() = runTest {
+        harnesses.failure = IllegalStateException("A harness chosen for the organism could not be connected")
+        val germinating = organism(cell(C1).copy(session = null)).copy(harnesses = setOf("compose"))
+        effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
+        assertEquals(emptyList(), cells.handle.submitted)
+        assertEquals(emptyList(), journal.saved)
+        assertEquals(
+            listOf<OrganicAiIntent>(
+                OrganicAiIntent.Internal.SessionBound(ORGANISM, C1, request(C1), cells.handle.session),
+                OrganicAiIntent.Internal.TurnSettled(ORGANISM, C1, request(C1), Settlement.Broke(Breakdown.Harnesses)),
+            ),
+            machine.sent,
+        )
+    }
+
+    @Test
+    fun `a recovery turn connects again but adopting a running turn does not`() = runTest {
+        val chosen = setOf("compose")
+        val recovering = organism(cell(C1, phase = working(C1, turn = 2, isRecovery = true))).copy(harnesses = chosen)
+        effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1, 2)), machine)
+        assertEquals(listOf(session("new") to chosen), harnesses.connected)
+        assertEquals(1, cells.handle.submitted.size)
+
+        harnesses.connected.clear()
+        cells.handle.submitted.clear()
+        cells.handle.active = TurnId("native")
+        effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1, 2)), machine)
+        assertEquals(emptyList(), harnesses.connected)
+        assertEquals(emptyList(), cells.handle.submitted)
+    }
+
+    @Test
+    fun `a stalled zygote resumes once its harnesses can be connected`() = runTest {
+        harnesses.failure = IllegalStateException("The harness library is not running")
+        val organism = organism().copy(harnesses = setOf("compose"))
+        effects.handle(OrganicAiEffect.Drive(organism, ZYGOTE, request(ZYGOTE)), machine)
+        assertEquals(emptyList(), cells.handle.submitted)
+
+        harnesses.failure = null
+        machine.sent.clear()
+        effects.handle(OrganicAiEffect.Drive(organism, ZYGOTE, request(ZYGOTE)), machine)
+        assertEquals(1, cells.handle.submitted.size)
+        val settled = machine.sent.last() as OrganicAiIntent.Internal.TurnSettled
+        assertEquals(Settlement.Answered("the answer"), settled.settlement)
+    }
+
+    @Test
     fun `turn outcomes settle as answers or breakdowns`() = runTest {
         val failure = EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed)
         val expected = listOf(
@@ -261,7 +337,7 @@ class OrganicAiEffectsTest {
             journal,
             { null },
             cells,
-            CellDriver(cells, journal),
+            CellDriver(cells, journal, harnesses),
             ImmunityCourt(judges, transcripts),
         )
         machine.sent.clear()
@@ -320,6 +396,16 @@ class OrganicAiEffectsTest {
         }
     }
 
+    private class Harnesses : CellHarnesses {
+        val connected = mutableListOf<Pair<SessionRef, Set<String>>>()
+        var failure: Exception? = null
+
+        override suspend fun connect(session: SessionRef, harnesses: Set<String>) {
+            connected += session to harnesses
+            failure?.let { throw it }
+        }
+    }
+
     private class Judges : JudgeSessions {
         var answer = ""
         val prompts = mutableListOf<Pair<EngineTarget, String>>()
@@ -338,6 +424,7 @@ class OrganicAiEffectsTest {
         val handle = Handle()
         var failOpen: Exception? = null
         val opened = mutableListOf<Pair<CellKey, SessionRef?>>()
+        val routes = mutableListOf<CellRoute>()
         val released = mutableListOf<Released>()
         val responses = mutableListOf<Pair<CellKey, PermissionDecision>>()
         var releasedAll = 0
@@ -345,6 +432,7 @@ class OrganicAiEffectsTest {
         override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
             failOpen?.let { throw it }
             opened += key to existing
+            routes += route
             return handle
         }
 

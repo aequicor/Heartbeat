@@ -54,13 +54,32 @@ internal data class CellRoute(
     val reasoningEffort: String? = null,
     /** Reviews the cell's automatic safety decisions when it runs a cheaper model than the organism. */
     val reviewTarget: EngineTarget? = null,
+    /** The organism's harness choice ([Organism.harnesses]); the session is opened with it, never a subset. */
+    val harnesses: Set<String> = emptySet(),
 )
+
+/**
+ * Connects the harnesses of an organism to the native session of one of its cells. A cell's turn follows only a
+ * complete connection, so a harness that cannot be connected stops the turn instead of running it without the
+ * environment the user chose.
+ */
+internal fun interface CellHarnesses {
+    /**
+     * Returns once every one of [harnesses] is durably connected to [session]; a connection already there is not
+     * written again. Throws when any cannot be connected (the library is off or unavailable, the harness is gone or
+     * disabled, a write was refused or not confirmed). Without [harnesses] it does nothing, even with the harness
+     * feature off.
+     */
+    suspend fun connect(session: SessionRef, harnesses: Set<String>)
+}
 
 /** Engine sessions of cells; one handle per cell is kept open while the cell lives. */
 internal interface CellSessions {
     /**
      * The open handle of [key]: the cached one, [existing] resumed, or a new session. Cells get the detached hosted
      * tools, since the organism shows their permission requests to the user. A lysed cell is never opened again.
+     * A new session declares the [CellRoute.harnesses] from its start and a cell with harnesses opts into session
+     * hooks; connecting the harnesses is the caller's step ([CellHarnesses]), as it needs the bound session.
      * [generation] is the cell turn counter: a late retirement of an older turn cannot close this handle.
      */
     suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int = 0): CellHandle

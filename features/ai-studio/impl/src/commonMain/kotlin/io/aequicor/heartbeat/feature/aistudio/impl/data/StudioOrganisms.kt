@@ -12,7 +12,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.organicai.api.Conception
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineKey
@@ -28,10 +30,16 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The organic AI machine as studio chats use it. An organism chat has the id of its organism, so the chat and the
  * organism never need a separate link. The chat is saved first and its organism conceived by its first prompt, so an
  * organism never lives without a chat to show and stop it; a chat whose organism is not in view takes its goal again.
- * The machine runs only while organic AI is on in the profile.
+ * The machine runs only while organic AI is on in the profile. The harnesses the user picked in the composer of a new
+ * organism chat travel with its first submission as a claim; conception copies them into the organism, which gives
+ * them to every working cell, and the claim is released whatever the outcome.
  */
 @Inject
-internal class StudioOrganisms(private val machines: MachineRegistry, private val selections: ModelSelections) {
+internal class StudioOrganisms(
+    private val machines: MachineRegistry,
+    private val selections: ModelSelections,
+    private val harnesses: StudioHarnessAttach,
+) {
     private val log = Log.tag("StudioOrganisms")
 
     /**
@@ -51,6 +59,8 @@ internal class StudioOrganisms(private val machines: MachineRegistry, private va
      * Conceives the organism of [chat] from its first message, or submits a follow-up to its completed zygote.
      * The chat never gets a native session of its own. Null for an ordinary chat. The machine owns acceptance;
      * rejected messages keep the caller's draft. Each turn retains its own [attachments] through recovery.
+     * The composer's harness choice claimed under [submissionId] reaches only a new organism; a follow-up changes
+     * nothing. The claim of an organism chat is released here, whether or not the organism was conceived.
      * Fails when organic AI is off/asleep, the organism is busy/aborted, or input is invalid.
      */
     suspend fun submit(
@@ -58,9 +68,25 @@ internal class StudioOrganisms(private val machines: MachineRegistry, private va
         goal: String,
         settings: RunSettings,
         attachments: List<ResourceRef>,
+        submissionId: String = "",
         onAccepted: suspend () -> Unit,
     ): RunOutcome? {
         if (chat.organismId == null) return null
+        try {
+            return conceiveOrContinue(chat, goal, settings, attachments, submissionId, onAccepted)
+        } finally {
+            if (submissionId.isNotEmpty()) harnesses.release(submissionId)
+        }
+    }
+
+    private suspend fun conceiveOrContinue(
+        chat: StudioChatRecord,
+        goal: String,
+        settings: RunSettings,
+        attachments: List<ResourceRef>,
+        submissionId: String,
+        onAccepted: suspend () -> Unit,
+    ): RunOutcome {
         val machine = living()
         val organisms = (machine.state.value as? OrganicAiState.Living)?.organisms.orEmpty()
         if (OrganismId(chat.id) in organisms) {
@@ -78,9 +104,11 @@ internal class StudioOrganisms(private val machines: MachineRegistry, private va
             workspace = chat.executionWorkspace ?: chat.projectId?.let(::WorkspaceRef),
             trust = settings.approval.toTrust(),
             attachments = attachments,
+            // The user's own pick for this submission, never text of the prompt: only the claim proves its origin.
+            harnesses = harnesses.preselected(submissionId)[HarnessTools.GROUP].orEmpty(),
         )
         val result = machine.send(OrganicAiIntent.Public.Conceive(conception))
-        log.i { "organism ${conception.id.value} conception for a studio chat: $result" }
+        log.i { "organism ${conception.id.value} conception: $result harnesses=${conception.harnesses.size}" }
         check(result == SendResult.Accepted) { "The organism was not conceived" }
         onAccepted()
         return RunOutcome.Completed

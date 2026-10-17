@@ -62,6 +62,7 @@ internal fun Conception.conceive(): Step {
         id, goal, target, immunityTarget, workspace, trust, limits, listOf(zygote),
         version = 1,
         attachments = attachments,
+        harnesses = harnesses,
     )
     val started = organism.updated(CellId.ZYGOTE) { organism.begin(it, Work.Genesis) }
     return if (target == null) {

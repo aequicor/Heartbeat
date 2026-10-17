@@ -23,6 +23,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.HarnessTools
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismSession
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.impl.C1
@@ -199,6 +201,38 @@ class FacadeAdaptersTest {
         FacadeCellSessions(facade).open(key, route, existing = stored.ref)
         assertTrue(facade.resumptions.single().areDetachedToolsEnabled)
         assertEquals(0, facade.creations.size)
+    }
+
+    @Test
+    fun `a new cell session declares the harnesses of its organism from its start`() = runTest {
+        val chosen = setOf("compose", "verify")
+        val facade = FakeFacade(ArrayDeque(listOf(FakeSession(session("harnessed")))))
+        FacadeCellSessions(facade).open(key, route.copy(harnesses = chosen), existing = null)
+        with(facade.creations.single()) {
+            assertEquals(mapOf(HarnessTools.GROUP to chosen), preselected)
+            assertTrue(areSessionHooksEnabled)
+            assertTrue(areDetachedToolsEnabled)
+        }
+    }
+
+    @Test
+    fun `a cell session without harnesses declares nothing and opts out of session hooks`() = runTest {
+        val facade = FakeFacade(ArrayDeque(listOf(FakeSession(session("plain")))))
+        FacadeCellSessions(facade).open(key, route, existing = null)
+        with(facade.creations.single()) {
+            assertEquals(emptyMap(), preselected)
+            assertFalse(areSessionHooksEnabled)
+        }
+    }
+
+    @Test
+    fun `a resumed cell session opts into session hooks exactly when it carries harnesses`() = runTest {
+        val stored = FakeSession(session("stored"))
+        val facade = FakeFacade(stored = mapOf(stored.ref to stored))
+        FacadeCellSessions(facade).open(key, route.copy(harnesses = setOf("compose")), existing = stored.ref)
+        assertTrue(facade.resumptions.single().areSessionHooksEnabled)
+        FacadeCellSessions(facade).open(CellKey(ORGANISM, CellId("c2")), route, existing = stored.ref)
+        assertFalse(facade.resumptions.last().areSessionHooksEnabled)
     }
 
     @Test
@@ -472,6 +506,9 @@ class FacadeAdaptersTest {
         facade.creations.forEach {
             assertFalse(it.areDetachedToolsEnabled)
             assertNull(it.workspace)
+            // Judges stay in a clean room: never the organism's harnesses, hooks or working instructions.
+            assertEquals(emptyMap(), it.preselected)
+            assertFalse(it.areSessionHooksEnabled)
         }
         listOf(first, second).forEach {
             assertEquals(1, it.closes)

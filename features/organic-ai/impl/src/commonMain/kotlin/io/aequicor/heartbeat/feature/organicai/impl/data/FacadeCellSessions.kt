@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.answerOf
+import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellHandle
@@ -197,16 +198,30 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
 
     private suspend fun create(route: CellRoute): ActiveSession {
         val creates = facade.engines.features(route.target.engine).resolve(CreatesSessions).orThrow()
+        // The organism's own choice, never anything a cell or a prompt names: engines that declare tools when they
+        // open a session (Codex) see the harnesses from the start, the others read the connection made afterwards.
         val session = creates.create(
-            CreateSessionRequest(route.target, route.workspace, areDetachedToolsEnabled = true),
+            CreateSessionRequest(
+                route.target,
+                route.workspace,
+                areDetachedToolsEnabled = true,
+                areSessionHooksEnabled = route.harnesses.isNotEmpty(),
+                preselected = route.harnesses.takeIf { it.isNotEmpty() }?.let { mapOf(HarnessTools.GROUP to it) }
+                    .orEmpty(),
+            ),
         )
-        log.i { "cell session created on ${route.target.engine.value}" }
+        log.i { "cell session created on ${route.target.engine.value} harnesses=${route.harnesses.size}" }
         return session
     }
 
     private suspend fun resume(existing: SessionRef, route: CellRoute): ActiveSession {
         val resumes = facade.sessions.get(existing).features.resolve(ResumesSessions).orThrow()
-        val request = ResumeSessionRequest(route.target, route.workspace, areDetachedToolsEnabled = true)
+        val request = ResumeSessionRequest(
+            route.target,
+            route.workspace,
+            areDetachedToolsEnabled = true,
+            areSessionHooksEnabled = route.harnesses.isNotEmpty(),
+        )
         val session = resumePatiently(existing, resumes, request)
         log.i { "cell session resumed on ${existing.engine.value}" }
         return session
