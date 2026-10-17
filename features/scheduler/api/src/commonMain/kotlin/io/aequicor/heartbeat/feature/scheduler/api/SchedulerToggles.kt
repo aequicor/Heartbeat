@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 public val SchedulerEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "scheduler.enabled",
     "Планировщик: сон сессии и пробуждение по времени, таймеру, сети и событиям других сессий",
+    default = true,
 )
 
 /**
@@ -18,6 +19,7 @@ public val SchedulerEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val SchedulerActions: FeatureToggle.Flag = FeatureToggle.Flag(
     "scheduler.actions",
     "Планировщик: фоновые команды и агенты-помощники с пробуждением по результату",
+    default = true,
 )
 
 /** Immutable task graphs; requires both the scheduler and background actions. */

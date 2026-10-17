@@ -28,6 +28,16 @@ Desktop/Android используют блокировку отдельного �
 Обычные desktop `run`/`createDistributable` используют `DevelopmentMainKt` и явно передают `SecretsConfig.isDevelopment`.
 Release-задачи используют `MainKt`, который всегда оставляет системную защиту включённой; переменные окружения и
 настройки приложения не переключают backend. Dev backend не читает и не мигрирует production-секреты.
+Флейвор для тестирования — отдельная сборка `-Pheartbeat.flavor=testing` (`:platform-main:desktop:createReleaseDistributable`,
+приложение `HeartbeatE2E`, свой bundle id на macOS, без самообновления): её лаунчер `TestingMainKt` остаётся релизным (ProGuard,
+единый экземпляр), но передаёт `hasLocalSecrets` и хранит секреты в `development-secrets`, поэтому тест не обращается к Keychain,
+DPAPI и Secret Service. Релизные workflow флейвор не передают; `MainKt` и переменные окружения backend не переключают.
+Флейвор **не изолирован** от установленного Heartbeat: корень данных, lock единственного экземпляра, логи и регистрация
+Native Messaging общие, поэтому он открывает настоящие профили (их секреты в `development-secrets` отсутствуют) и не запустится
+рядом с работающим Heartbeat. Запускай его там, где Heartbeat не установлен и не запущен. Установщики (`package[Release]` Dmg, Deb,
+Inno Setup и `package[Release]DistributionForCurrentOS`) с флейвором отклоняются: у Linux-пакета (`packageName = "heartbeat"`
+в блоке `linux`, это только `--linux-package-name`) и Windows-установщика (`AppId`, каталог установки в `heartbeat.iss`, имя
+`Heartbeat-<версия>-setup`) остаются продовые имена, на macOS запрет консервативный. Образ приложения — `HeartbeatE2E` на всех ОС.
 `SecretStorageInfo` отдаёт метаданные выбранного backend без доступа к ключам; экраны подключения и Querit показывают их пользователю.
 
 Закрытие профиля ничего не удаляет. Явный `StorageMaintenance.wipeProfile` вызывает

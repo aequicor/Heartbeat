@@ -7,7 +7,7 @@
     <string name="context_auto">Сжимать автоматически</string>
     <string name="context_auto_hint">Между ходами, никогда посреди хода</string>
     <string name="context_threshold">Порог</string>
-    <string name="context_threshold_value">%1$d%% контекстного окна</string>
+    <string name="context_threshold_value">%1$d% контекстного окна</string>
     <string name="context_strategy">Способ</string>
     <string name="context_strategy_native">Выжимка движка</string>
     <string name="context_strategy_rollover">Новая сессия с выжимкой</string>

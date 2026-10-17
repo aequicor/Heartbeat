@@ -430,7 +430,7 @@ class AiEngineFacadeIntegrationTest {
     }
 
     @Test
-    fun `engine management toggle is registered and off by default`() = runTest {
+    fun `engine management toggle is registered and off under the test baseline`() = runTest {
         val control = (app as TestToggleAccessors).toggleControl
         val state = control.observeStates().first().single { it.toggle == EngineManagementEnabled }
         assertEquals(false, state.value)

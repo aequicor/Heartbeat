@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.LogLevel
+import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
@@ -24,6 +27,34 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 
 class PiJournalTest {
+    @Test
+    fun `streamed history stays quiet in debug and traces revisions between former strides`() = runTest {
+        val levels = mutableListOf<LogLevel>()
+        val sink = LogSink { level, tag, _, _ -> if (tag == "PiJournal") levels += level }
+        val journal = PiJournal()
+        val delta = record(
+            """{"type":"message_update",
+            "assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"x"}}""",
+        )
+        try {
+            Log.init(isDebug = true, sinks = listOf(sink))
+            journal.record(record("""{"type":"message_start","message":{"role":"assistant","content":[]}}"""), null)
+            repeat(200) { journal.record(delta, null) }
+            assertEquals(emptyList(), levels)
+            assertEquals(
+                listOf(ContentPart.Text("x".repeat(200))),
+                assertIs<SessionItem.Message>(journal.page().items.single()).parts,
+            )
+
+            Log.init(isDebug = true, isTrace = true, sinks = listOf(sink))
+            journal.record(delta, null)
+            assertEquals(listOf(LogLevel.VERBOSE), levels)
+            assertEquals(201, journal.page().items.single().info.revision)
+        } finally {
+            Log.init(isDebug = false)
+        }
+    }
+
     @Test
     fun `thinking deltas retain their block order and final snapshot does not duplicate them`() = runTest {
         val journal = PiJournal()

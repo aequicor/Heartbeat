@@ -21,7 +21,7 @@ public data class QuestionnaireRoute(val source: String) : Route
 public val QuestionnaireEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "questionnaire.enabled",
     description = "Опросник агента: выбор, свободный ввод и подтверждения",
-    default = false,
+    default = true,
 )
 
 /** Queue of questions awaiting the user in the profile. */

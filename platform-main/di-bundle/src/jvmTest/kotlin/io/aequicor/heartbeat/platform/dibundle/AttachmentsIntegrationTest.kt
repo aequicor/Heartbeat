@@ -44,7 +44,7 @@ class AttachmentsIntegrationTest {
         try {
             val flags = (app as TestToggleAccessors).toggleControl
             assertTrue(AttachmentsEnabled in flags.registered)
-            assertEquals(false, AttachmentsEnabled.default)
+            assertEquals(true, AttachmentsEnabled.default)
             assertNull(app.machines.find(AttachmentsMachineKey))
             val alice = app.profileSessions.open(ProfileId("attachment-alice"))
             val access = alice.graph as TestAttachmentAccessors

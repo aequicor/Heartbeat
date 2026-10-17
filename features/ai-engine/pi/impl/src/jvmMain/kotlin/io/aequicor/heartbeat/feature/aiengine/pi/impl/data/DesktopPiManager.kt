@@ -42,9 +42,10 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
     override suspend fun inspect(launch: LaunchContext): Installation = withContext(dispatchers.io) {
         val startup = processes.startup(launch)
         val executable = startup.executable
-        val isRunnable = executable != null && Files.isRegularFile(executable) && Files.isExecutable(executable)
+        val isPresent = executable != null && Files.isRegularFile(executable) && Files.isExecutable(executable)
+        val isRunnable = isPresent || isPiPendingDownload(startup.source, executable, processes.canPrepare())
         val version = when {
-            executable == null || !isRunnable -> null
+            executable == null || !isPresent -> null
             startup.source == InstallSource.Bundled -> processes.bundledVersion() ?: version(executable, startup)
             else -> version(executable, startup)
         }
@@ -121,3 +122,11 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
         const val MAX_VERSION_BYTES = 4096
     }
 }
+
+/**
+ * Whether the pinned Pi is simply not downloaded yet: the bundled source without a file on disk, which the first use
+ * prepares, is not a launch Heartbeat refuses as unsafe. A custom or managed executable that is absent stays
+ * unrunnable.
+ */
+internal fun isPiPendingDownload(source: InstallSource, executable: Path?, isPreparable: Boolean): Boolean =
+    isPreparable && source == InstallSource.Bundled && (executable == null || !Files.isRegularFile(executable))

@@ -8,7 +8,7 @@ public val BrowserAgentControl: FeatureToggle.Flag =
     FeatureToggle.Flag(
         "browser.agent_control",
         "Управление встроенным браузером агентом",
-        default = false,
+        default = true,
     )
 
 /** Human-assisted reading of research sources through the browser session. */
@@ -16,7 +16,7 @@ public val BrowserResearchAccess: FeatureToggle.Flag =
     FeatureToggle.Flag(
         "browser.research_access",
         "Загрузка источников через встроенный браузер",
-        default = false,
+        default = true,
     )
 
 /** Display mode does not own native browser lifetime. */
