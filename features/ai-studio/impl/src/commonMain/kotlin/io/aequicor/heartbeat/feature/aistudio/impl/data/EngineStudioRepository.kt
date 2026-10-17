@@ -636,7 +636,7 @@ internal class EngineStudioRepository(
 
     override suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome {
         log.v { "Map native turn outcome" }
-        return nativeSession.outcome(outcome) {
+        return nativeSession.outcome(outcome, isStopRequested = shouldStop(id)) {
             val kind = (outcome as? TurnOutcome.Failed)?.failure.toRunFailureKind()
             update(id) { copy(hasFailed = true, failureKind = kind) }
         }
@@ -840,7 +840,21 @@ internal class EngineStudioRepository(
 private class StudioNativeSessionOperations(private val learning: StudioLearningPrompts) {
     private val log = Log.tag("StudioNativeSessionOperations")
 
-    suspend fun outcome(outcome: TurnOutcome?, onFailure: suspend () -> Unit): RunOutcome = when (outcome) {
+    /**
+     * An engine that cannot confirm a remote cancellation (Koog only closes its stream) settles a stopped turn as
+     * Unknown; after the user's explicit stop that is the stop, not a failure to report.
+     */
+    suspend fun outcome(outcome: TurnOutcome?, isStopRequested: Boolean, onFailure: suspend () -> Unit): RunOutcome =
+        when {
+            outcome == TurnOutcome.Unknown && isStopRequested -> {
+                log.i { "Unconfirmed outcome after an explicit stop counts as stopped" }
+                RunOutcome.Stopped
+            }
+
+            else -> outcome(outcome, onFailure)
+        }
+
+    private suspend fun outcome(outcome: TurnOutcome?, onFailure: suspend () -> Unit): RunOutcome = when (outcome) {
         TurnOutcome.Completed -> RunOutcome.Completed
 
         TurnOutcome.Cancelled -> RunOutcome.Stopped

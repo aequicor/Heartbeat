@@ -77,7 +77,14 @@ internal class KoogToolExecution(
             if (isApprovalNeeded) ToolCallStatus.Pending else ToolCallStatus.Running,
         )
         history.append { SessionEvent.ItemUpserted(it, started) }
-        val executed = executed(turn, call, tool, args, started, id)
+        val executed = try {
+            executed(turn, call, tool, args, started, id)
+        } catch (e: CancellationException) {
+            // A stopped turn must not leave its call shown as pending or running.
+            val cancelled = started.copy(info = info.copy(revision = 2), status = ToolCallStatus.Cancelled)
+            history.append { SessionEvent.ItemUpserted(it, cancelled) }
+            throw e
+        }
         val result = offload(call.name, executed.text)?.let { executed.copy(text = it) } ?: executed
         val status = if (result.isFailed) ToolCallStatus.Failed else ToolCallStatus.Succeeded
         history.append { SessionEvent.ItemUpserted(it, started.copy(info = info.copy(revision = 2), status = status)) }

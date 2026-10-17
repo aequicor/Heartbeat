@@ -478,6 +478,7 @@ class KoogCodingSessionTest {
         session.features.require(CancelsTurns).cancel(turn)
         runCurrent()
         assertEquals(0, edit.calls)
+        assertEquals(ToolCallStatus.Cancelled, session.toolStatus("edit_file"))
         assertIs<ActiveSessionState.Ready>(session.state.value)
     }
 
