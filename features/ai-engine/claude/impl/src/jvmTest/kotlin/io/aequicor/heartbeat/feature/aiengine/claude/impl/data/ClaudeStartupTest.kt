@@ -127,6 +127,49 @@ class ClaudeStartupTest {
     }
 
     @Test
+    fun `the Claude Code desktop CLI is the last resort and its newest verified build is chosen`() {
+        val root = "/Users/test/Library/Application Support/Claude/claude-code"
+        fun executable(version: String, build: String) = "$root/$version/$build/claude.app/Contents/MacOS/claude"
+        val desktop = host(
+            directories = mapOf(
+                root to listOf("2.1.9", "2.1.299", "2.1.300", "notes"),
+                "$root/2.1.300" to listOf("bbb"),
+                "$root/2.1.300/bbb" to listOf("claude.app"),
+                "$root/2.1.299" to listOf("4fa"),
+                "$root/2.1.299/4fa" to listOf(".verified", "claude.app"),
+                "$root/2.1.9" to listOf("aaa"),
+                "$root/2.1.9/aaa" to listOf(".verified", "claude.app"),
+            ),
+            available = setOf(executable("2.1.300", "bbb"), executable("2.1.299", "4fa"), executable("2.1.9", "aaa")),
+        )
+
+        val startup = resolveClaudeStartup(LaunchContext(), config, desktop)
+
+        assertEquals(executable("2.1.299", "4fa"), startup.executable)
+        assertEquals(InstallSource.System, startup.source)
+        assertTrue(startup.isRunnable)
+        assertTrue(startup.isDesktopBundle)
+        val withLocal = desktop.copy(isExecutable = { it.path == localClaude || desktop.isExecutable(it) })
+        val preferred = resolveClaudeStartup(LaunchContext(), config, withLocal)
+        assertEquals(localClaude to false, preferred.executable to preferred.isDesktopBundle)
+        assertEquals(InstallSource.Missing, resolveClaudeStartup(LaunchContext(), config, host()).source)
+        assertEquals(
+            InstallSource.Missing,
+            resolveClaudeStartup(LaunchContext(), config, desktop.copy(osName = "Linux")).source,
+        )
+    }
+
+    @Test
+    fun `the desktop CLI never updates itself`() {
+        val startup = ClaudeStartup("/desktop/claude", InstallSource.System, isRunnable = true, isDesktopBundle = true)
+
+        assertEquals(
+            mapOf("DISABLE_AUTOUPDATER" to "1", "DISABLE_UPDATES" to "1"),
+            claudeEnvironment(emptyMap(), startup),
+        )
+    }
+
+    @Test
     fun `the native history follows the config directory`() {
         val default = claudeNativeStore(null, "/Users/me")
         assertEquals(default, claudeNativeStore("/Users/me/.claude", "/Users/other"))
@@ -176,5 +219,12 @@ class ClaudeStartupTest {
         path: String? = null,
         userHome: String = "/Users/test",
         available: Set<String> = emptySet(),
-    ) = ClaudeHost(osName, osArch, path, userHome) { it.path in available }
+        directories: Map<String, List<String>> = emptyMap(),
+    ) = ClaudeHost(
+        osName,
+        osArch,
+        path,
+        userHome,
+        { directory -> directories[directory.path].orEmpty().map { File(directory, it) } },
+    ) { it.path in available }
 }
