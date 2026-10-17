@@ -18,15 +18,10 @@ import io.aequicor.heartbeat.feature.harness.api.process.StageName
 import io.aequicor.heartbeat.feature.harness.api.process.SubjectSha
 import io.aequicor.heartbeat.feature.harness.api.process.WaitReason
 import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
-import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
-import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -36,7 +31,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Clock
 import kotlin.time.Instant
 
 class HarnessScriptProcessesTest {
@@ -48,10 +42,10 @@ class HarnessScriptProcessesTest {
 
     @Test
     fun `opening creates the process once and returns the stored record`() = runTest {
-        val env = Env(this)
+        val env = ProcessesTestEnv(this)
         val first = env.processes.open(issue, inputRevision = 3)
-        assertEquals(ProcessRecord(issue, Instant.fromEpochSeconds(START), inputRevision = 3), first)
-        env.clock.seconds = START + 60
+        assertEquals(ProcessRecord(issue, Instant.fromEpochSeconds(PROCESS_TEST_START), inputRevision = 3), first)
+        env.clock.seconds = PROCESS_TEST_START + 60
 
         val again = env.processes.open(issue, inputRevision = 9)
         assertEquals(first, again)
@@ -61,7 +55,7 @@ class HarnessScriptProcessesTest {
 
     @Test
     fun `a missing process reads as absent and cannot be commanded`() = runTest {
-        val env = Env(this)
+        val env = ProcessesTestEnv(this)
         assertNull(env.processes.get(issue))
         val result = env.processes.apply(issue, ProcessCommand.ReviseInput(2))
         assertEquals(ProcessReduction.Rejected(ProcessRejection.UnknownProcess), result)
@@ -72,7 +66,7 @@ class HarnessScriptProcessesTest {
 
     @Test
     fun `commands are persisted and an exact replay writes nothing`() = runTest {
-        val env = Env(this)
+        val env = ProcessesTestEnv(this)
         env.processes.open(issue)
 
         val started = env.processes.apply(issue, ProcessCommand.Start(planning, helper))
@@ -96,7 +90,7 @@ class HarnessScriptProcessesTest {
     @Test
     fun `the stage the wait and the journal survive a restart`() = runTest {
         val secrets = HarnessDataTestSecrets()
-        val before = Env(this, secrets)
+        val before = ProcessesTestEnv(this, secrets)
         before.processes.open(issue)
         before.processes.apply(issue, ProcessCommand.ObserveSubject(SubjectSha("a".repeat(40))))
         before.processes.apply(issue, ProcessCommand.Start(planning, helper))
@@ -107,7 +101,7 @@ class HarnessScriptProcessesTest {
         val target = ResultRef("pull_request", "pr-7")
         before.processes.apply(issue, ProcessCommand.BeginWrite(key, ProcessAuthority.Write, target))
 
-        val after = Env(this, secrets)
+        val after = ProcessesTestEnv(this, secrets)
         val restored = checkNotNull(after.processes.get(issue))
         assertEquals(before.processes.get(issue), restored)
         assertEquals(planning, restored.stage)
@@ -121,7 +115,7 @@ class HarnessScriptProcessesTest {
 
     @Test
     fun `concurrent commands never lose each other`() = runTest {
-        val env = Env(this)
+        val env = ProcessesTestEnv(this)
         env.processes.open(issue)
         val results = (1..CONCURRENT).map { revision ->
             async { env.processes.apply(issue, ProcessCommand.ReviseInput(revision.toLong())) }
@@ -133,7 +127,7 @@ class HarnessScriptProcessesTest {
 
     @Test
     fun `list keeps the order of opening and skips an id without a record`() = runTest {
-        val env = Env(this)
+        val env = ProcessesTestEnv(this)
         val ids = listOf("b_two", "a_one", "c_three").map(::ProcessId)
         ids.forEach { env.processes.open(it) }
         assertEquals(ids, env.processes.list().map { it.id })
@@ -147,7 +141,7 @@ class HarnessScriptProcessesTest {
 
     @Test
     fun `only so many processes can be stored at once`() = runTest {
-        val env = Env(this)
+        val env = ProcessesTestEnv(this)
         repeat(ProcessLimits.PROCESSES) { env.processes.open(ProcessId("p$it")) }
         assertFailsWith<IllegalArgumentException> { env.processes.open(ProcessId("extra")) }
         assertNull(env.processes.get(ProcessId("extra")))
@@ -161,7 +155,7 @@ class HarnessScriptProcessesTest {
 
     @Test
     fun `remove keeps a live process and one with an unresolved write`() = runTest {
-        val env = Env(this)
+        val env = ProcessesTestEnv(this)
         env.processes.open(issue)
         assertFalse(env.processes.remove(issue))
         env.processes.apply(issue, ProcessCommand.Grant(ProcessAuthority.Write))
@@ -184,7 +178,7 @@ class HarnessScriptProcessesTest {
 
     @Test
     fun `an unreadable record is reported without its content and never overwritten`() = runTest {
-        val env = Env(this)
+        val env = ProcessesTestEnv(this)
         env.processes.open(issue)
         val stored = checkNotNull(env.data.read(issue.storageKey).value)
         val newer = Json.parseToJsonElement(stored.toString().replace("\"v\":1", "\"v\":2,\"secret\":\"private\""))
@@ -207,8 +201,8 @@ class HarnessScriptProcessesTest {
     @Test
     fun `processes of different harnesses are isolated`() = runTest {
         val secrets = HarnessDataTestSecrets()
-        val one = Env(this, secrets)
-        val other = Env(this, secrets, HarnessId("other"))
+        val one = ProcessesTestEnv(this, secrets)
+        val other = ProcessesTestEnv(this, secrets, HarnessId("other"))
         one.processes.open(issue)
         assertNull(other.processes.get(issue))
         assertTrue(other.processes.list().isEmpty())
@@ -216,7 +210,7 @@ class HarnessScriptProcessesTest {
 
     @Test
     fun `a retired activation reaches no process`() = runTest {
-        val env = Env(this)
+        val env = ProcessesTestEnv(this)
         env.processes.open(issue)
         env.access.isActive = false
         assertFailsWith<IllegalStateException> { env.processes.get(issue) }
@@ -225,30 +219,7 @@ class HarnessScriptProcessesTest {
         assertEquals(issue, env.processes.get(issue)?.id)
     }
 
-    private class Env(
-        scope: TestScope,
-        secrets: HarnessDataTestSecrets = HarnessDataTestSecrets(),
-        owner: HarnessId = HarnessId("owner"),
-    ) {
-        val clock = TestClock(START)
-        val access = ProcessTestAccess(scope)
-        val data = HarnessScriptData(owner, access, ProtectedHarnessData(secrets))
-        val processes = HarnessScriptProcesses(data, clock)
-    }
-
-    private class TestClock(var seconds: Long) : Clock {
-        override fun now(): Instant = Instant.fromEpochSeconds(seconds)
-    }
-
-    private class ProcessTestAccess(scope: TestScope) : HarnessInstanceAccess {
-        override val scope = scope.backgroundScope
-        override val dispatcher = StandardTestDispatcher(scope.testScheduler)
-        override var isActive = true
-        override suspend fun awaitPublication() = isActive
-    }
-
     private companion object {
-        const val START = 1_000L
         const val CONCURRENT = 12
     }
 }
