@@ -155,6 +155,20 @@ class InterfaceConfigSectionTest {
     }
 
     @Test
+    fun `quick actions travel with a card interface and are refused for other placements`() = runTest {
+        val card = unit("review/board", """{"placement":"card","title":"Board"}""", QUICK)
+        val canonical = assertIs<ConfigCheck.Valid>(section.check(card)).canonical
+        assertTrue(canonical.files.last().text.contains("quickActions"))
+        assertEquals(
+            ConfigApplyResult.Applied(ConfigEntityKey(board.id.value)),
+            section.apply(card, ConfigEntityKey(board.id.value), ConfigApplyContext(null)),
+        )
+        assertTrue("quickActions" in library()[board.id]!!.content.spec)
+
+        assertEquals(ConfigProblemCode.Syntax, problem(unit("review/board", META, QUICK)))
+    }
+
+    @Test
     fun `an incomplete snapshot of harness owners leaves the section unavailable`() = runTest {
         // Harnesses are still loading or reloading: the bound surface of "audit" is unknown, not removed.
         val loading = UiOwners(isComplete = false, owners = owners.getValue("harness").owners.take(1))
@@ -206,6 +220,9 @@ class InterfaceConfigSectionTest {
     private companion object {
         const val TEXT = """{"version":1,"body":{"type":"text","text":"Hi"}}"""
         const val META = """{"placement":"panel","title":"Board"}"""
+        const val QUICK = """{"version":1,"state":{"stage":"plan"},"quickActions":[
+            {"id":"next","label":"Next","action":{"type":"set","key":"stage","value":"build"}}],
+            "body":{"type":"text","text":"Hi"}}"""
     }
 }
 

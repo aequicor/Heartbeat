@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
+import io.aequicor.heartbeat.feature.serviceasui.api.UiLibrary
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ButtonStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.QuickActionUi
@@ -206,6 +207,46 @@ class AppQuickActionsTest {
         fixture.board.send(host, press(fresh, fresh.actions.single()))
         runCurrent()
         assertEquals(listOf(other.call), fixture.advances())
+    }
+
+    @Test
+    fun `a replaced spec swaps the actions and a disabled surface or a removed one withdraws them`() = runTest {
+        val fixture = AppFixture(this, app = QuickAppSurface)
+        val shown = fixture.observeQuickActions(this)
+        runCurrent()
+        assertEquals(listOf("next"), shown.value.actions.map { it.id })
+
+        val plain = QuickAppSurface.copy(
+            content = QuickAppSurface.content.copy(spec = AppSurface.content.spec),
+            revision = 2,
+        )
+        fixture.machine.state.value = fixture.machine.ready.copy(library = UiLibrary(listOf(plain)))
+        runCurrent()
+        assertTrue(shown.value.isEmpty, "The new revision has no quick actions")
+
+        fixture.machine.state.value = fixture.machine.ready.copy(library = UiLibrary(listOf(QuickAppSurface)))
+        runCurrent()
+        assertEquals(listOf("next"), shown.value.actions.map { it.id })
+
+        fixture.machine.state.value =
+            fixture.machine.ready.copy(library = UiLibrary(listOf(QuickAppSurface.copy(isEnabled = false))))
+        runCurrent()
+        assertTrue(shown.value.isEmpty, "A disabled surface offers nothing")
+
+        fixture.machine.state.value = fixture.machine.ready.copy(library = UiLibrary())
+        runCurrent()
+        assertTrue(shown.value.isEmpty, "A removed surface offers nothing")
+    }
+
+    @Test
+    fun `an app declaring no quick actions publishes nothing to draw`() = runTest {
+        val fixture = AppFixture(this)
+        val shown = fixture.observeQuickActions(this)
+        runCurrent()
+
+        assertTrue(shown.value.isEmpty)
+        assertEquals(emptyList(), shown.value.actions)
+        assertNull(shown.value.notice)
     }
 
     @Test
