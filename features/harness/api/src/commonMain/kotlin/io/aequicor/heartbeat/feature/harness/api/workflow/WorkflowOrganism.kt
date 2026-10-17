@@ -68,3 +68,19 @@ public enum class OrganismEnd {
     /** It was aborted from outside before the zygote answered. */
     Aborted,
 }
+
+/**
+ * Opaque identity of the organism one organism step owns. The host derives it from the run and the structural key,
+ * so replay finds the same organism and a repeated step never conceives another; workflow code never sees it. It
+ * stays within the alphabet and length of the organic AI organism ids.
+ */
+@Serializable
+public data class WorkflowOrganism(val id: String) {
+    init {
+        require(id.matches(ORGANISM_ID)) { "Invalid workflow organism" }
+    }
+
+    override fun toString(): String = "WorkflowOrganism(***)"
+}
+
+private val ORGANISM_ID = Regex("[A-Za-z0-9_-]{1,64}")
