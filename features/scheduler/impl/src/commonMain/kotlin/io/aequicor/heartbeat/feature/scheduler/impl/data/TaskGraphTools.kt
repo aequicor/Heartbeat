@@ -3,7 +3,10 @@ package io.aequicor.heartbeat.feature.scheduler.impl.data
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
@@ -21,6 +24,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphState
 import io.aequicor.heartbeat.feature.scheduler.api.TaskRecoveryDecision
 import io.aequicor.heartbeat.feature.scheduler.api.edges
 import io.aequicor.heartbeat.feature.scheduler.api.validationError
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -30,11 +34,19 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlin.time.Duration.Companion.seconds
 
-/** Immutable graph approvals and owner-scoped status, cancellation and interrupted-attempt resolution. */
+/**
+ * Immutable graph approvals and owner-scoped status, cancellation and interrupted-attempt resolution. In automatic
+ * mode the complete graph passes an independent review ([SchedulerSafety]) instead of the user's decision, and the
+ * review's binding is the graph itself; cancellation and recovery decisions keep the graph's saved authorization.
+ */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
-internal class TaskGraphTools(private val machine: TaskGraphMachine, private val driver: TaskGraphDriver) :
-    AgentToolContribution {
+internal class TaskGraphTools(
+    private val machine: TaskGraphMachine,
+    private val driver: TaskGraphDriver,
+    private val safety: SchedulerSafety,
+) : AgentToolContribution {
+    private val log = Log.tag("TaskGraphTools")
     override val group: String = "scheduler"
     override val title: String = "Планировщик"
 
@@ -108,6 +120,50 @@ internal class TaskGraphTools(private val machine: TaskGraphMachine, private val
             }
         }
         return approval(context, spec, arguments)
+    }
+
+    override suspend fun automaticAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolAutomaticAuthorization? {
+        if (!context.isAutomatic()) return null
+        return when (spec.name) {
+            TaskGraphToolSpecs.CREATE -> reviewedCreation(context, spec, arguments)
+            TaskGraphToolSpecs.CANCEL, TaskGraphToolSpecs.RESOLVE -> savedAuthorization(context, spec, arguments)
+            else -> null
+        }
+    }
+
+    /** A graph is reviewed as a whole; one that creation would reject anyway is refused before it costs a review. */
+    private suspend fun reviewedCreation(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolAutomaticAuthorization {
+        val graph = try {
+            parseGraph(context, arguments)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: IllegalArgumentException) {
+            log.w(error.redactedFailure()) { "Graph cannot be captured for review" }
+            return AgentToolAutomaticAuthorization.Denied("The graph is invalid")
+        }
+        unavailability(graph)?.let { return AgentToolAutomaticAuthorization.Denied(it) }
+        return safety.authorize(context, approval(context, spec, arguments), reviewDetails(graph))
+    }
+
+    /** Cancelling and resolving only reuse what the graph's creation already authorized, for its owner. */
+    private suspend fun savedAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolAutomaticAuthorization {
+        val saved = existingAuthorization(context, spec, arguments)
+            ?: return AgentToolAutomaticAuthorization.Denied(
+                "No saved graph authorization covers this: the graph is unknown or the attempt is not waiting",
+            )
+        return AgentToolAutomaticAuthorization.Allowed(saved)
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
@@ -208,17 +264,11 @@ internal class TaskGraphTools(private val machine: TaskGraphMachine, private val
         }
         val error = graph.definition.validationError()
         if (error != null) return failure(error)
-        if (graph.definition.tasks.any { it.action is GraphAction.Command } &&
-            (graph.workspace == null || !driver.areCommandsAvailable)
-        ) {
-            return failure("Command tasks require a Desktop project")
-        }
-        if (driver.taskHost(
-                graph,
-            ) == null || graph.target == null
-        ) {
-            return failure("No graph-capable chat host owns this session")
-        }
+        val unavailable = unavailability(graph)
+        if (unavailable != null) return failure(unavailable)
+        // The verdict covers the graph the dispatcher captured: it is consumed before anything is accepted.
+        val isReviewConsumed = !context.isAutomatic() || safety.consume(context, expected, reviewDetails(parsed))
+        if (!isReviewConsumed) return failure("The safety review expired; request the graph again")
         return accepted(
             TaskGraphIntent.Public.Create(graph),
             "Graph ${graph.id} accepted; ready tasks start automatically",
@@ -268,6 +318,22 @@ internal class TaskGraphTools(private val machine: TaskGraphMachine, private val
             false -> failure("Operation was not accepted; read the current graph")
             null -> failure("Durable acceptance is not confirmed yet; read the graph before retrying")
         }
+    }
+
+    /** Why this graph cannot run here, or null. */
+    private suspend fun unavailability(graph: TaskGraph): String? = when {
+        graph.definition.tasks.any { it.action is GraphAction.Command } &&
+            (graph.workspace == null || !driver.areCommandsAvailable) -> "Command tasks require a Desktop project"
+
+        driver.taskHost(graph) == null || graph.target == null -> "No graph-capable chat host owns this session"
+
+        else -> null
+    }
+
+    /** What the reviewer sees besides the caller: the graph with every command, task text and dependency. */
+    private fun reviewDetails(graph: TaskGraph): JsonObject = buildJsonObject {
+        put("graph", graph.id)
+        put("tasks", graphJson.encodeToJsonElement(TaskGraphDefinition.serializer(), graph.definition))
     }
 
     private fun ready(): TaskGraphState.Ready? = machine.state.value as? TaskGraphState.Ready
