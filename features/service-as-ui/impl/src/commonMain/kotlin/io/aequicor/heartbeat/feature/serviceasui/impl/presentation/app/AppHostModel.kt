@@ -25,8 +25,10 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiFacts
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.platformFact
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceHost
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceSession
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceState
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.CancellationException
@@ -52,6 +54,8 @@ import pro.respawn.flowmvi.dsl.collect
  * visibility; this coordinator resolves the active owner's app and retains its surface and document registration.
  * Another chat, owner, spec or argument set cancels it. Only a selected start app entering its first chat rebinds
  * the existing surface, revoking old calls while preserving the document and local form state.
+ * The quick actions of the live app are published on the profile [board] for the composer slot of the same host; they
+ * disappear with the selection, so another chat or owner never keeps showing the previous app's actions.
  */
 @SingleIn(ServiceUiAppScope::class)
 @Inject
@@ -61,6 +65,7 @@ internal class AppHostModel(
     private val cards: UiCardStorage,
     private val calls: UiMethodCalls,
     private val surfacesFactory: SurfaceModel.Factory,
+    board: AppQuickActionBoard,
     platform: PlatformInfo,
     @ForScope(ServiceUiAppScope::class) handle: ScopeHandle,
 ) {
@@ -74,11 +79,24 @@ internal class AppHostModel(
     private var selected: AppSelection? = null
     private var drawings = 0L
     private var continuation: UiHostContext? = null
+    private var drawn: SurfaceState? = null
+    private val quickActions = MutableStateFlow(AppQuickActionsUi())
 
     val state: StateFlow<AppHostState> = screen.asStateFlow()
     val surfaces: StateFlow<ImmutableMap<String, SurfaceModel>> = models.asStateFlow()
 
     init {
+        val registration = board.attach(
+            host,
+            object : AppQuickActionsSource {
+                override val state: StateFlow<AppQuickActionsUi> = quickActions.asStateFlow()
+
+                override fun send(intent: SurfaceIntent) {
+                    running?.model?.store?.intent(intent)
+                }
+            },
+        )
+        handle.onClose { registration.dispose() }
         scope.launch { observe() }
         scope.launch {
             machine.state.collect { current ->
@@ -218,7 +236,14 @@ internal class AppHostModel(
             running = entry
             models.value = persistentMapOf(entry.key to model)
             // The app is a live workspace even while its full view is closed or its receipt is offscreen.
-            child.launch { model.store.collect { states.collect { } } }
+            child.launch {
+                model.store.collect {
+                    states.collect {
+                        drawn = it
+                        publishQuickActions()
+                    }
+                }
+            }
         } catch (error: CancellationException) {
             child.cancel()
             throw error
@@ -232,6 +257,7 @@ internal class AppHostModel(
         log.v { "App model released" }
         running?.scope?.cancel()
         running = null
+        drawn = null
         models.value = persistentMapOf()
         continuation = null
         showState(AppHostState())
@@ -240,6 +266,19 @@ internal class AppHostModel(
     private fun showState(next: AppHostState) {
         log.v { "App presentation: start=${next.isStart}, expanded=${next.isExpanded}, loading=${next.isLoading}" }
         screen.value = next
+        publishQuickActions()
+    }
+
+    /** Only a selected, running app offers actions; a paused or replaced one publishes nothing. */
+    private fun publishQuickActions() {
+        val latest = drawn
+        val next = if (selected != null && running != null && latest != null) {
+            AppQuickActionsUi(latest.quickActions, latest.notice, latest.isMethodsAvailable, latest.inputBinding)
+        } else {
+            AppQuickActionsUi()
+        }
+        if (quickActions.value != next) log.v { "App quick actions: ${next.actions.size} shown" }
+        quickActions.value = next
     }
 
     private fun isCurrent(selection: AppSelection): Boolean {

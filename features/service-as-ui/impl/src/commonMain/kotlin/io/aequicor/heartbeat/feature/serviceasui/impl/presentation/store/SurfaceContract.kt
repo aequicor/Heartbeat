@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiFacts
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiValues
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.NativeWidgetUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.QuickActionUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiModalUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiPress
@@ -50,7 +51,8 @@ internal data class OpenModal(val name: String, val args: JsonObject) {
 }
 
 /**
- * The drawn surface: [root] and the top [modal] are evaluated from [values]; [isMethodsAvailable] tells whether the
+ * The drawn surface: [root] and the top [modal] are evaluated from [values]; [quickActions] are the visible quick
+ * actions of the spec for a host to draw outside the body. [isMethodsAvailable] tells whether the
  * owner's code runs here, [hasStarted] whether the automatic data sources were loaded. [loadedRevision] and
  * [loadedMethodsGeneration] identify the durable data and published code last read by automatic sources.
  * [inputBinding] identifies the authority that rendered this state; callbacks retain it across queued UI events.
@@ -61,6 +63,7 @@ internal data class SurfaceState(
     val root: UiNodeUi? = null,
     val modals: ImmutableList<OpenModal> = persistentListOf(),
     val modal: UiModalUi? = null,
+    val quickActions: ImmutableList<QuickActionUi> = persistentListOf(),
     val notice: NoticeUi? = null,
     val isMethodsAvailable: Boolean = false,
     val hasStarted: Boolean = false,
@@ -68,9 +71,8 @@ internal data class SurfaceState(
     val loadedMethodsGeneration: String? = null,
     val inputBinding: SurfaceInputBinding? = null,
 ) : MVIState {
-    override fun toString(): String =
-        "SurfaceState(modals=${modals.size}, notice=${notice?.let { it::class.simpleName } ?: "none"}, " +
-            "isMethodsAvailable=$isMethodsAvailable)"
+    override fun toString(): String = "SurfaceState(modals=${modals.size}, quickActions=${quickActions.size}, " +
+        "notice=${notice?.let { it::class.simpleName } ?: "none"}, isMethodsAvailable=$isMethodsAvailable)"
 }
 
 /** User input of a surface. */
@@ -83,6 +85,12 @@ internal sealed interface SurfaceIntent : MVIIntent {
 
     /** A button or a row was pressed (after its confirmation, if any). */
     data class Press(val press: UiPress) : SurfaceIntent
+
+    /**
+     * The quick action [id] was pressed (after its confirmation, if any). The store looks the action up in its current
+     * state: one that is no longer visible, enabled or idle is ignored, so a repeated or stale press runs nothing.
+     */
+    data class RunQuickAction(val id: String) : SurfaceIntent
 
     /** An input changed the state key [key]. */
     data class Input(val key: String, val value: JsonElement) : SurfaceIntent {

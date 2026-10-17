@@ -7,6 +7,7 @@
     <string name="service_ui_close">Close</string>
     <string name="service_ui_dismiss">Dismiss</string>
     <string name="service_ui_more">%1$d more not shown</string>
+    <string name="service_ui_quick_actions_more">More quick actions</string>
     <string name="service_ui_choose_file">Choose file…</string>
     <string name="service_ui_choose_folder">Choose folder…</string>
     <string name="service_ui_not_chosen">Nothing chosen</string>

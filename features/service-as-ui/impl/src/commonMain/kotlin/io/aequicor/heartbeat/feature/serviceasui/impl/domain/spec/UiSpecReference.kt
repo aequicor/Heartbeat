@@ -20,6 +20,7 @@ internal fun uiSpecReference(methodResultBytes: Int, callSeconds: Int): String =
     placesAndDocument(),
     nodesReference(),
     actionsReference(),
+    quickActionsReference(),
     limitsAndCards(methodResultBytes, callSeconds),
     miniAppsAndWorkflow(),
 )
@@ -64,7 +65,7 @@ Panel launchers use a dialog when the host has no dock; modal launchers always o
 
 ## Document
 {"version": $UI_SPEC_VERSION, "title"?, "state"?: {key: JSON}, "data"?: {name: {"method", "args"?, "load"?: "auto" | "manual"}},
- "modals"?: {name: {"title", "body": node, "wide"?: bool}}, "body": node}
+ "modals"?: {name: {"title", "body": node, "wide"?: bool}}, "quickActions"?: [quick action], "body": node}
 - `state`: initial local values. Inputs write them by `bind`, as do `set` and `call.into`; every written key must be
   declared here.
 - `data`: owner methods whose results fill `data.<name>`. `auto` sources load whenever a live library surface opens,
@@ -72,6 +73,7 @@ Panel launchers use a dialog when the host has no dock; modal launchers always o
   writing inside a source would trigger another refresh. Manual sources run only through `reload` actions.
   `status.<name>` tells `loading`, `failed`, `ready` and `error`. Local `state` is ephemeral; durable records belong
   in harness `data`, never only in a script variable, local state, HTML or browser localStorage.
+- `quickActions`: contextual action buttons of a `card` app, see Quick actions below.
 Unknown fields and types are errors: the format is strict.
 
 ## Bindings
@@ -81,7 +83,21 @@ no expressions: compute values in the owner's methods.
 Roots: `data.<source>…`, `state.<key>…`, `item` and `index` (inside list items and table rows), `args…` (arguments the
 surface or modal was opened with), `status.<source>.loading|failed|ready|error`, `context.platform`
 (`desktop`, `android` or `ios`), `context.hasSession`. Paths: `a.b`, `a[0]`.
-Conditions (`if.when`, `enabledWhen`) are false for false, null, 0, "", empty arrays/objects and missing values.
+Conditions (`if.when`, `enabledWhen`, `visibleWhen`) are false for false, null, 0, "", empty arrays/objects and
+missing values.
+    """.trimIndent()
+
+private fun quickActionsReference(): String = """
+## Quick actions
+`quickActions` (`card` surfaces of a library owner only) are contextual actions of the canonical app that the host
+draws as buttons next to the chat input, with an overflow menu when they do not fit. Each is {id (unique,
+`[A-Za-z_][A-Za-z0-9_-]{0,31}`), label (always required: it names the button), action, style?: primary | secondary |
+ghost | danger, icon?, visibleWhen? (binding: hidden while false), enabledWhen? (binding: disabled while false),
+confirm? (question asked first)}. At most ${UiSpecLimits.QUICK_ACTIONS}. Bindings read `data`, `state`, `status`,
+`args` and `context`, never `item`. The action may only be `call`, `reload` or `set`, alone or in a `sequence`:
+quick actions never replace the user's draft in the chat input, so `prompt`, `open`, `focusCard`, `openUrl`, `copy`,
+`saveFile`, `reveal` and `close` are errors. They call methods of the same owner as the app, so put stage logic
+(start, continue) in owner methods, never in prompts typed for the user. Specs without the field are unchanged.
     """.trimIndent()
 
 private fun nodesReference(): String = """
@@ -159,8 +175,9 @@ placement hosts can fall back to a dialog. See `ui_reference(topic="service-as-u
 private fun limitsAndCards(methodResultBytes: Int, callSeconds: Int): String = """
 ## Limits
 ${UiSpecLimits.NODES} nodes, nesting ${UiSpecLimits.DEPTH}, ${UiSpecLimits.SOURCES} data sources,
-${UiSpecLimits.MODALS} modals, ${UiSpecLimits.SEQUENCE} steps in a sequence, ${UiSpecLimits.COLUMNS} table columns,
-${UiSpecLimits.OPTIONS} select options, ${UiSpecLimits.STATE_BYTES / KIB} KiB of initial state,
+${UiSpecLimits.MODALS} modals, ${UiSpecLimits.QUICK_ACTIONS} quick actions, ${UiSpecLimits.SEQUENCE} steps in a
+sequence, ${UiSpecLimits.COLUMNS} table columns, ${UiSpecLimits.OPTIONS} select options,
+${UiSpecLimits.STATE_BYTES / KIB} KiB of initial state,
 ${ServiceUiLimits.SPEC_BYTES / KIB} KiB per spec, ${UiSpecLimits.HTML_BYTES / KIB} KiB of HTML,
 ${ServiceUiLimits.ARGS_BYTES / KIB} KiB per method argument object, ${methodResultBytes / KIB} KiB per method result,
 $callSeconds s per call, ${UiSpecLimits.CALLS} concurrent native action/source calls per surface.

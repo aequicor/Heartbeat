@@ -26,8 +26,12 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecDecoding
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiFacts
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppQuickActionBoard
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppQuickActionsUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.platformFact
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceHost
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceInputBinding
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceSession
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.focusSurfaceCard
@@ -41,6 +45,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,6 +74,9 @@ private typealias PlacePipeline = PipelineContext<PlaceState, PlaceIntent, Place
  * or changes; only the observing coroutine touches that registry, and a new subscription replaces it after the old one
  * ended. Launchers and owner surfaces open as a panel in the host's dock or, without a dock or for modal surfaces, as
  * the modal over the place, which closes for good once its surface, owner or host leaves the place.
+ *
+ * The composer slot also shows the quick actions of the canonical app of its host. It does not start a store of its
+ * own for them: the retained app publishes them on the profile [board], and presses go back to that app's store.
  */
 @SingleIn(ServiceUiPlaceScope::class)
 @Inject
@@ -78,6 +86,7 @@ internal class PlaceModel(
     private val calls: UiMethodCalls,
     private val cards: UiCardStorage,
     private val surfaceModels: SurfaceModel.Factory,
+    private val board: AppQuickActionBoard,
     platformInfo: PlatformInfo,
     factory: HeartbeatStoreFactory,
     @ForScope(ServiceUiPlaceScope::class) handle: ScopeHandle,
@@ -95,6 +104,9 @@ internal class PlaceModel(
 
     /** Whether this place is the panel of a dock rather than a slot. */
     val isPanel: Boolean = place.isPanel
+
+    /** Whether the quick actions of the app of this host are drawn here: only by the composer slot. */
+    private val quickHost = (target as? PlaceTarget.Slot)?.takeIf { it.slot == UiSlot.Composer }?.host
 
     /** The context slot is available independently of whether its floating summary is currently shown. */
     val isContext: Boolean = (target as? PlaceTarget.Slot)?.slot == UiSlot.Context
@@ -180,17 +192,24 @@ internal class PlaceModel(
                 val shown = open?.let { target.modal(state, owners.owners, it) }
                 Shown(target.content(state, owners.owners), shown, open, owners)
             }.distinctUntilChanged()
-            try {
-                shown.collect { show(it) }
-            } finally {
-                // A floating context summary can disappear while its route stays retained. Its hidden web pages
-                // must lose their bridges and stop, rather than outlive the host context until the next opening.
-                if (isContext) {
-                    active.value = ActiveOwners()
-                    modal.value = null
-                    keep(emptyList())
+            coroutineScope {
+                quickHost?.let { host -> launch { board.observe(host).collect { show(it) } } }
+                try {
+                    shown.collect { show(it) }
+                } finally {
+                    // A floating context summary can disappear while its route stays retained. Its hidden web pages
+                    // must lose their bridges and stop, rather than outlive the host context until the next opening.
+                    if (isContext) {
+                        active.value = ActiveOwners()
+                        modal.value = null
+                        keep(emptyList())
+                    }
                 }
             }
+        }
+
+        private suspend fun show(quickActions: AppQuickActionsUi) {
+            pipeline.updateState { copy(quickActions = quickActions) }
         }
 
         suspend fun handle(intent: PlaceIntent) {
@@ -206,7 +225,20 @@ internal class PlaceModel(
                     log.i { "Close panel ${panel.dock.value}" }
                     pipeline.sendTo(machine, ServiceUiIntent.Public.ClosePanel(panel.dock))
                 }
+
+                is PlaceIntent.RunQuickAction -> {
+                    log.i { "Quick action pressed" }
+                    sendToApp(intent.authority, SurfaceIntent.RunQuickAction(intent.action.id))
+                }
+
+                is PlaceIntent.DismissQuickNotice -> sendToApp(intent.authority, SurfaceIntent.DismissNotice)
             }
+        }
+
+        /** Input for the app of this host, accepted only for the authority the pressed control was drawn from. */
+        private fun sendToApp(authority: SurfaceInputBinding?, input: SurfaceIntent) {
+            val host = quickHost ?: return
+            if (authority != null) board.send(host, SurfaceIntent.Bound(authority, input))
         }
 
         private suspend fun show(shown: Shown) {
@@ -215,7 +247,7 @@ internal class PlaceModel(
             if (shown.requested != null && shown.modal == null) modal.compareAndSet(shown.requested, null)
             keep(shown.content.surfaces + listOfNotNull(shown.modal))
             pipeline.updateState {
-                PlaceState(
+                copy(
                     surfaces = shown.content.surfaces.mapNotNull { ui(it) }.toImmutableList(),
                     launchers = shown.content.launchers.map { LauncherUi(it.id.value, it.content.title) }
                         .toImmutableList(),

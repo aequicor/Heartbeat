@@ -208,8 +208,9 @@ private fun SurfaceBody(
     }
 }
 
+/** The sentence a notice shows. */
 @Composable
-private fun NoticeUi.text(): String = when (this) {
+internal fun NoticeUi.text(): String = when (this) {
     is NoticeUi.Message -> message
     is NoticeUi.Failed -> stringResource(reason.text())
     NoticeUi.Unsupported -> stringResource(Res.string.service_ui_unsupported)
@@ -219,7 +220,7 @@ private fun NoticeUi.text(): String = when (this) {
 }
 
 /** Failures of methods and of the surface are errors; refusals of this place or platform are warnings. */
-private fun NoticeUi.tone(): HbTone = when (this) {
+internal fun NoticeUi.tone(): HbTone = when (this) {
     is NoticeUi.Failed, NoticeUi.FileFailed, NoticeUi.Broken -> HbTone.Danger
     is NoticeUi.Message, NoticeUi.Unsupported, NoticeUi.InvalidLink -> HbTone.Warning
 }

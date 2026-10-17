@@ -30,6 +30,12 @@ internal object UiSpecLimits {
     /** Named modals of one spec. */
     const val MODALS: Int = 8
 
+    /** Quick actions of one spec. */
+    const val QUICK_ACTIONS: Int = 8
+
+    /** Characters of an evaluated quick action label or confirmation question. */
+    const val QUICK_ACTION_CHARS: Int = 512
+
     /** Actions of one sequence. */
     const val SEQUENCE: Int = 8
 
@@ -107,6 +113,9 @@ internal enum class UiSpecProblem(val message: String) {
 
     /** Methods, data sources, sending prompts, reveal or a web bridge in a card without an owner. */
     OriginForbidden("not allowed in a card without an owner"),
+
+    /** Quick actions outside a library `card` surface, or a quick action other than call, reload and set. */
+    QuickActionForbidden("quick actions need a library card surface and only call, reload or set state"),
 
     /** Too many sources, modals, actions, columns, options or web nodes, or too large state or HTML. */
     LimitExceeded("exceeds a limit of the spec format"),

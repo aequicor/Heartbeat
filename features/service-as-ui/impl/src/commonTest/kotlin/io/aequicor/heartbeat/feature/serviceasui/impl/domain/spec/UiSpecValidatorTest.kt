@@ -9,6 +9,12 @@ import kotlin.test.assertTrue
 class UiSpecValidatorTest {
     private val library = UiSpecRules(UiSpecOrigin.Library, UiPlacement.Start, methods = setOf("prs"), setOf("details"))
     private val card = UiSpecRules(UiSpecOrigin.Inline)
+    private val app = UiSpecRules(
+        UiSpecOrigin.Library,
+        UiPlacement.Card,
+        methods = setOf("snapshot", "advance"),
+        surfaces = setOf("details"),
+    )
 
     @Test
     fun `a consistent library surface is valid`() {
@@ -229,6 +235,149 @@ class UiSpecValidatorTest {
         val noisy = spec("""{"type":"column","children":[$texts]}""")
         assertEquals(UiSpecLimits.DIAGNOSTICS, validateUiSpec(decoded(noisy), library).size)
     }
+
+    @Test
+    fun `a card app may declare quick actions that call reload and set`() {
+        val quick = quickSpec(
+            """[{"id":"next","label":"Next {{state.stage}}","style":"primary","icon":"play",
+                "visibleWhen":"{{data.snapshot.hasNext}}","enabledWhen":"{{status.snapshot.ready}}",
+                "confirm":"Start {{args.name}}?",
+                "action":{"type":"sequence","actions":[
+                  {"type":"call","method":"advance","args":{"stage":"{{state.stage}}"},"into":"stage"},
+                  {"type":"reload","source":"snapshot"},
+                  {"type":"sequence","actions":[{"type":"set","key":"stage","value":"{{data.snapshot.stage}}"}]}]}},
+               {"id":"reset","label":"Reset","action":{"type":"set","key":"stage","value":"plan"}}]""",
+        )
+
+        val check = assertIs<UiSpecCheck.Valid>(checkUiSpec(quick, app))
+        assertEquals(emptyList(), check.warnings)
+    }
+
+    @Test
+    fun `quick actions are only for library card surfaces`() {
+        val quick = quickSpec("""[{"id":"a","label":"A","action":{"type":"set","key":"stage","value":"x"}}]""")
+
+        assertEquals(emptyList(), problems(quick, app))
+        assertEquals(
+            listOf("$.quickActions" to UiSpecProblem.QuickActionForbidden),
+            problems(quick, app.copy(placement = UiPlacement.Composer)),
+        )
+        for (placement in UiPlacement.entries.filter { it != UiPlacement.Card }) {
+            assertEquals(
+                listOf("$.quickActions" to UiSpecProblem.QuickActionForbidden),
+                problems(quick, app.copy(placement = placement)),
+                placement.name,
+            )
+        }
+        val anonymous = """{"version":1,"state":{"stage":"plan"},"body":{"type":"divider"},
+            "quickActions":[{"id":"a","label":"A","action":{"type":"set","key":"stage","value":"x"}}]}"""
+        assertEquals(listOf("$.quickActions" to UiSpecProblem.OriginForbidden), problems(anonymous, card))
+    }
+
+    @Test
+    fun `quick actions cannot use actions that need the screen or replace the draft`() {
+        val forbidden = listOf(
+            """{"type":"prompt","text":"go"}""",
+            """{"type":"prompt","text":"go","submit":true}""",
+            """{"type":"open","modal":"m"}""",
+            """{"type":"open","surface":"details"}""",
+            """{"type":"focusCard","surface":"details"}""",
+            """{"type":"openUrl","url":"https://example.com"}""",
+            """{"type":"copy","text":"x"}""",
+            """{"type":"saveFile","text":"x"}""",
+            """{"type":"reveal","path":"/tmp"}""",
+            """{"type":"close"}""",
+        )
+        val types = listOf(
+            "prompt", "prompt", "open", "open", "focusCard", "openUrl", "copy", "saveFile", "reveal", "close",
+        )
+        forbidden.forEachIndexed { index, action ->
+            val direct = quickSpec("""[{"id":"a","label":"A","action":$action}]""", modals = true)
+            val inSequence = quickSpec(
+                """[{"id":"a","label":"A","action":{"type":"sequence","actions":[
+                    {"type":"set","key":"stage","value":"x"},$action]}}]""",
+                modals = true,
+            )
+
+            assertEquals(
+                listOf("$.quickActions[0].action" to UiSpecProblem.QuickActionForbidden),
+                problems(direct, app),
+                action,
+            )
+            assertEquals(
+                listOf("$.quickActions[0].action.actions[1]" to UiSpecProblem.QuickActionForbidden),
+                problems(inSequence, app),
+                action,
+            )
+            val detail = validateUiSpec(decoded(direct), app).single().detail
+            assertEquals(types[index], detail, action)
+        }
+    }
+
+    @Test
+    fun `quick action ids labels and sequences are checked`() {
+        val quick = quickSpec(
+            """[{"id":"bad id","label":"A","action":{"type":"set","key":"stage","value":"x"}},
+               {"id":"twice","label":"B","action":{"type":"set","key":"stage","value":"x"}},
+               {"id":"twice","label":" ","action":{"type":"set","key":"stage","value":"x"}},
+               {"id":"empty","label":"E","action":{"type":"sequence","actions":[]}}]""",
+        )
+
+        assertEquals(
+            listOf(
+                "$.quickActions[0].id" to UiSpecProblem.InvalidName,
+                "$.quickActions[2].id" to UiSpecProblem.InvalidValue,
+                "$.quickActions[2].label" to UiSpecProblem.InvalidValue,
+                "$.quickActions[3].action.actions" to UiSpecProblem.LimitExceeded,
+            ),
+            problems(quick, app),
+        )
+    }
+
+    @Test
+    fun `quick actions are bounded in number`() {
+        val atLimit = quickSpec(setQuickActions(UiSpecLimits.QUICK_ACTIONS))
+        val overLimit = quickSpec(setQuickActions(UiSpecLimits.QUICK_ACTIONS + 1))
+
+        assertEquals(emptyList(), problems(atLimit, app))
+        assertEquals(listOf("$.quickActions" to UiSpecProblem.LimitExceeded), problems(overLimit, app))
+    }
+
+    @Test
+    fun `quick action references and bindings are resolved without list elements`() {
+        val quick = quickSpec(
+            """[{"id":"a","label":"{{item.title}}","visibleWhen":"{{data.nope.ready}}",
+                "enabledWhen":"{{state.nope}} {{state.stage}}","confirm":"{{index}}?",
+                "action":{"type":"call","method":"missing","args":{"id":"{{item.id}}"},"into":"nope"}},
+               {"id":"b","label":"B","action":{"type":"reload","source":"nope"}},
+               {"id":"c","label":"C","action":{"type":"set","key":"nope","value":1}}]""",
+        )
+
+        assertEquals(
+            listOf(
+                "$.quickActions[0].label" to UiSpecProblem.OutOfScope,
+                "$.quickActions[0].visibleWhen" to UiSpecProblem.UnknownSource,
+                "$.quickActions[0].enabledWhen" to UiSpecProblem.UnknownStateKey,
+                "$.quickActions[0].enabledWhen" to UiSpecProblem.InvalidBinding,
+                "$.quickActions[0].confirm" to UiSpecProblem.OutOfScope,
+                "$.quickActions[0].action.method" to UiSpecProblem.UnknownMethod,
+                "$.quickActions[0].action.args.id" to UiSpecProblem.OutOfScope,
+                "$.quickActions[0].action.into" to UiSpecProblem.UnknownStateKey,
+                "$.quickActions[1].action.source" to UiSpecProblem.UnknownSource,
+                "$.quickActions[2].action.key" to UiSpecProblem.UnknownStateKey,
+            ),
+            problems(quick, app),
+        )
+    }
+
+    private fun setQuickActions(count: Int): String = (1..count).joinToString(",", "[", "]") {
+        """{"id":"a$it","label":"A","action":{"type":"set","key":"stage","value":"x"}}"""
+    }
+
+    private fun quickSpec(quickActions: String, modals: Boolean = false): String =
+        """{"version":1,"state":{"stage":"plan"},"data":{"snapshot":{"method":"snapshot"}},
+            "modals":${if (modals) """{"m":{"title":"M","body":{"type":"divider"}}}""" else "{}"},
+            "quickActions":$quickActions,"body":{"type":"divider"}}"""
 
     private fun problems(text: String, rules: UiSpecRules): List<Pair<String, UiSpecProblem>> =
         validateUiSpec(decoded(text), rules).filterNot { it.isWarning }.map { it.path to it.problem }

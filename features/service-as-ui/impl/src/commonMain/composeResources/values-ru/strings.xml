@@ -7,6 +7,7 @@
     <string name="service_ui_close">Закрыть</string>
     <string name="service_ui_dismiss">Скрыть</string>
     <string name="service_ui_more">Ещё %1$d не показано</string>
+    <string name="service_ui_quick_actions_more">Ещё быстрые действия</string>
     <string name="service_ui_choose_file">Выбрать файл…</string>
     <string name="service_ui_choose_folder">Выбрать папку…</string>
     <string name="service_ui_not_chosen">Ничего не выбрано</string>

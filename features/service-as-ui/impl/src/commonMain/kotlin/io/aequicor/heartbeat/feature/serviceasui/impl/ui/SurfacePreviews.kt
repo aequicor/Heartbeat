@@ -8,6 +8,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppQuickActionsUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ButtonStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ColumnUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.GapUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.NativeWidgetUi
@@ -17,6 +19,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.RowUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.TextStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ToneUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.inertQuickAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.NoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceState
 import kotlinx.collections.immutable.persistentListOf
@@ -85,4 +88,39 @@ private val PreviewState = SurfaceState(
         GapUi.Medium,
     ),
     notice = NoticeUi.Message("Two pull requests wait for review"),
+)
+
+@Preview
+@Composable
+private fun QuickActionsLightPreview() {
+    HbTheme(darkTheme = false, dimensions = HbDimensions.Desktop) { PreviewQuickActions() }
+}
+
+@Preview
+@Composable
+private fun QuickActionsDarkPreview() {
+    HbTheme(darkTheme = true, dimensions = HbDimensions.Desktop) { PreviewQuickActions() }
+}
+
+@Preview
+@Composable
+private fun QuickActionsMobilePreview() {
+    HbTheme(dimensions = HbDimensions.Mobile) { PreviewQuickActions() }
+}
+
+@Composable
+private fun PreviewQuickActions() {
+    HbColumn(Modifier.background(HbTheme.colors.background).padding(HbTheme.spacing.xl)) {
+        QuickActionsView(PreviewQuickActionsState, {})
+    }
+}
+
+private val PreviewQuickActionsState = AppQuickActionsUi(
+    actions = persistentListOf(
+        inertQuickAction("start", "Start stage", ButtonStyleUi.Primary),
+        inertQuickAction("review", "Review stage"),
+        inertQuickAction("retry", "Retry failed step", ButtonStyleUi.Ghost),
+    ),
+    notice = NoticeUi.Message("Sign in to gh before starting"),
+    isAvailable = true,
 )

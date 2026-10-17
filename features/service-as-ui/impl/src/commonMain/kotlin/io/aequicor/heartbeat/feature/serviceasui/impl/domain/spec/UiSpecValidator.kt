@@ -59,6 +59,7 @@ private class SpecValidator(private val spec: UiSpec, private val rules: UiSpecR
 
     fun run(): List<UiSpecDiagnostic> {
         declarations()
+        quickActions()
         val isWebInBody = !isInline
         spec.title?.let { template(it, "$ROOT.title", Scope()) }
         node(spec.body, "$ROOT.body", Scope(isWebAllowed = isWebInBody))
@@ -82,6 +83,63 @@ private class SpecValidator(private val spec: UiSpec, private val rules: UiSpecR
         spec.state.keys.forEach { name(it, "$ROOT.state.$it") }
         if (JsonObject(spec.state).toString().encodeToByteArray().size > UiSpecLimits.STATE_BYTES) {
             report("$ROOT.state", UiSpecProblem.LimitExceeded, "state size")
+        }
+    }
+
+    /** Quick actions belong to the canonical app of a library owner and never see list elements. */
+    private fun quickActions() {
+        val path = "$ROOT.quickActions"
+        if (spec.quickActions.isEmpty() || !areQuickActionsAllowed(path)) return
+        if (spec.quickActions.size > UiSpecLimits.QUICK_ACTIONS) {
+            report(path, UiSpecProblem.LimitExceeded, "${UiSpecLimits.QUICK_ACTIONS} quick actions")
+        }
+        val ids = HashSet<String>()
+        spec.quickActions.forEachIndexed { index, quick ->
+            val at = "$path[$index]"
+            name(quick.id, "$at.id")
+            if (!ids.add(quick.id)) report("$at.id", UiSpecProblem.InvalidValue, "a unique id")
+            // The label names the button for screen readers and in the overflow menu.
+            if (quick.label.isBlank()) report("$at.label", UiSpecProblem.InvalidValue, "a visible label")
+            template(quick.label, "$at.label", Scope())
+            quick.visibleWhen?.let { binding(it, "$at.visibleWhen", Scope()) }
+            quick.enabledWhen?.let { binding(it, "$at.enabledWhen", Scope()) }
+            quick.confirm?.let { template(it, "$at.confirm", Scope()) }
+            quickAction(quick.action, "$at.action")
+        }
+    }
+
+    private fun areQuickActionsAllowed(path: String): Boolean = when {
+        isInline -> {
+            report(path, UiSpecProblem.OriginForbidden)
+            false
+        }
+
+        rules.placement != UiPlacement.Card -> {
+            report(path, UiSpecProblem.QuickActionForbidden, "placement card")
+            false
+        }
+
+        else -> true
+    }
+
+    /**
+     * A quick action runs beside the surface's screen: only owner calls, reloads and local state, alone or in a
+     * sequence. Prompts, navigation, links, files and `close` need the screen or would overwrite the chat draft.
+     */
+    private fun quickAction(action: UiAction, path: String) {
+        when (action) {
+            is UiAction.Call, is UiAction.Reload, is UiAction.SetState -> action(action, path, Scope())
+
+            is UiAction.Steps -> {
+                if (action.actions.isEmpty() || action.actions.size > UiSpecLimits.SEQUENCE) {
+                    report("$path.actions", UiSpecProblem.LimitExceeded, "1..${UiSpecLimits.SEQUENCE} actions")
+                }
+                action.actions.forEachIndexed { index, step -> quickAction(step, "$path.actions[$index]") }
+            }
+
+            is UiAction.FocusCard, is UiAction.Open, is UiAction.Close, is UiAction.Prompt, is UiAction.OpenUrl,
+            is UiAction.Copy, is UiAction.SaveFile, is UiAction.Reveal,
+            -> report(path, UiSpecProblem.QuickActionForbidden, action.typeName())
         }
     }
 
@@ -428,6 +486,9 @@ private class SpecValidator(private val spec: UiSpec, private val rules: UiSpecR
         found += UiSpecDiagnostic(path, problem, detail, isWarning)
     }
 }
+
+/** The `type` of an action in the spec: its class name with a lower-case first letter. */
+private fun UiAction.typeName(): String? = this::class.simpleName?.replaceFirstChar { it.lowercase() }
 
 private const val ROOT = "$"
 private const val FENCE = "```"
