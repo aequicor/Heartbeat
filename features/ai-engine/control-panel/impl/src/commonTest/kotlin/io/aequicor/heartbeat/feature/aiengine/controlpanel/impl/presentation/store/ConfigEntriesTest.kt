@@ -154,7 +154,7 @@ class ConfigEntriesTest {
         assertTrue(env.problems.isEmpty())
         val edit = schema.saveOf(draft)
         assertEquals(setOf(slot), edit.secrets.keys)
-        assertEquals("abc", edit.secrets.getValue(slot)!!.reveal { String(it) })
+        assertEquals("abc", edit.secrets.getValue(slot)!!.reveal { it.concatToString() })
 
         val back = FieldInputUi.EditEntry("github", "env", FieldInputUi.SetSecret("TOKEN", isSecret = false))
         val file = config.edit(draft, "servers", back)!!
