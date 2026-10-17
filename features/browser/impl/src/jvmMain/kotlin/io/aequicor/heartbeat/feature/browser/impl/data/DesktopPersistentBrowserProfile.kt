@@ -22,6 +22,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.cef.CefRequestContextSettings
 import org.cef.browser.CefRequestContext
 import kotlin.coroutines.resume
@@ -93,7 +94,7 @@ internal class DesktopPersistentBrowserProfile(
         contextLock.withLock {
             if (isInUse()) return@withLock
             agentAnchors.remove(owner)?.let { context ->
-                withContext(NonCancellable) { dispose(context) }
+                withContext(NonCancellable) { disposeAgentContexts(listOf(context), log, ::dispose) }
                 log.v { "Agent browser session storage discarded" }
             }
         }
@@ -180,11 +181,13 @@ internal class DesktopPersistentBrowserProfile(
         synchronized(monitor) { closeSurfaces }?.invoke()
         log.v { "Persistent browser surfaces closed; releasing profile context" }
         contextLock.withLock {
-            agentAnchors.values.toList().forEach { dispose(it) }
+            // A context is forgotten before it is disposed: a disposed wrapper must never be disposed again.
+            val agents = agentAnchors.values.toList()
             agentAnchors.clear()
+            disposeAgentContexts(agents, log, ::dispose)
             anchor?.let { context ->
-                dispose(context)
                 anchor = null
+                dispose(context)
             }
         }
         log.v { "Persistent browser context released" }
@@ -196,3 +199,27 @@ internal class DesktopPersistentBrowserProfile(
         }
     }
 }
+
+/**
+ * Releases every one of [contexts] with [dispose], each within [AGENT_DISPOSE_TIMEOUT]. An agent session's storage
+ * lives in memory only, so a failure or a lost callback is logged and never keeps the remaining contexts, the user's
+ * persistent one, a data clear or the lock that guards them from being released.
+ */
+internal suspend fun <T> disposeAgentContexts(contexts: List<T>, log: Log, dispose: suspend (T) -> Unit) {
+    for (context in contexts) {
+        try {
+            val isDisposed = withTimeoutOrNull(AGENT_DISPOSE_TIMEOUT) { dispose(context) } != null
+            if (!isDisposed) {
+                log.w(IllegalStateException("Agent browser context disposal timed out")) {
+                    "Agent browser session storage was not confirmed as discarded in time"
+                }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.redactedFailure()) { "Agent browser session storage could not be discarded" }
+        }
+    }
+}
+
+private const val AGENT_DISPOSE_TIMEOUT = 10_000L

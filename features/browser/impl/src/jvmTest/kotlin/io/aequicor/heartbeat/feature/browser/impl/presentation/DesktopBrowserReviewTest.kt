@@ -125,6 +125,43 @@ class DesktopBrowserReviewTest {
     }
 
     @Test
+    fun `an approval of another operation or without a state refuses the action before any input`() = runTest {
+        val page = ReviewedPage()
+        val tab = openAgentTab(page)
+        val approved = page.fixture.inspect(tab).data
+        val otherOperation = BrowserReview(BrowserOperation.Key, approved)
+        val withoutState = BrowserReview(BrowserOperation.Type)
+        for ((id, review) in listOf("other-operation" to otherOperation, "without-state" to withoutState)) {
+            val result = page.fixture.session.perform(
+                BrowserRequest(id, BrowserOperation.Type, tab, AGENT, textArguments(), review),
+            )
+            assertNotNull(result.error)
+        }
+        assertTrue(page.methods.none { it.startsWith("Input.") })
+    }
+
+    @Test
+    fun `a navigation review observes no page, so a tab that cannot be evaluated can still be reviewed`() = runTest {
+        val page = ReviewedPage()
+        val tab = openAgentTab(page)
+        val inspected = page.fixture.inspect(tab, review = BrowserReview(BrowserOperation.Navigate))
+        assertNull(inspected.error)
+        assertNull(inspected.data["page"])
+        assertEquals("agent", inspected.data.getValue("storage").jsonPrimitive.content)
+        assertTrue(page.methods.none { it == "Runtime.evaluate" })
+    }
+
+    @Test
+    fun `inspection does not bring the tab to the user's attention`() = runTest {
+        val page = ReviewedPage()
+        val tab = openAgentTab(page)
+        val other = page.fixture.create(null)
+        page.fixture.session.selectTab(other)
+        assertNull(page.fixture.inspect(tab).error)
+        assertEquals(other, page.fixture.session.tabs.value.second)
+    }
+
+    @Test
     fun `an action without review evidence keeps its ordinary behaviour`() = runTest {
         val page = ReviewedPage()
         val tab = openAgentTab(page)

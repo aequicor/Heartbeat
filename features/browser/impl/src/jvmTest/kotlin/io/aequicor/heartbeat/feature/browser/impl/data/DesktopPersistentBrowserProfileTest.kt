@@ -8,10 +8,13 @@ import io.aequicor.heartbeat.core.datastore.DatabaseSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.StorageOwner
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserNativeTestStores
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -20,6 +23,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Comparator
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -57,6 +61,33 @@ class DesktopPersistentBrowserProfileTest {
             profile.releaseAgentContext("session") { false }
             profile.releaseAgentContext("session") { true }
             assertTrue(profile.isAvailable)
+        }
+    }
+
+    @Test
+    fun `a failing agent context does not keep the others from being released`() = runTest {
+        val released = mutableListOf<String>()
+        disposeAgentContexts(listOf("a", "b", "c"), Log.tag("Test")) { context ->
+            check(context != "b") { "flush was not accepted" }
+            released += context
+        }
+        assertEquals(listOf("a", "c"), released)
+    }
+
+    @Test
+    fun `an agent context whose callback never arrives is given up on`() = runTest {
+        val released = mutableListOf<String>()
+        disposeAgentContexts(listOf("a", "b"), Log.tag("Test")) { context ->
+            if (context == "a") awaitCancellation()
+            released += context
+        }
+        assertEquals(listOf("b"), released)
+    }
+
+    @Test
+    fun `releasing agent contexts propagates cancellation`() = runTest {
+        assertFailsWith<CancellationException> {
+            disposeAgentContexts(listOf("a"), Log.tag("Test")) { throw CancellationException("stopped") }
         }
     }
 

@@ -227,7 +227,12 @@ internal class DesktopBrowserSession(
                 check(agentPolicy.isEnabled()) { "Browser tools disabled" }
             }
             val data = dispatch(request)
-            log.i { "Browser operation completed: ${request.operation}" }
+            // Gathering evidence for a safety review runs several times per agent action; it is not an action itself.
+            if (request.operation == BrowserOperation.Inspect) {
+                log.v { "Browser operation completed: ${request.operation}" }
+            } else {
+                log.i { "Browser operation completed: ${request.operation}" }
+            }
             data
         } catch (error: CancellationException) {
             throw error
@@ -350,8 +355,11 @@ internal class DesktopBrowserSession(
             BrowserOperation.ClearData,
             BrowserOperation.Inspect,
             -> {
-                selected = entry.tab.id
-                publish()
+                // Looking at the page for a review must not bring the tab to the user's attention.
+                if (request.operation != BrowserOperation.Inspect) {
+                    selected = entry.tab.id
+                    publish()
+                }
                 entry.lock.withLock {
                     if (request.owner != null) {
                         check(agentPolicy.isEnabled()) { "Browser tools disabled" }

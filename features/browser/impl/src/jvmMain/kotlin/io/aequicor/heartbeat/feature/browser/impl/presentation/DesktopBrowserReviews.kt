@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserReview
@@ -11,7 +12,9 @@ import kotlinx.serialization.json.put
 
 /**
  * The evidence an agent action's independent safety review is bound to: this tab, its page, and the target and
- * focus of the reviewed [BrowserReview.operation]. It observes only; the agent's own read stays valid.
+ * focus of the reviewed [BrowserReview.operation]. It leaves the page, the element references and the last snapshot
+ * of the agent's own read untouched. A navigation does not depend on the page it leaves, so the page is not observed
+ * for it: a tab that is loading or shows an error page can still be pointed elsewhere.
  */
 internal suspend fun DesktopBrowserEntry.inspect(request: BrowserRequest): BrowserResult {
     require(request.owner != null) { "Only an agent session is reviewed" }
@@ -26,8 +29,9 @@ internal suspend fun DesktopBrowserEntry.inspect(request: BrowserRequest): Brows
  */
 internal suspend fun DesktopBrowserEntry.requireReviewedState(request: BrowserRequest) {
     val review = request.review ?: return
-    val approved = review.approved ?: return
     check(request.owner != null) { "Only an agent session is reviewed" }
+    check(review.operation == request.operation) { REVIEWED_STATE_CHANGED }
+    val approved = checkNotNull(review.approved) { "A reviewed action carries the state its review saw" }
     check(reviewedBrowserState(observe(review, request)) == reviewedBrowserState(approved)) { REVIEWED_STATE_CHANGED }
 }
 
@@ -38,7 +42,9 @@ private suspend fun DesktopBrowserEntry.observe(review: BrowserReview, request: 
         put("url", page.url)
         put("title", page.title.take(MAX_REVIEW_TITLE))
         put("storage", if (storage is BrowserStorage.User) "user" else "agent")
-        put("page", driver.safetySnapshot(review.operation, request.arguments))
+        if (review.operation != BrowserOperation.Navigate) {
+            put("page", driver.safetySnapshot(review.operation, request.arguments))
+        }
     }
 }
 

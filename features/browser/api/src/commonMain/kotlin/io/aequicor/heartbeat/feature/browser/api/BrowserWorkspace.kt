@@ -41,7 +41,8 @@ public data class BrowserTab(
 /**
  * Bounded operations on a tab; native objects never cross this API. [Inspect] only observes: it returns the page
  * evidence an independent safety review of the operation named by [BrowserReview.operation] is bound to, and
- * leaves the page, its element references and the last snapshot untouched.
+ * leaves the page, its element references, the last snapshot and the selected tab untouched. A navigation does not
+ * depend on the page it leaves, so its evidence carries no page.
  */
 public enum class BrowserOperation {
     ListTabs,

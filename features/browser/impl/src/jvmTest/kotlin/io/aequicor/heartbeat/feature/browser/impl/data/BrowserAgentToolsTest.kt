@@ -447,6 +447,22 @@ class BrowserAgentToolsTest {
     }
 
     @Test
+    fun `the dispatcher's second approval does not spend the verdict before the execution`() = runTest {
+        val fixture = Fixture().apply { showing() }
+        val spec = fixture.spec("browser_type")
+        val arguments = typed("hello")
+        val approval = fixture.tools.approval(automatic, spec, arguments)
+        assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            fixture.tools.automaticAuthorization(automatic, spec, arguments),
+        )
+        // The dispatcher compares the approval once more after the decision, before it runs the tool.
+        assertEquals(approval, fixture.tools.approval(automatic, spec, arguments))
+        assertFalse(fixture.tools.execute(automatic.copy(authorization = approval), "browser_type", arguments).isError)
+        assertEquals(1, fixture.machine.requests.count { it.operation == BrowserOperation.Type })
+        assertEquals(1, fixture.reviewer.calls)
+    }
+
+    @Test
     fun `every input tool is reviewed in automatic mode and keeps the trust table in interactive mode`() = runTest {
         val fixture = Fixture().apply { showing() }
         val inputs = listOf("browser_click", "browser_type", "browser_key", "browser_scroll", "browser_drag")
@@ -457,11 +473,9 @@ class BrowserAgentToolsTest {
                 fixture.tools.automaticAuthorization(automatic, spec, arguments),
                 name,
             )
-            for (mode in listOf(AgentToolDecisionMode.Interactive)) {
-                val interactive = automatic.copy(decisionMode = mode)
-                assertNull(fixture.tools.automaticAuthorization(interactive, spec, arguments), name)
-                assertTrue(fixture.tools.approval(interactive, spec, arguments).binding.isNullOrBlank(), name)
-            }
+            val interactive = automatic.copy(decisionMode = AgentToolDecisionMode.Interactive)
+            assertNull(fixture.tools.automaticAuthorization(interactive, spec, arguments), name)
+            assertTrue(fixture.tools.approval(interactive, spec, arguments).binding.isNullOrBlank(), name)
         }
         val reads = listOf("browser_tabs", "browser_read", "browser_screenshot", "browser_close_tab", "browser_search")
         for (name in reads + listOf("browser_open", "browser_new_tab")) {

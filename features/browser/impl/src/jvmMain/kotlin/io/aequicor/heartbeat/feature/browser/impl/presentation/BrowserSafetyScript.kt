@@ -3,6 +3,21 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
+
+/**
+ * The arguments as the input driver reads them: an element reference and coordinates sent as numeric strings count as
+ * numbers, everything else is absent. The evidence script gets these, so it describes the target the driver reaches.
+ */
+internal fun parsedSafetyArguments(arguments: JsonObject): JsonObject = buildJsonObject {
+    (arguments["element"] as? JsonPrimitive)?.intOrNull?.let { put("element", it) }
+    for (key in listOf("x", "y", "toX", "toY")) {
+        (arguments[key] as? JsonPrimitive)?.doubleOrNull?.let { put(key, it) }
+    }
+}
 
 /** Bounded evidence from one isolated-world task, without mutating the read's element registry. */
 internal fun browserSafetyScript(geometry: String, operation: BrowserOperation?, arguments: JsonObject): String =

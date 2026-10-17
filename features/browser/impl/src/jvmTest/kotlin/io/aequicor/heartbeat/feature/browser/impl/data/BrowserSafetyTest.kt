@@ -128,6 +128,27 @@ class BrowserSafetyTest {
     }
 
     @Test
+    fun `the text and size of the page element itself never break the authorization`() = runTest {
+        val reviewed = request(evidence = pageElementEvidence(label = "Clock 12:00", height = 900.0))
+        safety.authorize(context, reviewed)
+        val later = request(evidence = pageElementEvidence(label = "Clock 12:01", height = 1400.0))
+        assertEquals(reviewed.approval.binding, later.approval.binding)
+        assertTrue(safety.consume(context.copy(authorization = later.approval), later))
+        assertEquals(1, reviewer.calls)
+    }
+
+    @Test
+    fun `the label and size of a control the action reaches stay bound`() = runTest {
+        val reviewed = request(evidence = pageElementEvidence(button = "Search"))
+        val relabelled = request(evidence = pageElementEvidence(button = "Send payment"))
+        assertNotEquals(reviewed.approval.binding, relabelled.approval.binding)
+        val moved = request(evidence = pageElementEvidence(button = "Search", buttonX = 40.0))
+        assertNotEquals(reviewed.approval.binding, moved.approval.binding)
+        val otherNode = request(evidence = pageElementEvidence(button = "Search", buttonNode = 12))
+        assertNotEquals(reviewed.approval.binding, otherNode.approval.binding)
+    }
+
+    @Test
     fun `risky uncertain and malformed safe verdicts cannot be consumed as authorization`() = runTest {
         for (verdict in listOf("risky", "uncertain", "safe")) {
             val assessor = Reviewer().also {
@@ -202,6 +223,51 @@ class BrowserSafetyTest {
                 put("private", "private form contents")
             },
         )
+    }
+
+    /** The shape `describe` reports for the page element (focus before anything is focused) and a control. */
+    private fun pageElementEvidence(
+        label: String = "Search the catalog",
+        height: Double = 900.0,
+        button: String = "Search",
+        buttonX: Double = 10.0,
+        buttonNode: Int = 11,
+    ): JsonObject = buildJsonObject {
+        put("tabId", "7")
+        put("url", "https://example.com/")
+        put(
+            "page",
+            buildJsonObject {
+                put("view", buildJsonObject { put("document", "doc-1") })
+                put("title", "Search")
+                put("content", label)
+                put(
+                    "focus",
+                    buildJsonObject {
+                        put("node", 1)
+                        put("tag", "BODY")
+                        put("label", label)
+                        put("rect", rect(0.0, 0.0, 800.0, height))
+                    },
+                )
+                put(
+                    "hitTarget",
+                    buildJsonObject {
+                        put("node", buttonNode)
+                        put("tag", "BUTTON")
+                        put("label", button)
+                        put("rect", rect(buttonX, 20.0, 80.0, 24.0))
+                    },
+                )
+            },
+        )
+    }
+
+    private fun rect(x: Double, y: Double, width: Double, height: Double): JsonObject = buildJsonObject {
+        put("x", x)
+        put("y", y)
+        put("width", width)
+        put("height", height)
     }
 
     private fun request(
