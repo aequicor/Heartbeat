@@ -234,7 +234,9 @@ internal class ClaudeSession(
             ensureOpen()
             if (synchronized(lock) { current !is ActiveSessionState.Ready }) busy()
             awaitSettled()
-            val isEffortKnown = request.reasoningEffort?.let { it in ClaudeEffortLevels } ?: true
+            val isEffortKnown = request.reasoningEffort?.let { effort ->
+                effort in (environment.efforts(target.model) ?: ClaudeEffortLevels)
+            } ?: true
             if (!isEffortKnown) throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
             val prepared = claudePromptInputs(request, environment.inputSupport(target.model), environment.resources)
             tree.rememberInputs(prepared.references)
@@ -861,4 +863,6 @@ internal data class ClaudeSessionEnvironment(
     val resources: ResourceResolver = ResourceResolver { null },
     val resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
     val inputSupport: (ModelId) -> PromptInputSupport = { PromptInputSupport.TextDocuments },
+    /** Effort levels the CLI advertised for a model; null when the model was not discovered by this runtime. */
+    val efforts: (ModelId) -> List<String>? = { null },
 )

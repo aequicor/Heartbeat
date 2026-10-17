@@ -69,6 +69,7 @@ internal class JvmClaudeBackend(
 
     private val log = Log.tag("ClaudeBackend")
     private val inputSupports = mutableMapOf<Pair<AuthRevision, ModelId>, PromptInputSupport>()
+    private val efforts = mutableMapOf<Pair<AuthRevision, ModelId>, List<String>>()
     private val mutex = Mutex()
     private var runtime: ClaudeRuntime? = null
 
@@ -174,10 +175,11 @@ internal class JvmClaudeBackend(
     ): ModelInfo {
         val model = entry as? JsonObject ?: protocolFailure()
         val id = model.text("value")?.takeIf(String::isNotBlank) ?: protocolFailure()
+        val levels = model.effortLevels().also { efforts[revision to ModelId(id)] = it }
         return ModelInfo(
             EngineTarget(ClaudeEngine.Id, context.binding, ModelId(id)),
             model.text("displayName") ?: id,
-            reasoningEfforts = model.effortLevels(),
+            reasoningEfforts = levels,
             inputSupport = claudeInputSupport(
                 model,
                 isVendorOriginConfirmed = true,
@@ -223,6 +225,7 @@ internal class JvmClaudeBackend(
             native = native,
             resources = resources,
             resourceHistory = resourceHistory,
+            efforts = { model -> efforts[identity.revision to model] },
             inputSupport = { model ->
                 inputSupports[identity.revision to model] ?: claudeInputSupport(
                     JsonObject(mapOf("value" to JsonPrimitive(model.value))),
