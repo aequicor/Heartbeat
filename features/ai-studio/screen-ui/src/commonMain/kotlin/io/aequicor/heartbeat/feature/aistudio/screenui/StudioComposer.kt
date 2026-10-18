@@ -766,7 +766,7 @@ private fun approvalActions(
 }
 
 @Composable
-private fun approvalLabel(approval: ApprovalUi): String = stringResource(
+internal fun approvalLabel(approval: ApprovalUi): String = stringResource(
     when (approval) {
         ApprovalUi.Ask -> Res.string.approval_ask
         ApprovalUi.AutoEdits -> Res.string.approval_edits

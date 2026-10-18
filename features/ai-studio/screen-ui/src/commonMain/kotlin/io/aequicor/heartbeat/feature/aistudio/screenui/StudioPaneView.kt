@@ -108,6 +108,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanProposalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
@@ -290,6 +291,8 @@ private fun PaneConversation(
     val transcript = feed.messages
     val worktree = feed.worktree
     val pane = content.pane
+    var planDialog by remember(content.session?.id) { mutableStateOf<PlanDialog?>(null) }
+    val refinePrompt = planRefinePrompt()
     Box(modifier) {
         if (feedId == null && !isCenteredComposer && !hasStartApp) {
             Box(
@@ -322,6 +325,17 @@ private fun PaneConversation(
                     attachmentPreviews = content.attachmentPreviews,
                     isAttachmentOpeningAvailable = content.host.isAttachmentOpeningAvailable,
                     onIntent = onIntent,
+                    planCard = { proposal ->
+                        StudioPlanCard(
+                            proposal,
+                            content.planning.plan,
+                            onApprove = { revision ->
+                                content.session?.let { onIntent(StudioIntent.ApprovePlan(it.id, revision)) }
+                            },
+                            onRefine = { onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, refinePrompt)) },
+                            onDialog = { planDialog = it },
+                        )
+                    },
                     contentPadding = PaddingValues(
                         start = HbTheme.spacing.xl,
                         end = HbTheme.spacing.xl,
@@ -335,6 +349,7 @@ private fun PaneConversation(
                 )
             }
         }
+        PlanDialogs(content, planDialog, onIntent) { planDialog = null }
         // This mount stays outside the lazy feed and at the same position when a new chat starts.
         PaneAppWorkspace(
             appHost,
@@ -820,6 +835,7 @@ private fun SessionTranscript(
     isAttachmentOpeningAvailable: Boolean,
     onIntent: (StudioIntent) -> Unit,
     modifier: Modifier = Modifier,
+    planCard: (@Composable (PlanProposalUi) -> Unit)? = null,
 ) {
     var preparedFocus by remember { mutableStateOf<Long?>(null) }
     val focusTarget = cardFocus?.takeIf { request ->
@@ -858,6 +874,7 @@ private fun SessionTranscript(
             messageEmbeddedContent = { rendered ->
                 val reply = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Reply
                 HbColumn(gap = HbTheme.spacing.m) {
+                    reply?.tools?.lastOrNull { it.plan != null }?.plan?.let { proposal -> planCard?.invoke(proposal) }
                     reply?.checklistIds?.forEach { id -> key(id) { checklists[id]?.Content(Modifier) } }
                     reply?.cardIds?.forEach { id ->
                         key("card:$id") {
@@ -1070,4 +1087,44 @@ private fun DiagramDraftNotice(content: PaneContent, onIntent: (StudioIntent) ->
         DiagramDraftReasonUi.Rejected -> Res.string.diagram_draft_rejected
     }
     StudioNotice(content, StudioNoticeUi.DiagramDraft, stringResource(message), onIntent, modifier)
+}
+
+/** The plan editor or implementation dialog the pane shows for the plan of its chat. */
+@Composable
+private fun PlanDialogs(
+    content: PaneContent,
+    dialog: PlanDialog?,
+    onIntent: (StudioIntent) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val plan = content.planning.plan ?: return
+    val sessionId = content.session?.id ?: return
+    when (dialog) {
+        PlanDialog.Editor -> StudioPlanEditor(
+            plan,
+            onSave = { text, base ->
+                onIntent(StudioIntent.SavePlan(sessionId, base, text))
+                onDismiss()
+            },
+            onDismiss = onDismiss,
+        )
+
+        PlanDialog.Implement -> StudioPlanImplementDialog(
+            plan,
+            PlanImplementationOffer(
+                content.models,
+                content.settings.modelId,
+                content.settings.approval,
+                content.planning.modes,
+            ),
+            onImplement = {
+                onIntent(it)
+                onDismiss()
+            },
+            onDismiss = onDismiss,
+            sessionId = sessionId,
+        )
+
+        null -> Unit
+    }
 }
