@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCache
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCommand
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSeal
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.Dispatchers
@@ -238,6 +239,42 @@ internal object RealTestDispatchers : DispatcherProvider {
     override val main = Dispatchers.Default
     override val default = Dispatchers.Default
     override val io = Dispatchers.IO
+}
+
+class CheckoutSealCapacityTest {
+    @Test
+    fun `pinned result capacity refuses new refs before capture but permits revalidation`() = runTest {
+        val root = repository()
+        val git = DesktopWorktreeGit(RealTestDispatchers)
+        try {
+            val plan = git.plan(root.toString(), "capacity")
+            var record = plan.record().let {
+                it.copy(
+                    task = it.task.copy(
+                        isSandbox = true,
+                        pinnedBaseCommit = plan.baseCommit,
+                        executionWorkspace = WorkspaceRef("sandbox"),
+                    ),
+                )
+            }
+            git.materialize(record)
+            val proof = git.seal(record, "proof-0")
+            record = record.copy(resultProofs = (0 until 64).associate { "proof-$it" to proof })
+            val overflow = WorktreeIntent.Public.Seal(record.task.chatId, "overflow")
+            assertFailsWith<IllegalStateException> {
+                sealCheckout(git, overflow, { record }) { error("Must not acknowledge overflow") }
+            }
+            assertEquals("", command(root, "git", "for-each-ref", "refs/heartbeat/results/overflow"))
+            var acknowledged: WorktreeSeal? = null
+            sealCheckout(git, overflow.copy(operation = "proof-0"), { record }) {
+                acknowledged = it
+                record
+            }
+            assertEquals(WorktreeSeal("proof-0", proof), acknowledged)
+        } finally {
+            removeTestTree(root)
+        }
+    }
 }
 
 private fun WorktreeProvision.record(): WorktreeRecord = WorktreeRecord(

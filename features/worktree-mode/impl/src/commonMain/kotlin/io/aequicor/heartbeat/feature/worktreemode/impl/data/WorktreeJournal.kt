@@ -342,15 +342,11 @@ internal class WorktreeJournal(
             val captured = sealCheckout(git, command, { record(command.chatId) }) { seal ->
                 update(command.chatId) {
                     val proofs = if (it.task.pinnedBaseCommit != null && seal.commit != null) {
-                        check(it.resultProofs.size < MAX_RESULT_PROOFS || seal.operation in it.resultProofs) {
-                            "ResultProofCapacity"
-                        }
                         it.resultProofs + (seal.operation to checkNotNull(seal.commit))
                     } else {
                         it.resultProofs
                     }
-                    // A successful revalidation is a new acknowledgement even when its commit is unchanged.
-                    it.copy(task = it.task.sealed(seal).copy(revision = it.task.revision + 1), resultProofs = proofs)
+                    it.copy(task = it.task.sealed(seal), resultProofs = proofs)
                 }
             } ?: return@prepareRun null
             val state = if (command.handoff && captured.task.virtualSandbox != null) {
@@ -404,16 +400,18 @@ internal class WorktreeJournal(
         record(chatId)?.let { virtual.finish(it) }
     }
 
-    private suspend fun rejectRun(command: WorktreeIntent.Public.RunRejected): WorktreeRecord? {
-        val before = record(command.chatId)
-        val changed = commitTransition(command) ?: return null
-        val isRejected = before?.task?.run?.let { it.request == command.request && it.turn == null } == true
-        return if (isRejected && before.mergeLease?.id == command.request.value && changed.task.run == null) {
-            actions.releaseMerge(changed)
-        } else {
-            changed
+    private suspend fun rejectRun(command: WorktreeIntent.Public.RunRejected): WorktreeRecord? =
+        upkeep.prepareRun(command.chatId) {
+            // Cleanup queued after an accepted RunStarted must not overtake its durable preparation.
+            val before = record(command.chatId)
+            val changed = commitTransition(command) ?: return@prepareRun null
+            val isRejected = before?.task?.run?.let { it.request == command.request && it.turn == null } == true
+            if (isRejected && before.mergeLease?.id == command.request.value && changed.task.run == null) {
+                actions.releaseMerge(changed)
+            } else {
+                changed
+            }
         }
-    }
 
     private suspend fun reconcileSubmission(command: WorktreeIntent.Public.RunSubmissionReconciled): WorktreeRecord? {
         val before = record(command.chatId)
@@ -784,5 +782,3 @@ private suspend fun WorktreeBuildCoordinator.recoverBuilds(
     }
     return task
 }
-
-private const val MAX_RESULT_PROOFS = 64

@@ -38,6 +38,7 @@ internal class WorktreeFake(private val isCutting: Boolean = false) :
     var result = SendResult.Accepted
     var onPrepare: () -> Unit = {}
     var onSeal: suspend () -> Unit = {}
+    var failAfterRunStarted = false
     var failRuns = false
     var failSeals = false
     var seals = 0
@@ -80,14 +81,18 @@ internal class WorktreeFake(private val isCutting: Boolean = false) :
                 onPrepare()
             }
 
-            is WorktreeIntent.Public.RunStarted -> change(intent.chatId) { task ->
-                // The journal prepares the run in the same step; this is what the real one commits.
-                if (failRuns) {
-                    task.failed(
-                        "WorktreeUnavailable",
-                    )
-                } else {
-                    task.transition(intent).runPrepared(intent.request)
+            is WorktreeIntent.Public.RunStarted -> {
+                if (failAfterRunStarted) {
+                    change(intent.chatId) { it.transition(intent) }
+                    error("PreparationAcknowledgementLost")
+                }
+                change(intent.chatId) { task ->
+                    // The journal prepares the run in the same step; this is what the real one commits.
+                    if (failRuns) {
+                        task.failed("WorktreeUnavailable")
+                    } else {
+                        task.transition(intent).runPrepared(intent.request)
+                    }
                 }
             }
 
@@ -122,6 +127,7 @@ internal class WorktreeFake(private val isCutting: Boolean = false) :
         is WorktreeIntent.Public.RunAdopted -> chatId
         is WorktreeIntent.Public.RunObservationLost -> chatId
         is WorktreeIntent.Public.RunSubmissionObservationLost -> chatId
+        is WorktreeIntent.Public.RunSubmissionReconciled -> chatId
         else -> error("unexpected $this")
     }
 }

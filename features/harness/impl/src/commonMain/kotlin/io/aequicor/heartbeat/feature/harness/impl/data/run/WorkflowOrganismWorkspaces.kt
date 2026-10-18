@@ -60,7 +60,7 @@ internal class WorkflowOrganismWorkspaces(private val machines: MachineRegistry)
             when {
                 task == null -> cell.session == null
                 task.phase == WorktreePhase.RecoveryRequired -> false
-                task.run == null -> cell.session == null
+                task.run == null -> cell.session == null || task.closedSubmission != null
                 else -> task.run?.outcome != null
             }
         }
@@ -74,7 +74,7 @@ internal class WorkflowOrganismWorkspaces(private val machines: MachineRegistry)
         // The same operation revalidates its result ref after a restart, rather than trusting a saved SHA string.
         val operation = "workflow_${organism.id.value}"
         send(WorktreeIntent.Public.Seal(key, operation))
-        val sealed = await(key) { it.revision > before.revision && it.seal?.operation == operation }
+        val sealed = await(key) { it.sealRevision > before.sealRevision && it.seal?.operation == operation }
         val proof = checkNotNull(sealed.seal)
         check(proof.failure == null && sealed.pinnedBaseCommit == base)
         OrganismCommit(checkNotNull(sealed.branch), base, checkNotNull(proof.commit))

@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -87,15 +88,7 @@ class WorktreeJournalTest {
     fun `repeated pinned seal gives a fresh durable acknowledgement of the same proof`() = runTest {
         val fixture = Fixture()
         fixture.toggles.isSandbox = true
-        fixture.journal.load()
-        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, isSandbox = true, isBasePinned = true))
-        val seal = WorktreeIntent.Public.Seal(CHAT, "proof")
-        fixture.send(seal)
-        val first = fixture.task()
-        fixture.send(seal)
-        assertEquals(first.seal, fixture.task().seal)
-        assertTrue(fixture.task().revision > first.revision)
-        assertEquals(fixture.task().seal, fixture.reopen().load()[CHAT]?.seal)
+        assertRepeatedPinnedSeal(fixture.journal, fixture::send, fixture::task, fixture::reopen)
     }
 
     @Test
@@ -454,6 +447,10 @@ class WorktreeJournalTest {
         fixture.settle(WorktreeRunIdentity(REQUEST, SESSION, TURN))
         fixture.send(WorktreeIntent.Public.Seal(CHAT, "seal-3"))
         assertEquals(WorktreeSeal("seal-3", "seal-seal-3"), fixture.task().seal)
+        assertQueuedRejection(fixture.journal, fixture::send) { started, gate ->
+            fixture.git.existsStarted = started
+            fixture.git.existsGate = gate
+        }
     }
 
     @Test
@@ -930,4 +927,54 @@ private class MemoryStore(override val spec: KeyValueSpec) : KeyValueStore {
     override suspend fun clear() {
         values.value = emptyMap()
     }
+}
+
+/** An accepted preparation and its cleanup must use the same queue while another operation holds the task lock. */
+private suspend fun assertQueuedRejection(
+    journal: WorktreeJournal,
+    send: suspend (WorktreeIntent.Public) -> Unit,
+    holdExists: (CompletableDeferred<Unit>, CompletableDeferred<Unit>) -> Unit,
+) = coroutineScope {
+    val chat = "chat"
+    val request = RequestId("queued-request")
+    val entered = CompletableDeferred<Unit>()
+    val gate = CompletableDeferred<Unit>()
+    holdExists(entered, gate)
+    val sealing = async(start = CoroutineStart.UNDISPATCHED) {
+        send(WorktreeIntent.Public.Seal(chat, "before-run"))
+    }
+    entered.await()
+    val starting = async(start = CoroutineStart.UNDISPATCHED) {
+        send(WorktreeIntent.Public.RunStarted(chat, request))
+    }
+    val rejecting = async(start = CoroutineStart.UNDISPATCHED) {
+        send(WorktreeIntent.Public.RunRejected(chat, request, "RequestRejected"))
+    }
+    assertFalse(starting.isCompleted)
+    assertFalse(rejecting.isCompleted)
+    gate.complete(Unit)
+    sealing.await()
+    starting.await()
+    rejecting.await()
+    val closed = checkNotNull(journal.taskProjection(chat))
+    assertNull(closed.run)
+    assertEquals(request, closed.closedSubmission)
+    assertEquals(WorktreePhase.Failed, closed.phase)
+}
+
+private suspend fun assertRepeatedPinnedSeal(
+    journal: WorktreeJournal,
+    send: suspend (WorktreeIntent.Public) -> Unit,
+    task: () -> WorktreeTask,
+    reopen: () -> WorktreeJournal,
+) {
+    journal.load()
+    send(WorktreeIntent.Public.Prepare("chat", WorkspaceRef("project"), isSandbox = true, isBasePinned = true))
+    val seal = WorktreeIntent.Public.Seal("chat", "proof")
+    send(seal)
+    val first = task()
+    send(seal)
+    assertEquals(first.seal, task().seal)
+    assertTrue(task().revision > first.revision)
+    assertEquals(task().seal, reopen().load()["chat"]?.seal)
 }

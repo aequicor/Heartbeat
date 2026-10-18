@@ -79,7 +79,10 @@ public sealed interface WorktreeIntent : MachineIntent {
             val turn: TurnId,
         ) : Public
 
-        /** Proven submission rejection before native acceptance; no synthetic native turn is invented. */
+        /**
+         * Proven rejection before any native session/turn is recorded; no synthetic native outcome is invented.
+         * An uncertain submission with a recorded session needs [RunSubmissionReconciled] after native idle inspection.
+         */
         public data class RunRejected(val chatId: String, val request: RequestId, val reason: String) : Public
 
         /**

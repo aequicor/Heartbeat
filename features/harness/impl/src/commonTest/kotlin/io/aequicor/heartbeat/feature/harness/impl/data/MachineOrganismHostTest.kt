@@ -52,16 +52,22 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRun
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSeal
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import io.aequicor.heartbeat.feature.worktreemode.api.sealed
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MachineOrganismHostTest {
@@ -73,6 +79,46 @@ class MachineOrganismHostTest {
     private fun host(ref: FakeOrganicMachine? = machine): MachineOrganismHost {
         val registry = FakeOrganicRegistry(ref)
         return MachineOrganismHost(registry, WorkflowOrganismWorkspaces(registry))
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `a repeated output waits for its seal acknowledgement despite unrelated task updates`() = runTest {
+        val base = "a".repeat(40)
+        val ended = organism(OrganismStatus.Completed("done"), CellPhase.Completed("done")).copy(
+            workspace = WorkspaceRef("project"),
+            isolation = OrganismIsolation.Sandbox,
+            baseCommit = base,
+        )
+        val organic = FakeOrganicMachine(OrganicAiState.Living(mapOf(id to ended)))
+        val sandbox = FakeStageWorktree()
+        val key = "organism.${bound.id}.zygote"
+        val operation = "workflow_${bound.id}"
+        val saved = WorktreeTask(
+            key,
+            WorkspaceRef("project"),
+            branch = "heartbeat/task",
+            pinnedBaseCommit = base,
+            isSandbox = true,
+            phase = WorktreePhase.Idle,
+        ).sealed(WorktreeSeal(operation, "b".repeat(40)))
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to saved))
+        val registry = FakeOrganicRegistry(organic, sandbox)
+        val host = MachineOrganismHost(registry, WorkflowOrganismWorkspaces(registry))
+        val output = async { host.output(bound) }
+        runCurrent()
+        assertEquals(listOf(WorktreeIntent.Public.Seal(key, operation)), sandbox.seals)
+        // A build update preserves the old successful seal while the new Git validation is still pending.
+        val updated = saved.copy(revision = saved.revision + 1)
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to updated))
+        runCurrent()
+        assertFalse(output.isCompleted)
+        val failed = updated.sealed(WorktreeSeal(operation, failure = "ResultProofUnavailable"))
+            .copy(revision = updated.revision + 1)
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to failed))
+        runCurrent()
+        assertTrue(output.isCompleted)
+        assertNull(output.await())
     }
 
     @Test
@@ -250,6 +296,35 @@ class MachineOrganismHostTest {
         assertFalse(OrganismView.Answered("private-answer").toString().contains("private-answer"))
     }
 
+    @Test
+    fun `a retained session releases only with durable proof of a closed submission`() = runTest {
+        val session = SessionRef(EngineId("engine"), SessionSourceId("source"), "native")
+        val ended = organism(OrganismStatus.Aborted).let {
+            it.copy(
+                workspace = WorkspaceRef("project"),
+                isolation = OrganismIsolation.Sandbox,
+                baseCommit = "a".repeat(40),
+                cells = it.cells.map { cell -> cell.copy(session = session) },
+            )
+        }
+        val organic = FakeOrganicMachine(OrganicAiState.Living(mapOf(id to ended)))
+        val sandbox = FakeStageWorktree()
+        val registry = FakeOrganicRegistry(organic, sandbox)
+        val host = MachineOrganismHost(registry, WorkflowOrganismWorkspaces(registry))
+        val key = "organism.${bound.id}.zygote"
+        val task = WorktreeTask(key, WorkspaceRef("project"), phase = WorktreePhase.Failed)
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to task))
+        assertEquals(OrganismView.AbortUnconfirmed, host.view(bound))
+        val closed = task.copy(closedSubmission = RequestId("rejected"))
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to closed))
+        assertEquals(OrganismView.Aborted, host.view(bound))
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to closed.copy(phase = WorktreePhase.RecoveryRequired)))
+        assertEquals(OrganismView.AbortUnconfirmed, host.view(bound))
+        val active = closed.copy(phase = WorktreePhase.Working, run = WorktreeRun(RequestId("next")))
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to active))
+        assertEquals(OrganismView.AbortUnconfirmed, host.view(bound))
+    }
+
     private fun organism(
         status: OrganismStatus = OrganismStatus.Developing,
         phase: CellPhase = CellPhase.Working(RequestId("request"), Work.Genesis),
@@ -305,7 +380,13 @@ private class FakeStageWorktree : MachineRef<WorktreeState, WorktreeIntent.Publi
     override val name = "worktree-mode"
     override val state = MutableStateFlow<WorktreeState>(WorktreeState.Ready())
     override val outputs: Flow<WorktreeOutput> = emptyFlow()
+    val seals = mutableListOf<WorktreeIntent.Public.Seal>()
+
     override suspend fun send(intent: WorktreeIntent.Public): SendResult {
+        if (intent is WorktreeIntent.Public.Seal) {
+            seals += intent
+            return SendResult.Accepted
+        }
         val prepare = intent as WorktreeIntent.Public.Prepare
         check(prepare.isBasePinned && prepare.isSandbox == true)
         val task = WorktreeTask(

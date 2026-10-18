@@ -154,6 +154,55 @@ internal class OrganicSandboxEffectsTest : OrganicEffectsFixture() {
     }
 
     @Test
+    fun `a failed sandbox begin does not durably bind its unsent session and abort releases its handle`() = runTest {
+        workspaces.beginFailure = EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        val germinating = sandboxed(cell(C1).copy(session = null))
+        assertFailsWith<EngineException> {
+            effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
+        }
+        assertTrue(machine.sent.none { it is OrganicAiIntent.Internal.SessionBound })
+        assertEquals(emptyList(), cells.handle.submitted)
+        effects.handle(OrganicAiEffect.Release(germinating, listOf(C1), ReleaseMode.Lyse), machine)
+        assertEquals(listOf(CellKey(ORGANISM, C1)), cells.released.map { it.first })
+        assertEquals(listOf(null), cells.released.map { it.second })
+    }
+
+    @Test
+    fun `failed or cancelled session binding closes its prepared but unsubmitted sandbox request`() = runTest {
+        val germinating = sandboxed(cell(C1).copy(session = null))
+        for (failure in listOf(CancellationException("cancelled binding"), IllegalStateException("failed binding"))) {
+            workspaces.events.clear()
+            machine.refuse = {
+                if (it is OrganicAiIntent.Internal.SessionBound) throw failure
+                false
+            }
+            val thrown = assertFailsWith<Exception> {
+                effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
+            }
+            assertEquals(failure, thrown)
+            assertEquals(listOf("begin c1 ${request(C1).value}", "lost - -"), workspaces.events)
+            assertEquals(emptyList(), cells.handle.submitted)
+        }
+    }
+
+    @Test
+    fun `cancelled session binding preserves an adopted native turn and its sandbox run`() = runTest {
+        val recovering = sandboxed(cell(C1, phase = working(C1, isRecovery = true)).copy(session = null))
+        cells.handle.active = TurnId("live")
+        workspaces.adoptable = TurnId("live")
+        machine.refuse = {
+            if (it is OrganicAiIntent.Internal.SessionBound) throw CancellationException("cancelled binding")
+            false
+        }
+        assertFailsWith<CancellationException> {
+            effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
+        }
+        assertEquals(listOf("adopt c1 live"), workspaces.events)
+        assertEquals(emptyList(), cells.handle.submitted)
+        assertEquals(emptyList(), cells.handle.cancelled)
+    }
+
+    @Test
     fun `a turn that cannot be submitted or followed keeps its run as lost`() = runTest {
         cells.handle.onSubmit = { error("engine refused") }
         assertFailsWith<IllegalStateException> {

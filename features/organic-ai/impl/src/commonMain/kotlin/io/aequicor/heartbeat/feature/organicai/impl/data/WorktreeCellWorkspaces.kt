@@ -102,16 +102,27 @@ internal class WorktreeCellWorkspaces(
         val current = snapshot()[key]
         // A repeated drive of the same request finds its run already prepared and starts nothing.
         if (current?.isPreparedFor(request) != true) {
-            dispatch(
-                WorktreeIntent.Public.RunStarted(
-                    key,
-                    request,
-                    WorktreeRunKind.Coding,
-                    organism.cell(cell)?.let { organism.targetOf(it) },
-                ),
-            )
-            val task = awaitTask(key, after = current?.revision ?: -1) { it.isPreparedFor(request) || it.isFailed() }
-            if (!task.isPreparedFor(request)) throw unavailable("run not prepared: ${task.failure.orEmpty()}")
+            var isPrepared = false
+            try {
+                dispatch(
+                    WorktreeIntent.Public.RunStarted(
+                        key,
+                        request,
+                        WorktreeRunKind.Coding,
+                        organism.cell(cell)?.let { organism.targetOf(it) },
+                    ),
+                )
+                val task = awaitTask(key, after = current?.revision ?: -1) {
+                    it.isPreparedFor(request) || it.isFailed()
+                }
+                if (!task.isPreparedFor(request)) throw unavailable("run not prepared: ${task.failure.orEmpty()}")
+                isPrepared = true
+            } finally {
+                // No prompt has been submitted: close only this matching request, including on cancellation.
+                if (!isPrepared) {
+                    withContext(NonCancellable) { SandboxRun(key, request).lost(session = null, turn = null) }
+                }
+            }
         }
         log.i { "organism ${organism.id.value} cell ${cell.value}: sandbox run prepared" }
         return SandboxRun(key, request)
@@ -217,6 +228,9 @@ internal class WorktreeCellWorkspaces(
         val turn = stale.turn
         val closing = if (session != null && turn != null) {
             WorktreeIntent.Public.RunSettled(key, stale.request, session, turn, TurnOutcome.Unknown)
+        } else if (session != null || task.phase == WorktreePhase.RecoveryRequired) {
+            // An unaccepted recorded session may still have submitted work; only native idle inspection closes it.
+            throw unavailable("submission outcome unknown")
         } else {
             WorktreeIntent.Public.RunRejected(key, stale.request, "InterruptedBeforeAcceptance")
         }
