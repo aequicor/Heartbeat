@@ -312,8 +312,9 @@ class ClaudeRuntimeTest {
     }
 
     @Test
-    fun `a failure after a started process before any frame stays unresolved`() = runTest {
+    fun `a failure before any frame stays unresolved when the history cannot be read`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
+        fixture.transport.transcript = null
         val runtime = fixture.runtime()
         val session = runtime.create(CreateSessionRequest(testTarget))
         fixture.transport.generation = { _, _ -> 1 }
@@ -456,6 +457,8 @@ class ClaudeRuntimeTest {
         runCurrent()
         assertEquals(RequestFailureReason.OutcomeUnknown, assertIs<EngineFailure.Request>(send.await().failure).reason)
         assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        // A frame was seen, so the history cannot tell whether this turn's prompt was delivered.
+        fixture.transport.transcript = true
         val cannotResume = assertFailsWith<EngineException> {
             session.features.available(ReconcilesSession).synchronize()
         }

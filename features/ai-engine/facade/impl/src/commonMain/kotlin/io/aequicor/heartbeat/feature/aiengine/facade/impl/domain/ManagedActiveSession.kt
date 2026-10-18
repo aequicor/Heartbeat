@@ -160,7 +160,21 @@ class ManagedActiveSession(
             log.w { "close after profile shutdown; runtime already released" }
             return
         }
-        val settled = untilStopped {
+        awaitClosed()
+    }
+
+    /**
+     * Waits until the release is confirmed. A failed release is reported, and so is a profile shutdown before it;
+     * the end of the handle scope that follows the confirmation is not an error.
+     */
+    private suspend fun awaitClosed() {
+        val settled = untilStopped(
+            // The handle scope ends together with the release, so its end can be seen before the Closed state is.
+            onStopped = {
+                machine.state.value.takeIf { it == ActiveSessionState.Closed }
+                    ?: fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+            },
+        ) {
             machine.state.first {
                 it == ActiveSessionState.Closed || (it is ActiveSessionState.Closing && it.failure != null)
             }
@@ -215,14 +229,20 @@ class ManagedActiveSession(
         }
     }
 
-    /** Awaits [block], failing with ProfileClosed if the handle scope ends first (its machine stopped). */
-    private suspend fun <T> untilStopped(block: suspend () -> T): T = coroutineScope {
+    /**
+     * Awaits [block]; if the handle scope ends first (its machine stopped) the result is [onStopped], by default
+     * a ProfileClosed failure.
+     */
+    private suspend fun <T> untilStopped(
+        onStopped: () -> T = { fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)) },
+        block: suspend () -> T,
+    ): T = coroutineScope {
         val result = async(start = CoroutineStart.UNDISPATCHED) { block() }
         select {
             result.onAwait { it }
             parts.lifetime.onJoin {
                 result.cancel()
-                fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+                onStopped()
             }
         }
     }

@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 
 class ClaudeIntegrationTest {
     @Test
-    fun `profile contributes a lazy Claude registration and disabled toggle`() = runTest {
+    fun `profile contributes a lazy Claude registration and an enabled by default toggle`() = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val persisted = PersistedProfile()
         val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)
@@ -30,7 +30,7 @@ class ClaudeIntegrationTest {
             assertNull(claude.sessionSources.single().discovery)
             val toggles = app as TestToggleAccessors
             assertTrue(ClaudeEngine.Enabled in toggles.toggleControl.registered)
-            assertFalse(toggles.featureToggles.get(ClaudeEngine.Enabled))
+            assertTrue(toggles.featureToggles.get(ClaudeEngine.Enabled))
         } finally {
             app.closeAndAwaitStorages()
             Dispatchers.resetMain()

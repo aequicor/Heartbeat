@@ -47,6 +47,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import java.util.concurrent.ConcurrentHashMap
 
 @ContributesBinding(ProfileScope::class, binding = binding<ClaudeBackend>())
 @ContributesBinding(ProfileScope::class, binding = binding<ClaudeAuthentication>())
@@ -68,9 +69,22 @@ internal class JvmClaudeBackend(
     private val routes = mutableMapOf<EngineBindingId, AuthSourceId>()
 
     private val log = Log.tag("ClaudeBackend")
-    private val inputSupports = mutableMapOf<Pair<AuthRevision, ModelId>, PromptInputSupport>()
+
+    // Written by discovery and by restoring the saved catalog, read by turns on other threads.
+    private val inputSupports = ConcurrentHashMap<Pair<AuthRevision, ModelId>, PromptInputSupport>()
+    private val efforts = ConcurrentHashMap<Pair<AuthRevision, ModelId>, List<String>>()
     private val mutex = Mutex()
     private var runtime: ClaudeRuntime? = null
+
+    /**
+     * Shows the history of stored sessions of another identity while [runtime] is live; it never runs turns. It is
+     * closed when a profile runtime is created in place of [runtime], when another identity is read, and with the
+     * profile; views it handed out then answer with an unavailable history.
+     */
+    private var reader: ClaudeRuntime? = null
+
+    /** The login whose saved model capabilities were already restored in this process. */
+    private var restoredRevision: AuthRevision? = null
 
     override suspend fun inspect(): ClaudeLogin {
         enabled()
@@ -143,7 +157,8 @@ internal class JvmClaudeBackend(
         }
         account.validate(source.info.revision)
         log.i { "Discovering Claude models" }
-        return withProbeTimeout {
+        val entries = mutableListOf<JsonObject>()
+        val discovered = withProbeTimeout {
             var models: List<ModelInfo>? = null
             transport.run(
                 claudeArguments() + listOf("--input-format", "stream-json"),
@@ -160,11 +175,52 @@ internal class JvmClaudeBackend(
                     val body = response["response"] as? JsonObject ?: protocolFailure()
                     val list = body["models"] as? JsonArray ?: protocolFailure()
                     models = list.map { modelInfo(it, context, source.info.revision) }
+                    entries += list.filterIsInstance<JsonObject>()
                 }
                 models != null
             }
             (models ?: protocolFailure()).also { log.i { "Discovered Claude models count=${it.size}" } }
         }
+        saveCapabilities(source.info.revision, entries)
+        return discovered
+    }
+
+    /** What a restart needs to judge a model without discovery; a failed write only costs that restart. */
+    private suspend fun saveCapabilities(revision: AuthRevision, models: List<JsonObject>) {
+        if (revision !is AuthRevision.Known) return
+        try {
+            catalog.saveModels(revision, models.map { model -> JsonObject(model.filterKeys { it in CAPABILITY_KEYS }) })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e.redacted()) { "Claude model capabilities were not saved" }
+        }
+    }
+
+    /**
+     * Loads the capabilities the last discovery of [revision] saved, once per process; a model discovered in this
+     * process keeps its fresher entry. A saved catalog that cannot be read leaves the models without capabilities.
+     */
+    private suspend fun restoreCapabilities(revision: AuthRevision) {
+        if (revision !is AuthRevision.Known || revision == restoredRevision) return
+        val saved = try {
+            catalog.findModels(revision)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e.redacted()) { "Saved Claude model capabilities could not be read" }
+            null
+        }
+        // One attempt per process and login; a cancelled one is retried by the next open.
+        restoredRevision = revision
+        saved ?: return
+        saved.forEach { model ->
+            val id = model.text("value")?.takeIf(String::isNotBlank) ?: return@forEach
+            val key = revision to ModelId(id)
+            efforts.putIfAbsent(key, model.effortLevels())
+            inputSupports.putIfAbsent(key, claudeInputSupport(model, isVendorOriginConfirmed = true))
+        }
+        log.d { "Restored Claude model capabilities count=${saved.size}" }
     }
 
     private fun modelInfo(
@@ -174,10 +230,11 @@ internal class JvmClaudeBackend(
     ): ModelInfo {
         val model = entry as? JsonObject ?: protocolFailure()
         val id = model.text("value")?.takeIf(String::isNotBlank) ?: protocolFailure()
+        val levels = model.effortLevels().also { efforts[revision to ModelId(id)] = it }
         return ModelInfo(
             EngineTarget(ClaudeEngine.Id, context.binding, ModelId(id)),
             model.text("displayName") ?: id,
-            reasoningEfforts = model.effortLevels(),
+            reasoningEfforts = levels,
             inputSupport = claudeInputSupport(
                 model,
                 isVendorOriginConfirmed = true,
@@ -185,16 +242,36 @@ internal class JvmClaudeBackend(
         )
     }
 
-    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
+    override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime =
+        open(identity, isRouteRequired = true)
+
+    /**
+     * The pooled runtime of [identity]. Only a stored session opens without a bound route ([isRouteRequired] is
+     * false): its identity comes from this profile's own catalog, and routes live in memory, so after a restart
+     * they are empty until the facade binds them again, which it does before it resumes or sends anything.
+     * While a live runtime of another identity exists, such a session gets a history-only reader instead of
+     * replacing it.
+     */
+    private suspend fun open(identity: RuntimeIdentity, isRouteRequired: Boolean): ClaudeRuntime = mutex.withLock {
         enabled()
-        if (identity.engine != ClaudeEngine.Id ||
-            (identity.source != ClaudeEngine.AuthSource && identity.source !in routes.values)
-        ) {
+        val isRouteKnown = identity.source == ClaudeEngine.AuthSource || identity.source in routes.values
+        if (identity.engine != ClaudeEngine.Id || (isRouteRequired && !isRouteKnown)) {
             log.w { "Claude runtime requested for a foreign identity" }
             authFailure(AuthFailureReason.AuthMismatch)
         }
         val current = runtime
-        if (current != null && current.identity == identity && !current.isClosed) return@withLock current
+        when {
+            current != null && current.identity == identity && !current.isClosed -> current
+
+            // A live runtime belongs to its turns: reading a stored session of another identity must not end them.
+            !isRouteRequired && current != null && !current.isClosed -> reading(identity, current.identity.revision)
+
+            else -> replaceRuntime(current, identity)
+        }
+    }
+
+    private suspend fun replaceRuntime(current: ClaudeRuntime?, identity: RuntimeIdentity): ClaudeRuntime {
+        restoreCapabilities(identity.revision)
         val pinnedTransport = transport.pinned()
         val pinnedAccount = account.pinned(pinnedTransport)
         pinnedAccount.validate(identity.revision)
@@ -203,27 +280,56 @@ internal class JvmClaudeBackend(
             current.identity != identity && !current.isClosed -> current.retire()
             else -> current.close()
         }
+        // Sessions the reader holds may be run by this runtime from now on, so its copies would go stale.
+        reader?.close()
+        reader = null
         log.i { "Creating Claude profile runtime" }
-        ClaudeRuntime(
-            identity,
-            pinnedTransport,
-            pinnedAccount,
-            toggles,
-            profile.coroutineScope,
-            catalog = catalog,
-            tools = tools,
-            bridge = bridge,
-            native = native,
-            resources = resources,
-            resourceHistory = resourceHistory,
-            inputSupport = { model ->
-                inputSupports[identity.revision to model] ?: claudeInputSupport(
-                    JsonObject(mapOf("value" to JsonPrimitive(model.value))),
-                    isVendorOriginConfirmed = true,
-                )
-            },
-        ).also { runtime = it }
+        return newRuntime(identity, pinnedTransport, pinnedAccount, isReadOnly = false).also { runtime = it }
     }
+
+    /**
+     * A runtime that only serves the history of stored sessions of [identity]; callers hold the backend mutex.
+     * The live runtime checked the login of [liveRevision] when it opened, so an equal revision is trusted and only
+     * another login asks the CLI.
+     */
+    private suspend fun reading(identity: RuntimeIdentity, liveRevision: AuthRevision): ClaudeRuntime {
+        val existing = reader
+        if (existing != null && existing.identity == identity && !existing.isClosed) return existing
+        restoreCapabilities(identity.revision)
+        val pinnedTransport = transport.pinned()
+        val pinnedAccount = account.pinned(pinnedTransport)
+        if (identity.revision != liveRevision) pinnedAccount.validate(identity.revision)
+        existing?.close()
+        log.i { "Creating Claude reading runtime" }
+        return newRuntime(identity, pinnedTransport, pinnedAccount, isReadOnly = true).also { reader = it }
+    }
+
+    private fun newRuntime(
+        identity: RuntimeIdentity,
+        pinnedTransport: ClaudeTransport,
+        pinnedAccount: ClaudeAccount,
+        isReadOnly: Boolean,
+    ) = ClaudeRuntime(
+        identity,
+        pinnedTransport,
+        pinnedAccount,
+        toggles,
+        profile.coroutineScope,
+        catalog = catalog,
+        tools = tools,
+        bridge = bridge,
+        native = native,
+        resources = resources,
+        resourceHistory = resourceHistory,
+        efforts = { model -> efforts[identity.revision to model] },
+        inputSupport = { model ->
+            inputSupports[identity.revision to model] ?: claudeInputSupport(
+                JsonObject(mapOf("value" to JsonPrimitive(model.value))),
+                isVendorOriginConfirmed = true,
+            )
+        },
+        isReadOnly = isReadOnly,
+    )
 
     override suspend fun session(ref: SessionRef): EngineSession {
         enabled()
@@ -234,8 +340,7 @@ internal class JvmClaudeBackend(
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
         val identity = RuntimeIdentity(record.route.engine, record.route.authSource, record.route.revision)
-        val owner = createRuntime(identity) as ClaudeRuntime
-        return owner.stored(ref)
+        return open(identity, isRouteRequired = false).stored(ref)
     }
 
     private suspend fun enabled() {
@@ -243,6 +348,15 @@ internal class JvmClaudeBackend(
         requireClaudeEnabled(toggles)
     }
 }
+
+/** The only model fields the saved capabilities keep, next to the fingerprint of the login they belong to. */
+private val CAPABILITY_KEYS = setOf(
+    "value",
+    "resolvedModel",
+    "supportsVision",
+    "inputModalities",
+    "supportedEffortLevels",
+)
 
 private val VERSION = Regex("[0-9]+\\.[0-9]+\\.[0-9]+")
 private const val INITIALIZE = """{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}"""

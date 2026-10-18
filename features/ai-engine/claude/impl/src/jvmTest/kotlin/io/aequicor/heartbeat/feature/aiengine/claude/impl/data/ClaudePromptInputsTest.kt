@@ -45,6 +45,44 @@ class ClaudePromptInputsTest {
     }
 
     @Test
+    fun `an alias takes the vision of the model the CLI resolves it to`() {
+        fun alias(value: String, resolved: String?) = kotlinx.serialization.json.buildJsonObject {
+            put("value", kotlinx.serialization.json.JsonPrimitive(value))
+            resolved?.let { put("resolvedModel", kotlinx.serialization.json.JsonPrimitive(it)) }
+        }
+        for ((value, resolved) in listOf(
+            "default" to "claude-sonnet-5-5",
+            "opus" to "claude-opus-5-5",
+            "fable" to "claude-fable-5-1",
+            "haiku" to "claude-haiku-5-5",
+            "claude-sonnet-5" to "claude-sonnet-5",
+            "claude-opus-4-8" to "claude-opus-4-8",
+        )) {
+            kotlin.test.assertTrue(claudeInputSupport(alias(value, resolved), true).accepts("image/png"), value)
+        }
+        assertFalse(claudeInputSupport(alias("custom", "claude-custom-text-only"), true).accepts("image/png"))
+        assertFalse(claudeInputSupport(alias("sonnet", "claude-sonnet-5-5")).accepts("image/png"))
+        assertFalse(claudeInputSupport(alias("sonnet", null), true).accepts("image/png"))
+    }
+
+    @Test
+    fun `the one million context variant keeps the vision of its model and a null resolved model falls back`() {
+        fun alias(value: String, resolved: kotlinx.serialization.json.JsonElement) =
+            kotlinx.serialization.json.buildJsonObject {
+                put("value", kotlinx.serialization.json.JsonPrimitive(value))
+                put("resolvedModel", resolved)
+            }
+        fun resolved(id: String) = kotlinx.serialization.json.JsonPrimitive(id)
+        fun accepts(model: kotlinx.serialization.json.JsonObject) = claudeInputSupport(model, true).accepts("image/png")
+        kotlin.test.assertTrue(accepts(alias("default", resolved("claude-opus-5-5[1m]"))))
+        kotlin.test.assertTrue(accepts(alias("sonnet[1m]", resolved("claude-sonnet-5-5[1M]"))))
+        // The suffix is dropped, not the model check: an unknown model stays without images.
+        assertFalse(accepts(alias("custom", resolved("claude-custom-text-only[1m]"))))
+        // A JSON null is an absent field, never the model id "null".
+        kotlin.test.assertTrue(accepts(alias("claude-sonnet-4-6", kotlinx.serialization.json.JsonNull)))
+    }
+
+    @Test
     fun `custom suffix and unconfirmed origin never inherit official model vision`() {
         fun nativeModel(id: String, vision: Boolean? = null) = kotlinx.serialization.json.buildJsonObject {
             put("value", kotlinx.serialization.json.JsonPrimitive(id))

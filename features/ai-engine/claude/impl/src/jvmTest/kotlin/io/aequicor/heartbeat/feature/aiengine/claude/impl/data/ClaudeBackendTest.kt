@@ -6,16 +6,28 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
@@ -28,7 +40,9 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -63,6 +77,147 @@ class ClaudeBackendTest {
         val second = backend.createRuntime(fixture.identity())
         assertNotSame(first, second)
         second.close()
+    }
+
+    @Test
+    fun `a stored session opens after a restart before its route is bound again`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val login = fixture.account.inspect()
+        val user = AuthSourceId("src_user")
+        val identity = RuntimeIdentity(ClaudeEngine.Id, user, login.check.revision)
+        val first = fixture.backend(backgroundScope)
+        first.bind(testTarget.binding, login.source.copy(info = login.source.info.copy(id = user)))
+        val runtime = first.createRuntime(identity)
+        val session = runtime.features.available(CreatesSessions).create(CreateSessionRequest(testTarget))
+        runtime.close()
+
+        // A restart keeps the catalog in storage, while the routes of bindings live in memory only.
+        val restarted = fixture.backend(backgroundScope)
+        assertEquals(session.ref, restarted.session(session.ref).summary.value.ref)
+        val unbound = assertFailsWith<EngineException> { restarted.createRuntime(identity) }
+        assertEquals(
+            AuthFailureReason.AuthMismatch,
+            assertIs<EngineFailure.Authentication>(unbound.failure).reason.reason,
+        )
+    }
+
+    @Test
+    fun `reading a stored session of another source keeps the live runtime and its turn`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val login = fixture.account.inspect()
+        val earlier = AuthSourceId("src_earlier")
+        val current = AuthSourceId("src_current")
+        val earlierIdentity = RuntimeIdentity(ClaudeEngine.Id, earlier, login.check.revision)
+        val currentIdentity = RuntimeIdentity(ClaudeEngine.Id, current, login.check.revision)
+
+        // A chat of a connection that was removed and added again: its record stays in the catalog.
+        val before = fixture.backend(backgroundScope)
+        before.bind(testTarget.binding, login.source.copy(info = login.source.info.copy(id = earlier)))
+        val earlierRuntime = before.createRuntime(earlierIdentity)
+        val stored = earlierRuntime.features.available(CreatesSessions).create(CreateSessionRequest(testTarget))
+        earlierRuntime.close()
+
+        val backend = fixture.backend(backgroundScope)
+        backend.bind(testTarget.binding, login.source.copy(info = login.source.info.copy(id = current)))
+        val live = backend.createRuntime(currentIdentity)
+        val chat = live.features.available(CreatesSessions).create(CreateSessionRequest(testTarget))
+        fixture.transport.generation = { args, line ->
+            val id = args.last().substringAfter('=')
+            line(initFrame(id))
+            line(assistantFrame(id))
+            awaitCancellation()
+        }
+        chat.features.available(SendsPrompts).send(prompt("running"))
+        runCurrent()
+        assertIs<ActiveSessionState.Running>(chat.state.value)
+
+        // The same login as the live runtime's needs no CLI check.
+        val calls = fixture.transport.calls.size
+        val view = backend.session(stored.ref)
+        backend.session(stored.ref)
+        assertEquals(calls, fixture.transport.calls.size)
+
+        assertFalse(live.isClosed)
+        assertIs<ActiveSessionState.Running>(chat.state.value)
+        assertSame(live, backend.createRuntime(currentIdentity))
+        assertIs<FeatureAccess.Available<*>>(view.features.resolve(SessionHistory))
+        // The viewing runtime shows the history only; resuming goes through the runtime that owns the source.
+        assertIs<FeatureAccess.Unsupported>(view.features.resolve(ResumesSessions))
+        live.close()
+    }
+
+    @Test
+    fun `reading a stored session of another login is checked against the CLI login`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val formerIdentity = fixture.identity()
+        val before = fixture.backend(backgroundScope).createRuntime(formerIdentity)
+        val stored = before.features.available(CreatesSessions).create(CreateSessionRequest(testTarget))
+        before.close()
+
+        fixture.transport.account = "current@example.test"
+        val backend = fixture.backend(backgroundScope)
+        val currentIdentity = fixture.identity()
+        val live = backend.createRuntime(currentIdentity)
+        assertNotEquals(formerIdentity.revision, currentIdentity.revision)
+
+        val error = assertFailsWith<EngineException> { backend.session(stored.ref) }
+
+        assertEquals(
+            AuthFailureReason.SourceChanged,
+            assertIs<EngineFailure.Authentication>(error.failure).reason.reason,
+        )
+        assertFalse(live.isClosed)
+        live.close()
+    }
+
+    @Test
+    fun `a reading runtime never starts or resumes a session`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val reader = fixture.runtime(isReadOnly = true)
+
+        val create = assertFailsWith<EngineException> { reader.create(CreateSessionRequest(testTarget)) }
+        val ref = SessionRef(ClaudeEngine.Id, ClaudeEngine.SessionSource, "none")
+        val attach = assertFailsWith<EngineException> { reader.attach(ref, ResumeSessionRequest(testTarget)) }
+
+        val denied = EngineFailure.Access(AccessFailureReason.OperationNotAllowed)
+        assertEquals(denied, create.failure)
+        assertEquals(denied, attach.failure)
+        reader.close()
+    }
+
+    @Test
+    fun `model capabilities survive a restart without another discovery`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val source = fixture.account.inspect().source
+        fixture.transport.generation = { _, line ->
+            line(capabilitiesFrame())
+            0
+        }
+        fixture.backend(backgroundScope).discoverModels(source, context)
+
+        // A restarted process starts with empty memory; only the catalog remembers what the CLI reported.
+        fixture.transport.generation = FakeClaudeTransport().generation
+        val restarted = JvmClaudeBackend(
+            fixture.transport,
+            fixture.account,
+            fixture.toggles,
+            TestProfileHandle(backgroundScope),
+            fixture.catalog,
+            resources = ResourceResolver { ResolvedResource("image.png", "image/png", byteArrayOf(1)) },
+        )
+        val runtime = restarted.createRuntime(fixture.identity())
+        val session = runtime.features.available(CreatesSessions).create(CreateSessionRequest(testTarget))
+        val sender = session.features.available(SendsPrompts)
+
+        // `sonnet` is an alias: its vision comes from the model the CLI resolved it to.
+        val image = ContentPart.Image(ResourceRef("attachment:image", "image/png"))
+        sender.send(PromptRequest(RequestId("image"), listOf(image)))
+        runCurrent()
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+        val request = prompt("effort").copy(reasoningEffort = "max")
+        val rejected = assertFailsWith<EngineException> { sender.send(request) }
+        assertEquals(EngineFailure.Request(RequestFailureReason.Invalid, request.id), rejected.failure)
+        runtime.close()
     }
 
     @Test
@@ -206,6 +361,11 @@ class ClaudeBackendTest {
         assertEquals(EngineFailure.Transport(TransportFailureReason.ProtocolViolation), error.failure)
     }
 }
+
+private fun capabilitiesFrame() = """{"type":"control_response","response":{"request_id":"models",
+    "subtype":"success","response":{"models":[{"value":"sonnet","displayName":"Sonnet",
+    "resolvedModel":"claude-sonnet-5-5","supportedEffortLevels":["low","high"]}]}}}"""
+    .replace("\n", "")
 
 private fun modelsFrame(request: String) = """{"type":"control_response","response":{"request_id":"$request",
     "subtype":"success","response":{"models":[{"value":"sonnet","displayName":"Sonnet",

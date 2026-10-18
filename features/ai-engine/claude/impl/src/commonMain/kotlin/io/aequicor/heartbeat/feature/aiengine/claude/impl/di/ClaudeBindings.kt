@@ -39,8 +39,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 
-/** 1: a discovered model reports the image and document formats it accepts. */
-private const val CLAUDE_MODEL_CATALOG_REVISION = 1
+/**
+ * 1: a discovered model reports the image and document formats it accepts.
+ * 2: an alias is judged by the model the CLI resolves it to, and the current models are confirmed.
+ */
+private const val CLAUDE_MODEL_CATALOG_REVISION = 2
 
 /** Registration is lazy: constructing the profile graph never probes the CLI or account. */
 @ContributesTo(ProfileScope::class)
@@ -96,11 +99,14 @@ public object ClaudeBindings {
         )
 }
 
-/** Registers the experimental adapter toggle in the application panel. */
+/** Registers the adapter toggle in the application panel. */
 @ContributesTo(AppScope::class)
 @BindingContainer
 public object ClaudeDefaults {
-    /** Disabled by default until the user enables the adapter. */
+    /**
+     * Enabled by default; the engine still needs a Claude Code CLI and its login (on macOS the CLI of the Claude
+     * Code desktop app is found too).
+     */
     @Provides
     @IntoSet
     public fun toggle(): FeatureToggle<*> = ClaudeEngine.Enabled

@@ -9,10 +9,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import org.junit.Assume.assumeTrue
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
@@ -127,6 +130,120 @@ class ClaudeStartupTest {
     }
 
     @Test
+    fun `the Claude Code desktop CLI is the last resort and its newest verified build is chosen`() {
+        val root = "/Users/test/Library/Application Support/Claude/claude-code"
+        fun executable(version: String, build: String) =
+            File("$root/$version/$build/claude.app/Contents/MacOS/claude").path
+        val desktop = host(
+            directories = mapOf(
+                root to listOf("2.1.9", "2.1.299", "2.1.300", "notes"),
+                "$root/2.1.300" to listOf("bbb"),
+                "$root/2.1.300/bbb" to listOf("claude.app"),
+                "$root/2.1.299" to listOf("4fa"),
+                "$root/2.1.299/4fa" to listOf(".verified", "claude.app"),
+                "$root/2.1.9" to listOf("aaa"),
+                "$root/2.1.9/aaa" to listOf(".verified", "claude.app"),
+            ),
+            available = setOf(executable("2.1.300", "bbb"), executable("2.1.299", "4fa"), executable("2.1.9", "aaa")),
+        )
+
+        val startup = resolveClaudeStartup(LaunchContext(), config, desktop)
+
+        assertEquals(executable("2.1.299", "4fa"), startup.executable)
+        assertEquals(InstallSource.System, startup.source)
+        assertTrue(startup.isRunnable)
+        assertTrue(startup.isDesktopBundle)
+        val withLocal = desktop.copy(isExecutable = { it.path == localClaude || desktop.isExecutable(it) })
+        val preferred = resolveClaudeStartup(LaunchContext(), config, withLocal)
+        assertEquals(localClaude to false, preferred.executable to preferred.isDesktopBundle)
+        assertEquals(InstallSource.Missing, resolveClaudeStartup(LaunchContext(), config, host()).source)
+        assertEquals(
+            InstallSource.Missing,
+            resolveClaudeStartup(LaunchContext(), config, desktop.copy(osName = "Linux")).source,
+        )
+    }
+
+    @Test
+    fun `the desktop CLI never updates itself`() {
+        val startup = ClaudeStartup("/desktop/claude", InstallSource.System, isRunnable = true, isDesktopBundle = true)
+
+        assertEquals(
+            mapOf("DISABLE_AUTOUPDATER" to "1", "DISABLE_UPDATES" to "1"),
+            claudeEnvironment(emptyMap(), startup),
+        )
+    }
+
+    @Test
+    fun `the native history is searched for a conversation in every project directory`() {
+        val home = Files.createTempDirectory("claude-history").toFile()
+        try {
+            val id = "0b7c6e0e-6a3b-4f0e-9d51-4f5f6e1d9a11"
+            assertFalse(claudeTranscriptExists(null, id, home.path), "no history holds no conversation")
+            File(home, ".claude/projects/-Users-me-project").mkdirs()
+            File(home, ".claude/projects/-Users-me-other").mkdirs()
+            assertFalse(claudeTranscriptExists(null, id, home.path))
+            File(home, ".claude/projects/-Users-me-other/$id.jsonl").writeText("{}")
+            assertTrue(claudeTranscriptExists(null, id, home.path))
+            assertFalse(claudeTranscriptExists(null, "another-id", home.path))
+            val custom = File(home, "custom").apply { File(this, "projects/p").mkdirs() }
+            File(custom, "projects/p/$id.jsonl").writeText("{}")
+            assertTrue(claudeTranscriptExists(custom.path, id, "/nowhere"), "a config directory has its own history")
+        } finally {
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a stray file among the project directories holds no conversation and is not a read failure`() {
+        val home = Files.createTempDirectory("claude-history").toFile()
+        try {
+            val id = "0b7c6e0e-6a3b-4f0e-9d51-4f5f6e1d9a11"
+            val projects = File(home, ".claude/projects").apply { mkdirs() }
+            File(projects, ".DS_Store").writeText("not a directory")
+            File(projects, "-Users-me-project").mkdirs()
+            assertFalse(claudeTranscriptExists(null, id, home.path))
+            File(projects, "-Users-me-project/$id.jsonl").writeText("{}")
+            assertTrue(claudeTranscriptExists(null, id, home.path))
+        } finally {
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an unreadable project directory is a read failure, not an absent conversation`() {
+        val home = Files.createTempDirectory("claude-history").toFile()
+        val project = File(home, ".claude/projects/-Users-me-project").apply { mkdirs() }
+        try {
+            // Where the permission cannot be taken away (Windows, root) there is nothing to observe.
+            project.setReadable(false)
+            project.setExecutable(false)
+            assumeTrue(!project.canRead())
+            val id = "0b7c6e0e-6a3b-4f0e-9d51-4f5f6e1d9a11"
+            assertFailsWith<IOException> { claudeTranscriptExists(null, id, home.path) }
+        } finally {
+            project.setReadable(true)
+            project.setExecutable(true)
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a history directory whose entries cannot be inspected is a read failure, not an absent conversation`() {
+        val home = Files.createTempDirectory("claude-history").toFile()
+        val projects = File(home, ".claude/projects").apply { File(this, "-Users-me-project").mkdirs() }
+        try {
+            // Listing works without the search permission, inspecting the entries does not.
+            projects.setExecutable(false)
+            assumeTrue(projects.canRead() && !projects.canExecute())
+            val id = "0b7c6e0e-6a3b-4f0e-9d51-4f5f6e1d9a11"
+            assertFailsWith<IOException> { claudeTranscriptExists(null, id, home.path) }
+        } finally {
+            projects.setExecutable(true)
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `the native history follows the config directory`() {
         val default = claudeNativeStore(null, "/Users/me")
         assertEquals(default, claudeNativeStore("/Users/me/.claude", "/Users/other"))
@@ -176,5 +293,17 @@ class ClaudeStartupTest {
         path: String? = null,
         userHome: String = "/Users/test",
         available: Set<String> = emptySet(),
-    ) = ClaudeHost(osName, osArch, path, userHome) { it.path in available }
+        directories: Map<String, List<String>> = emptyMap(),
+    ): ClaudeHost {
+        // The keys are written with `/`; the host looks files up by the platform's own spelling of the path.
+        val listed = directories.mapKeys { File(it.key).path }
+        val executables = available.map { File(it).path }.toSet()
+        return ClaudeHost(
+            osName,
+            osArch,
+            path,
+            userHome,
+            { directory -> listed[directory.path].orEmpty().map { File(directory, it) } },
+        ) { it.path in executables }
+    }
 }

@@ -62,6 +62,7 @@ internal class ClaudeRuntime(
     native: ClaudeNativeSupport = MissingClaudeNativeSupport,
     resources: ResourceResolver = ResourceResolver { null },
     resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
+    efforts: (ModelId) -> List<String>? = { null },
     inputSupport: (ModelId) -> PromptInputSupport = { model ->
         claudeInputSupport(
             kotlinx.serialization.json.JsonObject(
@@ -69,6 +70,8 @@ internal class ClaudeRuntime(
             ),
         )
     },
+    /** A runtime that only shows the history of stored sessions: their resumption is left to the owning runtime. */
+    private val isReadOnly: Boolean = false,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
@@ -102,6 +105,7 @@ internal class ClaudeRuntime(
         resources = resources,
         resourceHistory = resourceHistory,
         inputSupport = inputSupport,
+        efforts = efforts,
     )
     private val mutex = Mutex()
     private val sessions = ConcurrentHashMap<SessionRef, ClaudeSession>()
@@ -137,6 +141,7 @@ internal class ClaudeRuntime(
     }
 
     override suspend fun create(request: CreateSessionRequest): ActiveSession = mutex.withLock {
+        requireWritable()
         validate(request.target)
         log.i { "Creating idle Claude session" }
         val ref = SessionRef(ClaudeEngine.Id, ClaudeEngine.SessionSource, UUID.randomUUID().toString())
@@ -154,6 +159,7 @@ internal class ClaudeRuntime(
     }
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession = mutex.withLock {
+        requireWritable()
         validate(request.target)
         val session = find(ref) ?: run {
             log.w { "Claude session is unknown to this runtime" }
@@ -180,7 +186,7 @@ internal class ClaudeRuntime(
             log.w { "Stored Claude session is unknown to this runtime" }
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
-        session.stored { request -> attach(ref, request) }
+        session.stored(if (isReadOnly) null else { request -> attach(ref, request) })
     }
 
     override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {
@@ -272,6 +278,14 @@ internal class ClaudeRuntime(
             AuthFailure(AuthFailureReason.SourceChanged, ClaudeEngine.AuthSource),
         )
         close()
+    }
+
+    /** A read-only runtime never starts or resumes a session. */
+    private fun requireWritable() {
+        if (isReadOnly) {
+            log.w { "Claude reading runtime refused to start or resume a session" }
+            throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+        }
     }
 
     private suspend fun validate(target: EngineTarget) {

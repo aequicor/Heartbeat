@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -31,6 +32,7 @@ import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlin.test.assertIs
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -43,6 +45,10 @@ internal fun <F : EngineFeature> EngineFeatures.available(key: EngineFeatureKey<
 internal class FakeClaudeTransport : ClaudeTransport {
     var versionValue: String? = null
     override suspend fun version(): String? = versionValue
+
+    /** Whether the native history holds the conversation; null is an unreadable history. */
+    var transcript: Boolean? = null
+    override suspend fun hasTranscript(id: String): Boolean? = transcript
     var duplexGeneration: suspend (List<String>, suspend (ClaudeDuplex) -> Unit) -> Int = { _, _ ->
         error("Unexpected gated native turn")
     }
@@ -129,6 +135,9 @@ internal class TestProfileHandle(override val coroutineScope: CoroutineScope) : 
 internal class ClaudeFixture(val scope: CoroutineScope) {
     var resources: ResourceResolver = ResourceResolver { null }
     var inputSupport = PromptInputSupport.TextDocuments
+
+    /** Effort levels the CLI advertised per model; null is a model this runtime did not discover. */
+    var efforts: (ModelId) -> List<String>? = { null }
     val transport = FakeClaudeTransport()
     val toggles = TestClaudeToggles()
     val account = ClaudeAccount(
@@ -142,6 +151,7 @@ internal class ClaudeFixture(val scope: CoroutineScope) {
         tools: ProfileAgentTools = NoAgentTools,
         bridge: AgentToolBridge = UnavailableAgentToolBridge,
         native: ClaudeNativeSupport = MissingClaudeNativeSupport,
+        isReadOnly: Boolean = false,
     ): ClaudeRuntime {
         val revision = account.inspect().check.revision
         return ClaudeRuntime(
@@ -156,6 +166,8 @@ internal class ClaudeFixture(val scope: CoroutineScope) {
             native = native,
             resources = ResourceResolver { resources.resolve(it) },
             inputSupport = { inputSupport },
+            efforts = { efforts(it) },
+            isReadOnly = isReadOnly,
         )
     }
 }
@@ -167,6 +179,17 @@ internal class MemoryClaudeCatalog : ClaudeCatalog {
         records[ref.nativeId]?.let { Json.decodeFromString<ClaudeRecord>(it) }?.takeIf { it.ref == ref }
     override suspend fun save(record: ClaudeRecord) {
         records[record.ref.nativeId] = Json.encodeToString(ClaudeRecord.serializer(), record)
+    }
+
+    private var models: String? = null
+    override suspend fun findModels(revision: AuthRevision): List<JsonObject>? = models
+        ?.let { Json.decodeFromString<ClaudeModelCapabilities>(it) }
+        ?.takeIf { it.revision == revision }
+        ?.models
+
+    override suspend fun saveModels(revision: AuthRevision, models: List<JsonObject>) {
+        val capabilities = ClaudeModelCapabilities(revision, models)
+        this.models = Json.encodeToString(ClaudeModelCapabilities.serializer(), capabilities)
     }
 }
 
