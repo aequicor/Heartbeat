@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -88,6 +89,7 @@ internal class StoredClaudeCatalog(
         return store.get(key)?.takeIf { it.ref == ref }
     }
 
+    @HighFrequency
     override suspend fun save(record: ClaudeRecord) {
         // Called for every frame of a turn: ordinary storage IO is verbose-only.
         log.v { "Persist Claude session launch=${record.launch}" }

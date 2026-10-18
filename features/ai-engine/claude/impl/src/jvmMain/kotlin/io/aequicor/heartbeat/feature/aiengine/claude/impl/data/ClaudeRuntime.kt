@@ -283,7 +283,7 @@ internal class ClaudeRuntime(
     /** A read-only runtime never starts or resumes a session. */
     private fun requireWritable() {
         if (isReadOnly) {
-            log.w { "Claude reading runtime refused to start a session" }
+            log.w { "Claude reading runtime refused to start or resume a session" }
             throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
         }
     }

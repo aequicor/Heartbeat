@@ -131,7 +131,7 @@ class ClaudeBackendTest {
         runCurrent()
         assertIs<ActiveSessionState.Running>(chat.state.value)
 
-        // The same login as the live runtime's needs no CLI check, and a second read reuses the reader.
+        // The same login as the live runtime's needs no CLI check.
         val calls = fixture.transport.calls.size
         val view = backend.session(stored.ref)
         backend.session(stored.ref)
@@ -147,7 +147,7 @@ class ClaudeBackendTest {
     }
 
     @Test
-    fun `reading a stored session of another login asks the CLI and leaves the live runtime alone`() = runTest {
+    fun `reading a stored session of another login is checked against the CLI login`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val formerIdentity = fixture.identity()
         val before = fixture.backend(backgroundScope).createRuntime(formerIdentity)

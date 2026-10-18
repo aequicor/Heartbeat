@@ -228,6 +228,22 @@ class ClaudeStartupTest {
     }
 
     @Test
+    fun `a history directory whose entries cannot be inspected is a read failure, not an absent conversation`() {
+        val home = Files.createTempDirectory("claude-history").toFile()
+        val projects = File(home, ".claude/projects").apply { File(this, "-Users-me-project").mkdirs() }
+        try {
+            // Listing works without the search permission, inspecting the entries does not.
+            projects.setExecutable(false)
+            assumeTrue(projects.canRead() && !projects.canExecute())
+            val id = "0b7c6e0e-6a3b-4f0e-9d51-4f5f6e1d9a11"
+            assertFailsWith<IOException> { claudeTranscriptExists(null, id, home.path) }
+        } finally {
+            projects.setExecutable(true)
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `the native history follows the config directory`() {
         val default = claudeNativeStore(null, "/Users/me")
         assertEquals(default, claudeNativeStore("/Users/me/.claude", "/Users/other"))
