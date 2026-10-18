@@ -90,6 +90,7 @@ class EngineStudioHelperRunsTest {
         lazyOf(host),
         StudioRunCoordinator(RunProfile(scope), RunClock),
         fixture.native,
+        StudioHelperRecovery(RunClock),
     )
 }
 

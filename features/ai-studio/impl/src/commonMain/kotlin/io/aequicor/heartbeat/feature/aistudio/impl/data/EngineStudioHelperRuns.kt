@@ -30,6 +30,7 @@ internal class EngineStudioHelperRuns(
     private val host: Lazy<StudioRunHost>,
     private val coordinator: StudioRunCoordinator,
     private val native: StudioHelperNative,
+    private val recovery: StudioHelperRecovery,
 ) : StudioHelperRuns {
     private val log = Log.tag("StudioHelperRuns")
 
@@ -73,7 +74,9 @@ internal class EngineStudioHelperRuns(
         return if (record.ref == null || record.target == null) {
             null
         } else {
-            native.result(record, request) { access.value.openHelper(record) }
+            native.result(record, request) {
+                access.value.liveHelper(helper) ?: recovery.open(record) { access.value.openHelper(record) }
+            }
         }
     }
 
