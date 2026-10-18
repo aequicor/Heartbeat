@@ -23,6 +23,26 @@ public sealed interface OwnershipCommand {
     /** Expected epoch of the command; the coordinator also CASes the complete record revision. */
     public val expected: OwnershipFence
 
+    /** Atomically reserves a fresh host invocation. Only Changed authorizes its single dispatch. */
+    public data class Admit(
+        override val actor: ExecutorHostId,
+        override val expected: OwnershipFence,
+        val id: String,
+        val sequence: Long,
+        val kind: OwnershipPermitKind,
+    ) : OwnershipCommand {
+        override fun toString(): String = "OwnershipCommand.Admit(***)"
+    }
+
+    /** Host-confirmed completion; the original source may settle admitted work after cancelling a transfer. */
+    public data class Settle(
+        override val actor: ExecutorHostId,
+        override val expected: OwnershipFence,
+        val permit: OwnershipPermit,
+    ) : OwnershipCommand {
+        override fun toString(): String = "OwnershipCommand.Settle(***)"
+    }
+
     /** Closes admission before any cleanup. A fresh [id] distinguishes this request from late callbacks. */
     public data class Prepare(
         override val actor: ExecutorHostId,
@@ -112,6 +132,12 @@ public enum class OwnershipRejection {
     /** The receipt does not match the immutable export. */
     Checkpoint,
 
+    /** The permit identity or sequence conflicts with the durable ledger. */
+    Permit,
+
+    /** Every available admission slot is still occupied. */
+    Quota,
+
     /** A monotonic counter cannot be advanced safely. */
     Exhausted,
 }
@@ -133,11 +159,24 @@ public sealed interface OwnershipReduction {
  * using a real conditional coordinator write. Read failure or a lost CAS response is unavailable/unknown, never
  * an active lease inferred from the local copy. Exact step replays are acknowledged only in their resulting phase.
  */
-public fun ProcessOwnership.reduceOwnership(command: OwnershipCommand): OwnershipReduction {
-    if (command is OwnershipCommand.Claim) return claimOwnership(command)
+public fun ProcessOwnership.reduceOwnership(command: OwnershipCommand): OwnershipReduction = when (command) {
+    is OwnershipCommand.Settle -> settle(command)
+
+    is OwnershipCommand.Claim -> claimOwnership(command)
+
+    is OwnershipCommand.Admit, is OwnershipCommand.Prepare, is OwnershipCommand.Quiesce,
+    is OwnershipCommand.Export, is OwnershipCommand.Activate, is OwnershipCommand.Cancel,
+    -> reduceOwnedCommand(command)
+}
+
+private fun ProcessOwnership.reduceOwnedCommand(command: OwnershipCommand): OwnershipReduction {
     if (command.expected != fence) return refuse(OwnershipRejection.Fence)
     if (command.actor != fence.host) return refuse(OwnershipRejection.Actor)
     return when (command) {
+        is OwnershipCommand.Settle -> settle(command)
+
+        is OwnershipCommand.Admit -> admit(command)
+
         is OwnershipCommand.Claim -> claimOwnership(command)
 
         is OwnershipCommand.Prepare -> prepareOwnership(command)
@@ -171,7 +210,7 @@ private fun ProcessOwnership.prepareOwnership(command: OwnershipCommand.Prepare)
 }
 
 private fun ProcessOwnership.exportOwnership(command: OwnershipCommand.Export): OwnershipReduction = when {
-    command.executors != 0 || command.calls != 0 -> refuse(OwnershipRejection.Unresolved)
+    command.executors != 0 || command.calls != 0 || permits.isNotEmpty() -> refuse(OwnershipRejection.Unresolved)
     phase == OwnershipPhase.Exported && transfer?.checkpoint == command.checkpoint -> OwnershipReduction.Unchanged(this)
     phase != OwnershipPhase.Quiescing -> refuse(OwnershipRejection.Phase)
     else -> advance(OwnershipPhase.Exported, checkNotNull(transfer).copy(checkpoint = command.checkpoint))
@@ -191,7 +230,7 @@ private fun ProcessOwnership.claimOwnership(command: OwnershipCommand.Claim): Ow
 }
 
 private fun ProcessOwnership.activateOwnership(command: OwnershipCommand.Activate): OwnershipReduction = when {
-    command.unresolved != 0 -> refuse(OwnershipRejection.Unresolved)
+    command.unresolved != 0 || permits.isNotEmpty() -> refuse(OwnershipRejection.Unresolved)
     command.checkpoint != transfer?.checkpoint -> refuse(OwnershipRejection.Checkpoint)
     phase == OwnershipPhase.Active -> OwnershipReduction.Unchanged(this)
     phase != OwnershipPhase.Reconciling -> refuse(OwnershipRejection.Phase)

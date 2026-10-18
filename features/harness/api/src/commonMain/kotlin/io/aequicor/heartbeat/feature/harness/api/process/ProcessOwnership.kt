@@ -108,6 +108,8 @@ public data class OwnershipTransfer(
  * This value describes cooperative fencing only. A native process or remote API that does not validate epochs
  * cannot be revoked by a read-before-write check. Export requires confirmed termination of all native executors
  * and drainage of all admitted calls. Network loss, expiry and missing status are never termination receipts.
+ * [permits] share this same CAS value: Prepare closes new admissions but cannot lose an admitted action.
+ * Export and activation require the ledger to be empty; unknown outcomes never expire. [nextPermit] never resets.
  * Old clients must be denied access to coordinated work by the host; deserializing this record is not that gate.
  */
 @Serializable
@@ -116,9 +118,17 @@ public data class ProcessOwnership(
     val revision: Long = 1,
     val phase: OwnershipPhase = OwnershipPhase.Active,
     val transfer: OwnershipTransfer? = null,
+    val permits: List<OwnershipPermit> = emptyList(),
+    val nextPermit: Long = 1,
 ) {
     init {
-        require(revision > 0) { "Invalid ownership revision" }
+        require(revision > 0 && nextPermit > 0) { "Invalid ownership revision" }
+        require(permits.size <= MAX_OWNERSHIP_PERMITS) { "Too many ownership permits" }
+        require(permits.map { it.id }.distinct().size == permits.size) { "Duplicate permit identity" }
+        require(permits.map { it.sequence }.distinct().size == permits.size) { "Duplicate permit sequence" }
+        require(permits.all { it.sequence < nextPermit && it.fence.key == fence.key }) { "Invalid permit fence" }
+        require(phase != OwnershipPhase.Exported || permits.isEmpty()) { "Export has live permits" }
+        require(phase != OwnershipPhase.Active || permits.all { it.fence == fence }) { "Active permit is stale" }
         val pending = transfer
         require(phase == OwnershipPhase.Active || pending != null) { "Missing transfer" }
         if (pending != null) {

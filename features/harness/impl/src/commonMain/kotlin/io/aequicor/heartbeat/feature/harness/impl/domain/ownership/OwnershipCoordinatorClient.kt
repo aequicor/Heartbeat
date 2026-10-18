@@ -68,14 +68,14 @@ internal class OwnershipCoordinatorClient(private val backend: OwnershipBackend,
         expected: ProcessOwnership?,
         next: ProcessOwnership,
     ): OwnershipChange = when (val committed = backend.compareAndSet(key, expected, next)) {
-        OwnershipCommit.Applied -> OwnershipChange.Current(next)
+        OwnershipCommit.Applied -> OwnershipChange.Current(next, isChanged = true)
         OwnershipCommit.Conflict -> OwnershipChange.Conflict
         is OwnershipCommit.Unavailable -> OwnershipChange.Unavailable(committed.reason)
     }
 }
 
 internal sealed interface OwnershipChange {
-    data class Current(val record: ProcessOwnership) : OwnershipChange
+    data class Current(val record: ProcessOwnership, val isChanged: Boolean = false) : OwnershipChange
     data object Conflict : OwnershipChange
     data class Rejected(val reason: OwnershipRejection) : OwnershipChange
     data class Unavailable(val reason: OwnershipUnavailable) : OwnershipChange
