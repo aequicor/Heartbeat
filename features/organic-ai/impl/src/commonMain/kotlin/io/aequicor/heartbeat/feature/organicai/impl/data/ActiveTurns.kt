@@ -154,18 +154,35 @@ private fun ActiveSession.abandon(turn: TurnId): TurnOutcome? {
     return TurnOutcome.Failed(current.failure)
 }
 
-/** Cancels the running turn, waits up to [wait] for it to stop and closes the handle, even when stopping fails. */
-internal suspend fun ActiveSession.stop(wait: Duration) {
-    try {
-        val turn = state.value.activeTurn()
-        if (turn != null) {
-            cancelQuietly(turn.id)
-            withTimeoutOrNull(wait) { state.first { it.activeTurn() == null } }
-                ?: log.w { "turn on ${ref.engine.value} did not stop in time; closing the handle" }
+/**
+ * Cancels the running turn and waits up to [wait] for it to stop; closes the handle, even when stopping fails.
+ * Returns whether the turn was seen to stop, as [stopTurn] does.
+ */
+internal suspend fun ActiveSession.stop(wait: Duration): Boolean = try {
+    stopTurn(wait)
+} finally {
+    withContext(NonCancellable) { close() }
+}
+
+/**
+ * Cancels the running turn and waits up to [wait] for it to stop, leaving the handle open. True only when the session
+ * then shows no turn and is reachable. An unavailable session takes no cancellation and cannot say what the engine
+ * still runs, so it is synchronized once first. A closed handle is no evidence either way and counts as stopped, as
+ * no handle does.
+ */
+internal suspend fun ActiveSession.stopTurn(wait: Duration): Boolean {
+    if (state.value is ActiveSessionState.Unavailable) synchronize()
+    val turn = state.value.activeTurn()
+    if (turn != null) {
+        cancelQuietly(turn.id)
+        if (withTimeoutOrNull(wait) { state.first { it.activeTurn() == null } } == null) {
+            log.w { "turn on ${ref.engine.value} did not stop in time" }
+            return false
         }
-    } finally {
-        withContext(NonCancellable) { close() }
     }
+    val isStopped = state.value.let { it !is ActiveSessionState.Unavailable && it.activeTurn() == null }
+    if (!isStopped) log.w { "session on ${ref.engine.value} stayed unavailable; its turn may still run" }
+    return isStopped
 }
 
 /** Best-effort cancellation; a session that cannot cancel is logged. */

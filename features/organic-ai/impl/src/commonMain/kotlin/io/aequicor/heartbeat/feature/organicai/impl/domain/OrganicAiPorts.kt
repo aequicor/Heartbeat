@@ -72,11 +72,24 @@ internal interface CellSessions {
      * Lets the session of [key] go. [ReleaseMode.Lyse] cancels its turn, closes it and archives the session;
      * failures are logged, never thrown, so one cell cannot keep others alive. Retirement applies only to
      * [generation] or an older open handle; lysis always ends the cell.
+     *
+     * Lysis returns [ReleaseOutcome.Stopped] only when every handle this process held for the cell had its turn seen
+     * to stop and no opener of the cell is still running; a turn that did not stop keeps its handle open for the
+     * next lysis of the same cell. A cell this process holds no handle of counts as stopped.
      */
-    suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int = 0)
+    suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int = 0): ReleaseOutcome
 
     /** Cancels every running turn and closes every handle without archiving, before sleep. */
     suspend fun releaseAll()
+}
+
+/** What a release could prove about the native work of a cell. */
+internal enum class ReleaseOutcome {
+    /** The cell's turn stopped and its handle closed, or this process held none. */
+    Stopped,
+
+    /** A turn did not stop in time, its session was unreachable or the cell was still being opened. */
+    Unconfirmed,
 }
 
 /** One open cell session. */
