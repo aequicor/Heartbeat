@@ -196,7 +196,7 @@ internal class CellDriver(
             val broke = Settlement.Broke(Breakdown.Harnesses)
             val result = machine.send(OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, broke))
             log.i { "organism ${organism.id.value} cell ${cell.id.value}: harnesses not connected, unsent, $result" }
-            run.lost(handle.session, turn = null)
+            run.lost(session = null, turn = null)
             return null
         }
         journal.save(organism)
@@ -250,9 +250,12 @@ internal class CellDriver(
         isConnected: Boolean,
     ) {
         log.i { "organism ${key.organism.value} cell ${key.cell.value} ended meanwhile; abandoning its session" }
-        turn?.let {
-            handle.cancel(it)
-            run.settled(handle.session, it, TurnOutcome.Cancelled)
+        if (turn == null) {
+            // Nothing was submitted: the run of a sandbox cell is rejected, since no later run closes a lysed cell's.
+            run.lost(session = null, turn = null)
+        } else {
+            handle.cancel(turn)
+            run.settled(handle.session, turn, TurnOutcome.Cancelled)
         }
         val isReleased = cells.release(key, handle.session, ReleaseMode.Lyse)
         if (isReleased && isConnected) disconnect(organism, handle.session)
