@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.PlanImplementation
 import io.aequicor.heartbeat.feature.aistudio.api.PlanImplementationMode
+import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -27,19 +28,22 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class StudioPlanImplementerTest {
-    private val planning = FakePlanning()
-    private val host = FakePlanHost()
+    private val calls = mutableListOf<String>()
+    private val planning = FakePlanning(calls)
+    private val host = FakePlanHost(calls)
     private val implementer = StudioPlanImplementer(planning, host)
 
     @Test
     fun `the same engine switches the current session and keeps the planning context`() = runTest {
         val settings = StudioSessionSettings(
             Pi.copy(model = ModelId("other")).studioModelId(),
-            "high",
+            "low",
             ApprovalMode.AutoEdits,
         )
         val outcome = implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings)
@@ -48,13 +52,15 @@ class StudioPlanImplementerTest {
             listOf(
                 "validate",
                 "configure ${StudioSettingChange.Model(settings.modelId)}",
-                "configure ${StudioSettingChange.Effort("high")}",
+                "configure ${StudioSettingChange.Effort("low")}",
                 "configure ${StudioSettingChange.Approval(ApprovalMode.AutoEdits)}",
+                "start 2",
                 "run Go",
             ),
-            host.calls,
+            calls,
         )
-        assertEquals(listOf(2L), planning.started)
+        assertEquals(ReasoningEffort.Low, host.turnSettings?.effort)
+        assertEquals(1, host.reservations)
     }
 
     @Test
@@ -62,7 +68,11 @@ class StudioPlanImplementerTest {
         val settings = StudioSessionSettings(Codex.studioModelId(), null, ApprovalMode.Ask)
         val outcome = implementer.implementPlan(CHAT, PlanImplementation(2, settings, ""), DefaultRunSettings)
         assertEquals(RunOutcome.Completed, outcome)
-        assertEquals(listOf("validate", "rollover", "adopt $Codex", "run Implement the approved plan."), host.calls)
+        assertEquals(
+            listOf("validate", "rollover", "start 2", "adopt $Codex", "run Implement the approved plan."),
+            calls,
+        )
+        assertEquals(DefaultRunSettings.effort, host.turnSettings?.effort)
     }
 
     @Test
@@ -73,7 +83,7 @@ class StudioPlanImplementerTest {
             PlanImplementation(2, settings, "Go", isFreshContext = true),
             DefaultRunSettings,
         )
-        assertEquals(listOf("validate", "rollover", "adopt $Pi", "run Go"), host.calls)
+        assertEquals(listOf("validate", "rollover", "start 2", "adopt $Pi", "run Go"), calls)
     }
 
     @Test
@@ -81,32 +91,99 @@ class StudioPlanImplementerTest {
         host.chat = host.chat.copy(ref = null)
         val settings = StudioSessionSettings(Codex.studioModelId())
         implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings)
-        assertEquals(listOf("validate", "adopt $Codex", "run Go"), host.calls)
+        assertEquals(listOf("validate", "start 2", "adopt $Codex", "run Go"), calls)
     }
 
     @Test
-    fun `a stale revision a failed rollover or a refused start never runs the turn`() = runTest {
+    fun `a stale revision or a failed rollover never runs the turn`() = runTest {
         val settings = StudioSessionSettings(Codex.studioModelId())
         assertEquals(
             RunOutcome.Failed,
             implementer.implementPlan(CHAT, PlanImplementation(1, settings, "Go"), DefaultRunSettings),
         )
-        assertEquals(emptyList(), host.calls)
+        assertEquals(emptyList(), calls)
         host.rollover = RunOutcome.Failed
         assertEquals(
             RunOutcome.Failed,
             implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings),
         )
-        assertEquals(listOf("validate", "rollover"), host.calls)
+        assertEquals(listOf("validate", "rollover"), calls)
         assertEquals(emptyList(), planning.started)
-        host.calls.clear()
-        host.rollover = RunOutcome.Completed
+    }
+
+    @Test
+    fun `a refused start after a rollover leaves the chat a planning chat`() = runTest {
         planning.canStart = false
+        val settings = StudioSessionSettings(Codex.studioModelId())
         assertEquals(
             RunOutcome.Failed,
             implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings),
         )
-        assertEquals(listOf("validate", "rollover", "adopt $Codex"), host.calls)
+        assertEquals(listOf("validate", "rollover", "start 2"), calls)
+        assertEquals(Pi.studioModelId(), host.chat.configuration?.modelId)
+    }
+
+    @Test
+    fun `a refused start undoes the settings applied to the current session`() = runTest {
+        planning.canStart = false
+        val current = host.chat.configuration!!
+        val settings = StudioSessionSettings(
+            Pi.copy(model = ModelId("other")).studioModelId(),
+            "high",
+            current.approval,
+        )
+        assertEquals(
+            RunOutcome.Failed,
+            implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings),
+        )
+        assertEquals(
+            listOf(
+                "validate",
+                "configure ${StudioSettingChange.Model(settings.modelId)}",
+                "configure ${StudioSettingChange.Effort("high")}",
+                "start 2",
+                "configure ${StudioSettingChange.Effort(null)}",
+                "configure ${StudioSettingChange.Model(current.modelId)}",
+            ),
+            calls,
+        )
+    }
+
+    @Test
+    fun `a setting the session refuses undoes the applied ones and keeps planning`() = runTest {
+        host.refused += StudioSettingChange.Effort("high")
+        val current = host.chat.configuration!!
+        val settings = StudioSessionSettings(
+            Pi.copy(model = ModelId("other")).studioModelId(),
+            "high",
+            ApprovalMode.AutoEdits,
+        )
+        assertEquals(
+            RunOutcome.Failed,
+            implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings),
+        )
+        assertEquals(
+            listOf(
+                "validate",
+                "configure ${StudioSettingChange.Model(settings.modelId)}",
+                "configure ${StudioSettingChange.Effort("high")}",
+                "configure ${StudioSettingChange.Model(current.modelId)}",
+            ),
+            calls,
+        )
+        assertEquals(emptyList(), planning.started)
+    }
+
+    @Test
+    fun `a stop while preparing cancels the implementation and keeps planning`() = runTest {
+        host.isStopped = true
+        val settings = StudioSessionSettings(Codex.studioModelId())
+        assertEquals(
+            RunOutcome.Stopped,
+            implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings),
+        )
+        assertEquals(listOf("validate", "rollover"), calls)
+        assertEquals(emptyList(), planning.started)
     }
 
     @Test
@@ -123,26 +200,73 @@ class StudioPlanImplementerTest {
             RunOutcome.Failed,
             implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings),
         )
-        assertEquals(emptyList(), host.calls)
+        assertEquals(emptyList(), calls)
     }
 
     @Test
-    fun `a worktree implementation prepares the checkout and continues the chat there`() = runTest {
+    fun `a refused route is reported as a failure`() = runTest {
+        host.validation = IllegalStateException("Choose a model with local project access")
+        val settings = StudioSessionSettings(Codex.studioModelId())
+        assertEquals(
+            RunOutcome.Failed,
+            implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings),
+        )
+        assertEquals(listOf("validate"), calls)
+    }
+
+    @Test
+    fun `a worktree implementation leaves planning before the chat moves into its checkout`() = runTest {
         host.chat = host.chat.copy(projectId = "project")
         val settings = host.chat.configuration!!
         val request = PlanImplementation(2, settings, "Go", mode = PlanImplementationMode.Sandbox)
         assertEquals(RunOutcome.Completed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
         assertEquals(
             listOf(
-                "validate",
-                "prepare project sandbox=true",
+                "validate checkout",
                 "rollover",
+                "start 2",
+                "move",
+                "prepare project sandbox=true",
                 "move",
                 "adopt $Pi",
                 "run Go",
             ),
-            host.calls,
+            calls,
         )
+        assertEquals(CHAT, host.chat.worktreeTaskId)
+        assertEquals(true, host.chat.isSandbox)
+        assertEquals(WorkspaceRef("checkout"), host.chat.executionWorkspace)
+    }
+
+    @Test
+    fun `a sandbox the journal prepares as a worktree is recorded as a worktree`() = runTest {
+        host.chat = host.chat.copy(projectId = "project")
+        host.preparedSandbox = false
+        val request = PlanImplementation(2, host.chat.configuration!!, "Go", mode = PlanImplementationMode.Sandbox)
+        assertEquals(RunOutcome.Completed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
+        assertEquals(false, host.chat.isSandbox)
+    }
+
+    @Test
+    fun `a failed checkout keeps the recoverable identity of the chat without running the turn`() = runTest {
+        host.chat = host.chat.copy(projectId = "project")
+        host.preparation = IllegalStateException("Worktree preparation failed")
+        val request = PlanImplementation(2, host.chat.configuration!!, "Go", mode = PlanImplementationMode.Worktree)
+        assertEquals(RunOutcome.Failed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
+        assertEquals(CHAT, host.chat.worktreeTaskId)
+        assertNull(host.chat.executionWorkspace)
+        assertTrue(host.chat.hasFailed)
+        assertFalse(calls.any { it.startsWith("run") })
+    }
+
+    @Test
+    fun `isolated checkouts that are unavailable refuse before anything changes`() = runTest {
+        host.chat = host.chat.copy(projectId = "project")
+        host.worktrees = IllegalStateException("Isolated checkouts are unavailable")
+        val request = PlanImplementation(2, host.chat.configuration!!, "Go", mode = PlanImplementationMode.Worktree)
+        assertEquals(RunOutcome.Failed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
+        assertEquals(listOf("validate checkout"), calls)
+        assertNull(host.chat.worktreeTaskId)
     }
 
     @Test
@@ -150,20 +274,10 @@ class StudioPlanImplementerTest {
         val settings = host.chat.configuration!!
         val request = PlanImplementation(2, settings, "Go", mode = PlanImplementationMode.Worktree)
         assertEquals(RunOutcome.Failed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
-        assertEquals(emptyList(), host.calls)
+        assertEquals(emptyList(), calls)
         host.chat = host.chat.copy(projectId = "project", worktreeTaskId = CHAT)
         assertEquals(RunOutcome.Completed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
-        assertEquals(listOf("validate", "run Go"), host.calls)
-    }
-
-    @Test
-    fun `a worktree move records the checkout in the chat`() = runTest {
-        host.chat = host.chat.copy(projectId = "project")
-        val request = PlanImplementation(2, host.chat.configuration!!, "Go", mode = PlanImplementationMode.Worktree)
-        implementer.implementPlan(CHAT, request, DefaultRunSettings)
-        assertEquals(CHAT, host.chat.worktreeTaskId)
-        assertEquals(false, host.chat.isSandbox)
-        assertEquals(WorkspaceRef("checkout"), host.chat.executionWorkspace)
+        assertEquals(listOf("validate", "start 2", "run Go"), calls)
     }
 
     @Test
@@ -172,10 +286,19 @@ class StudioPlanImplementerTest {
         val settings = host.chat.configuration!!
         val request = PlanImplementation(2, settings, "Go", mode = PlanImplementationMode.Organism)
         assertEquals(RunOutcome.Completed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
-        assertEquals(listOf("validate", "admit", "rollover", "move", "adopt $Pi"), host.calls.dropLast(1))
+        assertEquals(listOf("validate", "admit", "rollover", "start 2", "move", "adopt $Pi"), calls.dropLast(1))
         assertEquals(CHAT, host.chat.organismId)
-        val turn = host.calls.last()
+        val turn = calls.last()
         assertTrue(turn.startsWith("run Go\n\nImplement this plan (revision 2)") && "1. Build" in turn, turn)
+    }
+
+    @Test
+    fun `an organism that is not conceived leaves an ordinary chat`() = runTest {
+        host.turn = IllegalStateException("The organism was not conceived")
+        val request = PlanImplementation(2, host.chat.configuration!!, "Go", mode = PlanImplementationMode.Organism)
+        assertEquals(RunOutcome.Failed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
+        assertNull(host.chat.organismId)
+        assertEquals(emptySet(), host.chat.organismHarnesses)
     }
 
     @Test
@@ -183,7 +306,7 @@ class StudioPlanImplementerTest {
         host.chat = host.chat.copy(projectId = "project", worktreeTaskId = CHAT)
         val request = PlanImplementation(2, host.chat.configuration!!, "Go", mode = PlanImplementationMode.Organism)
         assertEquals(RunOutcome.Failed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
-        assertEquals(emptyList(), host.calls)
+        assertEquals(emptyList(), calls)
     }
 
     @Test
@@ -195,7 +318,21 @@ class StudioPlanImplementerTest {
         assertTrue("<plan>\n# Short\n</plan>" in organismGoal("Go", plan.copy(text = "# Short")))
     }
 
-    private class FakePlanning : StudioPlanning {
+    @Test
+    fun `a long prompt keeps its beginning within the goal an organism holds`() {
+        val plan = planning.plan.copy(text = "# Plan")
+        val prompt = "😀".repeat(OrganismBounds.MAX_GOAL)
+        val goal = organismGoal(prompt, plan)
+        assertTrue(goal.length <= OrganismBounds.MAX_GOAL)
+        assertTrue(goal.startsWith("😀") && "remaining text was cut" in goal && "<plan>\n# Plan\n" in goal)
+        val head = goal.substringBefore("\n\n[")
+        assertFalse(head.last().isHighSurrogate())
+        assertTrue(head.length <= MAX_GOAL_PROMPT)
+        val both = organismGoal(prompt, plan.copy(text = "y".repeat(OrganismBounds.MAX_GOAL)))
+        assertTrue(both.length <= OrganismBounds.MAX_GOAL && both.endsWith("</plan>"))
+    }
+
+    private class FakePlanning(private val calls: MutableList<String>) : StudioPlanning {
         var plan = Plan(PlanChat(CHAT), PlanMode.Planning, revision = 2, updatedAt = Instant.fromEpochSeconds(0))
         var canStart = true
         val started = mutableListOf<Long>()
@@ -208,12 +345,13 @@ class StudioPlanImplementerTest {
         override suspend fun approve(chatId: String, revision: Long) = true
         override suspend fun write(chatId: String, text: String, base: Long) = true
         override suspend fun startImplementation(chatId: String, revision: Long): Boolean {
+            calls += "start $revision"
             if (canStart) started += revision
             return canStart
         }
     }
 
-    private class FakePlanHost : StudioPlanHost {
+    private class FakePlanHost(private val calls: MutableList<String>) : StudioPlanHost {
         var chat = StudioChatRecord(
             CHAT,
             "Plan",
@@ -223,25 +361,28 @@ class StudioPlanImplementerTest {
             configuration = StudioSessionSettings(Pi.studioModelId(), null, ApprovalMode.Ask),
         )
         var rollover = RunOutcome.Completed
-        val calls = mutableListOf<String>()
+        var isStopped = false
+        var preparedSandbox: Boolean? = null
+        var validation: Exception? = null
+        var worktrees: Exception? = null
+        var preparation: Exception? = null
+        var turn: Exception? = null
+        val refused = mutableSetOf<StudioSettingChange>()
+        var reservations = 0
+        var turnSettings: RunSettings? = null
+        private var isReserved = false
+
+        private fun record(call: String) {
+            check(isReserved) { "$call ran outside the reservation" }
+            calls += call
+        }
+
         override suspend fun planChat(id: String) = chat
-        override suspend fun validatePlanTarget(id: String, target: EngineTarget) {
-            calls += "validate"
-        }
-        override suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {
-            calls += "configure $change"
-            return true
-        }
-        override suspend fun rolloverForPlan(id: String, settings: RunSettings): RunOutcome {
-            calls += "rollover"
-            return rollover
-        }
-        override suspend fun adoptPlanSettings(id: String, settings: StudioSessionSettings) {
-            calls += "adopt ${studioModelTarget(settings.modelId)}"
-        }
-        override suspend fun prepareWorktree(id: String, project: String, isSandbox: Boolean): WorkspaceRef {
-            calls += "prepare $project sandbox=$isSandbox"
-            return WorkspaceRef("checkout")
+
+        override suspend fun validatePlanTarget(id: String, target: EngineTarget, isCheckoutNeeded: Boolean) {
+            record(if (isCheckoutNeeded) "validate checkout" else "validate")
+            validation?.let { throw it }
+            if (isCheckoutNeeded) worktrees?.let { throw it }
         }
 
         override suspend fun admitOrganism(
@@ -249,18 +390,55 @@ class StudioPlanImplementerTest {
             goal: String,
             settings: RunSettings,
             projectId: String?,
+            isWorktree: Boolean,
         ): OrganismAdmission {
-            calls += "admit"
-            return OrganismAdmission(id, emptySet())
+            record("admit")
+            return OrganismAdmission(id, setOf("harness"))
+        }
+
+        override suspend fun reserve(id: String, settings: RunSettings, body: suspend () -> RunOutcome): RunOutcome {
+            check(!isReserved) { "Session is busy" }
+            reservations++
+            isReserved = true
+            try {
+                return body()
+            } finally {
+                isReserved = false
+            }
+        }
+
+        override suspend fun isStopRequested(id: String): Boolean = isStopped
+
+        override suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {
+            record("configure $change")
+            return change !in refused
+        }
+
+        override suspend fun rolloverForPlan(id: String, settings: RunSettings): RunOutcome {
+            record("rollover")
+            return rollover
+        }
+
+        override suspend fun adoptPlanSettings(id: String, settings: StudioSessionSettings) {
+            record("adopt ${studioModelTarget(settings.modelId)}")
+        }
+
+        override suspend fun prepareWorktree(id: String, project: String, isSandbox: Boolean): StudioIsolation {
+            record("prepare $project sandbox=$isSandbox")
+            check(chat.worktreeTaskId == id) { "The chat does not name its checkout before preparing it" }
+            preparation?.let { throw it }
+            return StudioIsolation(WorkspaceRef("checkout"), preparedSandbox ?: isSandbox)
         }
 
         override suspend fun move(id: String, change: StudioChatRecord.() -> StudioChatRecord) {
             chat = chat.change()
-            calls += "move"
+            record("move")
         }
 
         override suspend fun runPlanTurn(id: String, prompt: String, settings: RunSettings): RunOutcome {
-            calls += "run $prompt"
+            record("run $prompt")
+            turnSettings = settings
+            turn?.let { throw it }
             return RunOutcome.Completed
         }
     }

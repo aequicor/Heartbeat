@@ -27,9 +27,11 @@ public sealed interface StudioSettingChange {
 
 /**
  * Implementation of the plan of a planning chat in the same chat: [settings] choose the engine route, effort and
- * approval of the implementation. A route of another engine or connection, or [isFreshContext], continues the chat
- * in a new native session; otherwise the current session switches its settings. [mode] may move the chat into an
- * isolated checkout of its project first. [prompt] is the user's first implementation message.
+ * approval of the implementation. A route of another engine or connection, [isFreshContext] or a [mode] that moves
+ * the chat continues the chat in a new native session with the essence of the planning conversation; this does not
+ * depend on the context rollover toggle of context optimization. Otherwise the current session switches its
+ * settings. [mode] may move the chat into an isolated checkout of its project or make it the chat of an organism
+ * first. [prompt] is the user's first implementation message; an organism takes it with the plan as its goal.
  */
 public data class PlanImplementation(
     val revision: Long,
@@ -41,17 +43,26 @@ public data class PlanImplementation(
     override fun toString(): String = "PlanImplementation(revision=$revision, fresh=$isFreshContext, mode=$mode)"
 }
 
-/** Where a plan is implemented. */
+/**
+ * Where a plan is implemented. A chat that already works in an isolated checkout implements there: [Worktree] and
+ * [Sandbox] do not move it again.
+ */
 public enum class PlanImplementationMode {
     /** In the chat as it is: its project folder or isolated checkout. */
     Chat,
 
-    /** In a new git worktree of the chat's project; the chat continues in a new native session there. */
+    /** In a new git worktree of the chat's project (needs worktree mode); the chat continues there. */
     Worktree,
 
-    /** In a new source-only sandbox of the chat's project, built in warm build slots. */
+    /**
+     * In a new source-only sandbox of the chat's project, built in warm build slots. While sandboxes are turned off
+     * in the profile, the worktree journal prepares an ordinary worktree instead and the chat records that.
+     */
     Sandbox,
 
-    /** By an organic AI organism conceived in the chat with the plan as its goal; the chat becomes its chat. */
+    /**
+     * By an organic AI organism conceived in the chat with the prompt and the plan as its goal; the chat becomes its
+     * chat. Needs organic AI and a chat outside an isolated checkout; a conception that fails leaves an ordinary chat.
+     */
     Organism,
 }
