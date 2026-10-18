@@ -90,6 +90,20 @@ class ProcessDecisionsUiTest {
     }
 
     @Test
+    fun `expired requests cannot offer allow or deny controls`() = runSkikoComposeUiTest {
+        setContent {
+            HbTheme {
+                ProcessDecisionsContent(
+                    ProcessDecisionsUiState(persistentListOf(row.copy(status = ProcessDecisionStatusUi.Expired))),
+                    {},
+                )
+            }
+        }
+        onNodeWithTag("process-decision-allow-decision").assertDoesNotExist()
+        onNodeWithTag("process-decision-deny-decision").assertDoesNotExist()
+    }
+
+    @Test
     fun `admitted commands cannot offer a misleading revoke control`() = runSkikoComposeUiTest {
         setContent {
             HbTheme {

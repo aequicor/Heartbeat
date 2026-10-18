@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.decision
 
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -15,7 +17,6 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.StageName
 import io.aequicor.heartbeat.feature.harness.api.process.SubjectSha
 import io.aequicor.heartbeat.feature.harness.api.process.workflowKey
-import io.aequicor.heartbeat.feature.harness.impl.data.services.CommandToggles
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessDataTestSecrets
 import io.aequicor.heartbeat.feature.harness.impl.data.services.ProcessesTestAccess
 import io.aequicor.heartbeat.feature.harness.impl.data.services.ProcessesTestClock
@@ -32,8 +33,10 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptP
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandRequest
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommands
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 
 /** Executes the actual decision spec and effects synchronously, persisting through the real encrypted adapter. */
@@ -62,7 +65,7 @@ internal class ProcessCommandTestEnv(test: TestScope) {
     val scriptData = HarnessScriptData(harness.id, access, data)
     val processes = HarnessScriptProcesses(scriptData, clock, data.processMutex)
     val local = ProcessTestCommands()
-    val toggles = CommandToggles()
+    val toggles = ProcessTestToggles()
     private val storage = ProtectedProcessDecisions(secrets)
     var host = ProcessDecisionHost(DecisionTestMachine(storage), clock)
         private set
@@ -113,4 +116,17 @@ internal class ProcessTestCommands : LocalCommands {
             outcome
         }
     }
+}
+
+/** Independent flags let admission tests disable one gate while the other stays enabled. */
+internal class ProcessTestToggles : FeatureToggles {
+    var isEnabled = true
+    val overrides = mutableMapOf<String, Boolean>()
+
+    override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(value(toggle))
+
+    override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = value(toggle)
+
+    @Suppress("UNCHECKED_CAST") // These tests read only boolean command flags.
+    private fun <T : Any> value(toggle: FeatureToggle<T>): T = (overrides[toggle.key] ?: isEnabled) as T
 }

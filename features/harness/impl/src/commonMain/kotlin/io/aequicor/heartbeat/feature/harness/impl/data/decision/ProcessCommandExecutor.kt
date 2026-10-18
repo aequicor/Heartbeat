@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.harness.api.process.SubjectSha
 import io.aequicor.heartbeat.feature.harness.api.process.workflowKey
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommandResult
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcessCommandResult
+import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessCommandsEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.HarnessProcessCommandHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessCommandInvocation
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessDecisionHost
@@ -74,7 +75,7 @@ internal class ProcessCommandExecutor(
     }
 
     private suspend fun admitted(call: ProcessCommandInvocation): ScriptProcessCommandResult {
-        if (!toggles.get(HarnessProcessCommandsEnabled)) return ScriptProcessCommandResult.Unavailable
+        if (!isEnabled()) return ScriptProcessCommandResult.Unavailable
         val binding = binding(call) ?: return ScriptProcessCommandResult.Unavailable
         val ledger = host.ready() ?: return ScriptProcessCommandResult.Unavailable
         val entry = ledger.find(binding) ?: request(call, binding) ?: return ScriptProcessCommandResult.Unavailable
@@ -118,7 +119,7 @@ internal class ProcessCommandExecutor(
 
     private suspend fun claim(call: ProcessCommandInvocation, entry: ProcessCommandDecision): Boolean {
         val finalBinding = binding(call)
-        val isEnabled = toggles.get(HarnessProcessCommandsEnabled)
+        val isEnabled = isEnabled()
         return if (!isEnabled || finalBinding != entry.decision.binding || !call.access.isActive) {
             false
         } else {
@@ -132,6 +133,10 @@ internal class ProcessCommandExecutor(
             current?.phase == ProcessDecisionPhase.Executing && clock.now() < current.expiresAt
         }
     }
+
+    /** Recheck both switches after waiting for the writer barrier and again before irreversible admission. */
+    private suspend fun isEnabled(): Boolean =
+        toggles.get(HarnessCommandsEnabled) && toggles.get(HarnessProcessCommandsEnabled)
 
     private suspend fun binding(call: ProcessCommandInvocation): ProcessActionBinding? {
         check(call.access.isActive) { "Process command activation expired" }

@@ -159,6 +159,23 @@ class ProcessCommandExecutorTest {
     }
 
     @Test
+    fun `either command switch disabled during final inspection prevents claim and dispatch`() = runTest {
+        for (key in listOf("harness.commands", "harness.process_actions")) {
+            val env = ProcessCommandTestEnv(this)
+            env.initialize()
+            env.approve()
+            var reads = 0
+            env.local.afterRemoteRead = {
+                reads++
+                if (reads == 2) env.toggles.overrides[key] = false
+            }
+            assertEquals(ScriptProcessCommandResult.Unavailable, env.executor().execute(env.invocation()))
+            assertTrue(env.local.executions.isEmpty())
+            assertEquals(ProcessDecisionPhase.Approved, env.host.ready()?.entries?.single()?.decision?.phase)
+        }
+    }
+
+    @Test
     fun `HEAD changed during inspection prevents admission without dispatch`() = runTest {
         val env = ProcessCommandTestEnv(this)
         env.initialize()

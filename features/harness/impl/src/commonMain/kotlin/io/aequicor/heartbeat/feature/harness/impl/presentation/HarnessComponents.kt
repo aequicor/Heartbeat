@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibrar
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessDecisionHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
+import kotlin.time.Clock
 
 private val log = Log.tag("HarnessHost")
 
@@ -65,13 +66,14 @@ internal class HarnessDetailComponent(
     runs: Lazy<HarnessRunsMachine>,
     factory: HeartbeatStoreFactory,
     decisions: Lazy<ProcessDecisionHost>,
+    clock: Clock,
 ) : ComponentContext by context {
     val model: HarnessDetailModel = instanceKeeper.getOrCreate(MODEL_KEY) {
         Retained(HarnessDetailModel(harness, machine.value, runs.value, factory, screen.coroutineScope))
     }.model
 
     val decisionsModel: HarnessProcessDecisionsModel = instanceKeeper.getOrCreate("$MODEL_KEY-decisions") {
-        RetainedDecisions(HarnessProcessDecisionsModel(harness, decisions.value, factory, screen.coroutineScope))
+        RetainedDecisions(HarnessProcessDecisionsModel(harness, decisions.value, factory, screen.coroutineScope, clock))
     }.model
 
     /** Navigation of this entry; the model only requests it through actions. */

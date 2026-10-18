@@ -29,9 +29,11 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_de
 import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_denied
 import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_deny
 import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_executing
+import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_expired
 import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_hint
 import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_pending
 import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_process
+import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_refused
 import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_revoke
 import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_revoked
 import io.aequicor.heartbeat.feature.harness.impl.resources.process_decisions_subject
@@ -55,7 +57,7 @@ internal fun ProcessDecisionsContent(
     onIntent: (ProcessDecisionsUiIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (state.rows.isEmpty() && !state.isFailed) return
+    if (state.rows.isEmpty() && !state.isFailed && !state.isRefused) return
     HbSettingsSection(
         stringResource(Res.string.process_decisions_title),
         modifier.testTag("process-decisions"),
@@ -63,6 +65,14 @@ internal fun ProcessDecisionsContent(
     ) {
         if (state.isFailed) {
             HbBanner(stringResource(Res.string.harness_save_failed)) {
+                HbButton(stringResource(Res.string.harness_retry), { onIntent(ProcessDecisionsUiIntent.Reload) })
+            }
+        }
+        if (state.isRefused) {
+            HbBanner(
+                stringResource(Res.string.process_decisions_refused),
+                Modifier.testTag("process-decision-refused"),
+            ) {
                 HbButton(stringResource(Res.string.harness_retry), { onIntent(ProcessDecisionsUiIntent.Reload) })
             }
         }
@@ -131,4 +141,5 @@ private fun ProcessDecisionStatusUi.label() = when (this) {
     ProcessDecisionStatusUi.Revoked -> Res.string.process_decisions_revoked
     ProcessDecisionStatusUi.Executing -> Res.string.process_decisions_executing
     ProcessDecisionStatusUi.Completed -> Res.string.process_decisions_completed
+    ProcessDecisionStatusUi.Expired -> Res.string.process_decisions_expired
 }

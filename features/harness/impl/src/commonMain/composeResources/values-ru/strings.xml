@@ -108,4 +108,6 @@
     <string name="process_decisions_subject">SHA: %1$s</string>
     <string name="process_decisions_process">Процесс: %1$s · этап: %2$s\nПопытка: %3$d · ревизия входа: %4$d</string>
     <string name="process_decisions_deadline">Действует до: %1$s\nТаймаут: %2$d мс</string>
+    <string name="process_decisions_expired">Срок истёк; разрешение больше недоступно</string>
+    <string name="process_decisions_refused">Решение не применено: срок мог истечь, состояние измениться или выполняется запись. Обновите данные и проверьте текущее состояние.</string>
 </resources>

@@ -106,4 +106,6 @@
     <string name="process_decisions_subject">SHA: %1$s</string>
     <string name="process_decisions_process">Process: %1$s · stage: %2$s\nAttempt: %3$d · input revision: %4$d</string>
     <string name="process_decisions_deadline">Valid until: %1$s\nTimeout: %2$d ms</string>
+    <string name="process_decisions_expired">Expired; approval is no longer available</string>
+    <string name="process_decisions_refused">Decision was not applied. It may have expired, changed, or be busy. Refresh and review its current state.</string>
 </resources>

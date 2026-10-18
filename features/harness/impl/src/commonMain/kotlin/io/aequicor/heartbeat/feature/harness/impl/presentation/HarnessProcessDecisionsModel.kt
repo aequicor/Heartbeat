@@ -21,9 +21,11 @@ import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
 import pro.respawn.flowmvi.plugins.reduce
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 /** Host presentation status; the UI never imports action or script contracts. */
-internal enum class ProcessDecisionStatusUi { Pending, Approved, Denied, Revoked, Executing, Completed }
+internal enum class ProcessDecisionStatusUi { Pending, Approved, Denied, Revoked, Executing, Completed, Expired }
 
 /** All values shown to the human, with a fenced revision and no callback or method supplied by the script. */
 @Immutable
@@ -51,8 +53,10 @@ internal data class ProcessDecisionsUiState(
     val rows: ImmutableList<ProcessDecisionUi> = persistentListOf(),
     val isFailed: Boolean = false,
     val isBusy: Boolean = false,
+    val isRefused: Boolean = false,
 ) : MVIState {
-    override fun toString(): String = "ProcessDecisionsUiState(rows=${rows.size}, isFailed=$isFailed, isBusy=$isBusy)"
+    override fun toString(): String =
+        "ProcessDecisionsUiState(rows=${rows.size}, isFailed=$isFailed, isBusy=$isBusy, isRefused=$isRefused)"
 }
 
 /** Native UI-only intents. No service-as-ui provider, WebView bridge or agent tool exposes this store. */
@@ -68,13 +72,14 @@ internal class HarnessProcessDecisionsModel(
     private val host: ProcessDecisionHost,
     factory: HeartbeatStoreFactory,
     scope: CoroutineScope,
+    clock: Clock,
 ) {
     val store = factory.create<ProcessDecisionsUiState, ProcessDecisionsUiIntent, MVIAction>(
         "HarnessProcessDecisions",
         ProcessDecisionsUiState(),
         onError = { copy(isFailed = true) },
     ) {
-        reflect(host.machine) { reflectDecisions(it, harness) }
+        reflect(host.machine) { reflectDecisions(it, harness, clock.now()) }
         reduce { intent ->
             val command = when (intent) {
                 is ProcessDecisionsUiIntent.Answer -> ProcessDecisionEdit.Change(
@@ -91,12 +96,23 @@ internal class HarnessProcessDecisionsModel(
             }
             if (command == null) {
                 val isFailed = host.ready() == null
-                updateState { copy(isFailed = isFailed) }
+                updateState {
+                    reflectDecisions(
+                        host.machine.state.value,
+                        harness,
+                        clock.now(),
+                    ).copy(isFailed = isFailed)
+                }
             } else {
                 var isShown = false
                 withState { isShown = rows.any { it.id == command.id && it.revision == command.command.revision() } }
                 val isApplied = isShown && host.edit(command)
-                updateState { copy(isFailed = !isApplied) }
+                updateState {
+                    reflectDecisions(host.machine.state.value, harness, clock.now()).copy(
+                        isFailed = host.machine.state.value == ProcessDecisionsState.Failed,
+                        isRefused = !isApplied && host.machine.state.value != ProcessDecisionsState.Failed,
+                    )
+                }
             }
         }
     }
@@ -116,6 +132,7 @@ private fun ProcessDecisionCommand.revision(): Long? = when (this) {
 private fun ProcessDecisionsUiState.reflectDecisions(
     machine: ProcessDecisionsState,
     harness: String,
+    now: Instant,
 ): ProcessDecisionsUiState = when (machine) {
     ProcessDecisionsState.Idle, ProcessDecisionsState.Loading -> copy(isBusy = true)
 
@@ -123,21 +140,35 @@ private fun ProcessDecisionsUiState.reflectDecisions(
 
     is ProcessDecisionsState.Ready -> copy(
         rows = machine.ledger.entries.filter { it.decision.binding.harness.value == harness }
-            .map { it.toUi() }.toImmutableList(),
+            .map { it.toUi(now) }.toImmutableList(),
         isFailed = false,
         isBusy = machine.pending != null,
+        isRefused = false,
     )
 }
 
-private fun ProcessCommandDecision.toUi(): ProcessDecisionUi {
+private fun ProcessCommandDecision.toUi(now: Instant): ProcessDecisionUi {
     val binding = decision.binding
     val words = Json.encodeToString(ListSerializer(String.serializer()), listOf(command.program) + command.arguments)
     val status = when (decision.phase) {
-        ProcessDecisionPhase.Pending -> ProcessDecisionStatusUi.Pending
-        ProcessDecisionPhase.Approved -> ProcessDecisionStatusUi.Approved
+        ProcessDecisionPhase.Pending -> if (now >= decision.expiresAt) {
+            ProcessDecisionStatusUi.Expired
+        } else {
+            ProcessDecisionStatusUi.Pending
+        }
+
+        ProcessDecisionPhase.Approved -> if (now >= decision.expiresAt) {
+            ProcessDecisionStatusUi.Expired
+        } else {
+            ProcessDecisionStatusUi.Approved
+        }
+
         ProcessDecisionPhase.Denied -> ProcessDecisionStatusUi.Denied
+
         ProcessDecisionPhase.Revoked -> ProcessDecisionStatusUi.Revoked
+
         ProcessDecisionPhase.Executing -> ProcessDecisionStatusUi.Executing
+
         ProcessDecisionPhase.Completed -> ProcessDecisionStatusUi.Completed
     }
     return ProcessDecisionUi(
