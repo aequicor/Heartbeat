@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
@@ -30,6 +31,7 @@ internal class StudioConfiguredSubmission(
     private val origins: StudioRequestOrigins,
     private val security: StudioSecurityPolicy,
     private val rollovers: StudioRolloverObserver = StudioRolloverObserver { _, _ -> },
+    private val planning: StudioPlanning = StudioPlanning.None,
 ) {
     private val log = Log.tag("StudioConfiguredSubmission")
 
@@ -70,6 +72,8 @@ internal class StudioConfiguredSubmission(
         }
         // The handoff turn's narrowed trust is not the chat's configuration: its session is never reflected again.
         if (request.isHandoff) controller.retire(id, active)
+        // The plan and its read-only rule follow the chat into the session before its prompt is prepared.
+        planning.bind(id, active.ref)
         val reviewTarget = record.helper?.model?.reviewTarget
         val submitted = send(active, constrained, effort, reviewTarget) {
             turnPolicy(request, record, trust, configurations)

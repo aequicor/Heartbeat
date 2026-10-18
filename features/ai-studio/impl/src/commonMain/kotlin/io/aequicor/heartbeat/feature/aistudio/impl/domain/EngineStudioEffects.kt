@@ -24,6 +24,7 @@ class EngineStudioEffects(
     private val runtime: StudioRuntime,
     private val availability: StudioAvailability,
     private val projects: StudioProjects? = null,
+    private val planning: StudioPlanning = StudioPlanning.None,
 ) : EffectHandler<AiStudioEffect, AiStudioIntent> {
     private val log = Log.tag("EngineStudioEffects")
 
@@ -62,28 +63,7 @@ class EngineStudioEffects(
                 AiStudioIntent.Internal.ProjectChosen(effect.paneId, checkNotNull(projects).choose()),
             )
 
-            is AiStudioEffect.CreateSession -> {
-                requireBrowserCreationSupport(effect)
-                val session = repository.createSession(
-                    effect.projectId,
-                    titleOf(effect.prompt),
-                    effect.isWorktree,
-                    effect.organism(),
-                    isSandbox = effect.isSandbox,
-                )
-                machine.send(
-                    AiStudioIntent.Internal.SessionCreated(
-                        effect.paneId,
-                        session.id,
-                        effect.prompt,
-                        effect.settings,
-                        effect.requestId,
-                        effect.attachments,
-                        effect.submissionId,
-                        effect.environment,
-                    ),
-                )
-            }
+            is AiStudioEffect.CreateSession -> createSession(effect, machine)
 
             is AiStudioEffect.Run -> runEffect(effect, machine)
 
@@ -99,6 +79,31 @@ class EngineStudioEffects(
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
         }
+    }
+
+    private suspend fun createSession(effect: AiStudioEffect.CreateSession, machine: EffectScope<AiStudioIntent>) {
+        requireBrowserCreationSupport(effect)
+        val session = repository.createSession(
+            effect.projectId,
+            titleOf(effect.prompt),
+            effect.isWorktree,
+            effect.organism(),
+            isSandbox = effect.isSandbox,
+        )
+        // The saved conversation stays an idle sidebar entry when planning cannot start.
+        if (effect.isPlanning) check(planning.enter(session.id)) { "Planning mode could not start" }
+        machine.send(
+            AiStudioIntent.Internal.SessionCreated(
+                effect.paneId,
+                session.id,
+                effect.prompt,
+                effect.settings,
+                effect.requestId,
+                effect.attachments,
+                effect.submissionId,
+                effect.environment,
+            ),
+        )
     }
 
     private suspend fun runEffect(effect: AiStudioEffect.Run, machine: EffectScope<AiStudioIntent>) {

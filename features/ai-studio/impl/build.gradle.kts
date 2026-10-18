@@ -25,6 +25,7 @@ kotlin {
             implementation(projects.features.attachments.api)
             implementation(projects.features.worktreeMode.api)
             implementation(projects.features.organicAi.api)
+            implementation(projects.features.planningMode.api)
             implementation(projects.features.effortConfiguration.api)
             implementation(projects.features.contextWindowOptimization.api)
             implementation(projects.features.feedback.api)

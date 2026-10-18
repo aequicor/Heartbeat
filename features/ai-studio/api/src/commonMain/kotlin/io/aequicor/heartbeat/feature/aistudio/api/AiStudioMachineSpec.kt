@@ -22,7 +22,8 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | NewSession | pane open | Ready (pane → new-session page, focused) | |
  * | Ready | SelectProject | new-session page, not creating | Ready (target project; worktree only for Git) | |
  * | Ready | SelectWorktree | new pane of a Git project, available | Ready (isolation choice; leaves organism mode) | |
- * | Ready | SelectOrganism | new-session page, not creating | Ready (organism mode; leaves the worktree) | |
+ * | Ready | SelectOrganism | new-session page, not creating | Ready (organism; leaves worktree and planning) | |
+ * | Ready | SelectPlanning | new-session page, not creating | Ready (planning mode; leaves organism mode) | |
  * | Ready | AddProject | supported, new-session pane, picker idle | Ready (picker active) | ChooseProject |
  * | Ready | ProjectChosen | matching picker | Ready (selected project; worktree only for Git; unchanged on cancel) | |
  * | Ready | ProjectChoiceFailed | matching picker | Ready (retryable project error) | |
@@ -60,7 +61,8 @@ public const val MAX_STUDIO_PANES: Int = 2
  * another pane preserves the pending request, and already started runs survive all Ready navigation.
  * Switching the workspace toggle off detaches effects; accepted native turns remain owned by the profile.
  * Isolation of a new pane is a worktree or, only while sandboxes are available, a sandbox: SelectWorktree grants a
- * requested sandbox only then. SelectOrganism and choosing a non-Git project clear the isolation;
+ * requested sandbox only then. SelectOrganism and choosing a non-Git project clear the isolation; planning, which
+ * needs a native session of the chat, excludes organism mode but keeps the isolation;
  * ProjectAvailabilityChanged (for idle new panes) and CreateFailed drop an isolation that is no longer offered,
  * leaving a plain worktree when only sandboxes went away.
  * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run → RunFinished(Failed),
@@ -263,6 +265,7 @@ private fun ReadyTransitions.conversations() {
                 isWorktree = state.pane(intent.paneId)?.isWorktree == true,
                 isSandbox = state.pane(intent.paneId)?.let { it.isWorktree && it.isSandbox } == true,
                 isOrganism = state.pane(intent.paneId)?.isOrganism == true,
+                isPlanning = state.pane(intent.paneId)?.isPlanning == true,
                 environment = intent.environment,
             )
         }
@@ -544,7 +547,7 @@ private fun SessionEdit.isArchiving(): Boolean = this is SessionEdit.SetArchived
 
 private fun SessionEdit.normalized(): SessionEdit = if (this is SessionEdit.Rename) copy(title = title.trim()) else this
 
-/** Isolation and organism selection are mutually exclusive choices of a new pane. */
+/** Isolation and organism selection, and organism and planning, are mutually exclusive choices of a new pane. */
 private fun ReadyTransitions.executionModes() {
     on<AiStudioIntent.Public.SelectWorktree>(guard = {
         state.isWorktreeAvailable && state.pane(intent.paneId)?.let {
@@ -569,7 +572,16 @@ private fun ReadyTransitions.executionModes() {
                     isOrganism = intent.isEnabled,
                     isWorktree = it.isWorktree && !intent.isEnabled,
                     isSandbox = it.isSandbox && !intent.isEnabled,
+                    isPlanning = it.isPlanning && !intent.isEnabled,
                 )
+            }
+        }
+    }
+    // A plan belongs to the chat's own native session; an organism has none, so the two modes exclude each other.
+    on<AiStudioIntent.Public.SelectPlanning>(guard = { state.pane(intent.paneId)?.isNewSessionPage() == true }) {
+        stay {
+            state.replacePane(intent.paneId) {
+                it.copy(isPlanning = intent.isEnabled, isOrganism = it.isOrganism && !intent.isEnabled)
             }
         }
     }

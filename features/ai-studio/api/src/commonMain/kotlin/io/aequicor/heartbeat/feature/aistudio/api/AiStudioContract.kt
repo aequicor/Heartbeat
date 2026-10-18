@@ -124,6 +124,9 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Selects the organic AI mode before the first message of a new-session pane. */
         public data class SelectOrganism(val paneId: Int, val isEnabled: Boolean) : Public
 
+        /** Selects planning mode before the first message of a new-session pane. */
+        public data class SelectPlanning(val paneId: Int, val isEnabled: Boolean) : Public
+
         /** Opens the local folder picker for a new-session pane; paths never enter machine state. */
         public data class AddProject(val paneId: Int) : Public
 
@@ -325,6 +328,8 @@ public sealed interface AiStudioEffect : MachineEffect {
         val isSandbox: Boolean = false,
         /** The conversation is an organic AI organism conceived from [prompt]; it has no native session of its own. */
         val isOrganism: Boolean = false,
+        /** The conversation starts in planning mode before its first turn. */
+        val isPlanning: Boolean = false,
         /** Trusted host context captured with this input; never decoded from screen JSON. */
         val environment: StudioChatEnvironment? = null,
     ) : AiStudioEffect

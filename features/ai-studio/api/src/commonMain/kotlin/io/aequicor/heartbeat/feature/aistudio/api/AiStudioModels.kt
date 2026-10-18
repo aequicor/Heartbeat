@@ -52,6 +52,8 @@ public data class StudioPane(
     val isSandbox: Boolean = false,
     /** Fixed at creation; the first prompt conceives an organic AI organism instead of starting one session. */
     val isOrganism: Boolean = false,
+    /** The new conversation starts in planning mode: the agent develops a plan with the user and only reads. */
+    val isPlanning: Boolean = false,
 )
 
 /** Metadata change of a session, persisted by the studio effects. */
