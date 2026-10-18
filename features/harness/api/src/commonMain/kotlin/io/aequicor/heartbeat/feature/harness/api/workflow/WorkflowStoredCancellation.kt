@@ -10,7 +10,12 @@ internal fun HarnessRunsIntent.Internal.CancelStoredRun.cancellation(): HarnessR
 
 internal fun HarnessRunsState.Ready.storedCancellationRejection(
     intent: HarnessRunsIntent.Internal.CancelStoredRun,
-): WorkflowRejection? = withStoredRun(intent).cancelRejection(intent.cancellation())
+): WorkflowRejection? = if (isSuspended) {
+    // A suspended machine imports nothing: the same admission gate as a start applies to a journal import.
+    WorkflowRejection.Unavailable
+} else {
+    withStoredRun(intent).cancelRejection(intent.cancellation())
+}
 
 internal fun HarnessRunsState.Ready.storedCancellation(
     intent: HarnessRunsIntent.Internal.CancelStoredRun,

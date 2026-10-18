@@ -19,10 +19,12 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessEnd
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
+import io.aequicor.heartbeat.feature.harness.api.process.ResultRef
 import io.aequicor.heartbeat.feature.harness.api.process.StageName
 import io.aequicor.heartbeat.feature.harness.api.process.workflowKey
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflowCancellation
@@ -323,6 +325,87 @@ private val HARNESS = Harness(
 )
 
 class ProcessWorkflowLaunchesTest {
+    @Test
+    fun `finished attempt releases workflow retention without another start`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = ProtectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            data.processMutex,
+            HARNESS.id,
+            fixture.storage,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+        )
+        val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        val run = fixture.storage.find(id) ?: error("Missing workflow run")
+        assertTrue(
+            fixture.storage.save(
+                run.copy(
+                    status = WorkflowStatus.Completed(JsonPrimitive("done")),
+                    finishedAt = run.startedAt,
+                ),
+                run.driverGeneration,
+            ),
+        )
+        assertIs<ProcessReduction.Changed>(
+            processes.apply(
+                key.process,
+                ProcessCommand.Finish(key.attempt, AttemptOutcome.Succeeded(ResultRef("test", "done"))),
+            ),
+        )
+        assertTrue(fixture.storage.find(id)?.isProcessReleased == true)
+        fixture.clock.instant += 31.days
+        assertEquals(null, fixture.storage.find(id))
+    }
+
+    @Test
+    fun `closed process cannot be removed while its workflow still runs`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = ProtectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            data.processMutex,
+            HARNESS.id,
+            fixture.storage,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+        )
+        val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        assertIs<ProcessReduction.Changed>(processes.apply(key.process, ProcessCommand.Close(ProcessEnd.Completed)))
+        assertFalse(processes.remove(key.process))
+        val run = fixture.storage.find(id) ?: error("Missing workflow run")
+        assertTrue(
+            fixture.storage.save(
+                run.copy(
+                    status = WorkflowStatus.Failed(WorkflowFailure.Cancelled),
+                    finishedAt = run.startedAt,
+                ),
+                run.driverGeneration,
+            ),
+        )
+        host.releaseSettled(HARNESS.id)
+        assertTrue(processes.remove(key.process))
+    }
+
     @Test
     fun `closing an attempt waits for its reserved workflow dispatch`() = runTest {
         val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))

@@ -16,4 +16,16 @@ class WorkflowAdoptionTest {
             outputs = listOf(HarnessRunsOutput.CancellationRequested(Request, run.id)),
         )
     }
+
+    @Test
+    fun `suspended machine refuses to import a committed run for cancellation`() {
+        val run = workflowRun()
+        HarnessRunsMachineSpec.assertTransition(
+            from = HarnessRunsState.Ready(isSuspended = true),
+            intent = HarnessRunsIntent.Internal.CancelStoredRun(Request, run, WorkflowViewer.User),
+            to = HarnessRunsState.Ready(isSuspended = true),
+            effects = emptyList(),
+            outputs = listOf(HarnessRunsOutput.Rejected(Request, WorkflowRejection.Unavailable)),
+        )
+    }
 }

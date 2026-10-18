@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Idle/Loading/Failed | Suspended/Resumed | any | stay, update suspension | none |
  * | Ready | StartRun | disabled/duplicate/full/invalid | stay | Rejected |
  * | Ready | StartRun | admitted | stay, append | Drive / Started |
+ * | Ready | CancelStoredRun | suspended | stay | Rejected(Unavailable) |
  * | Ready | CancelStoredRun | owned committed running journal | stay, cancel atomically | StopRun / receipt |
  * | Ready | CancelRun | missing/foreign/terminal | stay | Rejected |
  * | Ready | CancelRun | owned running | stay, cancellation + generation fence | StopRun / CancellationRequested |

@@ -56,10 +56,12 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import okio.ByteString.Companion.encodeUtf8
@@ -160,6 +162,29 @@ internal class HarnessWorkflowLaunches(
     ): WorkflowLaunchResult {
         require((process == null) == (reserved == null))
         check(isCallerCurrent() && isCurrent(launch)) { "Workflow admission changed" }
+        return submitDetached(launch, process, reserved, isCallerCurrent)
+    }
+
+    /**
+     * A keyed caller already owns a durable reservation. Submission runs in the profile job, so cancelling the caller
+     * cannot leave a journal record without its admission; the caller waits for the outcome uninterruptibly.
+     */
+    suspend fun startReserved(
+        launch: WorkflowLaunch,
+        process: WorkflowProcessOwner,
+        reserved: RunId,
+        isCallerCurrent: () -> Boolean,
+    ): WorkflowLaunchResult {
+        check(isCallerCurrent() && isCurrent(launch)) { "Workflow admission changed" }
+        return submitDetached(launch, process, reserved, isCallerCurrent)
+    }
+
+    private suspend fun submitDetached(
+        launch: WorkflowLaunch,
+        process: WorkflowProcessOwner?,
+        reserved: RunId?,
+        isCallerCurrent: () -> Boolean,
+    ): WorkflowLaunchResult {
         val result = CompletableDeferred<WorkflowLaunchResult>()
         val job = profile.coroutineScope.launch {
             try {
@@ -173,18 +198,7 @@ internal class HarnessWorkflowLaunches(
             }
         }
         job.invokeOnCompletion { if (it != null) result.completeExceptionally(it) }
-        return result.await()
-    }
-
-    /** A keyed caller already owns a durable reservation and serializes submission with its cancellation. */
-    suspend fun startReserved(
-        launch: WorkflowLaunch,
-        process: WorkflowProcessOwner,
-        reserved: RunId,
-        isCallerCurrent: () -> Boolean,
-    ): WorkflowLaunchResult {
-        check(isCallerCurrent() && isCurrent(launch)) { "Workflow admission changed" }
-        return submit(launch, process, reserved, isCallerCurrent)
+        return withContext(NonCancellable) { result.await() }
     }
 
     private suspend fun existing(
@@ -196,6 +210,8 @@ internal class HarnessWorkflowLaunches(
         val run = storage.find(id) ?: return null
         check(run.harness == launch.harness.id && run.process == process) { "Workflow key conflicts" }
         val isConfirmed = run.status != WorkflowStatus.Running || ready.runs.any { it.id == id } || admit(run) == true
+        // A journaled run the machine refuses is not running: reporting its id as started would be a false success.
+        check(isConfirmed) { "Workflow start was not confirmed" }
         return WorkflowLaunchResult(id, run.wake != null, isConfirmed)
     }
 

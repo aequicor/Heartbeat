@@ -1,6 +1,9 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.services
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
+import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
@@ -11,6 +14,8 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessRejection
 import io.aequicor.heartbeat.feature.harness.api.process.reduce
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -35,6 +40,8 @@ internal class HarnessScriptProcesses(
     private val data: ScriptData,
     private val clock: Clock,
     private val gate: Mutex = Mutex(),
+    private val owner: HarnessId? = null,
+    private val runs: HarnessRunStorage? = null,
 ) : ScriptProcesses {
     private val log = Log.tag("HarnessScriptProcesses")
 
@@ -71,12 +78,21 @@ internal class HarnessScriptProcesses(
         checkNotNull(opened) { "Process was not opened" }
     }
 
-    override suspend fun apply(id: ProcessId, command: ProcessCommand): ProcessReduction = gate.withLock {
-        applyHost(id, command)
+    override suspend fun apply(id: ProcessId, command: ProcessCommand.Record): ProcessReduction {
+        val result = gate.withLock { reduceStored(id, command) }
+        if (result is ProcessReduction.Changed || command is ProcessCommand.Finish || command is ProcessCommand.Close) {
+            releaseSettled()
+        }
+        return result
     }
 
-    /** The host holds [gate] across reservation, journal write and dispatch. */
-    suspend fun applyHost(id: ProcessId, command: ProcessCommand): ProcessReduction {
+    /**
+     * Host-only path for workflow reservations and their cancellation. The script API cannot reach it: scripts use
+     * [apply], which admits ordinary record changes only.
+     */
+    suspend fun applyHost(id: ProcessId, command: ProcessCommand): ProcessReduction = reduceStored(id, command)
+
+    private suspend fun reduceStored(id: ProcessId, command: ProcessCommand): ProcessReduction {
         var outcome: ProcessReduction = ProcessReduction.Rejected(ProcessRejection.UnknownProcess)
         data.update(STORAGE_KEY) { current ->
             val records = decode(current)
@@ -100,7 +116,15 @@ internal class HarnessScriptProcesses(
         return result
     }
 
-    override suspend fun remove(id: ProcessId): Boolean = gate.withLock {
+    override suspend fun remove(id: ProcessId): Boolean {
+        val isRemoved = gate.withLock { removeStored(id) }
+        if (isRemoved) releaseSettled()
+        return isRemoved
+    }
+
+    private suspend fun removeStored(id: ProcessId): Boolean {
+        val before = get(id)
+        if (before != null && (!before.isRemovable() || !canRemoveWorkflow(before))) return false
         var isStored = false
         var isRemoved = false
         data.update(STORAGE_KEY) { current ->
@@ -119,20 +143,43 @@ internal class HarnessScriptProcesses(
             !isRemoved -> log.v { "process removal refused" }
             else -> log.v { "process to remove is not stored" }
         }
-        isRemoved
+        return isRemoved
     }
 
     private fun ProcessRecord.isRemovable(): Boolean = phase is ProcessPhase.Ended && unresolvedWrites().isEmpty()
+
+    private suspend fun canRemoveWorkflow(record: ProcessRecord): Boolean {
+        val storage = runs ?: return true
+        return record.history.mapNotNull { entry ->
+            entry.attempt.workflow?.let { entry to it }
+        }.all { (entry, workflow) ->
+            val stored = storage.find(workflow.run)
+            (stored == null && entry.outcome == AttemptOutcome.Failed(AttemptFailure.Cancelled)) ||
+                (stored != null && stored.status != WorkflowStatus.Running)
+        }
+    }
+
+    private suspend fun releaseSettled() {
+        val storage = runs ?: return
+        val harness = owner ?: return
+        val records = list().associateBy { it.id }
+        val terminal = storage.load().filter {
+            it.process != null && it.harness == harness && !it.isProcessReleased && it.status != WorkflowStatus.Running
+        }
+        for (run in terminal) {
+            val binding = checkNotNull(run.process)
+            val record = records[binding.key.process]
+            val isCurrent = record?.incarnation == binding.key.incarnation &&
+                record.inFlight?.number == binding.key.attempt
+            if (!isCurrent && !storage.releaseProcess(run.id)) error("Process workflow retention is unavailable")
+        }
+    }
 
     private fun decode(element: JsonElement?): List<ProcessRecord> = if (element == null) {
         emptyList()
     } else {
         guarded {
-            val stored = Json.decodeFromJsonElement(StoredProcesses.serializer(), element)
-            check(stored.v == VERSION) { "Unsupported process version" }
-            check(stored.records.size <= ProcessLimits.PROCESSES) { "Too many stored processes" }
-            check(stored.records.map { it.id }.toSet().size == stored.records.size) { "Duplicate process" }
-            stored.records
+            decodeStored(element)
         }
     }
 
@@ -162,6 +209,16 @@ internal class HarnessScriptProcesses(
     }
 
     internal companion object {
+        /** Trusted host read used to reconcile terminal workflow retention after process changes. */
+        fun decodeStored(element: JsonElement?): List<ProcessRecord> {
+            if (element == null) return emptyList()
+            val stored = Json.decodeFromJsonElement(StoredProcesses.serializer(), element)
+            check(stored.v == VERSION) { "Unsupported process version" }
+            check(stored.records.size <= ProcessLimits.PROCESSES) { "Too many stored processes" }
+            check(stored.records.map { it.id }.toSet().size == stored.records.size) { "Duplicate process" }
+            return stored.records
+        }
+
         /**
          * The one `ScriptData` key that holds every process of a harness. Reserved: a script must not use it, and its
          * name is specific enough not to be picked by accident.

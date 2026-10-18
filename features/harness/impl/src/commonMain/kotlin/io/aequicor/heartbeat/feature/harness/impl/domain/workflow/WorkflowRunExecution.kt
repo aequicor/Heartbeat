@@ -41,6 +41,7 @@ internal class WorkflowRunExecution(
     executors: WorkflowAgentPorts,
     private val access: WorkflowRunAccess,
     private val clock: Clock,
+    private val onTerminal: suspend (WorkflowRun) -> Unit = {},
     private val feedback: suspend (HarnessRunsIntent.Internal) -> Unit,
 ) {
     private val ports = executors.helpers
@@ -215,6 +216,7 @@ internal class WorkflowRunExecution(
     }
 
     private suspend fun terminal(run: WorkflowRun, projection: Long) {
+        onTerminal(run)
         publish(run)
         feedback(HarnessRunsIntent.Internal.TerminalRestored(run, projection))
     }

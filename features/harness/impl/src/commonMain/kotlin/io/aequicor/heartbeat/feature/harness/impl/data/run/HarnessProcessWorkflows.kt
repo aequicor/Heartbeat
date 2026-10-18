@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
@@ -39,10 +40,12 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptP
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -90,16 +93,7 @@ internal class HarnessProcessWorkflows(
             WorkflowOrigin.Script,
         )
         check(launch.harness == owner.request.harness) { "Script admission changed" }
-        val digest = (
-            Json.encodeToString(
-                launch.harness,
-            ) + "\n" + launch.workflow.id.value + "\n" + owner.request.item.id.value + "\n" +
-                (
-                    canonical(
-                        input,
-                    ).toString() + "\n" + record.inputRevision + "\n" + record.subject?.value
-                )
-        ).encodeUtf8().sha256().hex()
+        val digest = reservationDigest(launch, owner, input, record)
         val proposal = ProcessWorkflow(RunId("wf_" + Uuid.random().toHexString()), owner.request.item.id, digest)
         val reduction = processes.applyHost(
             key.process,
@@ -111,19 +105,64 @@ internal class HarnessProcessWorkflows(
             is ProcessReduction.Rejected -> error("Workflow reservation conflicts with the process")
         }
         val claim = checkNotNull(claim(reserved, key, owner)) { "Workflow reservation is unavailable" }
-        releaseSettled(owner, processes)
-        val stored = storage.find(claim.run)
-        if (stored == null) {
-            // A closed or pruned attempt must never create an executor, even after retention removed its result.
-            check(reserved.inFlight?.number == key.attempt) { "Workflow attempt is already closed" }
-            val count = storage.load().count {
-                it.harness == launch.harness.id && it.process != null &&
-                    !it.isProcessReleased
-            }
-            check(count < ProcessLimits.PROCESSES * (ProcessLimits.HISTORY + 1)) { "Workflow journal capacity reached" }
-        }
         val binding = WorkflowProcessOwner(owner.request.item.id, key, digest)
-        launches.value.startReserved(launch, binding, claim.run) { sessions.isCurrent(owner) }.run
+        try {
+            releaseSettled(owner.request.harness.id)
+            val stored = storage.find(claim.run)
+            if (stored == null) {
+                // A closed or pruned attempt must never create an executor, even after retention removed its result.
+                check(reserved.inFlight?.number == key.attempt) { "Workflow attempt is already closed" }
+                val count = storage.load().count {
+                    it.harness == launch.harness.id && it.process != null &&
+                        !it.isProcessReleased
+                }
+                check(count < ProcessLimits.PROCESSES * (ProcessLimits.HISTORY + 1)) {
+                    "Workflow journal capacity reached"
+                }
+            }
+            launches.value.startReserved(launch, binding, claim.run) { sessions.isCurrent(owner) }.run
+        } catch (error: CancellationException) {
+            // No journal record means no native workflow: close the reservation so no later dispatch can use it.
+            withContext(NonCancellable) { releaseUnstartedReservation(processes, key, claim) }
+            throw error
+        } catch (error: Exception) {
+            withContext(NonCancellable) { releaseUnstartedReservation(processes, key, claim) }
+            throw error
+        }
+    }
+
+    /** Identity of the reserved request: a keyed retry must present the same harness, workflow, input and revision. */
+    private fun reservationDigest(
+        launch: WorkflowLaunch,
+        owner: HarnessInstanceTarget,
+        input: JsonObject,
+        record: ProcessRecord,
+    ): String {
+        val parts = listOf(
+            Json.encodeToString(launch.harness),
+            launch.workflow.id.value,
+            owner.request.item.id.value,
+            canonical(input).toString(),
+            record.inputRevision.toString(),
+            record.subject?.value.orEmpty(),
+        )
+        return parts.joinToString("\n").encodeUtf8().sha256().hex()
+    }
+
+    /** Closes [claim] only while its run was never journaled; a journaled run is driven by restore instead. */
+    private suspend fun releaseUnstartedReservation(
+        processes: HarnessScriptProcesses,
+        key: ProcessWorkflowKey,
+        claim: ProcessWorkflow,
+    ) {
+        if (storage.find(claim.run) != null) return
+        try {
+            processes.applyHost(key.process, ProcessCommand.CancelWorkflow(key, claim))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error) { "Unstarted workflow reservation was not released" }
+        }
     }
 
     suspend fun get(owner: HarnessInstanceTarget, key: ProcessWorkflowKey): ScriptWorkflowState {
@@ -295,10 +334,11 @@ internal class HarnessProcessWorkflows(
         run.process == WorkflowProcessOwner(owner.request.item.id, key, claim.digest)
 
     /** Process highwater and lifetime are checked before releasing any journal protection. */
-    private suspend fun releaseSettled(owner: HarnessInstanceTarget, processes: HarnessScriptProcesses) {
-        val records = processes.list().associateBy { it.id }
+    suspend fun releaseSettled(harness: HarnessId) {
+        val raw = data.read(harness, HarnessScriptProcesses.STORAGE_KEY) {}
+        val records = HarnessScriptProcesses.decodeStored(raw.value).associateBy { it.id }
         val terminal = storage.load().filter {
-            it.process != null && it.harness == owner.request.harness.id &&
+            it.process != null && it.harness == harness &&
                 !it.isProcessReleased && it.status != WorkflowStatus.Running
         }
         for (run in terminal) {
