@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
@@ -129,6 +130,30 @@ class SubagentAgentToolsTest {
         val refused = f.tools.execute(context, SubagentTools.SPAWN, spawn)
         assertTrue(refused.isError && "8 background actions" in refused.text)
         assertEquals(1, f.runs.list().size)
+    }
+
+    @Test
+    fun `interactive spawn follows full trust while restricted trust still requires a decision`() = runTest {
+        val f = Fixture(backgroundScope)
+        val spec = f.tools.specifications(null).first()
+        for (trust in listOf(TrustLevel.Ask, TrustLevel.AutoEdits)) {
+            assertTrue(f.tools.requiresDecision(context.copy(trust = trust), spec, spawn))
+        }
+        val trusted = context.copy(trust = TrustLevel.Full)
+        assertFalse(f.tools.requiresDecision(trusted, spec, spawn))
+        assertFalse(f.tools.execute(trusted, SubagentTools.SPAWN, spawn).isError)
+        assertEquals(1, f.agents.started.size)
+        assertTrue(f.reviewer.targets.isEmpty())
+    }
+
+    @Test
+    fun `automatic spawn requires a safe review even with full trust`() = runTest {
+        val f = Fixture(backgroundScope, verdict = AgentSafetyReview("risk", "Unsafe task"))
+        val automatic = context.copy(trust = TrustLevel.Full, decisionMode = AgentToolDecisionMode.AutomaticSafety)
+        val spec = f.tools.specifications(null).first()
+        assertIs<AgentToolAutomaticAuthorization.Denied>(f.tools.automaticAuthorization(automatic, spec, spawn))
+        assertTrue(f.tools.execute(automatic, SubagentTools.SPAWN, spawn).isError)
+        assertTrue(f.agents.started.isEmpty())
     }
 
     @Test

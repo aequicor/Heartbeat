@@ -397,7 +397,9 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > чаты — `subagent_spawn`/`subagent_receive` (`.session_tools`, нужны `scheduler.enabled` и `scheduler.actions`:
 > неблокирующий помощник через `BackgroundAgents`, родитель будится результатом) и харнессы (`AgentOptions.adaptive`,
 > `sessions.spawn(..., adaptive)`, API v4). Действия субагента на другой модели проверяет модель родителя
-> (`PromptRequest.reviewTarget`). Скилл `adaptive-subagents`.
+> (`PromptRequest.reviewTarget`). Запуск следует политике хоста: автоматический режим — независимое ревью,
+> полное доверие — без дополнительного вопроса; ограниченное доверие и Ask-хуки требуют подтверждения.
+> Скилл `adaptive-subagents`.
 > `features:project-config:{api,impl}` — живая конфигурация проекта (тогл `project_config.enabled`, по умолчанию true;
 > только Desktop): харнессы (скиллы, инструкции, шаблоны, скрипты-инструменты `hs_*`, workflow, политика инструментов),
 > их интерфейсы и выученные инструкции хранятся в папке `.heartbeat` проекта читаемыми файлами и переносятся файлом

@@ -62,10 +62,95 @@ class StudioHelperNativeTest {
         repeat(3) {
             assertNull(fixture.native.result(fixture.record, fixture.turn.request!!) { fixture })
         }
-        assertEquals(0, fixture.finished)
+        assertEquals(0, fixture.finished.size)
         fixture.stop = OwnedTurnStop.Confirmed(fixture.turn)
         assertEquals(fixture.turn.id, fixture.native.result(fixture.record, fixture.turn.request!!) { fixture }?.turn)
-        assertEquals(1, fixture.finished)
+        assertEquals(listOf(fixture.turn.id to fixture.turn.request), fixture.finished)
+    }
+
+    @Test
+    fun `adapter completion with a different turn id saves the facade receipt and exact answer`() = runTest {
+        val fixture = NativeHelperFixture()
+        fixture.prepare()
+        val adapterTurn = fixture.turn.copy(id = TurnId("adapter-turn"), outcome = TurnOutcome.Cancelled)
+        fixture.state.value = ActiveSessionState.Ready(fixture.turn.copy(outcome = TurnOutcome.Cancelled))
+        fixture.stop = OwnedTurnStop.Confirmed(adapterTurn)
+        fixture.messages = listOf(
+            fixture.message("own", "partial answer", adapterTurn.id),
+            fixture.message("foreign", "unrelated answer", TurnId("foreign")),
+        )
+        val result = fixture.native.result(fixture.record, fixture.turn.request!!) { fixture }
+        assertEquals(fixture.turn.id, result?.turn)
+        assertEquals("partial answer", result?.answer)
+        fixture.native.remember(
+            fixture.record,
+            fixture.turn.request!!,
+            fixture.ref,
+            fixture.turn.id,
+            TurnOutcome.Cancelled,
+        ) { fixture.messages }
+        val saved = fixture.attempts.receipt(HelperId("helper"), fixture.turn.request!!)?.terminal
+        assertEquals(result, saved)
+    }
+
+    @Test
+    fun `cold stop reconciles a persisted facade receipt with the adapter request after restart`() = runTest {
+        val fixture = NativeHelperFixture()
+        fixture.prepare()
+        fixture.stop = OwnedTurnStop.Confirmed(
+            fixture.turn.copy(id = TurnId("adapter-turn"), outcome = TurnOutcome.Unknown),
+        )
+        val result = fixture.native.stop(fixture.record, fixture.turn.request!!, active = null)
+        assertEquals(fixture.turn.id, result?.turn)
+        assertEquals(StudioHelperTerminalOutcome.Unknown, result?.outcome)
+        assertEquals(listOf(fixture.turn.id to fixture.turn.request), fixture.finished)
+    }
+
+    @Test
+    fun `reopened terminal keeps the persisted facade id and reads the adapter marked answer`() = runTest {
+        val fixture = NativeHelperFixture()
+        fixture.prepare()
+        val adapterTurn = fixture.turn.copy(id = TurnId("adapter-turn"))
+        fixture.state.value = ActiveSessionState.Ready(adapterTurn)
+        fixture.stop = OwnedTurnStop.Confirmed(adapterTurn)
+        fixture.messages = listOf(
+            fixture.message("own", "finished answer", adapterTurn.id),
+            fixture.message("foreign", "newer unrelated answer", TurnId("foreign")),
+        )
+        val result = fixture.native.result(fixture.record, fixture.turn.request!!) { fixture }
+        assertEquals(fixture.turn.id, result?.turn)
+        assertEquals("finished answer", result?.answer)
+        assertEquals(listOf(fixture.turn.id to fixture.turn.request), fixture.finished)
+    }
+
+    @Test
+    fun `unaccepted request uses confirmed adapter identity without inventing acceptance`() = runTest {
+        val fixture = NativeHelperFixture()
+        val request = fixture.turn.request!!
+        val helper = HelperId(fixture.record.id)
+        fixture.attempts.prepare(helper, HelperPrompt(request, "prompt"))
+        fixture.attempts.begin(helper, request)
+        fixture.stop = OwnedTurnStop.Confirmed(fixture.turn.copy(outcome = TurnOutcome.Unknown))
+        val result = fixture.native.stop(fixture.record, request, active = null)
+        assertEquals(fixture.turn.id, result?.turn)
+        assertEquals(StudioHelperTerminalOutcome.Unknown, result?.outcome)
+    }
+
+    @Test
+    fun `another request cannot supply completion evidence or trigger history reads`() = runTest {
+        val fixture = NativeHelperFixture()
+        fixture.prepare()
+        fixture.stop = OwnedTurnStop.Confirmed(fixture.turn.copy(request = RequestId("foreign")))
+        assertNull(fixture.native.result(fixture.record, fixture.turn.request!!) { fixture })
+        fixture.native.remember(
+            fixture.record,
+            fixture.turn.request!!,
+            fixture.ref,
+            fixture.turn.id,
+            TurnOutcome.Completed,
+        ) { error("Foreign confirmation must not read history") }
+        assertEquals(0, fixture.historyReads)
+        assertNull(fixture.attempts.receipt(HelperId(fixture.record.id), fixture.turn.request!!)?.terminal)
     }
 
     @Test
@@ -145,14 +230,14 @@ class StudioHelperNativeTest {
     }
 
     @Test
-    fun `cold stop sends exact route request and expected turn without opening a session`() = runTest {
+    fun `cold stop sends exact route and request without a facade turn id or opening a session`() = runTest {
         val fixture = NativeHelperFixture()
         fixture.prepare()
         fixture.stop = OwnedTurnStop.Confirmed(fixture.turn.copy(outcome = TurnOutcome.Unknown))
         val result = fixture.native.stop(fixture.record, fixture.turn.request!!, active = null)
         assertEquals(StudioHelperTerminalOutcome.Unknown, result?.outcome)
         assertEquals(
-            listOf(fixture.ref, fixture.turn.request, OwnedTurnAccess(fixture.target, expectedTurn = fixture.turn.id)),
+            listOf(fixture.ref, fixture.turn.request, OwnedTurnAccess(fixture.target)),
             fixture.stopped,
         )
     }
@@ -199,7 +284,8 @@ internal class NativeHelperFixture :
     var supportsStop = true
     var stop: OwnedTurnStop = OwnedTurnStop.Unconfirmed
     var stopped: List<Any?>? = null
-    var finished = 0
+    val finished = mutableListOf<Pair<TurnId, RequestId?>>()
+    var historyReads = 0
     val record = StudioChatRecord(
         "helper",
         "Helper",
@@ -211,6 +297,10 @@ internal class NativeHelperFixture :
     private val stopper = object : StopsOwnedTurns {
         override suspend fun stop(ref: SessionRef, request: RequestId, access: OwnedTurnAccess): OwnedTurnStop {
             stopped = listOf(ref, request, access)
+            val terminal = stop as? OwnedTurnStop.Confirmed
+            if (access.expectedTurn != null && terminal?.turn?.id != access.expectedTurn) {
+                return OwnedTurnStop.Unconfirmed
+            }
             return stop
         }
     }
@@ -227,17 +317,13 @@ internal class NativeHelperFixture :
         override val models: ModelCatalog get() = error("No model discovery")
         override val providerUsage: ProviderUsageCatalog get() = error("No usage discovery")
     }
-    val native = StudioHelperNative(
-        facade,
-        object : ProfileAgentTools by NoAgentTools {
-            override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
-                assertEquals(ref, session)
-                assertEquals(this@NativeHelperFixture.turn.id, turn)
-                finished++
-            }
-        },
-        attempts,
-    )
+    private val tools = object : ProfileAgentTools by NoAgentTools {
+        override suspend fun finishTurn(session: SessionRef, turn: TurnId, request: RequestId?) {
+            assertEquals(ref, session)
+            finished += turn to request
+        }
+    }
+    val native = StudioHelperNative(facade, tools, attempts)
 
     suspend fun prepare() {
         val helper = HelperId(record.id)
@@ -253,8 +339,10 @@ internal class NativeHelperFixture :
     )
 
     override suspend fun close() = Unit
-    override suspend fun page(request: HistoryPageRequest) =
-        HistoryPage(messages, null, null, HistoryCheckpoint("checkpoint"), HistoryCoverage.Complete)
+    override suspend fun page(request: HistoryPageRequest): HistoryPage {
+        historyReads++
+        return HistoryPage(messages, null, null, HistoryCheckpoint("checkpoint"), HistoryCoverage.Complete)
+    }
     override fun watch(after: HistoryCheckpoint) = emptyFlow<SessionEvent>()
 }
 
