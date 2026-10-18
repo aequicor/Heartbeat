@@ -389,7 +389,7 @@ class OrganicAiMachineTest {
             zygote = zygoteCell(CellPhase.Completed("answer")),
             status = OrganismStatus.Completed("answer"),
             version = 2,
-        )
+        ).copy(sessions = SessionRelease.Releasing)
         spec.assertTransition(
             living(organism()),
             settled(ZYGOTE),

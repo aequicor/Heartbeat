@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.Ruling
+import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.Trial
 import io.aequicor.heartbeat.feature.organicai.api.Work
 import kotlin.test.Test
@@ -75,6 +76,24 @@ class OrganismUiTest {
         ),
         trials = listOf(Trial(complaint, ref("judge"), Ruling.Kill("loops"))),
     )
+
+    @Test
+    fun `ended organisms expose stopping and retry states before accepting continuation`() {
+        for (status in listOf(OrganismStatus.Completed("done"), OrganismStatus.Aborted)) {
+            assertEquals(
+                OrganismStatusUi.Releasing,
+                organism.copy(status = status, sessions = SessionRelease.Releasing).toUi().status,
+            )
+            assertEquals(
+                OrganismStatusUi.ReleaseUnconfirmed,
+                organism.copy(status = status, sessions = SessionRelease.Unconfirmed).toUi().status,
+            )
+        }
+        assertEquals(
+            OrganismStatusUi.Completed,
+            organism.copy(status = OrganismStatus.Completed("done"), sessions = SessionRelease.Released).toUi().status,
+        )
+    }
 
     @Test
     fun `cells and judges become sub-sessions with their state`() {

@@ -25,8 +25,9 @@ import kotlinx.coroutines.withContext
 /**
  * One generation's organism lane. The organism of a step is derived from its run and key, its grant and its binding
  * are saved before anything is conceived, and a repeated step reconciles with that organism instead of conceiving
- * another: conception is repeated only while the step is still Prepared, so an organism that was once seen alive
- * is never replaced. Only this lane addresses the organism. When its call ends or is cancelled, the quota is
+ * another: Running is saved before asking for conception, so an uncertain attempt is never repeated. A restored
+ * Prepared step may come from an older host that saved Running after conception; unavailability cannot refuse it.
+ * Only this lane addresses the organism. When its call ends or is cancelled, the quota is
  * returned only after organic AI shows the organism's work ended, which for an abort means its sessions were
  * released; a revoked driver leaves the organism running for the next owner, which reconciles it. The business
  * meaning of an answer is the workflow's to judge.
@@ -60,7 +61,7 @@ internal class WorkflowOrganismDriver(
         awaitSlot(grant)
         val current = step ?: WorkflowStep(key, digest, organism = organism).also { progress.record(it) }
         try {
-            conclude(current, organism, goal, options)
+            conclude(current, organism, goal, options, canRefuseUnavailable = step == null)
         } finally {
             withContext(NonCancellable) { settle(grant, owner) }
         }
@@ -69,37 +70,37 @@ internal class WorkflowOrganismDriver(
     /** Waits for the run's and the profile's organism quota; waiting is cancellable and never a step failure. */
     private suspend fun awaitSlot(grant: WorkflowOrganismGrant) {
         var isReported = false
+        var releasePolls = 0
         while (resources.acquire(grant) != OrganismAdmission.Granted) {
             if (!isReported) log.d { "Workflow organism waits for capacity" }
             isReported = true
+            resources.sweepEnded(run.id, retryUnconfirmed = releasePolls++ % ABORT_RETRY_POLLS == 0)
             delay(ORGANISM_POLL_INTERVAL)
             admitted()
         }
     }
 
-    /** Observes the organism until it has an outcome, conceiving it first only if it was never seen alive. */
+    /** Observes the organism until it has an outcome; records the attempt before asking the host to conceive. */
     private suspend fun conclude(
         first: WorkflowStep,
         organism: WorkflowOrganism,
         goal: String,
         options: OrganismOptions,
+        canRefuseUnavailable: Boolean,
     ): OrganismOutcome {
         var step = first
         var unavailablePolls = 0
+        var answerPolls = 0
         while (true) {
             admitted()
             val outcome = when (val view = host.view(organism)) {
-                OrganismView.Unavailable -> refusalAfter(step, ++unavailablePolls)
+                OrganismView.Unavailable -> if (canRefuseUnavailable) refusalAfter(step, ++unavailablePolls) else null
 
                 OrganismView.Absent -> if (step.phase == StepPhase.Prepared) {
-                    admitted()
-                    when (host.conceive(organism, goal, options, workspace)) {
-                        OrganismConception.Accepted -> null
-                        OrganismConception.Unavailable -> refusalAfter(step, ++unavailablePolls)
-                        OrganismConception.Rejected -> OrganismOutcome.Refused(OrganismRefusal.Rejected)
-                    }
+                    step = running(step)
+                    conceive(organism, goal, options)
                 } else {
-                    // Seen alive before and gone now: its end cannot be confirmed, and it is never replaced.
+                    // A conception may have been sent: absence cannot authorize another attempt.
                     OrganismOutcome.Ended(OrganismEnd.Failed)
                 }
 
@@ -111,7 +112,7 @@ internal class WorkflowOrganismDriver(
                 // The quota is returned only after the abort in the lane's release confirms the end.
                 is OrganismView.Stalled -> OrganismOutcome.Ended(view.end)
 
-                is OrganismView.Answered -> OrganismOutcome.Answered(view.text)
+                is OrganismView.Answered -> answer(view, organism) { answerPolls++ % ABORT_RETRY_POLLS == 0 }
 
                 // Aborted from outside: the step's outcome is known now, the lane's release waits for the confirmation.
                 OrganismView.Aborting, OrganismView.AbortUnconfirmed, OrganismView.Aborted ->
@@ -122,9 +123,40 @@ internal class WorkflowOrganismDriver(
         }
     }
 
+    private suspend fun conceive(
+        organism: WorkflowOrganism,
+        goal: String,
+        options: OrganismOptions,
+    ): OrganismOutcome? {
+        admitted()
+        return when (host.conceive(organism, goal, options, workspace)) {
+            OrganismConception.Accepted -> null
+            OrganismConception.Unavailable -> OrganismOutcome.Refused(OrganismRefusal.Unavailable)
+            OrganismConception.Rejected -> OrganismOutcome.Refused(OrganismRefusal.Rejected)
+        }
+    }
+
+    private suspend fun answer(
+        view: OrganismView.Answered,
+        organism: WorkflowOrganism,
+        shouldRetry: () -> Boolean,
+    ): OrganismOutcome? = when (view.release) {
+        OrganismRelease.Confirmed -> OrganismOutcome.Answered(view.text)
+
+        OrganismRelease.Pending -> null
+
+        OrganismRelease.Unconfirmed -> {
+            if (shouldRetry()) {
+                admitted()
+                host.abort(organism)
+            }
+            null
+        }
+    }
+
     /**
      * Organic AI that stays unavailable refuses an organism that was never conceived, once it had time to awaken. An
-     * organism already seen alive keeps waiting: the machine revives it, and the run's own deadline bounds the wait.
+     * organism whose conception may have been sent keeps waiting: the run's own deadline bounds the wait.
      */
     private fun refusalAfter(step: WorkflowStep, polls: Int): OrganismOutcome? =
         OrganismOutcome.Refused(OrganismRefusal.Unavailable)

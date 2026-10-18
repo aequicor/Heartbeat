@@ -57,7 +57,8 @@ public sealed interface OrganicAiIntent : MachineIntent {
         /**
          * Kills a developing organism: every living cell is marked dead and the host lets their sessions go. The only
          * way an organism dies. The mark is immediate; [Organism.sessions] shows when the native turns stopped.
-         * Repeating it for an aborted organism whose release was not confirmed tries to let the sessions go again.
+         * Repeating it for an ended organism whose release was not confirmed retries release without changing its
+         * outcome.
          */
         public data class Abort(override val organism: OrganismId) :
             Public,
@@ -224,7 +225,7 @@ public sealed interface OrganicAiIntent : MachineIntent {
             CaseIntent
 
         /**
-         * The host finished letting go of the sessions of aborted [organism]'s cells. [isConfirmed] tells whether
+         * The host finished letting go of the sessions of ended [organism]'s cells. [isConfirmed] tells whether
          * every native turn was seen to stop; an unconfirmed release can be repeated by another abort.
          */
         public data class SessionsReleased(override val organism: OrganismId, val isConfirmed: Boolean) :

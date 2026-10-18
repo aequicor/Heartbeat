@@ -35,13 +35,26 @@ internal class WorkflowOrganismResources(
     suspend fun records(run: RunId): List<WorkflowOrganismGrant> =
         durable { journal.pending() }.filter { it.run == run }
 
+    /** Reclaims ended branches and optionally retries their unconfirmed releases; never stops a live sibling. */
+    suspend fun sweepEnded(run: RunId, retryUnconfirmed: Boolean) {
+        for (grant in records(run)) {
+            val view = host.view(grant.organism)
+            // Absence may belong to a sibling between acquiring its slot and conceiving.
+            if (view != OrganismView.Absent && view.isEnded) {
+                settle(grant)
+            } else if (retryUnconfirmed && view.isReleaseUnconfirmed) {
+                release(grant, null) { false }
+            }
+        }
+    }
+
     /** Takes the slot of [grant] or recognizes the one it already holds; a full quota is not a failure. */
     suspend fun acquire(grant: WorkflowOrganismGrant): OrganismAdmission = durable { journal.acquire(grant) }
 
     /**
      * Stops the organism of [grant] and returns its slot once it has ended; false while that is not confirmed and
      * [keepTrying] is false. [step] is the recorded step of the grant: its outcome can already prove the end, such as
-     * an answer, and a refusal means nothing was ever conceived. An abort that was seen proves nothing, since it only
+     * a refusal means nothing was ever conceived. A recorded answer or abort proves nothing about release: it only
      * marks the organism. Anything else asks organic AI to abort and reads the result back: neither a command, a
      * mark nor a timeout proves that the work stopped, only the confirmed release of its sessions does. A release
      * that organic AI could not confirm is asked for again, but not at every poll.
@@ -55,9 +68,9 @@ internal class WorkflowOrganismResources(
         while (true) {
             var view = host.view(grant.organism)
             if (cooldown > 0) cooldown--
-            if (view.isAbortable && (view != OrganismView.AbortUnconfirmed || cooldown == 0)) {
+            if (view.isAbortable && (!view.isReleaseUnconfirmed || cooldown == 0)) {
                 host.abort(grant.organism)
-                if (view == OrganismView.AbortUnconfirmed) cooldown = ABORT_RETRY_POLLS
+                if (view.isReleaseUnconfirmed) cooldown = ABORT_RETRY_POLLS
                 view = host.view(grant.organism)
             }
             if (view.isEnded) {
@@ -90,12 +103,11 @@ internal class WorkflowOrganismResources(
 }
 
 /**
- * An answered or refused step proves that no cell works for it. An abort that was seen does not: the organism is only
- * marked, and every other ending needs a read.
+ * Only a refused step proves that no cell works for it. Recorded answers and aborts still need a live release proof.
  */
 private fun WorkflowStep?.isKnownEnded(): Boolean {
     val outcome = this?.takeIf { it.phase == StepPhase.Completed }?.result?.toOrganismOutcome()
-    return outcome is OrganismOutcome.Answered || outcome is OrganismOutcome.Refused
+    return outcome is OrganismOutcome.Refused
 }
 
 internal val ORGANISM_POLL_INTERVAL = 250.milliseconds

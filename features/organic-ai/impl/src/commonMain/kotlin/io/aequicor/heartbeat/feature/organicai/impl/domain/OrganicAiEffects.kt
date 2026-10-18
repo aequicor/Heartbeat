@@ -10,7 +10,6 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineSpec
 import io.aequicor.heartbeat.feature.organicai.api.Organism
-import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.cell
@@ -87,7 +86,7 @@ internal class OrganicAiEffects(
 
     private suspend fun restore(machine: EffectScope<OrganicAiIntent>) {
         val organisms = journal.load().map { organism ->
-            if (organism.status == OrganismStatus.Aborted && cells.hasPendingRelease(organism.id)) {
+            if (!organism.isDeveloping && cells.hasPendingRelease(organism.id)) {
                 organism.copy(sessions = SessionRelease.Unconfirmed)
             } else {
                 organism
@@ -161,7 +160,7 @@ internal class OrganicAiEffects(
     }
 
     /**
-     * Lets the cells go, all at once so one stuck turn does not delay the others. The release an abort asked for is
+     * Lets the cells go, all at once so one stuck turn does not delay the others. The release an ending asked for is
      * reported to the machine, confirmed only when every cell was seen to stop.
      */
     private suspend fun release(effect: OrganicAiEffect.Release, machine: EffectScope<OrganicAiIntent>) {
@@ -169,7 +168,7 @@ internal class OrganicAiEffects(
             effect.cells.map { id ->
                 async {
                     val cell = effect.organism.cell(id) ?: return@async ReleaseOutcome.Stopped to null
-                    val mode = effect.mode
+                    val mode = if (cell.phase is CellPhase.Dead) ReleaseMode.Lyse else effect.mode
                     if (mode == ReleaseMode.Retire) captureResult(effect.organism, id)
                     val key = CellKey(effect.organism.id, id)
                     val outcome = cells.release(key, cell.session, mode, cell.turns)

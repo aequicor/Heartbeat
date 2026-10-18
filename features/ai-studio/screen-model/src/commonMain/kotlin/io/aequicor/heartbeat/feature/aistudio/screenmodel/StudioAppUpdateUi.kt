@@ -72,12 +72,18 @@ enum class AppUpdateFailureUi {
 
 /** Restarting interrupts ordinary turns and every active organism session, including chats outside the panes. */
 fun AiStudioScreenState.hasRunningAgentsForUpdate(): Boolean = running.isNotEmpty() || organisms.values.any {
-    it.status != OrganismStatusUi.Completed && it.status != OrganismStatusUi.Aborted && it.subSessions.any { session ->
-        session.state in setOf(
-            SubSessionStateUi.Germinating,
-            SubSessionStateUi.Working,
-            SubSessionStateUi.AwaitingUser,
-            SubSessionStateUi.Judging,
-        )
+    when (it.status) {
+        OrganismStatusUi.Releasing, OrganismStatusUi.ReleaseUnconfirmed -> true
+
+        OrganismStatusUi.Completed, OrganismStatusUi.Aborted -> false
+
+        OrganismStatusUi.Developing, OrganismStatusUi.Stalled -> it.subSessions.any { session ->
+            session.state in setOf(
+                SubSessionStateUi.Germinating,
+                SubSessionStateUi.Working,
+                SubSessionStateUi.AwaitingUser,
+                SubSessionStateUi.Judging,
+            )
+        }
     }
 }

@@ -21,9 +21,10 @@ public val Cell.isAlive: Boolean
 public val Organism.isDeveloping: Boolean get() = status == OrganismStatus.Developing
 
 /**
- * Whether no cell of the organism can take another turn and none of its native work is known to run: it completed,
- * or it was aborted and the host confirmed that the sessions of the killed cells stopped. An organism that is merely
- * marked aborted is not stopped yet.
+ * Whether no cell of the organism can take another turn and none of its native work is known to run: it completed or
+ * was aborted,
+ * and the host confirmed that all cell sessions stopped, including cells killed earlier. A terminal status alone
+ * does not prove that native work stopped.
  */
 public val Organism.isStopped: Boolean get() = !isDeveloping && sessions == SessionRelease.Released
 

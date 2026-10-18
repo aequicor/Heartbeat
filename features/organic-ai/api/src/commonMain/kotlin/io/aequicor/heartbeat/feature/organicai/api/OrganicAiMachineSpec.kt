@@ -28,8 +28,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * | Living | Resume | completed | Developing, zygote recovery | Persist; Drive / Resolve | — |
  * | Living | FollowUp | completed, valid input | Developing, zygote Working(FollowUp) | Persist; Drive / Resolve | — |
  * | Living | Abort | developing | cells Dead, Aborted, sessions Releasing | Persist; Release(Lyse) | Finished |
- * | Living | Abort | aborted, sessions Unconfirmed | sessions Releasing | Release(Lyse) | — |
- * | Living | SessionsReleased | aborted, sessions Releasing | sessions Released / Unconfirmed | — | — |
+ * | Living | Abort | ended, sessions Unconfirmed | sessions Releasing | Release(all cells) | — |
+ * | Living | SessionsReleased | ended, sessions Releasing | sessions Released / Unconfirmed | — | — |
  * | Living | Divide | parent working, limits, next cell id | + child Working(Genesis) | Persist; Drive(child) | — |
  * | Living | Complain / Dispute | filer working, no refusal, next case id | + case, + trial | Persist; Judge | — |
  * | Living | JudgeConvened | trial without ruling | trial judge session | Persist | — |
@@ -52,13 +52,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * survive restart; legacy saved letters turns are moved back into inboxes before recovery.
  * A user can resume a completed zygote with its goal and history; descendants and inbox cursors stay unchanged.
  * Follow-up messages start a fresh zygote turn in the same session; their text and inputs survive recovery.
- * A completed organism never restarts automatically, and an aborted organism cannot be resumed.
- * An abort marks the organism at once; its native turns stop only when the host lets the sessions go, and
+ * A completed organism never restarts automatically and only accepts Resume/FollowUp after its sessions are released;
+ * an aborted organism cannot be resumed.
+ * An answer or abort marks the organism at once; its native turns stop only when the host lets the sessions go, and
  * [Organism.sessions] tells the two apart: Releasing while the host works,
  * Released once every cell turn (including earlier lysis) was seen to stop,
- * Unconfirmed when it could not tell, which another abort retries. The release state is not journaled. A fresh
- * profile holds no sessions of restored ended organisms, so they read as Released; after Sleep/Awaken within the
- * same profile the host restores Unconfirmed while any handle or opener of the organism remains owned.
+ * Unconfirmed when it could not tell, which another abort retries without changing the terminal outcome.
+ * Completion releases all cells: completed cells retire, and dead cells retry lysis. The release state is not
+ * journaled. A fresh profile holds no sessions of restored ended organisms, so they read as Released; after
+ * Sleep/Awaken within the same profile the host restores Unconfirmed while any handle or opener remains owned.
  * A conception's harness choice becomes the organism's and no intent changes it.
  *
  * A [OrganismIsolation.Sandbox] organism gives every cell, the zygote included, a checkout of its own: before the
@@ -70,7 +72,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →
  * Unresolved, Drive → TurnSettled(Broke(Engine)), Judge → Ruled(None), Hibernate → Hibernated, Release of an
- * abort → SessionsReleased(unconfirmed).
+ * ending → SessionsReleased(unconfirmed).
  */
 public val OrganicAiMachineSpec: MachineSpec<OrganicAiState, OrganicAiIntent, OrganicAiEffect, OrganicAiOutput> =
     machineSpec(OrganicAiMachineKey, OrganicAiState.Dormant) {
@@ -172,7 +174,7 @@ private fun OrganicAiEffect.failure(error: Throwable): OrganicAiIntent? = when (
 
     is OrganicAiEffect.Hibernate -> OrganicAiIntent.Internal.Hibernated
 
-    // Only the release an abort asked for is waited on; one that fails for any other organism is only logged.
+    // Only the release an ending asked for is waited on; one that fails for any other organism is only logged.
     is OrganicAiEffect.Release ->
         OrganicAiIntent.Internal.SessionsReleased(organism.id, isConfirmed = false)
             .takeIf { organism.sessions == SessionRelease.Releasing }

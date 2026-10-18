@@ -66,4 +66,20 @@ internal class OrganicReleaseEffectsTest : OrganicEffectsFixture() {
         effects.handle(OrganicAiEffect.Release(ended, listOf(C1), ReleaseMode.Lyse), machine)
         assertEquals(listOf(session("c1") to setOf("verify")), harnesses.disconnected)
     }
+
+    @Test
+    fun `completed organisms retire the zygote and retry lysis of an unconfirmed dead child`() = runTest {
+        val ended = organism(
+            cell(C1, phase = CellPhase.Dead(DeathCause.Lysed(CaseId("k1"), "killed"))),
+            zygote = zygoteCell(CellPhase.Completed("answer")),
+        ).copy(status = OrganismStatus.Completed("answer"), sessions = SessionRelease.Releasing)
+        val release = OrganicAiEffect.Release(ended, listOf(ZYGOTE, C1), ReleaseMode.Retire)
+        cells.unstoppable += C1
+        effects.handle(release, machine)
+        assertEquals(listOf(ReleaseMode.Retire, ReleaseMode.Lyse), cells.released.map { it.third })
+        assertEquals(OrganicAiIntent.Internal.SessionsReleased(ORGANISM, false), machine.sent.last())
+        cells.unstoppable.clear()
+        effects.handle(release, machine)
+        assertEquals(OrganicAiIntent.Internal.SessionsReleased(ORGANISM, true), machine.sent.last())
+    }
 }

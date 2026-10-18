@@ -55,6 +55,14 @@ class StudioAppUpdateActivityTest {
         }
     }
 
+    @Test
+    fun `unconfirmed cell release still blocks restart even when every cell is marked ended`() {
+        for (status in listOf(OrganismStatusUi.Releasing, OrganismStatusUi.ReleaseUnconfirmed)) {
+            assertTrue(state(status, SubSessionStateUi.Completed).hasRunningAgentsForUpdate())
+            assertTrue(state(status, SubSessionStateUi.Died).hasRunningAgentsForUpdate())
+        }
+    }
+
     private fun state(status: OrganismStatusUi, phase: SubSessionStateUi) = AiStudioScreenState(
         organisms = persistentMapOf(
             "background-organism" to OrganismUi(
