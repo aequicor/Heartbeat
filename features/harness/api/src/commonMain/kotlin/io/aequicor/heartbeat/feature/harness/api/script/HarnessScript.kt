@@ -55,6 +55,9 @@ public interface HarnessScriptScope {
     /** Durable private JSON shared by this harness's approved scripts. */
     public val data: ScriptData
 
+    /** Durable development processes of this harness, stored in [data]'s namespace. */
+    public val processes: ScriptProcesses
+
     /** Methods for this harness's interfaces, called by user actions. */
     public val ui: ScriptUi
 
@@ -92,6 +95,9 @@ public abstract class HarnessScriptBase(public val script: HarnessScriptScope) {
 
     /** Durable private JSON of this harness. */
     public val data: ScriptData get() = script.data
+
+    /** Durable development processes of this harness. */
+    public val processes: ScriptProcesses get() = script.processes
 
     /** Methods for this harness's interfaces. */
     public val ui: ScriptUi get() = script.ui

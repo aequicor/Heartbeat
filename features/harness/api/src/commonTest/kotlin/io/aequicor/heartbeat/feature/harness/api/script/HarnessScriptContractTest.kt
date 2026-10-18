@@ -118,6 +118,7 @@ private class ContractScriptScope(
     override val item = ItemId("script")
     override val revision = 1L
     override val data: ScriptData get() = error("unused")
+    override val processes: ScriptProcesses get() = error("unused")
     override val hooks: ScriptHooks get() = error("unused")
     override val sessions: ScriptSessions get() = error("unused")
     override val scheduler: ScriptScheduler get() = error("unused")

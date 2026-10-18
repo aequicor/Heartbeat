@@ -27,6 +27,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 
 class StagedHarnessContextsTest {
@@ -66,6 +67,7 @@ class StagedHarnessContextsTest {
             workflowTestFactory(origins),
             harnessTestData(),
             commandsTestFactory(),
+            Clock.System,
             { request, owner -> unusedScriptSessions(HarnessInstanceTarget(request, owner), origins) },
         ).create(HarnessActivationRequest(harness, code, 1), access)
         val script = assertIs<HarnessEvaluationContext.Script>(context.evaluation).scope
@@ -82,6 +84,7 @@ class StagedHarnessContextsTest {
         assertFailsWith<IllegalStateException> { script.prompts.render(ItemName("missing")) }
         assertFailsWith<IllegalStateException> { script.commands.run(ItemName("missing"), null) }
         assertFailsWith<IllegalStateException> { script.workflows.start(ItemName("missing")) }
+        assertFailsWith<IllegalStateException> { script.processes.list() }
         context.close()
     }
 }

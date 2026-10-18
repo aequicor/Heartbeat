@@ -19,10 +19,12 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessScriptSe
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSchedulerFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessionsFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptWorkflowsFactory
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlin.time.Clock
 
 /** Constructs private candidate contexts. Services are added with their dispatch and quota owners. */
 @SingleIn(ProfileScope::class)
@@ -34,28 +36,35 @@ internal class StagedHarnessContexts(
     private val workflows: HarnessScriptWorkflowsFactory,
     private val data: HarnessDataStorage,
     private val commands: HarnessScriptCommandsFactory,
+    private val clock: Clock,
     private val sessions: HarnessScriptSessionsFactory,
 ) : HarnessRuntimeContextFactory {
     override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessRuntimeContext =
         when (request.item) {
-            is HarnessItem.Script -> HarnessScriptContext(
-                request,
-                access,
-                origins,
-                HarnessScriptServices(
-                    schedulers.create(request, access),
-                    workflows.create(request, access),
-                    sessions.create(request, access),
-                    HarnessScriptData(request.harness.id, access, data),
-                    commands.create(request, access),
-                ),
-            )
+            is HarnessItem.Script -> scriptContext(request, access)
 
             is HarnessItem.Workflow -> HarnessWorkflowContext()
 
             is HarnessItem.Skill, is HarnessItem.Instruction, is HarnessItem.Template ->
                 error("Only code items have an execution context")
         }
+
+    private fun scriptContext(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessScriptContext {
+        val scriptData = HarnessScriptData(request.harness.id, access, data)
+        return HarnessScriptContext(
+            request,
+            access,
+            origins,
+            HarnessScriptServices(
+                schedulers.create(request, access),
+                workflows.create(request, access),
+                sessions.create(request, access),
+                scriptData,
+                HarnessScriptProcesses(scriptData, clock),
+                commands.create(request, access),
+            ),
+        )
+    }
 }
 
 /** Holds exactly one definition; its body is never executed by activation. The runtime owns its code lease. */

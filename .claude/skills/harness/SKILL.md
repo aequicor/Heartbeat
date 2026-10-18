@@ -28,6 +28,7 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 | Раздел `harnesses` конфигурации проекта (`.heartbeat`, `.hbai`) | `impl/domain/config/HarnessConfigCodec.kt` (раскладка файлов), `impl/data/config/HarnessConfigSection.kt` (проверка кода и политики, `Create`/`Update(Content)`) |
 | UI-методы для интерфейсов service-as-ui (`ui.method`) | `harness/api/script/ScriptUi.kt`; `impl/domain/runtime/HarnessUiDispatch.kt` (`connectedAdmission`); провайдер `impl/data/serviceui/HarnessServiceUiProvider.kt` |
 | Постоянные данные мини-приложения (`data.read/write/update`) | `api/script/ScriptData.kt`; `impl/domain/services/HarnessScriptData`, `impl/data/services/ProtectedHarnessData` |
+| Durable-процессы разработки (`processes.open/get/list/apply/remove`) | модель и переходы — `api/process` (`ProcessRecord`, `ProcessCommand`, `reduce`); сервис — `api/script/ScriptProcesses.kt`, `impl/domain/services/HarnessScriptProcesses` поверх `ScriptData` |
 | Хуки сессий, политика, гейт нативных вызовов | `ai-engine/facade:{api,impl}` (`SessionHooks`, `ToolPolicy`, `authorizeNative`) |
 | Адаптивные помощники (`AgentOptions.adaptive`, `sessions.spawn(..., adaptive)`) | `api/workflow/AdaptiveAgent.kt`; порт `impl/domain/services/HarnessHelperModels.kt`, адаптер над `AdaptiveModels` (`adaptive-subagents:api`) — `impl/data/services/AdaptiveHarnessHelperModels.kt` |
 
@@ -83,6 +84,23 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   Запись атомарна по ожидаемой ревизии; `update` повторяет чистую функцию при конфликте. Квоты — `HarnessLimits`.
   `dataRevision` обновляется после успешной изменяющей записи, не после чтения или любого `ui.method`:
   автоисточники поверхностей тоже вызывают методы, общая инвалидизация каждого вызова создаёт цикл.
+- Процессы (`processes`, `ScriptProcesses`) лежат в этом же пространстве одним конвертом под зарезервированным
+  ключом `hb_processes`; напрямую через `data` его не трогаем. Открытие, изменение и удаление процесса — одна
+  атомарная запись, поэтому нет индекса, который мог бы разойтись с записями, висячих идентификаторов и гонки
+  `open`/`remove`. Нечитаемый конверт (новая версия, повреждение) — `IllegalStateException` без содержимого: он не
+  пропускается и не перезаписывается, и недоступен весь набор; единственный выход — `data.write("hb_processes", null,
+  revision)`, он удаляет все процессы (внешние системы сверить вручную). Ключ зарезервирован соглашением, а не
+  границей безопасности. Квота пространства общая со своими данными скрипта: не вместившееся изменение —
+  `IllegalArgumentException`. Внешняя запись проходит журнал: `BeginWrite` до обращения к системе, открытая запись
+  помечается `MarkWriteUnknown(key, tries)`, сверяется и закрывается `ConfirmWrite` / `WriteNotApplied(key, tries)`
+  (номер попытки берётся из записи; решение о прошлой попытке — `Unchanged`); слепой повтор невозможен, пока ключ в
+  журнале (он помнит 8 ключей, поэтому ключ называет операцию: ревизия, head). `record.recovery(now, settleAfter)`
+  вызывается в item-владельце процессов при активации и повторно по прошествии `settleAfter` (аренда вызова: больше
+  самого долгого вызова или попытки без записи итога; `Activated` рестарт от замены исходника не отличает, а вызов
+  прежней активации может ещё идти, поэтому моложе пункты не показываются); живая попытка (workflow) и актуальное
+  ожидание остаются в списке. Номер попытки записи сквозной и не
+  переиспользуется. Полномочия `Write`/`Publish`/`Merge`/`Release` выдаются
+  командой `Grant` и по отдельности — это самодекларация скрипта, не одобрение человека и не граница безопасности.
 - UI (`impl/ui`) не импортирует `harness:api`: только презентационные модели (`presentation/HarnessUiModels.kt`).
   Presentation видит только порты `domain` (`domain/authoring/HarnessLibraryPorts.kt`), не `data`. Навигацию
   экранов выполняют компоненты по `MVIAction` сторов; retained-модели навигатор не держат. Экран повторяет

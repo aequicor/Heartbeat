@@ -1,0 +1,156 @@
+package io.aequicor.heartbeat.feature.harness.impl.domain.services
+
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessPhase
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessRecord
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessRejection
+import io.aequicor.heartbeat.feature.harness.api.process.reduce
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlin.time.Clock
+
+/**
+ * Durable processes over the harness's [ScriptData]: every process of the harness lives in one versioned envelope
+ * under the single reserved key [STORAGE_KEY], in the order the processes were opened. [ScriptData] writes one key
+ * at a time with a compare-and-set, so opening, changing and removing a process is one atomic write: there is no
+ * index that could disagree with the records, no half-opened process that occupies a slot, and no race between an
+ * open and a removal of the same process.
+ *
+ * Every mutation is a [ScriptData.update]: the pure reduction runs against the freshly read envelope and is retried
+ * on a concurrent write. Nothing that was stored is ever logged; unreadable content surfaces as a generic failure
+ * and, being one envelope, makes the whole set unreadable until the [STORAGE_KEY] entry is deleted.
+ */
+internal class HarnessScriptProcesses(private val data: ScriptData, private val clock: Clock) : ScriptProcesses {
+    private val log = Log.tag("HarnessScriptProcesses")
+
+    override suspend fun get(id: ProcessId): ProcessRecord? = decode(data.read(STORAGE_KEY).value).firstOrNull {
+        it.id == id
+    }
+
+    override suspend fun list(): List<ProcessRecord> = decode(data.read(STORAGE_KEY).value)
+
+    override suspend fun open(id: ProcessId, inputRevision: Long): ProcessRecord {
+        require(inputRevision >= 0) { "Invalid input revision" }
+        var opened: ProcessRecord? = null
+        var isCreated = false
+        data.update(STORAGE_KEY) { current ->
+            val records = decode(current)
+            val existing = records.firstOrNull { it.id == id }
+            isCreated = existing == null
+            opened = existing
+            if (existing != null) {
+                current
+            } else {
+                require(records.size < ProcessLimits.PROCESSES) { "Too many processes" }
+                val record = ProcessRecord(id, clock.now(), inputRevision = inputRevision)
+                opened = record
+                encode(records + record, record)
+            }
+        }
+        if (isCreated) log.i { "process opened" } else log.v { "process already open" }
+        return checkNotNull(opened) { "Process was not opened" }
+    }
+
+    override suspend fun apply(id: ProcessId, command: ProcessCommand): ProcessReduction {
+        var outcome: ProcessReduction = ProcessReduction.Rejected(ProcessRejection.UnknownProcess)
+        data.update(STORAGE_KEY) { current ->
+            val records = decode(current)
+            val record = records.firstOrNull { it.id == id }
+            if (record == null) {
+                outcome = ProcessReduction.Rejected(ProcessRejection.UnknownProcess)
+                current
+            } else {
+                val reduction = record.reduce(command, clock.now())
+                outcome = reduction
+                if (reduction is ProcessReduction.Changed) {
+                    encode(records.map { if (it.id == id) reduction.record else it }, reduction.record)
+                } else {
+                    current
+                }
+            }
+        }
+        val result = outcome
+        val summary = "process command ${command::class.simpleName.orEmpty()} -> ${result::class.simpleName.orEmpty()}"
+        if (result is ProcessReduction.Changed) log.i { summary } else log.v { summary }
+        return result
+    }
+
+    override suspend fun remove(id: ProcessId): Boolean {
+        var isStored = false
+        var isRemoved = false
+        data.update(STORAGE_KEY) { current ->
+            val records = decode(current)
+            val record = records.firstOrNull { it.id == id }
+            isStored = record != null
+            isRemoved = record == null || record.isRemovable()
+            when {
+                record == null || !isRemoved -> current
+                records.size == 1 -> null
+                else -> encode(records - record, null)
+            }
+        }
+        when {
+            isRemoved && isStored -> log.i { "process removed" }
+            !isRemoved -> log.v { "process removal refused" }
+            else -> log.v { "process to remove is not stored" }
+        }
+        return isRemoved
+    }
+
+    private fun ProcessRecord.isRemovable(): Boolean = phase is ProcessPhase.Ended && unresolvedWrites().isEmpty()
+
+    private fun decode(element: JsonElement?): List<ProcessRecord> = if (element == null) {
+        emptyList()
+    } else {
+        guarded {
+            val stored = Json.decodeFromJsonElement(StoredProcesses.serializer(), element)
+            check(stored.v == VERSION) { "Unsupported process version" }
+            check(stored.records.size <= ProcessLimits.PROCESSES) { "Too many stored processes" }
+            check(stored.records.map { it.id }.toSet().size == stored.records.size) { "Duplicate process" }
+            stored.records
+        }
+    }
+
+    /** [changed] is the one record this write adds or replaces: it must stay within its proven size ceiling. */
+    private fun encode(records: List<ProcessRecord>, changed: ProcessRecord?): JsonElement {
+        if (changed != null) {
+            val size = Json.encodeToJsonElement(ProcessRecord.serializer(), changed).toString().encodeToByteArray().size
+            require(size <= ProcessLimits.RECORD_BYTES) { "Process record is too large" }
+        }
+        return Json.encodeToJsonElement(StoredProcesses.serializer(), StoredProcesses(VERSION, records))
+    }
+
+    /** Decoder messages may quote stored values: neither they nor their cause may escape or reach the log. */
+    private inline fun <T> guarded(block: () -> T): T = try {
+        block()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        val failure = IllegalStateException("Stored process is unreadable")
+        log.w(failure) { "Stored process could not be read (${error::class.simpleName.orEmpty()})" }
+        throw failure
+    }
+
+    @Serializable
+    private data class StoredProcesses(val v: Int, val records: List<ProcessRecord>) {
+        override fun toString(): String = "StoredProcesses(***)"
+    }
+
+    internal companion object {
+        /**
+         * The one `ScriptData` key that holds every process of a harness. Reserved: a script must not use it, and its
+         * name is specific enough not to be picked by accident.
+         */
+        const val STORAGE_KEY = "hb_processes"
+
+        private const val VERSION = 1
+    }
+}
