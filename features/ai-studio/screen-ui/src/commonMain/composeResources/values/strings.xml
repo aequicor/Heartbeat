@@ -362,6 +362,7 @@
     <string name="plan_cancel">Cancel</string>
     <string name="plan_editor_conflict">The plan changed to revision %1$d while you were editing</string>
     <string name="plan_reload">Reload</string>
+    <string name="plan_editor_unavailable">The plan is no longer available: copy your edit or cancel it</string>
     <string name="plan_overwrite">Overwrite</string>
     <string name="plan_implement_title">Implement the plan</string>
     <string name="plan_implement_model">Model</string>

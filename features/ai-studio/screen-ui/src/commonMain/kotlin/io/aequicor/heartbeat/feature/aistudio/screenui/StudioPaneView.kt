@@ -110,6 +110,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanProposalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
@@ -1133,8 +1134,10 @@ private fun DiagramDraftNotice(content: PaneContent, onIntent: (StudioIntent) ->
 }
 
 /**
- * The plan editor or implementation dialog the pane shows for the plan of its chat. A dialog that no longer applies
- * (no plan or chat, planning switched off, or a plan that is not planned any more for implementation) is dropped.
+ * The plan editor or implementation dialog the pane shows for the plan of its chat. An implementation dialog that no
+ * longer applies (no plan or chat, planning switched off, or a plan that is not planned any more) is dropped. The
+ * editor of a plan that is no longer available closes unless it holds unsaved edits: then it stays on the last known
+ * plan without saving, so the user can copy or cancel the edit.
  */
 @Composable
 private fun PlanDialogs(
@@ -1145,32 +1148,41 @@ private fun PlanDialogs(
 ) {
     val plan = content.planning.plan
     val sessionId = content.session?.id
-    val isStale = dialog != null && (
-        plan == null || sessionId == null || !content.planning.isEnabled ||
-            (dialog == PlanDialog.Implement && !plan.isPlanning)
-    )
-    val latestDismiss by rememberUpdatedState(onDismiss)
-    key(isStale) { SideEffect { if (isStale) latestDismiss() } }
-    if (isStale || plan == null || sessionId == null) return
-    when (dialog) {
-        PlanDialog.Editor -> StudioPlanEditor(
-            plan,
-            onSave = { text, base -> onIntent(StudioIntent.SavePlan(sessionId, base, text)) },
-            onDismiss = onDismiss,
-        )
+    val isAvailable = plan != null && sessionId != null && content.planning.isEnabled
+    var lastPlan by remember { mutableStateOf(plan) }
+    PlanEffect(plan) { if (plan != null) lastPlan = plan }
+    val isStale = dialog == PlanDialog.Implement && (!isAvailable || !plan.isPlanning)
+    PlanEffect(isStale) { if (isStale) onDismiss() }
+    when {
+        dialog == PlanDialog.Editor -> PlanEditorDialog(plan ?: lastPlan, isAvailable, onDismiss) { text, base ->
+            sessionId?.let { onIntent(StudioIntent.SavePlan(it, base, text)) }
+        }
 
-        PlanDialog.Implement -> StudioPlanImplementDialog(
+        dialog == PlanDialog.Implement && !isStale && plan != null && sessionId != null -> StudioPlanImplementDialog(
             plan,
             content.planImplementationOffer(),
+            sessionId,
             onImplement = {
                 onIntent(it)
                 onDismiss()
             },
             onDismiss = onDismiss,
-            sessionId = sessionId,
         )
+    }
+}
 
-        null -> Unit
+/** The editor of the [shown] plan, the last known one while it is not [isAvailable]; without any plan it closes. */
+@Composable
+private fun PlanEditorDialog(
+    shown: PlanUi?,
+    isAvailable: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (text: String, base: Long) -> Unit,
+) {
+    if (shown == null) {
+        PlanEffect(Unit) { onDismiss() }
+    } else {
+        StudioPlanEditor(shown, onSave, onDismiss, isAvailable = isAvailable)
     }
 }
 

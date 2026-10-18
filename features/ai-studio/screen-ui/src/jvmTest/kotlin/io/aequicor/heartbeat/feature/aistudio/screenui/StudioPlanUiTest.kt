@@ -111,7 +111,7 @@ class StudioPlanUiTest {
         }
         onNodeWithTag("plan-approve").assertDoesNotExist()
         onNodeWithTag("plan-implement").assertDoesNotExist()
-        onNodeWithTag("plan-open").assertIsDisplayed()
+        onNodeWithTag("plan-open").assertDoesNotExist()
     }
 
     @Test
@@ -179,7 +179,70 @@ class StudioPlanUiTest {
             assertEquals(0, dismissed)
             shown = plan.copy(revision = 4, text = "# Mine")
             waitForIdle()
-            assertTrue(dismissed > 0)
+            assertEquals(1, dismissed)
+            shown = shown.copy(status = PlanStatusUi.Approved)
+            waitForIdle()
+            assertEquals(1, dismissed)
+        }
+
+    @Test
+    fun `a trailing newline is saved without a false conflict`() = runSkikoComposeUiTest(size = Size(900f, 900f)) {
+        var shown by mutableStateOf(plan)
+        val saved = mutableListOf<Pair<String, Long>>()
+        var dismissed = 0
+        setContent {
+            HbTheme(darkTheme = false) {
+                StudioPlanEditor(shown, { text, base -> saved += text to base }, { dismissed++ })
+            }
+        }
+        editor().performTextReplacement("# Feature\n")
+        onNodeWithTag("plan-save").assertIsNotEnabled()
+        editor().performTextReplacement("# Mine\n")
+        onNodeWithTag("plan-save").performClick()
+        assertEquals(3L, saved.single().second)
+        shown = plan.copy(revision = 4, text = "# Mine")
+        waitForIdle()
+        onNodeWithTag("plan-reload").assertDoesNotExist()
+        assertEquals(1, dismissed)
+    }
+
+    @Test
+    fun `a save is sent once until the plan changes`() = runSkikoComposeUiTest(size = Size(900f, 900f)) {
+        var shown by mutableStateOf(plan)
+        val saved = mutableListOf<Pair<String, Long>>()
+        setContent {
+            HbTheme(darkTheme = false) {
+                StudioPlanEditor(shown, { text, base -> saved += text to base }, {})
+            }
+        }
+        editor().performTextReplacement("# Mine")
+        onNodeWithTag("plan-save").performClick()
+        onNodeWithTag("plan-save").assertIsNotEnabled()
+        assertEquals(1, saved.size)
+        shown = plan.copy(revision = 4, text = "# Agent")
+        waitForIdle()
+        onNodeWithTag("plan-save").assertIsEnabled()
+    }
+
+    @Test
+    fun `an unavailable plan keeps only an edited editor without saving`() =
+        runSkikoComposeUiTest(size = Size(900f, 900f)) {
+            var isAvailable by mutableStateOf(true)
+            var dismissed = 0
+            setContent {
+                HbTheme(darkTheme = false) {
+                    StudioPlanEditor(plan, { _, _ -> }, { dismissed++ }, isAvailable = isAvailable)
+                }
+            }
+            editor().performTextReplacement("# Mine")
+            isAvailable = false
+            waitForIdle()
+            assertEquals(0, dismissed)
+            onNodeWithTag("plan-unavailable").assertIsDisplayed()
+            onNodeWithTag("plan-save").assertIsNotEnabled()
+            editor().performTextReplacement("# Feature")
+            waitForIdle()
+            assertEquals(1, dismissed)
         }
 
     @Test
@@ -216,9 +279,9 @@ class StudioPlanUiTest {
                 StudioPlanImplementDialog(
                     plan,
                     PlanImplementationOffer(models, "a", ApprovalUi.Ask, modes),
+                    "chat",
                     onImplement = { sent += it },
                     onDismiss = {},
-                    sessionId = "chat",
                 )
             }
         }
@@ -246,7 +309,7 @@ class StudioPlanUiTest {
         )
         setContent {
             HbTheme(darkTheme = false) {
-                StudioPlanImplementDialog(plan, offer, onImplement = { sent += it }, onDismiss = {}, sessionId = "chat")
+                StudioPlanImplementDialog(plan, offer, "chat", onImplement = { sent += it }, onDismiss = {})
             }
         }
         onNodeWithTag("plan-profile-security").assertIsNotEnabled()
@@ -277,7 +340,7 @@ class StudioPlanUiTest {
         )
         setContent {
             HbTheme(darkTheme = false) {
-                StudioPlanImplementDialog(plan, offer, onImplement = {}, onDismiss = {}, sessionId = "chat")
+                StudioPlanImplementDialog(plan, offer, "chat", onImplement = {}, onDismiss = {})
             }
         }
         onNodeWithTag("plan-effort-high").assertIsSelected()

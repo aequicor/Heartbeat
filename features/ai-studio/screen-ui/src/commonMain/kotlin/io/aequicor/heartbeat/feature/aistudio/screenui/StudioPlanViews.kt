@@ -3,10 +3,10 @@ package io.aequicor.heartbeat.feature.aistudio.screenui
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_card_title
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_editor_conflict
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_editor_label
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_editor_title
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_editor_unavailable
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_fresh
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_implement
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_implement_approval
@@ -144,7 +145,7 @@ internal fun StudioPlanCard(
             }
             PlanActions(
                 current?.takeIf { decisions.isEnabled },
-                isOpenable = plan != null,
+                isOpenable = plan != null && decisions.isEnabled,
                 isBusy = decisions.isBusy,
                 onApprove = onApprove,
                 onRefine = onRefine,
@@ -154,7 +155,9 @@ internal fun StudioPlanCard(
     }
 }
 
-/** Decisions on the [current] revision while the chat plans; any known plan opens in the editor. */
+/**
+ * Decisions on the [current] revision while the chat plans; a known plan opens in the editor while it [isOpenable].
+ */
 @Composable
 private fun PlanActions(
     current: PlanUi?,
@@ -201,23 +204,33 @@ internal fun latestPlanProposals(messages: List<MessageUi>): Map<Long, String> =
 }
 
 /**
- * The user's editor of the plan text, opened from one revision. Save sends the edit from that revision, and the
- * editor stays open until the plan shows the saved text, so a rejected save keeps the edit. A newer revision replaces
- * an unedited text; with edits the editor shows the conflict, and the user reloads the newer revision or overwrites
- * it. Dismissing outside the dialog keeps unsaved edits; Cancel drops them.
+ * The user's editor of the plan text, opened from one revision. Save sends the edit from that revision once until the
+ * plan or the edit changes, and the editor stays open until the plan shows the saved text, so a rejected save keeps
+ * the edit. The plan stores the text without trailing whitespace, so the edit is compared in that form. A newer
+ * revision replaces an unedited text; with edits the editor shows the conflict, and the user reloads the newer
+ * revision or overwrites it. While the plan is not [isAvailable] an unedited editor closes and an edited one stays
+ * open only to copy or cancel the edit. Dismissing outside the dialog keeps unsaved edits; Cancel drops them.
  */
 @Composable
-internal fun StudioPlanEditor(plan: PlanUi, onSave: (text: String, base: Long) -> Unit, onDismiss: () -> Unit) {
+internal fun StudioPlanEditor(
+    plan: PlanUi,
+    onSave: (text: String, base: Long) -> Unit,
+    onDismiss: () -> Unit,
+    isAvailable: Boolean = true,
+) {
     var base by rememberSaveable { mutableStateOf(plan.revision) }
     var baseText by rememberSaveable { mutableStateOf(plan.text) }
     var text by rememberSaveable { mutableStateOf(plan.text) }
-    val isEdited = text != baseText
-    val sync = planEditorSync(plan, base, text, isEdited)
+    var isSaving by remember(plan.revision, plan.text, text) { mutableStateOf(false) }
+    val saved = text.trimEnd()
+    val isEdited = saved != baseText.trimEnd()
+    val sync = planEditorSync(plan, base, saved, isEdited)
     PlanEditorSyncEffect(plan, sync, onClose = onDismiss) {
         text = plan.text
         baseText = plan.text
         base = plan.revision
     }
+    PlanEffect(isAvailable, isEdited) { if (!isAvailable && !isEdited) onDismiss() }
     val isConflict = sync == PlanEditorSync.Keep && plan.revision != base
     HbDialog(
         title = stringResource(Res.string.plan_editor_title),
@@ -227,18 +240,19 @@ internal fun StudioPlanEditor(plan: PlanUi, onSave: (text: String, base: Long) -
             HbButton(stringResource(Res.string.plan_cancel), onDismiss, style = HbButtonStyle.Ghost)
             HbButton(
                 stringResource(if (isConflict) Res.string.plan_overwrite else Res.string.plan_save),
-                { onSave(text, if (isConflict) plan.revision else base) },
+                {
+                    isSaving = true
+                    onSave(text, if (isConflict) plan.revision else base)
+                },
                 Modifier.testTag("plan-save"),
-                enabled = isEdited && plan.text != text,
+                enabled = isAvailable && !isSaving && isEdited && plan.text.trimEnd() != saved,
             )
         },
     ) {
-        if (isConflict) {
-            PlanConflict(plan.revision) {
-                text = plan.text
-                baseText = plan.text
-                base = plan.revision
-            }
+        PlanEditorNotice(isAvailable, plan.revision.takeIf { isConflict }) {
+            text = plan.text
+            baseText = plan.text
+            base = plan.revision
         }
         HbCodeEditor(
             value = text,
@@ -263,26 +277,53 @@ private enum class PlanEditorSync {
     Follow,
 }
 
-private fun planEditorSync(plan: PlanUi, base: Long, text: String, isEdited: Boolean): PlanEditorSync = when {
+/** How the editor follows [plan] from its [base] revision with the [saved] form of its text. */
+private fun planEditorSync(plan: PlanUi, base: Long, saved: String, isEdited: Boolean): PlanEditorSync = when {
     plan.revision == base -> PlanEditorSync.Keep
     !isEdited -> PlanEditorSync.Follow
-    plan.text == text -> PlanEditorSync.Saved
+    plan.text.trimEnd() == saved -> PlanEditorSync.Saved
     else -> PlanEditorSync.Keep
 }
 
-/** Applies [sync] once the plan shows a new revision or text: closes the saved editor or follows the plan. */
+/**
+ * Applies [sync] once per change of the plan or of the sync itself, not on every recomposition: closes the saved
+ * editor or follows the plan.
+ */
 @Composable
 private fun PlanEditorSyncEffect(plan: PlanUi, sync: PlanEditorSync, onClose: () -> Unit, onFollow: () -> Unit) {
-    val latestClose by rememberUpdatedState(onClose)
-    val latestFollow by rememberUpdatedState(onFollow)
-    key(plan.revision, plan.text) {
-        SideEffect {
-            when (sync) {
-                PlanEditorSync.Keep -> Unit
-                PlanEditorSync.Saved -> latestClose()
-                PlanEditorSync.Follow -> latestFollow()
-            }
+    PlanEffect(plan.revision, plan.text, sync) {
+        when (sync) {
+            PlanEditorSync.Keep -> Unit
+            PlanEditorSync.Saved -> onClose()
+            PlanEditorSync.Follow -> onFollow()
         }
+    }
+}
+
+/**
+ * Runs [action] after the composition that enters with [keys] or changes them, once per change: unlike a keyed
+ * `SideEffect`, a recomposition with the same keys does not repeat it.
+ */
+@Composable
+internal fun PlanEffect(vararg keys: Any?, action: () -> Unit) {
+    val latestAction by rememberUpdatedState(action)
+    DisposableEffect(*keys) {
+        latestAction()
+        onDispose {}
+    }
+}
+
+/** The banner of an editor whose plan is not [isAvailable], or of the newer [conflict] revision with its reload. */
+@Composable
+private fun PlanEditorNotice(isAvailable: Boolean, conflict: Long?, onReload: () -> Unit) {
+    when {
+        !isAvailable -> HbBanner(
+            stringResource(Res.string.plan_editor_unavailable),
+            Modifier.testTag("plan-unavailable"),
+            tone = HbTone.Warning,
+        )
+
+        conflict != null -> PlanConflict(conflict, onReload)
     }
 }
 
@@ -308,9 +349,9 @@ private fun PlanConflict(revision: Long, onReload: () -> Unit) {
 internal fun StudioPlanImplementDialog(
     plan: PlanUi,
     offer: PlanImplementationOffer,
+    sessionId: String,
     onImplement: (StudioIntent.Plan) -> Unit,
     onDismiss: () -> Unit,
-    sessionId: String,
 ) {
     var modelId by rememberSaveable { mutableStateOf(offer.modelId) }
     val model = offer.models.firstOrNull { it.id == modelId }

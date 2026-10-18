@@ -356,6 +356,7 @@
     <string name="plan_cancel">Отмена</string>
     <string name="plan_editor_conflict">Пока вы редактировали, план изменился до ревизии %1$d</string>
     <string name="plan_reload">Загрузить</string>
+    <string name="plan_editor_unavailable">План больше недоступен: скопируйте правку или отмените её</string>
     <string name="plan_overwrite">Перезаписать</string>
     <string name="plan_implement_title">Реализация плана</string>
     <string name="plan_implement_model">Модель</string>
