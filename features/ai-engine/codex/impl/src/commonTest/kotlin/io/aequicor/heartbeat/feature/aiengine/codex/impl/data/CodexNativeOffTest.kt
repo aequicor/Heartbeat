@@ -20,6 +20,19 @@ class CodexNativeOffTest {
     )
 
     @Test
+    fun `virtual restrictions disable file mutations images and native agents on start and resume`() {
+        val off = CodexNativeOff(isShellDisabled = true, isVirtualWorkspace = true)
+        val locked = off.applyTo(config)
+        listOf("shell_tool", "view_image_tool", "apply_patch_freeform", "multi_agent").forEach {
+            assertEquals(JsonPrimitive(false), locked.obj("features")[it])
+            kotlin.test.assertTrue("features.$it=false" in off.arguments())
+        }
+        off.validateConfig(response(locked, locked))
+        assertFailsWith<EngineException> { off.validateConfig(response(config, locked)) }
+        assertFailsWith<EngineException> { off.validateConfig(response(locked, config)) }
+    }
+
+    @Test
     fun `restrictions reject unknown old malformed and unverified protocols`() {
         listOf(
             null, "", "0.159.99", "0.159.99-alpha.1", "0.160.0-alpha.1", "codex-cli 0.160.0",

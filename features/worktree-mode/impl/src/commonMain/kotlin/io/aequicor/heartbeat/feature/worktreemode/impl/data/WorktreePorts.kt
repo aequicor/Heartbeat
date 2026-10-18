@@ -23,6 +23,8 @@ internal data class WorktreeRecord(
     val mergeTargetCommit: String? = null,
     val pullRequestBase: String? = null,
     @SerialName("outputsReclaimed") val isOutputsReclaimed: Boolean = false,
+    val parentWorkspace: io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef? = null,
+    val runTarget: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget? = null,
 ) {
     override fun toString(): String = "WorktreeRecord"
 }
@@ -58,6 +60,7 @@ internal data class BuildExecution(
     val enqueueOrder: Long = 0,
     val project: String = "",
     val sandbox: SandboxBuild? = null,
+    val projectConfigurationRevision: Long = 0,
 ) {
     /** Hold leases only serialize agents; a build is weighed by its declared kind. */
     val cost: BuildCost get() = if (isHold) BuildCost.None else command.kind.cost()
@@ -79,6 +82,7 @@ internal data class SandboxBuild(
     val relativeDirectory: String = ".",
     val affinity: String = "",
     val slot: Int? = null,
+    val baseCommit: String? = null,
 ) {
     override fun toString(): String = "SandboxBuild"
 }
@@ -121,7 +125,9 @@ internal interface SandboxGit {
 }
 
 /** Desktop-only Git/filesystem primitives; errors carry safe codes rather than process output. */
-internal interface WorktreeGit : SandboxGit {
+internal interface WorktreeGit :
+    SandboxGit,
+    VirtualSandboxAccess {
     val isAvailable: Boolean
     suspend fun plan(source: String, identity: String): WorktreeProvision
     suspend fun trackMain(source: String): WorktreeProvision
@@ -137,8 +143,10 @@ internal interface WorktreeGit : SandboxGit {
     suspend fun verifyAction(record: WorktreeRecord, merge: Boolean, pullRequestUrl: String?): Boolean
 }
 
-/** App-wide FIFO scheduler. A worker holds OS locks and survives losing a profile/UI waiter. */
+/** Independent project queues share application resource leases; workers hold OS locks across profile changes. */
 internal interface WorktreeBuildCoordinator {
+    /** Reserved slots include admitted jobs whose OS worker has not acquired its lock yet. */
+    suspend fun occupiedSlots(project: String): Set<Int> = emptySet()
     suspend fun execute(
         execution: BuildExecution,
         isReattachment: Boolean = false,
@@ -168,4 +176,35 @@ internal interface BuildCapacity {
 internal fun isSecretEnvironmentName(name: String): Boolean {
     val upper = name.uppercase()
     return listOf("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH").any { it in upper }
+}
+
+/** Optional virtual lifecycle primitives; historical checkout-only backends retain their existing protocol. */
+internal interface VirtualSandboxAccess {
+    val isVirtualSupported: Boolean get() = false
+    suspend fun pauseVirtual(
+        record: WorktreeRecord,
+    ): io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState? = null
+    suspend fun virtualSourceClean(record: WorktreeRecord): Boolean = true
+
+    /** Virtual backends never register a physical project path. Legacy implementations return null. */
+    suspend fun virtualWorkspace(
+        record: WorktreeRecord,
+    ): io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef? = null
+
+    /** Observes a source barrier without resuming any native work. */
+    suspend fun inspectVirtual(
+        record: WorktreeRecord,
+    ): io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState? = null
+
+    /** Called only after accepted native runs and workers have been confirmed stopped. */
+    suspend fun resumeVirtual(
+        record: WorktreeRecord,
+        explicit: Boolean,
+        resolveConflicts: Boolean = false,
+    ): io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState? = null
+
+    /** Publishes an immutable local branch without checking it out. */
+    suspend fun handoffVirtual(
+        record: WorktreeRecord,
+    ): io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState? = null
 }

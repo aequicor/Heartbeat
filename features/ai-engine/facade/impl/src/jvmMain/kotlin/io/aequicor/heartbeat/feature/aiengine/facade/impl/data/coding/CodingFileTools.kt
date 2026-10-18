@@ -34,6 +34,8 @@ internal fun codingFileTools(root: ProjectRoot, io: CoroutineDispatcher): List<C
     GrepFiles(root, io),
     WriteFile(root, io),
     EditFile(root, io),
+    DeleteFile(root, io),
+    MoveFile(root, io),
 )
 
 private val fileLog = Log.tag("CodingFileTools")
@@ -255,6 +257,45 @@ private class EditFile(root: ProjectRoot, io: CoroutineDispatcher) : FileTool(ro
         Files.writeString(file, updated)
         fileLog.i { "edit_file replaced $count fragment(s)" }
         return ok("Edited ${root.relative(file)}: $count replacement(s)")
+    }
+}
+
+private class DeleteFile(root: ProjectRoot, io: CoroutineDispatcher) : FileTool(root, io) {
+    override val descriptor = ToolDescriptor(
+        "delete_file",
+        "Delete a project file",
+        listOf(path("File to delete")),
+        emptyList(),
+    )
+    override val isMutating = true
+    override suspend fun execute(args: JsonObject): AgentToolResult {
+        val file = root.resolve(args.argText("path"))
+        require(Files.isRegularFile(file)) { "Not a regular file" }
+        Files.delete(file)
+        fileLog.i { "delete_file removed a project file" }
+        return ok("File deleted")
+    }
+}
+
+private class MoveFile(root: ProjectRoot, io: CoroutineDispatcher) : FileTool(root, io) {
+    override val descriptor = ToolDescriptor(
+        "move_file",
+        "Move a project file without overwriting",
+        listOf(
+            path("File to move"),
+            ToolParameterDescriptor("destination", "Destination path", ToolParameterType.String),
+        ),
+        emptyList(),
+    )
+    override val isMutating = true
+    override suspend fun execute(args: JsonObject): AgentToolResult {
+        val source = root.resolve(args.argText("path"))
+        val destination = root.resolve(args.argText("destination"))
+        require(Files.isRegularFile(source) && !Files.exists(destination)) { "Invalid file move" }
+        destination.parent?.let { Files.createDirectories(it) }
+        Files.move(source, destination)
+        fileLog.i { "move_file moved a project file" }
+        return ok("File moved")
     }
 }
 

@@ -83,18 +83,16 @@ class PiNativeImportTest {
     }
 
     @Test
-    fun `resources are copied without links and dependencies and listed in the settings`() {
+    fun `resources are copied without dependencies and listed in the settings`() {
         source.resolve("extensions/tool").createDirectories().resolve("index.ts").writeText("export default {}")
         source.resolve("extensions/tool/node_modules/dep").createDirectories().resolve("x.js").writeText("x")
         source.resolve("extensions/single.ts").writeText("export default {}")
         source.resolve("skills/review").createDirectories().resolve("SKILL.md").writeText("---\nname: review\n---")
-        Files.createSymbolicLink(source.resolve("extensions/linked.ts"), source.resolve("extensions/single.ts"))
 
         val imported = PiNativeImporter(source, home).read(ImportSelection(setOf("resources")))
 
         assertEquals("export default {}", home.resolve("extensions/tool/index.ts").readText())
         assertFalse(Files.exists(home.resolve("extensions/tool/node_modules")))
-        assertFalse(Files.exists(home.resolve("extensions/linked.ts")))
         assertTrue(Files.isRegularFile(home.resolve("skills/review/SKILL.md")))
         val settings = (imported.values.documents.getValue(PiDocuments.Settings) as ConfigDocument.Json).value
         assertEquals(
@@ -103,6 +101,16 @@ class PiNativeImportTest {
         )
         assertEquals(JsonArray(listOf(JsonPrimitive("skills"))), settings["skills"])
         assertEquals(listOf("resources"), imported.imported)
+    }
+
+    @Test
+    fun `file symlinks are omitted from imported resources`() {
+        source.resolve("extensions").createDirectories()
+        source.resolve("extensions/single.ts").writeText("export default {}")
+        piTestSymbolicLink(source.resolve("extensions/linked.ts"), source.resolve("extensions/single.ts"))
+        PiNativeImporter(source, home).read(ImportSelection(setOf("resources")))
+        assertFalse(Files.exists(home.resolve("extensions/linked.ts")))
+        assertTrue(Files.isRegularFile(home.resolve("extensions/single.ts")))
     }
 
     @Test

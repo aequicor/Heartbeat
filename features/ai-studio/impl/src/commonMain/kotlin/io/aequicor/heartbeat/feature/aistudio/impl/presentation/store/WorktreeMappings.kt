@@ -28,6 +28,11 @@ internal fun WorktreeTask.toUi(): WorktreeUi = WorktreeUi(
     }
         .toImmutableList(),
     isSandbox = isSandbox,
+    taskId = chatId,
+    sandboxPhase = virtualSandbox?.phase?.name,
+    isSandboxResolving = virtualSandbox?.isResolving == true,
+    sandboxConflicts = virtualSandbox?.conflicts.orEmpty().toImmutableList(),
+    resultCommit = virtualSandbox?.resultCommit,
 )
 
 internal fun WorktreeActionUi.toDomain(): WorktreeAction = WorktreeAction.valueOf(name)

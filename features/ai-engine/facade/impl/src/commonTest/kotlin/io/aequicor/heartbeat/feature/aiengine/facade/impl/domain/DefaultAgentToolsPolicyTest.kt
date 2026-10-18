@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
@@ -18,10 +20,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualFileChange
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
@@ -35,6 +40,39 @@ internal class DefaultAgentToolsPolicyTest {
     private val context = AgentToolContext(session, workspace, TurnId("turn"), trust = TrustLevel.Full)
     private val scope = AgentToolScope(workspace, session = session)
     private val empty = JsonObject(emptyMap())
+
+    @Test
+    fun `virtual sessions keep plan tools and block direct shell access`() = runTest {
+        val planNames = listOf("plan_read", "plan_write", "plan_propose")
+        val owner = object : Owner() {
+            override suspend fun specifications(workspace: WorkspaceRef?) = (planNames + "run_command").map {
+                AgentToolSpec(it, it, empty)
+            }
+        }
+        val virtual = object : VirtualWorkspace {
+            override val ref = workspace
+            override val processDirectory = "service"
+            override suspend fun revision() = 1L
+            override suspend fun paths() = emptyList<String>()
+            override suspend fun read(path: String): String? = error("Unexpected project read")
+            override suspend fun change(expectedRevision: Long, changes: List<VirtualFileChange>): Long =
+                error("Unexpected project write")
+            override suspend fun move(expectedRevision: Long, path: String, destination: String): Long =
+                error("Unexpected project move")
+        }
+        val projects = object : LocalWorkspaces {
+            override val isAvailable = true
+            override fun observe() = flowOf(emptyList<LocalWorkspace>())
+            override suspend fun register(directory: String): LocalWorkspace = error("Unexpected registration")
+            override suspend fun resolve(ref: WorkspaceRef): String? = error("Physical path must remain hidden")
+            override suspend fun virtual(ref: WorkspaceRef) = virtual
+        }
+        val tools = DefaultAgentTools(setOf(owner), workspaces = projects)
+        assertEquals(planNames, tools.specifications(scope).map { it.name })
+        planNames.forEach { assertFalse(tools.execute(context, it, empty).isError) }
+        assertTrue(tools.execute(context, "run_command", empty).isError)
+        assertEquals(3, owner.executions)
+    }
 
     @Test
     fun `session policy filters declarations and instructions and blocks full trust execution`() = runTest {

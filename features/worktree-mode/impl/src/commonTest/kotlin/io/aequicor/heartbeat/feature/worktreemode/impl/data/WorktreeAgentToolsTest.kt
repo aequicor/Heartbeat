@@ -266,7 +266,7 @@ class WorktreeAgentToolsTest {
         val plan = planArguments(WorktreeBuildCommand("test", "build"))
         val result = fixture.tools.execute(CONTEXT, "configure_build", plan)
         assertTrue(result.isError)
-        assertTrue(result.text.startsWith("NeedsConfiguration: declare at least one entry in caches"), result.text)
+        assertTrue(result.text.startsWith("NeedsConfiguration: configure at least one project command"), result.text)
         fixture.git.rejection = "path /Users/secret is not allowed"
         assertEquals("InvalidBuildPlan", fixture.tools.execute(CONTEXT, "configure_build", plan).text)
     }

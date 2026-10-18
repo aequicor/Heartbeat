@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -37,6 +38,8 @@ internal interface StudioHelperRuns {
     suspend fun helperTerminal(helper: HelperId, request: RequestId): StudioHelperTerminal?
     suspend fun stopHelper(helper: HelperId, request: RequestId): StudioHelperTerminal?
     suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? = null
+    suspend fun virtualResultNote(helper: HelperId, request: RequestId): String = ""
+    suspend fun virtualResultRequest(helper: HelperId, request: RequestId): RequestId? = request
 }
 
 /** One profile owns attempts even when the caller stops awaiting acceptance. Durable receipts prevent replay. */
@@ -118,8 +121,11 @@ internal class EngineStudioHelperChats(
 
     suspend fun result(helper: HelperId, request: RequestId): HelperResult? {
         checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
+        val actual = runs.value.virtualResultRequest(helper, request) ?: return null
         val receipt = attempts.receipt(helper, request)
-        return when {
+        val result = when {
+            actual != request -> continuedResult(helper, request, actual)
+
             receipt?.terminal != null -> receipt.terminal.result(request)
 
             receipt?.phase in NATIVE_PHASES -> runs.value.helperTerminal(helper, request)?.let {
@@ -129,6 +135,25 @@ internal class EngineStudioHelperChats(
 
             else -> null
         }
+        return result?.let { completed ->
+            val note = runs.value.virtualResultNote(helper, request)
+            completed.copy(
+                answer = completed.answer.take(
+                    (SchedulerLimits.MAX_PAYLOAD - note.length).coerceAtLeast(
+                        0,
+                    ),
+                ) + note,
+            )
+        }
+    }
+
+    private suspend fun continuedResult(helper: HelperId, request: RequestId, actual: RequestId): HelperResult? {
+        val receipt = attempts.receipt(helper, actual)
+        val terminal = receipt?.terminal ?: runs.value.helperTerminal(helper, actual)?.also {
+            attempts.accepted(helper, actual, it.session, it.turn, isVirtualContinuation = true)
+            attempts.terminal(helper, actual, it)
+        }
+        return terminal?.result(request)
     }
 
     /**

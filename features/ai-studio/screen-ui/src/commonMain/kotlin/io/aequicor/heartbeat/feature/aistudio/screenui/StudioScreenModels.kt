@@ -276,7 +276,7 @@ private fun AiStudioScreenState.projectPaneContent(
         providerUsage = providerUsage[effectiveSettings.modelId],
         isWorktreeAvailable = isWorktreeOffered(pane),
         isSandboxAvailable = isSandboxAvailable && isWorktreeOffered(pane),
-        worktree = worktrees[pane.sessionId],
+        worktree = worktreeFor(pane.sessionId),
         worktreeJournal = worktreeJournal,
     ).copy(planning = PanePlanning(isPlanningEnabled, plans[pane.sessionId], planModes(pane, session)))
 }
@@ -425,3 +425,8 @@ fun AiStudioScreenState.paneContent(pane: PaneUi, host: StudioHostCapabilities):
             isProjectAddingAvailable = content.isProjectAddingAvailable && host.isProjectAddingAvailable,
         )
     }
+
+private fun AiStudioScreenState.worktreeFor(
+    session: String?,
+): io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi? =
+    worktrees[session] ?: worktrees["organism.$session.${subSessions[session] ?: PRIMARY_SUB_SESSION}"]

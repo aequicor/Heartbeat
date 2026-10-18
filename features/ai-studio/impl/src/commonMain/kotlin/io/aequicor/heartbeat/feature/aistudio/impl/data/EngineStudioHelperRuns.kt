@@ -13,7 +13,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import kotlinx.coroutines.flow.first
 
 /** Uses the repository's existing handle locks and fixed route; does not own another session registry. */
 internal interface StudioHelperAccess {
@@ -31,6 +33,7 @@ internal class EngineStudioHelperRuns(
     private val coordinator: StudioRunCoordinator,
     private val native: StudioHelperNative,
     private val recovery: StudioHelperRecovery,
+    private val worktrees: StudioWorktrees? = null,
 ) : StudioHelperRuns {
     private val log = Log.tag("StudioHelperRuns")
 
@@ -78,6 +81,31 @@ internal class EngineStudioHelperRuns(
                 access.value.liveHelper(helper) ?: recovery.open(record) { access.value.openHelper(record) }
             }
         }
+    }
+
+    override suspend fun virtualResultRequest(helper: HelperId, request: RequestId): RequestId? {
+        val worktrees = worktrees ?: return request
+        val task = worktrees.tasks().first()[helper.value] ?: return request
+        if (request !in task.virtualInterruptedRequests) return request
+        val continuation = task.virtualContinuations[request.value] ?: return null
+        val isSandboxReady = task.virtualSandbox?.let {
+            it.isReady || it.phase == VirtualSandboxPhase.HandedOff
+        } == true
+        val isAvailable = isSandboxReady && !task.pendingVirtualContinuation &&
+            task.actionRequest == null && task.run?.outcome != null
+        return RequestId(continuation).takeIf { isAvailable }
+    }
+
+    override suspend fun virtualResultNote(helper: HelperId, request: RequestId): String {
+        val worktrees = worktrees ?: return ""
+        val record = access.value.helperRecord(helper)
+        if (record.worktreeTaskId == null) return ""
+        val task = worktrees.tasks().first()[helper.value] ?: return ""
+        if (task.virtualSandbox == null) return ""
+        val actual = task.virtualContinuations[request.value] ?: request.value
+        val snapshot = task.virtualResultSnapshots[actual] ?: return ""
+        return "\nHost note: integrate this helper's virtual result with sandbox_integrate: " +
+            "workspace=${task.executionWorkspace?.value ?: "null"}, snapshot=$snapshot."
     }
 
     override suspend fun stopHelper(helper: HelperId, request: RequestId): StudioHelperTerminal? {

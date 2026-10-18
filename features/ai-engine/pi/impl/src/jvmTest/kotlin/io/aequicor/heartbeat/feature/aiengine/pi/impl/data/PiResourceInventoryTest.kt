@@ -111,8 +111,8 @@ class PiResourceInventoryTest {
     fun `external paths and links are never read and internal cycles terminate`() = runTest {
         write(root, "private/SKILL.md", "---\nname: secret\n---")
         home.resolve("skills").createDirectories()
-        Files.createSymbolicLink(home.resolve("skills/outside"), root.resolve("private"))
-        Files.createSymbolicLink(home.resolve("skills/cycle"), home.resolve("skills"))
+        piTestDirectoryLink(home.resolve("skills/outside"), root.resolve("private"))
+        piTestDirectoryLink(home.resolve("skills/cycle"), home.resolve("skills"))
         write(home, "skills/inside/SKILL.md")
         val config = settings("""{"skills":["skills","../private","~/private"]}""")
         val result = configurator.resources(config, null, ProjectTrust.Undecided)

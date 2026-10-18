@@ -44,7 +44,11 @@ internal class SandboxUpkeep(private val git: WorktreeGit) {
 /** Clears cleanup bookkeeping atomically with an accepted turn, before it can resume native work. */
 internal fun WorktreeRecord.startingRun(command: WorktreeIntent.Public.RunStarted): WorktreeRecord {
     val next = task.transition(command)
-    return copy(task = next, isOutputsReclaimed = isOutputsReclaimed && next == task)
+    return copy(
+        task = next,
+        isOutputsReclaimed = isOutputsReclaimed && next == task,
+        runTarget = if (next != task) command.target ?: runTarget else runTarget,
+    )
 }
 
 /**
