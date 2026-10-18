@@ -21,8 +21,8 @@ internal typealias PlanningMachine = Machine<PlanningState, PlanningIntent, Plan
 /**
  * Executes the effects of the planning machine; failures are mapped by the spec's `onEffectFailure`. Saves run one
  * at a time: a plan file is written only when its revision is newer than the one written last, and the index only
- * when its machine revision is, so a late save never brings an older plan back. Files are written before the index:
- * after an interruption the index may name an older revision of a newer text, which loads as an external edit.
+ * when its machine revision is, so a late save never brings an older plan back. Files are written before the index
+ * and carry their revision: after an interruption the plan loads with the newer text and its own revision.
  */
 internal class PlanningEffects(
     private val index: PlanIndexStore,
@@ -45,13 +45,14 @@ internal class PlanningEffects(
         val stored = index.load() ?: PlanIndex()
         val external = mutableSetOf<PlanChat>()
         val plans = stored.plans.associate { record ->
-            fileRevisions[record.chat] = record.revision
             val file = files.read(record.chat)
             val plan = when {
                 file == null -> record.copy(text = "")
                 file.isExternal -> externallyEdited(record, file.text, clock.now()).also { external += record.chat }
-                else -> record.copy(text = file.text)
+                else -> record.copy(text = file.text, revision = maxOf(record.revision, file.revision ?: 0))
             }
+            // An external edit is written again, with its new revision.
+            fileRevisions[record.chat] = if (record.chat in external) record.revision else plan.revision
             record.chat to plan
         }
         val bindings = stored.bindings.filter { it.chat in plans }.associate { it.session to it.chat }
@@ -78,7 +79,7 @@ internal class PlanningEffects(
             fileRevisions.remove(chat)
             log.i { "plan deleted: chat=$chat" }
         } else if (plan.revision > (fileRevisions[chat] ?: -1)) {
-            files.write(chat, plan.text)
+            files.write(chat, plan.text, plan.revision)
             fileRevisions[chat] = plan.revision
             log.d { "plan written: chat=$chat revision=${plan.revision} length=${plan.text.length}" }
         }

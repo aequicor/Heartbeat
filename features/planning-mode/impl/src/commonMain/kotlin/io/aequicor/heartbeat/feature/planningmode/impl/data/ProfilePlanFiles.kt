@@ -17,10 +17,11 @@ import okio.Path
 import okio.Path.Companion.toPath
 
 /**
- * Plan texts in `<profile files>/planning/<chat>/plan.md`, next to the digest of what the studio last wrote
- * (`plan.sha256`): a file whose digest differs was edited outside the studio. Writes go through a temporary file and
- * an atomic move, so a reader never sees half a plan. Chat ids are validated by [PlanChat] and cannot leave the
- * directory. Texts are user data and never logged.
+ * Plan texts in `<profile files>/planning/<chat>/plan.md`, next to the revision and digest of what the studio last
+ * wrote (`plan.sha256`): a file whose digest differs was edited outside the studio. The revision lets a plan written
+ * just before an interrupted index save load with the revision it was written as. Writes go through a temporary
+ * file and an atomic move, so a reader never sees half a plan. Chat ids are validated by [PlanChat] and cannot leave
+ * the directory. Texts are user data and never logged.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
@@ -37,15 +38,18 @@ internal class ProfilePlanFiles(
         val file = directory / PLAN_FILE
         if (!fs.exists(file)) return@withContext null
         val text = fs.read(file) { readUtf8() }
-        val digest = (directory / DIGEST_FILE).takeIf(fs::exists)?.let { fs.read(it) { readUtf8() }.trim() }
-        PlanFileText(text, isExternal = digest != text.digest())
+        val stamp = (directory / DIGEST_FILE).takeIf(fs::exists)?.let { fs.read(it) { readUtf8() } }?.lines()
+        val digest = stamp?.lastOrNull()?.trim()
+        val isExternal = digest != text.digest()
+        val revision = stamp?.takeIf { it.size == 2 }?.first()?.trim()?.toLongOrNull()
+        PlanFileText(text, isExternal, revision.takeIf { !isExternal })
     }
 
-    override suspend fun write(chat: PlanChat, text: String): Unit = withContext(dispatchers.io) {
+    override suspend fun write(chat: PlanChat, text: String, revision: Long): Unit = withContext(dispatchers.io) {
         val directory = root / chat.value
         fs.createDirectories(directory)
         replace(directory / PLAN_FILE, text)
-        replace(directory / DIGEST_FILE, text.digest())
+        replace(directory / DIGEST_FILE, "$revision\n${text.digest()}")
     }
 
     override suspend fun delete(chat: PlanChat): Unit = withContext(dispatchers.io) {

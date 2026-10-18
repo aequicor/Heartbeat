@@ -58,6 +58,18 @@ class PlanningEffectsTest {
     }
 
     @Test
+    fun `a plan written before an interrupted index save keeps its own revision`() = runTest {
+        index.stored = PlanIndex(listOf(record(Chat, revision = 1)))
+        files.texts[Chat] = PlanFileText("# Newer", isExternal = false, revision = 2)
+        effects.handle(PlanningEffect.Load, scope)
+        val plan = (scope.sent.single() as PlanningIntent.Internal.Loaded).plans.getValue(Chat)
+        assertEquals(2, plan.revision)
+        assertEquals("# Newer", plan.text)
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to plan), emptyMap(), setOf(Chat), 1), scope)
+        assertEquals(emptyList(), files.log)
+    }
+
+    @Test
     fun `an unreadable index fails the load`() = runTest {
         index.isBroken = true
         assertFailsWith<IllegalStateException> { effects.handle(PlanningEffect.Load, scope) }
@@ -112,8 +124,8 @@ class PlanningEffectsTest {
 
         override suspend fun read(chat: PlanChat): PlanFileText? = texts[chat]
 
-        override suspend fun write(chat: PlanChat, text: String) {
-            texts[chat] = PlanFileText(text, isExternal = false)
+        override suspend fun write(chat: PlanChat, text: String, revision: Long) {
+            texts[chat] = PlanFileText(text, isExternal = false, revision = revision)
             log += "write $chat"
         }
 

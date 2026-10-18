@@ -18,9 +18,13 @@ internal data class PlanIndex(val plans: List<Plan> = emptyList(), val bindings:
 @Serializable
 internal data class PlanBinding(val session: SessionRef, val chat: PlanChat)
 
-/** Text of a plan file; [isExternal] when it differs from what the studio last wrote. */
-internal data class PlanFileText(val text: String, val isExternal: Boolean) {
-    override fun toString(): String = "PlanFileText(length=${text.length}, isExternal=$isExternal)"
+/**
+ * Text of a plan file; [isExternal] when it differs from what the studio last wrote, otherwise [revision] is the
+ * revision the studio wrote it as (null for files of earlier versions).
+ */
+internal data class PlanFileText(val text: String, val isExternal: Boolean, val revision: Long? = null) {
+    override fun toString(): String =
+        "PlanFileText(length=${text.length}, isExternal=$isExternal, revision=${revision ?: "unknown"})"
 }
 
 /** The index of the profile's plans. */
@@ -37,8 +41,8 @@ internal interface PlanFiles {
     /** Text of the plan of [chat], or null when its file does not exist. */
     suspend fun read(chat: PlanChat): PlanFileText?
 
-    /** Atomically replaces the plan file of [chat]. */
-    suspend fun write(chat: PlanChat, text: String)
+    /** Atomically replaces the plan file of [chat] with [text] of [revision]. */
+    suspend fun write(chat: PlanChat, text: String, revision: Long)
 
     /** Deletes the files of [chat]. */
     suspend fun delete(chat: PlanChat)

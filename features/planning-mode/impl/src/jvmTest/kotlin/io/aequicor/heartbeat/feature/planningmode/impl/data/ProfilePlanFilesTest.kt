@@ -38,15 +38,15 @@ class ProfilePlanFilesTest {
 
     @Test
     fun `written plan reads back as the studio's own text`() = runTest {
-        files.write(Chat, "# Plan\n\nПлан")
-        assertEquals(PlanFileText("# Plan\n\nПлан", isExternal = false), files.read(Chat))
+        files.write(Chat, "# Plan\n\nПлан", 4)
+        assertEquals(PlanFileText("# Plan\n\nПлан", isExternal = false, revision = 4), files.read(Chat))
         assertEquals("# Plan\n\nПлан", File(root, "planning/${Chat.value}/plan.md").readText())
         assertFalse(File(root, "planning/${Chat.value}").list().orEmpty().any { it.endsWith(".tmp") })
     }
 
     @Test
     fun `a file changed outside the studio is external`() = runTest {
-        files.write(Chat, "# Plan")
+        files.write(Chat, "# Plan", 1)
         File(root, "planning/${Chat.value}/plan.md").writeText("# Edited")
         assertEquals(PlanFileText("# Edited", isExternal = true), files.read(Chat))
         File(root, "planning/${Chat.value}/plan.sha256").delete()
@@ -55,8 +55,8 @@ class ProfilePlanFilesTest {
 
     @Test
     fun `delete removes the chat directory only`() = runTest {
-        files.write(Chat, "# One")
-        files.write(PlanChat("other"), "# Two")
+        files.write(Chat, "# One", 1)
+        files.write(PlanChat("other"), "# Two", 1)
         files.delete(Chat)
         assertNull(files.read(Chat))
         assertFalse(File(root, "planning/${Chat.value}").exists())

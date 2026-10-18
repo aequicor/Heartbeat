@@ -72,8 +72,8 @@ internal class MemoryPlanFiles : PlanFiles {
 
     override suspend fun read(chat: PlanChat): PlanFileText? = texts[chat]
 
-    override suspend fun write(chat: PlanChat, text: String) {
-        texts[chat] = PlanFileText(text, isExternal = false)
+    override suspend fun write(chat: PlanChat, text: String, revision: Long) {
+        texts[chat] = PlanFileText(text, isExternal = false, revision = revision)
     }
 
     override suspend fun delete(chat: PlanChat) {
