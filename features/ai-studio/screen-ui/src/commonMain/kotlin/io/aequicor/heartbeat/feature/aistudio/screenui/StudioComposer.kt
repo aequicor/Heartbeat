@@ -67,6 +67,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.no_project
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_menu_section
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.planning_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.planning_mode_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
@@ -262,7 +264,7 @@ private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, ()
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
     return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() || app != null ||
-        contextUsage != null || providerUsage?.isVisible == true
+        contextUsage != null || providerUsage?.isVisible == true || planning.plan != null
 }
 
 /** Suggestions of the pane's active token with section labels and icons for their kinds and origins. */
@@ -338,6 +340,8 @@ private fun StudioComposerLeading(
         onOrganism = { onIntent(StudioIntent.SelectOrganism(content.pane.id, it)) },
         worktree = content.worktreeMenuSelection(),
         onWorktree = { onIntent(StudioIntent.SelectWorktree(content.pane.id, it)) },
+        planning = content.planningSelection(),
+        onPlanning = { isEnabled -> content.planningIntent(isEnabled)?.let(onIntent) },
         onAttach = { onIntent(StudioIntent.PickAttachments(content.pane.id)) }.takeIf {
             content.canAddAttachments() && content.host.isNativeAttachmentInputAvailable &&
                 !content.isAttachmentPending
@@ -439,6 +443,7 @@ private fun StudioComposerIdentity(
 private fun StudioComposerModes(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     val pane = content.pane
     OrganismModeToggle(content, onIntent)
+    PlanningModeToggle(content, onIntent)
     if (content.worktree != null || content.session?.isWorktree == true) {
         val isSandbox = content.worktree?.isSandbox == true
         HbComposerToggle(
@@ -597,6 +602,8 @@ private fun TemplatesMenu(
     onOrganism: (Boolean) -> Unit,
     worktree: Boolean?,
     onWorktree: (Boolean) -> Unit,
+    planning: Boolean?,
+    onPlanning: (Boolean) -> Unit,
     onAttach: (() -> Unit)?,
     onPasteImage: (() -> Unit)?,
     onAttachPage: (() -> Unit)?,
@@ -615,7 +622,13 @@ private fun TemplatesMenu(
         stringResource(Res.string.template_remember),
         sectionLabel = stringResource(Res.string.composer_commands),
     )
-    val modes = composerModeActions(organism, worktree)
+    val modes = composerModeActions(organism, worktree, planning)
+    // Each mode item toggles its own mode.
+    val modeSwitches = mapOf(
+        WORKTREE_ACTION to { onWorktree(worktree != true) },
+        ORGANISM_ACTION to { onOrganism(organism != true) },
+        PLANNING_ACTION to { onPlanning(planning != true) },
+    )
     val attachments = listOfNotNull(
         onAttachPage?.let { HbComposerAction(PAGE_ACTION, stringResource(Res.string.attachments_page)) },
         onAttach?.let { HbComposerAction(ATTACH_ACTION, stringResource(Res.string.attachments_add)) },
@@ -641,10 +654,8 @@ private fun TemplatesMenu(
                 onResearch?.invoke()
             } else if (id.startsWith(APPROVAL_PREFIX)) {
                 onApproval(ApprovalUi.valueOf(id.removePrefix(APPROVAL_PREFIX)))
-            } else if (id == WORKTREE_ACTION) {
-                onWorktree(worktree != true)
-            } else if (id == ORGANISM_ACTION) {
-                onOrganism(organism != true)
+            } else if (id in modeSwitches) {
+                modeSwitches.getValue(id).invoke()
             } else if (id == REMEMBER_ACTION) {
                 // The command must lead the prompt: templates append, /remember prefixes the typed text.
                 onDraft(withRememberCommand(draft))
@@ -792,6 +803,7 @@ private const val RESEARCH_ACTION = "research"
 private const val REMEMBER_ACTION = "remember"
 private const val WORKTREE_ACTION = "worktree-mode"
 private const val ORGANISM_ACTION = "organism"
+private const val PLANNING_ACTION = "planning"
 
 private const val NO_PROJECT = "no-project"
 private const val ADD_PROJECT = "add-project"
@@ -826,7 +838,7 @@ private fun PaneContent.worktreeMenuSelection(): Boolean? = (pane.isWorktree && 
 }
 
 @Composable
-private fun composerModeActions(organism: Boolean?, worktree: Boolean?): List<HbComposerAction> {
+private fun composerModeActions(organism: Boolean?, worktree: Boolean?, planning: Boolean?): List<HbComposerAction> {
     // A mode of the new chat, offered only before its first message.
     val organismAction = organism?.let {
         HbComposerAction(
@@ -846,5 +858,16 @@ private fun composerModeActions(organism: Boolean?, worktree: Boolean?): List<Hb
             isSelected = it,
         )
     }
-    return listOfNotNull(organismAction, worktreeAction)
+    // Planning also applies to an existing chat; it joins the same section.
+    val planningAction = planning?.let {
+        HbComposerAction(
+            PLANNING_ACTION,
+            stringResource(Res.string.planning_mode),
+            supportingText = stringResource(Res.string.planning_mode_hint),
+            sectionLabel = stringResource(Res.string.organism_menu_section)
+                .takeIf { organismAction == null && worktreeAction == null },
+            isSelected = it,
+        )
+    }
+    return listOfNotNull(organismAction, worktreeAction, planningAction)
 }

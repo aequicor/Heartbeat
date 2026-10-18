@@ -302,6 +302,7 @@ private fun PaneConversation(
                     content.project,
                     startSlot,
                     onDraft = { onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, it)) },
+                    onPlan = content.planStarter(onIntent),
                     modifier = Modifier.align(BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias))
                         .padding(HbTheme.spacing.xl),
                 )
@@ -459,7 +460,9 @@ private fun PaneComposerRegion(
             }
             if (isCentered) {
                 Box(Modifier.padding(top = HbTheme.spacing.l)) {
-                    NewSessionStarters { onIntent(StudioIntent.Suggestions.DraftChanged(content.pane.id, it)) }
+                    NewSessionStarters(content.planStarter(onIntent)) {
+                        onIntent(StudioIntent.Suggestions.DraftChanged(content.pane.id, it))
+                    }
                 }
                 slots.start?.Content(StartSlotModifier.padding(top = HbTheme.spacing.l))
             }
@@ -768,6 +771,7 @@ private fun NewSessionHero(
     startSlot: StudioEmbed?,
     onDraft: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onPlan: (() -> Unit)? = null,
 ) {
     HbColumn(
         modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth + HbTheme.spacing.xl * 2)
@@ -776,7 +780,7 @@ private fun NewSessionHero(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         NewSessionHeading(project)
-        NewSessionStarters(onDraft)
+        NewSessionStarters(onPlan, onDraft)
         startSlot?.Content(StartSlotModifier.padding(top = HbTheme.spacing.l))
     }
 }
@@ -800,8 +804,9 @@ private fun NewSessionHeading(project: ProjectUi?) {
     }
 }
 
+/** Starter drafts of a new chat; with [onPlan] the plan starter also switches the chat to planning mode. */
 @Composable
-private fun NewSessionStarters(onDraft: (String) -> Unit) {
+private fun NewSessionStarters(onPlan: (() -> Unit)?, onDraft: (String) -> Unit) {
     val starters = listOf(
         Triple(Res.string.template_plan, Res.string.template_plan_prompt, HbIcons.Plan),
         Triple(Res.string.template_review, Res.string.template_review_prompt, HbIcons.Search),
@@ -810,10 +815,24 @@ private fun NewSessionStarters(onDraft: (String) -> Unit) {
     HbFlowRow(Modifier.padding(top = HbTheme.spacing.m), gap = HbTheme.spacing.m) {
         starters.forEach { (label, promptResource, icon) ->
             val prompt = stringResource(promptResource)
-            HbChip(label = stringResource(label), icon = icon, onClick = { onDraft(prompt) }, trailingIcon = null)
+            val isPlan = label == Res.string.template_plan
+            HbChip(
+                label = stringResource(label),
+                icon = icon,
+                onClick = {
+                    if (isPlan) onPlan?.invoke()
+                    onDraft(prompt)
+                },
+                trailingIcon = null,
+                modifier = Modifier.testTag(if (isPlan) "starter-plan" else "starter-${label.key}"),
+            )
         }
     }
 }
+
+/** Switches a new chat to planning mode from its plan starter, while planning is offered. */
+private fun PaneContent.planStarter(onIntent: (StudioIntent) -> Unit): (() -> Unit)? =
+    { onIntent(StudioIntent.SelectPlanning(pane.id, true)) }.takeIf { planningSelection() == false }
 
 /** Feed [feedId]: the open session, or `pane-<id>` while the pane only shows its [worktree] cards. */
 @Composable
