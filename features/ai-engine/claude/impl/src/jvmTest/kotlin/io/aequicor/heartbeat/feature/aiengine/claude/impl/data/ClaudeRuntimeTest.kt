@@ -456,6 +456,8 @@ class ClaudeRuntimeTest {
         runCurrent()
         assertEquals(RequestFailureReason.OutcomeUnknown, assertIs<EngineFailure.Request>(send.await().failure).reason)
         assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        // A frame was seen, so the history cannot tell whether this turn's prompt was delivered.
+        fixture.transport.transcript = true
         val cannotResume = assertFailsWith<EngineException> {
             session.features.available(ReconcilesSession).synchronize()
         }

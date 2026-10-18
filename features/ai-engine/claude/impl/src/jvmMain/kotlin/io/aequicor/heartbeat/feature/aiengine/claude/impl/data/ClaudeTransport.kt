@@ -143,12 +143,16 @@ internal class ProcessClaudeTransport(
         val startup = startup(launch)
         val isFound = startup.source != InstallSource.Missing
         val version = if (isFound && startup.isRunnable) version(startup) else null
-        log.i { "Claude located source=${startup.source} version=${version ?: "unknown"}" }
+        log.i {
+            "Claude located source=${startup.source} desktop=${startup.isDesktopBundle} version=${version ?: "unknown"}"
+        }
         return Installation(startup.source, version, startup.executable.takeIf { isFound }, startup.isRunnable)
     }
 
-    private suspend fun startup(launch: LaunchContext?): ClaudeStartup =
+    // The lookup lists directories, so it never runs on the caller's dispatcher.
+    private suspend fun startup(launch: LaunchContext?): ClaudeStartup = withContext(dispatchers.io) {
         resolveClaudeStartup(launch ?: launches.context(ClaudeEngine.Id), configuration)
+    }
 
     /** `claude --version`, bounded; an executable that does not answer has no known version. */
     override suspend fun version(): String? = version(startup(null))

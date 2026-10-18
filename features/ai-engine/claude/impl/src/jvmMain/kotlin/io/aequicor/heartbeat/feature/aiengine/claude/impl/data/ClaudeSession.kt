@@ -307,7 +307,8 @@ internal class ClaudeSession(
             val tools = hosted.prepare()
             val isResume = isConversationStarted()
             val plan = promptArguments(submission.request, isResume, submission.areDetachedToolsEnabled)
-            launch = ClaudeLaunch.Attempted
+            // A conversation known to exist stays confirmed: only an unknown one waits for the CLI's history to decide.
+            if (!hasNativeSession) launch = ClaudeLaunch.Attempted
             persist()
             isTransportInvoked = true
             val exit = executePlan(plan, submission, observer, hosted, tools)
@@ -674,22 +675,27 @@ internal class ClaudeSession(
     }
 
     /**
-     * No session frame was ever seen. A CLI that died before its first frame ([EngineFailureReason.Crashed]) decides by
-     * its history: a conversation there is resumed, none means the next prompt starts it. Any other unresolved case,
-     * or a history that cannot be read, stays unresolved.
+     * A turn that failed before any session frame, whatever the reason (the CLI died, its stdin broke, the gate timed
+     * out), decides by the CLI's history: a conversation there is resumed, none means the next prompt starts it.
+     * [EngineFailure.Request] is the one failure with a frame (maybe a foreign one), and a history that cannot be read
+     * leaves the turn unresolved. A history file counts as the conversation; one the CLI cannot resume fails again.
      */
     private fun confirmFromTranscript(unavailable: ActiveSessionState.Unavailable, transcript: Boolean?) {
-        val isCrashBeforeFrame = unavailable.failure == EngineFailure.Engine(EngineFailureReason.Crashed)
+        val isFrameSeen = unavailable.failure is EngineFailure.Request
         when {
-            !isCrashBeforeFrame || transcript == null ->
+            isFrameSeen || transcript == null ->
                 throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
 
             transcript -> {
+                log.i { "Claude history holds the conversation; the next prompt resumes it" }
                 hasNativeSession = true
                 launch = ClaudeLaunch.Confirmed
             }
 
-            else -> launch = ClaudeLaunch.Prepared
+            else -> {
+                log.i { "Claude history has no conversation; the next prompt starts it" }
+                launch = ClaudeLaunch.Prepared
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -70,6 +71,59 @@ class ClaudeRuntimeFailuresTest {
         assertTrue(arguments.any { it.startsWith("--session-id=") })
         assertTrue(arguments.none { it.startsWith("--resume=") })
         assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        runtime.close()
+    }
+
+    @Test
+    fun `any failure before the first frame is decided by the history, not only a crash`() = runTest {
+        val failures = listOf(
+            EngineFailure.Engine(EngineFailureReason.Unavailable),
+            EngineFailure.Transport(TransportFailureReason.Timeout),
+        )
+        for (failure in failures) {
+            for (isCreated in listOf(true, false)) {
+                val fixture = ClaudeFixture(backgroundScope)
+                val runtime = fixture.runtime()
+                val session = runtime.create(CreateSessionRequest(testTarget))
+                fixture.transport.generation = { _, _ -> throw EngineException(failure) }
+                val sender = session.features.available(SendsPrompts)
+                assertEquals(failure, assertFailsWith<EngineException> { sender.send(prompt()) }.failure)
+                fixture.transport.transcript = isCreated
+
+                session.features.available(ReconcilesSession).synchronize()
+
+                assertIs<ActiveSessionState.Ready>(session.state.value)
+                fixture.transport.generation = FakeClaudeTransport().generation
+                session.features.available(SendsPrompts).send(prompt("again"))
+                runCurrent()
+                val arguments = fixture.transport.calls.last()
+                val prefix = if (isCreated) "--resume=" else "--session-id="
+                assertTrue(arguments.any { it.startsWith(prefix) }, "failure=$failure isCreated=$isCreated")
+                runtime.close()
+            }
+        }
+    }
+
+    @Test
+    fun `a conversation the CLI already holds stays confirmed while a later turn starts`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        session.features.available(SendsPrompts).send(prompt("first"))
+        runCurrent()
+        assertEquals(ClaudeLaunch.Confirmed, fixture.catalog.find(session.ref)?.launch)
+
+        // A restart in the window before the second turn's first frame must not reopen the question.
+        var launchWhileRunning: ClaudeLaunch? = null
+        val defaultGeneration = fixture.transport.generation
+        fixture.transport.generation = { args, line ->
+            launchWhileRunning = fixture.catalog.find(session.ref)?.launch
+            defaultGeneration(args, line)
+        }
+        session.features.available(SendsPrompts).send(prompt("second"))
+        runCurrent()
+
+        assertEquals(ClaudeLaunch.Confirmed, launchWhileRunning)
         runtime.close()
     }
 

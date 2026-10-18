@@ -129,7 +129,8 @@ class ClaudeStartupTest {
     @Test
     fun `the Claude Code desktop CLI is the last resort and its newest verified build is chosen`() {
         val root = "/Users/test/Library/Application Support/Claude/claude-code"
-        fun executable(version: String, build: String) = "$root/$version/$build/claude.app/Contents/MacOS/claude"
+        fun executable(version: String, build: String) =
+            File("$root/$version/$build/claude.app/Contents/MacOS/claude").path
         val desktop = host(
             directories = mapOf(
                 root to listOf("2.1.9", "2.1.299", "2.1.300", "notes"),
@@ -240,11 +241,16 @@ class ClaudeStartupTest {
         userHome: String = "/Users/test",
         available: Set<String> = emptySet(),
         directories: Map<String, List<String>> = emptyMap(),
-    ) = ClaudeHost(
-        osName,
-        osArch,
-        path,
-        userHome,
-        { directory -> directories[directory.path].orEmpty().map { File(directory, it) } },
-    ) { it.path in available }
+    ): ClaudeHost {
+        // The keys are written with `/`; the host looks files up by the platform's own spelling of the path.
+        val listed = directories.mapKeys { File(it.key).path }
+        val executables = available.map { File(it).path }.toSet()
+        return ClaudeHost(
+            osName,
+            osArch,
+            path,
+            userHome,
+            { directory -> listed[directory.path].orEmpty().map { File(directory, it) } },
+        ) { it.path in executables }
+    }
 }

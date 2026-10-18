@@ -9,8 +9,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import java.io.File
+import java.io.IOException
+import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.HexFormat
 
@@ -46,8 +49,8 @@ internal data class ClaudeHost(
 /**
  * The startup of [context]: the custom executable of its settings, else Heartbeat's managed copy, else the host
  * configuration's explicit executable, else a system installation (PATH, the native installer's `~/.local/bin`
- * and Homebrew), else the CLI of the Claude Code desktop app, which shares that app's login. A custom config
- * directory wins over the host configuration's.
+ * and Homebrew), else, on macOS only, the CLI of the Claude Code desktop app, which shares that app's login.
+ * A custom config directory wins over the host configuration's.
  */
 internal fun resolveClaudeStartup(
     context: LaunchContext,
@@ -116,11 +119,20 @@ internal fun claudeTranscriptExists(
     userHome: String = System.getProperty("user.home"),
 ): Boolean {
     val projects = Path.of(configDirectory ?: Path.of(userHome, ".claude").toString(), "projects")
-    if (!Files.isDirectory(projects)) return false
-    return Files.newDirectoryStream(projects).use { directories ->
-        directories.any { Files.isRegularFile(it.resolve("$id.jsonl")) }
+    if (Files.notExists(projects)) return false
+    return try {
+        Files.newDirectoryStream(projects).use { directories ->
+            directories.any { isTranscript(it.resolve("$id.jsonl")) }
+        }
+    } catch (e: DirectoryIteratorException) {
+        // The stream reports a failed read of its entries unchecked; callers handle only IOException.
+        throw e.cause ?: IOException("The history directory could not be listed", e)
     }
 }
+
+/** A path that cannot be told from absent (no permission to stat it) throws instead of reading as no history. */
+private fun isTranscript(path: Path): Boolean =
+    !Files.notExists(path) && Files.readAttributes(path, BasicFileAttributes::class.java).isRegularFile
 
 /** File checks of launch settings; they never block saving, the panel shows them. */
 internal fun claudeLaunchProblems(settings: LaunchSettings, host: ClaudeHost = ClaudeHost()): List<LaunchProblem> =
@@ -186,8 +198,9 @@ private fun systemClaude(host: ClaudeHost): FoundClaude {
 
 /**
  * The CLI the Claude Code desktop app keeps on macOS, `claude-code/<version>/<build>/claude.app/Contents/MacOS/claude`
- * in the app's data directory: the newest version whose build carries the desktop's `.verified` integrity marker.
- * It reads the same login as every Claude Code CLI, so a desktop user needs no second installation or sign-in.
+ * in the app's data directory: the newest version whose build carries the desktop's `.verified` marker (only its
+ * presence is checked; the binary is trusted like any CLI the user installed). It reads the same login as every
+ * Claude Code CLI, so a desktop user needs no second installation or sign-in.
  */
 private fun desktopClaude(host: ClaudeHost): File? {
     if (!host.osName.startsWith("Mac")) return null
@@ -195,6 +208,8 @@ private fun desktopClaude(host: ClaudeHost): File? {
     return host.entries(root)
         .mapNotNull { directory -> directory.name.toVersionParts()?.let { it to directory } }
         .sortedWith(compareByDescending<Pair<List<Int>, File>, List<Int>>(VersionOrder) { it.first })
+        .asSequence()
+        // Lazy: the builds of an older version are listed only when no newer one qualified.
         .flatMap { (_, version) -> host.entries(version).sortedByDescending(File::getName) }
         .firstOrNull { build ->
             host.entries(build).any { it.name == DESKTOP_VERIFIED_MARKER } &&
