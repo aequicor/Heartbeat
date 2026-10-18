@@ -16,11 +16,13 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningIntent
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningMachineSpec
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningModeEnabled
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
+import io.aequicor.heartbeat.feature.planningmode.impl.data.PlanContextHook
 import io.aequicor.heartbeat.feature.planningmode.impl.data.PlanningReadOnlyHook
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanFiles
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanIndexStore
@@ -67,6 +69,23 @@ object PlanningBindings {
     ): SessionHook {
         val enabled = toggles.observe(PlanningModeEnabled).stateIn(scope.coroutineScope, SharingStarted.Eagerly, false)
         return PlanningReadOnlyHook(view) { enabled.value }
+    }
+
+    /** Keeps the plan in the context of engines that keep their context natively. */
+    @Provides
+    @IntoSet
+    @SingleIn(ProfileScope::class)
+    internal fun contextHook(
+        view: PlanningView,
+        toggles: FeatureToggles,
+        facade: Lazy<EngineFacade>,
+        @ForScope(ProfileScope::class) scope: ScopeHandle,
+    ): SessionHook {
+        val enabled = toggles.observe(PlanningModeEnabled).stateIn(scope.coroutineScope, SharingStarted.Eagerly, false)
+        return PlanContextHook(view, { enabled.value }) { session ->
+            facade.value.engines.state.value.find { it.descriptor.id == session.engine }
+                ?.descriptor?.areInstructionsRefreshedPerTurn == true
+        }
     }
 }
 
