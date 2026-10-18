@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptAddition
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptReceipt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostedToolName
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.planningmode.api.PlanAuthor
 import io.aequicor.heartbeat.feature.planningmode.api.PlanMode
@@ -25,7 +26,8 @@ import kotlinx.coroutines.flow.update
  * once per native context revision: after a compaction or a new process the plan is sent again with the next
  * prompt, and without a provable revision it accompanies every prompt. Engines that rebuild their instructions every
  * turn read it from [PlanAgentTools] instead. When the user changes the plan during a turn, the next tool result
- * tells the agent to re-read it. Deliveries are remembered in memory only; after a restart the plan is sent again.
+ * tells the agent to re-read it. Deliveries are remembered in memory only, for bound sessions; after a restart the
+ * plan is sent again.
  */
 internal class PlanContextHook(
     private val view: PlanningView,
@@ -35,6 +37,9 @@ internal class PlanContextHook(
     private val log = Log.tag("PlanContextHook")
     private val delivered = MutableStateFlow(emptyMap<SessionRef, Delivery>())
     private val known = MutableStateFlow(emptyMap<SessionRef, Long>())
+
+    /** Sessions something is remembered for; at most the bound ones after the next prompt or tool call. */
+    internal val rememberedSessions: Set<SessionRef> get() = delivered.value.keys + known.value.keys
 
     override val isIntercepting: Boolean get() = isEnabled()
 
@@ -61,13 +66,26 @@ internal class PlanContextHook(
         val last = known.value[session] ?: delivered.value[session]?.planRevision
         known.update { it + (session to plan.revision) }
         log.v { "plan revision known to the agent: ${last ?: "none"} -> ${plan.revision}" }
-        val isReread = hostedName(call.name) == PlanningTools.READ
+        val isReread = hostedToolName(call.name) == PlanningTools.READ
         val isChanged = last != null && plan.revision > last && plan.updatedBy != PlanAuthor.Agent
         return changedNote(plan.revision).takeIf { isChanged && !isReread }
     }
 
-    private fun planOf(session: SessionRef): Plan? =
-        (view.state.value as? PlanningState.Ready)?.planOf(session)?.takeIf { it.mode != PlanMode.Detached }
+    @HighFrequency
+    private fun planOf(session: SessionRef): Plan? {
+        val ready = view.state.value as? PlanningState.Ready ?: return null
+        forgetUnbound(ready.bindings.keys)
+        return ready.planOf(session)?.takeIf { it.mode != PlanMode.Detached }
+    }
+
+    /** Drops what was remembered for sessions that no longer serve a plan, so the maps never outgrow the bindings. */
+    @HighFrequency
+    private fun forgetUnbound(bound: Set<SessionRef>) {
+        if (bound.containsAll(delivered.value.keys) && bound.containsAll(known.value.keys)) return
+        delivered.update { map -> map.filterKeys(bound::contains) }
+        known.update { map -> map.filterKeys(bound::contains) }
+        log.v { "unbound sessions forgotten: remembered=${rememberedSessions.size}" }
+    }
 
     private inner class Receipt(private val session: SessionRef, private val delivery: Delivery) :
         SessionPromptReceipt {

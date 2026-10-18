@@ -70,6 +70,78 @@ class PlanningEffectsTest {
     }
 
     @Test
+    fun `a recovered newer file is a draft of unknown author`() = runTest {
+        index.stored = PlanIndex(listOf(record(Chat, revision = 1, status = PlanStatus.Approved)))
+        files.texts[Chat] = PlanFileText("# Newer", isExternal = false, revision = 2)
+        effects.handle(PlanningEffect.Load, scope)
+        val loaded = scope.sent.single() as PlanningIntent.Internal.Loaded
+        val plan = loaded.plans.getValue(Chat)
+        assertEquals(PlanStatus.Draft, plan.status)
+        assertEquals(PlanAuthor.External, plan.updatedBy)
+        assertEquals(Now, plan.updatedAt)
+        assertEquals(setOf(Chat), loaded.external)
+    }
+
+    @Test
+    fun `an external edit never repeats a revision the studio wrote`() = runTest {
+        index.stored = PlanIndex(listOf(record(Chat, revision = 2)))
+        files.texts[Chat] = PlanFileText("# Edited", isExternal = true, revision = 5)
+        effects.handle(PlanningEffect.Load, scope)
+        val plan = (scope.sent.single() as PlanningIntent.Internal.Loaded).plans.getValue(Chat)
+        assertEquals(6, plan.revision)
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to plan), emptyMap(), setOf(Chat), 0), scope)
+        assertEquals(PlanFileText("# Edited", isExternal = false, revision = 6), files.texts[Chat])
+    }
+
+    @Test
+    fun `an oversized file is neither loaded nor overwritten`() = runTest {
+        index.stored = PlanIndex(listOf(record(Chat, revision = 2)))
+        files.texts[Chat] = PlanFileText("", isExternal = true, revision = 2, isOversized = true)
+        effects.handle(PlanningEffect.Load, scope)
+        val plan = (scope.sent.single() as PlanningIntent.Internal.Loaded).plans.getValue(Chat)
+        assertEquals(2, plan.revision)
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to plan), emptyMap(), emptySet(), 1), scope)
+        assertEquals(emptyList(), files.log)
+    }
+
+    @Test
+    fun `a failed file write is repeated by the next save`() = runTest {
+        val plan = record(Chat, revision = 1).copy(text = "# B")
+        files.isWriteBroken = true
+        assertFailsWith<IllegalStateException> {
+            effects.handle(PlanningEffect.Persist(mapOf(Chat to plan), emptyMap(), setOf(Chat), 1), scope)
+        }
+        files.isWriteBroken = false
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to plan), mapOf(Session to Chat), emptySet(), 2), scope)
+        assertEquals(PlanFileText("# B", isExternal = false, revision = 1), files.texts[Chat])
+        assertEquals(PlanIndex(listOf(plan.copy(text = "")), listOf(PlanBinding(Session, Chat))), index.stored)
+    }
+
+    @Test
+    fun `a failed delete does not block a new plan of the chat and is repeated for orphans`() = runTest {
+        val plan = record(Chat, revision = 3).copy(text = "# A")
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to plan), emptyMap(), setOf(Chat), 1), scope)
+        files.isDeleteBroken = true
+        assertFailsWith<IllegalStateException> {
+            effects.handle(PlanningEffect.Persist(emptyMap(), emptyMap(), setOf(Chat), 2), scope)
+        }
+        files.isDeleteBroken = false
+        val fresh = record(Chat, revision = 0)
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to fresh), emptyMap(), emptySet(), 3), scope)
+        assertEquals(PlanFileText("", isExternal = false, revision = 0), files.texts[Chat])
+
+        val other = record(Other, revision = 1).copy(text = "# O")
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to fresh, Other to other), emptyMap(), emptySet(), 4), scope)
+        files.isDeleteBroken = true
+        assertFailsWith<IllegalStateException> {
+            effects.handle(PlanningEffect.Persist(mapOf(Chat to fresh), emptyMap(), setOf(Other), 5), scope)
+        }
+        files.isDeleteBroken = false
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to fresh), emptyMap(), emptySet(), 6), scope)
+        assertEquals(setOf(Chat), files.texts.keys)
+    }
+
+    @Test
     fun `an unreadable index fails the load`() = runTest {
         index.isBroken = true
         assertFailsWith<IllegalStateException> { effects.handle(PlanningEffect.Load, scope) }
@@ -121,15 +193,19 @@ class PlanningEffectsTest {
     private class MemoryFiles : PlanFiles {
         val texts = mutableMapOf<PlanChat, PlanFileText>()
         val log = mutableListOf<String>()
+        var isWriteBroken = false
+        var isDeleteBroken = false
 
         override suspend fun read(chat: PlanChat): PlanFileText? = texts[chat]
 
         override suspend fun write(chat: PlanChat, text: String, revision: Long) {
+            check(!isWriteBroken) { "disk full" }
             texts[chat] = PlanFileText(text, isExternal = false, revision = revision)
             log += "write $chat"
         }
 
         override suspend fun delete(chat: PlanChat) {
+            check(!isDeleteBroken) { "busy" }
             texts.remove(chat)
         }
     }

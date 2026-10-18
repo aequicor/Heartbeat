@@ -19,12 +19,18 @@ internal data class PlanIndex(val plans: List<Plan> = emptyList(), val bindings:
 internal data class PlanBinding(val session: SessionRef, val chat: PlanChat)
 
 /**
- * Text of a plan file; [isExternal] when it differs from what the studio last wrote, otherwise [revision] is the
- * revision the studio wrote it as (null for files of earlier versions).
+ * Text of a plan file; [isExternal] when it differs from what the studio wrote. [revision] is the revision the studio
+ * wrote this text as, or for an external text the last revision the studio wrote to the file; null for files of
+ * earlier versions. An [isOversized] file was not read: it is too large to be a plan and [text] is empty.
  */
-internal data class PlanFileText(val text: String, val isExternal: Boolean, val revision: Long? = null) {
-    override fun toString(): String =
-        "PlanFileText(length=${text.length}, isExternal=$isExternal, revision=${revision ?: "unknown"})"
+internal data class PlanFileText(
+    val text: String,
+    val isExternal: Boolean,
+    val revision: Long? = null,
+    val isOversized: Boolean = false,
+) {
+    override fun toString(): String = "PlanFileText(length=${text.length}, isExternal=$isExternal, " +
+        "revision=${revision ?: "unknown"}, isOversized=$isOversized)"
 }
 
 /** The index of the profile's plans. */

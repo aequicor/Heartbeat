@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.planningmode.api.PlanningState
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningTools
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
 import io.aequicor.heartbeat.feature.planningmode.api.applyEdit
+import io.aequicor.heartbeat.feature.planningmode.api.isPlanSectionHeading
 import io.aequicor.heartbeat.feature.planningmode.api.renderPlanBlock
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanFiles
 import kotlinx.serialization.json.Json
@@ -42,8 +43,9 @@ import kotlin.time.Clock
  * The plan tools of a chat's agent. They exist in every session while [PlanningModeEnabled] is on, because some
  * engines freeze their tools when a thread starts, and answer only in sessions bound to a plan. [PlanningTools.READ]
  * re-reads the plan file, so edits made outside the studio reach the agent; [PlanningTools.WRITE] changes it
- * against the revision the agent last read; [PlanningTools.PROPOSE] shows the plan card. They only touch profile
- * data, so they are read actions. Plan texts are user data and never logged.
+ * against the revision the agent last read and refuses when the file was edited outside the studio meanwhile;
+ * [PlanningTools.PROPOSE] shows the plan card. They only touch profile data, so they are read actions. Plan texts are
+ * user data and never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -85,23 +87,51 @@ internal class PlanAgentTools(
     }
 
     /** The plan as stored on disk; a file changed outside the studio becomes a new revision first. */
-    private suspend fun read(plan: Plan): AgentToolResult {
+    private suspend fun read(plan: Plan): AgentToolResult = when (val sync = syncExternal(plan)) {
+        is Sync.Refused -> sync.result
+
+        is Sync.Current -> AgentToolResult(
+            describe(sync.plan) + "\n\n" + sync.plan.text.ifBlank { "(the plan is empty)" },
+        )
+    }
+
+    /**
+     * [plan] after taking over its file when it was changed outside the studio: the change becomes a new revision by
+     * [PlanAuthor.External]. A file the machine cannot take over is reported instead, so the agent never works from a
+     * text that differs from the file without knowing it.
+     */
+    private suspend fun syncExternal(plan: Plan): Sync {
         val file = files.read(plan.chat)
-        val current = if (file != null && file.isExternal && file.text != plan.text) {
-            val edit = PlanningIntent.Public.Write(
-                plan.chat,
-                PlanEdit.Replace(file.text),
-                plan.revision,
-                PlanAuthor.External,
-                clock.now(),
+        val isChanged = file != null && file.isExternal &&
+            (file.isOversized || applyEdit(plan.text, PlanEdit.Replace(file.text)) != plan.text)
+        if (file == null || !isChanged) return Sync.Current(plan, isChanged = false)
+        val length = file.text.length
+        if (file.isOversized || length > PlanLimits.MAX_CHARS) {
+            log.w { "external plan edit too long: chat=${plan.chat} length=$length" }
+            return Sync.Refused(
+                "The plan file was changed outside the studio and is longer than ${PlanLimits.MAX_CHARS} " +
+                    "characters, so it cannot be used. Ask the user to shorten it; the plan stays at revision " +
+                    "${plan.revision} until then",
             )
-            machines.send(PlanningMachineKey, edit)
-            log.i { "external plan edit picked up: chat=${plan.chat}" }
-            ready()?.plans?.get(plan.chat) ?: plan
-        } else {
-            plan
         }
-        return AgentToolResult(describe(current) + "\n\n" + current.text.ifBlank { "(the plan is empty)" })
+        val edit = PlanEdit.Replace(file.text)
+        val result = machines.send(
+            PlanningMachineKey,
+            PlanningIntent.Public.Write(plan.chat, edit, plan.revision, PlanAuthor.External, clock.now()),
+        )
+        if (result != SendResult.Accepted) {
+            log.w { "external plan edit not taken over: chat=${plan.chat} result=$result" }
+            return Sync.Refused(
+                if (result == SendResult.NotRunning) {
+                    NOT_RUNNING
+                } else {
+                    "The plan file was changed outside the studio while the plan changed too; call " +
+                        "${PlanningTools.READ} again"
+                },
+            )
+        }
+        log.i { "external plan edit picked up: chat=${plan.chat}" }
+        return Sync.Current(ready()?.plans?.get(plan.chat) ?: plan, isChanged = true)
     }
 
     private suspend fun write(plan: Plan, arguments: JsonObject): AgentToolResult {
@@ -111,15 +141,29 @@ internal class PlanAgentTools(
         val edit = when {
             content == null -> null
             section == null -> PlanEdit.Replace(content)
-            section.startsWith("#") -> PlanEdit.Section(section, content)
+            isPlanSectionHeading(section) -> PlanEdit.Section(section, content)
             else -> null
         }
         if (base == null || edit == null) {
             return AgentToolResult(
-                "Pass base_revision and content; section must be a markdown heading such as \"## Steps\"",
+                "Pass base_revision and content; section must be one markdown heading line such as \"## Steps\" " +
+                    "(1 to 6 '#' followed by a space)",
                 isError = true,
             )
         }
+        return when (val sync = syncExternal(plan)) {
+            is Sync.Refused -> sync.result
+            is Sync.Current -> if (sync.isChanged) changedOutside(sync.plan) else write(sync.plan, edit, base)
+        }
+    }
+
+    private fun changedOutside(plan: Plan) = AgentToolResult(
+        "The plan file was changed outside the studio; the plan is now at revision ${plan.revision}. " +
+            "Call ${PlanningTools.READ}, merge your change and write again with that base_revision",
+        isError = true,
+    )
+
+    private suspend fun write(plan: Plan, edit: PlanEdit, base: Long): AgentToolResult {
         val text = applyEdit(plan.text, edit)
         return when {
             base != plan.revision -> AgentToolResult(
@@ -160,11 +204,25 @@ internal class PlanAgentTools(
     }
 
     private suspend fun send(intent: PlanningIntent.Public, success: () -> String): AgentToolResult =
-        if (machines.send(PlanningMachineKey, intent) == SendResult.Accepted) {
-            AgentToolResult(success())
-        } else {
-            AgentToolResult("The plan changed meanwhile; call ${PlanningTools.READ} and retry", isError = true)
+        when (machines.send(PlanningMachineKey, intent)) {
+            SendResult.Accepted -> AgentToolResult(success())
+
+            SendResult.NotRunning -> AgentToolResult(NOT_RUNNING, isError = true)
+
+            SendResult.Ignored -> AgentToolResult(
+                "The plan changed meanwhile; call ${PlanningTools.READ} and retry",
+                isError = true,
+            )
         }
+
+    /** The plan of a call, current or refused with the reason for the agent. */
+    private sealed interface Sync {
+        data class Current(val plan: Plan, val isChanged: Boolean) : Sync
+
+        data class Refused(val result: AgentToolResult) : Sync {
+            constructor(message: String) : this(AgentToolResult(message, isError = true))
+        }
+    }
 
     private fun describe(plan: Plan): String {
         val status = when (plan.status) {
@@ -185,6 +243,8 @@ internal class PlanAgentTools(
 }
 
 private fun JsonObject.text(name: String): String? = (this[name] as? JsonPrimitive)?.contentOrNull
+
+private const val NOT_RUNNING = "Plans are not available right now; try again later"
 
 private const val PROPOSED =
     "The plan card is shown to the user. End your turn now and wait for them to approve, refine or implement it."

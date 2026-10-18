@@ -83,8 +83,9 @@ public sealed interface PlanningIntent : MachineIntent {
     /** Results of effects. */
     public sealed interface Internal : PlanningIntent {
         /**
-         * Stored plans were read. [external] plans were changed outside the studio; they arrive already updated with
-         * [externallyEdited] and are saved again.
+         * Stored plans were read. [external] plans were changed outside the studio (they arrive already updated with
+         * [externallyEdited]) or recovered from a file the studio wrote after the last index save; they are saved
+         * again.
          */
         public data class Loaded(
             val plans: Map<PlanChat, Plan>,
@@ -109,8 +110,10 @@ public sealed interface PlanningEffect : MachineEffect {
     public data object Load : PlanningEffect
 
     /**
-     * Writes the files of the [changed] chats (deleting those without a plan) and then the index of [plans] and
-     * [bindings]; an index older than the last written [revision] is dropped.
+     * Writes the file of every plan newer than the revision last written for its chat, so a save that failed is
+     * repeated by the next one; deletes the files of chats without a plan (the [changed] ones and every chat written
+     * earlier, until a delete succeeds) and then writes the index of [plans] and [bindings]. A save not newer than the
+     * last handled [revision] is dropped: the newer one already carries all plans.
      */
     public data class Persist(
         val plans: Map<PlanChat, Plan>,
@@ -143,10 +146,13 @@ public interface PlanningView {
     public val state: StateFlow<PlanningState>
 }
 
-/** [plan] after its file was changed outside the studio to [text] at [at]. */
-public fun externallyEdited(plan: Plan, text: String, at: Instant): Plan = plan.copy(
+/**
+ * [plan] after its file was changed outside the studio to [text] at [at]. The new revision follows both the plan and
+ * [base], the last revision the studio wrote to the file, so it never repeats a revision written before.
+ */
+public fun externallyEdited(plan: Plan, text: String, at: Instant, base: Long = plan.revision): Plan = plan.copy(
     text = text,
-    revision = plan.revision + 1,
+    revision = maxOf(plan.revision, base) + 1,
     status = if (plan.mode == PlanMode.Planning) PlanStatus.Draft else plan.status,
     updatedAt = at,
     updatedBy = PlanAuthor.External,

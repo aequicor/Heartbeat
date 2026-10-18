@@ -80,6 +80,3 @@ internal class PlanningReadOnlyHook(
         const val LOADING_REASON = "Planning mode state is loading: allow this action only if it changes nothing."
     }
 }
-
-/** A hosted tool name without the MCP prefix that engines add (`mcp__heartbeat__plan_write`). */
-internal fun hostedName(name: String): String = if (name.startsWith("mcp__")) name.substringAfterLast("__") else name

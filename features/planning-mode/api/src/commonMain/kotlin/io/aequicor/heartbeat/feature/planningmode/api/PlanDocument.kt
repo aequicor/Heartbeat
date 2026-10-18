@@ -1,10 +1,17 @@
 package io.aequicor.heartbeat.feature.planningmode.api
 
-/** The text of [text] after [edit]; the caller checks the result against [PlanLimits.MAX_CHARS]. */
+/**
+ * The text of [text] after [edit]; the caller checks the result against [PlanLimits.MAX_CHARS]. Total: a section
+ * edit with a heading that [isPlanSectionHeading] rejects leaves [text] unchanged.
+ */
 public fun applyEdit(text: String, edit: PlanEdit): String = when (edit) {
     is PlanEdit.Replace -> edit.text.trimEnd()
     is PlanEdit.Section -> replaceSection(text, edit.heading.trim(), edit.text.trim())
 }
+
+/** Whether [heading] is one markdown ATX heading line (`#` .. `######`, then a space or nothing), e.g. `## Steps`. */
+public fun isPlanSectionHeading(heading: String): Boolean =
+    heading.none { it == '\n' || it == '\r' } && headingLevel(heading.trim()) != null
 
 /** The first markdown heading of [text] without its marks, or null. */
 public fun planTitle(text: String): String? {
@@ -55,7 +62,8 @@ private val IMPLEMENTING_RULES = """
 """.trimIndent()
 
 private fun replaceSection(text: String, heading: String, body: String): String {
-    val level = requireNotNull(headingLevel(heading)) { "A section heading is a markdown heading" }
+    if (!isPlanSectionHeading(heading)) return text
+    val level = headingLevel(heading) ?: return text
     val lines = text.lines()
     val levels = headingLevels(lines)
     val start = lines.indices.firstOrNull { levels[it] != null && lines[it].trim() == heading }

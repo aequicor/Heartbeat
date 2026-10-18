@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.feature.planningmode.api.PlanChat
+import io.aequicor.heartbeat.feature.planningmode.api.PlanLimits
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanFileText
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -20,7 +21,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 class ProfilePlanFilesTest {
     private val root = Files.createTempDirectory("plans").toFile()
@@ -48,9 +48,43 @@ class ProfilePlanFilesTest {
     fun `a file changed outside the studio is external`() = runTest {
         files.write(Chat, "# Plan", 1)
         File(root, "planning/${Chat.value}/plan.md").writeText("# Edited")
-        assertEquals(PlanFileText("# Edited", isExternal = true), files.read(Chat))
+        assertEquals(PlanFileText("# Edited", isExternal = true, revision = 1), files.read(Chat))
         File(root, "planning/${Chat.value}/plan.sha256").delete()
-        assertTrue(files.read(Chat)?.isExternal == true)
+        assertEquals(PlanFileText("# Edited", isExternal = true), files.read(Chat))
+    }
+
+    @Test
+    fun `a reader between the stamp and the plan replacement sees the previous revision`() = runTest {
+        files.write(Chat, "# One", 1)
+        files.write(Chat, "# Two", 2)
+        val plan = File(root, "planning/${Chat.value}/plan.md")
+        plan.writeText("# One")
+        assertEquals(PlanFileText("# One", isExternal = false, revision = 1), files.read(Chat))
+        files.write(Chat, "# Three", 3)
+        plan.writeText("# One")
+        assertEquals(PlanFileText("# One", isExternal = false, revision = 1), files.read(Chat), "kept on disk")
+        plan.writeText("# Two")
+        assertEquals(PlanFileText("# Two", isExternal = true, revision = 3), files.read(Chat))
+    }
+
+    @Test
+    fun `stamps of earlier versions are read`() = runTest {
+        files.write(Chat, "# Plan", 1)
+        val stamp = File(root, "planning/${Chat.value}/plan.sha256")
+        val digest = stamp.readLines()[1]
+        stamp.writeText("7\n$digest\n")
+        assertEquals(PlanFileText("# Plan", isExternal = false, revision = 7), files.read(Chat))
+        stamp.writeText(digest)
+        assertEquals(PlanFileText("# Plan", isExternal = false), files.read(Chat))
+        files.write(Chat, "# Next", 8)
+        assertEquals(PlanFileText("# Next", isExternal = false, revision = 8), files.read(Chat))
+    }
+
+    @Test
+    fun `a file too large to be a plan is not read`() = runTest {
+        files.write(Chat, "# Plan", 2)
+        File(root, "planning/${Chat.value}/plan.md").writeText("x".repeat(PlanLimits.MAX_CHARS * 4 + 1))
+        assertEquals(PlanFileText("", isExternal = true, revision = 2, isOversized = true), files.read(Chat))
     }
 
     @Test

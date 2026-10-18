@@ -46,6 +46,7 @@ internal class SpecPlanning(initial: PlanningState) :
     MachineRegistry {
     override val state = MutableStateFlow(initial)
     val sent = mutableListOf<PlanningIntent.Public>()
+    var isRunning = true
 
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
         key: MachineKey<S, I, P, E, O>,
@@ -59,6 +60,7 @@ internal class SpecPlanning(initial: PlanningState) :
         key: MachineKey<S, I, P, E, O>,
         intent: P,
     ): SendResult {
+        if (!isRunning) return SendResult.NotRunning
         val public = intent as PlanningIntent.Public
         sent += public
         val resolution = PlanningMachineSpec.resolve(state.value, public) ?: return SendResult.Ignored

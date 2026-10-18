@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.planningmode.api
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
@@ -92,6 +93,26 @@ class PlanDocumentTest {
     fun `chat ids are safe directory names`() {
         assertTrue(isValidPlanChat("0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b"))
         listOf("", "../x", "a/b", "a b", "ä", "x".repeat(65)).forEach { assertTrue(!isValidPlanChat(it), it) }
+    }
+
+    @Test
+    fun `section headings are single markdown heading lines`() {
+        listOf("# A", "## Steps", "###### Deep", "  ## Indented  ", "#").forEach {
+            assertTrue(isPlanSectionHeading(it), it)
+        }
+        listOf("#Steps", "####### Seven", "#\tTab", "## A\n## B", "## A\r", "Steps", "").forEach { heading ->
+            assertTrue(!isPlanSectionHeading(heading), heading)
+            assertFailsWith<IllegalArgumentException>(heading) { PlanEdit.Section(heading, "x") }
+        }
+    }
+
+    @Test
+    fun `external edits follow the last revision written to the file`() {
+        val plan = plan(PlanMode.Planning, PlanStatus.Approved, "old")
+        val edited = externallyEdited(plan, "new", Instant.fromEpochSeconds(9), base = 7)
+        assertEquals(8, edited.revision)
+        assertEquals(PlanStatus.Draft, edited.status)
+        assertEquals(4, externallyEdited(plan, "new", Instant.fromEpochSeconds(9), base = 1).revision)
     }
 
     @Test

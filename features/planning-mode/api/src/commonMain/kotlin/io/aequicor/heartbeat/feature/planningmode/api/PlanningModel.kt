@@ -101,13 +101,14 @@ public sealed interface PlanEdit {
 
     /**
      * Replaces the body of the markdown section titled [heading] (e.g. `## Steps`) up to the next heading of the same
-     * or a higher level, appends the section when it is missing, or removes it when [text] is blank.
+     * or a higher level, appends the section when it is missing, or removes it when [text] is blank. [heading] is one
+     * line that [isPlanSectionHeading] accepts.
      */
     @Serializable
     @SerialName("section")
     public data class Section(val heading: String, val text: String) : PlanEdit {
         init {
-            require(heading.trimStart().startsWith('#')) { "A section heading is a markdown heading" }
+            require(isPlanSectionHeading(heading)) { "A section heading is one markdown heading line" }
         }
 
         override fun toString(): String = "Section(length=${text.length})"
