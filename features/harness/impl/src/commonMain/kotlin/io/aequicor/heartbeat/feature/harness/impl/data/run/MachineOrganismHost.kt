@@ -5,15 +5,19 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganism
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismCellRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismConception
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismView
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.Conception
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
@@ -71,6 +75,12 @@ internal class MachineOrganismHost(private val machines: MachineRegistry) : Orga
     override suspend fun abort(organism: WorkflowOrganism) {
         machines.send(OrganicAiMachineKey, OrganicAiIntent.Public.Abort(OrganismId(organism.id)))
     }
+
+    override suspend fun decide(organism: WorkflowOrganism, cell: String, decision: PermissionDecision): Boolean =
+        machines.send(
+            OrganicAiMachineKey,
+            OrganicAiIntent.Public.Decide(OrganismId(organism.id), CellId(cell), decision),
+        ) == SendResult.Accepted
 }
 
 private fun Organism.toView(): OrganismView = when (val ended = status) {
@@ -80,8 +90,13 @@ private fun Organism.toView(): OrganismView = when (val ended = status) {
 
     OrganismStatus.Developing -> when (val phase = zygote.phase) {
         is CellPhase.Stalled -> OrganismView.Stalled(phase.breakdown.toEnd())
-        else -> OrganismView.Developing
+        else -> OrganismView.Developing(requests())
     }
 }
+
+/** What the living cells wait on the user for, in cell order and bounded; observed live and never stored. */
+private fun Organism.requests(): List<OrganismCellRequest> = cells.flatMap { cell ->
+    (cell.phase as? CellPhase.Working)?.awaiting.orEmpty().map { OrganismCellRequest(cell.id.value, cell.name, it) }
+}.take(HarnessLimits.ORGANISM_REQUESTS)
 
 private fun Breakdown.toEnd(): OrganismEnd = if (this == Breakdown.NoModel) OrganismEnd.NoModel else OrganismEnd.Failed

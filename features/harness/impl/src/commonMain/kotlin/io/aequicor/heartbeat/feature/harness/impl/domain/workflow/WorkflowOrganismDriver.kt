@@ -1,10 +1,14 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOutcome
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismPermission
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismRefusal
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
@@ -29,6 +33,10 @@ import kotlinx.coroutines.withContext
  * is never replaced. Only this lane addresses the organism. When its call ends or is cancelled, the quota is
  * returned only after organic AI shows the organism's work ended; a revoked driver leaves the organism running for
  * the next owner, which reconciles it. The business meaning of an answer is the workflow's to judge.
+ *
+ * An organism has no chat, so its cells ask the user through the runs view: this lane shows what they ask and, being
+ * the only one that addresses the organism, sends each of the user's answers to the cell that asked. Neither the
+ * organism nor the requests' texts ever reach the workflow's author, the log or another session.
  */
 internal class WorkflowOrganismDriver(
     private val run: WorkflowRun,
@@ -37,6 +45,7 @@ internal class WorkflowOrganismDriver(
     private val workspace: WorkspaceRef?,
     private val isAdmitted: suspend () -> Boolean,
     private val driver: Job? = null,
+    private val requests: WorkflowOrganismRequests = WorkflowOrganismRequests {},
 ) : WorkflowOrganismSteps {
     private val log = Log.tag("HarnessWorkflow")
     private val resources = ports.resources
@@ -61,7 +70,10 @@ internal class WorkflowOrganismDriver(
         try {
             conclude(current, organism, goal, options)
         } finally {
-            withContext(NonCancellable) { settle(grant, owner) }
+            withContext(NonCancellable) {
+                hide(key)
+                settle(grant, owner)
+            }
         }
     }
 
@@ -85,9 +97,12 @@ internal class WorkflowOrganismDriver(
     ): OrganismOutcome {
         var step = first
         var unavailablePolls = 0
+        val answered = mutableSetOf<AskedRequest>()
         while (true) {
             admitted()
-            val outcome = when (val view = host.view(organism)) {
+            val view = host.view(organism)
+            if (view !is OrganismView.Developing) requests.show(step.key, emptyList())
+            val outcome = when (view) {
                 OrganismView.Unavailable -> refusalAfter(step, ++unavailablePolls)
 
                 OrganismView.Absent -> if (step.phase == StepPhase.Prepared) {
@@ -102,8 +117,9 @@ internal class WorkflowOrganismDriver(
                     OrganismOutcome.Ended(OrganismEnd.Failed)
                 }
 
-                OrganismView.Developing -> {
+                is OrganismView.Developing -> {
                     step = running(step)
+                    relay(organism, step.key, view.requests, answered)
                     null
                 }
 
@@ -116,6 +132,42 @@ internal class WorkflowOrganismDriver(
             }
             if (outcome != null) return finish(step, outcome)
             delay(ORGANISM_POLL_INTERVAL)
+        }
+    }
+
+    /**
+     * Gives the user's queued answers to the cells that asked and shows the rest. An answer reaches only a cell that
+     * still asks for exactly that, and a request the organism has taken is hidden until it is gone, so a repeated
+     * click cannot answer twice. A request organic AI did not take stays shown for the user to answer again.
+     */
+    private suspend fun relay(
+        organism: WorkflowOrganism,
+        key: StepKey,
+        asking: List<OrganismCellRequest>,
+        answered: MutableSet<AskedRequest>,
+    ) {
+        answered.retainAll(asking.mapTo(mutableSetOf()) { it.asked() })
+        for (answer in requests.take(key)) {
+            val target = asking.firstOrNull { it.cell == answer.cell && it.request.accepts(answer.decision) }
+            if (target == null || target.asked() in answered) continue
+            admitted()
+            if (host.decide(organism, answer.cell, answer.decision)) {
+                answered += target.asked()
+                log.i { "Workflow organism cell request answered" }
+            }
+        }
+        val open = asking.filter { it.asked() !in answered }
+        requests.show(key, open.map { OrganismPermission(key, it.cell, it.name, it.request) })
+    }
+
+    /** The user's view of the step is cleared with the lane; a failure to publish never hides the real outcome. */
+    private suspend fun hide(key: StepKey) {
+        try {
+            requests.show(key, emptyList())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(harnessScriptFailure(error)) { "Workflow organism requests could not be cleared" }
         }
     }
 
@@ -184,3 +236,8 @@ internal class WorkflowOrganismDriver(
         throw WorkflowExecutionUnavailable()
     }
 }
+
+/** A request as the lane tells it apart from others: the cell that asked and the turn's own request. */
+private data class AskedRequest(val cell: String, val request: PermissionRequestId, val turn: TurnId)
+
+private fun OrganismCellRequest.asked() = AskedRequest(cell, request.id, request.turn)

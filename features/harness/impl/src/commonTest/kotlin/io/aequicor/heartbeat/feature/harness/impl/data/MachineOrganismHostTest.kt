@@ -12,14 +12,21 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganism
 import io.aequicor.heartbeat.feature.harness.impl.data.run.MachineOrganismHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismCellRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismConception
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismView
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.isEnded
@@ -73,8 +80,8 @@ class MachineOrganismHostTest {
     fun `the state of the organism decides its view and only an ended one is ended`() = runTest {
         val interrupted = CellPhase.Stalled(Breakdown.Interrupted, Work.Genesis)
         val views = listOf(
-            organism() to OrganismView.Developing,
-            organism(phase = CellPhase.Resting) to OrganismView.Developing,
+            organism() to OrganismView.Developing(),
+            organism(phase = CellPhase.Resting) to OrganismView.Developing(),
             organism(phase = CellPhase.Stalled(Breakdown.NoModel, Work.Genesis)) to
                 OrganismView.Stalled(OrganismEnd.NoModel),
             organism(phase = interrupted) to OrganismView.Stalled(OrganismEnd.Failed),
@@ -130,25 +137,75 @@ class MachineOrganismHostTest {
     }
 
     @Test
+    fun `the requests of living cells are shown in cell order and nothing else asks`() = runTest {
+        val builder = request("builder")
+        val tester = request("tester")
+        val cells = listOf(
+            cell(CellId.ZYGOTE, CellPhase.Working(RequestId("z"), Work.Genesis)),
+            cell(CellId("c1"), CellPhase.Working(RequestId("a"), Work.Genesis, awaiting = listOf(builder))),
+            cell(CellId("c2"), CellPhase.Resting),
+            cell(CellId("c3"), CellPhase.Working(RequestId("b"), Work.Genesis, awaiting = listOf(tester))),
+        )
+        val view = host(living(organism(cells = cells))).view(bound)
+        val asking = listOf(
+            OrganismCellRequest("c1", "cell-c1", builder),
+            OrganismCellRequest("c3", "cell-c3", tester),
+        )
+        assertEquals(OrganismView.Developing(asking), view)
+        assertFalse(view.isEnded)
+        val answered = organism(OrganismStatus.Completed("done"), cells = cells)
+        assertEquals(OrganismView.Answered("done"), host(living(answered)).view(bound))
+    }
+
+    @Test
+    fun `an organism shows no more requests than the runs view holds`() = runTest {
+        val many = (1..HarnessLimits.ORGANISM_REQUESTS + 5).map { request("req-$it") }
+        val cells = listOf(
+            cell(CellId.ZYGOTE, CellPhase.Working(RequestId("z"), Work.Genesis, awaiting = many)),
+        )
+        val view = host(living(organism(cells = cells))).view(bound) as OrganismView.Developing
+        assertEquals(HarnessLimits.ORGANISM_REQUESTS, view.requests.size)
+        assertEquals(many.take(HarnessLimits.ORGANISM_REQUESTS), view.requests.map { it.request })
+    }
+
+    @Test
+    fun `a decision addresses the cell of the organism and tells whether the machine took it`() = runTest {
+        val decision = PermissionDecision(TurnId("turn"), PermissionRequestId("req"), PermissionOptionId("allow"))
+        assertTrue(host().decide(bound, "c1", decision))
+        assertEquals(
+            listOf<OrganicAiIntent.Public>(OrganicAiIntent.Public.Decide(id, CellId("c1"), decision)),
+            machine.sent,
+        )
+        val ignoring = FakeOrganicMachine(OrganicAiState.Living(), SendResult.Ignored)
+        assertFalse(host(ignoring).decide(bound, "c1", decision))
+        assertFalse(host(null).decide(bound, "c1", decision))
+        val gone = FakeOrganicMachine(OrganicAiState.Dormant, SendResult.NotRunning)
+        assertFalse(host(gone).decide(bound, "c1", decision))
+    }
+
+    @Test
     fun `the goal bound of a step is the bound of an organism`() {
         assertEquals(OrganismBounds.MAX_GOAL, HarnessLimits.ORGANISM_GOAL_CHARS)
         assertFalse(OrganismView.Answered("private-answer").toString().contains("private-answer"))
     }
 
+    private fun living(found: Organism) = FakeOrganicMachine(OrganicAiState.Living(mapOf(id to found)))
+
+    private fun cell(cell: CellId, phase: CellPhase) =
+        Cell(cell, "cell-${cell.value}", CellId.ZYGOTE.takeIf { cell != CellId.ZYGOTE }, "goal", phase)
+
+    private fun request(name: String) = PermissionRequest(
+        PermissionRequestId(name),
+        TurnId("turn"),
+        "Run $name?",
+        listOf(PermissionOption(PermissionOptionId("allow"), "Allow")),
+    )
+
     private fun organism(
         status: OrganismStatus = OrganismStatus.Developing,
         phase: CellPhase = CellPhase.Working(RequestId("request"), Work.Genesis),
-    ) = Organism(
-        id,
-        "goal",
-        null,
-        null,
-        null,
-        null,
-        GrowthLimits(),
-        listOf(Cell(CellId.ZYGOTE, "zygote", null, "goal", phase)),
-        status = status,
-    )
+        cells: List<Cell> = listOf(Cell(CellId.ZYGOTE, "zygote", null, "goal", phase)),
+    ) = Organism(id, "goal", null, null, null, null, GrowthLimits(), cells, status = status)
 }
 
 private class FakeOrganicMachine(initial: OrganicAiState, private val result: SendResult = SendResult.Accepted) :

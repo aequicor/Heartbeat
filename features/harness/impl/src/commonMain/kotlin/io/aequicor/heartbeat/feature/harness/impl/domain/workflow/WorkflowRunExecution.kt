@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRouting
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStep
@@ -127,14 +128,7 @@ internal class WorkflowRunExecution(
         val requests = WorkflowOrganismRequests {
             feedback(HarnessRunsIntent.Internal.OrganismPermissionsChanged(run.id, run.driverGeneration, it))
         }
-        val organismSteps = WorkflowOrganismDriver(
-            run,
-            progress,
-            organisms,
-            routing.workspace,
-            { isCurrent() && access.isAdmitted(run) },
-            driver = currentCoroutineContext()[Job],
-        )
+        val organismSteps = organismLane(run, progress, routing, requests, isCurrent)
         val outcome = withAnswers(run, requests) {
             try {
                 WorkflowStatus.Completed(code.execute(run, progress, agents, organismSteps, origin))
@@ -148,6 +142,22 @@ internal class WorkflowRunExecution(
         if (!isCurrent()) throw WorkflowExecutionUnavailable()
         finish(progress, outcome, projection)
     }
+
+    private suspend fun organismLane(
+        run: WorkflowRun,
+        progress: WorkflowRunJournal,
+        routing: WorkflowRouting,
+        requests: WorkflowOrganismRequests,
+        isCurrent: () -> Boolean,
+    ) = WorkflowOrganismDriver(
+        run,
+        progress,
+        organisms,
+        routing.workspace,
+        { isCurrent() && access.isAdmitted(run) },
+        driver = currentCoroutineContext()[Job],
+        requests = requests,
+    )
 
     /**
      * Hands the user's answer to the lane of [step] in the driver generation that showed the request. An answer for
