@@ -3,9 +3,11 @@ package io.aequicor.heartbeat.feature.aistudio.screenui
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -59,29 +61,49 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_status_approve
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_status_draft
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.plan_status_proposed
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanImplementationModeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanProposalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import kotlinx.collections.immutable.ImmutableList
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** Which plan dialog a pane shows. */
 internal enum class PlanDialog { Editor, Implement }
 
-/** What the implementation dialog of a pane may offer. */
+/**
+ * What the implementation dialog of a pane may offer: the chat's route with its current [effort], its [approval]
+ * unless the profile [securityLevel] replaces that choice, and the [modes]; nothing is implemented while [isBusy].
+ */
 internal data class PlanImplementationOffer(
     val models: ImmutableList<ModelUi>,
     val modelId: String,
     val approval: ApprovalUi,
     val modes: ImmutableList<PlanImplementationModeUi>,
+    val effort: String? = null,
+    val securityLevel: SecurityLevelUi? = null,
+    val isTrustSupported: Boolean = false,
+    val isBusy: Boolean = false,
 )
 
 /**
- * The plan card of a `plan_propose` call: the current plan when the proposal still names it, with its decisions;
- * a proposal of an older revision only opens the plan.
+ * Whether a plan card may decide on its plan: only the [isLatest] card of a revision shows the full plan and its
+ * decisions, none while planning is not [isEnabled], and implementation waits while the chat [isBusy].
+ */
+internal data class PlanCardDecisions(
+    val isLatest: Boolean = true,
+    val isEnabled: Boolean = true,
+    val isBusy: Boolean = false,
+)
+
+/**
+ * The plan card of a `plan_propose` call. The latest proposal of the current revision shows the plan with its
+ * decisions; a proposal of an older revision, a repeated one, or one without a known revision only opens the plan.
  */
 @Composable
 internal fun StudioPlanCard(
@@ -91,26 +113,43 @@ internal fun StudioPlanCard(
     onRefine: () -> Unit,
     onDialog: (PlanDialog) -> Unit,
     modifier: Modifier = Modifier,
+    decisions: PlanCardDecisions = PlanCardDecisions(),
 ) {
-    val revision = proposal.revision ?: plan?.revision ?: 0
-    val current = plan?.takeIf { it.revision == revision }
+    val revision = proposal.revision
+    val isCurrent = plan != null && revision != null && plan.revision == revision
+    val current = plan?.takeIf { isCurrent && decisions.isLatest }
     HbCard(modifier.fillMaxWidth().testTag("plan-card"), contentPadding = HbTheme.spacing.l) {
         HbColumn(gap = HbTheme.spacing.m) {
             HbRow(gap = HbTheme.spacing.m) {
-                HbText(stringResource(Res.string.plan_card_title, revision), style = HbTheme.typography.label)
+                HbText(
+                    if (revision == null) {
+                        stringResource(Res.string.plan_editor_title)
+                    } else {
+                        stringResource(Res.string.plan_card_title, revision)
+                    },
+                    Modifier.testTag("plan-card-title"),
+                    style = HbTheme.typography.label,
+                )
                 current?.let { HbBadge(planStatusLabel(it.status), tone = it.status.tone()) }
             }
             if (proposal.summary.isNotBlank()) HbText(proposal.summary, color = HbTheme.colors.textSecondary)
             when {
                 current != null -> HbMarkdown(current.text)
 
-                plan != null -> HbText(
+                plan != null && revision != null && !isCurrent -> HbText(
                     stringResource(Res.string.plan_replaced, plan.revision),
                     Modifier.testTag("plan-replaced"),
                     color = HbTheme.colors.textSecondary,
                 )
             }
-            PlanActions(current, isOpenable = plan != null, onApprove, onRefine, onDialog)
+            PlanActions(
+                current?.takeIf { decisions.isEnabled },
+                isOpenable = plan != null,
+                isBusy = decisions.isBusy,
+                onApprove = onApprove,
+                onRefine = onRefine,
+                onDialog = onDialog,
+            )
         }
     }
 }
@@ -120,6 +159,7 @@ internal fun StudioPlanCard(
 private fun PlanActions(
     current: PlanUi?,
     isOpenable: Boolean,
+    isBusy: Boolean,
     onApprove: (Long) -> Unit,
     onRefine: () -> Unit,
     onDialog: (PlanDialog) -> Unit,
@@ -135,8 +175,10 @@ private fun PlanActions(
             )
         }
         if (planning != null) {
-            PlanButton(Res.string.plan_refine, "plan-refine", onRefine)
-            PlanButton(Res.string.plan_implement, "plan-implement") { onDialog(PlanDialog.Implement) }
+            PlanButton(Res.string.plan_refine, "plan-refine", onClick = onRefine)
+            PlanButton(Res.string.plan_implement, "plan-implement", enabled = !isBusy) {
+                onDialog(PlanDialog.Implement)
+            }
         }
         if (isOpenable) PlanButton(Res.string.plan_open, "plan-open") { onDialog(PlanDialog.Editor) }
     }
@@ -146,40 +188,56 @@ private fun PlanActions(
 @Composable
 internal fun planRefinePrompt(): String = stringResource(Res.string.plan_refine_prompt)
 
+/** The composer [draft] led by the refine [prefix]: the typed text is kept, and a draft already led by it stays. */
+internal fun planRefineDraft(draft: String, prefix: String): String =
+    if (draft.startsWith(prefix)) draft else prefix + draft.trimStart()
+
+/** The id of the reply with the last proposal of each plan revision in [messages]. */
+internal fun latestPlanProposals(messages: List<MessageUi>): Map<Long, String> = buildMap {
+    messages.forEach { message ->
+        val revision = (message as? MessageUi.Reply)?.tools?.lastOrNull { it.plan != null }?.plan?.revision
+        if (revision != null) put(revision, message.id)
+    }
+}
+
 /**
- * The user's editor of the plan text. A change of the plan while editing shows the newer revision: the user reloads
- * it or overwrites it with the edited text.
+ * The user's editor of the plan text, opened from one revision. Save sends the edit from that revision, and the
+ * editor stays open until the plan shows the saved text, so a rejected save keeps the edit. A newer revision replaces
+ * an unedited text; with edits the editor shows the conflict, and the user reloads the newer revision or overwrites
+ * it. Dismissing outside the dialog keeps unsaved edits; Cancel drops them.
  */
 @Composable
 internal fun StudioPlanEditor(plan: PlanUi, onSave: (text: String, base: Long) -> Unit, onDismiss: () -> Unit) {
-    var base by remember { mutableStateOf(plan.revision) }
+    var base by rememberSaveable { mutableStateOf(plan.revision) }
+    var baseText by rememberSaveable { mutableStateOf(plan.text) }
     var text by rememberSaveable { mutableStateOf(plan.text) }
-    val isChanged = plan.revision != base
+    val isEdited = text != baseText
+    val sync = planEditorSync(plan, base, text, isEdited)
+    PlanEditorSyncEffect(plan, sync, onClose = onDismiss) {
+        text = plan.text
+        baseText = plan.text
+        base = plan.revision
+    }
+    val isConflict = sync == PlanEditorSync.Keep && plan.revision != base
     HbDialog(
         title = stringResource(Res.string.plan_editor_title),
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isEdited) onDismiss() },
         width = HbDialogWidth.Wide,
         actions = {
             HbButton(stringResource(Res.string.plan_cancel), onDismiss, style = HbButtonStyle.Ghost)
             HbButton(
-                stringResource(if (isChanged) Res.string.plan_overwrite else Res.string.plan_save),
-                { onSave(text, plan.revision) },
+                stringResource(if (isConflict) Res.string.plan_overwrite else Res.string.plan_save),
+                { onSave(text, if (isConflict) plan.revision else base) },
                 Modifier.testTag("plan-save"),
-                enabled = text != plan.text,
+                enabled = isEdited && plan.text != text,
             )
         },
     ) {
-        if (isChanged) {
-            HbBanner(stringResource(Res.string.plan_editor_conflict, plan.revision), tone = HbTone.Warning) {
-                HbButton(
-                    stringResource(Res.string.plan_reload),
-                    {
-                        text = plan.text
-                        base = plan.revision
-                    },
-                    style = HbButtonStyle.Secondary,
-                    size = HbButtonSize.Small,
-                )
+        if (isConflict) {
+            PlanConflict(plan.revision) {
+                text = plan.text
+                baseText = plan.text
+                base = plan.revision
             }
         }
         HbCodeEditor(
@@ -193,7 +251,59 @@ internal fun StudioPlanEditor(plan: PlanUi, onSave: (text: String, base: Long) -
     }
 }
 
-/** The choice of route, approvals and mode the plan is implemented with. */
+/** How the editor follows a change of the plan it edits. */
+private enum class PlanEditorSync {
+    /** The same revision, or a newer one that conflicts with the edit. */
+    Keep,
+
+    /** The plan shows the edited text: it was saved, or the newer revision says the same. */
+    Saved,
+
+    /** A newer revision replaces the unedited text. */
+    Follow,
+}
+
+private fun planEditorSync(plan: PlanUi, base: Long, text: String, isEdited: Boolean): PlanEditorSync = when {
+    plan.revision == base -> PlanEditorSync.Keep
+    !isEdited -> PlanEditorSync.Follow
+    plan.text == text -> PlanEditorSync.Saved
+    else -> PlanEditorSync.Keep
+}
+
+/** Applies [sync] once the plan shows a new revision or text: closes the saved editor or follows the plan. */
+@Composable
+private fun PlanEditorSyncEffect(plan: PlanUi, sync: PlanEditorSync, onClose: () -> Unit, onFollow: () -> Unit) {
+    val latestClose by rememberUpdatedState(onClose)
+    val latestFollow by rememberUpdatedState(onFollow)
+    key(plan.revision, plan.text) {
+        SideEffect {
+            when (sync) {
+                PlanEditorSync.Keep -> Unit
+                PlanEditorSync.Saved -> latestClose()
+                PlanEditorSync.Follow -> latestFollow()
+            }
+        }
+    }
+}
+
+/** The newer [revision] the plan changed to while the user edited it, with the reload of that revision. */
+@Composable
+private fun PlanConflict(revision: Long, onReload: () -> Unit) {
+    HbBanner(stringResource(Res.string.plan_editor_conflict, revision), tone = HbTone.Warning) {
+        HbButton(
+            stringResource(Res.string.plan_reload),
+            onReload,
+            Modifier.testTag("plan-reload"),
+            style = HbButtonStyle.Secondary,
+            size = HbButtonSize.Small,
+        )
+    }
+}
+
+/**
+ * The choice of route, approvals and mode the plan is implemented with. Under the profile security level the dialog
+ * shows that level and keeps the chat's approval, as the composer does; nothing is sent while the chat is busy.
+ */
 @Composable
 internal fun StudioPlanImplementDialog(
     plan: PlanUi,
@@ -204,9 +314,12 @@ internal fun StudioPlanImplementDialog(
 ) {
     var modelId by rememberSaveable { mutableStateOf(offer.modelId) }
     val model = offer.models.firstOrNull { it.id == modelId }
-    var effort by rememberSaveable(modelId) { mutableStateOf(model?.defaultReasoningEffort) }
+    var effort by rememberSaveable(modelId) { mutableStateOf(initialEffort(offer, model)) }
+    val efforts = model?.reasoningEfforts.orEmpty()
+    val selectedEffort = effort?.takeIf { it in efforts } ?: model?.defaultReasoningEffort
     var approval by rememberSaveable { mutableStateOf(offer.approval) }
     var mode by rememberSaveable { mutableStateOf(PlanImplementationModeUi.Chat) }
+    val selectedMode = mode.takeIf { it in offer.modes } ?: offer.modes.firstOrNull() ?: PlanImplementationModeUi.Chat
     var isFresh by rememberSaveable { mutableStateOf(false) }
     var prompt by rememberSaveable { mutableStateOf("") }
     val defaultPrompt = stringResource(Res.string.plan_implement_default)
@@ -222,16 +335,16 @@ internal fun StudioPlanImplementDialog(
                         sessionId,
                         plan.revision,
                         modelId,
-                        effort,
-                        approval,
-                        mode,
+                        selectedEffort,
+                        if (offer.securityLevel != null) offer.approval else approval,
+                        selectedMode,
                         isFresh,
                         prompt.ifBlank { defaultPrompt },
                     )
                     onImplement(intent)
                 },
                 Modifier.testTag("plan-implement-confirm"),
-                enabled = model != null,
+                enabled = model != null && !offer.isBusy,
             )
         },
     ) {
@@ -245,34 +358,28 @@ internal fun StudioPlanImplementDialog(
                     modifier = Modifier.testTag("plan-model-${option.id}"),
                 )
             }
-            model?.reasoningEfforts?.takeIf { it.isNotEmpty() }?.let { efforts ->
+            if (efforts.isNotEmpty()) {
                 HbFlowRow(gap = HbTheme.spacing.s) {
                     efforts.forEach { level ->
-                        HbButton(
+                        HbChoiceRow(
                             level,
-                            { effort = level },
-                            style = if (level == effort) HbButtonStyle.Primary else HbButtonStyle.Secondary,
-                            size = HbButtonSize.Small,
+                            level == selectedEffort,
+                            isMultiple = false,
+                            onClick = { effort = level },
+                            modifier = Modifier.testTag("plan-effort-$level"),
                         )
                     }
                 }
             }
         }
         PlanSection(Res.string.plan_implement_approval) {
-            ApprovalUi.entries.forEach { option ->
-                HbChoiceRow(
-                    approvalLabel(option),
-                    option == approval,
-                    isMultiple = false,
-                    onClick = { approval = option },
-                )
-            }
+            PlanApprovals(offer, approval) { approval = it }
         }
         PlanSection(Res.string.plan_implement_mode) {
             offer.modes.forEach { option ->
                 HbChoiceRow(
                     modeLabel(option),
-                    option == mode,
+                    option == selectedMode,
                     isMultiple = false,
                     onClick = { mode = option },
                     modifier = Modifier.testTag("plan-mode-${option.name}"),
@@ -290,8 +397,45 @@ internal fun StudioPlanImplementDialog(
     }
 }
 
+/** The approval choice of the implementation, or the inactive profile security level that replaces it. */
 @Composable
-private fun PlanSection(title: org.jetbrains.compose.resources.StringResource, content: @Composable () -> Unit) {
+private fun PlanApprovals(offer: PlanImplementationOffer, approval: ApprovalUi, onApproval: (ApprovalUi) -> Unit) {
+    val level = offer.securityLevel
+    if (level != null) {
+        HbChoiceRow(
+            securityLevelLabel(level),
+            selected = true,
+            isMultiple = false,
+            onClick = {},
+            modifier = Modifier.testTag("plan-profile-security"),
+            enabled = false,
+        )
+        HbText(
+            securityLevelHint(level, offer.isTrustSupported, isHelper = false),
+            style = HbTheme.typography.caption,
+            color = HbTheme.colors.textSecondary,
+        )
+    } else {
+        ApprovalUi.entries.forEach { option ->
+            HbChoiceRow(
+                approvalLabel(option),
+                option == approval,
+                isMultiple = false,
+                onClick = { onApproval(option) },
+                modifier = Modifier.testTag("plan-approval-${option.name}"),
+            )
+        }
+    }
+}
+
+/** The chat's current effort for its own model, otherwise the default of the chosen [model]. */
+private fun initialEffort(offer: PlanImplementationOffer, model: ModelUi?): String? {
+    val efforts = model?.reasoningEfforts.orEmpty()
+    return offer.effort?.takeIf { model?.id == offer.modelId && it in efforts } ?: model?.defaultReasoningEffort
+}
+
+@Composable
+private fun PlanSection(title: StringResource, content: @Composable () -> Unit) {
     HbColumn(gap = HbTheme.spacing.s) {
         HbText(stringResource(title), style = HbTheme.typography.label, color = HbTheme.colors.textSecondary)
         content()
@@ -299,12 +443,13 @@ private fun PlanSection(title: org.jetbrains.compose.resources.StringResource, c
 }
 
 @Composable
-private fun PlanButton(label: org.jetbrains.compose.resources.StringResource, tag: String, onClick: () -> Unit) {
+private fun PlanButton(label: StringResource, tag: String, enabled: Boolean = true, onClick: () -> Unit) {
     HbButton(
         stringResource(label),
         onClick,
         Modifier.testTag(tag),
         style = HbButtonStyle.Secondary,
+        enabled = enabled,
         size = HbButtonSize.Small,
     )
 }

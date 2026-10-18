@@ -26,7 +26,7 @@ internal fun PaneContent.planningSelection(): Boolean? {
 }
 
 /** The command that switches planning mode of the pane to [isEnabled]. */
-internal fun PaneContent.planningIntent(isEnabled: Boolean): StudioIntent.Plan? {
+internal fun PaneContent.planningIntent(isEnabled: Boolean): StudioIntent.Plan {
     val sessionId = pane.sessionId
     return if (sessionId == null) {
         StudioIntent.SelectPlanning(pane.id, isEnabled)
@@ -50,8 +50,8 @@ internal fun PlanningModeToggle(content: PaneContent, onIntent: (StudioIntent) -
     }
     HbComposerToggle(
         label = label,
-        isChecked = pane.sessionId == null || plan?.isPlanning == true,
-        onCheckedChange = { isEnabled -> content.planningIntent(isEnabled)?.let(onIntent) },
+        isChecked = if (pane.sessionId == null) pane.isPlanning else plan?.isPlanning == true,
+        onCheckedChange = { isEnabled -> onIntent(content.planningIntent(isEnabled)) },
         enabled = content.planningSelection() != null,
         icon = HbIcons.Plan,
         modifier = Modifier.testTag("planning-mode-${pane.id}"),

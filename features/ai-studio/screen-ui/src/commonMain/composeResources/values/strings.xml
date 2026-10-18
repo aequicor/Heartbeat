@@ -247,7 +247,7 @@
     <string name="attachments_failed">Could not attach these files. Check their formats and size, then try again.</string>
     <string name="organism_mode">Organic AI</string>
     <string name="organism_mode_hint">The first message conceives an organism: cells divide on their own and the immune system judges them</string>
-    <string name="organism_menu_section">Mode</string>
+    <string name="composer_modes_section">Mode</string>
     <string name="organism_sub_sessions">Sub-sessions</string>
     <string name="organism_zygote">Zygote</string>
     <string name="organism_complaint">Immunity %1$s · complaint about %2$s</string>

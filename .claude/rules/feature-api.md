@@ -359,8 +359,9 @@ send/wake/spawn/workflow. Ограничения (Off/hosted_off, Deny/Ask-ху�
 
 `features/planning-mode/api` кроме машины `PlanningMachineKey` (ProfileScope) содержит чистые функции без IO: правку
 секции markdown `applyEdit` (заголовки внутри code fence не считаются), `planTitle`, блок плана для промпта
-`renderPlanBlock`, `externallyEdited`, а также только читающий `PlanningView`. Классификатор читающих shell-команд
-`isReadOnlyCommand` — деталь реализации хука режима только чтения и живёт в `impl` (`impl/domain`). Изменения планов — только `Public`
+`renderPlanBlock`, `externallyEdited`, а также только читающий `PlanningView`, имена инструментов `PlanningTools` и
+лимиты `PlanLimits`. Классификатор читающих shell-команд `isReadOnlyCommand` — деталь реализации хука режима только
+чтения и живёт в `impl` (`impl/domain`). Изменения планов — только `Public`
 интенты машины; текст плана — пользовательские данные и не логируется.
 
 ### Фичи сервисного контракта

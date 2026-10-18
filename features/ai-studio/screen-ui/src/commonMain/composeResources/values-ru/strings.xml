@@ -240,7 +240,7 @@
     <string name="attachments_failed">Не удалось прикрепить файлы. Проверьте формат и размер и попробуйте ещё раз.</string>
     <string name="organism_mode">Органический ИИ</string>
     <string name="organism_mode_hint">Первое сообщение зачинает организм: клетки делятся сами, иммунитет их судит</string>
-    <string name="organism_menu_section">Режим</string>
+    <string name="composer_modes_section">Режим</string>
     <string name="organism_sub_sessions">Субсессии</string>
     <string name="organism_zygote">Зигота</string>
     <string name="organism_complaint">Иммунитет %1$s · жалоба на %2$s</string>

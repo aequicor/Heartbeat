@@ -33,6 +33,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -122,6 +123,7 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableMap
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Duration
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
@@ -326,15 +328,23 @@ private fun PaneConversation(
                     attachmentPreviews = content.attachmentPreviews,
                     isAttachmentOpeningAvailable = content.host.isAttachmentOpeningAvailable,
                     onIntent = onIntent,
-                    planCard = { proposal ->
+                    planCard = { proposal, isLatest ->
                         StudioPlanCard(
                             proposal,
                             content.planning.plan,
                             onApprove = { revision ->
                                 content.session?.let { onIntent(StudioIntent.ApprovePlan(it.id, revision)) }
                             },
-                            onRefine = { onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, refinePrompt)) },
+                            onRefine = {
+                                val draft = planRefineDraft(content.draft, refinePrompt)
+                                onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, draft))
+                            },
                             onDialog = { planDialog = it },
+                            decisions = PlanCardDecisions(
+                                isLatest = isLatest,
+                                isEnabled = content.planning.isEnabled,
+                                isBusy = content.isPlanBusy(),
+                            ),
                         )
                     },
                     contentPadding = PaddingValues(
@@ -808,27 +818,34 @@ private fun NewSessionHeading(project: ProjectUi?) {
 @Composable
 private fun NewSessionStarters(onPlan: (() -> Unit)?, onDraft: (String) -> Unit) {
     val starters = listOf(
-        Triple(Res.string.template_plan, Res.string.template_plan_prompt, HbIcons.Plan),
-        Triple(Res.string.template_review, Res.string.template_review_prompt, HbIcons.Search),
-        Triple(Res.string.template_tests, Res.string.template_tests_prompt, HbIcons.Check),
+        NewSessionStarter(Res.string.template_plan, Res.string.template_plan_prompt, HbIcons.Plan, isPlan = true),
+        NewSessionStarter(Res.string.template_review, Res.string.template_review_prompt, HbIcons.Search),
+        NewSessionStarter(Res.string.template_tests, Res.string.template_tests_prompt, HbIcons.Check),
     )
     HbFlowRow(Modifier.padding(top = HbTheme.spacing.m), gap = HbTheme.spacing.m) {
-        starters.forEach { (label, promptResource, icon) ->
-            val prompt = stringResource(promptResource)
-            val isPlan = label == Res.string.template_plan
+        starters.forEach { starter ->
+            val prompt = stringResource(starter.prompt)
             HbChip(
-                label = stringResource(label),
-                icon = icon,
+                label = stringResource(starter.label),
+                icon = starter.icon,
                 onClick = {
-                    if (isPlan) onPlan?.invoke()
+                    if (starter.isPlan) onPlan?.invoke()
                     onDraft(prompt)
                 },
                 trailingIcon = null,
-                modifier = Modifier.testTag(if (isPlan) "starter-plan" else "starter-${label.key}"),
+                modifier = Modifier.testTag(if (starter.isPlan) "starter-plan" else "starter-${starter.label.key}"),
             )
         }
     }
 }
+
+/** A starter draft of a new chat; [isPlan] also switches the chat to planning mode. */
+private data class NewSessionStarter(
+    val label: StringResource,
+    val prompt: StringResource,
+    val icon: ImageVector,
+    val isPlan: Boolean = false,
+)
 
 /** Switches a new chat to planning mode from its plan starter, while planning is offered. */
 private fun PaneContent.planStarter(onIntent: (StudioIntent) -> Unit): (() -> Unit)? =
@@ -854,7 +871,7 @@ private fun SessionTranscript(
     isAttachmentOpeningAvailable: Boolean,
     onIntent: (StudioIntent) -> Unit,
     modifier: Modifier = Modifier,
-    planCard: (@Composable (PlanProposalUi) -> Unit)? = null,
+    planCard: (@Composable (proposal: PlanProposalUi, isLatest: Boolean) -> Unit)? = null,
 ) {
     var preparedFocus by remember { mutableStateOf<Long?>(null) }
     val focusTarget = cardFocus?.takeIf { request ->
@@ -875,6 +892,8 @@ private fun SessionTranscript(
         worktree.retained,
     )
     val links = LocalUriHandler.current
+    // Only the last card of a revision shows the full plan and its decisions; repeated proposals only open it.
+    val latestPlans = remember(messages) { latestPlanProposals(messages) }
     HbDiagramActionsProvider(onDiagramAction) {
         HbChatTranscript(
             timeline = timeline,
@@ -893,7 +912,12 @@ private fun SessionTranscript(
             messageEmbeddedContent = { rendered ->
                 val reply = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Reply
                 HbColumn(gap = HbTheme.spacing.m) {
-                    reply?.tools?.lastOrNull { it.plan != null }?.plan?.let { proposal -> planCard?.invoke(proposal) }
+                    reply?.tools?.lastOrNull { it.plan != null }?.plan?.let { proposal ->
+                        planCard?.invoke(
+                            proposal,
+                            proposal.revision != null && latestPlans[proposal.revision] == reply.id,
+                        )
+                    }
                     reply?.checklistIds?.forEach { id -> key(id) { checklists[id]?.Content(Modifier) } }
                     reply?.cardIds?.forEach { id ->
                         key("card:$id") {
@@ -1108,7 +1132,10 @@ private fun DiagramDraftNotice(content: PaneContent, onIntent: (StudioIntent) ->
     StudioNotice(content, StudioNoticeUi.DiagramDraft, stringResource(message), onIntent, modifier)
 }
 
-/** The plan editor or implementation dialog the pane shows for the plan of its chat. */
+/**
+ * The plan editor or implementation dialog the pane shows for the plan of its chat. A dialog that no longer applies
+ * (no plan or chat, planning switched off, or a plan that is not planned any more for implementation) is dropped.
+ */
 @Composable
 private fun PlanDialogs(
     content: PaneContent,
@@ -1116,26 +1143,25 @@ private fun PlanDialogs(
     onIntent: (StudioIntent) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val plan = content.planning.plan ?: return
-    val sessionId = content.session?.id ?: return
+    val plan = content.planning.plan
+    val sessionId = content.session?.id
+    val isStale = dialog != null && (
+        plan == null || sessionId == null || !content.planning.isEnabled ||
+            (dialog == PlanDialog.Implement && !plan.isPlanning)
+    )
+    val latestDismiss by rememberUpdatedState(onDismiss)
+    key(isStale) { SideEffect { if (isStale) latestDismiss() } }
+    if (isStale || plan == null || sessionId == null) return
     when (dialog) {
         PlanDialog.Editor -> StudioPlanEditor(
             plan,
-            onSave = { text, base ->
-                onIntent(StudioIntent.SavePlan(sessionId, base, text))
-                onDismiss()
-            },
+            onSave = { text, base -> onIntent(StudioIntent.SavePlan(sessionId, base, text)) },
             onDismiss = onDismiss,
         )
 
         PlanDialog.Implement -> StudioPlanImplementDialog(
             plan,
-            PlanImplementationOffer(
-                content.models,
-                content.settings.modelId,
-                content.settings.approval,
-                content.planning.modes,
-            ),
+            content.planImplementationOffer(),
             onImplement = {
                 onIntent(it)
                 onDismiss()
@@ -1147,3 +1173,26 @@ private fun PlanDialogs(
         null -> Unit
     }
 }
+
+/** What the implementation dialog offers for the chat of this pane: its route, approvals and modes. */
+private fun PaneContent.planImplementationOffer(): PlanImplementationOffer {
+    val model = models.firstOrNull { it.id == settings.modelId }
+    val effort = if (configuration != null) {
+        settings.nativeEffort
+    } else {
+        model?.let { settings.engineEfforts[it.id] }
+    }
+    return PlanImplementationOffer(
+        models,
+        settings.modelId,
+        settings.approval,
+        planning.modes,
+        effort = effort,
+        securityLevel = profileSecurityLevel(),
+        isTrustSupported = isTrustSupported(),
+        isBusy = isPlanBusy(),
+    )
+}
+
+/** A turn, a configuration change or the creation of the chat is in progress, so its plan is not implemented now. */
+private fun PaneContent.isPlanBusy(): Boolean = pane.isCreating || session?.isRunning == true || isSettingPending
