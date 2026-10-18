@@ -42,8 +42,11 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -61,6 +64,7 @@ class ManagedActiveSessionTest {
     private fun TestScope.open(
         fixture: RouteFixture,
         native: FakeNativeSession = FakeNativeSession(),
+        handleContext: CoroutineContext = EmptyCoroutineContext,
     ): Pair<ActiveSession, TestHandleScope> {
         val policy = SessionPolicy(
             fixture.routes,
@@ -68,7 +72,7 @@ class ManagedActiveSessionTest {
             handles,
             fixture.context,
         )
-        val handle = TestHandleScope("h${++counter}", backgroundScope)
+        val handle = TestHandleScope("h${++counter}", CoroutineScope(backgroundScope.coroutineContext + handleContext))
         val route = fixture.store.bindings.value.single().let { binding ->
             io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute(
                 TestEngine,
@@ -338,7 +342,8 @@ class ManagedActiveSessionTest {
     fun `close succeeds when the handle scope ends right after the release`() = runTest {
         val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         val native = FakeNativeSession().apply { closeGate = gate }
-        val (session, handle) = open(RouteFixture(this), native)
+        // An unconfined handle scope ends in the very step that publishes Closed, before the waiting close() resumes.
+        val (session, handle) = open(RouteFixture(this), native, UnconfinedTestDispatcher(testScheduler))
 
         val closing = async { session.close() }
         runCurrent()

@@ -11,7 +11,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
@@ -164,18 +163,21 @@ class ManagedActiveSession(
         awaitClosed()
     }
 
-    /** Waits until the release is confirmed; a failed release is reported, the end of the scope is not one. */
+    /**
+     * Waits until the release is confirmed. A failed release is reported, and so is a profile shutdown before it;
+     * the end of the handle scope that follows the confirmation is not an error.
+     */
     private suspend fun awaitClosed() {
-        val settled = try {
-            untilStopped {
-                machine.state.first {
-                    it == ActiveSessionState.Closed || (it is ActiveSessionState.Closing && it.failure != null)
-                }
-            }
-        } catch (e: EngineException) {
+        val settled = untilStopped(
             // The handle scope ends together with the release, so its end can be seen before the Closed state is.
-            if (machine.state.value == ActiveSessionState.Closed) return
-            throw e
+            onStopped = {
+                machine.state.value.takeIf { it == ActiveSessionState.Closed }
+                    ?: fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+            },
+        ) {
+            machine.state.first {
+                it == ActiveSessionState.Closed || (it is ActiveSessionState.Closing && it.failure != null)
+            }
         }
         (settled as? ActiveSessionState.Closing)?.failure?.let { fail(it) }
     }
@@ -227,14 +229,20 @@ class ManagedActiveSession(
         }
     }
 
-    /** Awaits [block], failing with ProfileClosed if the handle scope ends first (its machine stopped). */
-    private suspend fun <T> untilStopped(block: suspend () -> T): T = coroutineScope {
+    /**
+     * Awaits [block]; if the handle scope ends first (its machine stopped) the result is [onStopped], by default
+     * a ProfileClosed failure.
+     */
+    private suspend fun <T> untilStopped(
+        onStopped: () -> T = { fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)) },
+        block: suspend () -> T,
+    ): T = coroutineScope {
         val result = async(start = CoroutineStart.UNDISPATCHED) { block() }
         select {
             result.onAwait { it }
             parts.lifetime.onJoin {
                 result.cancel()
-                fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+                onStopped()
             }
         }
     }
