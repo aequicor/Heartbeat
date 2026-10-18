@@ -195,6 +195,7 @@ private fun WideWorkspace(
                         .background(HbTheme.surfaces.sidebar).studioSidebarFocus(focus),
                     appUpdate = state.appUpdate.takeIf { host.isAppUpdateAvailable },
                     safetyReviews = state.safetyReviews,
+                    harnessAwaitingPermissions = state.harnessAwaitingPermissions,
                     isAgentRunning = state.hasRunningAgentsForUpdate(),
                 )
             }
@@ -313,6 +314,7 @@ private fun CompactWorkspace(
                     isDrawer = true,
                     appUpdate = state.appUpdate.takeIf { host.isAppUpdateAvailable },
                     safetyReviews = state.safetyReviews,
+                    harnessAwaitingPermissions = state.harnessAwaitingPermissions,
                     isAgentRunning = state.hasRunningAgentsForUpdate(),
                 )
             }

@@ -10,7 +10,10 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
+import io.aequicor.heartbeat.feature.harness.api.workflow.organismPermissionCounts
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -60,6 +63,7 @@ private typealias LibraryPipeline = PipelineContext<HarnessLibraryState, Harness
 /** Mirrors the profile library; every change is a machine command, so the list outlives the screen. */
 internal class HarnessLibraryModel(
     private val machine: HarnessMachine,
+    runs: HarnessRunsMachine,
     factory: HeartbeatStoreFactory,
     scope: CoroutineScope,
     private val clock: Clock = Clock.System,
@@ -69,14 +73,15 @@ internal class HarnessLibraryModel(
 
     private val screen = factory.createScreen<HarnessLibraryState, HarnessLibraryIntent, HarnessLibraryAction>(
         "HarnessLibrary",
-        HarnessLibraryState().reflectLibrary(machine.state.value),
+        HarnessLibraryState().reflectLibrary(machine.state.value, runs.state.value),
         onError = { this },
     ) {
         reflect(machine, onOutput = { output ->
             if (output is HarnessOutput.StorageFailed && output.requestId in issued.value) {
                 updateState { copy(isSaveFailed = true) }
             }
-        }) { reflectLibrary(it) }
+        }) { reflectLibrary(it, runs.state.value) }
+        reflect(runs) { reflectLibrary(machine.state.value, it) }
         reduce { intent -> handle(intent) }
     }
     val store = screen.store
@@ -124,11 +129,14 @@ internal class HarnessLibraryModel(
     }
 }
 
-private fun HarnessLibraryState.reflectLibrary(state: HarnessState): HarnessLibraryState {
+private fun HarnessLibraryState.reflectLibrary(state: HarnessState, runs: HarnessRunsState): HarnessLibraryState {
     val ready = state as? HarnessState.Ready ?: return copy(phase = state.phase())
+    val counts = if (ready.isSuspended) emptyMap() else runs.organismPermissionCounts()
     return copy(
         phase = PhaseUi.Ready,
-        harnesses = ready.harnesses.sortedBy { it.harness.name.value }.map { it.toRow() }.toImmutableList(),
+        harnesses = ready.harnesses.sortedBy { it.harness.name.value }.map {
+            it.toRow().copy(awaitingPermissions = counts[it.harness.id] ?: 0)
+        }.toImmutableList(),
         isCodeSupported = ready.isRuntimeAvailable,
     )
 }

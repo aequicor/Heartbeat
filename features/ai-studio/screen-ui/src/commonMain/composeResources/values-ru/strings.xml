@@ -336,4 +336,6 @@
     <string name="project_trust_trusted">Доверять проекту</string>
     <string name="harness_defaults_loading">Загрузка харнессов…</string>
     <string name="harness_defaults_retry">Харнессы недоступны · Повторить</string>
+    <string name="harness_requests_label">? %1$d</string>
+    <string name="harness_requests_title">Запросы workflow ждут вашего решения: %1$d. Открыть харнессы.</string>
 </resources>

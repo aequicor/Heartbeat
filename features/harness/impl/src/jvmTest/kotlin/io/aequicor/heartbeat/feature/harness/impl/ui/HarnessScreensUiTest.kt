@@ -4,9 +4,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -20,14 +22,42 @@ import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessItemIntent
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessItemState
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessLibraryIntent
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessLibraryState
+import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessRowUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ItemKindUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.PhaseUi
 import kotlinx.collections.immutable.persistentListOf
+import java.io.File
+import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 class HarnessScreensUiTest {
+    @Test
+    fun `library badges lead to the harness with pending requests`() {
+        for (width in listOf(1280f, 420f)) {
+            for (dark in listOf(false, true)) {
+                runSkikoComposeUiTest(size = Size(width, 900f)) {
+                    val intents = mutableListOf<HarnessLibraryIntent>()
+                    val state = HarnessLibraryState(
+                        phase = PhaseUi.Ready,
+                        isCodeSupported = true,
+                        harnesses = persistentListOf(
+                            HarnessRowUi("h1", "verify", "Проверка", 1, true, false, awaitingPermissions = 2),
+                        ),
+                    )
+                    setContent { HbTheme(darkTheme = dark) { HarnessLibraryContent(state, intents::add, null) } }
+                    onNodeWithTag("harness-pending-h1", useUnmergedTree = true).assertIsDisplayed()
+                    val directory = File("build/reports/harness-requests").apply { mkdirs() }
+                    val image = File(directory, "library-$width-$dark.png")
+                    check(ImageIO.write(captureToImage().toAwtImage(), "png", image))
+                    onNodeWithTag("harness-row-h1").performClick()
+                    assertEquals<List<HarnessLibraryIntent>>(listOf(HarnessLibraryIntent.Open("h1")), intents)
+                }
+            }
+        }
+    }
+
     @Test
     fun `library explains safety without approval controls`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
         val intents = mutableListOf<HarnessLibraryIntent>()

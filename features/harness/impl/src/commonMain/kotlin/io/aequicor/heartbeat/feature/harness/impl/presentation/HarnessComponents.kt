@@ -28,11 +28,12 @@ internal class HarnessLibraryComponent(
     @Assisted private val navigator: Navigator,
     @Assisted screen: ScopeHandle,
     machine: Lazy<HarnessMachine>,
+    runs: Lazy<HarnessRunsMachine>,
     factory: HeartbeatStoreFactory,
 ) : ComponentContext by context {
     val model: HarnessLibraryModel = instanceKeeper.getOrCreate(MODEL_KEY) {
         Retained(
-            HarnessLibraryModel(machine.value, factory, screen.coroutineScope),
+            HarnessLibraryModel(machine.value, runs.value, factory, screen.coroutineScope),
         )
     }.model
 

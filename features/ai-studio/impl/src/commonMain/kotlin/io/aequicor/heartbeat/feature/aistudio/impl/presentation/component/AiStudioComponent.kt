@@ -52,6 +52,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserMachineKey
 import io.aequicor.heartbeat.feature.browser.api.BrowserRoute
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistRoute
+import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
@@ -434,6 +435,12 @@ class AiStudioComponent(
             NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade),
         )
     }
+
+    /** Opens the harness library above the studio; its badges lead to the waiting workflow cells. */
+    fun openHarnessRequests() = navigator.navigate(
+        HarnessRoute(),
+        NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade),
+    )
 
     /** Opens the feature toggles panel above the studio; the studio keeps its state underneath. */
     fun openToggles() = navigator.navigate(

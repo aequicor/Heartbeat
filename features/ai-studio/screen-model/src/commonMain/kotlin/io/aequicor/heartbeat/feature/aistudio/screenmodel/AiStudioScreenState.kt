@@ -28,6 +28,8 @@ data class AiStudioScreenState(
     val appUpdate: AppUpdateUi? = null,
     /** Load of the profile's automatic safety reviews; absent while the reviewer is idle. */
     val safetyReviews: SafetyReviewsUi? = null,
+    /** Profile workflow cells waiting for a user decision; request content stays in the harness screen. */
+    val harnessAwaitingPermissions: Int = 0,
     /** Saved profile confirmation level, applied to the next ordinary user turn. */
     val securityLevel: SecurityLevelUi = SecurityLevelUi.Automatic,
     val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),

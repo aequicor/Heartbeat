@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -29,6 +30,18 @@ class HarnessRunsOrganismPermissionTest {
         allow,
         WorkflowViewer.User,
     )
+
+    @Test
+    fun `navigation counts only live requests of active runs and groups by harness`() {
+        val other = run.copy(id = RunId("wf_other"))
+        assertEquals(mapOf(run.harness to 2), HarnessRunsState.Ready(listOf(run, other)).organismPermissionCounts())
+        assertEquals(emptyMap(), ready.copy(isSuspended = true).organismPermissionCounts())
+        assertEquals(emptyMap(), HarnessRunsState.Loading().organismPermissionCounts())
+        assertEquals(emptyMap(), ready.copy(runs = listOf(run.withoutLiveRequests())).organismPermissionCounts())
+        val cancelled = run.copy(cancellation = WorkflowFailure.Cancelled)
+        val completed = other.copy(status = WorkflowStatus.Completed(JsonPrimitive("ok")), finishedAt = Now)
+        assertEquals(emptyMap(), HarnessRunsState.Ready(listOf(cancelled, completed)).organismPermissionCounts())
+    }
 
     @Test
     fun `the current driver replaces the requests of its organisms and a stale one cannot`() {

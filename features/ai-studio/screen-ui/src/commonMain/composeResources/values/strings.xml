@@ -342,4 +342,6 @@
     <string name="project_trust_trusted">Trust the project</string>
     <string name="harness_defaults_loading">Loading harnesses…</string>
     <string name="harness_defaults_retry">Harnesses unavailable · Retry</string>
+    <string name="harness_requests_label">? %1$d</string>
+    <string name="harness_requests_title">Workflow requests waiting for your decision: %1$d. Open harnesses.</string>
 </resources>

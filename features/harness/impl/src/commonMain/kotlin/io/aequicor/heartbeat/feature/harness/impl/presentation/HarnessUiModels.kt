@@ -22,6 +22,7 @@ internal data class HarnessRowUi(
     val itemCount: Int,
     val isEnabled: Boolean,
     val hasFailures: Boolean,
+    val awaitingPermissions: Int = 0,
 )
 
 /** One item row of a harness. */

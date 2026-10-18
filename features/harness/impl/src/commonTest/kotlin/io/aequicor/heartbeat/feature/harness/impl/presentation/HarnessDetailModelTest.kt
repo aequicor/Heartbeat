@@ -214,6 +214,30 @@ class HarnessDetailModelTest {
         assertTrue(runs.sent.isEmpty())
     }
 
+    @Test
+    fun `library badges follow live requests and clear on suspension and completion`() = runTest {
+        val runs = RecordingRuns(HarnessRunsState.Ready(listOf(run(listOf(asking())))))
+        val initial = ready()
+        val library = RecordingLibrary(initial)
+        val model = HarnessLibraryModel(library, runs, storeFactory(), backgroundScope)
+        val screen = subscribe(model.store)
+        assertEquals(1, screen.states.value.harnesses.single().awaitingPermissions)
+        library.state.value = initial.copy(
+            harnesses = initial.harnesses.map { it.copy(harness = it.harness.copy(title = "New")) },
+        )
+        runCurrent()
+        assertEquals(1, screen.states.value.harnesses.single().awaitingPermissions)
+        runs.state.value = HarnessRunsState.Ready(listOf(run(listOf(asking()))), isSuspended = true)
+        runCurrent()
+        assertEquals(0, screen.states.value.harnesses.single().awaitingPermissions)
+        runs.state.value = HarnessRunsState.Ready(listOf(run(listOf(asking()))))
+        runCurrent()
+        assertEquals(1, screen.states.value.harnesses.single().awaitingPermissions)
+        runs.state.value = HarnessRunsState.Ready(listOf(run(emptyList())))
+        runCurrent()
+        assertEquals(0, screen.states.value.harnesses.single().awaitingPermissions)
+    }
+
     private fun TestScope.detail(library: RecordingLibrary, runs: HarnessRunsMachine = IdleRuns()) =
         HarnessDetailModel(harness.id.value, library, runs, storeFactory(), backgroundScope)
 
@@ -255,7 +279,7 @@ private class RecordingRuns(initial: HarnessRunsState) : HarnessRunsMachine {
     }
 }
 
-private class IdleRuns : HarnessRunsMachine {
+internal class IdleRuns : HarnessRunsMachine {
     override val name = "harness_runs"
     override val state = MutableStateFlow<HarnessRunsState>(HarnessRunsState.Idle())
     override val outputs = MutableSharedFlow<HarnessRunsOutput>()

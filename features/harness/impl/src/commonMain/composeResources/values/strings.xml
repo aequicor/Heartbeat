@@ -92,4 +92,5 @@
     <string name="harness_hosted_section">Heartbeat tools</string>
     <string name="harness_hosted_hint">A harness can only turn these tools off.</string>
     <string name="harness_tool_available">Allow %1$s</string>
+    <string name="harness_pending_requests">Waiting: %1$d</string>
 </resources>

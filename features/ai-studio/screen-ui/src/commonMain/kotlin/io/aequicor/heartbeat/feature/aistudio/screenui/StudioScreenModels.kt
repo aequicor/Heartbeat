@@ -74,6 +74,8 @@ data class StudioExits(
     /** Cards of interfaces shown in replies, keyed by `studioCardKey(pane, cardId)`. */
     val cards: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     val onOpenSettings: (() -> Unit)? = null,
+    /** Opens the profile harness library to find and answer pending workflow requests. */
+    val onOpenHarnessRequests: (() -> Unit)? = null,
 )
 
 /** What a pane may offer in the current window layout. */

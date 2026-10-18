@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.harness_failed_badge
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_items
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_list_section
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_no_code
+import io.aequicor.heartbeat.feature.harness.impl.resources.harness_pending_requests
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_save_failed
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_title
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_use
@@ -143,6 +144,13 @@ private fun HarnessRow(row: HarnessRowUi, onIntent: (HarnessLibraryIntent) -> Un
         onClick = { onIntent(HarnessLibraryIntent.Open(row.id)) },
     ) {
         HbRow(gap = HbTheme.spacing.s) {
+            if (row.awaitingPermissions > 0) {
+                HbBadge(
+                    stringResource(Res.string.harness_pending_requests, row.awaitingPermissions),
+                    Modifier.testTag("harness-pending-${row.id}"),
+                    tone = HbTone.Warning,
+                )
+            }
             if (row.hasFailures) HbBadge(stringResource(Res.string.harness_failed_badge), tone = HbTone.Danger)
             HbSwitch(
                 row.isEnabled,

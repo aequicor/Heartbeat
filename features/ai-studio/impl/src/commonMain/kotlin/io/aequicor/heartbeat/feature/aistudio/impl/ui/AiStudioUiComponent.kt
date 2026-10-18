@@ -80,6 +80,7 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         ) {
             StudioExits(
                 onBack = component::close,
+                onOpenHarnessRequests = component::openHarnessRequests,
                 onOpenToggles = component::openToggles,
                 onOpenProfileSettings = if (isProfileSettingsShown) component::openProfileSettings else null,
                 onOpenConnections = if (isConnectionsShown) component::openConnections else null,
