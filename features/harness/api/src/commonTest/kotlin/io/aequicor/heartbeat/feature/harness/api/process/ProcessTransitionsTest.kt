@@ -220,7 +220,7 @@ class ProcessTransitionsTest {
 
         ended.expectRejected(ProcessCommand.Start(buildStage, helperExecutor), ProcessRejection.Closed)
         ended.expectRejected(ProcessCommand.Wait(WaitReason.Timer, answer), ProcessRejection.Closed)
-        ended.expectRejected(ProcessCommand.Resume(1), ProcessRejection.Closed)
+        ended.expectRejected(ProcessCommand.Resume(1), ProcessRejection.UnknownWait)
         ended.expectRejected(ProcessCommand.ReviseInput(9), ProcessRejection.Closed)
         ended.expectRejected(ProcessCommand.ObserveSubject(sha('a')), ProcessRejection.Closed)
         ended.expectRejected(ProcessCommand.Close(ProcessEnd.Failed), ProcessRejection.Closed)
@@ -234,6 +234,27 @@ class ProcessTransitionsTest {
         val ended = newProcess().change(ProcessCommand.Wait(WaitReason.Human, answer))
             .change(ProcessCommand.Close(ProcessEnd.Failed))
         assertEquals(ProcessEnd.Failed, assertIs<ProcessPhase.Ended>(ended.phase).end)
+    }
+
+    @Test
+    fun `a duplicate resume still arrives at an ended process as a replay`() {
+        val resumed = newProcess().change(ProcessCommand.Wait(WaitReason.Human, answer))
+            .change(ProcessCommand.Resume(1))
+        val ended = resumed.change(ProcessCommand.Close(ProcessEnd.Completed))
+        ended.expectUnchanged(ProcessCommand.Resume(1))
+        ended.expectRejected(ProcessCommand.Resume(2), ProcessRejection.UnknownWait)
+
+        val closedWhileWaiting = newProcess().change(ProcessCommand.Wait(WaitReason.Human, answer))
+            .change(ProcessCommand.Close(ProcessEnd.Failed))
+        closedWhileWaiting.expectUnchanged(ProcessCommand.Resume(1))
+    }
+
+    @Test
+    fun `an exact replay of a revision or a subject is not answered after the end`() {
+        val ended = newProcess().change(ProcessCommand.ReviseInput(2)).change(ProcessCommand.ObserveSubject(sha('a')))
+            .change(ProcessCommand.Close(ProcessEnd.Completed))
+        ended.expectRejected(ProcessCommand.ReviseInput(2), ProcessRejection.Closed)
+        ended.expectRejected(ProcessCommand.ObserveSubject(sha('a')), ProcessRejection.Closed)
     }
 
     @Test

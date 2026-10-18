@@ -8,6 +8,11 @@ import kotlin.time.Instant
  * What a process may do to systems outside the profile. Every level is granted on its own and none implies
  * another: a process that may merge may not necessarily publish. The platform only enforces that a write cites a
  * granted level; what a level means for a concrete system is up to the harness.
+ *
+ * The grants are a declaration of the harness's own approved script, sent as [ProcessCommand.Grant] like any other
+ * command. They are not an approval by a person and not a security boundary: nothing stops a script from granting
+ * itself a level, and nothing checks that the level named in [ProcessCommand.BeginWrite] matches what the call does.
+ * A step only a person may open has to be enforced by the host and does not exist yet.
  */
 @Serializable
 public enum class ProcessAuthority {
@@ -54,8 +59,8 @@ public sealed interface WritePhase {
 
 /**
  * One logical write to an external system. [key] identifies the operation, [target] what it touches. [tries] counts
- * how often the operation was begun: it grows only after a [WritePhase.NotApplied] outcome. [at] is the time of the
- * last change of [phase].
+ * how often the operation was begun: it grows only after a [WritePhase.NotApplied] outcome, and a mark or settlement
+ * that names an older try never changes a newer one. [at] is the time of the last change of [phase].
  */
 @Serializable
 public data class ExternalWrite(

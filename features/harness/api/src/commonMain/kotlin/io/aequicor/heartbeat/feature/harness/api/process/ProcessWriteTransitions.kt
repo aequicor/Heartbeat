@@ -30,9 +30,9 @@ internal fun ProcessRecord.beginWrite(command: ProcessCommand.BeginWrite, now: I
 
         existing.phase is WritePhase.Confirmed -> ProcessReduction.Unchanged(this)
 
-        command.authority !in grants -> rejected(ProcessRejection.NotAuthorized)
-
         existing.isUnresolved -> rejected(ProcessRejection.WriteUnresolved)
+
+        command.authority !in grants -> rejected(ProcessRejection.NotAuthorized)
 
         else -> replaceWrite(existing.copy(phase = WritePhase.Intended, tries = existing.tries + 1, at = now), now)
     }
@@ -48,9 +48,13 @@ private fun ProcessRecord.addWrite(command: ProcessCommand.BeginWrite, now: Inst
     }
 }
 
-/** The journal without its oldest settled write, or null when every write is still open and none may be forgotten. */
+/**
+ * The journal without a settled write, or null when every write is still open and none may be forgotten. A write
+ * known not to have happened goes first, because forgetting it cannot repeat anything; then the oldest confirmed one.
+ * Beginning a forgotten key afterwards is a new write: the journal recognizes only the keys it still holds.
+ */
 private fun List<ExternalWrite>.dropOldestSettled(): List<ExternalWrite>? {
-    val oldest = firstOrNull { it.isSettled } ?: return null
+    val oldest = firstOrNull { it.phase == WritePhase.NotApplied } ?: firstOrNull { it.isSettled } ?: return null
     return this - oldest
 }
 
@@ -69,20 +73,24 @@ internal fun ProcessRecord.confirmWrite(key: WriteKey, result: ResultRef, now: I
     }
 }
 
-internal fun ProcessRecord.markWriteUnknown(key: WriteKey, now: Instant): ProcessReduction {
+internal fun ProcessRecord.markWriteUnknown(key: WriteKey, tries: Int, now: Instant): ProcessReduction {
     val existing = write(key)
     return when {
         existing == null -> rejected(ProcessRejection.UnknownWrite)
+        tries > existing.tries -> rejected(ProcessRejection.UnknownTry)
+        tries < existing.tries -> ProcessReduction.Unchanged(this)
         existing.phase == WritePhase.Unknown -> ProcessReduction.Unchanged(this)
         existing.isSettled -> rejected(ProcessRejection.OutcomeConflict)
         else -> replaceWrite(existing.copy(phase = WritePhase.Unknown, at = now), now)
     }
 }
 
-internal fun ProcessRecord.writeNotApplied(key: WriteKey, now: Instant): ProcessReduction {
+internal fun ProcessRecord.writeNotApplied(key: WriteKey, tries: Int, now: Instant): ProcessReduction {
     val existing = write(key)
     return when {
         existing == null -> rejected(ProcessRejection.UnknownWrite)
+        tries > existing.tries -> rejected(ProcessRejection.UnknownTry)
+        tries < existing.tries -> ProcessReduction.Unchanged(this)
         existing.phase == WritePhase.NotApplied -> ProcessReduction.Unchanged(this)
         existing.phase is WritePhase.Confirmed -> rejected(ProcessRejection.OutcomeConflict)
         else -> replaceWrite(existing.copy(phase = WritePhase.NotApplied, at = now), now)

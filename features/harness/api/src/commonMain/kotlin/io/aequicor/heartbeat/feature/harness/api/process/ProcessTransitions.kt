@@ -16,18 +16,28 @@ import kotlin.time.Instant
  * | [ReviseInput] / [ObserveSubject] | Idle, Running, Waiting | same phase, newer input or subject |
  * | [Grant] / [Revoke] | Idle, Running, Waiting | same phase, authority added or removed |
  * | [BeginWrite] | Idle, Running, Waiting | same phase, write journaled as Intended (needs the authority) |
- * | [ConfirmWrite] / [MarkWriteUnknown] / [WriteNotApplied] | any, also Ended | same phase, write settled |
+ * | [ConfirmWrite] / [MarkWriteUnknown] / [WriteNotApplied] | any, also Ended | same phase, write settled or marked |
  * | [Close] | Idle, Running (attempt abandoned), Waiting | Ended |
  *
  * Exact replays are answered with [ProcessReduction.Unchanged] where the record alone proves them: a [Finish] of an
  * already closed attempt with the same outcome, a [Resume] of a wait that is already over, a [ReviseInput] to the
  * current revision, an [ObserveSubject] of the current subject, a [BeginWrite] of a confirmed write, a settlement
  * that is already recorded, a [Close] with the verdict already reached. Everything else that does not fit is rejected.
+ * After [Close] only [Finish], [Resume], [Close] and the write settlements are still answered; any other command,
+ * an exact replay of [ReviseInput] or [ObserveSubject] included, is [ProcessRejection.Closed].
  *
  * External writes never repeat blindly. [BeginWrite] journals the intent before the caller touches the external
  * system. The same key is refused while its outcome is open ([ProcessRejection.WriteUnresolved]): after a restart the
  * caller marks the write unknown ([MarkWriteUnknown]), looks at the external system and settles it with
- * [ConfirmWrite] (it is there) or [WriteNotApplied] (it is not, and only then may [BeginWrite] try again).
+ * [ConfirmWrite] (it is there) or [WriteNotApplied] (it is not, and only then may [BeginWrite] try again). A mark or
+ * a "not applied" names the try ([ExternalWrite.tries]) the caller looked at: a decision about an older try is
+ * [ProcessReduction.Unchanged] and never touches a newer one, so a late or concurrent reconciler cannot turn a
+ * retry that is already under way into a second external call.
+ *
+ * The journal remembers [ProcessLimits.WRITES] keys. When it is full the oldest settled write is forgotten (a write
+ * known not to have happened first), and beginning a forgotten key is a new write. Idempotency therefore holds for
+ * the keys still in the journal: name the operation in the key (a revision, a head) so that a replay of it arrives
+ * while its key is still remembered.
  */
 public sealed interface ProcessCommand {
     /** Starts attempt number [ProcessRecord.nextAttempt] of [stage] on [executor]. */
@@ -64,11 +74,14 @@ public sealed interface ProcessCommand {
     /** The write [key] took effect; [result] is the evidence. Also settles a write that was marked unknown. */
     public data class ConfirmWrite(val key: WriteKey, val result: ResultRef) : ProcessCommand
 
-    /** Whether write [key] happened is not known: a restart or timeout cut the call short. It must be reconciled. */
-    public data class MarkWriteUnknown(val key: WriteKey) : ProcessCommand
+    /**
+     * Whether try [tries] of write [key] happened is not known: a restart or timeout cut the call short. It must be
+     * reconciled. [tries] is [ExternalWrite.tries] of the write the caller looked at.
+     */
+    public data class MarkWriteUnknown(val key: WriteKey, val tries: Int) : ProcessCommand
 
-    /** The write [key] is known not to have taken effect, so it may be begun again. */
-    public data class WriteNotApplied(val key: WriteKey) : ProcessCommand
+    /** Try [tries] of write [key] is known not to have taken effect, so the write may be begun again. */
+    public data class WriteNotApplied(val key: WriteKey, val tries: Int) : ProcessCommand
 
     /** Ends the process with [end]; an in-flight attempt is closed as [AttemptFailure.Cancelled]. */
     public data class Close(val end: ProcessEnd) : ProcessCommand
@@ -112,6 +125,9 @@ public enum class ProcessRejection {
     /** The write key is already used for another authority or target. */
     WriteKeyConflict,
 
+    /** The try number of the write was never issued. */
+    UnknownTry,
+
     /** No write with that key is journaled. */
     UnknownWrite,
 
@@ -138,23 +154,23 @@ public sealed interface ProcessReduction {
 public fun ProcessRecord.reduce(command: ProcessCommand, at: Instant): ProcessReduction {
     val now = maxOf(at, updatedAt)
     return when (command) {
-        // Outcomes that arrive late still belong in the record: replays of closed attempts, the final verdict and
-        // the settlement of writes stay answerable after the end.
+        // Outcomes that arrive late still belong in the record: replays of closed attempts and finished waits, the
+        // final verdict and the settlement of writes stay answerable after the end.
         is ProcessCommand.Finish -> finish(command, now)
 
         is ProcessCommand.Close -> close(command.end, now)
 
+        is ProcessCommand.Resume -> resume(command.wait, now)
+
         is ProcessCommand.ConfirmWrite -> confirmWrite(command.key, command.result, now)
 
-        is ProcessCommand.MarkWriteUnknown -> markWriteUnknown(command.key, now)
+        is ProcessCommand.MarkWriteUnknown -> markWriteUnknown(command.key, command.tries, now)
 
-        is ProcessCommand.WriteNotApplied -> writeNotApplied(command.key, now)
+        is ProcessCommand.WriteNotApplied -> writeNotApplied(command.key, command.tries, now)
 
         is ProcessCommand.Start -> whileLive { start(command, now) }
 
         is ProcessCommand.Wait -> whileLive { wait(command, now) }
-
-        is ProcessCommand.Resume -> whileLive { resume(command.wait, now) }
 
         is ProcessCommand.ReviseInput -> whileLive { reviseInput(command.revision, now) }
 
@@ -168,7 +184,7 @@ public fun ProcessRecord.reduce(command: ProcessCommand, at: Instant): ProcessRe
     }
 }
 
-/** Runs [reduction] unless the process has ended, which refuses every command that is not a replay. */
+/** Runs [reduction] unless the process has ended, which refuses every command that is not answered after the end. */
 private inline fun ProcessRecord.whileLive(reduction: () -> ProcessReduction): ProcessReduction =
     if (phase is ProcessPhase.Ended) rejected(ProcessRejection.Closed) else reduction()
 

@@ -44,16 +44,26 @@ class ProcessRecoveryTest {
     }
 
     @Test
-    fun `open writes are listed oldest first and settled ones are not`() {
+    fun `a clock behind the record is clamped like in reduce`() {
+        val deadline = processAt(100)
+        val timed = WakeCondition(events = setOf(EventKeys.custom("process.answer")), deadline = deadline)
+        val waiting = newProcess().change(ProcessCommand.Wait(WaitReason.Human, timed), seconds = 120)
+        val wait = assertIs<ProcessPhase.Waiting>(waiting.phase).wait
+
+        assertEquals(listOf(ProcessRecovery.WaitOpen(wait, isDue = true)), waiting.recovery(processAt(90)))
+    }
+
+    @Test
+    fun `open writes are listed in journal order and settled ones are not`() {
         val process = granted()
-            .change(ProcessCommand.BeginWrite(WriteKey("first"), ProcessAuthority.Write, target))
-            .change(ProcessCommand.BeginWrite(WriteKey("second"), ProcessAuthority.Write, target))
-            .change(ProcessCommand.BeginWrite(WriteKey("third"), ProcessAuthority.Write, target))
-            .change(ProcessCommand.ConfirmWrite(WriteKey("second"), ResultRef("comment", "c-1")))
-            .change(ProcessCommand.MarkWriteUnknown(WriteKey("third")))
+            .change(ProcessCommand.BeginWrite(WriteKey("zeta"), ProcessAuthority.Write, target), seconds = 5)
+            .change(ProcessCommand.BeginWrite(WriteKey("alpha"), ProcessAuthority.Write, target), seconds = 6)
+            .change(ProcessCommand.BeginWrite(WriteKey("mid"), ProcessAuthority.Write, target), seconds = 7)
+            .change(ProcessCommand.ConfirmWrite(WriteKey("alpha"), ResultRef("comment", "c-1")), seconds = 8)
+            .change(ProcessCommand.MarkWriteUnknown(WriteKey("mid"), 1), seconds = 9)
 
         val open = process.recovery(processAt(100)).map { assertIs<ProcessRecovery.WriteOpen>(it).write.key.value }
-        assertEquals(listOf("first", "third"), open)
+        assertEquals(listOf("zeta", "mid"), open)
     }
 
     @Test
@@ -74,14 +84,23 @@ class ProcessRecoveryTest {
     }
 
     @Test
-    fun `an ended process still lists its open writes until they are settled`() {
-        val ended = granted()
-            .change(ProcessCommand.BeginWrite(WriteKey("comment_plan"), ProcessAuthority.Write, target))
-            .change(ProcessCommand.Close(ProcessEnd.Failed))
-        assertEquals(1, ended.recovery(processAt(100)).size)
+    fun `an ended process still lists its open writes and nothing else until they are settled`() {
+        val comment = WriteKey("comment_plan")
+        val begun = granted().change(ProcessCommand.BeginWrite(comment, ProcessAuthority.Write, target))
+        val close = ProcessCommand.Close(ProcessEnd.Failed)
+        val endings = listOf(
+            begun.change(close),
+            begun.change(ProcessCommand.Start(planStage, helperExecutor)).change(close),
+            begun.change(ProcessCommand.Wait(WaitReason.Human, answer)).change(close),
+        )
+        for (ended in endings) {
+            assertIs<ProcessPhase.Ended>(ended.phase)
+            val open = ended.recovery(processAt(100)).single()
+            assertEquals(comment, assertIs<ProcessRecovery.WriteOpen>(open).write.key)
 
-        val settled = ended.change(ProcessCommand.WriteNotApplied(WriteKey("comment_plan")))
-        assertTrue(settled.recovery(processAt(100)).isEmpty())
+            val settled = ended.change(ProcessCommand.WriteNotApplied(comment, 1))
+            assertTrue(settled.recovery(processAt(100)).isEmpty())
+        }
     }
 
     @Test
@@ -89,10 +108,32 @@ class ProcessRecoveryTest {
         val interrupted = granted()
             .change(ProcessCommand.Start(planStage, helperExecutor))
             .change(ProcessCommand.BeginWrite(WriteKey("comment_plan"), ProcessAuthority.Write, target))
-        val settled = interrupted
-            .change(ProcessCommand.Finish(1, failed(AttemptFailure.Interrupted)))
-            .change(ProcessCommand.MarkWriteUnknown(WriteKey("comment_plan")))
-            .change(ProcessCommand.ConfirmWrite(WriteKey("comment_plan"), ResultRef("comment", "c-1")))
-        assertTrue(settled.recovery(processAt(100)).isEmpty())
+        var process = interrupted
+        for (item in interrupted.recovery(processAt(100))) {
+            process = when (item) {
+                is ProcessRecovery.AttemptOpen -> process.change(
+                    ProcessCommand.Finish(item.attempt.number, failed(AttemptFailure.Interrupted)),
+                )
+
+                is ProcessRecovery.WriteOpen ->
+                    process
+                        .change(ProcessCommand.MarkWriteUnknown(item.write.key, item.write.tries))
+                        .change(ProcessCommand.ConfirmWrite(item.write.key, ResultRef("comment", "c-1")))
+
+                is ProcessRecovery.WaitOpen -> error("no wait was open")
+            }
+        }
+        assertTrue(process.recovery(processAt(100)).isEmpty())
+    }
+
+    @Test
+    fun `an attempt that is kept alive and a wait that is kept stay listed`() {
+        val running = newProcess().change(ProcessCommand.Start(planStage, helperExecutor))
+        assertEquals(1, running.recovery(processAt(100)).size)
+        assertEquals(1, running.recovery(processAt(200)).size)
+
+        val waiting = newProcess().change(ProcessCommand.Wait(WaitReason.Human, answer))
+        assertEquals(1, waiting.recovery(processAt(100)).size)
+        assertEquals(1, waiting.recovery(processAt(200)).size)
     }
 }

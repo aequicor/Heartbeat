@@ -168,7 +168,7 @@ class HarnessScriptProcessesTest {
         assertFalse(env.processes.remove(issue))
         assertIs<ProcessPhase.Ended>(env.processes.get(issue)?.phase)
 
-        env.processes.apply(issue, ProcessCommand.WriteNotApplied(key))
+        env.processes.apply(issue, ProcessCommand.WriteNotApplied(key, 1))
         assertTrue(env.processes.remove(issue))
         assertNull(env.processes.get(issue))
         assertTrue(env.processes.list().isEmpty())

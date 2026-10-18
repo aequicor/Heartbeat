@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.api.process
 
+import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
+import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -10,6 +12,7 @@ class ProcessWriteTransitionsTest {
     private val comment = WriteKey("comment_plan")
     private val pullRequest = ResultRef("pull_request", "pr-7")
     private val commentDone = ResultRef("comment", "c-1")
+    private val answer = WakeCondition(events = setOf(EventKeys.custom("process.answer")))
 
     private fun granted(vararg authorities: ProcessAuthority): ProcessRecord =
         authorities.fold(newProcess()) { process, authority -> process.change(ProcessCommand.Grant(authority)) }
@@ -64,14 +67,15 @@ class ProcessWriteTransitionsTest {
         val intended = granted(ProcessAuthority.Write).change(begin())
         intended.expectRejected(begin(), ProcessRejection.WriteUnresolved)
 
-        val unknown = intended.change(ProcessCommand.MarkWriteUnknown(comment))
+        val unknown = intended.change(ProcessCommand.MarkWriteUnknown(comment, 1))
         unknown.expectRejected(begin(), ProcessRejection.WriteUnresolved)
         assertEquals(1, unknown.write(comment)?.tries)
     }
 
     @Test
     fun `an unknown write found applied is confirmed and never repeated`() {
-        val unknown = granted(ProcessAuthority.Write).change(begin()).change(ProcessCommand.MarkWriteUnknown(comment))
+        val unknown = granted(ProcessAuthority.Write).change(begin())
+            .change(ProcessCommand.MarkWriteUnknown(comment, 1))
         assertEquals(WritePhase.Unknown, unknown.write(comment)?.phase)
 
         val confirmed = unknown.change(ProcessCommand.ConfirmWrite(comment, commentDone))
@@ -87,9 +91,9 @@ class ProcessWriteTransitionsTest {
 
     @Test
     fun `a write known not to have happened may be tried again`() {
-        val failed = granted(ProcessAuthority.Write).change(begin()).change(ProcessCommand.WriteNotApplied(comment))
+        val failed = granted(ProcessAuthority.Write).change(begin()).change(ProcessCommand.WriteNotApplied(comment, 1))
         assertEquals(WritePhase.NotApplied, failed.write(comment)?.phase)
-        failed.expectUnchanged(ProcessCommand.WriteNotApplied(comment))
+        failed.expectUnchanged(ProcessCommand.WriteNotApplied(comment, 1))
 
         val again = failed.change(begin(), seconds = 20)
         assertEquals(WritePhase.Intended, again.write(comment)?.phase)
@@ -99,8 +103,9 @@ class ProcessWriteTransitionsTest {
 
     @Test
     fun `an unknown write found absent is settled as not applied`() {
-        val unknown = granted(ProcessAuthority.Write).change(begin()).change(ProcessCommand.MarkWriteUnknown(comment))
-        val absent = unknown.change(ProcessCommand.WriteNotApplied(comment))
+        val unknown = granted(ProcessAuthority.Write).change(begin())
+            .change(ProcessCommand.MarkWriteUnknown(comment, 1))
+        val absent = unknown.change(ProcessCommand.WriteNotApplied(comment, 1))
         assertEquals(WritePhase.NotApplied, absent.write(comment)?.phase)
         absent.expectRejected(ProcessCommand.ConfirmWrite(comment, commentDone), ProcessRejection.OutcomeConflict)
     }
@@ -109,22 +114,23 @@ class ProcessWriteTransitionsTest {
     fun `a confirmed write cannot become unknown or not applied`() {
         val confirmed = granted(ProcessAuthority.Write).change(begin())
             .change(ProcessCommand.ConfirmWrite(comment, commentDone))
-        confirmed.expectRejected(ProcessCommand.MarkWriteUnknown(comment), ProcessRejection.OutcomeConflict)
-        confirmed.expectRejected(ProcessCommand.WriteNotApplied(comment), ProcessRejection.OutcomeConflict)
+        confirmed.expectRejected(ProcessCommand.MarkWriteUnknown(comment, 1), ProcessRejection.OutcomeConflict)
+        confirmed.expectRejected(ProcessCommand.WriteNotApplied(comment, 1), ProcessRejection.OutcomeConflict)
     }
 
     @Test
     fun `marking an already unknown write unknown changes nothing`() {
-        val unknown = granted(ProcessAuthority.Write).change(begin()).change(ProcessCommand.MarkWriteUnknown(comment))
-        unknown.expectUnchanged(ProcessCommand.MarkWriteUnknown(comment))
+        val unknown = granted(ProcessAuthority.Write).change(begin())
+            .change(ProcessCommand.MarkWriteUnknown(comment, 1))
+        unknown.expectUnchanged(ProcessCommand.MarkWriteUnknown(comment, 1))
     }
 
     @Test
     fun `settling a write that was never journaled is rejected`() {
         val process = granted(ProcessAuthority.Write)
         process.expectRejected(ProcessCommand.ConfirmWrite(comment, commentDone), ProcessRejection.UnknownWrite)
-        process.expectRejected(ProcessCommand.MarkWriteUnknown(comment), ProcessRejection.UnknownWrite)
-        process.expectRejected(ProcessCommand.WriteNotApplied(comment), ProcessRejection.UnknownWrite)
+        process.expectRejected(ProcessCommand.MarkWriteUnknown(comment, 1), ProcessRejection.UnknownWrite)
+        process.expectRejected(ProcessCommand.WriteNotApplied(comment, 1), ProcessRejection.UnknownWrite)
     }
 
     @Test
@@ -151,7 +157,7 @@ class ProcessWriteTransitionsTest {
     fun `a write that failed cannot be tried again without the authority`() {
         val failed = granted(ProcessAuthority.Publish)
             .change(begin(authority = ProcessAuthority.Publish))
-            .change(ProcessCommand.WriteNotApplied(comment))
+            .change(ProcessCommand.WriteNotApplied(comment, 1))
             .change(ProcessCommand.Revoke(ProcessAuthority.Publish))
         failed.expectRejected(begin(authority = ProcessAuthority.Publish), ProcessRejection.NotAuthorized)
     }
@@ -191,9 +197,99 @@ class ProcessWriteTransitionsTest {
         process.expectRejected(begin(WriteKey("extra")), ProcessRejection.TooManyWrites)
         assertEquals(ProcessLimits.WRITES, process.unresolvedWrites().size)
 
-        val room = process.change(ProcessCommand.WriteNotApplied(WriteKey("w3")))
+        val room = process.change(ProcessCommand.WriteNotApplied(WriteKey("w3"), 1))
         val next = room.change(begin(WriteKey("extra")))
         assertNull(next.write(WriteKey("w3")))
-        assertEquals(ProcessLimits.WRITES - 1 + 1, next.writes.size)
+        assertEquals(ProcessLimits.WRITES, next.writes.size)
+    }
+
+    @Test
+    fun `a decision about an older try never touches a newer one`() {
+        val retried = granted(ProcessAuthority.Write)
+            .change(begin())
+            .change(ProcessCommand.MarkWriteUnknown(comment, 1))
+            .change(ProcessCommand.WriteNotApplied(comment, 1))
+            .change(begin())
+        assertEquals(2, retried.write(comment)?.tries)
+        assertEquals(WritePhase.Intended, retried.write(comment)?.phase)
+
+        retried.expectUnchanged(ProcessCommand.WriteNotApplied(comment, 1))
+        retried.expectUnchanged(ProcessCommand.MarkWriteUnknown(comment, 1))
+        retried.expectRejected(begin(), ProcessRejection.WriteUnresolved)
+
+        val unknown = retried.change(ProcessCommand.MarkWriteUnknown(comment, 2))
+        unknown.expectUnchanged(ProcessCommand.WriteNotApplied(comment, 1))
+        val absent = unknown.change(ProcessCommand.WriteNotApplied(comment, 2))
+        assertEquals(WritePhase.NotApplied, absent.write(comment)?.phase)
+    }
+
+    @Test
+    fun `a try that was never issued is rejected`() {
+        val begun = granted(ProcessAuthority.Write).change(begin())
+        begun.expectRejected(ProcessCommand.MarkWriteUnknown(comment, 2), ProcessRejection.UnknownTry)
+        begun.expectRejected(ProcessCommand.WriteNotApplied(comment, 2), ProcessRejection.UnknownTry)
+    }
+
+    @Test
+    fun `an open write reports it is unresolved even when its authority was revoked`() {
+        val revoked = granted(ProcessAuthority.Merge)
+            .change(begin(WriteKey("merge_pr"), ProcessAuthority.Merge))
+            .change(ProcessCommand.Revoke(ProcessAuthority.Merge))
+        revoked.expectRejected(begin(WriteKey("merge_pr"), ProcessAuthority.Merge), ProcessRejection.WriteUnresolved)
+    }
+
+    @Test
+    fun `writes are journaled and granted in every live phase`() {
+        val running = newProcess().change(ProcessCommand.Start(planStage, helperExecutor))
+        val waiting = newProcess().change(ProcessCommand.Wait(WaitReason.Human, answer))
+        for (process in listOf(running, waiting)) {
+            val granted = process.change(ProcessCommand.Grant(ProcessAuthority.Write))
+            val begun = granted.change(begin())
+            assertEquals(WritePhase.Intended, begun.write(comment)?.phase)
+            assertTrue(begun.change(ProcessCommand.Revoke(ProcessAuthority.Write)).grants.isEmpty())
+        }
+    }
+
+    @Test
+    fun `an ended process also records late unknown and not applied outcomes`() {
+        val ended = granted(ProcessAuthority.Write).change(begin()).change(ProcessCommand.Close(ProcessEnd.Failed))
+        val unknown = ended.change(ProcessCommand.MarkWriteUnknown(comment, 1))
+        assertEquals(WritePhase.Unknown, unknown.write(comment)?.phase)
+        val absent = unknown.change(ProcessCommand.WriteNotApplied(comment, 1))
+        assertEquals(WritePhase.NotApplied, absent.write(comment)?.phase)
+        ended.expectRejected(ProcessCommand.Revoke(ProcessAuthority.Write), ProcessRejection.Closed)
+    }
+
+    @Test
+    fun `a write known not to have happened is forgotten before a confirmed one`() {
+        var process = granted(ProcessAuthority.Write)
+        repeat(ProcessLimits.WRITES) { n ->
+            val key = WriteKey("w$n")
+            process = process.change(begin(key))
+            process = if (n == 1) {
+                process.change(ProcessCommand.WriteNotApplied(key, 1))
+            } else {
+                process.change(ProcessCommand.ConfirmWrite(key, commentDone))
+            }
+        }
+
+        val next = process.change(begin(WriteKey("extra")))
+        assertNull(next.write(WriteKey("w1")))
+        assertEquals(WritePhase.Confirmed(commentDone), next.write(WriteKey("w0"))?.phase)
+        assertEquals(ProcessLimits.WRITES, next.writes.size)
+    }
+
+    @Test
+    fun `a forgotten confirmed key begins a new write`() {
+        var process = granted(ProcessAuthority.Write)
+        repeat(ProcessLimits.WRITES + 1) { n ->
+            val key = WriteKey("w$n")
+            process = process.change(begin(key)).change(ProcessCommand.ConfirmWrite(key, commentDone))
+        }
+        assertNull(process.write(WriteKey("w0")))
+
+        val again = process.change(begin(WriteKey("w0")))
+        assertEquals(WritePhase.Intended, again.write(WriteKey("w0"))?.phase)
+        assertEquals(1, again.write(WriteKey("w0"))?.tries)
     }
 }

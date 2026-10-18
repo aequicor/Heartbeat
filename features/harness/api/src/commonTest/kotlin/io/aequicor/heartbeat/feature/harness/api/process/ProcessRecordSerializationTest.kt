@@ -218,10 +218,10 @@ class ProcessRecordSerializationTest {
             .change(begin("confirmed_one", ProcessAuthority.Write))
             .change(ProcessCommand.ConfirmWrite(WriteKey("confirmed_one"), ResultRef("comment", "c-1")))
             .change(begin("unknown_one", ProcessAuthority.Merge))
-            .change(ProcessCommand.MarkWriteUnknown(WriteKey("unknown_one")))
+            .change(ProcessCommand.MarkWriteUnknown(WriteKey("unknown_one"), 1))
             .change(begin("intended_one", ProcessAuthority.Write))
             .change(begin("failed_one", ProcessAuthority.Merge))
-            .change(ProcessCommand.WriteNotApplied(WriteKey("failed_one")))
+            .change(ProcessCommand.WriteNotApplied(WriteKey("failed_one"), 1))
     }
 
     private fun stage(index: Int): StageName =

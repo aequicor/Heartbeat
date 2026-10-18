@@ -163,26 +163,40 @@ private val API = """
       Only successful changed writes invalidate the owner's surfaces; a snapshot/read method must not initialize
       data by writing on every load. Use defaults on read, initialize through an explicit user action.
     - processes — durable development processes (package io.aequicor.heartbeat.feature.harness.api.process, import it
-      explicitly): processes.open(ProcessId("issue_7"), inputRevision), get(id): ProcessRecord?, list(),
-      apply(id, ProcessCommand): ProcessReduction (Changed — already stored —, Unchanged — an exact replay — or
-      Rejected(reason)), remove(id). They live in the data namespace under the reserved keys process_<id> and
-      processes, share its quotas, allow at most ${ProcessLimits.PROCESSES} processes and need the same published
-      activation; never touch those keys through data. A record has a stage (the latest attempt's), attempts bound
-      to the input revision and subject SHA they started from, a wait that attaches no executor, grants and a
-      journal of external writes. Commands: Start(stage, executor), Finish(attempt, Succeeded(result) | Failed(why)),
-      Wait(reason, wakeCondition) / Resume(waitNumber), ReviseInput(revision), ObserveSubject(sha), Grant / Revoke
-      (Write, Publish, Merge, Release — each on its own), BeginWrite(key, authority, target), ConfirmWrite,
-      MarkWriteUnknown, WriteNotApplied, Close(end). record.currentResult(stage) is the stage's result only while its
-      input revision and subject SHA are still current. Make every command name what it refers to (attempt number,
-      wait number, revision, SHA, write key): then a duplicate event is an Unchanged replay and cannot touch newer
-      state. Write to an external system only after BeginWrite was Changed, then ConfirmWrite or WriteNotApplied. When the
-      harness activates, go through processes.list() and settle record.recovery(now) first: AttemptOpen (nobody
-      knows what became of the executor: ask its owner, then Finish, or Failed(Interrupted) when it cannot be
-      accounted for), WriteOpen (MarkWriteUnknown, check the external system itself, then ConfirmWrite or
-      WriteNotApplied) and WaitOpen (check the state the wait was about, an event may have been missed, then
-      Resume(waitNumber) or keep waiting). A write key whose outcome is open is Rejected(WriteUnresolved) and must
-      never be repeated blindly. Ended processes are removed with remove(id). Never log ids, results or journal
-      entries.
+      explicitly and write nested types qualified: ProcessCommand.Start, AttemptOutcome.Succeeded,
+      ProcessReduction.Changed, ProcessRecovery.AttemptOpen): processes.open(ProcessId("issue_7"), inputRevision),
+      get(id): ProcessRecord?, list(), apply(id, ProcessCommand): ProcessReduction (Changed — already stored —,
+      Unchanged — an exact replay — or Rejected(reason)), remove(id). They live in the data namespace under the
+      reserved keys process_<id> and processes, share its quotas, allow at most ${ProcessLimits.PROCESSES} processes
+      and need the same published activation; never touch those keys through data. Names are bounded: ProcessId
+      [a-z0-9_]{1,40}, StageName and WriteKey [a-z][a-z0-9_]*, SubjectSha a full 40/64-digit hex, ExecutorRef and
+      ResultRef ids visible ASCII without quotes and backslashes; a violation is an IllegalArgumentException when
+      the value is built. A record has a stage (the latest attempt's), attempts bound to the input revision and
+      subject SHA they started from, a wait that attaches no executor, grants and a journal of external writes.
+      Commands: Start(stage, executor), Finish(attempt, outcome), Wait(reason, WakeCondition from
+      io.aequicor.heartbeat.feature.scheduler.api) / Resume(wait.number), ReviseInput(revision),
+      ObserveSubject(sha), Grant / Revoke (Write, Publish, Merge, Release — each on its own), BeginWrite(key,
+      authority, target), ConfirmWrite(key, result), MarkWriteUnknown(key, tries), WriteNotApplied(key, tries),
+      Close(end). The platform does not watch a wait's condition: the harness sends Resume itself. Grants are the
+      script's own declaration, not an approval by a person. record.currentResult(stage) is the stage's result only
+      while its input revision and subject SHA are still current; ObserveSubject is last-writer-wins, so drop stale
+      observations yourself, and start a stage that depends on the SHA only after the first ObserveSubject. Make
+      every command name what it refers to (attempt number, wait number, revision, SHA, write key and its try): then
+      a duplicate event is an Unchanged replay and cannot touch newer state. Write to an external system only after
+      BeginWrite was Changed, then ConfirmWrite or WriteNotApplied. Name the operation in the write key (revision,
+      head): the journal remembers ${ProcessLimits.WRITES} keys and a forgotten key begins a new write. A write key
+      whose outcome is open is Rejected(WriteUnresolved) and must never be repeated blindly. Reconcile once, in the
+      single script item that owns the processes, from events.on<HarnessLifecycleEvent.Activated> (take now from
+      event.at; compare event.item, because the event also fires without a restart and for other items, when
+      attempts and calls are still alive) and before any new work. For each record.recovery(now) entry:
+      ProcessRecovery.AttemptOpen (ask the executor's owner: a workflow run that still runs stays in flight and is
+      finished with its own outcome, a finished one is closed with it, only a lost executor or one that cannot
+      outlive a restart is closed with Finish(attempt.number, AttemptOutcome.Failed(AttemptFailure.Interrupted))),
+      ProcessRecovery.WriteOpen (MarkWriteUnknown(key, write.tries), look at the external system itself, then
+      ConfirmWrite or WriteNotApplied(key, write.tries)) and ProcessRecovery.WaitOpen (check the state the wait was
+      about, an event may have been missed, isDue says a deadline passed, then Resume(wait.number) or keep
+      waiting). A kept attempt or wait stays listed, so never loop until the list is empty. Ended processes are
+      removed with remove(id). Never log ids, results or journal entries.
     - sessions.list(), sessions.history(session) — only chats where this harness is active.
     - sessions.send(session, text) — a visible message to that chat (quota ${HarnessLimits.SENDS_PER_MINUTE}/min).
     - sessions.spawn(parent, title, prompt, adaptive = null) — a helper chat with Ask trust; adaptive picks its

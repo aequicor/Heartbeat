@@ -28,7 +28,10 @@ public object ProcessLimits {
     /** Longest [WriteKey]. */
     public const val WRITE_KEY_CHARS: Int = 48
 
-    /** External writes a record journals; settled ones are dropped oldest first, unresolved ones never are. */
+    /**
+     * External writes a record journals; settled ones are dropped to make room (not applied first, then the oldest
+     * confirmed), unresolved ones never are. A dropped key is no longer recognized: see [WriteKey].
+     */
     public const val WRITES: Int = 8
 
     /** Ceiling of the UTF-8 JSON of one fully loaded record. */
@@ -75,7 +78,10 @@ public value class StageName(public val value: String) {
 /**
  * Idempotency key of one logical external write, `[a-z][a-z0-9_]{0,47}`, chosen by the harness. The same key always
  * means the same write: put whatever makes the operation different (a revision, a head) into it, because the journal
- * refuses to repeat a key whose outcome is unresolved and recognizes a confirmed one as done.
+ * refuses to repeat a key whose outcome is unresolved and recognizes a confirmed one as done. It does so only while
+ * it still holds the key: the journal keeps [ProcessLimits.WRITES] keys and forgets the oldest settled one to make
+ * room, after which the same key begins a new write. A key that names its operation is replayed shortly after it was
+ * used, which is well within that window; a key reused for the same operation much later is not protected.
  */
 @Serializable
 @JvmInline
@@ -84,7 +90,7 @@ public value class WriteKey(public val value: String) {
         require(value.length <= ProcessLimits.WRITE_KEY_CHARS && SLUG_PATTERN.matches(value)) { "Invalid WriteKey" }
     }
 
-    override fun toString(): String = "WriteKey($value)"
+    override fun toString(): String = "WriteKey(***)"
 }
 
 /**

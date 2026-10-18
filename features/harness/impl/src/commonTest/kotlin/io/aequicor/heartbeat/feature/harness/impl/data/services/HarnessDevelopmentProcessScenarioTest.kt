@@ -29,6 +29,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 /**
  * The life of one development process across restarts: issue, plan, execution by an executor the process does not
@@ -81,10 +82,15 @@ class HarnessDevelopmentProcessScenarioTest {
         first.start(build, cell)
 
         val second = ProcessesTestEnv(this, secrets)
+        // The restart does not release the executor by itself: the attempt stays in flight until it is closed.
+        second.send(ProcessCommand.Start(build, cell)).assertRejected(ProcessRejection.AttemptInFlight)
         second.finish(1, AttemptOutcome.Failed(AttemptFailure.Interrupted))
         val record = checkNotNull(second.processes.get(issue))
         assertEquals(ProcessPhase.Idle, record.phase)
         assertNull(record.currentResult(build))
+        assertEquals(AttemptOutcome.Failed(AttemptFailure.Interrupted), record.history.single().outcome)
+        second.send(ProcessCommand.Finish(1, AttemptOutcome.Succeeded(ResultRef("report", "late"))))
+            .assertRejected(ProcessRejection.OutcomeConflict)
         second.start(build, cell)
         assertEquals(3, checkNotNull(second.processes.get(issue)).nextAttempt)
     }
@@ -106,11 +112,17 @@ class HarnessDevelopmentProcessScenarioTest {
             ProcessRejection.WriteUnresolved,
         )
 
-        second.send(ProcessCommand.MarkWriteUnknown(draftKey))
+        assertIs<ProcessReduction.Changed>(second.send(ProcessCommand.MarkWriteUnknown(draftKey, 1)))
         assertNull(hosting.find(draftKey.value))
-        second.send(ProcessCommand.WriteNotApplied(draftKey))
+        assertIs<ProcessReduction.Changed>(second.send(ProcessCommand.WriteNotApplied(draftKey, 1)))
         second.beginDraftPullRequest()
         val created = hosting.createDraft(draftKey.value)
+
+        // A second reconciler that looked at the first try arrives late: it cannot reset the retry that is under way.
+        assertIs<ProcessReduction.Unchanged>(second.send(ProcessCommand.WriteNotApplied(draftKey, 1)))
+        second.send(ProcessCommand.BeginWrite(draftKey, ProcessAuthority.Write, REPOSITORY)).assertRejected(
+            ProcessRejection.WriteUnresolved,
+        )
         second.send(ProcessCommand.ConfirmWrite(draftKey, ResultRef("pull_request", created)))
 
         assertEquals(1, hosting.pullRequests.size)
@@ -134,15 +146,20 @@ class HarnessDevelopmentProcessScenarioTest {
         val open = second.processes.get(issue)?.recovery(second.clock.now()).orEmpty()
         assertEquals(draftKey, assertIs<ProcessRecovery.WriteOpen>(open.single()).write.key)
 
-        second.send(ProcessCommand.MarkWriteUnknown(draftKey))
+        second.send(ProcessCommand.BeginWrite(draftKey, ProcessAuthority.Write, REPOSITORY)).assertRejected(
+            ProcessRejection.WriteUnresolved,
+        )
+        assertIs<ProcessReduction.Changed>(second.send(ProcessCommand.MarkWriteUnknown(draftKey, 1)))
         val found = checkNotNull(hosting.find(draftKey.value))
         assertEquals(created, found)
         second.send(ProcessCommand.ConfirmWrite(draftKey, ResultRef("pull_request", found)))
 
-        // Doing the same thing again is recognized as done: the harness has nothing left to write.
+        // Doing the same thing again is recognized as done: the harness only calls the hosting after a Changed.
         val replay = second.send(ProcessCommand.BeginWrite(draftKey, ProcessAuthority.Write, REPOSITORY))
+        if (replay is ProcessReduction.Changed) hosting.createDraft(draftKey.value)
         assertIs<ProcessReduction.Unchanged>(replay)
         assertEquals(1, hosting.pullRequests.size)
+        assertEquals(1, checkNotNull(second.processes.get(issue)).write(draftKey)?.tries)
         assertTrue(checkNotNull(second.processes.get(issue)).recovery(second.clock.now()).isEmpty())
     }
 
@@ -158,6 +175,9 @@ class HarnessDevelopmentProcessScenarioTest {
 
         // Somebody pushes to the branch while the process is down.
         val second = ProcessesTestEnv(this, secrets)
+        // Control: the restart alone changes nothing, the subject and the result survived it.
+        assertEquals(ResultRef("report", "checks-on-one"), second.record().currentResult(verify))
+        assertIs<ProcessReduction.Unchanged>(second.send(ProcessCommand.ObserveSubject(headOne)))
         second.send(ProcessCommand.ObserveSubject(headTwo))
         assertNull(second.record().currentResult(verify))
         assertEquals(ResultRef("report", "checks-on-one"), second.record().latestSuccess(verify)?.let { evidence(it) })
@@ -165,6 +185,7 @@ class HarnessDevelopmentProcessScenarioTest {
         val third = ProcessesTestEnv(this, secrets)
         assertNull(third.record().currentResult(verify))
         third.start(verify, checker)
+        assertEquals(headTwo, third.record().inFlight?.subject)
         third.finish(2, AttemptOutcome.Succeeded(ResultRef("report", "checks-on-two")))
         assertEquals(ResultRef("report", "checks-on-two"), third.record().currentResult(verify))
     }
@@ -176,7 +197,8 @@ class HarnessDevelopmentProcessScenarioTest {
         first.processes.open(issue)
         first.start(plan, planner)
         first.finish(1, AttemptOutcome.Succeeded(ResultRef("question", "q-1")))
-        first.send(ProcessCommand.Wait(WaitReason.Human, answer))
+        assertIs<ProcessReduction.Changed>(first.send(ProcessCommand.Wait(WaitReason.Human, answer)))
+        assertIs<ProcessPhase.Waiting>(first.record().phase)
         assertNull(first.record().inFlight)
 
         val second = ProcessesTestEnv(this, secrets, restartedAt = 3_600)
@@ -194,6 +216,23 @@ class HarnessDevelopmentProcessScenarioTest {
         assertIs<ProcessReduction.Unchanged>(third.send(ProcessCommand.Resume(1)))
         assertIs<ProcessPhase.Waiting>(third.record().phase)
         assertIs<ProcessReduction.Changed>(third.send(ProcessCommand.Resume(2)))
+    }
+
+    @Test
+    fun `a wait with a deadline survives a restart and says when it is due`() = runTest {
+        val secrets = HarnessDataTestSecrets()
+        val first = ProcessesTestEnv(this, secrets)
+        first.processes.open(issue)
+        val deadline = Instant.fromEpochSeconds(PROCESS_TEST_START + 500)
+        val timed = WakeCondition(events = setOf(EventKeys.custom("process.answer")), deadline = deadline)
+        assertIs<ProcessReduction.Changed>(first.send(ProcessCommand.Wait(WaitReason.Timer, timed)))
+
+        val early = ProcessesTestEnv(this, secrets, restartedAt = 100)
+        val notYet = assertIs<ProcessRecovery.WaitOpen>(early.record().recovery(early.clock.now()).single())
+        assertEquals(false, notYet.isDue)
+        val late = ProcessesTestEnv(this, secrets, restartedAt = 600)
+        val due = assertIs<ProcessRecovery.WaitOpen>(late.record().recovery(late.clock.now()).single())
+        assertEquals(true, due.isDue)
     }
 
     @Test
