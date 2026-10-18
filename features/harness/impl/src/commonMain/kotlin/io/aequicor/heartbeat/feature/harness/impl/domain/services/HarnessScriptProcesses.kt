@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchivePage
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchiveReason
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchiveRef
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessAuthority
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
@@ -17,6 +18,9 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessRecord
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessRejection
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflow
+import io.aequicor.heartbeat.feature.harness.api.process.ResultRef
+import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
+import io.aequicor.heartbeat.feature.harness.api.process.WritePhase
 import io.aequicor.heartbeat.feature.harness.api.process.reduce
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
@@ -96,6 +100,26 @@ internal class HarnessScriptProcesses(
         if (result is ProcessReduction.Changed || command is ProcessCommand.Finish || command is ProcessCommand.Close) {
             releaseSettled()
         }
+        return result
+    }
+
+    /**
+     * Reconciles only the exact host-owned external write, including its process lifetime. The writer barrier also
+     * excludes raw process-envelope replacements between checking the identity and applying the receipt.
+     */
+    internal suspend fun confirmHostWrite(confirmation: HostWriteConfirmation): ProcessReduction? {
+        val result = gate.withLock {
+            val record = get(confirmation.id) ?: return@withLock null
+            if (record.incarnation != confirmation.incarnation) return@withLock null
+            val write = record.writes.firstOrNull { it.key == confirmation.key } ?: return@withLock null
+            val isSameWrite = write.target == confirmation.target && write.authority == confirmation.authority
+            val isConfirmable = write.isUnresolved || write.phase == WritePhase.Confirmed(confirmation.result)
+            if (!isSameWrite || !isConfirmable) {
+                return@withLock null
+            }
+            reduceStored(confirmation.id, ProcessCommand.ConfirmWrite(confirmation.key, confirmation.result))
+        }
+        if (result is ProcessReduction.Changed) releaseSettled()
         return result
     }
 
@@ -397,4 +421,16 @@ internal class HarnessScriptProcesses(
 
         private const val VERSION = 1
     }
+}
+
+/** Immutable receipt identity supplied only by a host adapter after external evidence has been verified. */
+internal data class HostWriteConfirmation(
+    val id: ProcessId,
+    val incarnation: String,
+    val key: WriteKey,
+    val target: ResultRef,
+    val authority: ProcessAuthority,
+    val result: ResultRef,
+) {
+    override fun toString(): String = "HostWriteConfirmation(***)"
 }

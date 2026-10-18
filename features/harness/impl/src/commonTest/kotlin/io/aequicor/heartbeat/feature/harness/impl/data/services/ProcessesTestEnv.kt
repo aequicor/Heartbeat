@@ -32,9 +32,11 @@ internal class ProcessesTestEnv(
     val archives = ProtectedProcessArchives(secrets, clock, CommandToggles(isArchiveEnabled))
     val storage = ProtectedHarnessData(secrets, archives)
     val data = HarnessScriptData(owner, access, storage)
+    val processGate = storage.processMutex
     val processes = HarnessScriptProcesses(
         data,
         clock,
+        processGate,
         definition = definition,
         isVersioningEnabled = isVersioningEnabled,
         owner = owner,

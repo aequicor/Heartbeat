@@ -3,12 +3,14 @@ package io.aequicor.heartbeat.feature.harness.api.script
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.ItemId
+import io.aequicor.heartbeat.feature.harness.api.github.ScriptGitHub
+import io.aequicor.heartbeat.feature.harness.api.github.UnavailableScriptGitHub
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
 import kotlinx.coroutines.CoroutineScope
 
 /** Script ABI revision included in compiled artifact cache keys; change it when this public contract changes. */
-public const val HARNESS_API_VERSION: Int = 10
+public const val HARNESS_API_VERSION: Int = 12
 
 /**
  * Host-issued services of one approved item revision. Its scope, subscriptions and registrations belong to that
@@ -58,6 +60,9 @@ public interface HarnessScriptScope {
     /** Durable development processes of this harness, stored in [data]'s namespace. */
     public val processes: ScriptProcesses
 
+    /** Recoverable GitHub reads and writes, gated by the host and a separate feature toggle. */
+    public val github: ScriptGitHub get() = UnavailableScriptGitHub
+
     /** Methods for this harness's interfaces, called by user actions. */
     public val ui: ScriptUi
 
@@ -98,6 +103,9 @@ public abstract class HarnessScriptBase(public val script: HarnessScriptScope) {
 
     /** Durable development processes of this harness. */
     public val processes: ScriptProcesses get() = script.processes
+
+    /** Recoverable GitHub operations of this activation. */
+    public val github: ScriptGitHub get() = script.github
 
     /** Methods for this harness's interfaces. */
     public val ui: ScriptUi get() = script.ui

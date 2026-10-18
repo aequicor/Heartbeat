@@ -149,7 +149,12 @@ private fun ProcessDecisionsUiState.reflectDecisions(
 
 private fun ProcessCommandDecision.toUi(now: Instant): ProcessDecisionUi {
     val binding = decision.binding
-    val words = Json.encodeToString(ListSerializer(String.serializer()), listOf(command.program) + command.arguments)
+    val command = command
+    val words = if (command != null) {
+        Json.encodeToString(ListSerializer(String.serializer()), listOf(command.program) + command.arguments)
+    } else {
+        Json.encodeToString(checkNotNull(github))
+    }
     val status = when (decision.phase) {
         ProcessDecisionPhase.Pending -> if (now >= decision.expiresAt) {
             ProcessDecisionStatusUi.Expired
@@ -184,7 +189,9 @@ private fun ProcessCommandDecision.toUi(now: Instant): ProcessDecisionUi {
         binding.process.attempt,
         binding.inputRevision,
         decision.expiresAt.toString(),
-        command.timeoutMillis,
+        command?.timeoutMillis ?: GITHUB_TIMEOUT_MILLIS,
         words,
     )
 }
+
+private const val GITHUB_TIMEOUT_MILLIS = 30_000L

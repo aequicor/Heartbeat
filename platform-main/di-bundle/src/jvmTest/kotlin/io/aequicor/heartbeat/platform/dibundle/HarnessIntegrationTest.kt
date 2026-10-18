@@ -109,7 +109,8 @@ class HarnessIntegrationTest {
         // Construct facade/hooks first while harness stays disabled: the cycle must remain lazy.
         (profile.graph as AiEngineTestAccessors).engineFacade.engines.state.value
         val hooks = (profile.graph as TestHarnessHookAccessors).harnessSessionHooks
-        assertTrue(hooks.none { it.isIntercepting })
+        // Planning may intercept conservatively while its toggle loads; harness observers must stay disabled.
+        assertTrue(hooks.none { it.isObserving })
         assertNull(app.machines.find(HarnessMachineKey))
         toggles.toggleControl.setOverride(HarnessEnabled, true)
         withContext(app.dispatchers.default) {

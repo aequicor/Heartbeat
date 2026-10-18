@@ -8,11 +8,15 @@ import io.aequicor.heartbeat.feature.harness.api.decision.ProcessCommandDecision
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessCommandSnapshot
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecision
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionLedger
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessGitHubSnapshot
+import io.aequicor.heartbeat.feature.harness.api.github.GitHubChange
+import io.aequicor.heartbeat.feature.harness.api.github.GitHubRepository
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessAuthority
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey
 import io.aequicor.heartbeat.feature.harness.api.process.StageName
 import io.aequicor.heartbeat.feature.harness.api.process.SubjectSha
+import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
 import io.aequicor.heartbeat.feature.harness.impl.data.decision.DecisionTestMachine
 import io.aequicor.heartbeat.feature.harness.impl.data.services.ProcessesTestClock
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessDecisionHost
@@ -40,6 +44,31 @@ class HarnessProcessDecisionsModelTest {
         ),
         ProcessCommandSnapshot("gh", listOf("pr", "merge", "1"), 60_000),
     )
+
+    @Test
+    fun `native request shows complete typed GitHub payload before approval`() = runTest {
+        val notes = "exact release notes " + "x".repeat(500)
+        val typed = entry.copy(
+            command = null,
+            github = ProcessGitHubSnapshot(
+                GitHubRepository("owner", "repo"),
+                GitHubChange.CreateRelease("v1", entry.decision.binding.subject, notes),
+                WriteKey("release_v1"),
+            ),
+        )
+        val clock = ProcessesTestClock(150)
+        val storage = DecisionModelStorage(ProcessDecisionLedger(entries = listOf(typed)))
+        val host = ProcessDecisionHost(DecisionTestMachine(storage), clock)
+        val model = HarnessProcessDecisionsModel("harness", host, storeFactory(), backgroundScope, clock)
+        val screen = subscribe(model.store)
+        val row = screen.states.value.rows.single()
+        assertTrue(row.words.contains(notes))
+        assertTrue(row.words.contains("release_v1"))
+        assertTrue(row.words.contains("v1"))
+        assertEquals(entry.decision.binding.subject.value, row.subject)
+        assertEquals("workspace", row.workspace)
+        assertEquals(ProcessDecisionStatusUi.Pending, row.status)
+    }
 
     @Test
     fun `answer after deadline shows expired refusal without a storage error`() = runTest {
