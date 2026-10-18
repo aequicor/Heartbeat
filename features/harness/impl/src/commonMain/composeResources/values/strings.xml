@@ -56,6 +56,7 @@
     <string name="harness_run_steps">Steps done: %1$d</string>
     <string name="harness_run_waiting">Decisions pending: %1$d</string>
     <string name="harness_run_cancel">Cancel</string>
+    <string name="harness_run_request_cell">Organism cell “%1$s” asks</string>
     <string name="harness_run_status_running">Running</string>
     <string name="harness_run_status_cancelling">Cancelling</string>
     <string name="harness_run_status_completed">Completed</string>

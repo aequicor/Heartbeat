@@ -58,6 +58,7 @@
     <string name="harness_run_steps">Выполнено шагов: %1$d</string>
     <string name="harness_run_waiting">Ждёт решений: %1$d</string>
     <string name="harness_run_cancel">Отменить</string>
+    <string name="harness_run_request_cell">Клетка организма «%1$s» спрашивает</string>
     <string name="harness_run_status_running">Выполняется</string>
     <string name="harness_run_status_cancelling">Отменяется</string>
     <string name="harness_run_status_completed">Завершён</string>

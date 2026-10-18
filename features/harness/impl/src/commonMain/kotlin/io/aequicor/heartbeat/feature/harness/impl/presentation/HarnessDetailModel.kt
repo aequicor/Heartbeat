@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
+import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowViewer
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
@@ -73,6 +74,19 @@ internal sealed interface HarnessDetailIntent : MVIIntent {
     data object OpenTools : HarnessDetailIntent
     data class Detach(val key: String) : HarnessDetailIntent
     data class CancelRun(val run: String) : HarnessDetailIntent
+
+    /**
+     * The user answers a request of a cell of a run's organism with the offered [option] and the input given for it.
+     * The text of an answer is never rendered by [toString].
+     */
+    data class DecideRequest(
+        val request: RunRequestUi,
+        val option: String,
+        val selected: Set<String> = emptySet(),
+        val text: String = "",
+    ) : HarnessDetailIntent {
+        override fun toString(): String = "DecideRequest(request=$request, option=$option)"
+    }
     data object EditMeta : HarnessDetailIntent
     data class ChangeMeta(val title: String, val description: String) : HarnessDetailIntent
     data object SaveMeta : HarnessDetailIntent
@@ -155,6 +169,8 @@ internal class HarnessDetailModel(
                 HarnessRunsIntent.Internal.CancelRun(request(), RunId(intent.run), WorkflowViewer.User),
             )
 
+            is HarnessDetailIntent.DecideRequest -> decide(intent)
+
             HarnessDetailIntent.DismissError -> updateState { copy(error = null) }
 
             is HarnessDetailIntent.ChangeMeta ->
@@ -175,6 +191,26 @@ internal class HarnessDetailModel(
             HarnessDetailIntent.ConfirmDelete,
             -> if (harness != null) edit(harness, intent)
         }
+    }
+
+    /** Only the user answers a cell, and only with an option the request offers and the input it asks for. */
+    // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun DetailPipeline.decide(intent: HarnessDetailIntent.DecideRequest) {
+        val asked = intent.request
+        val decision = asked.decision(intent.option, intent.selected, intent.text) ?: return
+        log.i { "Harness run request answered by the user" }
+        sendTo(
+            runs,
+            HarnessRunsIntent.Internal.DecideOrganismPermission(
+                request(),
+                RunId(asked.run),
+                StepKey(asked.step),
+                asked.cell,
+                decision,
+                WorkflowViewer.User,
+            ),
+        )
     }
 
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
@@ -219,6 +255,7 @@ internal class HarnessDetailModel(
             is HarnessDetailIntent.OpenItem,
             HarnessDetailIntent.OpenTools,
             is HarnessDetailIntent.CancelRun,
+            is HarnessDetailIntent.DecideRequest,
             HarnessDetailIntent.DismissError,
             is HarnessDetailIntent.ChangeMeta,
             HarnessDetailIntent.CancelMeta,
