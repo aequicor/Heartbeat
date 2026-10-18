@@ -16,6 +16,7 @@ public data class ProcessWaitKey(
     val wait: Int,
     val inputRevision: Long,
     val subject: SubjectSha?,
+    val definition: ProcessDefinition? = null,
 ) {
     init {
         require(isPlainToken(incarnation))
@@ -27,7 +28,7 @@ public data class ProcessWaitKey(
 
 /** The exact wait to reconcile, or null when this process is not waiting. */
 public fun ProcessRecord.waitKey(): ProcessWaitKey? = (phase as? ProcessPhase.Waiting)?.wait?.let {
-    ProcessWaitKey(id, incarnation, it.number, inputRevision, subject)
+    ProcessWaitKey(id, incarnation, it.number, inputRevision, subject, definition)
 }
 
 internal fun ProcessRecord.resumeChecked(key: ProcessWaitKey, now: Instant): ProcessReduction = when {
@@ -37,6 +38,8 @@ internal fun ProcessRecord.resumeChecked(key: ProcessWaitKey, now: Instant): Pro
         ProcessReduction.Unchanged(this)
 
     key.wait >= nextWait -> rejected(ProcessRejection.UnknownWait)
+
+    key.definition != definition -> rejected(ProcessRejection.DefinitionMismatch)
 
     key.inputRevision != inputRevision || key.subject != subject ->
         rejected(ProcessRejection.StaleRevision)

@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data.run
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -11,6 +12,7 @@ import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessRecord
@@ -36,6 +38,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDurableProcessesEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
@@ -68,6 +71,7 @@ internal class HarnessProcessWorkflows(
     private val launches: Lazy<HarnessWorkflowLaunches>,
     private val runs: Lazy<HarnessRunsMachine>,
     private val clock: Clock,
+    private val toggles: FeatureToggles,
 ) {
     private val log = Log.tag("HarnessProcessWorkflow")
 
@@ -98,7 +102,13 @@ internal class HarnessProcessWorkflows(
         val proposal = ProcessWorkflow(RunId("wf_" + Uuid.random().toHexString()), owner.request.item.id, digest)
         val reduction = processes.applyHost(
             key.process,
-            ProcessCommand.StartWorkflow(key, proposal, record.inputRevision, record.subject),
+            ProcessCommand.StartWorkflow(
+                key,
+                proposal,
+                record.inputRevision,
+                record.subject,
+                currentDefinition(record, owner),
+            ),
         )
         val reserved = when (reduction) {
             is ProcessReduction.Changed -> reduction.record
@@ -131,6 +141,14 @@ internal class HarnessProcessWorkflows(
             throw error
         }
     }
+
+    /** A pinned process keeps its safeguards even after the feature flag is switched off. */
+    private suspend fun currentDefinition(record: ProcessRecord, owner: HarnessInstanceTarget): ProcessDefinition? =
+        if (record.definition != null || toggles.get(HarnessDurableProcessesEnabled)) {
+            ProcessDefinition(owner.request.item.id, owner.request.harness.revision)
+        } else {
+            null
+        }
 
     /** Identity of the reserved request: a keyed retry must present the same harness, workflow, input and revision. */
     private fun reservationDigest(
@@ -313,6 +331,8 @@ internal class HarnessProcessWorkflows(
         HarnessScriptData(owner.request.harness.id, owner.access, data),
         clock,
         data.processMutex,
+        definition = ProcessDefinition(owner.request.item.id, owner.request.harness.revision),
+        isVersioningEnabled = { toggles.get(HarnessDurableProcessesEnabled) },
     )
 
     private fun checkAccess(owner: HarnessInstanceTarget) {

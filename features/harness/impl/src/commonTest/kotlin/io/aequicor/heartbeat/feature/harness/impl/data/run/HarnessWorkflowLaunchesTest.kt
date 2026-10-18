@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
 import io.aequicor.heartbeat.feature.harness.api.process.ExecutorKind
 import io.aequicor.heartbeat.feature.harness.api.process.ExecutorRef
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessEnd
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
@@ -357,6 +358,7 @@ class ProcessWorkflowLaunchesTest {
             data.processMutex,
             HARNESS.id,
             fixture.storage,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
         )
         val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
         val host = HarnessProcessWorkflows(
@@ -366,6 +368,7 @@ class ProcessWorkflowLaunchesTest {
             lazy { fixture.launches },
             lazy { fixture.runs },
             fixture.clock,
+            LaunchToggles,
         )
         val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
         val run = fixture.storage.find(id) ?: error("Missing workflow run")
@@ -400,6 +403,7 @@ class ProcessWorkflowLaunchesTest {
             data.processMutex,
             HARNESS.id,
             fixture.storage,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
         )
         val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
         val host = HarnessProcessWorkflows(
@@ -409,6 +413,7 @@ class ProcessWorkflowLaunchesTest {
             lazy { fixture.launches },
             lazy { fixture.runs },
             fixture.clock,
+            LaunchToggles,
         )
         val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
         assertIs<ProcessReduction.Changed>(processes.apply(key.process, ProcessCommand.Close(ProcessEnd.Completed)))
@@ -438,6 +443,7 @@ class ProcessWorkflowLaunchesTest {
             data.processMutex,
             HARNESS.id,
             fixture.storage,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
         )
         val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
         val host = HarnessProcessWorkflows(
@@ -447,6 +453,7 @@ class ProcessWorkflowLaunchesTest {
             lazy { fixture.launches },
             lazy { fixture.runs },
             fixture.clock,
+            LaunchToggles,
         )
         val run = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
         assertIs<ProcessReduction.Changed>(
@@ -492,6 +499,7 @@ class ProcessWorkflowLaunchesTest {
             lazy { fixture.launches },
             lazy { fixture.runs },
             fixture.clock,
+            LaunchToggles,
         )
         val failure = assertFailsWith<IllegalStateException> { host.releaseSettled(HARNESS.id) }
         assertEquals("Stored process is unreadable", failure.message)
@@ -507,6 +515,7 @@ class ProcessWorkflowLaunchesTest {
             HarnessScriptData(HARNESS.id, ScriptInstance, data),
             fixture.clock,
             data.processMutex,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
         )
         val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
         val host = HarnessProcessWorkflows(
@@ -516,6 +525,7 @@ class ProcessWorkflowLaunchesTest {
             lazy { fixture.launches },
             lazy { fixture.runs },
             fixture.clock,
+            LaunchToggles,
         )
         val saving = CompletableDeferred<Unit>()
         val continueSave = CompletableDeferred<Unit>()
@@ -538,7 +548,11 @@ class ProcessWorkflowLaunchesTest {
         val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         val data = ProtectedHarnessData(HarnessDataTestSecrets())
         val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
-        val processes = HarnessScriptProcesses(HarnessScriptData(HARNESS.id, ScriptInstance, data), fixture.clock)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+        )
         val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
         val host = HarnessProcessWorkflows(
             ScriptSessions(),
@@ -547,6 +561,7 @@ class ProcessWorkflowLaunchesTest {
             lazy { fixture.launches },
             lazy { fixture.runs },
             fixture.clock,
+            LaunchToggles,
         )
         fixture.beforeSave = { throw HarnessStorageUncertain() }
         assertFailsWith<IllegalStateException> {
@@ -568,7 +583,11 @@ class ProcessWorkflowLaunchesTest {
         val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         val data = ProtectedHarnessData(HarnessDataTestSecrets())
         val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
-        val processes = HarnessScriptProcesses(HarnessScriptData(HARNESS.id, ScriptInstance, data), fixture.clock)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+        )
         val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
         val host = HarnessProcessWorkflows(
             ScriptSessions(),
@@ -577,6 +596,7 @@ class ProcessWorkflowLaunchesTest {
             lazy { fixture.launches },
             lazy { fixture.runs },
             fixture.clock,
+            LaunchToggles,
         )
         val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
         val run = fixture.storage.load().single()
@@ -598,7 +618,11 @@ class ProcessWorkflowLaunchesTest {
         val sessions = ScriptSessions()
         val data = ProtectedHarnessData(HarnessDataTestSecrets())
         val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
-        val processes = HarnessScriptProcesses(HarnessScriptData(HARNESS.id, ScriptInstance, data), fixture.clock)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+        )
         val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
         fun host() = HarnessProcessWorkflows(
             sessions,
@@ -607,6 +631,7 @@ class ProcessWorkflowLaunchesTest {
             lazy { fixture.launches },
             lazy { fixture.runs },
             fixture.clock,
+            LaunchToggles,
         )
         val first = host()
         val ids = listOf(
@@ -632,7 +657,11 @@ class ProcessWorkflowLaunchesTest {
         val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         val data = ProtectedHarnessData(HarnessDataTestSecrets())
         val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
-        val processes = HarnessScriptProcesses(HarnessScriptData(HARNESS.id, ScriptInstance, data), fixture.clock)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+        )
         val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
         val host = HarnessProcessWorkflows(
             ScriptSessions(),
@@ -641,6 +670,7 @@ class ProcessWorkflowLaunchesTest {
             lazy { fixture.launches },
             lazy { fixture.runs },
             fixture.clock,
+            LaunchToggles,
         )
         fixture.afterSave = { throw HarnessStorageUncertain() }
         assertFailsWith<IllegalStateException> {

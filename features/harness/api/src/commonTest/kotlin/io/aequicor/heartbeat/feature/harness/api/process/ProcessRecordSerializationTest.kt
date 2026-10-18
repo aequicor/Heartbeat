@@ -218,6 +218,7 @@ class ProcessRecordSerializationTest {
 
     private fun fullyLoaded(): ProcessRecord {
         var process = newProcess()
+            .copy(definition = ProcessDefinition(ItemId("s".repeat(ProcessLimits.REF_CHARS)), Long.MAX_VALUE))
             .change(ProcessCommand.ReviseInput(Long.MAX_VALUE))
             .change(ProcessCommand.ObserveSubject(SubjectSha("f".repeat(SHA256_CHARS))))
         repeat(ProcessLimits.HISTORY + 1) { n ->

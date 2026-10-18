@@ -28,6 +28,11 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
  * journal, so it is a convention of one harness, not a security boundary. Because the namespace quota is shared with
  * the script's own data, a change that would exceed it throws `IllegalArgumentException` instead of returning a
  * [ProcessReduction].
+ *
+ * New records pin their owning script and approved harness revision in [ProcessRecord.definition]. Updated code
+ * can read old records and settle old work, but cannot start or resume stages until explicitly accepting its own
+ * current revision with [ProcessCommand.MigrateDefinition]. Migration requires no live attempt or unresolved write;
+ * it preserves workflow journals and evidence. Unknown [ProcessRecord.schemaVersion] fails closed on read.
  */
 public interface ScriptProcesses {
     /** The stored record, or null if the process was never opened or has been removed. */

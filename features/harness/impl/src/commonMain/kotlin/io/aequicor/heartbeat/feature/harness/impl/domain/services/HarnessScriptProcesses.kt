@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessPhase
@@ -42,6 +43,8 @@ internal class HarnessScriptProcesses(
     private val gate: Mutex = Mutex(),
     private val owner: HarnessId? = null,
     private val runs: HarnessRunStorage? = null,
+    private val definition: ProcessDefinition? = null,
+    private val isVersioningEnabled: suspend () -> Boolean = { true },
 ) : ScriptProcesses {
     private val log = Log.tag("HarnessScriptProcesses")
 
@@ -53,6 +56,7 @@ internal class HarnessScriptProcesses(
 
     override suspend fun open(id: ProcessId, inputRevision: Long): ProcessRecord = gate.withLock {
         require(inputRevision >= 0) { "Invalid input revision" }
+        val binding = if (isVersioningEnabled()) definition else null
         var opened: ProcessRecord? = null
         var isCreated = false
         data.update(STORAGE_KEY) { current ->
@@ -69,6 +73,7 @@ internal class HarnessScriptProcesses(
                     clock.now(),
                     inputRevision = inputRevision,
                     incarnation = Uuid.random().toHexString(),
+                    definition = binding,
                 )
                 opened = record
                 encode(records + record, record)
@@ -93,6 +98,7 @@ internal class HarnessScriptProcesses(
     suspend fun applyHost(id: ProcessId, command: ProcessCommand): ProcessReduction = reduceStored(id, command)
 
     private suspend fun reduceStored(id: ProcessId, command: ProcessCommand): ProcessReduction {
+        val isVersioned = isVersioningEnabled()
         var outcome: ProcessReduction = ProcessReduction.Rejected(ProcessRejection.UnknownProcess)
         data.update(STORAGE_KEY) { current ->
             val records = decode(current)
@@ -101,7 +107,7 @@ internal class HarnessScriptProcesses(
                 outcome = ProcessReduction.Rejected(ProcessRejection.UnknownProcess)
                 current
             } else {
-                val reduction = record.reduce(command, clock.now())
+                val reduction = reduceApproved(record, command, isVersioned)
                 outcome = reduction
                 if (reduction is ProcessReduction.Changed) {
                     encode(records.map { if (it.id == id) reduction.record else it }, reduction.record)
@@ -115,6 +121,41 @@ internal class HarnessScriptProcesses(
         if (result is ProcessReduction.Changed) log.i { summary } else log.v { summary }
         return result
     }
+
+    /** Cleanup of old work remains possible; every new continuation requires current approved logic. */
+    private fun isDefinitionAllowed(record: ProcessRecord, command: ProcessCommand, isVersioned: Boolean): Boolean =
+        when (command) {
+            is ProcessCommand.MigrateDefinition -> (isVersioned || record.definition != null) &&
+                (definition == null || command.next == definition)
+
+            is ProcessCommand.Finish,
+            is ProcessCommand.Close,
+            is ProcessCommand.CancelWorkflow,
+            is ProcessCommand.ConfirmWrite,
+            is ProcessCommand.MarkWriteUnknown,
+            is ProcessCommand.WriteNotApplied,
+            -> true
+
+            is ProcessCommand.StartWorkflow -> true
+
+            // The host command carries its own immutable admission binding.
+
+            is ProcessCommand.Start,
+            is ProcessCommand.Wait,
+            is ProcessCommand.WaitCompletion,
+            is ProcessCommand.InputChange,
+            is ProcessCommand.Grant,
+            is ProcessCommand.Revoke,
+            is ProcessCommand.BeginWrite,
+            -> definition == null || record.definition == definition || (!isVersioned && record.definition == null)
+        }
+
+    private fun reduceApproved(record: ProcessRecord, command: ProcessCommand, isVersioned: Boolean): ProcessReduction =
+        if (isDefinitionAllowed(record, command, isVersioned)) {
+            record.reduce(command, clock.now())
+        } else {
+            ProcessReduction.Rejected(ProcessRejection.DefinitionMismatch)
+        }
 
     override suspend fun remove(id: ProcessId): Boolean {
         val isRemoved = gate.withLock { removeStored(id) }

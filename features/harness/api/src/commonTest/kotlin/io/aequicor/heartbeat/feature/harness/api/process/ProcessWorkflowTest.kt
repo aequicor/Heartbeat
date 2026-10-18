@@ -84,6 +84,31 @@ class ProcessWorkflowTest {
         )
     }
 
+    @Test
+    fun `a new workflow stage cannot silently adopt a different approved revision`() {
+        val definition = ProcessDefinition(claim.script, 1)
+        val command = ProcessCommand.StartWorkflow(key, claim, definition = definition)
+        initial.expectRejected(command, ProcessRejection.DefinitionMismatch)
+        val accepted = initial.change(ProcessCommand.MigrateDefinition(null, definition))
+        val reserved = assertIs<ProcessReduction.Changed>(accepted.reduce(command, now)).record
+        assertEquals(definition, reserved.definition)
+        val closed = assertIs<ProcessReduction.Changed>(
+            reserved.reduce(ProcessCommand.Finish(1, AttemptOutcome.Succeeded(ResultRef("report", "result"))), now),
+        ).record
+        val nextKey = closed.workflowKey(key.stage)
+        val nextDefinition = definition.copy(revision = 2)
+        assertEquals(
+            ProcessReduction.Rejected(ProcessRejection.DefinitionMismatch),
+            closed.reduce(ProcessCommand.StartWorkflow(nextKey, claim, definition = nextDefinition), now),
+        )
+        val migrated = assertIs<ProcessReduction.Changed>(
+            closed.reduce(ProcessCommand.MigrateDefinition(definition, nextDefinition), now),
+        ).record
+        assertIs<ProcessReduction.Changed>(
+            migrated.reduce(ProcessCommand.StartWorkflow(nextKey, claim, definition = nextDefinition), now),
+        )
+    }
+
     private fun reserve(): ProcessRecord = assertIs<ProcessReduction.Changed>(
         initial.reduce(ProcessCommand.StartWorkflow(key, claim), now),
     ).record

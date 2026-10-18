@@ -52,6 +52,10 @@ internal fun ProcessRecord.reserveWorkflow(command: ProcessCommand.StartWorkflow
 private fun ProcessRecord.reservationRejection(command: ProcessCommand.StartWorkflow): ProcessRejection? = when {
     command.key.process != id || command.key.incarnation != incarnation -> ProcessRejection.UnknownAttempt
 
+    definition != command.definition -> ProcessRejection.DefinitionMismatch
+
+    definition != null && definition.script != command.workflow.script -> ProcessRejection.OutcomeConflict
+
     command.inputRevision != null &&
         (command.inputRevision != inputRevision || command.subject != subject) -> ProcessRejection.StaleRevision
 
