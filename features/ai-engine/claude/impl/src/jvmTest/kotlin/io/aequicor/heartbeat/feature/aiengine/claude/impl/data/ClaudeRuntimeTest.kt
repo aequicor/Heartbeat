@@ -312,8 +312,9 @@ class ClaudeRuntimeTest {
     }
 
     @Test
-    fun `a failure after a started process before any frame stays unresolved`() = runTest {
+    fun `a failure before any frame stays unresolved when the history cannot be read`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
+        fixture.transport.transcript = null
         val runtime = fixture.runtime()
         val session = runtime.create(CreateSessionRequest(testTarget))
         fixture.transport.generation = { _, _ -> 1 }

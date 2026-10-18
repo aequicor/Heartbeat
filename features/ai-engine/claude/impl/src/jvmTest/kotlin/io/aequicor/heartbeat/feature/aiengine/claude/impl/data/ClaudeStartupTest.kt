@@ -9,10 +9,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import org.junit.Assume.assumeTrue
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
@@ -186,6 +189,40 @@ class ClaudeStartupTest {
             File(custom, "projects/p/$id.jsonl").writeText("{}")
             assertTrue(claudeTranscriptExists(custom.path, id, "/nowhere"), "a config directory has its own history")
         } finally {
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a stray file among the project directories holds no conversation and is not a read failure`() {
+        val home = Files.createTempDirectory("claude-history").toFile()
+        try {
+            val id = "0b7c6e0e-6a3b-4f0e-9d51-4f5f6e1d9a11"
+            val projects = File(home, ".claude/projects").apply { mkdirs() }
+            File(projects, ".DS_Store").writeText("not a directory")
+            File(projects, "-Users-me-project").mkdirs()
+            assertFalse(claudeTranscriptExists(null, id, home.path))
+            File(projects, "-Users-me-project/$id.jsonl").writeText("{}")
+            assertTrue(claudeTranscriptExists(null, id, home.path))
+        } finally {
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an unreadable project directory is a read failure, not an absent conversation`() {
+        val home = Files.createTempDirectory("claude-history").toFile()
+        val project = File(home, ".claude/projects/-Users-me-project").apply { mkdirs() }
+        try {
+            // Where the permission cannot be taken away (Windows, root) there is nothing to observe.
+            project.setReadable(false)
+            project.setExecutable(false)
+            assumeTrue(!project.canRead())
+            val id = "0b7c6e0e-6a3b-4f0e-9d51-4f5f6e1d9a11"
+            assertFailsWith<IOException> { claudeTranscriptExists(null, id, home.path) }
+        } finally {
+            project.setReadable(true)
+            project.setExecutable(true)
             home.deleteRecursively()
         }
     }

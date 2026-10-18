@@ -101,8 +101,9 @@ internal class ClaudeSignIn(
         return state
     }
 
-    private fun startup(launch: LaunchContext): ClaudeStartup {
-        val startup = resolveClaudeStartup(launch, configuration)
+    // The lookup lists directories, so it never runs on the caller's dispatcher.
+    private suspend fun startup(launch: LaunchContext): ClaudeStartup {
+        val startup = withContext(dispatchers.io) { resolveClaudeStartup(launch, configuration) }
         if (!startup.isRunnable) {
             log.w { "Claude executable is missing or not runnable source=${startup.source}" }
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))

@@ -130,6 +130,10 @@ class ClaudeBackendTest {
         assertIs<ActiveSessionState.Running>(chat.state.value)
 
         val view = backend.session(stored.ref)
+        // The same login as the live runtime's needs no CLI check, and a second read reuses the reader.
+        val calls = fixture.transport.calls.size
+        backend.session(stored.ref)
+        assertEquals(calls, fixture.transport.calls.size)
 
         assertFalse(live.isClosed)
         assertIs<ActiveSessionState.Running>(chat.state.value)

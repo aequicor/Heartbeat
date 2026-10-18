@@ -76,7 +76,11 @@ internal class JvmClaudeBackend(
     private val mutex = Mutex()
     private var runtime: ClaudeRuntime? = null
 
-    /** Views stored sessions of another identity while [runtime] is live; it never runs turns. */
+    /**
+     * Shows the history of stored sessions of another identity while [runtime] is live; it never runs turns. It is
+     * closed when a profile runtime is created in place of [runtime], when another identity is read, and with the
+     * profile; views it handed out then answer with an unavailable history.
+     */
     private var reader: ClaudeRuntime? = null
 
     /** The login whose saved model capabilities were already restored in this process. */
@@ -199,7 +203,6 @@ internal class JvmClaudeBackend(
      */
     private suspend fun restoreCapabilities(revision: AuthRevision) {
         if (revision !is AuthRevision.Known || revision == restoredRevision) return
-        restoredRevision = revision
         val saved = try {
             catalog.findModels(revision)
         } catch (e: CancellationException) {
@@ -207,7 +210,10 @@ internal class JvmClaudeBackend(
         } catch (e: Exception) {
             log.w(e.redacted()) { "Saved Claude model capabilities could not be read" }
             null
-        } ?: return
+        }
+        // One attempt per process and login; a cancelled one is retried by the next open.
+        restoredRevision = revision
+        saved ?: return
         saved.forEach { model ->
             val id = model.text("value")?.takeIf(String::isNotBlank) ?: return@forEach
             val key = revision to ModelId(id)
@@ -243,6 +249,8 @@ internal class JvmClaudeBackend(
      * The pooled runtime of [identity]. Only a stored session opens without a bound route ([isRouteRequired] is
      * false): its identity comes from this profile's own catalog, and routes live in memory, so after a restart
      * they are empty until the facade binds them again, which it does before it resumes or sends anything.
+     * While a live runtime of another identity exists, such a session gets a history-only reader instead of
+     * replacing it.
      */
     private suspend fun open(identity: RuntimeIdentity, isRouteRequired: Boolean): ClaudeRuntime = mutex.withLock {
         enabled()
@@ -256,7 +264,7 @@ internal class JvmClaudeBackend(
             current != null && current.identity == identity && !current.isClosed -> current
 
             // A live runtime belongs to its turns: reading a stored session of another identity must not end them.
-            !isRouteRequired && current != null && !current.isClosed -> reading(identity)
+            !isRouteRequired && current != null && !current.isClosed -> reading(identity, current.identity.revision)
 
             else -> replaceRuntime(current, identity)
         }
@@ -279,14 +287,17 @@ internal class JvmClaudeBackend(
         return newRuntime(identity, pinnedTransport, pinnedAccount, isReadOnly = false).also { runtime = it }
     }
 
-    /** A runtime that only serves the history of stored sessions of [identity]; callers hold the backend mutex. */
-    private suspend fun reading(identity: RuntimeIdentity): ClaudeRuntime {
+    /**
+     * A runtime that only serves the history of stored sessions of [identity]; callers hold the backend mutex.
+     * The live runtime already checked the login of [liveRevision], so only another login asks the CLI.
+     */
+    private suspend fun reading(identity: RuntimeIdentity, liveRevision: AuthRevision): ClaudeRuntime {
         val existing = reader
         if (existing != null && existing.identity == identity && !existing.isClosed) return existing
         restoreCapabilities(identity.revision)
         val pinnedTransport = transport.pinned()
         val pinnedAccount = account.pinned(pinnedTransport)
-        pinnedAccount.validate(identity.revision)
+        if (identity.revision != liveRevision) pinnedAccount.validate(identity.revision)
         existing?.close()
         log.i { "Creating Claude reading runtime" }
         return newRuntime(identity, pinnedTransport, pinnedAccount, isReadOnly = true).also { reader = it }
@@ -337,7 +348,7 @@ internal class JvmClaudeBackend(
     }
 }
 
-/** The only model fields the saved capabilities keep; nothing about the account is stored. */
+/** The only model fields the saved capabilities keep, next to the fingerprint of the login they belong to. */
 private val CAPABILITY_KEYS = setOf(
     "value",
     "resolvedModel",

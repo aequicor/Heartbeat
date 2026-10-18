@@ -122,7 +122,9 @@ internal fun claudeTranscriptExists(
     if (Files.notExists(projects)) return false
     return try {
         Files.newDirectoryStream(projects).use { directories ->
-            directories.any { isTranscript(it.resolve("$id.jsonl")) }
+            // A stray file next to the project directories (`.DS_Store`) holds no conversation; `isDirectory` is
+            // false for it, whereas stat-ing below a file fails with "Not a directory" on some JDKs.
+            directories.any { Files.isDirectory(it) && isTranscript(it.resolve("$id.jsonl")) }
         }
     } catch (e: DirectoryIteratorException) {
         // The stream reports a failed read of its entries unchecked; callers handle only IOException.

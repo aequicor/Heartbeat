@@ -141,6 +141,7 @@ internal class ClaudeRuntime(
     }
 
     override suspend fun create(request: CreateSessionRequest): ActiveSession = mutex.withLock {
+        requireWritable()
         validate(request.target)
         log.i { "Creating idle Claude session" }
         val ref = SessionRef(ClaudeEngine.Id, ClaudeEngine.SessionSource, UUID.randomUUID().toString())
@@ -158,6 +159,7 @@ internal class ClaudeRuntime(
     }
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession = mutex.withLock {
+        requireWritable()
         validate(request.target)
         val session = find(ref) ?: run {
             log.w { "Claude session is unknown to this runtime" }
@@ -276,6 +278,14 @@ internal class ClaudeRuntime(
             AuthFailure(AuthFailureReason.SourceChanged, ClaudeEngine.AuthSource),
         )
         close()
+    }
+
+    /** A read-only runtime never starts or resumes a session. */
+    private fun requireWritable() {
+        if (isReadOnly) {
+            log.w { "Claude reading runtime refused to start a session" }
+            throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
+        }
     }
 
     private suspend fun validate(target: EngineTarget) {

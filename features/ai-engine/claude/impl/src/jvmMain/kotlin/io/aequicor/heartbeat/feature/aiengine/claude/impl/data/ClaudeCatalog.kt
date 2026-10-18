@@ -93,13 +93,10 @@ internal class StoredClaudeCatalog(
         store.set(checkNotNull(key(record.ref)), record)
     }
 
-    override suspend fun findModels(revision: AuthRevision): List<JsonObject>? {
-        log.d { "Read saved Claude model capabilities" }
-        return store.get(ModelsKey)?.takeIf { it.revision == revision }?.models
-    }
+    override suspend fun findModels(revision: AuthRevision): List<JsonObject>? =
+        store.get(ModelsKey)?.takeIf { it.revision == revision }?.models
 
     override suspend fun saveModels(revision: AuthRevision, models: List<JsonObject>) {
-        log.d { "Persist Claude model capabilities count=${models.size}" }
         store.set(ModelsKey, ClaudeModelCapabilities(revision, models))
     }
 
