@@ -16,15 +16,19 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningIntent
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningMachineSpec
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningModeEnabled
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
+import io.aequicor.heartbeat.feature.planningmode.impl.data.PlanningReadOnlyHook
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanFiles
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanIndexStore
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanningEffects
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanningMachine
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
@@ -50,6 +54,19 @@ object PlanningBindings {
     @SingleIn(ProfileScope::class)
     internal fun view(machine: PlanningMachine): PlanningView = object : PlanningView {
         override val state = machine.state
+    }
+
+    /** Keeps planning chats read-only. */
+    @Provides
+    @IntoSet
+    @SingleIn(ProfileScope::class)
+    internal fun readOnlyHook(
+        view: PlanningView,
+        toggles: FeatureToggles,
+        @ForScope(ProfileScope::class) scope: ScopeHandle,
+    ): SessionHook {
+        val enabled = toggles.observe(PlanningModeEnabled).stateIn(scope.coroutineScope, SharingStarted.Eagerly, false)
+        return PlanningReadOnlyHook(view) { enabled.value }
     }
 }
 
