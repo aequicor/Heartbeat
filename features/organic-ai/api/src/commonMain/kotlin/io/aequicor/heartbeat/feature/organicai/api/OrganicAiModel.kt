@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.organicai.api
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
@@ -156,7 +157,7 @@ public enum class OrganismIsolation {
 /**
  * Request to conceive an organism. A null [target] is resolved from the profile's default model when the zygote
  * starts; [immunityTarget] runs the judge sessions and defaults to [target]. Every cell works in [workspace] (no
- * project when null) with [trust]; actions the engine still asks about are escalated to the user. With
+ * project when null) with [trust] and [decisionMode]; interactive permission requests are escalated to the user. With
  * [OrganismIsolation.Sandbox] [workspace] is the project the cells' sandboxes are cut from and must be set.
  */
 @Serializable
@@ -179,6 +180,8 @@ public data class Conception(
     val harnesses: Set<String> = emptySet(),
     /** Host-pinned committed base for every cell; null retains the historical live-source sandbox contract. */
     val baseCommit: String? = null,
+    /** Host-selected decision policy for every cell turn; fixed at conception and preserved across restart. */
+    val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
 ) {
     init {
         require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
@@ -235,6 +238,8 @@ public data class Organism(
     val harnesses: Set<String> = emptySet(),
     /** Host-pinned committed base for every cell; null retains the historical live-source sandbox contract. */
     val baseCommit: String? = null,
+    /** Host-selected decision policy for every cell turn; fixed at conception and preserved across restart. */
+    val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }

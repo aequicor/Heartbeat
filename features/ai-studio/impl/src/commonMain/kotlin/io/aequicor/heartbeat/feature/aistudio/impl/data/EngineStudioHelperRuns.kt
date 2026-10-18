@@ -32,6 +32,7 @@ internal class EngineStudioHelperRuns(
     private val host: Lazy<StudioRunHost>,
     private val coordinator: StudioRunCoordinator,
     private val native: StudioHelperNative,
+    private val recovery: StudioHelperRecovery,
     private val worktrees: StudioWorktrees? = null,
 ) : StudioHelperRuns {
     private val log = Log.tag("StudioHelperRuns")
@@ -76,7 +77,9 @@ internal class EngineStudioHelperRuns(
         return if (record.ref == null || record.target == null) {
             null
         } else {
-            native.result(record, request) { access.value.openHelper(record) }
+            native.result(record, request) {
+                access.value.liveHelper(helper) ?: recovery.open(record) { access.value.openHelper(record) }
+            }
         }
     }
 
@@ -85,10 +88,12 @@ internal class EngineStudioHelperRuns(
         val task = worktrees.tasks().first()[helper.value] ?: return request
         if (request !in task.virtualInterruptedRequests) return request
         val continuation = task.virtualContinuations[request.value] ?: return null
-        val available = task.virtualSandbox?.let { it.isReady || it.phase == VirtualSandboxPhase.HandedOff } == true &&
-            !task.pendingVirtualContinuation &&
+        val isSandboxReady = task.virtualSandbox?.let {
+            it.isReady || it.phase == VirtualSandboxPhase.HandedOff
+        } == true
+        val isAvailable = isSandboxReady && !task.pendingVirtualContinuation &&
             task.actionRequest == null && task.run?.outcome != null
-        return RequestId(continuation).takeIf { available }
+        return RequestId(continuation).takeIf { isAvailable }
     }
 
     override suspend fun virtualResultNote(helper: HelperId, request: RequestId): String {
@@ -100,7 +105,7 @@ internal class EngineStudioHelperRuns(
         val actual = task.virtualContinuations[request.value] ?: request.value
         val snapshot = task.virtualResultSnapshots[actual] ?: return ""
         return "\nHost note: integrate this helper's virtual result with sandbox_integrate: " +
-            "workspace=${task.executionWorkspace?.value}, snapshot=$snapshot."
+            "workspace=${task.executionWorkspace?.value ?: "null"}, snapshot=$snapshot."
     }
 
     override suspend fun stopHelper(helper: HelperId, request: RequestId): StudioHelperTerminal? {

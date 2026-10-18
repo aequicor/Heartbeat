@@ -20,3 +20,6 @@
 
 # The isolated worker loads its feature classes by name after the pinned engine JAR has been prepared.
 -keep class io.aequicor.heartbeat.feature.plantumlsupport.impl.** { *; }
+
+# SLF4J discovers the application logging backend through its service descriptor.
+-keep class io.aequicor.heartbeat.core.logging.Slf4jProvider { public <init>(); }

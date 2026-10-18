@@ -437,7 +437,10 @@ internal class CodexSession(
         if (submissions.remove(turn.id)?.complete(turn.id) == true) {
             history.publish { SessionEvent.TurnStarted(it, turn) }
         }
-        machine.send(ActiveSessionIntent.Internal.Accepted(turn.id))
+        val state = machine.state.value
+        if (state is ActiveSessionState.Submitting && state.turn.id == turn.id) {
+            machine.send(ActiveSessionIntent.Internal.Accepted(turn.id))
+        }
     }
 
     suspend fun load(

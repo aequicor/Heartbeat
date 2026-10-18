@@ -2,6 +2,9 @@
 
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.LogLevel
+import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -48,6 +51,32 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class CodexRuntimeTest {
+    @Test
+    fun `repeated native acceptance does not send an ignored session intent`() = runTest {
+        val warnings = mutableListOf<String>()
+        Log.init(
+            isDebug = false,
+            sinks = listOf(
+                LogSink { level, tag, _, message ->
+                    if (level == LogLevel.WARNING && tag.startsWith("SM/ai-session")) warnings += message
+                },
+            ),
+        )
+        try {
+            val fixture = Fixture(this)
+            val session = fixture.open()
+            session.feature(SendsPrompts).send(Prompt)
+            repeat(3) {
+                fixture.event("turn/started", "turn" to json("id" to "native-turn".json()))
+                runCurrent()
+            }
+            assertIs<ActiveSessionState.Running>(session.state.value)
+            assertTrue(warnings.none { it.contains("ignored Accepted") })
+        } finally {
+            Log.init(isDebug = false)
+        }
+    }
+
     @Test
     fun `tree subscribers never steal streaming deltas or engine requests`() = runTest {
         val fixture = Fixture(this)

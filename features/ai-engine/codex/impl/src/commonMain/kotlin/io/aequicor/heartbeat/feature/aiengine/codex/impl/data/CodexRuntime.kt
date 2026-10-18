@@ -124,8 +124,10 @@ internal class CodexRuntime(
         } catch (e: CancellationException) {
             throw e
         } catch (e: EngineException) {
-            log.w(e) { "Codex observation interrupted" }
-            shutdown(e.failure)
+            if (!isClosed || e.failure != EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)) {
+                log.w(e) { "Codex observation interrupted" }
+                if (!isClosed) shutdown(e.failure)
+            }
         }
     }
 
