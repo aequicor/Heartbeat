@@ -76,7 +76,7 @@ internal interface CellHarnesses {
      * Removes the connections of [harnesses] to [session], whose cell has ended, so dead sessions never fill the
      * connection quota of a harness. A cell that wakes again is connected anew before its next prompt; so that a late
      * removal never strips a session a newer turn already uses, [isReleased] is asked again right before each write
-     * and a removal is skipped once it says no. All of it shares one deadline. Best effort: throws when any
+     * and a removal is skipped once it says no. Each harness gets fifteen seconds. Best effort: throws when any
      * connection stays (a failed or cancelled removal is not retried later); a connection not there is not written.
      * Does nothing without [harnesses] or with the harness feature off.
      */
@@ -110,7 +110,8 @@ internal interface CellSessions {
 
     /**
      * Whether the session of [key] is let go as of [generation]: the cell was lysed, or no later turn opened it
-     * and it has no open handle. A removal of its resources runs only while this holds.
+     * (a turn raises the generation as it starts to open the cell) and it has no open handle. A removal of its
+     * resources runs only while this holds.
      */
     suspend fun isReleased(key: CellKey, generation: Int): Boolean
 

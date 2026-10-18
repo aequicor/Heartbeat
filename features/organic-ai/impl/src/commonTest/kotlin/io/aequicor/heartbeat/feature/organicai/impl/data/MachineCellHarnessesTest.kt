@@ -388,7 +388,7 @@ class MachineCellHarnessesTest {
     }
 
     @Test
-    fun `a removal that waited for the library asks again before it writes`() = runTest {
+    fun `a removal that waited for the library is skipped once its session is reopened`() = runTest {
         library.state.value = ready.copy(
             attachments = mapOf(cell to setOf(HarnessId("compose"))),
             attachmentWrite = write(isAttached = true).copy(session = session("elsewhere")),
@@ -405,7 +405,7 @@ class MachineCellHarnessesTest {
     }
 
     @Test
-    fun `all removals of a session share one deadline and say why they failed`() = runTest {
+    fun `the removals of a session get fifteen seconds for each harness and say why they failed`() = runTest {
         library.state.value = ready.copy(
             attachments = mapOf(cell to setOf(HarnessId("compose"), HarnessId("verify"))),
         )
@@ -416,9 +416,59 @@ class MachineCellHarnessesTest {
         runCurrent()
         advanceTimeBy(16.seconds)
         runCurrent()
+        assertFalse(disconnecting.isCompleted)
+        advanceTimeBy(15.seconds)
+        runCurrent()
         assertTrue(disconnecting.isCompleted)
         assertTrue("no confirmation" in disconnecting.await().message.orEmpty())
         assertEquals(1, library.sent.size)
+    }
+
+    @Test
+    fun `a removal asks under the lock right before it writes and skips once its session is reopened`() = runTest {
+        library.state.value = ready.copy(attachments = mapOf(cell to setOf(HarnessId("compose"))))
+        commits()
+        var asks = 0
+        port.disconnect(cell, setOf("compose")) { ++asks == 1 }
+        assertEquals(2, asks)
+        assertTrue(library.sent.isEmpty())
+        assertEquals(setOf(HarnessId("compose")), (library.state.value as HarnessState.Ready).attachments[cell])
+    }
+
+    @Test
+    fun `a connection found while a removal holds the line is judged again once the removal is done`() = runTest {
+        library.state.value = ready.copy(attachments = mapOf(cell to setOf(HarnessId("compose"))))
+        val gate = CompletableDeferred<Unit>()
+        var sends = 0
+        library.onSend = { intent ->
+            sends++
+            if (sends == 1) gate.await()
+            val current = library.state.value as HarnessState.Ready
+            when (intent) {
+                is HarnessIntent.Public.Detach -> {
+                    library.state.value = current.copy(attachments = emptyMap())
+                    library.outputs.emit(HarnessOutput.Detached(intent.requestId, intent.id, intent.session))
+                }
+
+                is HarnessIntent.Public.Attach -> {
+                    library.state.value = current.copy(attachments = mapOf(cell to setOf(intent.id)))
+                    library.outputs.emit(HarnessOutput.Attached(intent.requestId, intent.id, intent.session))
+                }
+
+                else -> error("unexpected intent")
+            }
+            SendResult.Accepted
+        }
+        val disconnecting = async { port.disconnect(cell, setOf("compose")) }
+        runCurrent()
+        val connecting = async { port.connect(cell, setOf("compose")) }
+        runCurrent()
+        assertFalse(connecting.isCompleted)
+        gate.complete(Unit)
+        disconnecting.await()
+        connecting.await()
+        assertEquals(listOf("Detach", "Attach"), library.sent.map { it::class.simpleName })
+        assertEquals(setOf(HarnessId("compose")), (library.state.value as HarnessState.Ready).attachments[cell])
     }
 
     @Test

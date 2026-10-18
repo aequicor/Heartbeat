@@ -127,6 +127,25 @@ class FacadeAdaptersTest {
     }
 
     @Test
+    fun `a session is no longer let go as of an older turn once a newer turn starts to open it`() = runTest {
+        val native = FakeSession(session("continued"))
+        val facade = FakeFacade(ArrayDeque(listOf(native)))
+        val cells = FacadeCellSessions(facade)
+        cells.open(key, route, existing = null, generation = 1)
+        assertTrue(cells.release(key, native.ref, ReleaseMode.Retire, generation = 1))
+        assertTrue(cells.isReleased(key, generation = 1))
+
+        val gate = CompletableDeferred<Unit>()
+        facade.onResume = { gate.await() }
+        val reopening = async { cells.open(key, route, existing = native.ref, generation = 2) }
+        runCurrent()
+        assertFalse(cells.isReleased(key, generation = 1))
+        gate.complete(Unit)
+        reopening.await()
+        assertFalse(cells.isReleased(key, generation = 1))
+    }
+
+    @Test
     fun `a slow resumption cannot replace or cancel a newer turn's handle`() = runTest {
         val old = FakeSession(session("continued")).apply {
             resumedAs = ActiveSessionState.Running(Turn(TurnId("active"), RequestId("new"), TARGET))

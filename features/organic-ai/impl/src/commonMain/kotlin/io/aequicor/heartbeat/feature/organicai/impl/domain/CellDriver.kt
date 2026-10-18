@@ -100,16 +100,18 @@ internal class CellDriver(
         handle: CellHandle,
         machine: EffectScope<OrganicAiIntent>,
     ): TurnId? {
-        if (!isConnected(organism, cell.id, handle)) {
-            val broke = Settlement.Broke(Breakdown.Harnesses)
-            val result = machine.send(OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, broke))
-            log.i { "organism ${organism.id.value} cell ${cell.id.value}: harnesses not connected, unsent, $result" }
-            return null
-        }
-        // The cell may have been lysed while it waited for its connections: nothing may stay connected to its session.
+        val isConnected = isConnected(organism, cell.id, handle)
+        // The cell may have been lysed while it waited for its connections, and whatever part of them was made must
+        // go: nothing may stay connected to a dead session, whether or not every connection succeeded.
         val key = CellKey(organism.id, cell.id)
         if (organism.harnesses.isNotEmpty() && cells.isLysed(key)) {
             abandon(organism, key, handle, turn = null, isConnected = true)
+            return null
+        }
+        if (!isConnected) {
+            val broke = Settlement.Broke(Breakdown.Harnesses)
+            val result = machine.send(OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, broke))
+            log.i { "organism ${organism.id.value} cell ${cell.id.value}: harnesses not connected, unsent, $result" }
             return null
         }
         journal.save(organism)

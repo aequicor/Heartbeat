@@ -39,8 +39,10 @@ import kotlin.uuid.Uuid
  * a refused one is a failure, so a cell never turns in a smaller environment than the user chose. A connection
  * already in the wanted state is not written again, which makes a restart or a repeated turn harmless. A library that
  * is still loading (after a restart it starts beside the organisms) or busy with another change is awaited; each
- * harness gets fifteen seconds in all, and the library takes one attachment write at a time, so the cells of the
- * profile queue behind one lock held only while a write is sent. Harness ids and titles are never logged.
+ * harness gets fifteen seconds in all. The library takes one attachment write at a time, so the cells of the profile
+ * queue behind one lock held from the last look at the library until the write's receipt; a connection found in the
+ * wanted state is trusted only while no write is in flight, since that write may be the removal of it. Harness ids
+ * and titles are never logged.
  */
 @ContributesBinding(ProfileScope::class)
 @SingleIn(ProfileScope::class)
@@ -68,13 +70,20 @@ internal class MachineCellHarnesses(private val machines: MachineRegistry, priva
             log.d { "harnesses are turned off; a cell session keeps its stored connections" }
             return
         }
-        val kept = withTimeoutOrNull(CONFIRMATION) {
-            harnesses.sorted().mapNotNull {
-                (settle(Change(session, HarnessId(it), isAttached = false), isReleased) as? Outcome.Failed)?.reason
+        val kept = mutableListOf<String>()
+        var skipped = 0
+        val isSettled = withTimeoutOrNull(CONFIRMATION * harnesses.size) {
+            for (harness in harnesses.sorted()) {
+                when (val outcome = settle(Change(session, HarnessId(harness), isAttached = false), isReleased)) {
+                    Outcome.Done -> Unit
+                    Outcome.Skipped -> skipped++
+                    is Outcome.Failed -> kept += outcome.reason
+                }
             }
-        } ?: listOf("no confirmation within $CONFIRMATION")
+        } != null
+        if (!isSettled) kept += "no confirmation within ${CONFIRMATION * harnesses.size}"
         check(kept.isEmpty()) { "Harness connections of a cell session were kept: ${kept.distinct().joinToString()}" }
-        log.d { "cell session let go of the harnesses of its organism count=${harnesses.size}" }
+        log.d { "cell session settled its harness connections count=${harnesses.size} skipped=$skipped" }
     }
 
     /** Waits for the library, then settles [change] in it while [isWanted]; the caller bounds the time. */
@@ -99,7 +108,7 @@ internal class MachineCellHarnesses(private val machines: MachineRegistry, priva
         val ready = state as? HarnessState.Ready
         return when {
             // A removal for a session a newer turn has reopened must not happen.
-            !isWanted() -> Step.Final(Outcome.Done)
+            !isWanted() -> Step.Final(Outcome.Skipped)
 
             refusal != null -> Step.Final(Outcome.Failed(refusal))
 
@@ -112,7 +121,7 @@ internal class MachineCellHarnesses(private val machines: MachineRegistry, priva
             // The connection as committed is about to change: judge it only once that write is done.
             ready.isWriting(change) -> awaiting(library, ready)
 
-            ready.isConnected(change) == change.isAttached -> Step.Final(Outcome.Done)
+            ready.isConnected(change) == change.isAttached -> settled(change)
 
             isBusy(ready, change.harness) -> awaiting(library, ready)
 
@@ -127,6 +136,16 @@ internal class MachineCellHarnesses(private val machines: MachineRegistry, priva
         state.isSuspended -> "the library is suspended"
         state is HarnessState.Failed -> "the library could not be loaded"
         else -> null
+    }
+
+    /**
+     * The connection is as wanted. A connection that is about to be removed by a write that has not changed the state
+     * yet would look the same, so a holder of the write lock is waited for and the library looked at again.
+     */
+    private suspend fun settled(change: Change): Step {
+        if (!change.isAttached || !writes.isLocked) return Step.Final(Outcome.Done)
+        writes.withLock { Unit }
+        return Step.Retry
     }
 
     private suspend fun awaiting(library: Library, seen: HarnessState): Step {
@@ -154,7 +173,7 @@ internal class MachineCellHarnesses(private val machines: MachineRegistry, priva
         Receipt.Saved -> Step.Final(confirmed(library, change))
         is Receipt.Refused -> Step.Final(Outcome.Failed(receipt.reason))
         Receipt.Busy -> Step.Busy
-        Receipt.Skipped -> Step.Final(Outcome.Done)
+        Receipt.Skipped -> Step.Final(Outcome.Skipped)
         null -> Step.Retry
     }
 
@@ -224,6 +243,9 @@ private fun HarnessState.isConnected(change: Change): Boolean =
 /** How one connection change ended: done, or why it was not (never an id or a title). */
 private sealed interface Outcome {
     data object Done : Outcome
+
+    /** A removal no longer wanted: a newer turn uses the session again. */
+    data object Skipped : Outcome
 
     data class Failed(val reason: String) : Outcome {
         override fun toString(): String = reason

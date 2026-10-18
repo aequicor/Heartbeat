@@ -237,11 +237,19 @@ class OrganicAiEffectsTest {
             effects.handle(OrganicAiEffect.Release(ended, listOf(ZYGOTE, C1), ReleaseMode.Retire), machine)
             assertEquals(listOf("release zygote", "release c1", "disconnect z", "disconnect c1"), events)
             assertEquals(listOf(true, false), harnesses.guards)
+            val turns = ended.cells.associate { it.id to it.turns }
+            assertEquals(
+                listOf(
+                    CellKey(ORGANISM, ZYGOTE) to turns.getValue(ZYGOTE),
+                    CellKey(ORGANISM, C1) to turns.getValue(C1),
+                ),
+                cells.asked,
+            )
         }
 
     @Test
     fun `a cell lysed while it connected abandons its turn and removes the connections it made`() = runTest {
-        cells.lysed += CellKey(ORGANISM, C1)
+        harnesses.whileConnecting = { cells.lysed += CellKey(ORGANISM, C1) }
         val germinating = organism(cell(C1)).copy(harnesses = setOf("compose"))
         effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
         assertEquals(listOf(cells.handle.session to setOf("compose")), harnesses.connected)
@@ -249,6 +257,18 @@ class OrganicAiEffectsTest {
         assertEquals(emptyList(), journal.saved)
         assertEquals(listOf(cells.handle.session to setOf("compose")), harnesses.disconnected)
         assertEquals(ReleaseMode.Lyse, cells.released.single().third)
+    }
+
+    @Test
+    fun `a cell lysed while its connections failed removes what was connected and settles nothing`() = runTest {
+        harnesses.whileConnecting = { cells.lysed += CellKey(ORGANISM, C1) }
+        harnesses.failure = IllegalStateException("A harness chosen for the organism could not be connected")
+        val germinating = organism(cell(C1)).copy(harnesses = setOf("compose", "verify"))
+        effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
+        assertEquals(emptyList(), cells.handle.submitted)
+        assertEquals(listOf(cells.handle.session to setOf("compose", "verify")), harnesses.disconnected)
+        assertEquals(ReleaseMode.Lyse, cells.released.single().third)
+        assertEquals(emptyList(), machine.sent.filterIsInstance<OrganicAiIntent.Internal.TurnSettled>())
     }
 
     @Test
@@ -488,8 +508,12 @@ class OrganicAiEffectsTest {
         var disconnectFailure: Exception? = null
         var events: MutableList<String>? = null
 
+        /** Runs while the connections are being made, as an ending of the cell would meanwhile. */
+        var whileConnecting: () -> Unit = {}
+
         override suspend fun connect(session: SessionRef, harnesses: Set<String>) {
             connected += session to harnesses
+            whileConnecting()
             failure?.let { throw it }
         }
 
@@ -557,7 +581,13 @@ class OrganicAiEffectsTest {
 
         override suspend fun isLysed(key: CellKey): Boolean = key in lysed
 
-        override suspend fun isReleased(key: CellKey, generation: Int): Boolean = letGo[key] ?: true
+        /** The generations the removals asked about, by cell. */
+        val asked = mutableListOf<Pair<CellKey, Int>>()
+
+        override suspend fun isReleased(key: CellKey, generation: Int): Boolean {
+            asked += key to generation
+            return letGo[key] ?: true
+        }
 
         override suspend fun releaseAll() {
             releasedAll++
