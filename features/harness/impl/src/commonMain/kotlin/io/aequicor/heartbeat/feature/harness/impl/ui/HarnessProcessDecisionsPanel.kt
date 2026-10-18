@@ -89,7 +89,8 @@ internal fun ProcessDecisionsContent(
             )
             HbText(process)
             HbText(stringResource(Res.string.process_decisions_deadline, row.expiresAt, row.timeoutMillis))
-            HbText(row.words)
+            row.ownership?.let { ProcessOwnershipSummary(it) }
+            if (row.words.isNotEmpty()) HbText(row.words)
             DecisionControls(row, state.isBusy, onIntent)
             HbDivider()
         }

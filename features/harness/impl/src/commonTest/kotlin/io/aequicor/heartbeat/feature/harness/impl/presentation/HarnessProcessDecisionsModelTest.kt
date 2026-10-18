@@ -9,10 +9,19 @@ import io.aequicor.heartbeat.feature.harness.api.decision.ProcessCommandSnapshot
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecision
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionLedger
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessGitHubSnapshot
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessOwnershipAction
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessOwnershipSnapshot
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubChange
+import io.aequicor.heartbeat.feature.harness.api.github.GitHubNodeId
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubRepository
+import io.aequicor.heartbeat.feature.harness.api.process.ExecutorHostId
+import io.aequicor.heartbeat.feature.harness.api.process.GitHubTaskIdentity
+import io.aequicor.heartbeat.feature.harness.api.process.GitHubTaskKind
+import io.aequicor.heartbeat.feature.harness.api.process.OwnershipFence
+import io.aequicor.heartbeat.feature.harness.api.process.OwnershipKey
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessAuthority
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessOwnership
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey
 import io.aequicor.heartbeat.feature.harness.api.process.StageName
 import io.aequicor.heartbeat.feature.harness.api.process.SubjectSha
@@ -44,6 +53,46 @@ class HarnessProcessDecisionsModelTest {
         ),
         ProcessCommandSnapshot("gh", listOf("pr", "merge", "1"), 60_000),
     )
+
+    @Test
+    fun `ownership projection shows reviewed hosts and fixed shared branch without portable approval`() = runTest {
+        val source = ExecutorHostId("1".repeat(32))
+        val recipient = ExecutorHostId("2".repeat(32))
+        val payload = ProcessOwnershipSnapshot(
+            ProcessOwnershipAction.Prepare,
+            GitHubTaskIdentity(
+                GitHubRepository("owner", "repo"),
+                GitHubTaskKind.Pull,
+                27,
+                GitHubNodeId("R_1"),
+                GitHubNodeId("PR_27"),
+            ),
+            "d".repeat(64),
+            ProcessOwnership(OwnershipFence(OwnershipKey("e".repeat(64)), source, 7)),
+            recipient,
+        )
+        val typed = entry.copy(command = null, ownership = payload)
+        val clock = ProcessesTestClock(150)
+        val storage = DecisionModelStorage(ProcessDecisionLedger(entries = listOf(typed)))
+        val model = HarnessProcessDecisionsModel(
+            "harness",
+            ProcessDecisionHost(DecisionTestMachine(storage), clock),
+            storeFactory(),
+            backgroundScope,
+            clock,
+        )
+        val row = subscribe(model.store).states.value.rows.single()
+        val ownership = checkNotNull(row.ownership)
+        assertEquals("heartbeat-processes", ownership.branch)
+        assertEquals(source.value, ownership.source)
+        assertEquals(recipient.value, ownership.recipient)
+        assertEquals(7L, ownership.epoch)
+        assertEquals(payload.definitionDigest, ownership.definition)
+        assertEquals(OwnershipActionUi.Prepare, ownership.action)
+        assertEquals("", row.words)
+        assertEquals(ProcessDecisionStatusUi.Pending, row.status)
+        assertEquals(0, storage.writes)
+    }
 
     @Test
     fun `native request shows complete typed GitHub payload before approval`() = runTest {

@@ -44,6 +44,7 @@ internal data class ProcessDecisionUi(
     val expiresAt: String,
     val timeoutMillis: Long,
     val words: String,
+    val ownership: ProcessOwnershipUi? = null,
 ) {
     override fun toString(): String = "ProcessDecisionUi(status=$status, ***)"
 }
@@ -152,8 +153,10 @@ private fun ProcessCommandDecision.toUi(now: Instant): ProcessDecisionUi {
     val command = command
     val words = if (command != null) {
         Json.encodeToString(ListSerializer(String.serializer()), listOf(command.program) + command.arguments)
+    } else if (github != null) {
+        Json.encodeToString(github)
     } else {
-        Json.encodeToString(checkNotNull(github))
+        ""
     }
     val status = when (decision.phase) {
         ProcessDecisionPhase.Pending -> if (now >= decision.expiresAt) {
@@ -191,6 +194,7 @@ private fun ProcessCommandDecision.toUi(now: Instant): ProcessDecisionUi {
         decision.expiresAt.toString(),
         command?.timeoutMillis ?: GITHUB_TIMEOUT_MILLIS,
         words,
+        ownership?.toUi(),
     )
 }
 

@@ -12,6 +12,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
@@ -19,10 +20,12 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.harness.impl.presentation.OwnershipActionUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ProcessDecisionStatusUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ProcessDecisionUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ProcessDecisionsUiIntent
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ProcessDecisionsUiState
+import io.aequicor.heartbeat.feature.harness.impl.presentation.ProcessOwnershipUi
 import kotlinx.collections.immutable.persistentListOf
 import java.io.File
 import javax.imageio.ImageIO
@@ -87,6 +90,32 @@ class ProcessDecisionsUiTest {
                 }
             }
         }
+    }
+
+    @Test
+    fun `ownership decision visibly identifies hosts branch and definition`() = runSkikoComposeUiTest {
+        val ownership = ProcessOwnershipUi(
+            OwnershipActionUi.Prepare,
+            "source-host",
+            "recipient-host",
+            7,
+            "checkpoint-digest",
+            "reviewed-definition",
+            "heartbeat-processes",
+        )
+        setContent {
+            HbTheme {
+                ProcessDecisionsContent(
+                    ProcessDecisionsUiState(persistentListOf(row.copy(words = "", ownership = ownership))),
+                    {},
+                )
+            }
+        }
+        onNodeWithText("heartbeat-processes", substring = true).assertIsDisplayed()
+        onNodeWithText("source-host", substring = true).assertIsDisplayed()
+        onNodeWithText("recipient-host", substring = true).assertIsDisplayed()
+        onNodeWithText("reviewed-definition", substring = true).assertIsDisplayed()
+        onNodeWithTag("process-decision-allow-decision").assertIsDisplayed()
     }
 
     @Test
