@@ -104,7 +104,7 @@ internal fun PlaceView(
     ) { PlacedSurfaceView(modal, surfaces, documents) }
 }
 
-/** The surfaces and launchers of a place. */
+/** The surfaces, launchers and, in the composer slot, the quick actions of a place. */
 @Composable
 private fun PlaceContent(
     state: PlaceState,
@@ -130,6 +130,7 @@ private fun PlaceContent(
                 }
             }
         }
+        QuickActionsView(state.quickActions, onIntent)
     }
 }
 

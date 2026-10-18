@@ -68,6 +68,67 @@ class UiEvaluatorTest {
     }
 
     @Test
+    fun `a spec without quick actions evaluates to none`() {
+        assertEquals(emptyList(), evaluator.quickActions(values(UiSourceStatus.Ready)))
+    }
+
+    @Test
+    fun `quick actions resolve their labels in order and keep the press for their action`() {
+        val quick = UiEvaluator(spec(QuickSpec))
+        val ready = values(UiSourceStatus.Ready).copy(state = mapOf("stage" to JsonPrimitive("plan")))
+
+        val actions = quick.quickActions(ready)
+
+        assertEquals(listOf("next", "later", "always"), actions.map { it.id })
+        val next = actions[0]
+        assertEquals("Next plan (2)", next.label)
+        assertEquals(ButtonStyleUi.Primary, next.style)
+        assertEquals("play", next.icon)
+        assertEquals("Start plan?", next.confirm)
+        assertTrue(next.isEnabled)
+        assertFalse(next.isBusy)
+        assertEquals("q.next", next.press.origin)
+        assertEquals(UiScope(), next.press.scope)
+        assertEquals(
+            UiAction.Call("advance", buildJsonObject { put("stage", "{{state.stage}}") }, into = "stage"),
+            next.press.action,
+        )
+        assertEquals(ButtonStyleUi.Secondary, actions[1].style)
+        assertNull(actions[1].confirm)
+        assertNull(actions[1].icon)
+    }
+
+    @Test
+    fun `visibility hides a quick action and enablement only disables it`() {
+        val quick = UiEvaluator(spec(QuickSpec))
+        val loading = UiValues(
+            state = mapOf("stage" to JsonPrimitive("plan")),
+            status = mapOf("prs" to UiSourceStatus.Loading),
+        )
+        val hidden = loading.copy(state = mapOf("stage" to JsonPrimitive("")))
+
+        val shown = quick.quickActions(loading)
+        assertEquals(listOf("next", "later", "always"), shown.map { it.id })
+        assertEquals(listOf(false, false, true), shown.map { it.isEnabled })
+
+        assertEquals(listOf("always"), quick.quickActions(hidden).map { it.id })
+    }
+
+    @Test
+    fun `a running quick action is busy and its text is bounded`() {
+        val quick = UiEvaluator(spec(QuickSpec))
+        val busy = values(UiSourceStatus.Ready)
+            .copy(state = mapOf("stage" to JsonPrimitive("x".repeat(UiSpecLimits.QUICK_ACTION_CHARS * 2))))
+            .copy(busy = setOf("q.always", "later"))
+
+        val actions = quick.quickActions(busy)
+
+        assertEquals(listOf(false, false, true), actions.map { it.isBusy })
+        assertEquals(UiSpecLimits.QUICK_ACTION_CHARS, actions[0].label.length)
+        assertEquals(UiSpecLimits.QUICK_ACTION_CHARS, actions[0].confirm!!.length)
+    }
+
+    @Test
     fun `progress keeps a share in range and is indeterminate without a finite number`() {
         val evaluator = UiEvaluator(
             spec("""{"version":1,"state":{"p":0},"body":{"type":"progress","value":"{{state.p}}"}}"""),
@@ -270,6 +331,19 @@ class UiEvaluatorTest {
                 put("title", "Fix login")
             },
         )
+
+        val QuickSpec = """
+            {"version":1,"state":{"stage":"plan"},
+             "data":{"prs":{"method":"prs"}},
+             "quickActions":[
+               {"id":"next","label":"Next {{state.stage}} ({{data.prs.count}})","style":"primary","icon":"play",
+                "confirm":"Start {{state.stage}}?","enabledWhen":"{{status.prs.ready}}","visibleWhen":"{{state.stage}}",
+                "action":{"type":"call","method":"advance","args":{"stage":"{{state.stage}}"},"into":"stage"}},
+               {"id":"later","label":"Later","visibleWhen":"{{state.stage}}","enabledWhen":"{{status.prs.ready}}",
+                "action":{"type":"reload","source":"prs"}},
+               {"id":"always","label":"Always","action":{"type":"set","key":"stage","value":"plan"}}],
+             "body":{"type":"divider"}}
+        """.trimIndent()
 
         val PrMap = """
             {"version":1,"state":{"filter":"open"},

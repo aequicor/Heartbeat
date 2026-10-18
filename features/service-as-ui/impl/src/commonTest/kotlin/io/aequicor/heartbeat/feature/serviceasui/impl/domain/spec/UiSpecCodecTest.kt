@@ -80,6 +80,66 @@ class UiSpecCodecTest {
     }
 
     @Test
+    fun `specs without quick actions decode with none and never gain the field`() {
+        val spec = assertIs<UiSpecDecoding.Decoded>(decodeUiSpec(PrMapSpec)).spec
+
+        assertEquals(emptyList(), spec.quickActions)
+        assertFalse("quickActions" in PrMapSpec)
+        val stored = assertNotNull(formatUiSpec(PrMapSpec, isIndented = false))
+        assertFalse("quickActions" in stored)
+        assertEquals(spec, assertIs<UiSpecDecoding.Decoded>(decodeUiSpec(stored)).spec)
+    }
+
+    @Test
+    fun `quick actions decode with every field and default to a secondary visible enabled button`() {
+        val text = """{"version":1,"state":{"stage":"plan"},"data":{"s":{"method":"snapshot"}},
+            "quickActions":[
+              {"id":"next","label":"Next {{state.stage}}","style":"primary","icon":"play",
+               "visibleWhen":"{{data.s.hasNext}}","enabledWhen":"{{status.s.ready}}","confirm":"Go on?",
+               "action":{"type":"sequence","actions":[
+                 {"type":"call","method":"advance","args":{"stage":"{{state.stage}}"},"into":"stage"},
+                 {"type":"reload","source":"s"}]}},
+              {"id":"plain","label":"Plain","action":{"type":"set","key":"stage","value":"plan"}}],
+            "body":{"type":"divider"}}"""
+        val spec = assertIs<UiSpecDecoding.Decoded>(decodeUiSpec(text)).spec
+
+        val next = spec.quickActions[0]
+        assertEquals("next", next.id)
+        assertEquals(UiButtonStyle.Primary, next.style)
+        assertEquals("play", next.icon)
+        assertEquals("{{data.s.hasNext}}", next.visibleWhen)
+        assertEquals("{{status.s.ready}}", next.enabledWhen)
+        assertEquals("Go on?", next.confirm)
+        assertEquals(
+            listOf("Call", "Reload"),
+            assertIs<UiAction.Steps>(next.action).actions.map { it::class.simpleName },
+        )
+        val plain = spec.quickActions[1]
+        assertEquals(UiButtonStyle.Secondary, plain.style)
+        assertNull(plain.icon)
+        assertNull(plain.visibleWhen)
+        assertNull(plain.enabledWhen)
+        assertNull(plain.confirm)
+        assertEquals("UiSpec(version=1, state=1, data=1, modals=0, quickActions=2)", spec.toString())
+    }
+
+    @Test
+    fun `quick action structure is strict`() {
+        val body = """"body":{"type":"divider"}"""
+        for (quick in listOf(
+            """{"id":"a","label":"A"}""",
+            """{"label":"A","action":{"type":"close"}}""",
+            """{"id":"a","action":{"type":"close"}}""",
+            """{"id":"a","label":"A","action":{"type":"close"},"colour":"red"}""",
+            """{"id":"a","label":"A","style":"loud","action":{"type":"close"}}""",
+        )) {
+            val error = malformed("""{"version":1,"quickActions":[$quick],$body}""")
+            assertTrue(error.path.startsWith("$.quickActions[0]"), error.describe())
+        }
+        malformed("""{"version":1,"quickActions":{"id":"a"},$body}""")
+    }
+
+    @Test
     fun `structure errors name the place and the cause`() {
         val unknownType = malformed("""{"version":1,"body":{"type":"colum","children":[]}}""")
         assertTrue("colum" in unknownType.detail.orEmpty(), unknownType.describe())

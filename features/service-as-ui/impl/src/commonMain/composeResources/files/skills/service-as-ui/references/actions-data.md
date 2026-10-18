@@ -56,6 +56,30 @@ These are action fragments for a button's `action`, a table's `onRowClick`, or a
 | `reveal` | Absolute `path`, owner-backed library only, Desktop-only; shows an existing path in the file manager | `{"type":"reveal","path":"{{state.path}}"}` |
 | `sequence` | Nonempty `actions` array; runs in order, stops at first failure; not a transaction/rollback | `{"type":"sequence","actions":[{"type":"call","method":"save_note","args":{"text":"{{state.note}}"}},{"type":"set","key":"details","value":true}]}` |
 
+### Quick actions
+
+A canonical `card` app of a library owner may declare `quickActions`: contextual buttons the host draws next to the chat input (with an overflow menu when they do not fit), so the user starts or continues a stage of a process without typing a service prompt. They are a top-level spec field, absent from specs that declare none.
+
+| Field | Meaning |
+|---|---|
+| `id` | Unique identifier (`[A-Za-z_][A-Za-z0-9_-]{0,31}`); names the button in logs and in its busy state |
+| `label` | Required visible text; it names the button for screen readers and in the overflow menu. May hold bindings |
+| `action` | `call`, `reload` or `set`, alone or in a `sequence` |
+| `style`, `icon` | As for a `button` |
+| `visibleWhen` | Binding; the action is hidden while it is false |
+| `enabledWhen` | Binding; the action is shown disabled while it is false |
+| `confirm` | Question the user answers first |
+
+Bindings read `data`, `state`, `status`, `args` and `context`, never `item` or `index`. At most 8 quick actions. `prompt`, `open`, `focusCard`, `openUrl`, `copy`, `saveFile`, `reveal` and `close` are rejected: a quick action never opens the app's screen and never replaces the draft in the chat input. Put stage logic (start, continue, retry) in owner methods and let the action call them; the method name and arguments are checked against the owner's published methods like any other `call`. Anonymous cards and surfaces with another placement cannot declare them.
+
+```json
+"quickActions": [
+  {"id": "next", "label": "Continue {{data.snapshot.stage}}", "style": "primary", "icon": "play",
+   "visibleWhen": "{{data.snapshot.hasNext}}", "enabledWhen": "{{status.snapshot.ready}}",
+   "action": {"type": "call", "method": "advance", "args": {"stage": "{{data.snapshot.stage}}"}}}
+]
+```
+
 ### Navigation scope
 
 `args` must be a JSON object. A local named modal cannot be presented as a panel. Use named local dialogs for details within a canonical app; a same-owner name alone does not make every saved surface a navigation target.
@@ -110,7 +134,7 @@ Use `ui_reference(topic="spec")` for the installed version's authoritative bound
 | Surface metadata | Title 80 characters; description 500 characters; surface name 32 characters |
 | Spec | 2 MiB UTF-8; 400 nodes; node nesting 16; raw JSON nesting 64 |
 | Data/local state | 8 sources; 16 KiB initial state; opening arguments 16 KiB |
-| Modals/actions | 8 named modals; 8 steps per sequence; 2 concurrent native action/source calls per surface |
+| Modals/actions | 8 named modals; 8 quick actions; 8 steps per sequence; 2 concurrent native action/source calls per surface |
 | Collections | 12 table columns; 64 select options; 200 list items/table rows rendered before hidden counts |
 | Expanded rendering | 4,096 elements and 262,144 display characters per body/modal; input values stay intact; keys above 128 characters fall back to positions |
 | WebView | One document per spec; HTML 1 MiB; up to 4 pending bridge calls, executed one at a time; further calls are rejected |
