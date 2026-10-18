@@ -5,9 +5,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Options of an organism step. [title] names it for the user and diagnostics. [target] pins the model of every cell
- * (null — the profile's default model) and [immunityTarget] the judges of the immune system (null — [target]).
- * Trust is always bounded by the host and never wider than Ask; growth ceilings are the host's finite defaults.
+ * Options of an organism step. [title] names the stage for the workflow author; organic AI has no place to show it,
+ * so it only belongs to the identity of the step (changing it for a recorded step is a divergence). [target] pins
+ * the model of every cell (null — the profile's default model) and [immunityTarget] the judges of the immune
+ * system (null — [target]). Trust is always bounded by the host and never wider than Ask; growth ceilings are the
+ * host's finite defaults.
  */
 public data class OrganismOptions(
     val title: String,
