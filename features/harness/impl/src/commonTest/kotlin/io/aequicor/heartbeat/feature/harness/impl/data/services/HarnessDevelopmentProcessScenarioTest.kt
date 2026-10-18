@@ -314,7 +314,7 @@ class HarnessDevelopmentProcessScenarioTest {
         )
     }
 
-    private suspend fun ProcessesTestEnv.send(command: ProcessCommand): ProcessReduction =
+    private suspend fun ProcessesTestEnv.send(command: ProcessCommand.Record): ProcessReduction =
         processes.apply(issue, command)
 
     private suspend fun ProcessesTestEnv.record(): ProcessRecord = checkNotNull(processes.get(issue))

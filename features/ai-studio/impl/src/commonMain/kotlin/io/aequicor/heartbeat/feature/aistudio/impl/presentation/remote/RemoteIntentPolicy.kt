@@ -26,6 +26,8 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
 
     is AiStudioScreenIntent.Suggestions -> isAllowedSuggestion(intent)
 
+    is AiStudioScreenIntent.Plan -> isAllowedPlan(intent)
+
     is AiStudioScreenIntent.QuestionInput,
     is AiStudioScreenIntent.ChecklistInput,
     is AiStudioScreenIntent.RespondPermission,
@@ -68,6 +70,16 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.ToggleRecentSection, is AiStudioScreenIntent.ToggleNoProjectSection,
     is AiStudioScreenIntent.ToggleSidebar,
     is AiStudioScreenIntent.SetDrawerOpen,
+    -> true
+}
+
+/** Remote panels plan like the window: every plan intent is listed, so a new one must be allowed explicitly. */
+private fun isAllowedPlan(intent: AiStudioScreenIntent.Plan): Boolean = when (intent) {
+    is AiStudioScreenIntent.SelectPlanning,
+    is AiStudioScreenIntent.SetPlanning,
+    is AiStudioScreenIntent.ApprovePlan,
+    is AiStudioScreenIntent.SavePlan,
+    is AiStudioScreenIntent.ImplementPlan,
     -> true
 }
 

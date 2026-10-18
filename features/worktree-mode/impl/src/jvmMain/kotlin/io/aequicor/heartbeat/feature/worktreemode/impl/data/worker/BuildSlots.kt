@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.worktreemode.impl.data.worker
 
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.SandboxBuild
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.cleanupGitTemporary
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.slotDirectory
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -37,10 +38,26 @@ internal fun prepareSlot(sandbox: SandboxBuild, stopped: () -> String? = { null 
     val index = checkNotNull(sandbox.slot) { "SlotUnassigned" }
     val slot = slotDirectory(pool.toString(), index).normalize()
     check(slot.parent == pool) { "InvalidSlotDirectory" }
-    validateSlotOwnership(slot, checkNotNull(data.parent) { "InvalidSlotPool" })
+    recoveringSlot(sandbox) { validateSlotOwnership(slot, checkNotNull(data.parent) { "InvalidSlotPool" }) }
+    check(!Files.exists(pool.resolve("slot-$index.unavailable"), LinkOption.NOFOLLOW_LINKS)) { "SlotUnavailable" }
+    val transaction = pool.resolve("slot-$index.transaction")
+    if (Files.exists(transaction)) {
+        recoveringSlot(sandbox) {
+            check(Files.isRegularFile(transaction, LinkOption.NOFOLLOW_LINKS)) { "InvalidSlotRecovery" }
+            val base = Files.readString(transaction).trim()
+            check(base.matches(Regex("[0-9a-f]{40,64}"))) { "InvalidSlotRecovery" }
+            if (isSlotCheckout(slot, stopped)) restoreSlotCode(slot, base)
+            Files.delete(transaction)
+        }
+    }
+    sandbox.baseCommit?.let { base ->
+        check(base.matches(Regex("[0-9a-f]{40,64}"))) { "InvalidSlotBase" }
+        Files.createDirectories(pool)
+        Files.writeString(transaction, base)
+    }
     if (isSlotCheckout(slot, stopped)) {
         slotGit(slot, stopped, "checkout", "--detach", "--force", sandbox.snapshot)
-        slotGit(slot, stopped, "clean", "-d", "--force", "--quiet")
+        slotGit(slot, stopped, "clean", "-d", "--force", "--force", "--quiet")
         return "[sandbox] build slot $index synced to ${sandbox.snapshot.take(SHORT_SHA)}\n"
     }
     if (Files.exists(slot, LinkOption.NOFOLLOW_LINKS)) removeSlot(slot)
@@ -57,6 +74,48 @@ internal fun prepareSlot(sandbox: SandboxBuild, stopped: () -> String? = { null 
         sandbox.snapshot,
     )
     return "[sandbox] build slot $index created at ${sandbox.snapshot.take(SHORT_SHA)}\n"
+}
+
+private inline fun recoveringSlot(sandbox: SandboxBuild, operation: () -> Unit) {
+    try {
+        operation()
+    } catch (error: java.io.IOException) {
+        quarantineSlot(sandbox)
+        throw error
+    } catch (error: IllegalStateException) {
+        quarantineSlot(sandbox)
+        throw error
+    }
+}
+
+/** Rollback is part of the exclusive lease; an unfinished marker makes the next admission recover first. */
+internal fun restoreSlot(sandbox: SandboxBuild) {
+    val base = sandbox.baseCommit ?: return
+    val index = checkNotNull(sandbox.slot)
+    val pool = Path.of(sandbox.pool).toAbsolutePath().normalize()
+    val slot = slotDirectory(sandbox.pool, index)
+    validateSlotOwnership(slot, checkNotNull(pool.parent?.parent))
+    if (Files.exists(slot.resolve(".git"))) restoreSlotCode(slot, base)
+    Files.deleteIfExists(pool.resolve("slot-$index.transaction"))
+}
+
+/** Failed recovery is quarantined until the user clears the owned pool. */
+internal fun quarantineSlot(sandbox: SandboxBuild) {
+    val index = checkNotNull(sandbox.slot)
+    val pool = Path.of(sandbox.pool).toAbsolutePath().normalize()
+    val data = checkNotNull(pool.parent)
+    check(
+        pool.fileName.toString() == "slots" && data.fileName.toString() == "heartbeat-worktree-data",
+    ) { "InvalidSlotPool" }
+    check(listOf(data, pool).all { !Files.isSymbolicLink(it) && it.toRealPath() == it }) { "InvalidSlotPool" }
+    val marker = pool.resolve("slot-$index.unavailable")
+    check(!Files.isSymbolicLink(marker)) { "InvalidSlotPool" }
+    Files.writeString(marker, "RollbackFailed")
+}
+
+private fun restoreSlotCode(slot: Path, base: String) {
+    slotGit(slot, { null }, "reset", "--hard", base)
+    slotGit(slot, { null }, "clean", "-d", "--force", "--force", "--quiet")
 }
 
 /** Refuses redirected paths or metadata belonging to another checkout before any destructive Git command. */
@@ -128,7 +187,7 @@ private fun slotGit(directory: Path, stopped: () -> String?, vararg arguments: S
         check(process.exitValue() == 0) { "SlotGitFailed" }
     } finally {
         process?.let(::stopGitTree)
-        Files.deleteIfExists(output)
+        cleanupGitTemporary(output)
     }
 }
 

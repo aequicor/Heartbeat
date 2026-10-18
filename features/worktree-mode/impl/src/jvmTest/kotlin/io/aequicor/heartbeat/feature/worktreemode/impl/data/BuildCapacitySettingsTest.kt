@@ -30,6 +30,38 @@ import kotlin.test.assertNull
 
 class BuildCapacitySettingsTest {
     @Test
+    fun `project plans pool size and application pause timeout persist independently`() = runTest {
+        val stores = SettingsStores()
+        val settings = StoredProjectBuildSettings(lazy { stores })
+        assertEquals(2, settings.get("project-go").poolSize)
+        val go = io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan(
+            "go",
+            listOf(
+                io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCommand(
+                    "test",
+                    "go",
+                    listOf("test", "./..."),
+                ),
+            ),
+        )
+        val python = go.copy(
+            system = "python",
+            commands = listOf(go.commands.single().copy(executable = "python", arguments = listOf("-m", "unittest"))),
+        )
+        val first = settings.configure("project-go", go)
+        settings.configure("project-python", python)
+        settings.setPoolSize("project-go", 4)
+        settings.setPauseTimeout(60_000)
+        val restored = StoredProjectBuildSettings(lazy { stores })
+        assertEquals(4, restored.get("project-go").poolSize)
+        assertEquals(first.revision, restored.get("project-go").revision)
+        assertEquals(python, restored.get("project-python").plan)
+        assertEquals(60_000, restored.pauseTimeout())
+        assertEquals(first.revision + 1, restored.configure("project-go", python).revision)
+        assertEquals(go, first.plan)
+    }
+
+    @Test
     fun `user limit is normalized and clearing it restores the automatic estimate`() = runTest {
         val settings = BuildCapacitySettings(lazy { SettingsStores() })
         assertNull(settings.observe().first())
@@ -93,12 +125,14 @@ private class SettingsScope : ScopeHandle {
     override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle {}
 }
 
-internal class SettingsStores : DataStores {
-    private val store = SettingsStore()
+internal class SettingsStores(private val files: java.nio.file.Path? = null) : DataStores {
+    private val stores = mutableMapOf<String, SettingsStore>()
     override val owner: StorageOwner = StorageOwner.App
-    override fun keyValue(spec: KeyValueSpec): KeyValueStore = store.also { it.spec = spec }
+    override fun keyValue(spec: KeyValueSpec): KeyValueStore = stores.getOrPut(
+        spec.name,
+    ) { SettingsStore() }.also { it.spec = spec }
     override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("Unused")
-    override fun filesDirectory(name: String): String = error("Unused")
+    override fun filesDirectory(name: String): String = checkNotNull(files).resolve(name).toString()
     override suspend fun fire(event: DataEvent) = Unit
 }
 

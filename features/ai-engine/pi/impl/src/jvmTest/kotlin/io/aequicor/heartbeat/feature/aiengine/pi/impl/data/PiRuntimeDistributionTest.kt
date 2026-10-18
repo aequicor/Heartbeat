@@ -108,7 +108,7 @@ class PiRuntimeDistributionTest {
             val first = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
             val outside = Files.writeString(root.resolve("outside"), "outside")
             Files.delete(first)
-            Files.createSymbolicLink(first, outside)
+            piTestSymbolicLink(first, outside)
 
             val repaired = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
 
@@ -135,16 +135,16 @@ class PiRuntimeDistributionTest {
     }
 
     @Test
-    fun `a symlinked cache root or version directory never receives an installation`() = runTest {
+    fun `a linked cache root or version directory never receives an installation`() = runTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(piArchive(root))
             val outside = Files.createDirectory(root.resolve("outside"))
-            val linkedRoot = Files.createSymbolicLink(root.resolve("linked"), outside)
+            val linkedRoot = piTestDirectoryLink(root.resolve("linked"), outside)
             assertFailsWith<IllegalArgumentException> {
                 PiRuntimeDistribution(linkedRoot, piRelease(), cache, piDispatchers()).prepare {}
             }
             val storage = Files.createDirectory(root.resolve("cache"))
-            Files.createSymbolicLink(storage.resolve(piRelease().artifact.download.sha256), outside)
+            piTestDirectoryLink(storage.resolve(piRelease().artifact.download.sha256), outside)
             assertFailsWith<IllegalArgumentException> {
                 PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
             }

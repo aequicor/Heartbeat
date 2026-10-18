@@ -41,8 +41,12 @@ public sealed interface WorktreeIntent : MachineIntent {
          * choice: false keeps a plain worktree, true asks for a sandbox, null follows [WorktreeSandboxEnabled]. A
          * sandbox is created only while that toggle is on; an existing task keeps the isolation it was created with.
          */
-        public data class Prepare(val chatId: String, val project: WorkspaceRef, val isSandbox: Boolean? = null) :
-            Public
+        public data class Prepare(
+            val chatId: String,
+            val project: WorkspaceRef,
+            val isSandbox: Boolean? = null,
+            val parentWorkspace: WorkspaceRef? = null,
+        ) : Public
 
         /** Tracks an original-checkout native session in the shared queue, without a completion card. */
         public data class TrackMainSession(
@@ -57,6 +61,7 @@ public sealed interface WorktreeIntent : MachineIntent {
             val chatId: String,
             val request: RequestId,
             val kind: WorktreeRunKind = WorktreeRunKind.Coding,
+            val target: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget? = null,
         ) : Public
 
         /** Authoritative request acceptance binds hosted tools to a native session and turn. */
@@ -147,7 +152,11 @@ public sealed interface WorktreeIntent : MachineIntent {
         public data class ActionDeliveryFailed(val chatId: String, val operation: String, val reason: String) : Public
 
         /** Checks checkout and pending workers explicitly without replaying a native prompt. */
-        public data class Recheck(val chatId: String) : Public
+        public data class Recheck(
+            val chatId: String,
+            val isResume: Boolean = false,
+            val resolveConflicts: Boolean = false,
+        ) : Public
 
         /** Proposed build declaration from the current native turn. */
         public data class ProposeBuildPlan(
@@ -166,6 +175,8 @@ public sealed interface WorktreeIntent : MachineIntent {
             val command: String,
             val expectedConfigurationRevision: Long = 0,
             val expectedRun: WorktreeRunIdentity? = null,
+            val expectedSnapshot: String? = null,
+            val expectedProjectRevision: Long? = null,
         ) : Public
 
         /** Cancels a queued build or requests worker termination before releasing resources. */
@@ -177,7 +188,7 @@ public sealed interface WorktreeIntent : MachineIntent {
          * files stay untouched, so a sibling can integrate the result safely. Refused while a native run of the task
          * is active. The outcome lands in [WorktreeTask.seal] under [operation], the failure included.
          */
-        public data class Seal(val chatId: String, val operation: String) : Public
+        public data class Seal(val chatId: String, val operation: String, val handoff: Boolean = false) : Public
     }
 
     /** Persisted results; earlier revisions cannot overwrite later work. */

@@ -4,8 +4,11 @@ import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.feature.worktreemode.impl.domain.BuildLimits
+import io.aequicor.heartbeat.feature.worktreemode.impl.domain.ProjectBuildPool
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
@@ -19,12 +22,18 @@ internal data class BuildCapacityScreenState(
     val limit: Int? = null,
     val isLoaded: Boolean = false,
     val isSaveFailed: Boolean = false,
+    val projects: List<ProjectBuildPool> = emptyList(),
+    val pauseMinutes: Int = 4,
+    val isSandboxLoaded: Boolean = false,
 ) : MVIState
 
 /** Changes offered by the build settings. */
 internal sealed interface BuildCapacityScreenIntent : MVIIntent {
     /** A fixed number of parallel standard builds, or null for the automatic estimate. */
     data class SetLimit(val parallelBuilds: Int?) : BuildCapacityScreenIntent
+    data class SetPool(val project: String, val size: Int) : BuildCapacityScreenIntent
+    data class ClearPool(val project: String) : BuildCapacityScreenIntent
+    data class SetPauseMinutes(val minutes: Int) : BuildCapacityScreenIntent
 }
 
 /** Reserved contract for one-off screen actions. */
@@ -44,19 +53,34 @@ internal class BuildCapacityModel(limits: BuildLimits, factory: HeartbeatStoreFa
         onError = { this },
     ) {
         whileSubscribed {
+            launch {
+                combine(limits.projects(), limits.pauseTimeout()) { pools, millis -> pools to millis }
+                    .collect { (pools, millis) ->
+                        updateState {
+                            copy(
+                                projects = pools,
+                                pauseMinutes = (millis / 60_000L).toInt(),
+                                isSandboxLoaded = true,
+                            )
+                        }
+                    }
+            }
             limits.observe().collect { limit -> updateState { copy(limit = limit, isLoaded = true) } }
         }
         reduce { intent ->
-            when (intent) {
-                is BuildCapacityScreenIntent.SetLimit -> try {
-                    limits.set(intent.parallelBuilds)
-                    updateState { copy(isSaveFailed = false) }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    log.w(error) { "Build capacity limit was not saved" }
-                    updateState { copy(isSaveFailed = true) }
+            try {
+                when (intent) {
+                    is BuildCapacityScreenIntent.SetLimit -> limits.set(intent.parallelBuilds)
+                    is BuildCapacityScreenIntent.SetPool -> limits.setPool(intent.project, intent.size)
+                    is BuildCapacityScreenIntent.ClearPool -> limits.clearPool(intent.project)
+                    is BuildCapacityScreenIntent.SetPauseMinutes -> limits.setPauseTimeout(intent.minutes * 60_000L)
                 }
+                updateState { copy(isSaveFailed = false) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.w(error) { "Build capacity limit was not saved" }
+                updateState { copy(isSaveFailed = true) }
             }
         }
     }

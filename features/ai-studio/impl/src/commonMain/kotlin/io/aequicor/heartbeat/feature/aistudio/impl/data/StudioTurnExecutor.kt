@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.NoStudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
@@ -183,7 +184,14 @@ internal class StudioTurnExecutor(
         preselected: ToolChoices,
     ) {
         worktrees.reconcile(request.id) { host.openTurn(request.id, request.settings, preselected) }
-        worktrees.send(WorktreeIntent.Public.RunStarted(request.id, request.request, request.kind))
+        worktrees.send(
+            WorktreeIntent.Public.RunStarted(
+                request.id,
+                request.request,
+                request.kind,
+                studioModelTarget(request.settings.modelId),
+            ),
+        )
         progress.isPrepared = true
         val prepared = worktrees.await(request.id, failOnTaskError = false) {
             it.run?.let { run ->

@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.LearningKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanProposalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ReplyPartUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SettingsUi
@@ -71,6 +72,7 @@ internal fun StudioPane.toUi(): PaneUi = PaneUi(
     isWorktree = isWorktree,
     isOrganism = isOrganism,
     isSandbox = isSandbox,
+    isPlanning = isPlanning,
 )
 internal fun StudioEnvironment.toUi(): EnvironmentUi = when (this) {
     StudioEnvironment.Local -> EnvironmentUi.Local
@@ -172,6 +174,7 @@ private fun StudioToolRun.toUi(): ToolUi = ToolUi(
             content = call.content,
         )
     },
+    plan = plan?.let { PlanProposalUi(it.revision, it.summary) },
 )
 
 internal fun StudioHarness.toUi(): HarnessOptionUi = HarnessOptionUi(
