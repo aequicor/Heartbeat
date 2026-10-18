@@ -54,6 +54,22 @@ class ProtectedOwnershipJournalTest {
     }
 
     @Test
+    fun `source reconciliation receipt survives restart and cannot be cleared in the same epoch`() = runTest {
+        val secrets = HarnessDataTestSecrets()
+        val journal = ProtectedOwnershipJournal(secrets)
+        val bound = OwnershipLocalBinding(local, identity, OwnershipFence(key, journal.host(), 2))
+        assertTrue(journal.bind(null, bound))
+        val reconciled = bound.copy(isSourceReconciled = true)
+        assertTrue(journal.bind(bound, reconciled))
+        val restarted = ProtectedOwnershipJournal(secrets)
+        assertEquals(reconciled, restarted.binding(local))
+        assertFailsWith<IllegalStateException> { restarted.bind(reconciled, bound) }
+        val next = bound.copy(fence = bound.fence.copy(epoch = 3))
+        assertTrue(restarted.bind(reconciled, next))
+        assertEquals(next, restarted.binding(local))
+    }
+
+    @Test
     fun `host binding and exact native proposal survive restart independently of ScriptData`() = runTest {
         val secrets = HarnessDataTestSecrets()
         val journal = ProtectedOwnershipJournal(secrets)

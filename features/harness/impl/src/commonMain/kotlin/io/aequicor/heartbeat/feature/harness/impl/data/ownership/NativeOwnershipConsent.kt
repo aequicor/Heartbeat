@@ -83,6 +83,7 @@ internal class NativeOwnershipConsent(
                 context.binding.definitionDigest,
                 prior,
                 if (isReplay) previous.imported else null,
+                isReplay && previous.isSourceReconciled,
             )
             return runtime.journal.bind(previous, next)
         }

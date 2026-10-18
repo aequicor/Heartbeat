@@ -27,6 +27,8 @@ internal data class OwnershipLocalBinding(
     val previousOwner: OwnershipFence? = null,
     /** Published import for this exact fence. Same-epoch replay must never overwrite newer local progress. */
     val imported: OwnershipCheckpoint? = null,
+    /** Durable source-cleanup receipt for this fence; replay after Activate must not drain newly admitted work. */
+    val isSourceReconciled: Boolean = false,
 ) {
     init {
         require(

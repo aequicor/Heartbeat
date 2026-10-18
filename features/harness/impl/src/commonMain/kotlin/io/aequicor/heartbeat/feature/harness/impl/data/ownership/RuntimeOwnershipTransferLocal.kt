@@ -184,8 +184,9 @@ internal class RuntimeOwnershipTransferLocal(
         isExporting: Boolean,
     ): Boolean {
         // Join the current local generation before touching attempts or external receipts.
-        val localFence = runtime.journal.binding(context.binding.local())?.fence
-        if (localFence != context.snapshot.fence) return false
+        val local = runtime.journal.binding(context.binding.local())
+        if (local?.fence != context.snapshot.fence) return false
+        if (!isExporting && local.isSourceReconciled) return true
         val isStopped = snapshot(
             context,
         ) != null && settleRuns(context, ownedRuns, isExporting) && settleUnstarted(context)
@@ -440,16 +441,39 @@ internal class RuntimeOwnershipTransferLocal(
         val previous = runtime.journal.binding(local) ?: return unavailable()
         if (!runtime.journal.bind(
                 previous,
-                previous.copy(fence = context.snapshot.fence, previousOwner = null, imported = null),
+                previous.copy(
+                    fence = context.snapshot.fence,
+                    previousOwner = null,
+                    imported = null,
+                    isSourceReconciled = previous.fence == context.snapshot.fence && previous.isSourceReconciled,
+                ),
             )
         ) {
             return OwnershipLocalResult.Pending
         }
-        if (!drain(context, isExporting = false) || !github.reconcileNative(local)) return OwnershipLocalResult.Pending
-        val current = snapshot(context) ?: return OwnershipLocalResult.Pending
-        val record = records().singleOrNull { it.id == context.binding.process } ?: return unavailable()
-        return if (record.unresolvedWrites().isEmpty()) {
-            OwnershipLocalResult.Confirmed(OwnershipReconciliationReceipt(current, current.transfer?.checkpoint, 0))
+        if (!drain(context, isExporting = false)) return OwnershipLocalResult.Pending
+        return data.processMutex.withLock { reconcileSourceJoined(context) }
+    }
+
+    /** Persist the cleanup receipt before Activate; every same-epoch replay is read-only thereafter. */
+    private suspend fun reconcileSourceJoined(
+        context: OwnershipTransferContext,
+    ): OwnershipLocalResult<OwnershipReconciliationReceipt> {
+        val local = context.binding.local()
+        val bound = runtime.journal.binding(local)
+        val current = snapshot(context)
+        val record = records().singleOrNull { it.id == context.binding.process }
+        val isReady = bound?.fence == context.snapshot.fence && current != null && record != null &&
+            (
+                bound.isSourceReconciled || (
+                    record.unresolvedWrites().isEmpty() && github.reconcileNative(local) &&
+                        runtime.journal.bind(bound, bound.copy(isSourceReconciled = true))
+                )
+            )
+        return if (isReady) {
+            OwnershipLocalResult.Confirmed(
+                OwnershipReconciliationReceipt(current, current.transfer?.checkpoint, 0),
+            )
         } else {
             OwnershipLocalResult.Pending
         }

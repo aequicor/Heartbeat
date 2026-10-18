@@ -237,10 +237,11 @@ private const val MAX_JOURNAL_CHARS = 1024 * 1024
 
 private fun OwnershipLocalBinding.isSuccessor(next: OwnershipLocalBinding): Boolean =
     identity.canonical == next.identity.canonical && fence.key == next.fence.key &&
-        (next.fence.epoch > fence.epoch || (next.fence == fence && sameImport(next)))
+        (next.fence.epoch > fence.epoch || (next.fence == fence && preservesEvidence(next)))
 
-private fun OwnershipLocalBinding.sameImport(next: OwnershipLocalBinding): Boolean =
-    previousOwner == next.previousOwner && (imported == null || imported == next.imported)
+private fun OwnershipLocalBinding.preservesEvidence(next: OwnershipLocalBinding): Boolean =
+    previousOwner == next.previousOwner && (imported == null || imported == next.imported) &&
+        (!isSourceReconciled || next.isSourceReconciled)
 
 internal suspend fun ProtectedOwnershipJournal.pendingEnrollment(key: OwnershipKey): OwnershipLocalBinding? =
     bindings(pendingOnly = true).singleOrNull { it.fence.key == key }
