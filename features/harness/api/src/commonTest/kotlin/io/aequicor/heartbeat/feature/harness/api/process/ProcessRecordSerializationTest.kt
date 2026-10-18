@@ -91,6 +91,27 @@ class ProcessRecordSerializationTest {
     }
 
     @Test
+    fun `write tries are never reused even after the journal forgot their key`() {
+        val journal = journaled()
+        assertEquals(5, journal.nextWriteTry)
+        assertFalse("nextWriteTry" in Json.encodeToJsonElement(ProcessRecord.serializer(), journal).jsonObject)
+
+        val target = ResultRef("pull_request", "pr-7")
+        var forgetful = newProcess().change(ProcessCommand.Grant(ProcessAuthority.Write))
+        repeat(ProcessLimits.WRITES + 1) { n ->
+            val key = WriteKey("w$n")
+            forgetful = forgetful.change(ProcessCommand.BeginWrite(key, ProcessAuthority.Write, target))
+                .change(ProcessCommand.ConfirmWrite(key, ResultRef("comment", "c-1")))
+        }
+        assertEquals(ProcessLimits.WRITES + 2, forgetful.nextWriteTry)
+        assertEquals(forgetful, roundtrip(forgetful))
+        assertEquals(ProcessLimits.WRITES + 2, roundtrip(forgetful).nextWriteTry)
+    }
+
+    private fun roundtrip(record: ProcessRecord): ProcessRecord =
+        Json.decodeFromString(ProcessRecord.serializer(), Json.encodeToString(ProcessRecord.serializer(), record))
+
+    @Test
     fun `inconsistent records are refused when constructed`() {
         val ran = newProcess().attempt(planStage, succeeded("plan-1"))
         val running = newProcess().change(ProcessCommand.Start(planStage, helperExecutor))
@@ -127,8 +148,6 @@ class ProcessRecordSerializationTest {
         assertFailsWith<IllegalArgumentException> { wait.copy(number = 0) }
         assertFailsWith<IllegalArgumentException> { journal.copy(writes = journal.writes + entry) }
         assertFailsWith<IllegalArgumentException> { entry.copy(tries = 0) }
-        assertFailsWith<IllegalArgumentException> { journal.copy(nextWriteTry = 0) }
-        assertFailsWith<IllegalArgumentException> { journal.copy(nextWriteTry = entry.tries) }
         assertFailsWith<IllegalArgumentException> {
             journal.copy(writes = (0..ProcessLimits.WRITES).map { entry.copy(key = WriteKey("w$it")) })
         }

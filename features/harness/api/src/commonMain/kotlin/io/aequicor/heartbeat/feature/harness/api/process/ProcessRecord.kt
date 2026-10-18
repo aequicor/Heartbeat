@@ -156,8 +156,10 @@ public sealed interface ProcessPhase {
  * - [history] keeps the latest closed attempts, oldest first. When it overflows, the oldest record is dropped, but
  *   never the last record overall (it defines [stage]) nor the latest success of any stage (the evidence).
  * - [nextAttempt] and [nextWait] are the numbers the next attempt and the next wait get; numbers are never reused.
- * - [nextWriteTry] is the number the next begun try of an external write gets; it is never reused, so a decision
- *   about an old try can never be mistaken for a newer one, even for a key that the journal forgot in between.
+ * - [nextWriteTry] is the number the next begun try of an external write gets: one more than the highest try in the
+ *   journal. Numbers are never reused, so a decision about an old try can never be mistaken for a newer one, even
+ *   for a key that the journal forgot in between: forgetting only happens to make room for a new try, which always
+ *   carries the highest number.
  * - [grants] are the external authorities the process was given explicitly; [writes] journal what it did to external
  *   systems. An intent is recorded before the call, so a restart finds every write whose outcome is still open
  *   ([unresolvedWrites]) and reconciles it instead of repeating it.
@@ -177,7 +179,6 @@ public data class ProcessRecord(
     val nextWait: Int = 1,
     val grants: Set<ProcessAuthority> = emptySet(),
     val writes: List<ExternalWrite> = emptyList(),
-    val nextWriteTry: Int = 1,
 ) {
     init {
         require(inputRevision >= 0) { "Invalid input revision" }
@@ -201,8 +202,10 @@ public data class ProcessRecord(
         require(waiting == null || waiting.number == nextWait - 1) { "Inconsistent wait" }
         require(writes.size <= ProcessLimits.WRITES) { "Too many journaled writes" }
         require(writes.map { it.key }.toSet().size == writes.size) { "Duplicate write key" }
-        require(nextWriteTry >= 1 && writes.all { it.tries < nextWriteTry }) { "Inconsistent write tries" }
     }
+
+    /** The number the next begun try of an external write gets; see the class description. */
+    public val nextWriteTry: Int get() = (writes.maxOfOrNull { it.tries } ?: 0) + 1
 
     /** The attempt whose executor is attached, if any. */
     public val inFlight: ProcessAttempt? get() = (phase as? ProcessPhase.Running)?.attempt

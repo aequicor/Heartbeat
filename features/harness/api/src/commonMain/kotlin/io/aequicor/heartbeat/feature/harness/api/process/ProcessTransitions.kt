@@ -76,7 +76,8 @@ public sealed interface ProcessCommand {
 
     /**
      * Whether try [tries] of write [key] happened is not known: a restart or timeout cut the call short. It must be
-     * reconciled. [tries] is [ExternalWrite.tries] of the write the caller looked at.
+     * reconciled. [tries] is [ExternalWrite.tries] of the write the caller looked at. The mark renews the time of the
+     * write, so an interrupted reconciliation resumes after the settle delay of `recovery`.
      */
     public data class MarkWriteUnknown(val key: WriteKey, val tries: Int) : ProcessCommand
 
@@ -125,7 +126,7 @@ public enum class ProcessRejection {
     /** The write key is already used for another authority or target. */
     WriteKeyConflict,
 
-    /** The try number of the write was never issued (tries start at 1). */
+    /** The try number is below 1 or above the current try of the write. */
     UnknownTry,
 
     /** No write with that key is journaled. */

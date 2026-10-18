@@ -29,6 +29,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 /**
@@ -219,6 +220,24 @@ class HarnessDevelopmentProcessScenarioTest {
     }
 
     @Test
+    fun `a write that may still be in flight is not judged before its lease has passed`() = runTest {
+        val secrets = HarnessDataTestSecrets()
+        val first = ProcessesTestEnv(this, secrets)
+        first.processes.open(issue)
+        first.grant(ProcessAuthority.Write)
+        first.clock.seconds += 5
+        first.beginDraftPullRequest()
+        // The source is replaced right away: the new activation sees the open write while the call is still running.
+        val replaced = ProcessesTestEnv(this, secrets, restartedAt = 6)
+        assertTrue(replaced.record().recovery(replaced.clock.now(), LEASE).isEmpty())
+        assertEquals(listOf(draftKey), replaced.record().unresolvedWrites().map { it.key })
+
+        val later = ProcessesTestEnv(this, secrets, restartedAt = 5 + LEASE.inWholeSeconds)
+        val open = later.record().recovery(later.clock.now(), LEASE).single()
+        assertEquals(draftKey, assertIs<ProcessRecovery.WriteOpen>(open).write.key)
+    }
+
+    @Test
     fun `a wait with a deadline survives a restart and says when it is due`() = runTest {
         val secrets = HarnessDataTestSecrets()
         val first = ProcessesTestEnv(this, secrets)
@@ -321,5 +340,6 @@ class HarnessDevelopmentProcessScenarioTest {
 
     private companion object {
         val REPOSITORY = ResultRef("repository", "aequicor-heartbeat")
+        val LEASE = 60.seconds
     }
 }

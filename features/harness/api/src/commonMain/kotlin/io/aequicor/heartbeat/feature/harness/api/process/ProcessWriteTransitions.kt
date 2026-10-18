@@ -43,7 +43,6 @@ internal fun ProcessRecord.beginWrite(command: ProcessCommand.BeginWrite, now: I
                         it
                     }
                 },
-                nextWriteTry = nextWriteTry + 1,
                 updatedAt = now,
             ),
         )
@@ -56,7 +55,7 @@ private fun ProcessRecord.addWrite(command: ProcessCommand.BeginWrite, now: Inst
     return when {
         command.authority !in grants -> rejected(ProcessRejection.NotAuthorized)
         room == null -> rejected(ProcessRejection.TooManyWrites)
-        else -> changed(copy(writes = room + entry, nextWriteTry = nextWriteTry + 1, updatedAt = now))
+        else -> changed(copy(writes = room + entry, updatedAt = now))
     }
 }
 

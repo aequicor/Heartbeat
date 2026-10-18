@@ -193,12 +193,20 @@ class HarnessScriptProcessesTest {
 
         val removal = async { env.processes.remove(issue) }
         val reopening = async { env.processes.open(issue) }
-        removal.await()
-        reopening.await()
+        val isRemoved = removal.await()
+        val reopened = reopening.await()
 
+        // Either the removal came first and the open made a fresh process, or the open found the ended one and the
+        // removal took it. Nothing else is possible, and the answers must agree with what is stored.
+        assertTrue(isRemoved)
         val listed = env.processes.list()
-        assertEquals(env.processes.get(issue) != null, listed.any { it.id == issue })
-        assertTrue(listed.size <= 1)
+        if (reopened.phase is ProcessPhase.Ended) {
+            assertTrue(listed.isEmpty())
+        } else {
+            assertEquals(ProcessPhase.Idle, reopened.phase)
+            assertEquals(listOf(reopened), listed)
+        }
+        assertEquals(listed.firstOrNull(), env.processes.get(issue))
     }
 
     @Test
@@ -228,19 +236,39 @@ class HarnessScriptProcessesTest {
 
     @Test
     fun `a change that does not fit the namespace throws and leaves the stored set untouched`() = runTest {
-        val env = ProcessesTestEnv(this)
-        // Fill the namespace of this harness (a revision-one envelope with a single "filler" entry) so that exactly
+        val secrets = HarnessDataTestSecrets()
+        val env = ProcessesTestEnv(this, secrets)
+        // Measure the stored envelope around one character of filler, then fill the namespace so that exactly
         // FREE_BYTES remain: enough for the first process, not for a second one or a longer record.
-        val overhead = """{"revision":1,"entries":{"filler":""}}""".length
+        env.data.write("filler", JsonPrimitive("x"), env.data.read("filler").revision)
+        val overhead = secrets.values.values.single().encodeToByteArray().size - 1
         val filler = JsonPrimitive("x".repeat(HarnessLimits.DATA_BYTES - overhead - FREE_BYTES))
         assertIs<ScriptDataWriteResult.Written>(env.data.write("filler", filler, env.data.read("filler").revision))
         env.processes.open(issue)
-        val before = env.data.read(STORAGE_KEY).value
+        val before = env.data.read(STORAGE_KEY)
 
-        assertFailsWith<IllegalArgumentException> { env.processes.open(ProcessId("q1")) }
-        assertFailsWith<IllegalArgumentException> { env.processes.apply(issue, ProcessCommand.Start(planning, helper)) }
-        assertEquals(before, env.data.read(STORAGE_KEY).value)
+        val failures = listOf(
+            assertFailsWith<IllegalArgumentException> { env.processes.open(ProcessId("q1")) },
+            assertFailsWith<IllegalArgumentException> {
+                env.processes.apply(issue, ProcessCommand.Start(planning, helper))
+            },
+        )
+        failures.forEach { assertEquals("Harness data quota exceeded", it.message) }
+        assertEquals(before, env.data.read(STORAGE_KEY))
         assertEquals(listOf(issue), env.processes.list().map { it.id })
+    }
+
+    @Test
+    fun `an open refused before the write leaves nothing behind`() = runTest {
+        val secrets = HarnessDataTestSecrets()
+        val env = ProcessesTestEnv(this, secrets)
+        secrets.beforeRead = { env.access.isActive = false }
+        assertFailsWith<IllegalStateException> { env.processes.open(issue) }
+        secrets.beforeRead = {}
+        env.access.isActive = true
+
+        assertTrue(env.processes.list().isEmpty())
+        assertNull(env.data.read(STORAGE_KEY).value)
     }
 
     @Test

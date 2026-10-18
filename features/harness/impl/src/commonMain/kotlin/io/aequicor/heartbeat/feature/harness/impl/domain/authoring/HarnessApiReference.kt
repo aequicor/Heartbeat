@@ -173,9 +173,9 @@ private val API = """
       published activation; never touch that key through data. If the stored set cannot be read, every call throws
       IllegalStateException; the only way out is data.write("hb_processes", null, revision), which deletes all
       processes. Names are bounded: ProcessId [a-z0-9_]{1,40}, StageName [a-z][a-z0-9_]{0,31}, WriteKey
-      [a-z][a-z0-9_]{0,47} (keep room for what makes the operation different: a prefix and a 40-digit head do not
-      fit, use a short head), SubjectSha a full 40/64-digit lowercase hex, ExecutorRef(ExecutorKind.Workflow |
-      Helper | Organism | Command | Human | External, id) and ResultRef(kindSlug [a-z][a-z0-9_]{0,31}, id) ids of 1 to
+      [a-z][a-z0-9_]{0,47} (keep room for what makes the operation different: a 40-digit head leaves 8 characters for
+      the rest, a 64-digit hash does not fit), SubjectSha a full 40/64-digit lowercase hex, ExecutorRef(ExecutorKind.Workflow |
+      Helper | Organism | Command | Human | External, id) and ResultRef(kind [a-z][a-z0-9_]{0,31}, id) ids of 1 to
       128 visible ASCII characters without quotes and backslashes; a violation is an IllegalArgumentException when
       the value is built. A record has a stage (the latest attempt's), attempts bound
       to the input revision and subject SHA they started from, a wait that attaches no executor, grants and a
@@ -194,14 +194,16 @@ private val API = """
       BeginWrite was Changed (its record.write(key).tries is the try you now own), then ConfirmWrite or
       WriteNotApplied(key, that tries). Name the operation in the write key (revision, head): the journal remembers
       ${ProcessLimits.WRITES} keys and a forgotten key begins a new write. A write key whose outcome is open is
-      Rejected(WriteUnresolved) and must never be repeated blindly. Reconcile what an earlier run left behind once,
-      in the single script item that owns the processes, from events.on<SystemEvent.Started> (it needs the
-      scheduler; every newly published instance gets it with the same event.at, the start of the current run) and
-      before any new work: for each record in processes.list(), go through record.recovery(Clock.System.now()) and
-      handle only the entries whose own time is before event.at (AttemptOpen.attempt.startedAt, WriteOpen.write.at,
-      WaitOpen.wait.since). A newer entry is live work of this run, also after a source replacement, and must not be
-      touched; HarnessLifecycleEvent.Activated cannot tell a restart from a source replacement, so never reconcile
-      on it alone. Entries: ProcessRecovery.AttemptOpen (ask the executor's owner: a workflow run that
+      Rejected(WriteUnresolved) and must never be repeated blindly. Reconcile what is left open when the item that owns the processes activates
+      (events.on<HarnessLifecycleEvent.Activated>; the event also fires without a restart, for other items and
+      after a source replacement, and a script cannot tell these apart, so a call of an earlier activation may still
+      be running) and again after the delay below, before any new work: for each record in processes.list(), go
+      through record.recovery(Clock.System.now(), settleAfter = lease) (import kotlin.time.Clock). The lease must be longer than the longest
+      time one attempt or external call of this harness can run without being recorded, retries included, so give
+      every call a timeout. Attempts and writes changed less than the lease ago are not listed: a call may still be
+      running, and the external system cannot tell you yet whether it will happen. Never conclude that a write did
+      not happen before the lease has passed; run the reconciliation again after it (scheduler.at) when something
+      was still young. Entries: ProcessRecovery.AttemptOpen (ask the executor's owner: a workflow run that
       still runs stays in flight and is finished with its own outcome, a finished one is closed with it, only a
       lost executor or one that cannot outlive a restart is closed with Finish(attempt.number,
       AttemptOutcome.Failed(AttemptFailure.Interrupted))), ProcessRecovery.WriteOpen (MarkWriteUnknown(key,
@@ -247,7 +249,7 @@ private val API = """
 
 private val EVENTS = """
     Events (package io.aequicor.heartbeat.feature.harness.api.event), subscribe with events.on<Type> { }:
-    - SystemEvent.Started, SystemEvent.NetworkChanged(isConnected) — network only with the scheduler enabled.
+    - SystemEvent.Started, SystemEvent.NetworkChanged(isConnected) — both only with the scheduler enabled.
     - SchedulerEvent.WakeScheduled / Woke / WakeFailed / WakesCancelled / WakeRejected — no wake notes.
     - HarnessBusEvent(key, payload) — every bus event; payload is untrusted text.
     - SessionEvent.Opened / TurnStarted / TurnFinished(outcome) / PermissionRequested(permission) / Closed —

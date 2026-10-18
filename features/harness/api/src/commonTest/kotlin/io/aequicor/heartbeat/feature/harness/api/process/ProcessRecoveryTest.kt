@@ -4,8 +4,11 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.seconds
 
 class ProcessRecoveryTest {
     private val answer = WakeCondition(events = setOf(EventKeys.custom("process.answer")))
@@ -135,5 +138,39 @@ class ProcessRecoveryTest {
         val waiting = newProcess().change(ProcessCommand.Wait(WaitReason.Human, answer))
         assertEquals(1, waiting.recovery(processAt(100)).size)
         assertEquals(1, waiting.recovery(processAt(200)).size)
+    }
+
+    @Test
+    fun `an attempt and a write younger than the settle delay are not listed yet`() {
+        val comment = WriteKey("comment_plan")
+        val process = granted()
+            .change(ProcessCommand.Start(planStage, helperExecutor), seconds = 10)
+            .change(ProcessCommand.BeginWrite(comment, ProcessAuthority.Write, target), seconds = 20)
+        val delay = 10.seconds
+
+        assertEquals(1, process.recovery(processAt(25), delay).size)
+        assertIs<ProcessRecovery.AttemptOpen>(process.recovery(processAt(25), delay).single())
+        assertEquals(1, process.recovery(processAt(29), delay).size)
+        assertEquals(2, process.recovery(processAt(30), delay).size)
+        assertEquals(2, process.recovery(processAt(500), delay).size)
+        assertEquals(2, process.recovery(processAt(30)).size)
+    }
+
+    @Test
+    fun `marking a write unknown renews its delay and a wait ignores it`() {
+        val comment = WriteKey("comment_plan")
+        val marked = granted()
+            .change(ProcessCommand.BeginWrite(comment, ProcessAuthority.Write, target), seconds = 20)
+            .change(ProcessCommand.MarkWriteUnknown(comment, 1), seconds = 50)
+        assertTrue(marked.recovery(processAt(55), 10.seconds).isEmpty())
+        assertIs<ProcessRecovery.WriteOpen>(marked.recovery(processAt(60), 10.seconds).single())
+
+        val waiting = newProcess().change(ProcessCommand.Wait(WaitReason.Human, answer), seconds = 50)
+        assertIs<ProcessRecovery.WaitOpen>(waiting.recovery(processAt(51), 1.days).single())
+    }
+
+    @Test
+    fun `a negative settle delay is refused`() {
+        assertFailsWith<IllegalArgumentException> { newProcess().recovery(processAt(1), (-1).seconds) }
     }
 }

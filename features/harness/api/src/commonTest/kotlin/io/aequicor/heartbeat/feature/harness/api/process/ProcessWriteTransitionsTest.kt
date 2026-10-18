@@ -358,4 +358,23 @@ class ProcessWriteTransitionsTest {
         renewed.expectUnchanged(ProcessCommand.MarkWriteUnknown(key, 1))
         assertEquals(WritePhase.Intended, renewed.write(key)?.phase)
     }
+
+    @Test
+    fun `among writes known not to have happened the one settled longest ago is forgotten`() {
+        var process = granted(ProcessAuthority.Write)
+        val first = WriteKey("first")
+        val second = WriteKey("second")
+        process = process.change(begin(first), seconds = 1).change(begin(second), seconds = 2)
+        (2 until ProcessLimits.WRITES).forEach { n ->
+            val key = WriteKey("w$n")
+            process = process.change(begin(key), seconds = 3).change(ProcessCommand.ConfirmWrite(key, commentDone), 3)
+        }
+        // `second` fails first, `first` fails later: the position in the journal says the opposite.
+        process = process.change(ProcessCommand.WriteNotApplied(second, 2), seconds = 10)
+            .change(ProcessCommand.WriteNotApplied(first, 1), seconds = 20)
+
+        val next = process.change(begin(WriteKey("extra")), seconds = 30)
+        assertNull(next.write(second))
+        assertEquals(WritePhase.NotApplied, next.write(first)?.phase)
+    }
 }

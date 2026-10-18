@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.api.process
 
+import kotlin.time.Duration
 import kotlin.time.Instant
 
 /**
@@ -7,13 +8,13 @@ import kotlin.time.Instant
  * before it moves on: nothing is restarted or repeated on a guess, because the record alone cannot tell what the
  * outside world did in the meantime.
  *
- * The list cannot tell an item left behind by an earlier run from one a live caller is working on right now, so judge
- * that by time: everything the current run of the application did is stamped after the start of that run. An item
- * whose own time (the attempt's `startedAt`, the write's `at`, the wait's `since`) is before the start of the run was
- * left by an earlier run and has no live caller; a newer one is live work and must not be touched. A script learns
- * the start of the run from `SystemEvent.Started.at`, which every newly published instance receives with the same
- * time while the scheduler is enabled. An activation alone is no evidence of a restart: it also happens when a
- * source is replaced or another item changes, and then calls of the earlier activation are still running.
+ * The list cannot tell an item left behind by an earlier run from one a live caller is working on right now, and a
+ * script cannot tell a restart from a source replacement or from another item's activation either: in all of these
+ * a call of an earlier activation may still be running. What separates them is time. Every attempt and external call
+ * of a harness is bounded by a timeout, so one that was last changed longer ago than the longest such call
+ * (`settleAfter`) has no live caller any more, while a younger one may still be running and must not be judged by
+ * looking at the external system. Pass that delay to [recovery]: younger attempts and writes are not listed, and the
+ * caller looks again once the delay has passed.
  */
 public sealed interface ProcessRecovery {
     /**
@@ -46,17 +47,23 @@ public sealed interface ProcessRecovery {
 
 /**
  * What this process left open as of [now], in the order they should be settled: the attempt in flight, then the open
- * writes oldest first, then the wait. Empty when nothing is open. An ended process can still have open writes, which
- * stay listed until they are settled. Keeping a wait whose condition still holds, or an attempt whose executor is
- * alive, is a valid settlement that changes nothing, so those items stay listed on every call: do not wait for the
- * list to become empty. As in [reduce], a [now] before [ProcessRecord.updatedAt] is clamped to it.
+ * writes oldest first, then the wait. An attempt (by its `startedAt`) or a write (by its last change, which a
+ * [ProcessCommand.MarkWriteUnknown] renews) that changed less than [settleAfter] before [now] is not listed yet: a
+ * call may still be running, so look again after the delay. A wait is no call and is always listed. An ended process
+ * can still have open writes, which stay listed until they are settled. Keeping a wait whose condition still holds,
+ * or an attempt whose executor is alive, is a valid settlement that changes nothing, so those items stay listed on
+ * every call: do not wait for the list to become empty. As in [reduce], a [now] before [ProcessRecord.updatedAt] is
+ * clamped to it.
  */
-public fun ProcessRecord.recovery(now: Instant): List<ProcessRecovery> = buildList {
-    val at = maxOf(now, updatedAt)
-    inFlight?.let { add(ProcessRecovery.AttemptOpen(it)) }
-    unresolvedWrites().forEach { add(ProcessRecovery.WriteOpen(it)) }
-    (phase as? ProcessPhase.Waiting)?.wait?.let { wait ->
-        val deadline = wait.condition.deadline
-        add(ProcessRecovery.WaitOpen(wait, isDue = deadline != null && deadline <= at))
+public fun ProcessRecord.recovery(now: Instant, settleAfter: Duration = Duration.ZERO): List<ProcessRecovery> =
+    buildList {
+        require(!settleAfter.isNegative()) { "Invalid settle delay" }
+        val at = maxOf(now, updatedAt)
+        val cutoff = at - settleAfter
+        inFlight?.takeIf { it.startedAt <= cutoff }?.let { add(ProcessRecovery.AttemptOpen(it)) }
+        unresolvedWrites().filter { it.at <= cutoff }.forEach { add(ProcessRecovery.WriteOpen(it)) }
+        (phase as? ProcessPhase.Waiting)?.wait?.let { wait ->
+            val deadline = wait.condition.deadline
+            add(ProcessRecovery.WaitOpen(wait, isDue = deadline != null && deadline <= at))
+        }
     }
-}
