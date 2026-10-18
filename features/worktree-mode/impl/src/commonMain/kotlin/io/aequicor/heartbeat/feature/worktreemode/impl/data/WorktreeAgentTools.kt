@@ -82,7 +82,8 @@ internal class WorktreeAgentTools(
         val isolated = journal.find(workspace)?.isIsolated == true
         val workflow = "First inspect the project and configure_build with the actual " +
             "build system, foreground argv commands, shared cache locations and exclusive resources. Commands run " +
-            "inside this checkout; cache paths are relative to the original project or absolute, and {cache:id} " +
+            "inside a managed project workspace; cache paths are relative to the original " +
+            "project or absolute, and {cache:id} " +
             "expands in argv/environment. Use run_build for builds, tests and related exclusive operations, and " +
             "build_status with the returned operation id and waitMs=10000 to await completion. run_build " +
             "acknowledges the durable queue immediately. Queued, WaitingForResource and Running are pending; " +
@@ -91,12 +92,23 @@ internal class WorktreeAgentTools(
             "not scheduler_sleep, to wait for them. Keep outputs and project state checkout-local; share only " +
             "genuine caches. " +
             "Configure a bounded timeoutMillis for every command. Do not detach build processes or start " +
-            "background daemons. Gradle uses GRADLE_USER_HOME={cache:id}, --no-daemon and --build-cache. " +
+            "background daemons. Use only the build and validation rules of this project; caches are optional. " +
             "Declare each command's kind (Check, Compile, Test, Assemble, Native): the queue shares CPU and memory " +
-            "between all projects by it. Mark a cache concurrent only when its tool coordinates concurrent " +
+            "within this project by it. Mark a cache concurrent only when its tool coordinates concurrent " +
             "processes itself, such as GRADLE_USER_HOME; other caches serialize builds. " +
             "Native commands bypass coordination, so obey this workflow."
-        val sandbox = if (journal.find(workspace)?.isSandbox == true) {
+        val task = journal.find(workspace)
+        if (task?.virtualSandbox !=
+            null
+        ) {
+            return "This session owns a virtual Git workspace. Use hosted file tools for all " +
+                "project reads and edits. " +
+                "No source checkout exists for this session. $workflow " +
+                "When finished call mark_task_complete; the host saves a local result branch " +
+                "and hands it to the user. " +
+                "Do not create a PR, merge, push or switch the user's checkout."
+        }
+        val sandbox = if (task?.isSandbox == true) {
             " This checkout is a sandbox that keeps only sources: never build, test or run Gradle natively here. " +
                 "run_build snapshots the current files (uncommitted changes included, ignored files excluded) and " +
                 "builds them in a shared warm build slot; outputs stay in that slot, so rely on the build output."
@@ -106,7 +118,8 @@ internal class WorktreeAgentTools(
         return if (isolated) {
             "This session owns an isolated Git worktree.$sandbox $workflow Only after the user task is done call " +
                 "mark_task_complete with a concise summary; a normal reply does not mark it done. " +
-                "A requested pull request must include pullRequestUrl in mark_task_complete; a local merge must not push."
+                "A requested pull request must include pullRequestUrl in mark_task_complete; a " +
+                "local merge must not push."
         } else {
             workflow
         }
@@ -177,7 +190,12 @@ internal class WorktreeAgentTools(
                 location +
                 "Command: ${approvalJson.encodeToString(execution.command)}\n" +
                 "Exclusive resources: ${approvalJson.encodeToString(execution.resources)}",
-            binding = execution.configurationRevision.toString(),
+            binding = if (execution.sandbox?.baseCommit != null) {
+                "${execution.configurationRevision}@${execution.projectConfigurationRevision}@" +
+                    execution.sandbox.snapshot
+            } else {
+                execution.configurationRevision.toString()
+            },
         )
     }
 
@@ -328,14 +346,23 @@ internal class WorktreeAgentTools(
     private suspend fun build(task: WorktreeTask, context: AgentToolContext, arguments: JsonObject): AgentToolResult {
         if (task.run?.kind == WorktreeRunKind.Merge) return failure("MergeInProgress")
         if (!task.isBuildApproved || task.buildPlan == null) return failure("NeedsConfiguration")
-        val expected = context.authorization?.revisionBinding()?.toLongOrNull()
+        val binding = context.authorization?.revisionBinding()?.split('@').orEmpty()
+        val expected = binding.firstOrNull()?.toLongOrNull()
             ?: return failure("BuildAuthorizationUnavailable")
         if (expected != task.buildConfigurationRevision) return failure("BuildConfigurationChanged")
         val command = arguments["command"]?.jsonPrimitive?.content ?: return failure("MissingCommand")
         val operation = Uuid.random().toString()
         val sent = machines.send(
             WorktreeMachineKey,
-            WorktreeIntent.Public.RunBuild(task.chatId, operation, command, expected, task.identity(context)),
+            WorktreeIntent.Public.RunBuild(
+                task.chatId,
+                operation,
+                command,
+                expected,
+                task.identity(context),
+                expectedSnapshot = binding.getOrNull(2),
+                expectedProjectRevision = binding.getOrNull(1)?.toLongOrNull(),
+            ),
         )
         if (sent != SendResult.Accepted) return failure("WorktreeUnavailable")
         // The enqueue acknowledgement is durable. Long work continues independently of this HTTP/MCP call.
@@ -424,8 +451,8 @@ internal class WorktreeAgentTools(
     /** A rejected plan names what to change: the bare code does not tell the agent what is missing. */
     private fun planRejectionText(code: String): String = when (code) {
         "NeedsConfiguration" ->
-            "NeedsConfiguration: declare at least one entry in caches (id and directory) and reference it as " +
-                "{cache:id} in a command's arguments or environment"
+            "NeedsConfiguration: configure at least one project command with executable and arguments; " +
+                "caches are optional"
 
         else -> code
     }
@@ -468,7 +495,7 @@ internal class WorktreeAgentTools(
                                 "concurrent":{"type":"boolean"}
                             },"required":["id","directory"],"additionalProperties":false}},
                             "exclusiveResources":{"type":"array","items":{"type":"string"}}
-                        },"required":["system","commands","caches"],"additionalProperties":false
+                        },"required":["system","commands"],"additionalProperties":false
                     }
                     """.trimIndent(),
                 ).jsonObject,
@@ -476,8 +503,7 @@ internal class WorktreeAgentTools(
             ),
             AgentToolSpec(
                 "run_build",
-                "Queue one configured command in the machine-wide build queue " +
-                    "(weighted by kind, fair across projects).",
+                "Queue one configured command in this Git project's reusable build-worktree pool.",
                 schema("command"),
                 AgentToolAction.Command,
             ),

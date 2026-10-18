@@ -60,6 +60,8 @@ class HostedToolCatalogIntegrationTest {
         }
         assertTrue(declared > 0)
         app.profileSessions.close()
+        // Stop periodic app/profile services before runTest drains its virtual scheduler.
+        app.closeAndAwaitStorages()
     }
 }
 

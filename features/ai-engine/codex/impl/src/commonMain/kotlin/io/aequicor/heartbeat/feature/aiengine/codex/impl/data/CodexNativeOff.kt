@@ -13,13 +13,18 @@ import kotlinx.serialization.json.put
  * The only native execution overrides supported by this adapter. An absent restriction preserves the captured
  * launch configuration; it never writes an On value. Both process flags and cold-resume config carry restrictions.
  */
-internal data class CodexNativeOff(val isShellDisabled: Boolean = false, val isSearchDisabled: Boolean = false) {
-    val isRestricted: Boolean get() = isShellDisabled || isSearchDisabled
+internal data class CodexNativeOff(
+    val isShellDisabled: Boolean = false,
+    val isSearchDisabled: Boolean = false,
+    val isVirtualWorkspace: Boolean = false,
+) {
+    val isRestricted: Boolean get() = isShellDisabled || isSearchDisabled || isVirtualWorkspace
 
     /** Appended after every user override and isolation flag without accepting arbitrary configuration keys. */
     fun arguments(): List<String> = buildList {
         if (isShellDisabled) addAll(listOf("-c", "features.shell_tool=false"))
         if (isSearchDisabled) addAll(listOf("-c", "web_search=\"disabled\""))
+        if (isVirtualWorkspace) virtualFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
     }
 
     /**
@@ -38,12 +43,13 @@ internal data class CodexNativeOff(val isShellDisabled: Boolean = false, val isS
     /** Applies Off after adapter defaults, including the optional `web_search=live` default. */
     fun applyTo(config: JsonObject): JsonObject = buildJsonObject {
         config.forEach { (key, value) -> put(key, value) }
-        if (isShellDisabled) {
+        if (isShellDisabled || isVirtualWorkspace) {
             put(
                 "features",
                 buildJsonObject {
                     (config["features"] as? JsonObject).orEmpty().forEach { (key, value) -> put(key, value) }
-                    put("shell_tool", false)
+                    if (isShellDisabled) put("shell_tool", false)
+                    if (isVirtualWorkspace) virtualFeatures.forEach { put(it, false) }
                 },
             )
         }
@@ -73,7 +79,14 @@ internal data class CodexNativeOff(val isShellDisabled: Boolean = false, val isS
 
     private fun matches(config: JsonObject): Boolean =
         (!isShellDisabled || (config["features"] as? JsonObject)?.get("shell_tool") == JsonPrimitive(false)) &&
-            (!isSearchDisabled || config["web_search"] == JsonPrimitive("disabled"))
+            (!isSearchDisabled || config["web_search"] == JsonPrimitive("disabled")) &&
+            (
+                !isVirtualWorkspace || virtualFeatures.all {
+                    (config["features"] as? JsonObject)?.get(
+                        it,
+                    ) == JsonPrimitive(false)
+                }
+            )
 
     private fun unsupportedPolicy(): Nothing = fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
 
@@ -81,5 +94,6 @@ internal data class CodexNativeOff(val isShellDisabled: Boolean = false, val isS
         val Version = Regex("([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?")
         const val MIN_MINOR = 160
         const val PRERELEASE_GROUP = 4
+        val virtualFeatures = listOf("view_image_tool", "apply_patch_freeform", "multi_agent")
     }
 }

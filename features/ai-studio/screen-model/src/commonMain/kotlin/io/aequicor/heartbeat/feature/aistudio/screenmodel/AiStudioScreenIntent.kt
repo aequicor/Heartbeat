@@ -316,7 +316,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Reconciles interrupted operations against the current checkout. */
     @Serializable
     @SerialName("AiStudioScreenIntent.RecheckWorktree")
-    data class RecheckWorktree(val sessionId: String) : Worktree
+    data class RecheckWorktree(
+        val sessionId: String,
+        val isResume: Boolean = false,
+        val resolveConflicts: Boolean = false,
+    ) : Worktree
 
     /** Restores the profile journal after a storage failure. */
     @Serializable

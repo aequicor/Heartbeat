@@ -1,4 +1,11 @@
 <resources>
+    <string name="sandbox_paused">Sandbox paused: the project is being edited externally</string>
+    <string name="sandbox_conflicted">Virtual changes have conflicts</string>
+    <string name="sandbox_continue">Continue</string>
+    <string name="sandbox_resolve">Ask the agent to resolve and continue (recommended)</string>
+    <string name="sandbox_leave_paused">Leave paused</string>
+    <string name="sandbox_handed_off">Result branch saved and handed to you</string>
+
     <string name="miniapp_open">Open %1$s</string>
     <string name="session_tree_root">Root session</string>
     <string name="session_tree_unknown">unknown</string>
@@ -379,4 +386,7 @@
     <string name="planning_mode_hint">The agent develops the plan with you and only reads until you implement it</string>
     <string name="planning_chip">Plan · rev. %1$d</string>
     <string name="planning_leave">Leave planning</string>
+    <string name="sandbox_git_required">Sandbox and Worktree require a Git project.</string>
+    <string name="sandbox_head_required">Sandbox requires an initial Git commit (HEAD).</string>
+    <string name="sandbox_engine_unsupported">This engine does not support virtual workspace access.</string>
 </resources>

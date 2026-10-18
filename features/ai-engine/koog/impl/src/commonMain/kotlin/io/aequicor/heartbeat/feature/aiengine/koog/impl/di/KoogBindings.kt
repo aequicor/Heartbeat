@@ -85,6 +85,7 @@ public object KoogBindings {
             EnginePlatform.entries.toSet(),
             KoogEngineEnabled,
             isLocalWorkspaceSupported = true,
+            isVirtualWorkspaceSupported = true,
             areInstructionsRefreshedPerTurn = true,
             connectionMethods = listOf(
                 ConnectionMethod.ApiKey(

@@ -21,8 +21,13 @@ internal data class CodexThreadRequest(
     val policy: ResolvedToolPolicy,
     /** Creator's [CreateSessionRequest.preselected] for a new thread; its hosted declarations follow them. */
     val preselected: Map<String, Set<String>> = emptyMap(),
+    val isVirtualWorkspace: Boolean = false,
 ) {
-    val off: CodexNativeOff get() = CodexNativeOff("shell" in policy.nativeOff, "web_search" in policy.nativeOff)
+    val off: CodexNativeOff get() = CodexNativeOff(
+        "shell" in policy.nativeOff,
+        "web_search" in policy.nativeOff,
+        isVirtualWorkspace,
+    )
 }
 
 /** Thread preparation carries no user prompt; it is safe to finish before retiring the previous process. */

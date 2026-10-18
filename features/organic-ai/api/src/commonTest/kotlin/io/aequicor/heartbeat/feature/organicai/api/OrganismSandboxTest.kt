@@ -8,6 +8,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -22,6 +25,21 @@ class OrganismSandboxTest {
         organism(*others, zygote = zygote).copy(workspace = project, isolation = OrganismIsolation.Sandbox)
 
     private val bind = OrganicAiIntent.Internal.WorkspaceBound(ORGANISM, ZYGOTE, request(ZYGOTE), sandbox)
+
+    @Test
+    fun `workspace continuation creates fresh work and preserves children and inherited workspace`() {
+        val child = cell(C1).copy(workspace = WorkspaceRef("child-overlay"))
+        val grown = sandboxed(child, zygote = zygoteCell().copy(workspace = sandbox))
+        val event = OrganicAiIntent.Internal.WorkspaceContinued(ORGANISM, ZYGOTE, request(ZYGOTE))
+        val next = assertNotNull(living(grown).evolve(event)).organism
+        val working = assertIs<CellPhase.Working>(next.zygote.phase)
+        assertTrue(working.isRecovery)
+        assertNotEquals(request(ZYGOTE), working.request)
+        assertEquals(grown.zygote.turns + 1, next.zygote.turns)
+        assertEquals(child, next.cell(C1))
+        assertEquals(sandbox, next.workspaceOf(next.zygote))
+        spec.assertIgnored(living(next), event)
+    }
 
     @Test
     fun `a sandbox organism is conceived with its isolation and needs a project`() {

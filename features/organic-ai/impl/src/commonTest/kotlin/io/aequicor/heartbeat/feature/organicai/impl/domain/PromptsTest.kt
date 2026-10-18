@@ -149,14 +149,14 @@ class PromptsTest {
     @Test
     fun `only the cells of a sandbox organism are told about their sandbox`() {
         val shared = organism(cell(C1))
-        assertFalse("Your checkout is a sandbox" in turnPrompt(shared, shared.zygote))
+        assertFalse("Your workspace is an isolated sandbox" in turnPrompt(shared, shared.zygote))
         val sandboxed = shared.copy(workspace = WorkspaceRef("project"), isolation = OrganismIsolation.Sandbox)
         val prompt = turnPrompt(sandboxed, sandboxed.zygote)
-        assertTrue("Your checkout is a sandbox" in prompt && "git merge" !in prompt, prompt)
-        assertTrue("host note about its sandbox branch" in prompt && "mark_task_complete is not needed" in prompt)
+        assertTrue("Your workspace is an isolated sandbox" in prompt && "git merge" !in prompt, prompt)
+        assertTrue("host integration note" in prompt && "mark_task_complete is not needed" in prompt)
         assertTrue("Studio publishes the zygote's captured result commit separately" in prompt)
         assertFalse("the zygote's branch is the organism's result" in prompt)
-        assertTrue("Your checkout is a sandbox" in turnPrompt(sandboxed, sandboxed.cell(C1)!!))
+        assertTrue("Your workspace is an isolated sandbox" in turnPrompt(sandboxed, sandboxed.cell(C1)!!))
     }
 
     @Test

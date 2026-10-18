@@ -74,7 +74,7 @@ class DesktopWorktreeGitTest {
                 listOf(WorktreeBuildCache("gradle", root.parent.resolve("shared-cache").toString())),
             )
             assertSecretEnvironmentRejected(git, record, base)
-            assertFailsWith<IllegalArgumentException> { git.validatePlan(record, base.copy(caches = emptyList())) }
+            assertMissingCacheRejected(git, record, base)
             assertFailsWith<IllegalArgumentException> {
                 git.validatePlan(
                     record,
@@ -273,4 +273,18 @@ private suspend fun assertSecretEnvironmentRejected(
         )
     }
     assertEquals("SecretBuildEnvironment", secretEnvironment.message)
+}
+
+private suspend fun assertMissingCacheRejected(
+    git: DesktopWorktreeGit,
+    record: WorktreeRecord,
+    base: WorktreeBuildPlan,
+) {
+    assertFailsWith<IllegalArgumentException> {
+        git.build(
+            record.copy(task = record.task.copy(buildPlan = base.copy(caches = emptyList()))),
+            "missing-cache",
+            "test",
+        )
+    }
 }

@@ -36,6 +36,32 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class EngineStudioHelperChatsTest {
     @Test
+    fun `virtual continuation returns its exact new result instead of the original cancelled receipt`() = runTest {
+        val fixture = HelperFixture(backgroundScope)
+        fixture.host.prompt(HelperChat, HelperInput)
+        fixture.stopped = fixture.terminal(HelperInput.request).copy(outcome = StudioHelperTerminalOutcome.Cancelled)
+        fixture.host.cancel(HelperChat, HelperInput.request)
+        fixture.isVirtualPaused = true
+        assertNull(fixture.host.result(HelperChat, HelperInput.request))
+        val continued = RequestId("continued")
+        fixture.virtualRequest = continued
+        fixture.isVirtualPaused = false
+        fixture.result = fixture.terminal(continued)
+        val result = assertNotNull(fixture.host.result(HelperChat, HelperInput.request))
+        assertEquals(HelperInput.request, result.request)
+        assertEquals(HelperOutcome.Completed, result.outcome)
+        assertEquals("answer continued", result.answer)
+        assertEquals(TurnId("continued"), result.turn)
+        fixture.result = null
+        assertEquals(result, fixture.restart().result(HelperChat, HelperInput.request))
+        assertEquals(
+            StudioHelperTerminalOutcome.Cancelled,
+            fixture.attempts.receipt(HelperChat, HelperInput.request)?.terminal?.outcome,
+        )
+        fixture.finish.complete(Unit)
+    }
+
+    @Test
     fun `accepted helper completes and its exact result survives host restart and next request`() = runTest {
         val fixture = HelperFixture(backgroundScope)
         val accepted = fixture.host.prompt(HelperChat, HelperInput)
@@ -276,6 +302,11 @@ private class HelperFixture(private val scope: CoroutineScope) :
     var progressReads = 0
     var refusal: EngineException? = null
     var isObserverFailing = false
+    var virtualRequest: RequestId? = null
+    var isVirtualPaused = false
+
+    override suspend fun virtualResultRequest(helper: HelperId, request: RequestId): RequestId? =
+        if (isVirtualPaused) null else virtualRequest ?: request
 
     fun restart() = EngineStudioHelperChats(
         this,
