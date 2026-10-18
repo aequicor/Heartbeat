@@ -71,7 +71,7 @@ class StudioPlanViewTest {
     }
 
     @Test
-    fun `only attached plans of shown chats reach the screen while the feature is on`() = runTest {
+    fun `only attached plans of shown chats reach the screen`() = runTest {
         val planning = RecordingPlanning()
         planning.plans.value = mapOf(
             "chat" to plan,
@@ -80,13 +80,28 @@ class StudioPlanViewTest {
         val fixture = AiStudioModelTest.Fixture(this, ready, planning = planning)
         val screen = fixture.subscribe()
         runCurrent()
-        assertTrue(screen.states.value.isPlanningEnabled)
         assertEquals(setOf("chat"), screen.states.value.plans.keys)
 
         planning.plans.value = mapOf("chat" to plan.copy(mode = PlanMode.Detached))
-        planning.availability.value = false
         runCurrent()
         assertTrue(screen.states.value.plans.isEmpty())
+    }
+
+    @Test
+    fun `planning is offered exactly when the studio machine offers it`() = runTest {
+        val planning = RecordingPlanning()
+        val fixture = AiStudioModelTest.Fixture(this, ready.copy(isPlanningAvailable = true), planning = planning)
+        val screen = fixture.subscribe()
+        runCurrent()
+        assertTrue(screen.states.value.isPlanningEnabled)
+
+        // The planning port still offers planning: the machine (demo space, failed observation) is the only source.
+        fixture.machine.state.value = ready.copy(isPlanningAvailable = false)
+        runCurrent()
+        assertFalse(screen.states.value.isPlanningEnabled)
+
+        fixture.machine.state.value = AiStudioState.Loading
+        runCurrent()
         assertFalse(screen.states.value.isPlanningEnabled)
     }
 

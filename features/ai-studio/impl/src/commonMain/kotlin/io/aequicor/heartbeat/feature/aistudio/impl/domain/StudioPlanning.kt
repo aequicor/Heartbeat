@@ -28,15 +28,20 @@ interface StudioPlanning {
     /** Starts planning in [chatId]; false when planning is unavailable or the plan could not be created. */
     suspend fun enter(chatId: String): Boolean
 
-    /** Detaches the plan of [chatId] from its context; false when planning is off or it has no attached plan. */
+    /**
+     * Detaches the plan of [chatId] from its context; false when planning is off, plans are unreadable (failed to
+     * load) or it has no attached plan.
+     */
     suspend fun leave(chatId: String): Boolean
 
     /**
      * Binds [session] to the plan of [chatId] before a prompt is sent, so the plan and its read-only rule follow the
      * chat into every native session. Fails closed: throws while plans are still loading after a short wait, and
-     * when a planning chat's plan cannot be bound, so the prompt is never sent. With the feature off, unreadable
-     * plans (the read-only hook then asks before changes of every session) or a chat without a plan, the session
-     * stays unbound.
+     * when a planning chat's plan cannot be bound, so the prompt is never sent. The loading refusal applies to every
+     * turn of the chat, service turns included, whether or not the chat plans, and the caller records the failure in
+     * the chat like any other failed submission. A session the same chat's plan is already bound to (including by a
+     * concurrent turn) is not an error. With the feature off, unreadable plans (the read-only hook then asks before
+     * changes of every session) or a chat without a plan, the session stays unbound.
      */
     suspend fun bind(chatId: String, session: SessionRef)
 

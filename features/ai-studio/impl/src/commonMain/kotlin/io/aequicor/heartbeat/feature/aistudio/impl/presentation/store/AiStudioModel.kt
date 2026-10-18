@@ -36,12 +36,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.toSessionEffort
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioInputContexts
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
@@ -697,7 +697,7 @@ class AiStudioModel(
     }
 
     private suspend fun selectEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEffort) {
-        val effort = if (intent.effort == EffortUi.VeryHigh) "xhigh" else intent.effort.name.lowercase()
+        val effort = intent.effort.toDomain().toSessionEffort()
         selectSetting(pipeline, intent.paneId, StudioSettingChange.Effort(effort)) {
             copy(effort = intent.effort.toDomain())
         }

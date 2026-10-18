@@ -142,11 +142,56 @@ class StudioPlanImplementerTest {
                 "configure ${StudioSettingChange.Model(settings.modelId)}",
                 "configure ${StudioSettingChange.Effort("high")}",
                 "start 2",
-                "configure ${StudioSettingChange.Effort(null)}",
                 "configure ${StudioSettingChange.Model(current.modelId)}",
+                "configure ${StudioSettingChange.Effort(null)}",
             ),
             calls,
         )
+    }
+
+    @Test
+    fun `a model change reapplies the chosen effort and the undo restores the model before the effort`() = runTest {
+        planning.canStart = false
+        host.chat = host.chat.copy(configuration = host.chat.configuration!!.copy(reasoningEffort = "high"))
+        val current = host.chat.configuration!!
+        val settings = StudioSessionSettings(
+            Pi.copy(model = ModelId("other")).studioModelId(),
+            "high",
+            ApprovalMode.AutoEdits,
+        )
+        assertEquals(
+            RunOutcome.Failed,
+            implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings),
+        )
+        assertEquals(
+            listOf(
+                "validate",
+                "configure ${StudioSettingChange.Model(settings.modelId)}",
+                "configure ${StudioSettingChange.Effort("high")}",
+                "configure ${StudioSettingChange.Approval(ApprovalMode.AutoEdits)}",
+                "start 2",
+                "configure ${StudioSettingChange.Model(current.modelId)}",
+                "configure ${StudioSettingChange.Effort("high")}",
+                "configure ${StudioSettingChange.Approval(current.approval)}",
+            ),
+            calls,
+        )
+    }
+
+    @Test
+    fun `a stop after the plan left planning on the same session keeps the settings and skips the turn`() = runTest {
+        planning.onStart = { host.isStopped = true }
+        val settings = StudioSessionSettings(
+            Pi.copy(model = ModelId("other")).studioModelId(),
+            null,
+            ApprovalMode.Ask,
+        )
+        assertEquals(
+            RunOutcome.Stopped,
+            implementer.implementPlan(CHAT, PlanImplementation(2, settings, "Go"), DefaultRunSettings),
+        )
+        assertEquals(listOf("validate", "configure ${StudioSettingChange.Model(settings.modelId)}", "start 2"), calls)
+        assertEquals(listOf(2L), planning.started)
     }
 
     @Test
@@ -233,6 +278,7 @@ class StudioPlanImplementerTest {
             ),
             calls,
         )
+        assertEquals(PlanCheckout.Sandbox, host.checkout)
         assertEquals(CHAT, host.chat.worktreeTaskId)
         assertEquals(true, host.chat.isSandbox)
         assertEquals(WorkspaceRef("checkout"), host.chat.executionWorkspace)
@@ -267,6 +313,24 @@ class StudioPlanImplementerTest {
         assertEquals(RunOutcome.Failed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
         assertEquals(listOf("validate checkout"), calls)
         assertNull(host.chat.worktreeTaskId)
+    }
+
+    @Test
+    fun `a checkout needs worktrees and a repository project and a sandbox needs the sandbox`() {
+        assertNull(checkoutRefusal(PlanCheckout.Sandbox, true, true, isRepository = true))
+        assertNull(checkoutRefusal(PlanCheckout.Worktree, true, false, isRepository = true))
+        assertEquals(
+            "Isolated checkouts are unavailable",
+            checkoutRefusal(PlanCheckout.Worktree, false, true, isRepository = true),
+        )
+        assertEquals(
+            "Sandboxes are unavailable",
+            checkoutRefusal(PlanCheckout.Sandbox, true, false, isRepository = true),
+        )
+        assertEquals(
+            "The chat's project is not a Git repository",
+            checkoutRefusal(PlanCheckout.Worktree, true, true, isRepository = false),
+        )
     }
 
     @Test
@@ -335,6 +399,7 @@ class StudioPlanImplementerTest {
     private class FakePlanning(private val calls: MutableList<String>) : StudioPlanning {
         var plan = Plan(PlanChat(CHAT), PlanMode.Planning, revision = 2, updatedAt = Instant.fromEpochSeconds(0))
         var canStart = true
+        var onStart: () -> Unit = {}
         val started = mutableListOf<Long>()
         override val availability: Flow<Boolean> = flowOf(true)
         override val plans: Flow<Map<String, Plan>> get() = flowOf(mapOf(CHAT to plan))
@@ -347,6 +412,7 @@ class StudioPlanImplementerTest {
         override suspend fun startImplementation(chatId: String, revision: Long): Boolean {
             calls += "start $revision"
             if (canStart) started += revision
+            onStart()
             return canStart
         }
     }
@@ -370,6 +436,7 @@ class StudioPlanImplementerTest {
         val refused = mutableSetOf<StudioSettingChange>()
         var reservations = 0
         var turnSettings: RunSettings? = null
+        var checkout: PlanCheckout? = null
         private var isReserved = false
 
         private fun record(call: String) {
@@ -379,10 +446,11 @@ class StudioPlanImplementerTest {
 
         override suspend fun planChat(id: String) = chat
 
-        override suspend fun validatePlanTarget(id: String, target: EngineTarget, isCheckoutNeeded: Boolean) {
-            record(if (isCheckoutNeeded) "validate checkout" else "validate")
+        override suspend fun validatePlanTarget(id: String, target: EngineTarget, checkout: PlanCheckout?) {
+            record(if (checkout != null) "validate checkout" else "validate")
+            this.checkout = checkout
             validation?.let { throw it }
-            if (isCheckoutNeeded) worktrees?.let { throw it }
+            if (checkout != null) worktrees?.let { throw it }
         }
 
         override suspend fun admitOrganism(

@@ -141,6 +141,25 @@ class MachineStudioPlanningTest {
     }
 
     @Test
+    fun `a session a concurrent turn bound to the same plan meanwhile lets the turn go`() = runTest {
+        view.state.value = ready(plan("chat"))
+        registry.result = SendResult.Ignored
+        registry.onSend = { view.state.value = ready(plan("chat"), bindings = mapOf(session to PlanChat("chat"))) }
+        planning().bind("chat", session)
+        assertEquals(1, registry.sent.size)
+    }
+
+    @Test
+    fun `a session bound to another plan meanwhile still fails the turn`() = runTest {
+        view.state.value = ready(plan("chat"), plan("other"))
+        registry.result = SendResult.Ignored
+        registry.onSend = {
+            view.state.value = ready(plan("chat"), plan("other"), bindings = mapOf(session to PlanChat("other")))
+        }
+        assertFailsWith<IllegalStateException> { planning().bind("chat", session) }
+    }
+
+    @Test
     fun `an implementing chat whose session cannot be bound still runs`() = runTest {
         view.state.value = ready(plan("chat", PlanMode.Implementing))
         registry.result = SendResult.Ignored
@@ -167,6 +186,7 @@ class MachineStudioPlanningTest {
     private class Registry : MachineRegistry {
         val sent = mutableListOf<PlanningIntent.Public>()
         var result = SendResult.Accepted
+        var onSend: () -> Unit = {}
 
         override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
             key: MachineKey<S, I, P, E, O>,
@@ -182,6 +202,7 @@ class MachineStudioPlanningTest {
         ): SendResult {
             check(key == PlanningMachineKey) { "only the planning machine is addressed" }
             sent += intent as PlanningIntent.Public
+            onSend()
             return result
         }
     }

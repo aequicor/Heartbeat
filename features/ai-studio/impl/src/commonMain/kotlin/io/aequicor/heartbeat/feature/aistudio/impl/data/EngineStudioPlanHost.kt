@@ -49,10 +49,18 @@ internal class EngineStudioPlanHost(
 
     override suspend fun planChat(id: String): StudioChatRecord = access.value.configurationRecord(id)
 
-    override suspend fun validatePlanTarget(id: String, target: EngineTarget, isCheckoutNeeded: Boolean) {
-        log.d { "Validate the implementation route engine=${target.engine.value} checkout=$isCheckoutNeeded" }
+    override suspend fun validatePlanTarget(id: String, target: EngineTarget, checkout: PlanCheckout?) {
+        log.d { "Validate the implementation route engine=${target.engine.value} checkout=${checkout ?: "none"}" }
         access.value.validateConfigurationTarget(target)
-        check(!isCheckoutNeeded || projects.worktreeAvailability.first()) { "Isolated checkouts are unavailable" }
+        if (checkout != null) {
+            val refusal = checkoutRefusal(
+                checkout,
+                isWorktreeAvailable = projects.worktreeAvailability.first(),
+                isSandboxAvailable = projects.sandboxAvailability.first(),
+                isRepository = planChat(id).projectId in projects.repositoryProjects.first(),
+            )
+            check(refusal == null) { refusal.orEmpty() }
+        }
         if (planChat(id).resolvedExecutionWorkspace() != null) {
             val isLocal = facade.engines.state.value.any {
                 it.descriptor.id == target.engine && it.descriptor.isLocalWorkspaceSupported
@@ -147,4 +155,21 @@ internal class EngineStudioPlanHost(
 
         override suspend fun finishedRun(id: String) = host.finishedRun(id)
     }
+}
+
+/**
+ * Why a new [checkout] of a planning chat cannot be prepared, or null when it can. The screen offers only what is
+ * available, so a refusal means the options changed meanwhile: the implementation then stops before the chat changes
+ * instead of quietly moving it into another kind of checkout.
+ */
+internal fun checkoutRefusal(
+    checkout: PlanCheckout,
+    isWorktreeAvailable: Boolean,
+    isSandboxAvailable: Boolean,
+    isRepository: Boolean,
+): String? = when {
+    !isWorktreeAvailable -> "Isolated checkouts are unavailable"
+    checkout == PlanCheckout.Sandbox && !isSandboxAvailable -> "Sandboxes are unavailable"
+    !isRepository -> "The chat's project is not a Git repository"
+    else -> null
 }

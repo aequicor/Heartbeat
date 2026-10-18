@@ -101,6 +101,9 @@ internal class MachineStudioPlanning(
         val result = machines.send(PlanningMachineKey, PlanningIntent.Public.Bind(plan.chat, session))
         if (result == SendResult.Accepted) {
             log.d { "Plan bound to the chat's session" }
+        } else if ((view.value.state.value as? PlanningState.Ready)?.bindings?.get(session) == plan.chat) {
+            // A concurrent turn of the same chat bound it between the snapshot and the send.
+            log.d { "Plan was already bound to the chat's session: $result" }
         } else {
             // The read-only hook only knows bound sessions: an unbound planning session could change the workspace.
             check(plan.mode != PlanMode.Planning) { "The plan could not follow the chat into its session: $result" }
@@ -130,6 +133,7 @@ internal class MachineStudioPlanning(
     /** Sends a user's command; the registry itself warns about ignored intents and a stopped machine. */
     private suspend fun userCommand(action: String, intent: PlanningIntent.Public): Boolean {
         val result = machines.send(PlanningMachineKey, intent)
+        // The single record of a command: a refusal (stale revision, changed plan) is routine, not a warning.
         if (result == SendResult.Accepted) log.i { "User $action" } else log.d { "Not $action: $result" }
         return result == SendResult.Accepted
     }

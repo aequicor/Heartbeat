@@ -22,11 +22,9 @@ import io.aequicor.heartbeat.feature.planningmode.api.PlanAuthor
 import io.aequicor.heartbeat.feature.planningmode.api.PlanMode
 import io.aequicor.heartbeat.feature.planningmode.api.PlanStatus
 import kotlinx.collections.immutable.toImmutableMap
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.PipelineContext
 
 private typealias PlanPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
@@ -34,7 +32,9 @@ private typealias PlanPipeline = PipelineContext<AiStudioScreenState, AiStudioSc
 /**
  * Planning mode on the studio screen. Plans come from the planning feature, only for the chats shown in panes, so
  * remote frames stay small. Entering, leaving, approving and editing go to the planning feature; the mode of a new
- * chat and the implementation are studio machine commands. Plan texts are user data and never logged.
+ * chat and the implementation are studio machine commands. Plan texts are user data and never logged. A refused
+ * planning command (stale revision, changed plan, feature off) is logged once by [StudioPlanning]; the screen keeps
+ * showing the current plan and has no notice for it yet.
  */
 internal class StudioPlanView(
     private val studio: MachineRef<AiStudioState, AiStudioIntent, AiStudioOutput>,
@@ -42,17 +42,15 @@ internal class StudioPlanView(
 ) {
     private val log = Log.tag("StudioPlanView")
 
-    suspend fun observe(pipeline: PlanPipeline): Unit = coroutineScope {
-        launch { planning.availability.collect { pipeline.updateState { copy(isPlanningEnabled = it) } } }
-        launch {
-            val shown = studio.state
-                .map { state -> (state as? AiStudioState.Ready)?.panes?.mapNotNull { it.sessionId }?.toSet().orEmpty() }
-                .distinctUntilChanged()
-            combine(planning.plans, shown) { plans, chats ->
-                plans.filterKeys { it in chats }.mapNotNull { (id, plan) -> plan.toUi()?.let { id to it } }.toMap()
-            }.distinctUntilChanged().collect { plans ->
-                pipeline.updateState { copy(plans = plans.toImmutableMap()) }
-            }
+    /** Plans of the shown chats; whether planning is offered at all is reflected from the studio machine. */
+    suspend fun observe(pipeline: PlanPipeline) {
+        val shown = studio.state
+            .map { state -> (state as? AiStudioState.Ready)?.panes?.mapNotNull { it.sessionId }?.toSet().orEmpty() }
+            .distinctUntilChanged()
+        combine(planning.plans, shown) { plans, chats ->
+            plans.filterKeys { it in chats }.mapNotNull { (id, plan) -> plan.toUi()?.let { id to it } }.toMap()
+        }.distinctUntilChanged().collect { plans ->
+            pipeline.updateState { copy(plans = plans.toImmutableMap()) }
         }
     }
 
@@ -65,15 +63,12 @@ internal class StudioPlanView(
 
             is AiStudioScreenIntent.SetPlanning -> {
                 val chat = intent.sessionId
-                val isApplied = if (intent.isEnabled) planning.enter(chat) else planning.leave(chat)
-                outcome("planning mode of a chat set to ${intent.isEnabled}", isApplied)
+                if (intent.isEnabled) planning.enter(chat) else planning.leave(chat)
             }
 
-            is AiStudioScreenIntent.ApprovePlan ->
-                outcome("plan approved", planning.approve(intent.sessionId, intent.revision))
+            is AiStudioScreenIntent.ApprovePlan -> planning.approve(intent.sessionId, intent.revision)
 
-            is AiStudioScreenIntent.SavePlan ->
-                outcome("plan edit saved", planning.write(intent.sessionId, intent.text, intent.baseRevision))
+            is AiStudioScreenIntent.SavePlan -> planning.write(intent.sessionId, intent.text, intent.baseRevision)
 
             is AiStudioScreenIntent.ImplementPlan -> {
                 log.i { "implement the plan: mode=${intent.mode} fresh=${intent.isFreshContext}" }
@@ -87,14 +82,6 @@ internal class StudioPlanView(
                 sendTo(studio, AiStudioIntent.Public.ImplementPlan(intent.sessionId, implementation))
             }
         }
-    }
-
-    /**
-     * The planning feature refuses commands of a stale revision, a changed plan or a switched-off feature; the
-     * screen then keeps showing the current plan from the feature, and has no notice for it yet.
-     */
-    private fun outcome(action: String, isApplied: Boolean) {
-        if (isApplied) log.i { action } else log.w { "Refused: $action" }
     }
 }
 

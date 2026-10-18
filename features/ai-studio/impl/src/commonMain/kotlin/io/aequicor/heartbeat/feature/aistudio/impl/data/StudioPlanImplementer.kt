@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.PlanImplementation
 import io.aequicor.heartbeat.feature.aistudio.api.PlanImplementationMode
-import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -17,6 +16,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.toRunEffort
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.planningmode.api.PlanMode
@@ -28,6 +28,9 @@ internal interface StudioChatModes {
     /** Applies [change] to the record of chat [id]. */
     suspend fun move(id: String, change: StudioChatRecord.() -> StudioChatRecord)
 }
+
+/** The kind of new isolated checkout an implementation moves a chat into. */
+internal enum class PlanCheckout { Worktree, Sandbox }
 
 /** The isolated checkout prepared for a chat: [isSandbox] is what the worktree journal made of the request. */
 internal data class StudioIsolation(val workspace: WorkspaceRef, val isSandbox: Boolean)
@@ -41,10 +44,11 @@ internal interface StudioPlanHost {
     suspend fun planChat(id: String): StudioChatRecord
 
     /**
-     * Fails when [target] is not an enabled route the chat can use or, when the chat moves into a new checkout
-     * ([isCheckoutNeeded]), isolated checkouts are unavailable: worktree mode is off or the platform has no projects.
+     * Fails when [target] is not an enabled route the chat can use or, when the chat moves into a new [checkout], that
+     * checkout is unavailable: worktree mode (or the sandbox) is off, the platform has no projects or the chat's
+     * project is not a Git repository.
      */
-    suspend fun validatePlanTarget(id: String, target: EngineTarget, isCheckoutNeeded: Boolean)
+    suspend fun validatePlanTarget(id: String, target: EngineTarget, checkout: PlanCheckout?)
 
     /** Fails when chat [id] cannot become the chat of an organism conceived from [goal] now. */
     suspend fun admitOrganism(
@@ -137,8 +141,12 @@ internal class StudioPlanImplementer(private val planning: StudioPlanning, priva
         val isOrganism = implementation.mode == PlanImplementationMode.Organism
         val turn = if (isOrganism) organismGoal(prompt, plan) else prompt
         // Everything that can refuse the move is checked before the chat changes.
-        val isCheckoutNeeded = implementation.mode in CHECKOUTS && chat.worktreeTaskId == null
-        host.validatePlanTarget(id, target, isCheckoutNeeded)
+        val checkout = when (implementation.mode) {
+            PlanImplementationMode.Worktree -> PlanCheckout.Worktree
+            PlanImplementationMode.Sandbox -> PlanCheckout.Sandbox
+            PlanImplementationMode.Chat, PlanImplementationMode.Organism -> null
+        }?.takeIf { chat.worktreeTaskId == null }
+        host.validatePlanTarget(id, target, checkout)
         val admission = if (isOrganism) {
             host.admitOrganism(id, turn, settings, chat.projectId, isWorktree = chat.worktreeTaskId != null)
         } else {
@@ -188,22 +196,25 @@ internal class StudioPlanImplementer(private val planning: StudioPlanning, priva
         return RunOutcome.Stopped
     }
 
-    /** The settings of the current session; refused, stopped or not started, the applied ones are undone. */
+    /**
+     * The settings of the current session; refused, stopped or not started, the applied ones are undone. A stop after
+     * the plan left planning keeps the settings and skips the first turn.
+     */
     private suspend fun configure(step: PlanStep): RunOutcome? {
         val id = step.chat.id
         val current = step.chat.configuration
-        val undo = mutableListOf<StudioSettingChange>()
+        val applied = mutableListOf<StudioSettingChange>()
         for (change in changes(current, step.implementation.settings)) {
             if (!apply(id, change)) {
-                log.w { "Implementation setting not applied: ${change.kind}; undo applied=${undo.size}" }
-                undo(id, undo)
+                log.w { "Implementation setting not applied: ${change.kind}; undo applied=${applied.size}" }
+                undo(id, restoring(applied, current))
                 return RunOutcome.Failed
             }
-            change.undo(current)?.let { undo += it }
+            applied += change
         }
         val outcome = start(id, step.implementation)
-        if (outcome != null) undo(id, undo)
-        return outcome
+        if (outcome != null) undo(id, restoring(applied, current))
+        return outcome ?: if (host.isStopRequested(id)) stopped(step) else null
     }
 
     /** Takes the plan out of planning; the outcome when it stays there. */
@@ -247,11 +258,23 @@ internal class StudioPlanImplementer(private val planning: StudioPlanning, priva
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (isOrganism) leaveOrganism(step.chat.id)
+            if (isOrganism) leaveOrganismAfter(step.chat.id, e)
             throw e
         }
         if (isOrganism && outcome != RunOutcome.Completed) leaveOrganism(step.chat.id)
         return outcome
+    }
+
+    /** Leaves the organism after [failure] of its turn; a failure to leave is kept with it instead of replacing it. */
+    private suspend fun leaveOrganismAfter(id: String, failure: Exception) {
+        try {
+            leaveOrganism(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "The chat could not leave the organism that was not conceived" }
+            failure.addSuppressed(e)
+        }
     }
 
     private suspend fun leaveOrganism(id: String) {
@@ -268,8 +291,9 @@ internal class StudioPlanImplementer(private val planning: StudioPlanning, priva
         false
     }
 
+    /** Restores in [changes] order: the model first, since changing it resets the session's effort. */
     private suspend fun undo(id: String, changes: List<StudioSettingChange>) {
-        changes.asReversed().forEach { change ->
+        changes.forEach { change ->
             if (!apply(id, change)) log.w { "Could not restore the planning setting: ${change.kind}" }
         }
     }
@@ -293,22 +317,40 @@ internal class StudioPlanImplementer(private val planning: StudioPlanning, priva
         return organismId == null && helper == null && isModeAllowed
     }
 
-    private fun changes(current: StudioSessionSettings?, chosen: StudioSessionSettings): List<StudioSettingChange> =
-        listOfNotNull(
-            StudioSettingChange.Model(chosen.modelId).takeIf { current?.modelId != chosen.modelId },
-            StudioSettingChange.Effort(
-                chosen.reasoningEffort,
-            ).takeIf { current?.reasoningEffort != chosen.reasoningEffort },
+    /**
+     * The changes from [current] to [chosen], model first. A model change resets the session's effort, so a chosen
+     * effort is applied after it even when it equals the current one.
+     */
+    private fun changes(current: StudioSessionSettings?, chosen: StudioSessionSettings): List<StudioSettingChange> {
+        val isModelChanged = current?.modelId != chosen.modelId
+        val isEffortChanged = current?.reasoningEffort != chosen.reasoningEffort
+        return listOfNotNull(
+            StudioSettingChange.Model(chosen.modelId).takeIf { isModelChanged },
+            StudioSettingChange.Effort(chosen.reasoningEffort).takeIf {
+                isEffortChanged || (isModelChanged && chosen.reasoningEffort != null)
+            },
             StudioSettingChange.Approval(chosen.approval).takeIf { current?.approval != chosen.approval },
         )
+    }
 
-    /** The change that restores [current], or null when nothing known can be restored. */
-    private fun StudioSettingChange.undo(current: StudioSessionSettings?): StudioSettingChange? = current?.let {
-        when (this) {
-            is StudioSettingChange.Model -> StudioSettingChange.Model(it.modelId)
-            is StudioSettingChange.Effort -> StudioSettingChange.Effort(it.reasoningEffort)
-            is StudioSettingChange.Approval -> StudioSettingChange.Approval(it.approval)
-        }
+    /**
+     * The changes that restore [current] after [applied], model first; a restored model resets the effort, so the
+     * known effort is restored after it. Empty when nothing known can be restored.
+     */
+    private fun restoring(
+        applied: List<StudioSettingChange>,
+        current: StudioSessionSettings?,
+    ): List<StudioSettingChange> {
+        if (current == null) return emptyList()
+        val isModelRestored = applied.any { it is StudioSettingChange.Model }
+        val isEffortRestored = applied.any { it is StudioSettingChange.Effort } ||
+            (isModelRestored && current.reasoningEffort != null)
+        val isApprovalRestored = applied.any { it is StudioSettingChange.Approval }
+        return listOfNotNull(
+            StudioSettingChange.Model(current.modelId).takeIf { isModelRestored },
+            StudioSettingChange.Effort(current.reasoningEffort).takeIf { isEffortRestored },
+            StudioSettingChange.Approval(current.approval).takeIf { isApprovalRestored },
+        )
     }
 
     private val StudioSettingChange.kind: String get() = this::class.simpleName.orEmpty()
@@ -339,15 +381,7 @@ internal class StudioPlanImplementer(private val planning: StudioPlanning, priva
 
     private companion object {
         const val DEFAULT_PROMPT = "Implement the approved plan."
-        val CHECKOUTS = setOf(PlanImplementationMode.Worktree, PlanImplementationMode.Sandbox)
     }
-}
-
-/** The run effort of a session's reasoning effort level, or null when the studio has no such level. */
-private fun String.toRunEffort(): ReasoningEffort? = if (equals(VERY_HIGH_EFFORT, ignoreCase = true)) {
-    ReasoningEffort.VeryHigh
-} else {
-    ReasoningEffort.entries.firstOrNull { it.name.equals(this, ignoreCase = true) }
 }
 
 /**
@@ -373,6 +407,5 @@ private fun cutGoalPart(text: String, max: Int, note: String): String {
 /** The longest user prompt an organism goal keeps, leaving most of the goal to the plan. */
 internal const val MAX_GOAL_PROMPT = OrganismBounds.MAX_GOAL / 4
 
-private const val VERY_HIGH_EFFORT = "xhigh"
 private const val CUT_NOTE = "\n\n[The plan is longer; its remaining sections were cut.]"
 private const val PROMPT_CUT_NOTE = "\n\n[The request is longer; its remaining text was cut.]"
