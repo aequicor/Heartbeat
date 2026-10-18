@@ -60,6 +60,7 @@ class StudioDefaultsMachineTest {
                 AiStudioEffect.ObserveRuntime,
                 AiStudioEffect.ObserveModels,
                 AiStudioEffect.ObserveProjects,
+                AiStudioEffect.ObservePlanning,
             ),
         )
     }

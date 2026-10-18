@@ -74,10 +74,15 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.ReloadHarnesses")
     data object ReloadHarnesses : Composer
 
+    /** Modes a chat works in: organic AI and planning. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.ChatMode")
+    sealed interface ChatMode : AiStudioScreenIntent
+
     /** Organic AI chats: the mode of a new chat, the shown sub-session, control and the user's decisions. */
     @Serializable
     @SerialName("AiStudioScreenIntent.Organism")
-    sealed interface Organism : AiStudioScreenIntent
+    sealed interface Organism : ChatMode
 
     /** Switches the organic AI mode of a new chat in [paneId]. */
     @Serializable
@@ -104,6 +109,49 @@ sealed interface AiStudioScreenIntent : MVIIntent {
         val requestId: String,
         val optionId: String,
     ) : Organism
+
+    /** Planning mode: entering and leaving it, the user's edits and decisions on the plan. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.Plan")
+    sealed interface Plan : ChatMode
+
+    /** Switches planning mode of a new chat in [paneId]. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.SelectPlanning")
+    data class SelectPlanning(val paneId: Int, val isEnabled: Boolean) : Plan
+
+    /** Starts planning in the existing chat [sessionId], or detaches its plan from the context. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.SetPlanning")
+    data class SetPlanning(val sessionId: String, val isEnabled: Boolean) : Plan
+
+    /** Approves [revision] of the plan of [sessionId]. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.ApprovePlan")
+    data class ApprovePlan(val sessionId: String, val revision: Long) : Plan
+
+    /** Saves the user's [text] of the plan of [sessionId], edited from [baseRevision]. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.SavePlan")
+    data class SavePlan(val sessionId: String, val baseRevision: Long, val text: String) : Plan {
+        override fun toString(): String = "SavePlan(baseRevision=$baseRevision, length=${text.length})"
+    }
+
+    /** Implements [revision] of the plan of [sessionId] in the same chat with the chosen route and mode. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.ImplementPlan")
+    data class ImplementPlan(
+        val sessionId: String,
+        val revision: Long,
+        val modelId: String,
+        val effort: String?,
+        val approval: ApprovalUi,
+        val mode: PlanImplementationModeUi = PlanImplementationModeUi.Chat,
+        val isFreshContext: Boolean = false,
+        val prompt: String = "",
+    ) : Plan {
+        override fun toString(): String = "ImplementPlan(revision=$revision, mode=$mode, fresh=$isFreshContext)"
+    }
 
     /** Local attachment input and saved-file actions. */
     @Serializable

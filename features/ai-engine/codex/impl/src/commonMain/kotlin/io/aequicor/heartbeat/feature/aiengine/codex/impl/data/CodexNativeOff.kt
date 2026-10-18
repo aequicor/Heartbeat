@@ -23,14 +23,16 @@ internal data class CodexNativeOff(val isShellDisabled: Boolean = false, val isS
     }
 
     /**
-     * 0.160.0 is the first verified stable protocol. Newer stable versions also require effective-config checks;
-     * unknown and prerelease versions cannot authorize restrictions. Unrestricted launches retain compatibility.
+     * 0.160.0 is the first verified protocol. Later versions, including desktop prereleases, are candidates only:
+     * effective-config checks must still prove Off before thread creation or resume. Prereleases of the minimum
+     * version and unknown versions cannot authorize restrictions. Unrestricted launches retain compatibility.
      */
     fun requireVersion(version: String?) {
         if (!isRestricted) return
-        val parts = version?.takeIf { StableVersion.matches(it) }?.split('.') ?: unsupportedPolicy()
-        val numbers = parts.map { it.toIntOrNull() ?: unsupportedPolicy() }
+        val match = version?.let { Version.matchEntire(it) } ?: unsupportedPolicy()
+        val numbers = (1..3).map { match.groupValues[it].toIntOrNull() ?: unsupportedPolicy() }
         if (numbers[0] == 0 && numbers[1] < MIN_MINOR) unsupportedPolicy()
+        if (numbers == listOf(0, MIN_MINOR, 0) && match.groupValues[PRERELEASE_GROUP].isNotEmpty()) unsupportedPolicy()
     }
 
     /** Applies Off after adapter defaults, including the optional `web_search=live` default. */
@@ -76,7 +78,8 @@ internal data class CodexNativeOff(val isShellDisabled: Boolean = false, val isS
     private fun unsupportedPolicy(): Nothing = fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
 
     private companion object {
-        val StableVersion = Regex("[0-9]+\\.[0-9]+\\.[0-9]+")
+        val Version = Regex("([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?")
         const val MIN_MINOR = 160
+        const val PRERELEASE_GROUP = 4
     }
 }
