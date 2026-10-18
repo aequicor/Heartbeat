@@ -27,6 +27,8 @@ internal fun WorktreeTask.runStarted(command: WorktreeIntent.Public.RunStarted):
             isCompletionDismissed = false,
             verifiedPullRequestUrl = null,
             expectedAction = null,
+            // A resumed checkout produces a new result, even when the same cell owns both turns.
+            seal = null,
         )
     } else {
         this
@@ -81,6 +83,19 @@ internal fun WorktreeTask.runObservationLost(command: WorktreeIntent.Public.RunO
             phase = WorktreePhase.RecoveryRequired,
             run = active.copy(session = command.session, turn = command.turn),
             failure = command.reason,
+        )
+    } else {
+        this
+    }
+}
+
+internal fun WorktreeTask.runAdopted(command: WorktreeIntent.Public.RunAdopted): WorktreeTask {
+    val active = pendingRun(command.chatId, command.request) ?: return this
+    val isRecorded = active.session == command.session && active.turn == command.turn
+    return if (phase == WorktreePhase.RecoveryRequired && active.kind == WorktreeRunKind.Coding && isRecorded) {
+        copy(
+            phase = if (active.isCompletionSignaled) WorktreePhase.CompletionSignaled else WorktreePhase.Working,
+            failure = null,
         )
     } else {
         this

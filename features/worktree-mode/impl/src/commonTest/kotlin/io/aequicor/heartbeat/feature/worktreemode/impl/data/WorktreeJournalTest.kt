@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunIdentity
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSeal
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -347,6 +348,42 @@ class WorktreeJournalTest {
     }
 
     @Test
+    fun `a seal records the captured commit while no native turn works in the checkout`() = runTest {
+        val fixture = Fixture()
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT))
+        fixture.send(WorktreeIntent.Public.Seal(CHAT, "seal-1"))
+        assertEquals(WorktreeSeal("seal-1", "seal-seal-1"), fixture.task().seal)
+        assertEquals(listOf("seal-1"), fixture.git.sealed)
+        assertEquals(WorktreeSeal("seal-1", "seal-seal-1"), fixture.reopen().load()[CHAT]?.seal)
+
+        fixture.send(WorktreeIntent.Public.RunStarted(CHAT, REQUEST))
+        fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN))
+        val refused = WorktreeIntent.Public.Seal(CHAT, "seal-2")
+        assertFailsWith<IllegalStateException> { fixture.send(refused) }
+        val failed = checkNotNull(fixture.journal.failed(refused, "TurnActive"))
+        assertEquals(WorktreeSeal("seal-2", failure = "TurnActive"), failed.seal)
+        assertEquals(WorktreePhase.Working, failed.phase)
+        assertEquals(listOf("seal-1"), fixture.git.sealed)
+
+        fixture.settle(WorktreeRunIdentity(REQUEST, SESSION, TURN))
+        fixture.send(WorktreeIntent.Public.Seal(CHAT, "seal-3"))
+        assertEquals(WorktreeSeal("seal-3", "seal-seal-3"), fixture.task().seal)
+    }
+
+    @Test
+    fun `a seal of an unknown task or a checkout that vanished fails without a commit`() = runTest {
+        val fixture = Fixture()
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Seal("unknown", "seal-1"))
+        assertEquals(emptyList(), fixture.git.sealed)
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT))
+        fixture.git.isCheckoutPresent = false
+        assertFailsWith<IllegalStateException> { fixture.send(WorktreeIntent.Public.Seal(CHAT, "seal-1")) }
+        assertEquals(emptyList(), fixture.git.sealed)
+    }
+
+    @Test
     fun `a retained sandbox reclaims ignored outputs once without changing the visible revision`() = runTest {
         val fixture = Fixture()
         fixture.toggles.isSandbox = true
@@ -359,6 +396,24 @@ class WorktreeJournalTest {
         fixture.send(WorktreeIntent.Public.Recheck(CHAT))
         fixture.reopen().load()
         assertEquals(1, fixture.git.reclaimCount)
+    }
+
+    @Test
+    fun `a sandbox with a live native run keeps its outputs and ownership through every cleanup check`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT))
+        fixture.send(WorktreeIntent.Public.RunStarted(CHAT, REQUEST))
+        fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN))
+        val working = fixture.task()
+        fixture.send(WorktreeIntent.Public.Recheck(CHAT))
+        fixture.journal.observeWorkers { }
+        fixture.reopen().observeWorkers { }
+        assertEquals(0, fixture.git.reclaimCount)
+        assertEquals(working.run, fixture.journal.taskProjection(CHAT)?.run)
+        assertEquals(working.executionWorkspace, fixture.journal.taskProjection(CHAT)?.executionWorkspace)
+        assertEquals(CHECKOUT, fixture.journal.find(CHECKOUT)?.executionWorkspace)
     }
 
     @Test
@@ -622,8 +677,9 @@ class WorktreeJournalTest {
                 existsStarted?.complete(Unit)
                 gate.await()
             }
-            return true
+            return isCheckoutPresent
         }
+        var isCheckoutPresent = true
         override suspend fun validatePlan(record: WorktreeRecord, plan: WorktreeBuildPlan) = Unit
         override suspend fun build(record: WorktreeRecord, id: String, command: String): BuildExecution {
             buildStarted?.complete(Unit)
@@ -656,6 +712,11 @@ class WorktreeJournalTest {
         override suspend fun snapshot(record: WorktreeRecord, id: String): String {
             snapshotCount++
             return "snapshot-$id"
+        }
+        val sealed = mutableListOf<String>()
+        override suspend fun seal(record: WorktreeRecord, id: String): String {
+            sealed += id
+            return "seal-$id"
         }
         override suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String {
             promptCount++

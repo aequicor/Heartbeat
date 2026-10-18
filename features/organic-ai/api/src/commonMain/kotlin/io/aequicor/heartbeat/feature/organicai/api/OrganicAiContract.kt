@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 
 /**
  * The organisms of a profile. Durable truth is the profile journal: the machine wakes from it and every durable
@@ -141,6 +142,19 @@ public sealed interface OrganicAiIntent : MachineIntent {
         public data class Dispute(override val organism: OrganismId, val dispute: ImmuneCase.Dispute) :
             Internal,
             CaseIntent
+
+        /**
+         * Worktree mode prepared the sandbox [workspace] of [cell] for [request]. It is saved before the cell's
+         * session is created, so the session is always opened in it, also after a restart. Applies once, and only to a
+         * cell of a sandbox organism.
+         */
+        public data class WorkspaceBound(
+            override val organism: OrganismId,
+            override val cell: CellId,
+            override val request: RequestId,
+            val workspace: WorkspaceRef,
+        ) : Internal,
+            TurnIntent
 
         /** The germinating [cell] got its native [session] for [request]. */
         public data class SessionBound(

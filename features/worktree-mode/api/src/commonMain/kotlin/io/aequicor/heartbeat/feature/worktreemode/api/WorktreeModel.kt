@@ -184,4 +184,12 @@ public data class WorktreeTask(
     val verifiedPullRequestUrl: String? = null,
     val expectedAction: WorktreeExpectedAction? = null,
     @SerialName("sandbox") val isSandbox: Boolean = false,
+    val seal: WorktreeSeal? = null,
 )
+
+/**
+ * The latest [WorktreeIntent.Public.Seal] of a task: the captured [commit], an immutable commit that holds all the
+ * checkout's files on top of the task branch, or why it could not be taken ([failure], a safe code without paths).
+ */
+@Serializable
+public data class WorktreeSeal(val operation: String, val commit: String? = null, val failure: String? = null)

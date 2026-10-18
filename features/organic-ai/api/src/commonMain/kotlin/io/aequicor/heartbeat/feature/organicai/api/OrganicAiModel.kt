@@ -27,6 +27,17 @@ public val OrganicAiEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     default = true,
 )
 
+/**
+ * New organisms of a chat with a project run every cell in a sandbox of its own ([OrganismIsolation.Sandbox]) instead
+ * of in the project's checkout. Needs worktree mode: a conception fails rather than falling back to the shared
+ * checkout. An organism keeps the isolation it was conceived with when the toggle changes.
+ */
+public val OrganicAiSandbox: FeatureToggle.Flag = FeatureToggle.Flag(
+    "organic_ai.sandbox",
+    "Органический ИИ: каждая клетка работает в своей песочнице",
+    default = false,
+)
+
 /** Caller-generated identity of an organism; never contains native paths, accounts or credentials. */
 @Serializable
 public data class OrganismId(val value: String) {
@@ -126,9 +137,27 @@ public data class GrowthLimits(
 }
 
 /**
+ * Where the cells of an organism work. The choice is made once, when the organism is conceived, and a saved
+ * organism keeps its own.
+ */
+@Serializable
+public enum class OrganismIsolation {
+    /** Every cell works in the organism's project itself, so parallel writers share one checkout. */
+    Shared,
+
+    /**
+     * Every cell works in a sandbox of its own: a separate checkout of the project's committed HEAD on a branch of
+     * its own, managed by worktree mode. The project's checkout is never written by a cell. A cell's finished work is
+     * a branch that its parent integrates explicitly.
+     */
+    Sandbox,
+}
+
+/**
  * Request to conceive an organism. A null [target] is resolved from the profile's default model when the zygote
  * starts; [immunityTarget] runs the judge sessions and defaults to [target]. Every cell works in [workspace] (no
- * project when null) with [trust]; actions the engine still asks about are escalated to the user.
+ * project when null) with [trust]; actions the engine still asks about are escalated to the user. With
+ * [OrganismIsolation.Sandbox] [workspace] is the project the cells' sandboxes are cut from and must be set.
  */
 @Serializable
 public data class Conception(
@@ -141,6 +170,7 @@ public data class Conception(
     val limits: GrowthLimits = GrowthLimits(),
     /** Profile-owned inputs of the goal, supplied with every cell's genesis (including recovery). */
     val attachments: List<ResourceRef> = emptyList(),
+    val isolation: OrganismIsolation = OrganismIsolation.Shared,
     /**
      * Harnesses the user chose for this organism before it existed, as the studio composer claimed them. The
      * organism records them and every working cell opens its session with them; judges never get them. Only a choice
@@ -152,6 +182,7 @@ public data class Conception(
         require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
             "Invalid organism goal"
         }
+        require(isolation == OrganismIsolation.Shared || workspace != null) { "A sandbox organism needs a project" }
         require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
     }
 
@@ -181,6 +212,8 @@ public data class Organism(
     val version: Long = 0,
     /** Original goal inputs; only references are journaled, never file bytes or native paths. */
     val attachments: List<ResourceRef> = emptyList(),
+    /** Where cells work; fixed at conception. A sandbox organism cuts its cells' checkouts from [workspace]. */
+    val isolation: OrganismIsolation = OrganismIsolation.Shared,
     /**
      * The harness choice of its [Conception], fixed for the organism's life: no intent changes it, and every working
      * cell, however it came to be, opens with exactly these and is connected to them before each new prompt. A cell
@@ -241,7 +274,9 @@ public data class CellConfiguration(
 /**
  * One engine session of an organism. [parent] is null only for the zygote. [session] is set once the native
  * session exists; [inbox] is an append-only result log read by the cell's tool. [receivedLetters] is its read
- * cursor, so reads can be replayed after ambiguous tool delivery. [turns] makes request ids unique.
+ * cursor, so reads can be replayed after ambiguous tool delivery. [turns] makes request ids unique. [workspace] is
+ * the cell's own sandbox checkout once worktree mode prepared it, always before its session is created; the checkout
+ * itself, its branch and the native run of the cell belong to the worktree journal, under [Organism.sandboxTask].
  */
 @Serializable
 public data class Cell(
@@ -259,6 +294,8 @@ public data class Cell(
     val isAwaitingResults: Boolean = false,
     /** Its own model configuration; null runs it on the organism's model and the profile's effort. */
     val configuration: CellConfiguration? = null,
+    /** Its own sandbox checkout; null works in the organism's [Organism.workspace]. */
+    val workspace: WorkspaceRef? = null,
 ) {
     init {
         require(receivedLetters in 0..inbox.size) { "Invalid inbox cursor" }

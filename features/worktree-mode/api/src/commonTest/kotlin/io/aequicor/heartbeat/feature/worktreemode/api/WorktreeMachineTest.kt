@@ -186,6 +186,112 @@ class WorktreeMachineTest {
     }
 
     @Test
+    fun `a restarted host adopts the recorded running turn and keeps its identity`() {
+        val lost = running.reconciled(true, running.executionWorkspace, restart = true)
+        assertEquals(WorktreePhase.RecoveryRequired, lost.phase)
+        val adopt = WorktreeIntent.Public.RunAdopted(task.chatId, request, session, turn)
+        val ready = WorktreeState.Ready(mapOf(task.chatId to lost))
+        WorktreeMachineSpec.assertTransition(ready, adopt, ready, effects = listOf(WorktreeEffect.Apply(adopt)))
+        val adopted = lost.transition(adopt)
+        assertEquals(WorktreePhase.Working, adopted.phase)
+        assertNull(adopted.failure)
+        assertEquals(running.run, adopted.run)
+        assertEquals(WorktreePhase.Idle, adopted.transition(settled).phase)
+        val signaled = running.transition(signal).reconciled(true, running.executionWorkspace, restart = true)
+        assertEquals(WorktreePhase.CompletionSignaled, signaled.transition(adopt).phase)
+    }
+
+    @Test
+    fun `adoption needs the exact recorded identity of a pending coding run in recovery`() {
+        val lost = running.reconciled(true, running.executionWorkspace, restart = true)
+        val adopt = WorktreeIntent.Public.RunAdopted(task.chatId, request, session, turn)
+        val other = SessionRef(session.engine, session.source, "other")
+        assertEquals(lost, lost.transition(adopt.copy(turn = TurnId("another"))))
+        assertEquals(lost, lost.transition(adopt.copy(session = other)))
+        assertEquals(lost, lost.transition(adopt.copy(request = RequestId("other"))))
+        assertEquals(lost, lost.transition(adopt.copy(chatId = "other")))
+        assertEquals(running, running.transition(adopt))
+        val finished = running.transition(settled)
+        assertEquals(finished, finished.transition(adopt))
+        // A run that never recorded a turn proves nothing about a live one.
+        val pending = task.transition(WorktreeIntent.Public.RunStarted(task.chatId, request)).runPrepared(request)
+        val unaccepted = pending.transition(
+            WorktreeIntent.Public.RunSubmissionObservationLost(task.chatId, request, session, "Lost"),
+        )
+        assertEquals(unaccepted, unaccepted.transition(adopt))
+        val action = task.transition(WorktreeIntent.Public.RunStarted(task.chatId, request, WorktreeRunKind.Merge))
+            .transition(WorktreeIntent.Public.RunAccepted(task.chatId, request, session, turn))
+            .needsRecovery("NativeOutcomeUnknown")
+        assertEquals(action, action.transition(adopt))
+    }
+
+    @Test
+    fun `a seal command is applied by the journal and changes no run or phase on its own`() {
+        val seal = WorktreeIntent.Public.Seal(task.chatId, "seal-1")
+        val ready = WorktreeState.Ready(mapOf(task.chatId to running))
+        WorktreeMachineSpec.assertTransition(ready, seal, ready, effects = listOf(WorktreeEffect.Apply(seal)))
+        assertEquals(running, running.transition(seal))
+        val sealed = running.sealed(WorktreeSeal("seal-1", "abc"))
+        assertEquals(WorktreeSeal("seal-1", "abc"), sealed.seal)
+        assertEquals(running.run, sealed.run)
+        assertEquals(running.phase, sealed.phase)
+    }
+
+    @Test
+    fun `a new run invalidates the previous sealed result before the checkout resumes work`() {
+        val completed = running.transition(settled).sealed(WorktreeSeal("seal-1", "first-result"))
+        val nextRequest = RequestId("follow-up")
+        val continued = completed.transition(WorktreeIntent.Public.RunStarted(task.chatId, nextRequest))
+        assertEquals(WorktreePhase.Working, continued.phase)
+        assertEquals(nextRequest, continued.run?.request)
+        assertNull(continued.seal)
+
+        val nextTurn = TurnId("follow-up-turn")
+        val finishedTurn = WorktreeIntent.Public.RunSettled(
+            task.chatId,
+            nextRequest,
+            session,
+            nextTurn,
+            TurnOutcome.Completed,
+        )
+        val finished = continued
+            .transition(WorktreeIntent.Public.RunAccepted(task.chatId, nextRequest, session, nextTurn))
+            .transition(finishedTurn)
+        assertNull(finished.seal)
+        val fresh = WorktreeSeal("seal-2", "follow-up-result")
+        assertEquals(fresh, finished.sealed(fresh).seal)
+    }
+
+    @Test
+    fun `ignored starts preserve the previous seal`() {
+        val seal = WorktreeSeal("seal-1", "first-result")
+        val completed = running.transition(settled).sealed(seal)
+        val command = WorktreeIntent.Public.RunStarted(task.chatId, RequestId("next"))
+        assertEquals(completed, completed.transition(command.copy(chatId = "other")))
+        val unavailableTasks = listOf(
+            running.sealed(seal),
+            completed.copy(executionWorkspace = null),
+            completed.copy(phase = WorktreePhase.Preparing),
+            completed.copy(phase = WorktreePhase.ActionWorking),
+        )
+        for (unavailable in unavailableTasks) {
+            assertEquals(unavailable, unavailable.transition(command))
+        }
+    }
+
+    @Test
+    fun `a failed seal is recorded in the task without failing the checkout or a native run`() {
+        val seal = WorktreeIntent.Public.Seal(task.chatId, "seal-1")
+        val failed = running.operationFailed(seal, "TurnActive")
+        assertEquals(WorktreeSeal("seal-1", failure = "TurnActive"), failed.seal)
+        assertEquals(running.phase, failed.phase)
+        assertEquals(running.run, failed.run)
+        assertNull(failed.failure)
+        // A later seal replaces the earlier outcome.
+        assertEquals(WorktreeSeal("seal-2", "def"), failed.sealed(WorktreeSeal("seal-2", "def")).seal)
+    }
+
+    @Test
     fun `lost submission observation requires recovery without inventing acceptance or completion`() {
         for (kind in listOf(WorktreeRunKind.Coding, WorktreeRunKind.Merge)) {
             val pending = task.transition(WorktreeIntent.Public.RunStarted(task.chatId, request, kind))

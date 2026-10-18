@@ -27,7 +27,11 @@ import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismSession
 import io.aequicor.heartbeat.feature.organicai.api.sessionOf
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.coroutineScope
@@ -138,6 +142,12 @@ internal class StudioOrganismView(
             }.toMap()
         }.distinctUntilChanged()
             .flatMapLatest(::transcriptsOf)
+            .combine(organismResultNotices(organisms(), worktreeTasks())) { views, results ->
+                views.mapValues { (chat, view) ->
+                    val result = results[chat]?.takeIf { view.second.key == PRIMARY_SUB_SESSION }
+                    if (result == null) view else (view.first + result).toImmutableList() to view.second
+                }
+            }
             .collect { views ->
                 pipeline.updateState {
                     copy(
@@ -147,6 +157,12 @@ internal class StudioOrganismView(
                 }
             }
     }
+
+    /** Journal projections also update after a delayed seal or a profile restart. */
+    private fun worktreeTasks(): Flow<Map<String, WorktreeTask>> =
+        machines.observe(WorktreeMachineKey).flatMapLatest { ref ->
+            ref?.state?.map { (it as? WorktreeState.Ready)?.tasks.orEmpty() } ?: flowOf(emptyMap())
+        }
 
     private fun transcriptsOf(
         shown: Map<String, Pair<String, OrganismSession?>>,

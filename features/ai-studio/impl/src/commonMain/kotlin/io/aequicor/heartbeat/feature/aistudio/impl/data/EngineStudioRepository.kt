@@ -370,7 +370,7 @@ internal class EngineStudioRepository(
             isSandbox = isSandbox.takeIf { isWorktree },
             executionWorkspace = executionWorkspace,
         )
-        val admitted = organism?.let { organisms.admit(id, it, isWorktree).on(pending) } ?: pending
+        val admitted = organism?.let { organisms.admit(id, it, isWorktree, projectId).on(pending) } ?: pending
         val record = conversations.create(admitted, ::saveConversation)
         log.i { "Created studio conversation" }
         return StudioSession(record.id, record.projectId, title, record.updatedAt, isOrganism = organism != null)
