@@ -1,7 +1,5 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.services
 
-import dev.zacsweers.metro.ContributesBinding
-import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
@@ -37,8 +35,6 @@ import okio.ByteString.Companion.encodeUtf8
  * keys needs no tombstones. Recovery prunes orphan envelopes after the library journal is recovered.
  */
 @SingleIn(ProfileScope::class)
-@ContributesBinding(ProfileScope::class)
-@Inject
 internal class ProtectedHarnessData(
     private val secrets: SecretStore,
     override val archives: HarnessProcessArchiveStorage,

@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.runtime
 
-import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
@@ -11,6 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
+import io.aequicor.heartbeat.feature.harness.impl.data.ownership.HarnessScriptOwnershipFactory
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessScriptCommandsFactory
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessScriptGitHubFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
@@ -33,7 +33,6 @@ import kotlin.time.Clock
 
 /** Constructs private candidate contexts. Services are added with their dispatch and quota owners. */
 @SingleIn(ProfileScope::class)
-@ContributesBinding(ProfileScope::class)
 @Inject
 internal class StagedHarnessContexts(
     override val origins: HarnessCallOrigins,
@@ -45,6 +44,7 @@ internal class StagedHarnessContexts(
     private val github: HarnessScriptGitHubFactory,
     private val clock: Clock,
     private val toggles: FeatureToggles,
+    private val ownershipFactory: HarnessScriptOwnershipFactory? = null,
     private val sessions: HarnessScriptSessionsFactory,
 ) : HarnessRuntimeContextFactory {
     override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessRuntimeContext =
@@ -81,6 +81,8 @@ internal class StagedHarnessContexts(
                 processes,
                 commands.create(request, access),
                 github.create(request, access, scriptData, processes, data.processMutex),
+                ownershipFactory?.create(request, access, scriptData)
+                    ?: io.aequicor.heartbeat.feature.harness.api.process.UnavailableScriptProcessOwnership,
             ),
         )
     }

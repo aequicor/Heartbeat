@@ -10,23 +10,69 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineSpec
 import io.aequicor.heartbeat.feature.harness.impl.data.decision.HarnessProcessCommandsEnabled
+import io.aequicor.heartbeat.feature.harness.impl.data.ownership.HarnessProcessOwnershipEnabled
+import io.aequicor.heartbeat.feature.harness.impl.data.ownership.HarnessScriptOwnershipFactory
 import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessIsolatedOrganisms
+import io.aequicor.heartbeat.feature.harness.impl.data.runtime.StagedHarnessContexts
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessCommandsEnabled
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessGitHubEnabled
+import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessScriptCommandsFactory
+import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessScriptGitHubFactory
+import io.aequicor.heartbeat.feature.harness.impl.data.services.ProtectedHarnessData
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEffects
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessLibraryStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRuntimeControl
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.HarnessOwnershipRuntime
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntimeContextFactory
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDurableProcessesEnabled
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessProcessArchiveStorage
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSchedulerFactory
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessionsFactory
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptWorkflowsFactory
+import kotlin.time.Clock
 
 /** Constructs a single profile-owned library without eagerly starting it when the toggle is disabled. */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 public object HarnessBindings {
+    /** Production always supplies the profile fence; optional constructor compatibility is test-only. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun data(
+        secrets: SecretStore,
+        archives: HarnessProcessArchiveStorage,
+        ownership: HarnessOwnershipRuntime,
+    ): HarnessDataStorage = ProtectedHarnessData(secrets, archives, ownership)
+
+    /** A missing ownership factory is a graph error instead of silently disabling the public script service. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun contexts(
+        origins: HarnessCallOrigins,
+        schedulers: HarnessScriptSchedulerFactory,
+        workflows: HarnessScriptWorkflowsFactory,
+        data: HarnessDataStorage,
+        runs: HarnessRunStorage,
+        commands: HarnessScriptCommandsFactory,
+        github: HarnessScriptGitHubFactory,
+        clock: Clock,
+        toggles: FeatureToggles,
+        ownership: HarnessScriptOwnershipFactory,
+        sessions: HarnessScriptSessionsFactory,
+    ): HarnessRuntimeContextFactory = StagedHarnessContexts(
+        origins, schedulers, workflows, data, runs, commands, github, clock, toggles, ownership, sessions,
+    )
+
     @Provides
     @SingleIn(ProfileScope::class)
     internal fun machine(
@@ -65,6 +111,11 @@ public object HarnessToggleBindings {
     @Provides
     @IntoSet
     public fun durableProcesses(): FeatureToggle<*> = HarnessDurableProcessesEnabled
+
+    /** Explicit host-mediated transfer between executor profiles. */
+    @Provides
+    @IntoSet
+    public fun processOwnership(): FeatureToggle<*> = HarnessProcessOwnershipEnabled
 
     /** Exact host-owned decisions for process commands. */
     @Provides

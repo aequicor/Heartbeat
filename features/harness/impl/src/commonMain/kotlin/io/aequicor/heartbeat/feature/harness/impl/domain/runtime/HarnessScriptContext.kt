@@ -48,6 +48,7 @@ internal class HarnessScriptContext(
         override val processes: ScriptProcesses get() = services.processes
         override val commands: ScriptCommands get() = services.commands
         override val github: ScriptGitHub get() = services.github
+        override val ownership get() = services.ownership
     })
 
     override fun sealForPublication(): Boolean {
@@ -75,4 +76,6 @@ internal data class HarnessScriptServices(
     val processes: ScriptProcesses,
     val commands: HarnessScriptCommands,
     val github: ScriptGitHub = UnavailableScriptGitHub,
+    val ownership: io.aequicor.heartbeat.feature.harness.api.process.ScriptProcessOwnership =
+        io.aequicor.heartbeat.feature.harness.api.process.UnavailableScriptProcessOwnership,
 )
