@@ -185,6 +185,11 @@ public data class WorktreeTask(
     val expectedAction: WorktreeExpectedAction? = null,
     @SerialName("sandbox") val isSandbox: Boolean = false,
     val seal: WorktreeSeal? = null,
+    val virtualSandbox: VirtualSandboxState? = null,
+    val pendingVirtualContinuation: Boolean = false,
+    val virtualInterruptedRequests: List<io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId> = emptyList(),
+    val virtualContinuations: Map<String, String> = emptyMap(),
+    val virtualResultSnapshots: Map<String, String> = emptyMap(),
 )
 
 /**
