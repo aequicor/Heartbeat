@@ -129,7 +129,11 @@ internal class RuntimeOwnershipTransferLocal(
     override suspend fun drainAndSeal(context: OwnershipTransferContext): OwnershipLocalResult<OwnershipDrainReceipt> {
         if (!drain(context)) return OwnershipLocalResult.Pending
         return data.processMutex.withLock {
-            if (snapshot(context) == null) return@withLock OwnershipLocalResult.Pending
+            // A stale coordinator GET cannot revoke the newer epoch already persisted by local cancellation.
+            val localFence = runtime.journal.binding(context.binding.local())?.fence
+            if (localFence != context.snapshot.fence || snapshot(context) == null) {
+                return@withLock OwnershipLocalResult.Pending
+            }
             val record = records().singleOrNull { it.id == context.binding.process } ?: return@withLock unavailable()
             if (record.incarnation != context.binding.incarnation) return@withLock unavailable()
             val head = workspace.head(WorkspaceRef(context.binding.workspace), context.binding.identity)

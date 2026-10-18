@@ -17,7 +17,12 @@ import kotlin.test.assertIs
 
 class OwnershipStaleDrainTest {
     @Test
-    fun `old drain cannot rewrite subject after cancellation activates a newer epoch`() = runTest {
+    fun `old drain cannot rewrite subject after cancellation activates a newer epoch`() = verifyDrain(false)
+
+    @Test
+    fun `stale GET cannot let old drain rewrite the active generation`() = verifyDrain(true)
+
+    private fun verifyDrain(isStaleRead: Boolean) = runTest {
         val server = GitHubOwnershipBackendTest.Server()
         val writer = PausingWriter()
         val source = OwnershipRuntimeTestEnv(this, server, writer = writer)
@@ -31,6 +36,7 @@ class OwnershipStaleDrainTest {
         source.approve(source.ownership.prepare(process, recipient, source.workspace))
         source.ownership.prepare(process, recipient, source.workspace)
         source.ownership.advance(process, source.workspace)
+        val quiescingFile = server.files.values.single()
         writer.locksUntilPause = 2
         val old = async { source.ownership.advance(process, source.workspace) }
         writer.paused.await()
@@ -41,9 +47,12 @@ class OwnershipStaleDrainTest {
         source.processes.apply(process, ProcessCommand.ObserveSubject(SubjectSha("b".repeat(40))))
         val fresh = source.record(process)
         source.commands.head = "c".repeat(40)
+        if (isStaleRead) server.staleRead = quiescingFile
         writer.resume.complete(Unit)
-        assertEquals(ScriptOwnershipResult.Pending, old.await())
+        val outcome = old.await()
+        assertEquals(fresh.subject, source.record(process).subject)
         assertEquals(fresh, source.record(process))
+        assertEquals(ScriptOwnershipResult.Pending, outcome)
     }
 }
 
