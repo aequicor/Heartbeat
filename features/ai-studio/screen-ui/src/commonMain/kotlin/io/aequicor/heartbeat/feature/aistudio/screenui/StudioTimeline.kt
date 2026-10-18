@@ -319,7 +319,7 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
 
     is MessageUi.Reply -> HbChatMessage(
         id = id,
-        hasEmbeddedContent = checklistIds.isNotEmpty() || cardIds.isNotEmpty(),
+        hasEmbeddedContent = checklistIds.isNotEmpty() || cardIds.isNotEmpty() || tools.any { it.plan != null },
         author = labels.agent,
         text = text,
         role = HbChatRole.Assistant,

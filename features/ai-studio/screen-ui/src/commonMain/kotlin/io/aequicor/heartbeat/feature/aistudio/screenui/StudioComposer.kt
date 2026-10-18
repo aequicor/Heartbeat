@@ -49,6 +49,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_paste
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_modes_section
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_placeholder
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_stop
@@ -64,9 +65,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.environment_local
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.model_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.model_not_selected
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.no_project
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_menu_section
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.planning_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.planning_mode_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
@@ -262,7 +264,7 @@ private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, ()
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
     return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() || app != null ||
-        contextUsage != null || providerUsage?.isVisible == true
+        contextUsage != null || providerUsage?.isVisible == true || planning.plan != null
 }
 
 /** Suggestions of the pane's active token with section labels and icons for their kinds and origins. */
@@ -338,6 +340,8 @@ private fun StudioComposerLeading(
         onOrganism = { onIntent(StudioIntent.SelectOrganism(content.pane.id, it)) },
         worktree = content.worktreeMenuSelection(),
         onWorktree = { onIntent(StudioIntent.SelectWorktree(content.pane.id, it)) },
+        planning = content.planningSelection(),
+        onPlanning = { isEnabled -> onIntent(content.planningIntent(isEnabled)) },
         onAttach = { onIntent(StudioIntent.PickAttachments(content.pane.id)) }.takeIf {
             content.canAddAttachments() && content.host.isNativeAttachmentInputAvailable &&
                 !content.isAttachmentPending
@@ -355,6 +359,10 @@ private fun StudioComposerLeading(
             ?.takeIf { content.isResearchAvailable },
     )
 }
+
+/** The profile security level that replaces the chat's approval choice, or null when the chat keeps its own. */
+internal fun PaneContent.profileSecurityLevel(): SecurityLevelUi? =
+    securityLevel.takeIf { usesProfileSecurity(supportsRunPreferences()) }
 
 /** Ordinary native chats show the profile choice; demo preferences and organism decisions keep their own modes. */
 private fun PaneContent.usesProfileSecurity(hasRunPreferences: Boolean): Boolean =
@@ -439,6 +447,7 @@ private fun StudioComposerIdentity(
 private fun StudioComposerModes(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     val pane = content.pane
     OrganismModeToggle(content, onIntent)
+    PlanningModeToggle(content, onIntent)
     if (content.worktree != null || content.session?.isWorktree == true) {
         val isSandbox = content.worktree?.isSandbox == true
         HbComposerToggle(
@@ -512,7 +521,7 @@ private fun PaneContent.supportsRunPreferences(): Boolean = models.any { model -
 }
 
 /** Engines that apply trust levels take the composer's approval mode with every prompt. */
-private fun PaneContent.isTrustSupported(): Boolean = models.any { it.id == settings.modelId && it.isTrustSupported }
+internal fun PaneContent.isTrustSupported(): Boolean = models.any { it.id == settings.modelId && it.isTrustSupported }
 
 /**
  * Whether the shown session takes prompts. A completed zygote takes a follow-up; an organism out of view takes
@@ -597,6 +606,8 @@ private fun TemplatesMenu(
     onOrganism: (Boolean) -> Unit,
     worktree: Boolean?,
     onWorktree: (Boolean) -> Unit,
+    planning: Boolean?,
+    onPlanning: (Boolean) -> Unit,
     onAttach: (() -> Unit)?,
     onPasteImage: (() -> Unit)?,
     onAttachPage: (() -> Unit)?,
@@ -615,7 +626,13 @@ private fun TemplatesMenu(
         stringResource(Res.string.template_remember),
         sectionLabel = stringResource(Res.string.composer_commands),
     )
-    val modes = composerModeActions(organism, worktree)
+    val modes = composerModeActions(organism, worktree, planning)
+    // Each mode item toggles its own mode.
+    val modeSwitches = mapOf(
+        WORKTREE_ACTION to { onWorktree(worktree != true) },
+        ORGANISM_ACTION to { onOrganism(organism != true) },
+        PLANNING_ACTION to { onPlanning(planning != true) },
+    )
     val attachments = listOfNotNull(
         onAttachPage?.let { HbComposerAction(PAGE_ACTION, stringResource(Res.string.attachments_page)) },
         onAttach?.let { HbComposerAction(ATTACH_ACTION, stringResource(Res.string.attachments_add)) },
@@ -641,10 +658,8 @@ private fun TemplatesMenu(
                 onResearch?.invoke()
             } else if (id.startsWith(APPROVAL_PREFIX)) {
                 onApproval(ApprovalUi.valueOf(id.removePrefix(APPROVAL_PREFIX)))
-            } else if (id == WORKTREE_ACTION) {
-                onWorktree(worktree != true)
-            } else if (id == ORGANISM_ACTION) {
-                onOrganism(organism != true)
+            } else if (id in modeSwitches) {
+                modeSwitches.getValue(id).invoke()
             } else if (id == REMEMBER_ACTION) {
                 // The command must lead the prompt: templates append, /remember prefixes the typed text.
                 onDraft(withRememberCommand(draft))
@@ -731,23 +746,8 @@ private fun approvalActions(
         return listOf(
             HbComposerAction(
                 id = "profile-security",
-                label = stringResource(
-                    when (securityLevel) {
-                        SecurityLevelUi.Ask -> Res.string.security_ask
-                        SecurityLevelUi.Automatic -> Res.string.approval_safety
-                        SecurityLevelUi.Trust -> Res.string.security_trust
-                    },
-                ),
-                supportingText = stringResource(
-                    when {
-                        isHelper -> Res.string.security_helper_hint
-
-                        securityLevel != SecurityLevelUi.Automatic && !isTrustSupported ->
-                            Res.string.security_unsupported
-
-                        else -> Res.string.security_settings_hint
-                    },
-                ),
+                label = securityLevelLabel(securityLevel),
+                supportingText = securityLevelHint(securityLevel, isTrustSupported, isHelper),
                 sectionLabel = stringResource(Res.string.approval_menu),
                 isEnabled = false,
             ),
@@ -765,8 +765,29 @@ private fun approvalActions(
     }
 }
 
+/** The name of the profile security [level] shown instead of the chat's approval choice. */
 @Composable
-private fun approvalLabel(approval: ApprovalUi): String = stringResource(
+internal fun securityLevelLabel(level: SecurityLevelUi): String = stringResource(
+    when (level) {
+        SecurityLevelUi.Ask -> Res.string.security_ask
+        SecurityLevelUi.Automatic -> Res.string.approval_safety
+        SecurityLevelUi.Trust -> Res.string.security_trust
+    },
+)
+
+/** Why the profile security [level] applies and where it is changed. */
+@Composable
+internal fun securityLevelHint(level: SecurityLevelUi, isTrustSupported: Boolean, isHelper: Boolean): String =
+    stringResource(
+        when {
+            isHelper -> Res.string.security_helper_hint
+            level != SecurityLevelUi.Automatic && !isTrustSupported -> Res.string.security_unsupported
+            else -> Res.string.security_settings_hint
+        },
+    )
+
+@Composable
+internal fun approvalLabel(approval: ApprovalUi): String = stringResource(
     when (approval) {
         ApprovalUi.Ask -> Res.string.approval_ask
         ApprovalUi.AutoEdits -> Res.string.approval_edits
@@ -792,6 +813,7 @@ private const val RESEARCH_ACTION = "research"
 private const val REMEMBER_ACTION = "remember"
 private const val WORKTREE_ACTION = "worktree-mode"
 private const val ORGANISM_ACTION = "organism"
+private const val PLANNING_ACTION = "planning"
 
 private const val NO_PROJECT = "no-project"
 private const val ADD_PROJECT = "add-project"
@@ -826,25 +848,36 @@ private fun PaneContent.worktreeMenuSelection(): Boolean? = (pane.isWorktree && 
 }
 
 @Composable
-private fun composerModeActions(organism: Boolean?, worktree: Boolean?): List<HbComposerAction> {
+private fun composerModeActions(organism: Boolean?, worktree: Boolean?, planning: Boolean?): List<HbComposerAction> {
     // A mode of the new chat, offered only before its first message.
     val organismAction = organism?.let {
         HbComposerAction(
             ORGANISM_ACTION,
             stringResource(Res.string.organism_mode),
             supportingText = stringResource(Res.string.organism_mode_hint),
-            sectionLabel = stringResource(Res.string.organism_menu_section),
+            sectionLabel = stringResource(Res.string.composer_modes_section),
             isSelected = it,
         )
     }
-    // Both modes share one section, so only its first item carries the header.
+    // All modes share one neutral section, so only its first item carries the header.
     val worktreeAction = worktree?.let {
         HbComposerAction(
             WORKTREE_ACTION,
             stringResource(Res.string.worktree_mode),
-            sectionLabel = stringResource(Res.string.organism_menu_section).takeIf { organismAction == null },
+            sectionLabel = stringResource(Res.string.composer_modes_section).takeIf { organismAction == null },
             isSelected = it,
         )
     }
-    return listOfNotNull(organismAction, worktreeAction)
+    // Planning also applies to an existing chat; it joins the same section and may lead it.
+    val planningAction = planning?.let {
+        HbComposerAction(
+            PLANNING_ACTION,
+            stringResource(Res.string.planning_mode),
+            supportingText = stringResource(Res.string.planning_mode_hint),
+            sectionLabel = stringResource(Res.string.composer_modes_section)
+                .takeIf { organismAction == null && worktreeAction == null },
+            isSelected = it,
+        )
+    }
+    return listOfNotNull(organismAction, worktreeAction, planningAction)
 }

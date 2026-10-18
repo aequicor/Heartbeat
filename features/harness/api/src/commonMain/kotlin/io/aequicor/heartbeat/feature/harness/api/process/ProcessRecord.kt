@@ -54,8 +54,10 @@ public data class ProcessAttempt(
     val inputRevision: Long,
     val subject: SubjectSha? = null,
     val startedAt: Instant,
+    val workflow: ProcessWorkflow? = null,
 ) {
     init {
+        require(workflow == null || (executor.kind == ExecutorKind.Workflow && executor.id == workflow.run.value))
         require(number >= 1) { "Invalid attempt number" }
         require(inputRevision >= 0) { "Invalid input revision" }
     }
@@ -164,6 +166,12 @@ public sealed interface ProcessPhase {
  *   systems. An intent is recorded before the call, so a restart finds every write whose outcome is still open
  *   ([unresolvedWrites]) and reconciles it instead of repeating it.
  *
+ * [incarnation] distinguishes a removed and reopened process. Legacy records use their creation instant.
+ * New stores generate an opaque lifetime identity; workflow keys from an older lifetime are always rejected.
+ *
+ * [schemaVersion] identifies the stored structure: unsupported versions fail closed without being overwritten.
+ * [definition] pins the approved script and harness revision. Legacy records remain readable with null; before
+ * continuing them under version-aware execution, explicitly accept a definition with [ProcessCommand.MigrateDefinition].
  * Fields added later must have defaults so that stored records stay readable.
  */
 @Serializable
@@ -179,8 +187,15 @@ public data class ProcessRecord(
     val nextWait: Int = 1,
     val grants: Set<ProcessAuthority> = emptySet(),
     val writes: List<ExternalWrite> = emptyList(),
+    val incarnation: String = createdAt.toString(),
+    val schemaVersion: Int = 1,
+    val definition: ProcessDefinition? = null,
+    /** Shared-task marker only; the protected host journal supplies actual authority. */
+    val ownershipKey: OwnershipKey? = null,
 ) {
     init {
+        require(schemaVersion == 1) { "Unsupported process schema" }
+        require(isPlainToken(incarnation))
         require(inputRevision >= 0) { "Invalid input revision" }
         require(nextAttempt >= 1) { "Invalid next attempt" }
         require(updatedAt >= createdAt) { "Process updated before it was created" }

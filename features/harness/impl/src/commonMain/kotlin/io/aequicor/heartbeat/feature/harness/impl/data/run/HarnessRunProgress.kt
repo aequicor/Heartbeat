@@ -16,9 +16,10 @@ internal fun WorkflowRun.isMonotonicUpdateOf(old: WorkflowRun): Boolean {
 /** The organism of a step is bound when the step is created; it never changes and never appears later. */
 private fun WorkflowStep.isProgressOf(old: WorkflowStep): Boolean = when {
     this == old -> true
-    old.isTerminal || promptSha != old.promptSha || organism != old.organism -> false
+    old.isTerminal -> isNativeReleased && this == old.copy(isNativeReleased = true)
+    promptSha != old.promptSha || organism != old.organism -> false
     attempt == old.attempt + 1 -> phase == StepPhase.Prepared && request != null && request != old.request
-    attempt != old.attempt || helper != old.helper || request != old.request -> false
+    !matchesAttempt(old) -> false
     !matchesCapturedNative(old) -> false
     old.phase == StepPhase.Running -> phase != StepPhase.Prepared
     else -> true
@@ -28,3 +29,6 @@ private fun WorkflowStep.matchesCapturedNative(old: WorkflowStep): Boolean =
     (old.session == null || old.session == session) && (old.turn == null || old.turn == turn)
 
 private val WorkflowStep.isTerminal: Boolean get() = phase == StepPhase.Completed || phase == StepPhase.Failed
+
+private fun WorkflowStep.matchesAttempt(old: WorkflowStep): Boolean = !(old.isNativeReleased && !isNativeReleased) &&
+    attempt == old.attempt && helper == old.helper && request == old.request

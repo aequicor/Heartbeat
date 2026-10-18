@@ -12,7 +12,8 @@ import kotlin.time.Instant
  * The grants are a declaration of the harness's own approved script, sent as [ProcessCommand.Grant] like any other
  * command. They are not an approval by a person and not a security boundary: nothing stops a script from granting
  * itself a level, and nothing checks that the level named in [ProcessCommand.BeginWrite] matches what the call does.
- * A step only a person may open has to be enforced by the host and does not exist yet.
+ * Host-mediated guarded commands use a separate host-owned decision journal through ScriptCommands.runForProcess;
+ * these grants cannot approve such a command or replace its exact execution binding.
  */
 @Serializable
 public enum class ProcessAuthority {
@@ -31,6 +32,10 @@ public enum class ProcessAuthority {
     /** Tagging, releasing or deploying. */
     @SerialName("release")
     Release,
+
+    /** Explicit host decision for distributed ownership; ordinary process grants cannot approve it. */
+    @SerialName("transfer")
+    Transfer,
 }
 
 /** How far one external write got. */

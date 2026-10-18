@@ -16,6 +16,8 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanImplementationModeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PlanUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectTrustNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
@@ -137,6 +139,7 @@ data class PaneContent(
     val isHarnessLoadFailed: Boolean = false,
     val isHarnessFailed: Boolean = false,
     val organism: OrganismUi? = null,
+    val planning: PanePlanning = PanePlanning(),
     val subSession: String = PRIMARY_SUB_SESSION,
     val nativeTree: SessionTreeUi? = null,
     val isAttachmentFailed: Boolean = false,
@@ -163,6 +166,17 @@ data class PaneContent(
     /** Only the settings of this pane wait while its session configuration is being confirmed. */
     val isSettingPending: Boolean get() = configuration?.pendingOperation != null
 }
+
+/**
+ * Planning mode of a pane: whether it is offered, the [plan] of the shown chat while it plans or implements it,
+ * and the [modes] the plan can be implemented in.
+ */
+@Immutable
+data class PanePlanning(
+    val isEnabled: Boolean = false,
+    val plan: PlanUi? = null,
+    val modes: ImmutableList<PlanImplementationModeUi> = persistentListOf(PlanImplementationModeUi.Chat),
+)
 
 /** Sidebar data only: transcripts and drafts do not recompose the session lists. */
 @Immutable
@@ -262,9 +276,22 @@ private fun AiStudioScreenState.projectPaneContent(
         providerUsage = providerUsage[effectiveSettings.modelId],
         isWorktreeAvailable = isWorktreeOffered(pane),
         isSandboxAvailable = isSandboxAvailable && isWorktreeOffered(pane),
-        worktree = worktrees[pane.sessionId],
+        worktree = worktreeFor(pane.sessionId),
         worktreeJournal = worktreeJournal,
-    )
+    ).copy(planning = PanePlanning(isPlanningEnabled, plans[pane.sessionId], planModes(pane, session)))
+}
+
+/** Where a plan of [session] can be implemented: a checkout needs a Git project, an organism a shared folder. */
+private fun AiStudioScreenState.planModes(pane: PaneUi, session: SessionUi?): ImmutableList<PlanImplementationModeUi> {
+    val project = pane.projectId ?: session?.projectId
+    val isCheckoutOffered = isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready &&
+        project in repositoryProjects && worktrees[session?.id] == null
+    return listOfNotNull(
+        PlanImplementationModeUi.Chat,
+        PlanImplementationModeUi.Worktree.takeIf { isCheckoutOffered },
+        PlanImplementationModeUi.Sandbox.takeIf { isCheckoutOffered && isSandboxAvailable },
+        PlanImplementationModeUi.Organism.takeIf { isOrganismEnabled && worktrees[session?.id] == null },
+    ).toImmutableList()
 }
 
 /** Elapsed time is shown only while the session is running. */
@@ -398,3 +425,8 @@ fun AiStudioScreenState.paneContent(pane: PaneUi, host: StudioHostCapabilities):
             isProjectAddingAvailable = content.isProjectAddingAvailable && host.isProjectAddingAvailable,
         )
     }
+
+private fun AiStudioScreenState.worktreeFor(
+    session: String?,
+): io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi? =
+    worktrees[session] ?: worktrees["organism.$session.${subSessions[session] ?: PRIMARY_SUB_SESSION}"]

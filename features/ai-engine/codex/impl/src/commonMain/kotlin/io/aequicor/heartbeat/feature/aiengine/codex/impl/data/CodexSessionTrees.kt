@@ -2,10 +2,12 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
@@ -53,12 +55,14 @@ internal class CodexSessionTrees(
                 snapshot(root, access)
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: EngineException) {
+                val isClosedRead = runtime.isClosed &&
+                    e.failure == EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)
+                if (!isClosedRead) log.w(e) { "Codex session tree could not be refreshed" }
+                previous.unavailable()
             } catch (e: Exception) {
                 log.w(e) { "Codex session tree could not be refreshed" }
-                previous.copy(
-                    nodes = previous.nodes.map { it.copy(activity = SessionActivity.Unknown) },
-                    coverage = SessionTreeCoverage.Unavailable,
-                )
+                previous.unavailable()
             }
             send(previous)
             previous.coverage != SessionTreeCoverage.Complete || previous.nodes.any { it.activity.isPollingRequired }
@@ -248,6 +252,11 @@ private class CodexTreeHistory(
 }
 
 private const val TREE_REFRESH_MILLIS = 2_000L
+private fun SessionTreeSnapshot.unavailable(): SessionTreeSnapshot = copy(
+    nodes = nodes.map { it.copy(activity = SessionActivity.Unknown) },
+    coverage = SessionTreeCoverage.Unavailable,
+)
+
 private const val HISTORY_REFRESH_MILLIS = 1_000L
 
 /** Idle readers stay subscribed for a new turn; active or uncertain readers retain fallback polling. */

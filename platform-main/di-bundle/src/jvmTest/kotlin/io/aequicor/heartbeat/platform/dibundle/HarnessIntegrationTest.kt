@@ -4,6 +4,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRef
@@ -101,6 +102,38 @@ class HarnessIntegrationTest {
     }
 
     @Test
+    fun `real profile activation supplies ownership runtime when its registered flag is enabled`() = runTest {
+        val flag = assertIs<FeatureToggle.Flag>(
+            toggles.toggleControl.registered.single { it.key == "harness.process_ownership" },
+        )
+        toggles.toggleControl.setOverride(HarnessEnabled, true)
+        toggles.toggleControl.setOverride(flag, true)
+        val profile = app.profileSessions.open(ProfileId("harness-ownership"))
+        try {
+            val bus = (profile.graph as TestHarnessHookAccessors).harnessSchedulerBus
+            withContext(app.dispatchers.default) {
+                withTimeout(30.seconds) {
+                    val machine = app.machines.observe(HarnessMachineKey).filterNotNull().first()
+                    machine.state.filterIsInstance<HarnessState.Ready>().first()
+                    coroutineScope {
+                        val published = async(start = CoroutineStart.UNDISPATCHED) {
+                            bus.events.first { it.key == EventKeys.custom("harness.test.ownership_host") }
+                        }
+                        val code = ownershipScript()
+                        create(machine, code)
+                        awaitInitialActivation(machine, code.id)
+                        val event = published.await()
+                        assertTrue(Regex("[0-9a-f]{32}").matches(event.payload.orEmpty()))
+                        assertEquals("harness", assertIs<EventOrigin.Feature>(event.origin).name)
+                    }
+                }
+            }
+        } finally {
+            app.profileSessions.close()
+        }
+    }
+
+    @Test
     fun `baseline-off harness stays lazy then loads and reuses the library through toggle cycles`() = runTest {
         assertTrue(HarnessEnabled in toggles.toggleControl.registered)
         assertTrue(HarnessEnabled.default)
@@ -109,7 +142,8 @@ class HarnessIntegrationTest {
         // Construct facade/hooks first while harness stays disabled: the cycle must remain lazy.
         (profile.graph as AiEngineTestAccessors).engineFacade.engines.state.value
         val hooks = (profile.graph as TestHarnessHookAccessors).harnessSessionHooks
-        assertTrue(hooks.none { it.isIntercepting })
+        // Planning may intercept conservatively while its toggle loads; harness observers must stay disabled.
+        assertTrue(hooks.none { it.isObserving })
         assertNull(app.machines.find(HarnessMachineKey))
         toggles.toggleControl.setOverride(HarnessEnabled, true)
         withContext(app.dispatchers.default) {
@@ -241,6 +275,23 @@ class HarnessIntegrationTest {
         }
         script.hooks.beforeTool {
             io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict.Deny("Harness test denial")
+        }
+        """.trimIndent(),
+    )
+
+    private fun ownershipScript(): HarnessItem.Script = HarnessItem.Script(
+        ItemId("ownership"),
+        ItemName("ownership"),
+        "",
+        """
+        check(script.ownership !== io.aequicor.heartbeat.feature.harness.api.process.UnavailableScriptProcessOwnership)
+        script.scheduler.at(kotlin.time.Instant.fromEpochMilliseconds(0)) {
+            val host = checkNotNull(script.ownership.host())
+            check(script.ownership.host() == host)
+            script.scheduler.publish(
+                io.aequicor.heartbeat.feature.harness.api.ItemName("ownership_host"),
+                host.value,
+            )
         }
         """.trimIndent(),
     )

@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import kotlinx.serialization.Serializable
@@ -100,6 +101,8 @@ public data class WorkflowRun(
     val cancellation: WorkflowFailure? = null,
     val finishedAt: Instant? = null,
     val routing: WorkflowRouting? = null,
+    val process: WorkflowProcessOwner? = null,
+    val isProcessReleased: Boolean = false,
 ) {
     init {
         require(deadline > startedAt && deadline - startedAt <= HarnessLimits.RUN_TIME)
@@ -113,10 +116,25 @@ public data class WorkflowRun(
         "status=${status::class.simpleName.orEmpty()}, ***)"
 }
 
+/** Host-captured script ownership; no identity is accepted from workflow JSON. */
+@Serializable
+public data class WorkflowProcessOwner(
+    val script: ItemId,
+    val key: ProcessWorkflowKey,
+    val digest: String,
+    /** Host-only lifetime admission, retained until confirmed native cleanup. */
+    val ownership: io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermit? = null,
+) {
+    override fun toString(): String = "WorkflowProcessOwner(***)"
+}
+
 /** A trusted UI caller or the exact session that launched the workflow. */
 public sealed interface WorkflowViewer {
     /** Local user with access to every run in this profile. */
     public data object User : WorkflowViewer
+
+    /** Exact owning script and process attempt, verified by the feature's admission service. */
+    public data class Script(val harness: HarnessId, val owner: WorkflowProcessOwner) : WorkflowViewer
 
     /** Exact native session identity of a tool caller. */
     public data class Agent(val session: SessionRef) : WorkflowViewer
@@ -125,6 +143,7 @@ public sealed interface WorkflowViewer {
 /** Tools must apply this check before disclosing status or cancelling a run; machine state is host-internal. */
 public fun WorkflowRun.isVisibleTo(viewer: WorkflowViewer): Boolean = when (viewer) {
     WorkflowViewer.User -> true
+    is WorkflowViewer.Script -> harness == viewer.harness && process == viewer.owner
     is WorkflowViewer.Agent -> caller == viewer.session
 }
 

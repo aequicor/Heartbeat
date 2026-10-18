@@ -34,6 +34,12 @@ internal fun inboxReport(
 private fun Letter.integration(results: Map<CellId, CellResult>): String {
     val finished = this as? Letter.ChildFinished ?: return ""
     val result = results[finished.child] ?: return ""
+    result.virtualWorkspace?.let { workspace ->
+        return "\nHost note: this child's immutable virtual result is snapshot " +
+            "${result.commit}, workspace ${workspace.value}. " +
+            "Integrate it with sandbox_integrate using these exact workspace and snapshot " +
+            "values, then validate with the project's run_build commands."
+    }
     val base = result.base?.let { ", cut from $it" }.orEmpty()
     return "\nHost note: ${finished.child.value}'s work lives in its own sandbox branch ${result.branch}$base. " +
         "Everything in its checkout, committed or not, is captured as commit ${result.commit}. It is not part of " +

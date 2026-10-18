@@ -29,6 +29,8 @@ data class ToolUi(
     val diff: String?,
     val feedback: FeedbackUi? = null,
     val learning: LearningCallUi? = null,
+    /** A proposal of the plan, shown as the plan card instead of console output. */
+    val plan: PlanProposalUi? = null,
 )
 
 /** Self-learning tool call shown as a card: [kind] is general, model or skill when the agent named it. */

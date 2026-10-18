@@ -86,6 +86,8 @@ public sealed interface AiStudioState : MachineState {
         val isSandboxAvailable: Boolean = false,
         /** Projects whose folder is a Git repository: only they offer an isolated checkout. */
         val repositoryProjects: Set<String> = emptySet(),
+        /** Planning mode is offered (its toggle is on); new panes may then choose it. */
+        val isPlanningAvailable: Boolean = false,
         val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
         /** Next creation token; never reused while Ready survives, even when pane ids are reused. */
         val nextCreateRequestId: Long = 0,
@@ -123,6 +125,12 @@ public sealed interface AiStudioIntent : MachineIntent {
 
         /** Selects the organic AI mode before the first message of a new-session pane. */
         public data class SelectOrganism(val paneId: Int, val isEnabled: Boolean) : Public
+
+        /** Selects planning mode before the first message of a new-session pane. */
+        public data class SelectPlanning(val paneId: Int, val isEnabled: Boolean) : Public
+
+        /** Leaves planning in [sessionId] and implements its plan in the same chat. */
+        public data class ImplementPlan(val sessionId: String, val implementation: PlanImplementation) : Public
 
         /** Opens the local folder picker for a new-session pane; paths never enter machine state. */
         public data class AddProject(val paneId: Int) : Public
@@ -259,6 +267,9 @@ public sealed interface AiStudioIntent : MachineIntent {
             val isSandboxAvailable: Boolean = false,
         ) : Internal
 
+        /** Planning mode started or stopped being offered. */
+        public data class PlanningAvailabilityChanged(val isAvailable: Boolean) : Internal
+
         /** The picker registered a stable project id, or returned null when cancelled. */
         public data class ProjectChosen(val paneId: Int, val projectId: String?) : Internal
 
@@ -287,8 +298,14 @@ public sealed interface AiStudioEffect : MachineEffect {
     /** Reports the offered models for as long as the workspace is ready. */
     public data object ObserveModels : AiStudioEffect
 
+    /** Observations of the options a new chat may choose, for as long as the workspace is ready. */
+    public sealed interface ChatOptions : AiStudioEffect
+
     /** Observes whether local project selection is available. */
-    public data object ObserveProjects : AiStudioEffect
+    public data object ObserveProjects : ChatOptions
+
+    /** Observes whether planning mode is offered. */
+    public data object ObservePlanning : ChatOptions
 
     /** Read-only usage commands; failure never changes conversation execution state. */
     public sealed interface Usage : AiStudioEffect
@@ -325,13 +342,21 @@ public sealed interface AiStudioEffect : MachineEffect {
         val isSandbox: Boolean = false,
         /** The conversation is an organic AI organism conceived from [prompt]; it has no native session of its own. */
         val isOrganism: Boolean = false,
+        /** The conversation starts in planning mode before its first turn. */
+        val isPlanning: Boolean = false,
         /** Trusted host context captured with this input; never decoded from screen JSON. */
         val environment: StudioChatEnvironment? = null,
     ) : AiStudioEffect
 
+    /** A turn of [sessionId] that the machine marks running until its `RunFinished`. */
+    public sealed interface Turn : AiStudioEffect {
+        /** The chat that runs. */
+        public val sessionId: String
+    }
+
     /** Records [prompt] and streams the agent reply into [sessionId] until it completes or is stopped. */
     public data class Run(
-        val sessionId: String,
+        override val sessionId: String,
         val prompt: String,
         val settings: RunSettings,
         val attachments: List<ResourceRef> = emptyList(),
@@ -339,7 +364,14 @@ public sealed interface AiStudioEffect : MachineEffect {
         val submissionId: String = "",
         /** Trusted host context captured with this input; never decoded from screen JSON. */
         val environment: StudioChatEnvironment? = null,
-    ) : AiStudioEffect
+    ) : Turn
+
+    /** Applies [implementation] to the plan of [sessionId] and runs its first implementation turn. */
+    public data class ImplementPlan(
+        override val sessionId: String,
+        val implementation: PlanImplementation,
+        val settings: RunSettings,
+    ) : Turn
 
     /** Signals the run of [sessionId] to stop; the run itself reports its end. */
     public data class Cancel(val sessionId: String) : AiStudioEffect

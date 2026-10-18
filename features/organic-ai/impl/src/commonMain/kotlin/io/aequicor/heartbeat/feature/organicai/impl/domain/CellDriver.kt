@@ -27,6 +27,8 @@ import io.aequicor.heartbeat.feature.organicai.api.needsSandbox
 import io.aequicor.heartbeat.feature.organicai.api.targetOf
 import io.aequicor.heartbeat.feature.organicai.api.workspaceOf
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /**
  * Runs one turn of a cell: opens its session, connects the organism's harnesses to it, submits the turn's prompt (or
@@ -55,8 +57,18 @@ internal class CellDriver(
             return
         }
         log.i { "organism ${organism.id.value} cell ${id.value}: ${phase.kind()} turn ${cell.turns} starts" }
-        val route = routeOf(organism, cell, target, request, machine) ?: return
-        runTurn(organism, cell, phase, route, machine)
+        try {
+            val route = routeOf(organism, cell, target, request, machine) ?: return
+            if (organism.isSandboxed) workspaces.awaitAvailable(organism, id)
+            runTurn(organism, cell, phase, route, machine)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (!organism.isSandboxed || !workspaces.isPaused(organism, id)) throw error
+            log.w(error) { "Cell turn failed while its workspace was paused" }
+            workspaces.awaitAvailable(organism, id)
+            machine.send(OrganicAiIntent.Internal.WorkspaceContinued(organism.id, id, request))
+        }
     }
 
     /** The turn of [phase] in the cell's session, which opens on [route]. */
@@ -70,15 +82,10 @@ internal class CellDriver(
         val key = CellKey(organism.id, cell.id)
         val handle = cells.open(key, route, cell.session, cell.turns)
         val driven = DrivenCell(organism, cell, phase, handle)
-        if (cell.session == null) {
-            val bound = OrganicAiIntent.Internal.SessionBound(organism.id, cell.id, phase.request, handle.session)
-            if (machine.send(bound) != SendResult.Accepted) {
-                return abandon(driven, turn = null, CellRun.None, isConnected = false)
-            }
-        }
         // A turn the engine still runs started under an earlier connection; every new prompt needs a fresh check.
         val live = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() }
         val run = runOf(organism, cell.id, phase.request, handle.session, live)
+        if (!bindSession(driven, run, live, machine)) return
         var turn = live
         try {
             turn = live ?: submit(driven, run, machine) ?: return
@@ -89,6 +96,37 @@ internal class CellDriver(
         } catch (e: Exception) {
             run.lost(handle.session, turn)
             throw e
+        }
+    }
+
+    /** A prepared unsent request is closed even when binding fails or its coroutine is cancelled. */
+    private suspend fun bindSession(
+        driven: DrivenCell,
+        run: CellRun,
+        live: TurnId?,
+        machine: EffectScope<OrganicAiIntent>,
+    ): Boolean {
+        var isHandedOff = false
+        try {
+            if (driven.cell.session == null) {
+                val bound = OrganicAiIntent.Internal.SessionBound(
+                    driven.organism.id,
+                    driven.cell.id,
+                    driven.phase.request,
+                    driven.handle.session,
+                )
+                if (machine.send(bound) != SendResult.Accepted) {
+                    isHandedOff = true
+                    abandon(driven, turn = live, run, isConnected = false)
+                    return false
+                }
+            }
+            isHandedOff = true
+            return true
+        } finally {
+            if (!isHandedOff && live == null) {
+                withContext(NonCancellable) { run.lost(session = null, turn = null) }
+            }
         }
     }
 
@@ -108,6 +146,11 @@ internal class CellDriver(
         }
         val settlement = settlement(handle, turn, outcome)
         run.settled(handle.session, turn, outcome)
+        if (organism.isSandboxed && workspaces.isPaused(organism, cell.id)) {
+            workspaces.awaitAvailable(organism, cell.id)
+            machine.send(OrganicAiIntent.Internal.WorkspaceContinued(organism.id, cell.id, phase.request))
+            return
+        }
         val settled = OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, settlement)
         val result = machine.send(settled)
         log.i {
@@ -165,6 +208,7 @@ internal class CellDriver(
             cell.configuration?.reasoningEffort,
             organism.target?.takeIf { it != target },
             organism.harnesses,
+            organism.decisionMode,
         )
     }
 

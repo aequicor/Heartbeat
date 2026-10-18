@@ -19,7 +19,9 @@ public sealed interface ScriptDataWriteResult {
 /**
  * Durable JSON shared by all approved scripts of this harness in the current profile. The host fixes the owner;
  * scripts cannot address another harness. Data survives item/source replacement, detach, disable and restart.
- * Deleting the harness deletes its data; profile wipe deletes everything. Personal values use the profile's
+ * Deleting the harness deletes this namespace; durable process snapshots are preserved outside it in the profile
+ * archive when durable mode is enabled or a process is already pinned. Profile wipe deletes everything.
+ * Values use the profile's
  * protected store (with its explicitly separate development backend), never browser localStorage or script fields.
  *
  * Every operation requires a live, published approved activation. Calls during evaluation or after revocation

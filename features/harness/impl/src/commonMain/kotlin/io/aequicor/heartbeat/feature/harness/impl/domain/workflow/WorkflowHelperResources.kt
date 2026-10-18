@@ -43,7 +43,7 @@ internal class WorkflowHelperResources(private val helpers: HelperAgents, privat
     }
 
     /** Called after producer writes have joined. Unconfirmed release retains both capacity and proof. */
-    suspend fun release(resource: WorkflowHelperResource): Boolean {
+    suspend fun release(resource: WorkflowHelperResource, onReleased: suspend () -> Unit = {}): Boolean {
         if (!resource.isReleased) {
             resource.markClosing()
             // Join/reconcile the producer's last binding proposal before deleting its proof.
@@ -52,6 +52,8 @@ internal class WorkflowHelperResources(private val helpers: HelperAgents, privat
             if (resource.lease.release() != HelperReleaseResult.Released) return false
             resource.markReleased()
         }
+        // Persist the consumer's stop receipt before deleting the only recoverable native grant.
+        onReleased()
         journal.settled(resource.grant)
         live.update { it - resource.grant.reservation }
         log.v { "Workflow helper slot settled" }

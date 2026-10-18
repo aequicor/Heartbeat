@@ -1,7 +1,5 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.services
 
-import dev.zacsweers.metro.ContributesBinding
-import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
@@ -13,7 +11,10 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptDataSnapshot
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptDataWriteResult
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.HarnessOwnershipRuntime
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessProcessArchiveStorage
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -34,9 +35,12 @@ import okio.ByteString.Companion.encodeUtf8
  * keys needs no tombstones. Recovery prunes orphan envelopes after the library journal is recovered.
  */
 @SingleIn(ProfileScope::class)
-@ContributesBinding(ProfileScope::class)
-@Inject
-internal class ProtectedHarnessData(private val secrets: SecretStore) : HarnessDataStorage {
+internal class ProtectedHarnessData(
+    private val secrets: SecretStore,
+    override val archives: HarnessProcessArchiveStorage,
+    override val ownership: HarnessOwnershipRuntime? = null,
+) : HarnessDataStorage {
+    override val processMutex = Mutex()
     private val mutex = Mutex()
     private val revisions = MutableStateFlow<Map<HarnessId, Long>>(emptyMap())
     private val log = Log.tag("HarnessData")
@@ -91,17 +95,34 @@ internal class ProtectedHarnessData(private val secrets: SecretStore) : HarnessD
         }
     }
 
+    override suspend fun prepareRemoval(owner: HarnessId) = mutex.withLock {
+        archiveNamespace(owner.storageKey())
+    }
+
     override suspend fun retainOwners(owners: Set<HarnessId>) = mutex.withLock {
         val retained = owners.mapTo(mutableSetOf()) { it.storageKey() }
         secrets.keys().filter { it.value.startsWith(DATA_PREFIX) && it !in retained }.forEach { key ->
+            archiveNamespace(key)
             check(secrets.remove(key) !is SecretRemoval.InUse) { "Deleted harness data is still referenced" }
         }
         revisions.value = revisions.value.filterKeys { it in owners }
         log.v { "Removed orphan harness data namespaces" }
     }
 
-    private suspend fun load(owner: HarnessId): HarnessDataEnvelope = privateAccess {
-        secrets.read(owner.storageKey())?.use { secret ->
+    private suspend fun archiveNamespace(key: SecretKey) {
+        val records = privateAccess {
+            HarnessScriptProcesses.decodeStored(
+                loadKey(key).entries[HarnessScriptProcesses.STORAGE_KEY],
+            )
+        }
+        if (records.isEmpty() || (!archives.isEnabled() && records.none { it.definition != null })) return
+        for (record in records) archives.storeOrphan(key.value.removePrefix(DATA_PREFIX), record)
+    }
+
+    private suspend fun load(owner: HarnessId): HarnessDataEnvelope = loadKey(owner.storageKey())
+
+    private suspend fun loadKey(key: SecretKey): HarnessDataEnvelope = privateAccess {
+        secrets.read(key)?.use { secret ->
             secret.reveal { chars ->
                 Json.decodeFromString<HarnessDataEnvelope>(chars.concatToString()).also {
                     check(it.revision >= 0 && it.entries.size <= HarnessLimits.DATA_KEYS) { "Invalid data envelope" }

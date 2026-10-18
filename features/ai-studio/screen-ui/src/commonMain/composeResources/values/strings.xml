@@ -1,4 +1,11 @@
 <resources>
+    <string name="sandbox_paused">Sandbox paused: the project is being edited externally</string>
+    <string name="sandbox_conflicted">Virtual changes have conflicts</string>
+    <string name="sandbox_continue">Continue</string>
+    <string name="sandbox_resolve">Ask the agent to resolve and continue (recommended)</string>
+    <string name="sandbox_leave_paused">Leave paused</string>
+    <string name="sandbox_handed_off">Result branch saved and handed to you</string>
+
     <string name="miniapp_open">Open %1$s</string>
     <string name="session_tree_root">Root session</string>
     <string name="session_tree_unknown">unknown</string>
@@ -247,7 +254,7 @@
     <string name="attachments_failed">Could not attach these files. Check their formats and size, then try again.</string>
     <string name="organism_mode">Organic AI</string>
     <string name="organism_mode_hint">The first message conceives an organism: cells divide on their own and the immune system judges them</string>
-    <string name="organism_menu_section">Mode</string>
+    <string name="composer_modes_section">Mode</string>
     <string name="organism_sub_sessions">Sub-sessions</string>
     <string name="organism_zygote">Zygote</string>
     <string name="organism_complaint">Immunity %1$s · complaint about %2$s</string>
@@ -346,4 +353,40 @@
     <string name="organism_retry_release">Retry stopping</string>
     <string name="organism_status_releasing">Stopping cell sessions…</string>
     <string name="organism_status_release_unconfirmed">Stopping some cell sessions could not be confirmed. Retry stopping them from the organism menu.</string>
+    <string name="plan_card_title">Plan · revision %1$d</string>
+    <string name="plan_status_draft">Draft</string>
+    <string name="plan_status_proposed">For review</string>
+    <string name="plan_status_approved">Approved</string>
+    <string name="plan_replaced">Replaced by revision %1$d</string>
+    <string name="plan_approve">Approve</string>
+    <string name="plan_refine">Refine</string>
+    <string name="plan_implement">Implement</string>
+    <string name="plan_open">Open</string>
+    <string name="plan_refine_prompt">Refine the plan: </string>
+    <string name="plan_editor_title">Plan</string>
+    <string name="plan_editor_label">Plan text in Markdown</string>
+    <string name="plan_save">Save</string>
+    <string name="plan_cancel">Cancel</string>
+    <string name="plan_editor_conflict">The plan changed to revision %1$d while you were editing</string>
+    <string name="plan_reload">Reload</string>
+    <string name="plan_editor_unavailable">The plan is no longer available: copy your edit or cancel it</string>
+    <string name="plan_overwrite">Overwrite</string>
+    <string name="plan_implement_title">Implement the plan</string>
+    <string name="plan_implement_model">Model</string>
+    <string name="plan_implement_approval">Approvals</string>
+    <string name="plan_implement_mode">Where</string>
+    <string name="plan_mode_chat">In this chat</string>
+    <string name="plan_mode_worktree">In a worktree</string>
+    <string name="plan_mode_sandbox">In a sandbox</string>
+    <string name="plan_mode_organism">Organic AI</string>
+    <string name="plan_fresh">Fresh context</string>
+    <string name="plan_implement_prompt">First message (optional)</string>
+    <string name="plan_implement_default">Implement the approved plan.</string>
+    <string name="planning_mode">Planning</string>
+    <string name="planning_mode_hint">The agent develops the plan with you and only reads until you implement it</string>
+    <string name="planning_chip">Plan · rev. %1$d</string>
+    <string name="planning_leave">Leave planning</string>
+    <string name="sandbox_git_required">Sandbox and Worktree require a Git project.</string>
+    <string name="sandbox_head_required">Sandbox requires an initial Git commit (HEAD).</string>
+    <string name="sandbox_engine_unsupported">This engine does not support virtual workspace access.</string>
 </resources>

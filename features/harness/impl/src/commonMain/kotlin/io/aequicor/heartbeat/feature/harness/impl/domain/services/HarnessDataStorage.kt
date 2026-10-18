@@ -4,10 +4,23 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptDataSnapshot
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptDataWriteResult
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.json.JsonElement
 
 /** Profile-owned transactions; [authorize] is checked again after waiting for the writer and before commit. */
 internal interface HarnessDataStorage {
+    /** One profile barrier for process mutations and reserved workflow dispatch. */
+    val processMutex: Mutex
+
+    /** Protected distributed admission; absent only in explicit legacy/test hosts. */
+    val ownership: io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.HarnessOwnershipRuntime?
+        get() = null
+
+    /** Same-profile archive, shared with lifecycle cleanup and scoped process services. */
+    val archives: HarnessProcessArchiveStorage? get() = null
+
+    /** Confirms preservation before the library commits harness deletion. */
+    suspend fun prepareRemoval(owner: HarnessId) = Unit
     fun revision(owner: HarnessId): Flow<Long>
     suspend fun read(owner: HarnessId, key: String, authorize: () -> Unit): ScriptDataSnapshot
     suspend fun write(

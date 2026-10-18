@@ -22,7 +22,10 @@ internal fun WorktreeTask.runStarted(command: WorktreeIntent.Public.RunStarted):
         copy(
             phase = if (command.kind == WorktreeRunKind.Coding) WorktreePhase.Working else WorktreePhase.ActionWorking,
             run = WorktreeRun(command.request, command.kind),
+            closedSubmission = null,
             actionRequest = null,
+            pendingVirtualContinuation = false,
+            virtualContinuations = continuedRequests(command.request),
             failure = null,
             isCompletionDismissed = false,
             verifiedPullRequestUrl = null,
@@ -46,7 +49,11 @@ internal fun WorktreeTask.runAccepted(command: WorktreeIntent.Public.RunAccepted
 
 internal fun WorktreeTask.runRejected(command: WorktreeIntent.Public.RunRejected): WorktreeTask {
     val active = pendingRun(command.chatId, command.request) ?: return this
-    return if (active.turn == null) copy(phase = WorktreePhase.Failed, run = null, failure = command.reason) else this
+    return if (active.turn == null && active.session == null && phase != WorktreePhase.RecoveryRequired) {
+        copy(phase = WorktreePhase.Failed, run = null, failure = command.reason, closedSubmission = command.request)
+    } else {
+        this
+    }
 }
 
 internal fun WorktreeTask.runSubmissionObservationLost(
@@ -70,7 +77,12 @@ internal fun WorktreeTask.runSubmissionReconciled(
 ): WorktreeTask {
     val active = pendingRun(command.chatId, command.request) ?: return this
     return if (phase == WorktreePhase.RecoveryRequired && active.turn == null && active.session == command.session) {
-        copy(phase = WorktreePhase.Failed, run = null, failure = "NativeOutcomeUnknown")
+        copy(
+            phase = WorktreePhase.Failed,
+            run = null,
+            failure = "NativeOutcomeUnknown",
+            closedSubmission = command.request,
+        )
     } else {
         this
     }
@@ -145,4 +157,12 @@ private fun WorktreeTask.canSignalCompletion(active: WorktreeRun, summary: Strin
     val isStaleCodingAction = phase == WorktreePhase.ActionWorking && active.kind == WorktreeRunKind.Coding
     val isSignalValid = summary.isNotBlank() && isCompletionAvailable && !isStaleCodingAction
     return isSuccessfulOrUnsettled && isSignalValid
+}
+
+/** Follows the logical helper request across fresh accepted turns without replaying the original. */
+private fun WorktreeTask.continuedRequests(request: RequestId): Map<String, String> {
+    val previous = run?.request?.takeIf { it in virtualInterruptedRequests } ?: return virtualContinuations
+    return virtualContinuations.mapValues { (_, value) ->
+        if (value == previous.value) request.value else value
+    } + (previous.value to request.value)
 }

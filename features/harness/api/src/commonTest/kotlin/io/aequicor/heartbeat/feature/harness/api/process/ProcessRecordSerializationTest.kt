@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.api.process
 
+import io.aequicor.heartbeat.feature.harness.api.ItemId
+import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import kotlinx.serialization.json.Json
@@ -191,8 +193,34 @@ class ProcessRecordSerializationTest {
         assertTrue(bytes <= ProcessLimits.RECORD_BYTES, "waiting record takes $bytes bytes")
     }
 
+    @Test
+    fun `maximal workflow claims preserve the bounded process record`() {
+        val workflow = ProcessWorkflow(
+            RunId("wf_" + "w".repeat(SHA256_CHARS - 3)),
+            ItemId("s".repeat(ProcessLimits.REF_CHARS)),
+            "d".repeat(SHA256_CHARS),
+            isSettled = true,
+            isDispatchClosed = true,
+        )
+        val full = fullyLoaded().copy(incarnation = "l".repeat(ProcessLimits.REF_CHARS))
+        val keyed = full.copy(
+            history = full.history.map { closed ->
+                closed.copy(
+                    attempt = closed.attempt.copy(
+                        executor = ExecutorRef(ExecutorKind.Workflow, workflow.run.value),
+                        workflow = workflow,
+                    ),
+                )
+            },
+        )
+        val bytes = Json.encodeToString(keyed).encodeToByteArray().size
+        assertTrue(bytes <= ProcessLimits.RECORD_BYTES, "workflow record takes $bytes bytes")
+        assertEquals(keyed, roundtrip(keyed))
+    }
+
     private fun fullyLoaded(): ProcessRecord {
         var process = newProcess()
+            .copy(definition = ProcessDefinition(ItemId("s".repeat(ProcessLimits.REF_CHARS)), Long.MAX_VALUE))
             .change(ProcessCommand.ReviseInput(Long.MAX_VALUE))
             .change(ProcessCommand.ObserveSubject(SubjectSha("f".repeat(SHA256_CHARS))))
         repeat(ProcessLimits.HISTORY + 1) { n ->

@@ -96,9 +96,24 @@ internal class WorkflowHelperDriver(
         val isAbandoned = !isTerminal && owner?.isCancelled == true && driver?.isActive == true && isStillAdmitted()
         if (isAbandoned) log.d { "Workflow branch cancelled by its group; stopping its helper" }
         if (isTerminal || isAbandoned) {
-            while (!resources.release(resource) && owner?.isActive != false) delay(POLL_INTERVAL)
+            while (!releaseStep(resource, step) && owner?.isActive != false) {
+                delay(POLL_INTERVAL)
+            }
         }
     }
+
+    private suspend fun releaseStep(resource: WorkflowHelperResource, step: WorkflowStep): Boolean =
+        resources.release(resource) {
+            if (run.process?.ownership != null) {
+                progress.replace { latest ->
+                    latest.copy(
+                        steps = latest.steps.map {
+                            if (it.key == step.key) it.copy(isNativeReleased = true) else it
+                        },
+                    )
+                }
+            }
+        }
 
     private suspend fun isStillAdmitted(): Boolean = try {
         isAdmitted()
@@ -231,7 +246,11 @@ internal class WorkflowHelperDriver(
         val result = helpers.prompt(checkNotNull(step.helper), HelperPrompt(request, text, isRecovery, handoff))
         check(result.request == request) { "Helper submission identity changed" }
         return when (result) {
-            is HelperSubmission.Accepted -> step.copy(session = result.session, phase = StepPhase.Running).also {
+            is HelperSubmission.Accepted -> step.copy(
+                session = result.session,
+                phase = StepPhase.Running,
+                isNativeReleased = false,
+            ).also {
                 progress.record(it)
             }
 
@@ -276,6 +295,7 @@ internal class WorkflowHelperDriver(
         val next = step.copy(
             request = RequestId(nextId()),
             attempt = step.attempt + 1,
+            isNativeReleased = false,
             session = null,
             turn = null,
             phase = StepPhase.Prepared,

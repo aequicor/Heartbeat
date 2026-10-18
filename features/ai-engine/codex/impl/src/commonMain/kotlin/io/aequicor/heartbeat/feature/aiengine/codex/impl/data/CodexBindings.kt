@@ -68,6 +68,7 @@ public object CodexBindings {
             setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows, EnginePlatform.DesktopLinux),
             CodexEngine.Enabled,
             isLocalWorkspaceSupported = true,
+            isVirtualWorkspaceSupported = true,
             nativeTools = listOf(
                 NativeToolSpec("shell", AgentToolAction.Command, isEnabledByDefault = true, isGated = false),
                 NativeToolSpec("web_search", AgentToolAction.Read, isEnabledByDefault = true, isGated = false),

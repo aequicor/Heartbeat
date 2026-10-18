@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.organicai.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
@@ -57,6 +58,8 @@ internal data class CellRoute(
     val reviewTarget: EngineTarget? = null,
     /** The organism's harness choice ([Organism.harnesses]); the session is opened with it, never a subset. */
     val harnesses: Set<String> = emptySet(),
+    /** Durable host policy of the organism, applied to every submitted turn. */
+    val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
 )
 
 /** Own checkouts of the cells of sandbox organisms; worktree mode owns the checkouts, their branches and runs. */
@@ -91,13 +94,20 @@ internal interface CellWorkspaces {
 
     /** The branch of each cell's sandbox that worktree mode knows. */
     suspend fun branches(organism: Organism): Map<CellId, String>
+    suspend fun isPaused(organism: Organism, cell: CellId): Boolean = false
+    suspend fun awaitAvailable(organism: Organism, cell: CellId) = Unit
 }
 
 /**
  * The work of a finished sandbox cell: its [branch], cut from [base], and the [commit] that holds every file of its
  * checkout on top of that branch. A parent integrates the commit into its own checkout with git.
  */
-internal data class CellResult(val branch: String, val base: String?, val commit: String)
+internal data class CellResult(
+    val branch: String,
+    val base: String?,
+    val commit: String,
+    val virtualWorkspace: WorkspaceRef? = null,
+)
 
 /**
  * The run of one turn of a sandbox cell in worktree mode. Reporting never fails the turn: a report that is lost leaves

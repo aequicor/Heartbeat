@@ -190,6 +190,7 @@ class SessionPolicy(
     private val context: FacadeContext,
     private val tools: ProfileAgentTools = NoAgentTools,
     val hooks: SessionHooks = NoSessionHooks,
+    private val workspaces: io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces? = null,
 ) {
     /** Registers the canonical identity before the native adapter can call hosted tools. */
     suspend fun bindTurn(session: SessionRef, request: RequestId, turn: Turn) {
@@ -214,6 +215,7 @@ class SessionPolicy(
     /** Rechecks toggles, binding, ownership and source revision before a turn or model change. */
     suspend fun beforeTurn(route: ExecutionRoute, model: ModelId) {
         routes.recheck(route, model)
+        route.workspace?.let { workspaces?.virtual(it)?.revision() }
     }
 
     /** Why capabilities of a handle are blocked right now, or null. */

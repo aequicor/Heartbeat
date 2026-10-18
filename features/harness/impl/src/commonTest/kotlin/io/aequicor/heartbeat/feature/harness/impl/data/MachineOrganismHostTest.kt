@@ -8,19 +8,28 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismExecution
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganism
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganismContext
 import io.aequicor.heartbeat.feature.harness.impl.data.run.MachineOrganismHost
+import io.aequicor.heartbeat.feature.harness.impl.data.run.WorkflowOrganismWorkspaces
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismConception
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismRelease
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismView
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.isAbortable
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.isEnded
@@ -36,17 +45,30 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
+import io.aequicor.heartbeat.feature.organicai.api.OrganismIsolation
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.Work
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRun
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSeal
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import io.aequicor.heartbeat.feature.worktreemode.api.sealed
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MachineOrganismHostTest {
@@ -55,7 +77,115 @@ class MachineOrganismHostTest {
     private val options = OrganismOptions("Stage")
     private val machine = FakeOrganicMachine(OrganicAiState.Living(mapOf(id to organism())))
 
-    private fun host(ref: FakeOrganicMachine? = machine) = MachineOrganismHost(FakeOrganicRegistry(ref))
+    private fun host(ref: FakeOrganicMachine? = machine): MachineOrganismHost {
+        val registry = FakeOrganicRegistry(ref)
+        return MachineOrganismHost(registry, WorkflowOrganismWorkspaces(registry))
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `a repeated output waits for its seal acknowledgement despite unrelated task updates`() = runTest {
+        val base = "a".repeat(40)
+        val ended = organism(OrganismStatus.Completed("done"), CellPhase.Completed("done")).copy(
+            workspace = WorkspaceRef("project"),
+            isolation = OrganismIsolation.Sandbox,
+            baseCommit = base,
+        )
+        val organic = FakeOrganicMachine(OrganicAiState.Living(mapOf(id to ended)))
+        val sandbox = FakeStageWorktree()
+        val key = "organism.${bound.id}.zygote"
+        val operation = "workflow_${bound.id}"
+        val saved = WorktreeTask(
+            key,
+            WorkspaceRef("project"),
+            branch = "heartbeat/task",
+            pinnedBaseCommit = base,
+            isSandbox = true,
+            phase = WorktreePhase.Idle,
+        ).sealed(WorktreeSeal(operation, "b".repeat(40)))
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to saved))
+        val registry = FakeOrganicRegistry(organic, sandbox)
+        val host = MachineOrganismHost(registry, WorkflowOrganismWorkspaces(registry))
+        val output = async { host.output(bound) }
+        runCurrent()
+        assertEquals(listOf(WorktreeIntent.Public.Seal(key, operation)), sandbox.seals)
+        // A build update preserves the old successful seal while the new Git validation is still pending.
+        val updated = saved.copy(revision = saved.revision + 1)
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to updated))
+        runCurrent()
+        assertFalse(output.isCompleted)
+        val failed = updated.sealed(WorktreeSeal(operation, failure = "ResultProofUnavailable"))
+            .copy(revision = updated.revision + 1)
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to failed))
+        runCurrent()
+        assertTrue(output.isCompleted)
+        assertNull(output.await())
+    }
+
+    @Test
+    fun `a restored sandbox cannot release its quota while the durable native run is still open`() = runTest {
+        val session = SessionRef(EngineId("engine"), SessionSourceId("source"), "native")
+        val ended = organism(OrganismStatus.Completed("done"), CellPhase.Completed("done")).let {
+            it.copy(
+                workspace = WorkspaceRef("project"),
+                isolation = OrganismIsolation.Sandbox,
+                baseCommit = "a".repeat(40),
+                cells = it.cells.map { cell -> cell.copy(session = session) },
+            )
+        }
+        val organic = FakeOrganicMachine(OrganicAiState.Living(mapOf(id to ended)))
+        val sandbox = FakeStageWorktree()
+        val key = "organism.${bound.id}.zygote"
+        val task = WorktreeTask(
+            key,
+            WorkspaceRef("project"),
+            phase = WorktreePhase.Working,
+            run = WorktreeRun(RequestId("request")),
+        )
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to task))
+        val registry = FakeOrganicRegistry(organic, sandbox)
+        val host = MachineOrganismHost(registry, WorkflowOrganismWorkspaces(registry))
+        val uncertain = host.view(bound)
+        assertEquals(OrganismView.Answered("done", OrganismRelease.Unconfirmed), uncertain)
+        assertFalse(uncertain.isEnded)
+        val stopped = task.copy(phase = WorktreePhase.Idle, run = task.run?.copy(outcome = TurnOutcome.Completed))
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to stopped))
+        assertEquals(OrganismView.Answered("done"), host.view(bound))
+    }
+
+    @Test
+    fun `trusted isolated conception prepares the zygote before sending finite pinned context`() = runTest {
+        val organic = FakeOrganicMachine(OrganicAiState.Living())
+        val sandbox = FakeStageWorktree()
+        val registry = FakeOrganicRegistry(organic, sandbox)
+        val host = MachineOrganismHost(registry, WorkflowOrganismWorkspaces(registry))
+        val context = WorkflowOrganismContext((1..10).map { HarnessId("h$it") }.toSet())
+        val requested = options.copy(execution = OrganismExecution(maxCells = 3, maxCases = 0))
+        assertEquals(
+            OrganismConception.Accepted,
+            host.conceiveIsolated(bound, "Stage", requested, WorkspaceRef("project"), context),
+        )
+        val prepared = sandbox.state.value as WorktreeState.Ready
+        val task = prepared.tasks.values.single()
+        val conception = (organic.sent.single() as OrganicAiIntent.Public.Conceive).conception
+        assertEquals(task.pinnedBaseCommit, conception.baseCommit)
+        assertEquals(OrganismIsolation.Sandbox, conception.isolation)
+        assertEquals(AgentToolDecisionMode.AutomaticSafety, conception.decisionMode)
+        assertEquals(context.harnesses.map { it.value }.toSet(), conception.harnesses)
+        assertEquals(TrustLevel.Ask, conception.trust)
+        assertEquals(3, conception.limits.maxCells)
+        assertEquals(0, conception.limits.maxCases)
+    }
+
+    @Test
+    fun `missing project or sandbox refuses isolated conception without sending a shared one`() = runTest {
+        val organic = FakeOrganicMachine(OrganicAiState.Living())
+        val registry = FakeOrganicRegistry(organic)
+        val host = MachineOrganismHost(registry, WorkflowOrganismWorkspaces(registry))
+        val context = WorkflowOrganismContext(setOf(HarnessId("owner")))
+        assertEquals(OrganismConception.Rejected, host.conceiveIsolated(bound, "Stage", options, null, context))
+        assertTrue(organic.sent.isEmpty())
+    }
 
     @Test
     fun `a missing or sleeping machine is unavailable and never absent`() = runTest {
@@ -136,6 +266,7 @@ class MachineOrganismHostTest {
         assertEquals(target, conception.immunityTarget)
         assertEquals(WorkspaceRef("project"), conception.workspace)
         assertEquals(TrustLevel.Ask, conception.trust)
+        assertEquals(AgentToolDecisionMode.AutomaticSafety, conception.decisionMode)
     }
 
     @Test
@@ -166,6 +297,35 @@ class MachineOrganismHostTest {
     fun `the goal bound of a step is the bound of an organism`() {
         assertEquals(OrganismBounds.MAX_GOAL, HarnessLimits.ORGANISM_GOAL_CHARS)
         assertFalse(OrganismView.Answered("private-answer").toString().contains("private-answer"))
+    }
+
+    @Test
+    fun `a retained session releases only with durable proof of a closed submission`() = runTest {
+        val session = SessionRef(EngineId("engine"), SessionSourceId("source"), "native")
+        val ended = organism(OrganismStatus.Aborted).let {
+            it.copy(
+                workspace = WorkspaceRef("project"),
+                isolation = OrganismIsolation.Sandbox,
+                baseCommit = "a".repeat(40),
+                cells = it.cells.map { cell -> cell.copy(session = session) },
+            )
+        }
+        val organic = FakeOrganicMachine(OrganicAiState.Living(mapOf(id to ended)))
+        val sandbox = FakeStageWorktree()
+        val registry = FakeOrganicRegistry(organic, sandbox)
+        val host = MachineOrganismHost(registry, WorkflowOrganismWorkspaces(registry))
+        val key = "organism.${bound.id}.zygote"
+        val task = WorktreeTask(key, WorkspaceRef("project"), phase = WorktreePhase.Failed)
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to task))
+        assertEquals(OrganismView.AbortUnconfirmed, host.view(bound))
+        val closed = task.copy(closedSubmission = RequestId("rejected"))
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to closed))
+        assertEquals(OrganismView.Aborted, host.view(bound))
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to closed.copy(phase = WorktreePhase.RecoveryRequired)))
+        assertEquals(OrganismView.AbortUnconfirmed, host.view(bound))
+        val active = closed.copy(phase = WorktreePhase.Working, run = WorktreeRun(RequestId("next")))
+        sandbox.state.value = WorktreeState.Ready(mapOf(key to active))
+        assertEquals(OrganismView.AbortUnconfirmed, host.view(bound))
     }
 
     private fun organism(
@@ -199,19 +359,50 @@ private class FakeOrganicMachine(initial: OrganicAiState, private val result: Se
     }
 }
 
-private class FakeOrganicRegistry(private val ref: FakeOrganicMachine?) : MachineRegistry {
+private class FakeOrganicRegistry(
+    private val ref: FakeOrganicMachine?,
+    private val sandbox: FakeStageWorktree? = null,
+) : MachineRegistry {
     @Suppress("UNCHECKED_CAST") // tests address the one organic AI machine key
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
         key: MachineKey<S, I, P, E, O>,
-    ): MachineRef<S, P, O>? = ref as MachineRef<S, P, O>?
+    ): MachineRef<S, P, O>? = (if (key.name == "worktree-mode") sandbox else ref) as MachineRef<S, P, O>?
 
     @Suppress("UNCHECKED_CAST") // tests address the one organic AI machine key
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
         key: MachineKey<S, I, P, E, O>,
-    ): StateFlow<MachineRef<S, P, O>?> = MutableStateFlow(ref as MachineRef<S, P, O>?)
+    ): StateFlow<MachineRef<S, P, O>?> = MutableStateFlow(find(key))
 
     override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
         key: MachineKey<S, I, P, E, O>,
         intent: P,
     ): SendResult = find(key)?.send(intent) ?: SendResult.NotRunning
+}
+
+private class FakeStageWorktree : MachineRef<WorktreeState, WorktreeIntent.Public, WorktreeOutput> {
+    override val name = "worktree-mode"
+    override val state = MutableStateFlow<WorktreeState>(WorktreeState.Ready())
+    override val outputs: Flow<WorktreeOutput> = emptyFlow()
+    val seals = mutableListOf<WorktreeIntent.Public.Seal>()
+
+    override suspend fun send(intent: WorktreeIntent.Public): SendResult {
+        if (intent is WorktreeIntent.Public.Seal) {
+            seals += intent
+            return SendResult.Accepted
+        }
+        val prepare = intent as WorktreeIntent.Public.Prepare
+        check(prepare.isBasePinned && prepare.isSandbox == true)
+        val task = WorktreeTask(
+            prepare.chatId,
+            prepare.project,
+            executionWorkspace = WorkspaceRef("cell"),
+            branch = "heartbeat/task",
+            baseCommit = "a".repeat(40),
+            pinnedBaseCommit = "a".repeat(40),
+            isSandbox = true,
+            phase = WorktreePhase.Idle,
+        )
+        state.value = WorktreeState.Ready(mapOf(task.chatId to task))
+        return SendResult.Accepted
+    }
 }

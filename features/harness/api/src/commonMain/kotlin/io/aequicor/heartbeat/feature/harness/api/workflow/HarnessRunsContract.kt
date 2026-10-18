@@ -60,6 +60,17 @@ public sealed interface HarnessRunsIntent : MachineIntent {
             Internal,
             Command
 
+        /**
+         * Atomically imports an already committed journal if absent and cancels it. The feature host reads [run]
+         * from its storage; the imported record is never visible as an executable non-cancelled projection.
+         */
+        public data class CancelStoredRun(
+            override val requestId: RequestId,
+            val run: WorkflowRun,
+            val by: WorkflowViewer,
+        ) : Internal,
+            Command
+
         /** Starts or retries journal restoration. */
         public data object Start : Internal
 

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.sessionEssence
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
@@ -70,6 +71,10 @@ internal fun StudioChatRecord.retainedRolloverSeed(items: List<SessionItem>, nex
     val later = if (next.length > laterLimit) ELLIPSIS + next.takeLast(laterLimit - ELLIPSIS.length) else next
     return earlier + separator + later
 }
+
+/** The record when a native request of the chat starts: its outcome is not known yet. */
+internal fun StudioChatRecord.startedRun(request: RequestId): StudioChatRecord =
+    copy(lastRunRequest = request, hasLastRunSucceeded = false, runRevision = runRevision + 1)
 
 /** The record without the failure of its last turn. */
 internal fun StudioChatRecord.withoutFailure(): StudioChatRecord =

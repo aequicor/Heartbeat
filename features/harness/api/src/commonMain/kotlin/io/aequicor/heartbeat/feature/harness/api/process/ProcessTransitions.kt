@@ -9,22 +9,27 @@ import kotlin.time.Instant
  *
  * | Command | From | To |
  * |---|---|---|
+ * | [CancelWorkflow] | exact pending reservation | Idle, same attempt cancelled |
+ * | [SettleWorkflow] | closed attempt, exact native identity | same phase, durable native cleanup receipt |
+ * | [StartWorkflow] | Idle or exact replay | Running with one immutable workflow reservation |
  * | [Start] | Idle | Running (new attempt bound to the current input revision and subject) |
  * | [Finish] | Running (that attempt) | Idle, attempt closed with the outcome |
  * | [Wait] | Idle | Waiting (no executor attached), numbered |
- * | [Resume] | Waiting (that wait) | Idle |
+ * | [Resume] / [ResumeChecked] | Waiting (that wait; checked also binds lifetime and inputs) | Idle |
  * | [ReviseInput] / [ObserveSubject] | Idle, Running, Waiting | same phase, newer input or subject |
+ * | [MigrateDefinition] | Idle or Waiting, no open writes, exact definition | same phase, explicit new logic |
  * | [Grant] / [Revoke] | Idle, Running, Waiting | same phase, authority added or removed |
  * | [BeginWrite] | Idle, Running, Waiting | same phase, write journaled as Intended (needs the authority) |
  * | [ConfirmWrite] / [MarkWriteUnknown] / [WriteNotApplied] | any, also Ended | same phase, write settled or marked |
  * | [Close] | Idle, Running (attempt abandoned), Waiting | Ended |
  *
  * Exact replays are answered with [ProcessReduction.Unchanged] where the record alone proves them: a [Finish] of an
- * already closed attempt with the same outcome, a [Resume] of a wait that is already over, a [ReviseInput] to the
- * current revision, an [ObserveSubject] of the current subject, a [BeginWrite] of a confirmed write, a settlement
+ * already closed attempt with the same outcome, a [Resume] or [ResumeChecked] of a wait already over,
+ * a [ReviseInput] to the current revision, an [ObserveSubject] of the current subject, a [BeginWrite] of a confirmed
+ * write, a settlement
  * that is already recorded, a [Close] with the verdict already reached. Everything else that does not fit is rejected.
- * After [Close] only [Finish], [Resume], [Close] and the write settlements are still answered; any other command,
- * an exact replay of [ReviseInput] or [ObserveSubject] included, is [ProcessRejection.Closed].
+ * After [Close] only [Finish], [Resume], [ResumeChecked], [Close] and write settlements are answered;
+ * any other command, an exact replay of [ReviseInput] or [ObserveSubject] included, is [ProcessRejection.Closed].
  *
  * External writes never repeat blindly. [BeginWrite] journals the intent before the caller touches the external
  * system. The same key is refused while its outcome is open ([ProcessRejection.WriteUnresolved]): after a restart the
@@ -40,58 +45,106 @@ import kotlin.time.Instant
  * while its key is still remembered.
  */
 public sealed interface ProcessCommand {
+    /** Host-only confirmation that native workflow cleanup completed, persisted before releasing its journal. */
+    public data class SettleWorkflow(val key: ProcessWorkflowKey, val workflow: ProcessWorkflow) : ProcessCommand
+
+    /** Closes only this exact reservation after the host proves its protected workflow journal was never created. */
+    public data class CancelWorkflow(val key: ProcessWorkflowKey, val workflow: ProcessWorkflow) : ProcessCommand
+
+    /** Atomically reserves [key] and its workflow executor; exact retries retain the first run identity. */
+    public data class StartWorkflow(
+        val key: ProcessWorkflowKey,
+        val workflow: ProcessWorkflow,
+        val inputRevision: Long? = null,
+        val subject: SubjectSha? = null,
+        val definition: ProcessDefinition? = null,
+    ) : ProcessCommand
+
+    /** Ordinary record changes, distinct from host workflow reservation and cancellation commands. */
+    public sealed interface Record : ProcessCommand
+
+    /** Completion of a durable wait, with optional snapshot validation. */
+    public sealed interface WaitCompletion : Record
+
+    /** Updates to the process input snapshot. */
+    public sealed interface InputChange : Record
+
+    /**
+     * Explicitly accepts [next] approved logic from [expected], between stages and with no unresolved writes.
+     * Stored attempts and workflow keys are preserved. The host requires [next] to describe the live activation;
+     * a legacy null binding requires this same deliberate migration before new work can run.
+     */
+    public data class MigrateDefinition(val expected: ProcessDefinition?, val next: ProcessDefinition) : Record
+
     /** Starts attempt number [ProcessRecord.nextAttempt] of [stage] on [executor]. */
-    public data class Start(val stage: StageName, val executor: ExecutorRef) : ProcessCommand
+    public data class Start(val stage: StageName, val executor: ExecutorRef) : ProcessCommand.Record
 
     /** Closes the in-flight attempt [attempt] with [outcome]. */
-    public data class Finish(val attempt: Int, val outcome: AttemptOutcome) : ProcessCommand
+    public data class Finish(val attempt: Int, val outcome: AttemptOutcome) : ProcessCommand.Record
 
     /** Parks the idle process on [condition]; the executor of the previous attempt has been released by [Finish]. */
-    public data class Wait(val reason: WaitReason, val condition: WakeCondition) : ProcessCommand
+    public data class Wait(val reason: WaitReason, val condition: WakeCondition) : ProcessCommand.Record
 
     /**
      * Ends wait number [wait]; whether it was satisfied or timed out is for the harness to find out. A duplicate
      * that names a wait which is already over changes nothing, so it can never end a newer wait.
      */
-    public data class Resume(val wait: Int) : ProcessCommand
+    public data class Resume(val wait: Int) : ProcessCommand.WaitCompletion
+
+    /**
+     * Resumes only the wait snapshot checked by the caller. Capture [ProcessRecord.waitKey] before IO; after the
+     * external condition is satisfied apply this command. Stale observations are refused atomically by the store.
+     * Replays of an already finished wait are unchanged, including after a newer wait was opened.
+     */
+    public data class ResumeChecked(val key: ProcessWaitKey) : ProcessCommand.WaitCompletion
 
     /** Records that the process input is now at [revision]; revisions only grow. */
-    public data class ReviseInput(val revision: Long) : ProcessCommand
+    public data class ReviseInput(val revision: Long) : ProcessCommand.InputChange
 
     /** Records that the subject under work is now [sha]. */
-    public data class ObserveSubject(val sha: SubjectSha) : ProcessCommand
+    public data class ObserveSubject(val sha: SubjectSha) : ProcessCommand.InputChange
 
     /** Gives the process [authority] for new external writes. Writes already journaled are not affected. */
-    public data class Grant(val authority: ProcessAuthority) : ProcessCommand
+    public data class Grant(val authority: ProcessAuthority) : ProcessCommand.Record
 
     /** Takes [authority] away from new external writes; a write that is already open must still be settled. */
-    public data class Revoke(val authority: ProcessAuthority) : ProcessCommand
+    public data class Revoke(val authority: ProcessAuthority) : ProcessCommand.Record
 
     /** Journals the intent to write [target] under [key] with [authority], before the external system is touched. */
     public data class BeginWrite(val key: WriteKey, val authority: ProcessAuthority, val target: ResultRef) :
-        ProcessCommand
+        ProcessCommand.Record
 
     /** The write [key] took effect; [result] is the evidence. Also settles a write that was marked unknown. */
-    public data class ConfirmWrite(val key: WriteKey, val result: ResultRef) : ProcessCommand
+    public data class ConfirmWrite(val key: WriteKey, val result: ResultRef) : ProcessCommand.Record
 
     /**
      * Whether try [tries] of write [key] happened is not known: a restart or timeout cut the call short. It must be
      * reconciled. [tries] is [ExternalWrite.tries] of the write the caller looked at. The mark renews the time of the
      * write, so an interrupted reconciliation resumes after the settle delay of `recovery`.
      */
-    public data class MarkWriteUnknown(val key: WriteKey, val tries: Int) : ProcessCommand
+    public data class MarkWriteUnknown(val key: WriteKey, val tries: Int) : ProcessCommand.Record
 
     /** Try [tries] of write [key] is known not to have taken effect, so the write may be begun again. */
-    public data class WriteNotApplied(val key: WriteKey, val tries: Int) : ProcessCommand
+    public data class WriteNotApplied(val key: WriteKey, val tries: Int) : ProcessCommand.Record
 
-    /** Ends the process with [end]; an in-flight attempt is closed as [AttemptFailure.Cancelled]. */
-    public data class Close(val end: ProcessEnd) : ProcessCommand
+    /**
+     * Ends the process with [end]; an in-flight attempt is closed as [AttemptFailure.Cancelled]. This only changes
+     * the process record. Cancel and observe any owned workflow before closing: reservation already accepted its
+     * dispatch, and this command is not a native stop receipt.
+     */
+    public data class Close(val end: ProcessEnd) : ProcessCommand.Record
 }
 
 /** Why a command was refused: by [reduce], or by the store before a record could be reduced. Nothing changed. */
 public enum class ProcessRejection {
+    /** Shared ownership is unavailable or this operation bypasses its native execution boundary. */
+    OwnershipUnavailable,
+
     /** No such process is stored. Only the store produces this; [reduce] always has a record. */
     UnknownProcess,
+
+    /** The approved logic changed or explicit acceptance of a legacy process is required. */
+    DefinitionMismatch,
 
     /** The process has ended. */
     Closed,
@@ -159,13 +212,22 @@ public sealed interface ProcessReduction {
 public fun ProcessRecord.reduce(command: ProcessCommand, at: Instant): ProcessReduction {
     val now = maxOf(at, updatedAt)
     return when (command) {
+        is ProcessCommand.StartWorkflow -> reserveWorkflow(command, now)
+        is ProcessCommand.CancelWorkflow -> cancelWorkflow(command, now)
+        is ProcessCommand.SettleWorkflow -> settleWorkflow(command, now)
+        is ProcessCommand.Record -> reduceStandard(command, now)
+    }
+}
+
+private fun ProcessRecord.reduceStandard(command: ProcessCommand.Record, now: Instant): ProcessReduction =
+    when (command) {
         // Outcomes that arrive late still belong in the record: replays of closed attempts and finished waits, the
         // final verdict and the settlement of writes stay answerable after the end.
         is ProcessCommand.Finish -> finish(command, now)
 
         is ProcessCommand.Close -> close(command.end, now)
 
-        is ProcessCommand.Resume -> resume(command.wait, now)
+        is ProcessCommand.WaitCompletion -> completeWait(command, now)
 
         is ProcessCommand.ConfirmWrite -> confirmWrite(command.key, command.result, now)
 
@@ -177,9 +239,9 @@ public fun ProcessRecord.reduce(command: ProcessCommand, at: Instant): ProcessRe
 
         is ProcessCommand.Wait -> whileLive { wait(command, now) }
 
-        is ProcessCommand.ReviseInput -> whileLive { reviseInput(command.revision, now) }
+        is ProcessCommand.InputChange -> whileLive { changeInput(command, now) }
 
-        is ProcessCommand.ObserveSubject -> whileLive { observeSubject(command.sha, now) }
+        is ProcessCommand.MigrateDefinition -> migrateDefinition(command, now)
 
         is ProcessCommand.Grant -> whileLive { grant(command.authority, now) }
 
@@ -187,11 +249,16 @@ public fun ProcessRecord.reduce(command: ProcessCommand, at: Instant): ProcessRe
 
         is ProcessCommand.BeginWrite -> whileLive { beginWrite(command, now) }
     }
-}
 
 /** Runs [reduction] unless the process has ended, which refuses every command that is not answered after the end. */
 private inline fun ProcessRecord.whileLive(reduction: () -> ProcessReduction): ProcessReduction =
     if (phase is ProcessPhase.Ended) rejected(ProcessRejection.Closed) else reduction()
+
+private fun ProcessRecord.changeInput(command: ProcessCommand.InputChange, now: Instant): ProcessReduction =
+    when (command) {
+        is ProcessCommand.ReviseInput -> reviseInput(command.revision, now)
+        is ProcessCommand.ObserveSubject -> observeSubject(command.sha, now)
+    }
 
 private fun ProcessRecord.observeSubject(sha: SubjectSha, now: Instant): ProcessReduction = if (sha == subject) {
     ProcessReduction.Unchanged(this)
@@ -244,6 +311,12 @@ private fun ProcessRecord.wait(command: ProcessCommand.Wait, now: Instant): Proc
 
     is ProcessPhase.Ended -> rejected(ProcessRejection.Closed)
 }
+
+private fun ProcessRecord.completeWait(command: ProcessCommand.WaitCompletion, now: Instant): ProcessReduction =
+    when (command) {
+        is ProcessCommand.Resume -> resume(command.wait, now)
+        is ProcessCommand.ResumeChecked -> resumeChecked(command.key, now)
+    }
 
 private fun ProcessRecord.resume(number: Int, now: Instant): ProcessReduction {
     val waiting = (phase as? ProcessPhase.Waiting)?.wait

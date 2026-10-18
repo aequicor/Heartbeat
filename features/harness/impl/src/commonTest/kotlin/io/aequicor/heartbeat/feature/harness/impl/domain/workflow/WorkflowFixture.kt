@@ -24,7 +24,7 @@ internal class WorkflowFixture {
     val clock = RunDeliveryClock()
     val store = RunDeliveryTestStore(clock)
     val storage = KeyValueHarnessRunStorage(store, clock, Dispatchers.Unconfined)
-    val initial = WorkflowRun(
+    var initial = WorkflowRun(
         RunId("wf_test"), HarnessId("harness"), ItemId("workflow"),
         PinnedWorkflow(
             "workflow-source",

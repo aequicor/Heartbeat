@@ -19,16 +19,41 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import io.aequicor.heartbeat.feature.harness.api.github.GitHubRepository
+import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
+import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
+import io.aequicor.heartbeat.feature.harness.api.process.ExecutorKind
+import io.aequicor.heartbeat.feature.harness.api.process.ExecutorRef
+import io.aequicor.heartbeat.feature.harness.api.process.GitHubTaskKind
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessEnd
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
+import io.aequicor.heartbeat.feature.harness.api.process.ResultRef
+import io.aequicor.heartbeat.feature.harness.api.process.ScriptOwnershipResult
+import io.aequicor.heartbeat.feature.harness.api.process.StageName
+import io.aequicor.heartbeat.feature.harness.api.process.workflowKey
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflowCancellation
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflowState
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
+import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrigin
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRejection
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryClock
 import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryTestStore
+import io.aequicor.heartbeat.feature.harness.impl.data.ownership.GitHubOwnershipBackendTest
+import io.aequicor.heartbeat.feature.harness.impl.data.ownership.OwnershipRuntimeTestEnv
+import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessDataTestSecrets
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessSessionAccess
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessSessionRoute
+import io.aequicor.heartbeat.feature.harness.impl.data.services.protectedHarnessData
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
@@ -50,6 +75,8 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluatio
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccessSnapshot
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnFixture
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakeOperations
@@ -62,25 +89,57 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowLibrar
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
 class HarnessWorkflowLaunchesTest {
+    @Test
+    fun `admission pins every selected harness including restrictions beyond the contribution limit`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        fixture.active = listOf(HARNESS) + (1..10).map {
+            HARNESS.copy(id = HarnessId("restriction-$it"), name = HarnessName("restriction_$it"))
+        }
+        val launch = fixture.prepare()
+        val selected = fixture.active.map { it.id }.toSet()
+        assertEquals(selected, launch.organismContext?.harnesses)
+        val result = fixture.launches.start(launch)
+        assertEquals(selected, fixture.storage.find(result.run)?.routing?.organismContext?.harnesses)
+        fixture.active = listOf(HARNESS)
+        assertEquals(selected, fixture.storage.find(result.run)?.routing?.organismContext?.harnesses)
+    }
+
+    @Test
+    fun `selection changed after admission preparation cannot silently expand or narrow the environment`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val launch = fixture.prepare()
+        fixture.active = listOf(HARNESS, HARNESS.copy(id = HarnessId("new"), name = HarnessName("new")))
+        assertFailsWith<IllegalStateException> { fixture.launches.start(launch) }
+        assertTrue(fixture.storage.load().isEmpty())
+    }
+
     @Test
     fun `rejected start withdraws its persisted run and the caller wake scheduled after it`() = runTest {
         val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
@@ -113,6 +172,23 @@ class HarnessWorkflowLaunchesTest {
     }
 
     @Test
+    fun `ordinary start caller can cancel while detached submission is waiting`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val saving = CompletableDeferred<Unit>()
+        val continueSave = CompletableDeferred<Unit>()
+        fixture.beforeSave = {
+            saving.complete(Unit)
+            continueSave.await()
+        }
+        val start = async { fixture.launches.start(fixture.prepare()) }
+        saving.await()
+        start.cancel()
+        runCurrent()
+        assertTrue(start.isCompleted)
+        continueSave.complete(Unit)
+    }
+
+    @Test
     fun `uncertain journal create is withdrawn before any wake or Start`() = runTest {
         val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         // The record is committed, but the acknowledgement is lost.
@@ -127,7 +203,7 @@ class HarnessWorkflowLaunchesTest {
     fun `script workflow starts parentless and only while its instance stays current`() = runTest {
         val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         val sessions = ScriptSessions()
-        val scripts = EngineHarnessScriptWorkflows(sessions, lazy { fixture.launches })
+        val scripts = EngineHarnessScriptWorkflows(sessions, lazy { fixture.launches }, lazy { error("Not used") })
         val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, WORKFLOW, 0), ScriptInstance)
         val run = scripts.start(owner, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
         val stored = fixture.storage.load().single()
@@ -164,10 +240,13 @@ private object ScriptInstance : HarnessInstanceAccess {
 private class LaunchFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher) {
     val clock = RunDeliveryClock()
     private val stored = KeyValueHarnessRunStorage(RunDeliveryTestStore(clock), clock, Dispatchers.Unconfined)
+    var beforeSave: suspend () -> Unit = {}
     var afterSave: () -> Unit = {}
     val storage = object : HarnessRunStorage by stored {
-        override suspend fun save(run: WorkflowRun, expectedGeneration: Long?): Boolean =
-            stored.save(run, expectedGeneration).also { afterSave() }
+        override suspend fun save(run: WorkflowRun, expectedGeneration: Long?): Boolean {
+            beforeSave()
+            return stored.save(run, expectedGeneration).also { afterSave() }
+        }
     }
     val runs = LaunchRuns()
     val port = LaunchWakePort { storage.load().size }
@@ -223,6 +302,9 @@ private class LaunchRuns : HarnessRunsMachine {
 
     override suspend fun send(intent: HarnessRunsIntent): SendResult {
         sent += intent
+        if (intent is HarnessRunsIntent.Internal.CancelStoredRun) {
+            outputs.emit(HarnessRunsOutput.CancellationRequested(intent.requestId, intent.run.id))
+        }
         if (intent is HarnessRunsIntent.Internal.StartRun) {
             val rejected = rejection
             if (rejected == null) {
@@ -286,7 +368,479 @@ private object AvailableHost : HarnessScriptHost {
 
 private val AT = Instant.fromEpochMilliseconds(1_000)
 private val WORKFLOW = HarnessItem.Workflow(ItemId("flow"), ItemName("flow"), "", "workflow { input -> input }")
+private val SECOND_WORKFLOW = WORKFLOW.copy(id = ItemId("second"), name = ItemName("second"))
+private val SCRIPT = HarnessItem.Script(ItemId("script"), ItemName("script"), "", "")
 private val HARNESS = Harness(
     HarnessId("harness"), HarnessName("test"), "Test", "", HarnessScope.Profile, true,
-    listOf(WORKFLOW), ToolPolicySpec(), null, 0, AT, AT,
+    listOf(WORKFLOW, SECOND_WORKFLOW, SCRIPT), ToolPolicySpec(), null, 0, AT, AT,
 )
+
+class ProcessWorkflowLaunchesTest {
+    @Test
+    fun `coordinated ownership metadata preserves exact workflow lookup and cancellation`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val source = OwnershipRuntimeTestEnv(
+            this,
+            GitHubOwnershipBackendTest.Server(),
+            request = HarnessActivationRequest(HARNESS, SCRIPT, 0),
+        )
+        val data = source.data
+        val owner = HarnessInstanceTarget(source.request, source.access)
+        val processes = source.processes
+        val process = ProcessId("task")
+        val key = processes.open(process).workflowKey(StageName("verify"))
+        val repository = GitHubRepository("owner", "repo")
+        source.approve(source.ownership.enroll(process, repository, GitHubTaskKind.Issue, 1, source.workspace))
+        assertIs<ScriptOwnershipResult.Current>(
+            source.ownership.enroll(
+                process,
+                repository,
+                GitHubTaskKind.Issue,
+                1,
+                source.workspace,
+            ),
+        )
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        val run = checkNotNull(fixture.storage.find(id))
+        val permit = checkNotNull(run.process?.ownership)
+        assertIs<ScriptWorkflowState.Found>(host.get(owner, key))
+        assertEquals(ScriptWorkflowCancellation.Requested, host.cancel(owner, key))
+        val request = fixture.runs.sent.filterIsInstance<HarnessRunsIntent.Internal.CancelStoredRun>().single()
+        assertEquals(permit, request.run.process?.ownership)
+        assertEquals(key, request.run.process?.key)
+    }
+
+    @Test
+    fun `restored running archive never dispatches again after native journal expires`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = protectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            data.processMutex,
+            HARNESS.id,
+            fixture.storage,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+            archives = data.archives,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        data.prepareRemoval(HARNESS.id)
+        data.retainOwners(emptySet())
+        val archive = data.archives.list().entries.single()
+        val run = requireNotNull(fixture.storage.find(id))
+        assertTrue(
+            fixture.storage.save(
+                run.copy(status = WorkflowStatus.Completed(JsonPrimitive("done")), finishedAt = run.startedAt),
+                run.driverGeneration,
+            ),
+        )
+        host.releaseSettled(HARNESS.id)
+        fixture.clock.instant += 31.days
+        assertEquals(null, fixture.storage.find(id))
+        val restored = requireNotNull(processes.restore(archive.ref))
+        assertEquals(key, restored.workflowKey(key.stage))
+        assertTrue(restored.inFlight?.workflow?.isDispatchClosed == true)
+        val dispatches = fixture.runs.sent.size
+        assertFailsWith<IllegalStateException> {
+            host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        }
+        assertEquals(dispatches, fixture.runs.sent.size)
+        assertTrue(fixture.storage.load().isEmpty())
+        assertEquals(ScriptWorkflowState.Unavailable, host.get(owner, key))
+        assertEquals(ScriptWorkflowCancellation.Unavailable, host.cancel(owner, key))
+        assertEquals(restored, processes.get(key.process))
+        processes.apply(
+            key.process,
+            ProcessCommand.Finish(key.attempt, AttemptOutcome.Failed(AttemptFailure.Cancelled)),
+        )
+        processes.apply(key.process, ProcessCommand.Close(ProcessEnd.Completed))
+        assertFalse(processes.remove(key.process))
+        assertEquals(ScriptWorkflowState.Unavailable, host.get(owner, key))
+        assertEquals(ScriptWorkflowCancellation.Unavailable, host.cancel(owner, key))
+    }
+
+    @Test
+    fun `finished attempt releases workflow retention without another start`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = protectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            data.processMutex,
+            HARNESS.id,
+            fixture.storage,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+            archives = data.archives,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        val run = fixture.storage.find(id) ?: error("Missing workflow run")
+        assertTrue(
+            fixture.storage.save(
+                run.copy(
+                    status = WorkflowStatus.Completed(JsonPrimitive("done")),
+                    finishedAt = run.startedAt,
+                ),
+                run.driverGeneration,
+            ),
+        )
+        assertIs<ProcessReduction.Changed>(
+            processes.apply(
+                key.process,
+                ProcessCommand.Finish(key.attempt, AttemptOutcome.Succeeded(ResultRef("test", "done"))),
+            ),
+        )
+        assertTrue(fixture.storage.find(id)?.isProcessReleased == true)
+        assertTrue(processes.get(key.process)?.history?.single()?.attempt?.workflow?.isSettled == true)
+        fixture.clock.instant += 31.days
+        assertEquals(null, fixture.storage.find(id))
+        processes.apply(key.process, ProcessCommand.Close(ProcessEnd.Completed))
+        assertTrue(processes.remove(key.process))
+    }
+
+    @Test
+    fun `closed process cannot be removed while its workflow still runs`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = protectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            data.processMutex,
+            HARNESS.id,
+            fixture.storage,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+            archives = data.archives,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        assertIs<ProcessReduction.Changed>(processes.apply(key.process, ProcessCommand.Close(ProcessEnd.Completed)))
+        assertFalse(processes.remove(key.process))
+        val run = fixture.storage.find(id) ?: error("Missing workflow run")
+        assertTrue(
+            fixture.storage.save(
+                run.copy(
+                    status = WorkflowStatus.Failed(WorkflowFailure.Cancelled),
+                    finishedAt = run.startedAt,
+                ),
+                run.driverGeneration,
+            ),
+        )
+        host.releaseSettled(HARNESS.id)
+        assertTrue(processes.remove(key.process))
+    }
+
+    @Test
+    fun `running workflow still blocks removal after its attempt leaves bounded history`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = protectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            data.processMutex,
+            HARNESS.id,
+            fixture.storage,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+            archives = data.archives,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        val run = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        assertIs<ProcessReduction.Changed>(
+            processes.apply(
+                key.process,
+                ProcessCommand.Finish(key.attempt, AttemptOutcome.Failed(AttemptFailure.Cancelled)),
+            ),
+        )
+        repeat(ProcessLimits.HISTORY + 1) {
+            val started = assertIs<ProcessReduction.Changed>(
+                processes.apply(
+                    key.process,
+                    ProcessCommand.Start(StageName("verify"), ExecutorRef(ExecutorKind.External, "next")),
+                ),
+            ).record
+            assertIs<ProcessReduction.Changed>(
+                processes.apply(
+                    key.process,
+                    ProcessCommand.Finish(started.inFlight!!.number, AttemptOutcome.Failed(AttemptFailure.Cancelled)),
+                ),
+            )
+        }
+        assertTrue(processes.get(key.process)!!.history.none { it.attempt.workflow?.run == run })
+        assertIs<ProcessReduction.Changed>(processes.apply(key.process, ProcessCommand.Close(ProcessEnd.Completed)))
+        assertFalse(processes.remove(key.process))
+    }
+
+    @Test
+    fun `host retention decoder does not expose malformed process data`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = protectedHarnessData(HarnessDataTestSecrets())
+        val raw = data.read(HARNESS.id, HarnessScriptProcesses.STORAGE_KEY) {}
+        data.write(
+            HARNESS.id,
+            HarnessScriptProcesses.STORAGE_KEY,
+            JsonPrimitive("private script input"),
+            raw.revision,
+        ) {}
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        val failure = assertFailsWith<IllegalStateException> { host.releaseSettled(HARNESS.id) }
+        assertEquals("Stored process is unreadable", failure.message)
+        assertEquals(null, failure.cause)
+    }
+
+    @Test
+    fun `closing an attempt waits for its reserved workflow dispatch`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = protectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            data.processMutex,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+            archives = data.archives,
+            owner = HARNESS.id,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        val saving = CompletableDeferred<Unit>()
+        val continueSave = CompletableDeferred<Unit>()
+        fixture.beforeSave = {
+            saving.complete(Unit)
+            continueSave.await()
+        }
+        val start = async { host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin()) }
+        saving.await()
+        val close = async { processes.apply(key.process, ProcessCommand.Close(ProcessEnd.Completed)) }
+        runCurrent()
+        assertFalse(close.isCompleted)
+        continueSave.complete(Unit)
+        assertEquals(start.await(), fixture.storage.load().single().id)
+        assertIs<ProcessReduction.Changed>(close.await())
+    }
+
+    @Test
+    fun `a reserved attempt can be cancelled before its journal is created`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = protectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+            archives = data.archives,
+            owner = HARNESS.id,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        fixture.beforeSave = { throw HarnessStorageUncertain() }
+        assertFailsWith<IllegalStateException> {
+            host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        }
+        assertTrue(fixture.storage.load().isEmpty())
+        assertEquals(ScriptWorkflowCancellation.Finished, host.cancel(owner, key))
+        val observed = assertIs<ScriptWorkflowState.Found>(host.get(owner, key))
+        assertEquals(WorkflowStatus.Failed(WorkflowFailure.Cancelled), observed.status)
+        fixture.beforeSave = {}
+        assertFailsWith<IllegalStateException> {
+            host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        }
+        assertTrue(fixture.runs.sent.none { it is HarnessRunsIntent.Internal.StartRun })
+    }
+
+    @Test
+    fun `an open process attempt protects its completed run from age and count retention`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = protectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+            archives = data.archives,
+            owner = HARNESS.id,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        val run = fixture.storage.load().single()
+        val terminal = run.copy(status = WorkflowStatus.Completed(JsonPrimitive("done")), finishedAt = run.startedAt)
+        assertTrue(fixture.storage.save(terminal, run.driverGeneration))
+        repeat(25) { number ->
+            assertTrue(fixture.storage.save(terminal.copy(id = RunId("wf_other_$number"), process = null), null))
+        }
+        assertEquals(terminal, fixture.storage.find(id))
+        fixture.clock.instant += 31.days
+        assertEquals(listOf(terminal), fixture.storage.load())
+        assertEquals(id, host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin()))
+        assertEquals(1, fixture.runs.sent.count { it is HarnessRunsIntent.Internal.StartRun })
+    }
+
+    @Test
+    fun `concurrent starts and a restarted service find one persisted executor`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val sessions = ScriptSessions()
+        val data = protectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+            archives = data.archives,
+            owner = HARNESS.id,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        fun host() = HarnessProcessWorkflows(
+            sessions,
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        val first = host()
+        val ids = listOf(
+            async { first.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin()) },
+            async { first.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin()) },
+        ).awaitAll()
+        assertEquals(ids.first(), ids.last())
+        assertEquals(ids.first(), host().start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin()))
+        assertEquals(1, fixture.runs.sent.count { it is HarnessRunsIntent.Internal.StartRun })
+        assertEquals(ids.first().value, processes.get(key.process)?.inFlight?.executor?.id)
+        assertIs<ScriptWorkflowState.Found>(first.get(owner, key))
+        val other = owner.copy(request = owner.request.copy(item = SCRIPT.copy(id = ItemId("foreign"))))
+        assertEquals(ScriptWorkflowState.Missing, first.get(other, key))
+        assertEquals(ScriptWorkflowCancellation.Missing, first.cancel(other, key))
+        assertEquals(ScriptWorkflowCancellation.Requested, first.cancel(owner, key))
+        assertEquals(WorkflowStatus.Running, assertIs<ScriptWorkflowState.Found>(first.get(owner, key)).status)
+        sessions.isCurrent = false
+        assertFailsWith<IllegalStateException> { first.get(owner, key) }
+    }
+
+    @Test
+    fun `lost journal acknowledgement keeps the reservation and resumes the same run`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = protectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            definition = ProcessDefinition(SCRIPT.id, HARNESS.revision),
+            archives = data.archives,
+            owner = HARNESS.id,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        fixture.afterSave = { throw HarnessStorageUncertain() }
+        assertFailsWith<IllegalStateException> {
+            host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        }
+        val saved = fixture.storage.load().single()
+        assertTrue(fixture.runs.sent.none { it is HarnessRunsIntent.Internal.StartRun })
+        fixture.afterSave = {}
+        assertEquals(saved.id, host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin()))
+        assertEquals(1, fixture.storage.load().size)
+        assertFailsWith<IllegalArgumentException> {
+            host.start(
+                owner,
+                key,
+                WORKFLOW.name,
+                JsonObject(mapOf("changed" to JsonPrimitive(true))),
+                HarnessCallOrigin(),
+            )
+        }
+        assertFailsWith<IllegalStateException> {
+            host.start(owner, key, SECOND_WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        }
+        assertEquals(1, fixture.runs.sent.count { it is HarnessRunsIntent.Internal.StartRun })
+    }
+}

@@ -64,6 +64,8 @@ internal fun Conception.conceive(): Step {
         attachments = attachments,
         isolation = isolation,
         harnesses = harnesses,
+        baseCommit = baseCommit,
+        decisionMode = decisionMode,
     )
     val started = organism.updated(CellId.ZYGOTE) { organism.begin(it, Work.Genesis) }
     return if (target == null) {
@@ -128,6 +130,11 @@ private fun Organism.follow(cell: Cell, intent: TurnIntent): Step? {
         is OrganicAiIntent.Internal.PermissionsChanged -> observe(cell, phase.copy(awaiting = intent.pending))
 
         is OrganicAiIntent.Internal.TurnSettled -> settle(cell, intent.settlement)
+
+        is OrganicAiIntent.Internal.WorkspaceContinued -> Step(
+            updated(cell.id) { recover(it, phase.work) },
+            drive = cell.id,
+        )
 
         is OrganicAiIntent.Internal.ReceiveLetters -> if (intent.until in 0..cell.inbox.size) {
             Step(
