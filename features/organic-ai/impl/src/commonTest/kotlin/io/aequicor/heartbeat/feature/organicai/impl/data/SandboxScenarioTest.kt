@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.ImmunityCourt
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiEffects
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganismJournal
+import io.aequicor.heartbeat.feature.organicai.impl.domain.ReleaseOutcome
 import io.aequicor.heartbeat.feature.organicai.impl.request
 import io.aequicor.heartbeat.feature.organicai.impl.session
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
@@ -324,14 +325,21 @@ class SandboxScenarioTest {
 
         override suspend fun respond(key: CellKey, decision: PermissionDecision) = Unit
 
-        override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int): Boolean {
+        override suspend fun release(
+            key: CellKey,
+            session: SessionRef?,
+            mode: ReleaseMode,
+            generation: Int,
+        ): ReleaseOutcome {
             if (mode == ReleaseMode.Lyse) natives.handles[key]?.complete(TurnOutcome.Cancelled)
-            return true
+            return ReleaseOutcome.Stopped
         }
 
         override suspend fun isLysed(key: CellKey): Boolean = false
 
         override suspend fun isReleased(key: CellKey, generation: Int): Boolean = true
+
+        override suspend fun hasPendingRelease(organism: OrganismId): Boolean = false
 
         override suspend fun releaseAll() = Unit
     }

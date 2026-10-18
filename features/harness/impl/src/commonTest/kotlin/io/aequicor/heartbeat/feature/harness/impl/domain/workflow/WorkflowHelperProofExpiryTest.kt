@@ -89,7 +89,7 @@ internal class WorkflowHelperProofExpiryTest {
         val execution = WorkflowRunExecution(
             workflow.storage,
             WorkflowCodeExecutor(NoCode, HarnessExecutionLane(dispatcher), Neutral, workflow.clock) { it },
-            ports,
+            WorkflowAgentPorts(ports, OrganismTestPorts().ports),
             Admitted,
             workflow.clock,
         ) {}

@@ -16,7 +16,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
+import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.Work
+import io.aequicor.heartbeat.feature.organicai.api.isStopped
 import io.aequicor.heartbeat.feature.organicai.impl.TARGET
 import io.aequicor.heartbeat.feature.organicai.impl.organism
 import kotlinx.coroutines.CoroutineDispatcher
@@ -127,6 +129,16 @@ class KeyValueOrganismJournalTest {
         assertEquals(setOf("o1"), stores.store.values["index"])
         assertTrue(KeyValueOrganismJournal(stores, TestDispatchers).load().isEmpty())
         assertEquals(emptySet<String>(), stores.store.values["index"])
+    }
+
+    @Test
+    fun `an aborted organism whose release was pending reads as released after a restart`() = runTest {
+        val ended = organism().copy(status = OrganismStatus.Aborted, sessions = SessionRelease.Releasing, version = 2)
+        journal.save(ended)
+        // The journal keeps no release state: a new process holds none of the organism's sessions.
+        val restored = KeyValueOrganismJournal(stores, TestDispatchers).load().single()
+        assertEquals(ended.copy(sessions = SessionRelease.Released), restored)
+        assertTrue(restored.isStopped)
     }
 
     @Test

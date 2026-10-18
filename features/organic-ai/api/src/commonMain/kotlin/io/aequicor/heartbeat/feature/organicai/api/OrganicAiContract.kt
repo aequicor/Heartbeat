@@ -54,7 +54,12 @@ public sealed interface OrganicAiIntent : MachineIntent {
             override val organism: OrganismId get() = conception.id
         }
 
-        /** Kills a developing organism: every living cell is lysed. The only way an organism dies. */
+        /**
+         * Kills a developing organism: every living cell is marked dead and the host lets their sessions go. The only
+         * way an organism dies. The mark is immediate; [Organism.sessions] shows when the native turns stopped.
+         * Repeating it for an ended organism whose release was not confirmed retries release without changing its
+         * outcome.
+         */
         public data class Abort(override val organism: OrganismId) :
             Public,
             OrganismIntent
@@ -218,6 +223,14 @@ public sealed interface OrganicAiIntent : MachineIntent {
         public data class Ruled(override val organism: OrganismId, val case: CaseId, val ruling: Ruling) :
             Internal,
             CaseIntent
+
+        /**
+         * The host finished letting go of the sessions of ended [organism]'s cells. [isConfirmed] tells whether
+         * every native turn was seen to stop; an unconfirmed release can be repeated by another abort.
+         */
+        public data class SessionsReleased(override val organism: OrganismId, val isConfirmed: Boolean) :
+            Internal,
+            OrganismIntent
     }
 }
 
@@ -283,7 +296,11 @@ public sealed interface OrganicAiEffect : MachineEffect {
     /** Judges [case] in a fresh session that only sees the dossier, then reports the ruling. */
     public data class Judge(val organism: Organism, val case: CaseId) : OrganicAiEffect
 
-    /** Lets the sessions of [cells] go as [mode] says. */
+    /**
+     * Lets the sessions of [cells] go as [mode] says. When [organism] is [SessionRelease.Releasing] the host reports
+     * [OrganicAiIntent.Internal.SessionsReleased] once every cell is let go; a failure of the effect reports it
+     * unconfirmed.
+     */
     public data class Release(val organism: Organism, val cells: List<CellId>, val mode: ReleaseMode) :
         OrganicAiEffect
 }

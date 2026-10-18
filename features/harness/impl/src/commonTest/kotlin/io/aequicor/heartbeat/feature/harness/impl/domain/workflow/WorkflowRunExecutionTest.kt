@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsEffect
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOutcome
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
@@ -45,7 +47,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -174,7 +178,110 @@ internal class WorkflowRunExecutionTest {
         assertEquals(1, fixture.capacity.value)
         assertTrue(fixture.grants.pending().isEmpty())
     }
+
+    @Test
+    fun `a cancelled run stops its organism and returns the slot before it becomes terminal`() = runTest {
+        val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
+        val run = fixture.runWithOrganism(WorkflowFailure.Cancelled)
+        val owner = SupervisorJob()
+        val drivers = fixture.drivers(CoroutineScope(owner + StandardTestDispatcher(testScheduler)))
+        drivers.drive(run)
+        advanceUntilIdle()
+        assertEquals(listOf(ORGANISM), fixture.organisms.host.aborted)
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+        assertEquals(WorkflowStatus.Failed(WorkflowFailure.Cancelled), fixture.workflow.storage.load().single().status)
+        owner.cancel()
+    }
+
+    @Test
+    fun `a cancelled run stays open and keeps its slot while organic AI cannot confirm the stop`() = runTest {
+        val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
+        val run = fixture.runWithOrganism(WorkflowFailure.Cancelled)
+        fixture.organisms.host.isAbortEffective = false
+        val owner = SupervisorJob()
+        val drivers = fixture.drivers(CoroutineScope(owner + StandardTestDispatcher(testScheduler)))
+        drivers.drive(run)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(WorkflowStatus.Running, fixture.workflow.storage.load().single().status)
+        assertEquals(1, fixture.organisms.grants.pending().size)
+        assertTrue(fixture.organisms.host.aborted.size > 1)
+        fixture.organisms.host.views[ORGANISM] = OrganismView.Aborted
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+        assertEquals(WorkflowStatus.Failed(WorkflowFailure.Cancelled), fixture.workflow.storage.load().single().status)
+        owner.cancel()
+    }
+
+    @Test
+    fun `a cancelled run waits for the release of the sessions of the organism it aborted`() = runTest {
+        val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
+        val run = fixture.runWithOrganism(WorkflowFailure.Cancelled)
+        fixture.organisms.host.abortLeaves = OrganismView.Aborting
+        val owner = SupervisorJob()
+        val drivers = fixture.drivers(CoroutineScope(owner + StandardTestDispatcher(testScheduler)))
+        drivers.drive(run)
+        advanceTimeBy(10_000)
+        runCurrent()
+        // Marked aborted is not ended: the run stays open and the slot held, with no abort at every poll.
+        assertEquals(WorkflowStatus.Running, fixture.workflow.storage.load().single().status)
+        assertEquals(1, fixture.organisms.grants.pending().size)
+        assertEquals(1, fixture.organisms.host.aborted.size)
+        fixture.organisms.host.views[ORGANISM] = OrganismView.Aborted
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+        assertEquals(WorkflowStatus.Failed(WorkflowFailure.Cancelled), fixture.workflow.storage.load().single().status)
+        owner.cancel()
+    }
+
+    @Test
+    fun `an abort the step recorded does not return the slot before the sessions are released`() = runTest {
+        val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
+        val run = fixture.runWithSeenAbort(OrganismView.Aborting)
+        val owner = SupervisorJob()
+        val drivers = fixture.drivers(CoroutineScope(owner + StandardTestDispatcher(testScheduler)))
+        drivers.drive(run)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(WorkflowStatus.Running, fixture.workflow.storage.load().single().status)
+        assertEquals(1, fixture.organisms.grants.pending().size)
+        assertTrue(fixture.organisms.host.aborted.isEmpty())
+        fixture.organisms.host.views[ORGANISM] = OrganismView.Aborted
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+        assertEquals(WorkflowStatus.Failed(WorkflowFailure.Cancelled), fixture.workflow.storage.load().single().status)
+        owner.cancel()
+    }
+
+    @Test
+    fun `after a restart a recorded abort of a restored organism returns the slot at once`() = runTest {
+        val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
+        // A restored aborted organism reads as released: this process holds none of its sessions.
+        val run = fixture.runWithSeenAbort(OrganismView.Aborted)
+        val owner = SupervisorJob()
+        val drivers = fixture.drivers(CoroutineScope(owner + StandardTestDispatcher(testScheduler)))
+        drivers.drive(run)
+        advanceUntilIdle()
+        assertTrue(fixture.organisms.host.aborted.isEmpty())
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+        assertEquals(WorkflowStatus.Failed(WorkflowFailure.Cancelled), fixture.workflow.storage.load().single().status)
+        owner.cancel()
+    }
+
+    @Test
+    fun `pausing an unfinished run leaves its organism running and its slot held`() = runTest {
+        val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
+        val run = fixture.runWithOrganism(null)
+        assertFalse(fixture.execution.pause(run))
+        assertTrue(fixture.organisms.host.aborted.isEmpty())
+        assertEquals(1, fixture.organisms.grants.pending().size)
+    }
 }
+
+private val ORGANISM = organismOf("s0")
 
 private class ExecutionFixture(private val dispatcher: CoroutineDispatcher) {
     val workflow = WorkflowFixture()
@@ -189,6 +296,7 @@ private class ExecutionFixture(private val dispatcher: CoroutineDispatcher) {
         }
     }
     val resources = WorkflowHelperResources(helpers, grants)
+    val organisms = OrganismTestPorts()
     val execution = execution(workflow.storage)
 
     init {
@@ -206,12 +314,39 @@ private class ExecutionFixture(private val dispatcher: CoroutineDispatcher) {
     fun execution(storage: HarnessRunStorage) = WorkflowRunExecution(
         storage,
         WorkflowCodeExecutor(UnusedHost, HarnessExecutionLane(dispatcher), NeutralOrigins, workflow.clock) { it },
-        WorkflowHelperPorts(grants, resources, helpers, bindings),
+        WorkflowAgentPorts(WorkflowHelperPorts(grants, resources, helpers, bindings), organisms.ports),
         AdmittedRuns,
         workflow.clock,
     ) {}
 
     fun drivers(scope: CoroutineScope) = ProfileWorkflowDrivers(scope, execution) { _, _ -> true }
+
+    /** A stored run whose first step owns a developing organism with a granted slot. */
+    suspend fun runWithOrganism(cancellation: WorkflowFailure?): WorkflowRun {
+        val step = WorkflowStep(StepKey("s0"), DIGEST, organism = ORGANISM, phase = StepPhase.Running)
+        val run = workflow.initial.copy(steps = listOf(step), cancellation = cancellation)
+        check(workflow.storage.save(run, null))
+        organisms.grants.acquire(WorkflowOrganismGrant(run.id, run.harness, step.key, DIGEST, null, ORGANISM))
+        organisms.host.views[ORGANISM] = OrganismView.Developing
+        return run
+    }
+
+    /** A cancelled run whose organism step already recorded the abort it saw, with the slot still granted. */
+    suspend fun runWithSeenAbort(view: OrganismView): WorkflowRun {
+        val result = OrganismOutcome.Ended(OrganismEnd.Aborted).toJournal()
+        val step = WorkflowStep(
+            StepKey("s0"),
+            DIGEST,
+            organism = ORGANISM,
+            phase = StepPhase.Completed,
+            result = result,
+        )
+        val run = workflow.initial.copy(steps = listOf(step), cancellation = WorkflowFailure.Cancelled)
+        check(workflow.storage.save(run, null))
+        organisms.grants.acquire(WorkflowOrganismGrant(run.id, run.harness, step.key, DIGEST, null, ORGANISM))
+        organisms.host.views[ORGANISM] = view
+        return run
+    }
 }
 
 private class RecordingRunsScope : EffectScope<HarnessRunsIntent> {

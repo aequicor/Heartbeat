@@ -69,10 +69,11 @@ internal class CellDriver(
     ) {
         val key = CellKey(organism.id, cell.id)
         val handle = cells.open(key, route, cell.session, cell.turns)
+        val driven = DrivenCell(organism, cell, phase, handle)
         if (cell.session == null) {
             val bound = OrganicAiIntent.Internal.SessionBound(organism.id, cell.id, phase.request, handle.session)
             if (machine.send(bound) != SendResult.Accepted) {
-                return abandon(organism, key, handle, turn = null, CellRun.None, isConnected = false)
+                return abandon(driven, turn = null, CellRun.None, isConnected = false)
             }
         }
         // A turn the engine still runs started under an earlier connection; every new prompt needs a fresh check.
@@ -80,8 +81,8 @@ internal class CellDriver(
         val run = runOf(organism, cell.id, phase.request, handle.session, live)
         var turn = live
         try {
-            turn = live ?: submit(organism, cell, phase, handle, run, machine) ?: return
-            follow(organism, cell, phase, handle, run, turn, machine)
+            turn = live ?: submit(driven, run, machine) ?: return
+            follow(driven, run, turn, machine)
         } catch (e: CancellationException) {
             // The profile sleeps or the effect is replaced: the engine keeps the turn, so the run stays with it.
             throw e
@@ -92,20 +93,15 @@ internal class CellDriver(
     }
 
     /** Reports the accepted [turn], waits for its end and settles it; a cell that ended meanwhile is let go. */
-    private suspend fun follow(
-        organism: Organism,
-        cell: Cell,
-        phase: CellPhase.Working,
-        handle: CellHandle,
-        run: CellRun,
-        turn: TurnId,
-        machine: EffectScope<OrganicAiIntent>,
-    ) {
-        val key = CellKey(organism.id, cell.id)
+    private suspend fun follow(driven: DrivenCell, run: CellRun, turn: TurnId, machine: EffectScope<OrganicAiIntent>) {
+        val organism = driven.organism
+        val cell = driven.cell
+        val phase = driven.phase
+        val handle = driven.handle
         run.accepted(handle.session, turn)
         val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, cell.id, phase.request, turn)
         if (machine.send(accepted) != SendResult.Accepted) {
-            return abandon(organism, key, handle, turn, run, isConnected = true)
+            return abandon(driven, turn, run, isConnected = true)
         }
         val outcome = handle.await(turn) { pending ->
             machine.send(OrganicAiIntent.Internal.PermissionsChanged(organism.id, cell.id, phase.request, pending))
@@ -176,20 +172,16 @@ internal class CellDriver(
      * Connects the harnesses, journals the organism and hands the turn's prompt and inputs to the engine; without the
      * harnesses nothing is sent. Null when the turn was settled unsent or the cell ended meanwhile.
      */
-    private suspend fun submit(
-        organism: Organism,
-        cell: Cell,
-        phase: CellPhase.Working,
-        handle: CellHandle,
-        run: CellRun,
-        machine: EffectScope<OrganicAiIntent>,
-    ): TurnId? {
+    private suspend fun submit(driven: DrivenCell, run: CellRun, machine: EffectScope<OrganicAiIntent>): TurnId? {
+        val organism = driven.organism
+        val cell = driven.cell
+        val phase = driven.phase
+        val handle = driven.handle
         val isConnected = isConnected(organism, cell.id, handle)
         // The cell may have been lysed while it waited for its connections, and whatever part of them was made must
         // go: nothing may stay connected to a dead session, whether or not every connection succeeded.
-        val key = CellKey(organism.id, cell.id)
-        if (organism.harnesses.isNotEmpty() && cells.isLysed(key)) {
-            abandon(organism, key, handle, turn = null, run, isConnected = true)
+        if (organism.harnesses.isNotEmpty() && cells.isLysed(driven.key)) {
+            abandon(driven, turn = null, run, isConnected = true)
             return null
         }
         if (!isConnected) {
@@ -241,14 +233,10 @@ internal class CellDriver(
         }
 
     /** The cell ended while its turn was being set up: its new session and turn must not live on. */
-    private suspend fun abandon(
-        organism: Organism,
-        key: CellKey,
-        handle: CellHandle,
-        turn: TurnId?,
-        run: CellRun,
-        isConnected: Boolean,
-    ) {
+    private suspend fun abandon(driven: DrivenCell, turn: TurnId?, run: CellRun, isConnected: Boolean) {
+        val organism = driven.organism
+        val key = driven.key
+        val handle = driven.handle
         log.i { "organism ${key.organism.value} cell ${key.cell.value} ended meanwhile; abandoning its session" }
         if (turn == null) {
             // Nothing was submitted: the run of a sandbox cell is rejected, since no later run closes a lysed cell's.
@@ -257,8 +245,8 @@ internal class CellDriver(
             handle.cancel(turn)
             run.settled(handle.session, turn, TurnOutcome.Cancelled)
         }
-        val isReleased = cells.release(key, handle.session, ReleaseMode.Lyse)
-        if (isReleased && isConnected) disconnect(organism, handle.session)
+        val release = cells.release(key, handle.session, ReleaseMode.Lyse)
+        if (release == ReleaseOutcome.Stopped && isConnected) disconnect(organism, handle.session)
     }
 
     /**
@@ -291,4 +279,14 @@ internal class CellDriver(
     private companion object {
         const val NO_ANSWER = "(The cell ended its turn without a written answer.)"
     }
+}
+
+/** The immutable cell turn snapshot and the session acquired for that execution. */
+private data class DrivenCell(
+    val organism: Organism,
+    val cell: Cell,
+    val phase: CellPhase.Working,
+    val handle: CellHandle,
+) {
+    val key: CellKey get() = CellKey(organism.id, cell.id)
 }

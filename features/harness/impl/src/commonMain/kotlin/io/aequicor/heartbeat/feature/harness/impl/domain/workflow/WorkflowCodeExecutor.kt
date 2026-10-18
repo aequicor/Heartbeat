@@ -40,6 +40,7 @@ internal class WorkflowCodeExecutor(
         run: WorkflowRun,
         progress: WorkflowStepJournal,
         agents: WorkflowAgentSteps,
+        organisms: WorkflowOrganismSteps,
         origin: HarnessCallOrigin,
     ): JsonElement {
         check(!origin.isHookRestricted) { "Hooks cannot execute workflows" }
@@ -53,7 +54,8 @@ internal class WorkflowCodeExecutor(
             when (compilation) {
                 is HarnessCompilationResult.Success -> try {
                     withContext(lane.instanceDispatcher() + origins.context(origin)) {
-                        WorkflowEngine(run, progress, agents, clock, digest).execute(definition(compilation))
+                        WorkflowEngine(run, progress, agents, organisms, clock, digest)
+                            .execute(definition(compilation))
                     }
                 } finally {
                     compilation.code.close()

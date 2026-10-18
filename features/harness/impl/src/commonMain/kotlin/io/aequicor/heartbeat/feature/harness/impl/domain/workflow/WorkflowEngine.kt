@@ -6,6 +6,8 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.workflow.AgentOptions
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOutcome
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
@@ -41,6 +43,7 @@ internal class WorkflowEngine(
     private val run: WorkflowRun,
     private val journal: WorkflowStepJournal,
     private val agents: WorkflowAgentSteps,
+    private val organisms: WorkflowOrganismSteps,
     private val clock: Clock,
     private val digest: (String) -> String,
 ) : WorkflowScope {
@@ -75,6 +78,31 @@ internal class WorkflowEngine(
                     log.w(
                         IllegalStateException("Helper result is not durable"),
                     ) { "Workflow helper journal unavailable" }
+                    throw WorkflowExecutionUnavailable()
+                }
+            }
+        }
+    }
+
+    override suspend fun organism(goal: String, options: OrganismOptions): OrganismOutcome = position { place ->
+        require(goal.isNotBlank() && goal.length <= HarnessLimits.ORGANISM_GOAL_CHARS) { "Invalid organism goal" }
+        val hash = hash(
+            "organism",
+            goal,
+            options.title,
+            options.target?.let { Json.encodeToString(it) },
+            options.immunityTarget?.let { Json.encodeToString(it) },
+        )
+        val old = existing(place.key, hash)
+        if (old?.phase == StepPhase.Completed) return@position organismResult(old)
+        if (old?.phase == StepPhase.Failed) throw WorkflowStepFailed(checkNotNull(old.failure))
+        port {
+            organisms.execute(place.key, hash, goal, options).also {
+                val saved = existing(place.key, hash)
+                if (saved?.phase != StepPhase.Completed || organismResult(saved) != it) {
+                    log.w(
+                        IllegalStateException("Organism outcome is not durable"),
+                    ) { "Workflow organism journal unavailable" }
                     throw WorkflowExecutionUnavailable()
                 }
             }
@@ -207,6 +235,8 @@ internal class WorkflowEngine(
 
     private fun stringResult(step: WorkflowStep): String =
         (step.result as? JsonPrimitive)?.takeIf { it.isString }?.content ?: divergence()
+
+    private fun organismResult(step: WorkflowStep): OrganismOutcome = step.result?.toOrganismOutcome() ?: divergence()
 
     private fun hash(vararg values: String?): String = digest(Json.encodeToString(values.toList()))
 

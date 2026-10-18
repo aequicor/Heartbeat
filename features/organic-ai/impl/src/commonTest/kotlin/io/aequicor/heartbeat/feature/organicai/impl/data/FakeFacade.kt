@@ -69,6 +69,8 @@ import kotlinx.coroutines.flow.emptyFlow
  * prompts, cancellations, decisions, synchronizations, archiving and closes.
  */
 internal class FakeSession(override val ref: SessionRef, private val hasTrust: Boolean = true) : ActiveSession {
+    /** Suspends a native send before its turn is published in state. */
+    var beforeSend: suspend () -> Unit = {}
     var historyFailure: EngineFailure? = null
     var sendFailure: EngineFailure? = null
     var synchronized: ActiveSessionState? = null
@@ -78,6 +80,7 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
     var resumedAs: ActiveSessionState = ActiveSessionState.Ready()
 
     /** Thrown by cancellation; with [ignoresCancel] a cancelled turn runs on. */
+    var beforeCancel: suspend () -> Unit = {}
     var cancelFailure: Throwable? = null
     var ignoresCancel = false
     val prompts = mutableListOf<PromptRequest>()
@@ -87,12 +90,14 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
     var finish: TurnOutcome? = TurnOutcome.Completed
     var isArchived = false
     var closes = 0
+    var closeFailure: Throwable? = null
 
     override val route: ExecutionRoute get() = error("unused")
     override val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
 
     override suspend fun close() {
         closes++
+        closeFailure?.let { throw it }
         state.value = ActiveSessionState.Closed
     }
 
@@ -103,6 +108,7 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
 
     private val sends = object : SendsPrompts {
         override suspend fun send(request: PromptRequest): TurnId {
+            beforeSend()
             prompts += request
             val turn = TurnId("turn-${prompts.size}")
             sendFailure?.let { failure ->
@@ -117,6 +123,7 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
 
     private val cancels = object : CancelsTurns {
         override suspend fun cancel(turn: TurnId) {
+            beforeCancel()
             // As the facade, an unavailable session takes no cancellation.
             if (state.value is ActiveSessionState.Unavailable) throw EngineException(EngineFailure.Unknown())
             cancelled += turn
@@ -185,6 +192,9 @@ internal class FakeFacade(
     val creations = mutableListOf<CreateSessionRequest>()
     var onCreate: suspend () -> Unit = {}
     var onResume: suspend () -> Unit = {}
+
+    /** Optional distinct borrowing handles for resumptions of the same native session. */
+    val resumedHandles = ArrayDeque<FakeSession>()
     val resumptions = mutableListOf<ResumeSessionRequest>()
 
     private val creates = object : CreatesSessions {
@@ -210,9 +220,10 @@ internal class FakeFacade(
             val resumes = object : ResumesSessions {
                 override suspend fun resume(request: ResumeSessionRequest): ActiveSession {
                     resumptions += request
-                    session.state.value = session.resumedAs
+                    val resumed = resumedHandles.removeFirstOrNull() ?: session
+                    resumed.state.value = resumed.resumedAs
                     onResume()
-                    return session
+                    return resumed
                 }
             }
             return object : EngineSession {

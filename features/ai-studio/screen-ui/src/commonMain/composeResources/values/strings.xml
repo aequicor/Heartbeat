@@ -343,4 +343,7 @@
     <string name="harness_defaults_loading">Loading harnesses…</string>
     <string name="harness_defaults_retry">Harnesses unavailable · Retry</string>
     <string name="organism_result">**Organism result captured by Studio**\n\nBranch: `%1$s`\n\nBase: `%2$s`\n\nResult commit: `%3$s`\n\nThis commit includes committed and uncommitted files. The branch may not contain all of them. To integrate the result, first commit or stash your pending changes in the target checkout, then run `git merge --no-ff %3$s`, resolve any conflicts and verify the result.</string>
+    <string name="organism_retry_release">Retry stopping</string>
+    <string name="organism_status_releasing">Stopping cell sessions…</string>
+    <string name="organism_status_release_unconfirmed">Stopping some cell sessions could not be confirmed. Retry stopping them from the organism menu.</string>
 </resources>

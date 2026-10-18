@@ -48,6 +48,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_abort
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_resume
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_retry_release
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_zygote
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_activity
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
@@ -159,6 +160,45 @@ class StudioOrganismUiTest {
                     events,
                 )
                 assertTrue(zygote.isNotBlank())
+            }
+        }
+
+    @Test
+    fun `unconfirmed release offers an explicit retry without resuming the organism`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val events = mutableListOf<StudioIntent>()
+            var retry = ""
+            var resume = ""
+            val initial = organismState()
+            val state = initial.copy(
+                organisms = persistentMapOf(
+                    "chat" to initial.organisms.getValue("chat").copy(
+                        status = OrganismStatusUi.ReleaseUnconfirmed,
+                        permissions = persistentListOf(),
+                    ),
+                ),
+            )
+            setContent {
+                retry = stringResource(Res.string.organism_retry_release)
+                resume = stringResource(Res.string.organism_resume)
+                HbTheme(darkTheme = false) {
+                    Column {
+                        OrganismSwitcher(state.paneContent(organismPane), events::add)
+                        OrganismNotices(
+                            state.paneContent(organismPane),
+                            HbTheme.dimensions.toolPayloadMaxHeight,
+                            events::add,
+                        )
+                    }
+                }
+            }
+            onNodeWithTag("organism-status-0").assertIsDisplayed()
+            onNodeWithTag("organism-completed-0").assertDoesNotExist()
+            onNodeWithTag("organism-switcher-0").performClick()
+            onAllNodesWithText(resume).assertCountEquals(0)
+            onNodeWithText(retry).performClick()
+            runOnIdle {
+                assertEquals(listOf<StudioIntent>(StudioIntent.ControlOrganism("chat", OrganismActionUi.Abort)), events)
             }
         }
 
@@ -297,7 +337,12 @@ class StudioOrganismUiTest {
                 onNodeWithContentDescription(send).assertIsNotEnabled()
             }
             selected = "zygote"
-            for (busy in listOf(OrganismStatusUi.Developing, OrganismStatusUi.Aborted)) {
+            for (busy in listOf(
+                OrganismStatusUi.Developing,
+                OrganismStatusUi.Aborted,
+                OrganismStatusUi.Releasing,
+                OrganismStatusUi.ReleaseUnconfirmed,
+            )) {
                 status = busy
                 waitForIdle()
                 onNodeWithContentDescription(send).assertIsNotEnabled()

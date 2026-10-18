@@ -38,11 +38,13 @@ internal interface WorkflowRunAccess {
 internal class WorkflowRunExecution(
     private val storage: HarnessRunStorage,
     private val code: WorkflowCodeExecutor,
-    private val ports: WorkflowHelperPorts,
+    executors: WorkflowAgentPorts,
     private val access: WorkflowRunAccess,
     private val clock: Clock,
     private val feedback: suspend (HarnessRunsIntent.Internal) -> Unit,
 ) {
+    private val ports = executors.helpers
+    private val organisms = executors.organisms
     private val log = Log.tag("HarnessWorkflow")
     private val resources = ports.resources
     private val helpers = ports.helpers
@@ -97,6 +99,7 @@ internal class WorkflowRunExecution(
             delay(RETRY_INTERVAL)
         }
         cleanup(run, onlyTerminalSteps = true)
+        releaseOrganisms(run, onlyTerminalSteps = true)
         val origin = access.origin(run)
         val routing = run.routing
         if (origin == null || origin.isHookRestricted || routing == null) {
@@ -116,8 +119,16 @@ internal class WorkflowRunExecution(
             permissions::update,
             driver = currentCoroutineContext()[Job],
         )
+        val organismSteps = WorkflowOrganismDriver(
+            run,
+            progress,
+            organisms,
+            routing.workspace,
+            { isCurrent() && access.isAdmitted(run) },
+            driver = currentCoroutineContext()[Job],
+        )
         val outcome = try {
-            WorkflowStatus.Completed(code.execute(run, progress, agents, origin))
+            WorkflowStatus.Completed(code.execute(run, progress, agents, organismSteps, origin))
         } catch (error: WorkflowStepFailed) {
             // Typed author failure is journaled; exception text and cause never enter storage or logs.
             log.w(error) { "Workflow ended with a typed failure" }
@@ -196,6 +207,7 @@ internal class WorkflowRunExecution(
 
     private suspend fun finish(progress: WorkflowRunJournal, status: WorkflowStatus, projection: Long) {
         cleanup(progress.state.value, onlyTerminalSteps = false)
+        releaseOrganisms(progress.state.value, onlyTerminalSteps = false)
         val committed = progress.replace {
             it.copy(status = status, finishedAt = maxOf(it.startedAt, clock.now()), awaiting = emptyMap())
         }
@@ -247,6 +259,20 @@ internal class WorkflowRunExecution(
 
     private suspend fun settle(resource: WorkflowHelperResource) {
         while (!resources.release(resource)) delay(RETRY_INTERVAL)
+    }
+
+    /**
+     * Returns the organism slots of [run]. An unfinished run is never paused by aborting its organisms: organic AI
+     * keeps them under its own lifecycle and a resumed run reconciles the same ones. A terminal run, a cancelled one
+     * included, aborts every organism it still owns and waits until organic AI shows their work ended. Nothing else
+     * releases a slot, so an organism that cannot be confirmed ended keeps its quota and its run open.
+     */
+    private suspend fun releaseOrganisms(run: WorkflowRun, onlyTerminalSteps: Boolean) {
+        for (grant in organisms.resources.records(run.id)) {
+            val step = run.steps.singleOrNull { it.key == grant.key }
+            if (onlyTerminalSteps && step?.isTerminal != true) continue
+            organisms.resources.release(grant, step) { true }
+        }
     }
 }
 

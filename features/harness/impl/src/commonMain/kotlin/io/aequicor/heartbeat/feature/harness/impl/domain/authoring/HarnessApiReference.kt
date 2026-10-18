@@ -239,6 +239,21 @@ private val API = """
       Images/Pdf/LongContext, tags such as coding, review, research, docs. Without both, or when nothing fits,
       the helper keeps the default model. The model is chosen once per step and kept on replay and recovery;
       changing adaptive for a recorded step fails the run as Diverged;
+    - organism(goal, OrganismOptions(title, target = null, immunityTarget = null)): OrganismOutcome — runs one
+      organism of organic AI (a zygote session that divides into cells, with an immune system) as the owned
+      executor of a large stage. Handle the outcome with when: Answered(text) — the zygote answered after every
+      cell ended; that is not proof the stage reached its goal, so check the goal yourself in a following step;
+      Refused(Unavailable | Rejected) — nothing was started (organic AI is off or asleep, or it did not accept the
+      goal); Ended(NoModel | Failed | Aborted) — the organism never answered. target pins the model of the cells
+      (null — the user's default), immunityTarget the judges (null — target); trust is capped at Ask and cell
+      permission requests are not shown to the user yet. The organism is conceived once per step: replay and
+      restarts return the recorded outcome or reconcile with the same organism and never start another;
+      changing the goal or options of a recorded step fails the run as Diverged. A run owns at most
+      ${HarnessLimits.ORGANISMS_PER_RUN} organism at a time and the profile ${HarnessLimits.ORGANISMS_PER_PROFILE};
+      waiting for a free slot is not a failure. The goal is at most ${HarnessLimits.ORGANISM_GOAL_CHARS} characters;
+      an answer longer than ${HarnessLimits.RESULT_CHARS} fails the step as Error. Cancelling the run or the
+      surrounding parallel branch stops the organism, and its slot returns only after organic AI shows that its
+      work ended; pausing the run leaves it running;
     - parallel({ … }, { … }) — branches run concurrently;
     - step("name") { … JsonElement } — memoized local work; now() — memoized clock;
     - prompt(ItemName("t"), args) / skill(ItemName("s")) — pinned content of the harness.
@@ -463,6 +478,34 @@ internal val EXAMPLE_SCREEN_WORKFLOW = """
     }
 """.trimIndent()
 
+/** Desktop workflow with one organism as a large stage; every outcome is handled and the business goal is checked. */
+internal val EXAMPLE_ORGANISM_WORKFLOW = """
+    workflow { input ->
+        val goal = (input["goal"] as? JsonPrimitive)?.content ?: "Prepare the release notes"
+        when (val outcome = organism(goal, OrganismOptions("Release notes"))) {
+            is OrganismOutcome.Answered -> {
+                // An answer only says the zygote finished: judge the result against the goal in a separate step.
+                val brief = "Check this result against the goal:\n" + outcome.text
+                val review = agent(brief, AgentOptions("Check notes"))
+                buildJsonObject {
+                    put("status", "answered")
+                    put("review", review)
+                }
+            }
+
+            is OrganismOutcome.Refused -> buildJsonObject {
+                put("status", "refused")
+                put("reason", outcome.reason.name)
+            }
+
+            is OrganismOutcome.Ended -> buildJsonObject {
+                put("status", "ended")
+                put("reason", outcome.reason.name)
+            }
+        }
+    }
+""".trimIndent()
+
 private val EXAMPLES = """
     Local mini-app: a durable record list. Create and attach a harness, then save this as a script item "methods".
     It needs no project, shell, files, network or extra native tools. Input values arrive in call.arguments and
@@ -501,6 +544,12 @@ ${EXAMPLE_VERIFY_SCRIPT.prependIndent("    ")}
     workflow splits design and implementation into helper chats, and the cheap test checklist may run on a
     lighter model chosen by the host; the script tightens destructive commands and
     adds a reminder after edits; the policy removes tools the task does not need.
+
+    Organism stage: a workflow can hand one large stage to an organism of organic AI (needs organic AI on in the
+    profile). Save it as a workflow item; every outcome is handled, and a separate step judges the business goal,
+    because Answered only says the zygote stopped answering:
+
+${EXAMPLE_ORGANISM_WORKFLOW.prependIndent("    ")}
 
     Mini-app with commands: only when the task actually needs a local program (here gh, already installed and
     authenticated). The command is declared in the script, so the script's safety review covers it; afterwards a

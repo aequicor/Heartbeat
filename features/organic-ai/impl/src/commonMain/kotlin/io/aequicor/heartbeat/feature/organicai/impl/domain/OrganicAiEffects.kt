@@ -11,12 +11,15 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineSpec
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
+import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.isDeveloping
 import io.aequicor.heartbeat.feature.organicai.api.isSandboxed
 import io.aequicor.heartbeat.feature.organicai.api.zygote
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -68,7 +71,7 @@ internal class OrganicAiEffects(
                 machine.send(OrganicAiIntent.Internal.Ruled(effect.organism.id, effect.case, ruling))
             }
 
-            is OrganicAiEffect.Release -> release(effect)
+            is OrganicAiEffect.Release -> release(effect, machine)
         }
     }
 
@@ -82,7 +85,13 @@ internal class OrganicAiEffects(
     }
 
     private suspend fun restore(machine: EffectScope<OrganicAiIntent>) {
-        val organisms = journal.load()
+        val organisms = journal.load().map { organism ->
+            if (!organism.isDeveloping && cells.hasPendingRelease(organism.id)) {
+                organism.copy(sessions = SessionRelease.Unconfirmed)
+            } else {
+                organism
+            }
+        }
         log.i { "restored ${organisms.size} organisms, ${organisms.count { it.isDeveloping }} developing" }
         machine.send(OrganicAiIntent.Internal.Restored(organisms))
     }
@@ -151,20 +160,34 @@ internal class OrganicAiEffects(
     }
 
     /**
-     * Lets every cell go first, so no turn runs on while connections are removed; only then are the connections of
-     * the sessions that really ended removed (a stale retirement let nothing go and keeps its session's connections).
-     * The removal is best effort: a sleep that cancels it leaves the connections behind.
+     * Lets the cells go, all at once so one stuck turn does not delay the others. The release an ending asked for is
+     * reported to the machine, confirmed only when every cell was seen to stop.
      */
-    private suspend fun release(effect: OrganicAiEffect.Release) {
-        val ended = effect.cells.mapNotNull { id ->
-            val cell = effect.organism.cell(id) ?: return@mapNotNull null
-            if (effect.mode == ReleaseMode.Retire) captureResult(effect.organism, id)
-            val key = CellKey(effect.organism.id, id)
-            val isReleased = cells.release(key, cell.session, effect.mode, cell.turns)
-            cell.session?.takeIf { isReleased }?.let { Ended(key, it, cell.turns) }
+    private suspend fun release(effect: OrganicAiEffect.Release, machine: EffectScope<OrganicAiIntent>) {
+        val releases = coroutineScope {
+            effect.cells.map { id ->
+                async {
+                    val cell = effect.organism.cell(id) ?: return@async ReleaseOutcome.Stopped to null
+                    val mode = if (cell.phase is CellPhase.Dead) ReleaseMode.Lyse else effect.mode
+                    if (mode == ReleaseMode.Retire) captureResult(effect.organism, id)
+                    val key = CellKey(effect.organism.id, id)
+                    val outcome = cells.release(key, cell.session, mode, cell.turns)
+                    val ended = cell.session?.takeIf { outcome == ReleaseOutcome.Stopped }
+                        ?.let { Ended(key, it, cell.turns) }
+                    outcome to ended
+                }
+            }.awaitAll()
         }
-        log.i { "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})" }
-        ended.forEach { driver.disconnect(effect.organism, it.session) { cells.isReleased(it.key, it.generation) } }
+        val unconfirmed = releases.count { it.first != ReleaseOutcome.Stopped }
+        val isConfirmed = unconfirmed == 0
+        val summary = "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})"
+        if (isConfirmed) log.i { summary } else log.w { "$summary, $unconfirmed not confirmed" }
+        if (effect.organism.sessions == SessionRelease.Releasing) {
+            machine.send(OrganicAiIntent.Internal.SessionsReleased(effect.organism.id, isConfirmed))
+        }
+        releases.mapNotNull { it.second }.forEach {
+            driver.disconnect(effect.organism, it.session) { cells.isReleased(it.key, it.generation) }
+        }
     }
 
     /**

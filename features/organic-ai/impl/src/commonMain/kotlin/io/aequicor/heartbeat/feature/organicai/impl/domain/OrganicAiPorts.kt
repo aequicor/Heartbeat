@@ -168,23 +168,38 @@ internal interface CellSessions {
     /**
      * Lets the session of [key] go. [ReleaseMode.Lyse] cancels its turn, closes it and archives the session;
      * failures are logged, never thrown, so one cell cannot keep others alive. Retirement applies only to
-     * [generation] or an older open handle; lysis always ends the cell. False when a retirement was stale and let
-     * nothing go, so the cell's session is still in use.
+     * [generation] or an older open handle; lysis always ends the cell.
+     *
+     * Lysis returns [ReleaseOutcome.Stopped] only when every handle this process held for the cell had its turn seen
+     * to stop and no opener of the cell is still running; a turn that did not stop keeps its handle open for the
+     * next lysis of the same cell. A cell this process holds no handle of counts as stopped.
      */
-    suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int = 0): Boolean
+    suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int = 0): ReleaseOutcome
 
     /** Whether the cell [key] was lysed: it is never opened again, and nothing may be connected to its session. */
     suspend fun isLysed(key: CellKey): Boolean
 
     /**
-     * Whether the session of [key] is let go as of [generation]: the cell was lysed, or no later turn opened it
-     * (a turn raises the generation as it starts to open the cell) and it has no open handle. A removal of its
-     * resources runs only while this holds.
+     * Whether the session of [key] is let go as of [generation]: it has no held handle or pending opener, and
+     * either the cell was lysed or no later turn opened it (opening raises its generation). An unconfirmed lysis
+     * keeps resources connected until its handles are released. A removal runs only while this holds.
      */
     suspend fun isReleased(key: CellKey, generation: Int): Boolean
 
-    /** Cancels every running turn and closes every handle without archiving, before sleep. */
+    /** Whether this profile still holds a handle or an unfinished opener for [organism], even across sleep. */
+    suspend fun hasPendingRelease(organism: OrganismId): Boolean
+
+    /** Stops all turns before sleep, retaining unconfirmed handles for recovery or a later lysis. */
     suspend fun releaseAll()
+}
+
+/** What a release could prove about the native work of a cell. */
+internal enum class ReleaseOutcome {
+    /** The cell's turn stopped and its handle closed, or this process held none. */
+    Stopped,
+
+    /** A turn did not stop in time, its session was unreachable or the cell was still being opened. */
+    Unconfirmed,
 }
 
 /** One open cell session. */

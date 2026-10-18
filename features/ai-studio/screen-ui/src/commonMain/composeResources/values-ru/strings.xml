@@ -337,4 +337,7 @@
     <string name="harness_defaults_loading">Загрузка харнессов…</string>
     <string name="harness_defaults_retry">Харнессы недоступны · Повторить</string>
     <string name="organism_result">**Результат организма сохранён студией**\n\nВетка: `%1$s`\n\nБазовый коммит: `%2$s`\n\nКоммит результата: `%3$s`\n\nЭтот коммит содержит закоммиченные и незакоммиченные файлы. Ветка может содержать не все изменения. Чтобы перенести результат, сначала закоммитьте или уберите в stash свои изменения в целевой рабочей копии, затем выполните `git merge --no-ff %3$s`, разрешите конфликты и проверьте результат.</string>
+    <string name="organism_retry_release">Повторить остановку</string>
+    <string name="organism_status_releasing">Останавливаем сессии клеток…</string>
+    <string name="organism_status_release_unconfirmed">Остановка некоторых сессий клеток не подтверждена. Повторите остановку через меню организма.</string>
 </resources>

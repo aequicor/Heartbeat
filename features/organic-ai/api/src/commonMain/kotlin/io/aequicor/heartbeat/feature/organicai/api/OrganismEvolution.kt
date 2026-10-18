@@ -76,6 +76,7 @@ internal fun Conception.conceive(): Step {
 private fun Organism.evolve(intent: OrganismIntent): Step? = when (intent) {
     is OrganicAiIntent.Public.Conceive -> null
     is OrganicAiIntent.Public.Abort -> abort()
+    is OrganicAiIntent.Internal.SessionsReleased -> sessionsReleased(intent.isConfirmed)
     is OrganicAiIntent.Public.Resume -> resume()
     is OrganicAiIntent.Public.FollowUp -> followUp(intent)
     is OrganicAiIntent.Public.Decide -> decide(intent.cell, intent.decision)
@@ -174,7 +175,7 @@ private fun Organism.unresolved(): Step? {
 }
 
 private fun Organism.followUp(intent: OrganicAiIntent.Public.FollowUp): Step? {
-    if (status !is OrganismStatus.Completed || zygote.phase !is CellPhase.Completed) return null
+    if (status !is OrganismStatus.Completed || !isStopped || zygote.phase !is CellPhase.Completed) return null
     if ((intent.text.isBlank() && intent.attachments.isEmpty()) || intent.text.length > OrganismBounds.MAX_GOAL) {
         return null
     }
@@ -186,7 +187,7 @@ private fun Organism.followUp(intent: OrganicAiIntent.Public.FollowUp): Step? {
 
 private fun Organism.resume(): Step? {
     val zygote = zygote
-    if (status is OrganismStatus.Completed && zygote.phase is CellPhase.Completed) {
+    if (status is OrganismStatus.Completed && isStopped && zygote.phase is CellPhase.Completed) {
         val restarted = updated(zygote.id) { recover(it.copy(isAwaitingResults = false), Work.Genesis) }
             .copy(status = OrganismStatus.Developing)
         return if (target == null) Step(restarted, isResolving = true) else Step(restarted, drive = zygote.id)
@@ -205,14 +206,35 @@ private fun Organism.resume(): Step? {
 }
 
 private fun Organism.abort(): Step? {
-    if (!isDeveloping) return null
-    val ended = cells.filter(Cell::isAlive).map(Cell::id)
+    if (!isDeveloping) return retryRelease()
+    val ended = cells.map(Cell::id)
     val aborted = copy(
         cells = cells.map { if (it.isAlive) it.copy(phase = CellPhase.Dead(DeathCause.Aborted)) else it },
         cases = emptyList(),
         status = OrganismStatus.Aborted,
+        // Earlier lysis may still hold a running turn, even for a cell already marked dead.
+        sessions = SessionRelease.Releasing,
     )
     return Step(aborted, release = ended, releaseMode = ReleaseMode.Lyse, isFinished = true)
+}
+
+/** Another abort retries every cell of an ended organism without changing its outcome. */
+private fun Organism.retryRelease(): Step? {
+    if (sessions != SessionRelease.Unconfirmed) return null
+    val killed = cells.map(Cell::id)
+    return Step(
+        copy(sessions = SessionRelease.Releasing),
+        isDurable = false,
+        release = killed,
+        releaseMode = if (status == OrganismStatus.Aborted) ReleaseMode.Lyse else ReleaseMode.Retire,
+    )
+}
+
+/** The host's report on the release an ending asked for; a late or repeated one changes nothing. */
+private fun Organism.sessionsReleased(isConfirmed: Boolean): Step? {
+    if (isDeveloping || sessions != SessionRelease.Releasing) return null
+    val released = if (isConfirmed) SessionRelease.Released else SessionRelease.Unconfirmed
+    return Step(copy(sessions = released), isDurable = false)
 }
 
 private fun Organism.divide(intent: OrganicAiIntent.Internal.Divide): Step? {
@@ -250,8 +272,12 @@ private fun Organism.answered(cell: Cell, text: String): Step = when {
         if (cell.isZygote) {
             // Complaints still open against ended cells are moot; their judges' rulings are ignored.
             Step(
-                completed.copy(status = OrganismStatus.Completed(text), cases = emptyList()),
-                release = listOf(cell.id),
+                completed.copy(
+                    status = OrganismStatus.Completed(text),
+                    cases = emptyList(),
+                    sessions = SessionRelease.Releasing,
+                ),
+                release = cells.map(Cell::id),
                 isFinished = true,
             )
         } else {

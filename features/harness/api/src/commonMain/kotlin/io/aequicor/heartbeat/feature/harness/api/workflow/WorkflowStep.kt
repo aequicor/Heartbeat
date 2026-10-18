@@ -20,7 +20,12 @@ public data class StepKey(val value: String) {
 @Serializable
 public enum class StepPhase { Prepared, Running, Completed, Failed }
 
-/** One replayable step; text, arguments and results never appear in diagnostic strings. */
+/**
+ * One replayable step; text, arguments and results never appear in diagnostic strings. A step is a local memo, a
+ * helper step ([helper] and its request) or an organism step ([organism]): the binding of its structural key to the
+ * organism it owns, saved before the organism is conceived and never changed. An organism step has exactly one
+ * attempt, because replay reconciles with the same organism instead of conceiving another.
+ */
 @Serializable
 public data class WorkflowStep(
     val key: StepKey,
@@ -33,6 +38,7 @@ public data class WorkflowStep(
     val phase: StepPhase = StepPhase.Prepared,
     @Serializable(with = WorkflowStepResultSerializer::class) val result: JsonElement? = null,
     val failure: WorkflowFailure? = null,
+    val organism: WorkflowOrganism? = null,
 ) {
     init {
         require(isWorkflowDigest(promptSha) && attempt >= 0)
@@ -41,6 +47,10 @@ public data class WorkflowStep(
         require((phase == StepPhase.Failed) == (failure != null))
         require(turn == null || (session != null && request != null))
         require(helper == null || request != null)
+        require(
+            organism == null ||
+                (attempt == 0 && helper == null && session == null && request == null && turn == null),
+        )
     }
 
     override fun toString(): String = "WorkflowStep(key=$key, attempt=$attempt, phase=$phase, ***)"
