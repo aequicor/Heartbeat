@@ -190,6 +190,8 @@ public data class ProcessRecord(
     val incarnation: String = createdAt.toString(),
     val schemaVersion: Int = 1,
     val definition: ProcessDefinition? = null,
+    /** Shared-task marker only; the protected host journal supplies actual authority. */
+    val ownershipKey: OwnershipKey? = null,
 ) {
     init {
         require(schemaVersion == 1) { "Unsupported process schema" }

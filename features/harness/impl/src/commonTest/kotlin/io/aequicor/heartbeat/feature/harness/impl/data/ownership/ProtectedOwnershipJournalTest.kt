@@ -11,7 +11,11 @@ import io.aequicor.heartbeat.feature.harness.api.process.OwnershipKey
 import io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermit
 import io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermitKind
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessOwnership
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessDataTestSecrets
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.OwnershipLocalBinding
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.OwnershipLocalProcess
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.OwnershipNativeIntent
 import kotlinx.coroutines.test.runTest
 import okio.ByteString.Companion.encodeUtf8
 import kotlin.test.Test
@@ -124,13 +128,55 @@ class ProtectedOwnershipJournalTest {
     }
 
     @Test
+    fun `a losing provisional enrollment can later claim the winners different lifetime`() = runTest {
+        val secrets = HarnessDataTestSecrets()
+        val journal = ProtectedOwnershipJournal(secrets)
+        val first = OwnershipLocalBinding(local, identity, OwnershipFence(key, journal.host(), 1))
+        assertTrue(journal.beginEnrollment(first))
+        val intent = OwnershipNativeIntent(
+            local,
+            OwnershipPermit("c".repeat(32), 1, first.fence, OwnershipPermitKind.Command),
+        )
+        assertFailsWith<IllegalStateException> { journal.reserve(intent) }
+        val restarted = ProtectedOwnershipJournal(secrets)
+        assertEquals(first, restarted.pendingEnrollment(key))
+        assertTrue(restarted.hasBindings(local.harness))
+        assertFalse(restarted.discardEnrollment(first, ProcessOwnership(first.fence)))
+        val foreign = ProcessOwnership(first.fence.copy(host = ExecutorHostId("f".repeat(32))))
+        assertTrue(restarted.discardEnrollment(first, foreign))
+        val imported = first.copy(
+            local = local.copy(incarnation = "winning_lifetime"),
+            fence = first.fence.copy(epoch = 2),
+        )
+        assertTrue(restarted.bind(null, imported))
+        assertEquals(imported, restarted.binding(imported.local))
+    }
+
+    @Test
+    fun `a promoted enrollment never loses its binding even before its first native intent`() = runTest {
+        val journal = ProtectedOwnershipJournal(HarnessDataTestSecrets())
+        val binding = OwnershipLocalBinding(local, identity, OwnershipFence(key, journal.host(), 1))
+        assertTrue(journal.beginEnrollment(binding))
+        assertTrue(journal.promoteEnrollment(binding))
+        assertTrue(journal.promoteEnrollment(binding))
+        val foreign = ProcessOwnership(binding.fence.copy(host = ExecutorHostId("f".repeat(32))))
+        assertFalse(journal.discardEnrollment(binding, foreign))
+        val intent = OwnershipNativeIntent(
+            local,
+            OwnershipPermit("d".repeat(32), 1, binding.fence, OwnershipPermitKind.Workflow),
+        )
+        assertTrue(journal.reserve(intent))
+        assertEquals(intent, journal.intent(local, intent.permit.id))
+    }
+
+    @Test
     fun `foreign hosts and noncanonical task keys cannot enroll`() = runTest {
         val journal = ProtectedOwnershipJournal(HarnessDataTestSecrets())
         journal.host()
         val binding = OwnershipLocalBinding(local, identity, OwnershipFence(key, ExecutorHostId("f".repeat(32)), 1))
         assertFailsWith<IllegalStateException> { journal.bind(null, binding) }
-        assertFailsWith<IllegalArgumentException> {
-            binding.copy(fence = binding.fence.copy(key = OwnershipKey("e".repeat(64))))
+        assertFailsWith<IllegalStateException> {
+            journal.bind(null, binding.copy(fence = OwnershipFence(OwnershipKey("e".repeat(64)), journal.host(), 1)))
         }
         assertFalse(journal.hasBindings(local.harness))
     }

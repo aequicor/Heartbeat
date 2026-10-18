@@ -63,6 +63,10 @@ public interface HarnessScriptScope {
     /** Recoverable GitHub reads and writes, gated by the host and a separate feature toggle. */
     public val github: ScriptGitHub get() = UnavailableScriptGitHub
 
+    /** Native-consent distributed ownership; these calls never attest cleanup or approve their own requests. */
+    public val ownership: io.aequicor.heartbeat.feature.harness.api.process.ScriptProcessOwnership
+        get() = io.aequicor.heartbeat.feature.harness.api.process.UnavailableScriptProcessOwnership
+
     /** Methods for this harness's interfaces, called by user actions. */
     public val ui: ScriptUi
 
