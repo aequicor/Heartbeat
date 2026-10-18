@@ -5,7 +5,8 @@ package io.aequicor.heartbeat.feature.planningmode.impl.domain
  * cannot write files, run other programs or start an editor.
  *
  * The words the classifier checks must be exactly the words the program receives, so any syntax the shell could
- * expand is not provably read-only: `$`, `{`, `}`, `*`, `?`, `[`, `]`, `~`, `(`, `)` and `!` outside single quotes,
+ * expand is not provably read-only: `$`, `{`, `}`, `*`, `?`, `[`, `]`, `~`, `(`, `)`, `!`, `^` and `#` (a comment, or
+ * a glob operator under zsh `EXTENDED_GLOB`) outside quotes,
  * `$` and backticks inside double quotes, backslash-newline continuations, command or process substitution,
  * subshells, background jobs, here-documents and environment prefixes. Redirections are allowed only to
  * `/dev/null`, from plain files and as `>&1` / `>&2`. Programs given by path, unknown programs and options outside
@@ -41,7 +42,9 @@ private val PROGRAM_RULES: Map<String, (List<String>) -> Boolean> = buildMap {
         !arguments.hasShortFlag("z") &&
             arguments.none { option -> RG_FORBIDDEN.any { name -> option.startsWith("--$name") } }
     }
-    val fd: (List<String>) -> Boolean = { !it.hasShortFlag("xX") && it.none { option -> option.startsWith("--exec") } }
+    val fd: (List<String>) -> Boolean = {
+        !it.hasShortFlag("xX") && !it.hasLongOption("exec") && !it.hasLongOption("exec-batch")
+    }
     this["fd"] = fd
     this["fdfind"] = fd
     this["tree"] = { isWhitelisted(it, flags = TREE_FLAGS, valued = "LIP") }
@@ -188,8 +191,8 @@ private class ShellLexer(private val command: String) {
 
     private fun next(): Char? = command.getOrNull(index + 1)
 
-    /** An unquoted expansion, subshell or history character, or a comment at the start of a word. */
-    private fun isExpansion(char: Char): Boolean = char in EXPANSIONS || (char == '#' && word.isEmpty())
+    /** An unquoted expansion, subshell, history or extended glob character, or a comment. */
+    private fun isExpansion(char: Char): Boolean = char in EXPANSIONS
 
     private inline fun advance(length: Int, action: () -> Unit): Boolean {
         action()
@@ -263,8 +266,11 @@ private class ShellLexer(private val command: String) {
     }
 }
 
-/** Unquoted characters that start parameter, brace, glob, tilde or history expansion, or a subshell. */
-private const val EXPANSIONS = "\${}*?[]~()!"
+/**
+ * Unquoted characters that start parameter, brace, glob, tilde or history expansion, a subshell or a comment; `^` and
+ * `#` anywhere in a word are glob operators under zsh `EXTENDED_GLOB`.
+ */
+private const val EXPANSIONS = "\${}*?[]~()!^#"
 
 /** Characters that expand inside double quotes; rejected even when escaped. */
 private const val DOUBLE_QUOTE_EXPANSIONS = "\$`"

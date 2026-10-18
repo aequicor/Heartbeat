@@ -11,7 +11,7 @@ public fun applyEdit(text: String, edit: PlanEdit): String = when (edit) {
 
 /** Whether [heading] is one markdown ATX heading line (`#` .. `######`, then a space or nothing), e.g. `## Steps`. */
 public fun isPlanSectionHeading(heading: String): Boolean =
-    heading.none { it == '\n' || it == '\r' } && headingLevel(heading.trim()) != null
+    heading.none { it == '\n' || it == '\r' } && sectionLevel(heading.trim()) != null
 
 /** The first markdown heading of [text] without its marks, or null. */
 public fun planTitle(text: String): String? {
@@ -62,8 +62,7 @@ private val IMPLEMENTING_RULES = """
 """.trimIndent()
 
 private fun replaceSection(text: String, heading: String, body: String): String {
-    if (!isPlanSectionHeading(heading)) return text
-    val level = headingLevel(heading) ?: return text
+    val level = sectionLevel(heading) ?: return text
     val lines = text.lines()
     val levels = headingLevels(lines)
     val start = lines.indices.firstOrNull { levels[it] != null && lines[it].trim() == heading }
@@ -99,6 +98,10 @@ private fun headingLevels(lines: List<String>): List<Int?> {
         }
     }
 }
+
+/** Level of a trimmed [heading] when it is one heading line, as [isPlanSectionHeading] requires, or null. */
+private fun sectionLevel(heading: String): Int? =
+    headingLevel(heading)?.takeIf { heading.none { char -> char == '\n' || char == '\r' } }
 
 /** Level of a markdown ATX heading (`#` .. `######` followed by a space), or null. */
 private fun headingLevel(line: String): Int? {

@@ -13,7 +13,13 @@ import io.aequicor.heartbeat.feature.planningmode.api.PlanLimits
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanFileText
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import okio.FileSystem
+import okio.ForwardingFileSystem
+import okio.ForwardingSource
+import okio.Path
+import okio.Source
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -68,6 +74,38 @@ class ProfilePlanFilesTest {
     }
 
     @Test
+    fun `a write between reading the plan and its stamp keeps the plan the studio's own`() = runTest {
+        files.write(Chat, "# Three", 3)
+        files.write(Chat, "# Four", 4)
+        // The hook runs another write after the first file of the read is consumed, whichever it is.
+        val racing = HookedFileSystem(FileSystem.SYSTEM)
+        val reader = ProfilePlanFiles(Stores(root), Unconfined, racing)
+        racing.afterFirstRead = { runBlocking { files.write(Chat, "# Five", 5) } }
+        assertEquals(PlanFileText("# Four", isExternal = false, revision = 4), reader.read(Chat))
+        racing.afterFirstRead = null
+        assertEquals(PlanFileText("# Five", isExternal = false, revision = 5), reader.read(Chat))
+    }
+
+    @Test
+    fun `trailing whitespace added outside the studio keeps the text the studio's own`() = runTest {
+        files.write(Chat, "# Plan", 2)
+        File(root, "planning/${Chat.value}/plan.md").writeText("# Plan\n\n")
+        assertEquals(PlanFileText("# Plan", isExternal = false, revision = 2), files.read(Chat))
+        File(root, "planning/${Chat.value}/plan.md").writeText("# Plan\nmore\n")
+        assertEquals(PlanFileText("# Plan\nmore\n", isExternal = true, revision = 2), files.read(Chat))
+    }
+
+    @Test
+    fun `chats lists the directories of valid chat ids`() = runTest {
+        assertEquals(emptySet(), files.chats())
+        files.write(Chat, "# One", 1)
+        files.write(PlanChat("other"), "# Two", 1)
+        File(root, "planning/not a chat").mkdirs()
+        File(root, "planning/stray.txt").writeText("x")
+        assertEquals(setOf(Chat, PlanChat("other")), files.chats())
+    }
+
+    @Test
     fun `stamps of earlier versions are read`() = runTest {
         files.write(Chat, "# Plan", 1)
         val stamp = File(root, "planning/${Chat.value}/plan.sha256")
@@ -95,6 +133,23 @@ class ProfilePlanFilesTest {
         assertNull(files.read(Chat))
         assertFalse(File(root, "planning/${Chat.value}").exists())
         assertEquals("# Two", files.read(PlanChat("other"))?.text)
+    }
+
+    /** Runs [afterFirstRead] once, after the first file read through it is closed. */
+    private class HookedFileSystem(delegate: FileSystem) : ForwardingFileSystem(delegate) {
+        var afterFirstRead: (() -> Unit)? = null
+
+        override fun source(file: Path): Source {
+            val source = super.source(file)
+            return object : ForwardingSource(source) {
+                override fun close() {
+                    super.close()
+                    val hook = afterFirstRead
+                    afterFirstRead = null
+                    hook?.invoke()
+                }
+            }
+        }
     }
 
     private class Stores(private val root: File) : DataStores {

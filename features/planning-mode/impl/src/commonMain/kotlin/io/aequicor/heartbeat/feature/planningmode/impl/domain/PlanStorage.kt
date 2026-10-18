@@ -19,9 +19,10 @@ internal data class PlanIndex(val plans: List<Plan> = emptyList(), val bindings:
 internal data class PlanBinding(val session: SessionRef, val chat: PlanChat)
 
 /**
- * Text of a plan file; [isExternal] when it differs from what the studio wrote. [revision] is the revision the studio
- * wrote this text as, or for an external text the last revision the studio wrote to the file; null for files of
- * earlier versions. An [isOversized] file was not read: it is too large to be a plan and [text] is empty.
+ * Text of a plan file; [isExternal] when it differs from what the studio wrote by more than trailing whitespace.
+ * [revision] is the revision the studio wrote this text as, or for an external text the last revision the studio wrote
+ * to the file; null for files of earlier versions. An [isOversized] file was not read: it is too large to be a plan and
+ * [text] is empty.
  */
 internal data class PlanFileText(
     val text: String,
@@ -52,4 +53,7 @@ internal interface PlanFiles {
 
     /** Deletes the files of [chat]. */
     suspend fun delete(chat: PlanChat)
+
+    /** Chats that have files, whether or not the index knows them. */
+    suspend fun chats(): Set<PlanChat>
 }

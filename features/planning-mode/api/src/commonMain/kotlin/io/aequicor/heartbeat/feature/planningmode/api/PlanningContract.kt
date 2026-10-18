@@ -83,17 +83,17 @@ public sealed interface PlanningIntent : MachineIntent {
     /** Results of effects. */
     public sealed interface Internal : PlanningIntent {
         /**
-         * Stored plans were read. [external] plans were changed outside the studio (they arrive already updated with
-         * [externallyEdited]) or recovered from a file the studio wrote after the last index save; they are saved
-         * again.
+         * Stored plans were read. [repaired] plans differ from the index: changed outside the studio (they arrive
+         * already updated with [externallyEdited]) or recovered from a file the studio wrote after the last index
+         * save; they are saved again.
          */
         public data class Loaded(
             val plans: Map<PlanChat, Plan>,
             val bindings: Map<SessionRef, PlanChat>,
-            val external: Set<PlanChat> = emptySet(),
+            val repaired: Set<PlanChat> = emptySet(),
         ) : Internal {
             override fun toString(): String =
-                "Loaded(plans=${plans.size}, bindings=${bindings.size}, external=${external.size})"
+                "Loaded(plans=${plans.size}, bindings=${bindings.size}, repaired=${repaired.size})"
         }
 
         /** Stored plans could not be read. */

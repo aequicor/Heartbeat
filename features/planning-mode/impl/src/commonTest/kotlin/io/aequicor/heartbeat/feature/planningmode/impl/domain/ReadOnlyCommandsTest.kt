@@ -18,6 +18,8 @@ class ReadOnlyCommandsTest {
         "rg --type kotlin PlanningMachineKey",
         "rg -n 'fun (applyEdit)' features",
         "fd -e kt planning",
+        "grep -n '#' notes.md",
+        "grep \"a^b\" file",
         "tree -L 2 features",
         "stat gradle.properties",
         "file icon.png",
@@ -130,6 +132,10 @@ class ReadOnlyCommandsTest {
         "rg --pre ./script foo",
         "fd -x rm",
         "fd --exec rm",
+        "fd --exe rm",
+        "fd --exec-batch rm",
+        "fd --exec-b rm",
+        "fd --exec-batch=rm",
         "diff --output=x a b",
         "date -s 2020-01-01",
         "env rm x",
@@ -203,6 +209,10 @@ class ReadOnlyCommandsTest {
             "cat < *.txt",
             "ls \\\nrm",
             "echo \"a\\\nb\"",
+            "ls a^b",
+            "ls ^x",
+            "ls a#b",
+            "ls file#",
         ).forEach { assertFalse(isReadOnlyCommand(it), it) }
     }
 

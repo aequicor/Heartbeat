@@ -28,7 +28,7 @@ class PlanningMachineTest {
         spec.assertTransition(PlanningState.Loading, Internal.Loaded(plans, bindings), Ready(plans, bindings))
         spec.assertTransition(
             from = PlanningState.Loading,
-            intent = Internal.Loaded(plans, bindings, external = setOf(Chat)),
+            intent = Internal.Loaded(plans, bindings, repaired = setOf(Chat)),
             to = Ready(plans, bindings),
             effects = listOf(PlanningEffect.Persist(plans, bindings, setOf(Chat), 0)),
         )

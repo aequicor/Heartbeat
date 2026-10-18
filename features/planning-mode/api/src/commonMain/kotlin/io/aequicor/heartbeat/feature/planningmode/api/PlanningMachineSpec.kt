@@ -13,7 +13,7 @@ import io.aequicor.heartbeat.feature.planningmode.api.PlanningState.Ready
  * | From | Intent | Guard | To | Effect / output |
  * |---|---|---|---|---|
  * | Idle | Start | | Loading | Load |
- * | Loading | Loaded | | Ready(plans, bindings) | Persist(external) if any |
+ * | Loading | Loaded | | Ready(plans, bindings) | Persist(repaired) if any |
  * | Loading | LoadFailed | | Failed | |
  * | Failed | Retry | | Loading | Load |
  * | Ready | Enter | not planning yet; room for a new plan or a detached one to evict | Ready(mode Planning) | Persist |
@@ -45,7 +45,7 @@ public val PlanningMachineSpec: PlanningSpec = machineSpec(PlanningMachineKey, P
                 Ready(
                     intent.plans,
                     intent.bindings,
-                ).persisted(intent.external).takeIf { intent.external.isNotEmpty() }
+                ).persisted(intent.repaired).takeIf { intent.repaired.isNotEmpty() }
             }
         }
         on<Internal.LoadFailed> { goto<PlanningState.Failed> { PlanningState.Failed } }

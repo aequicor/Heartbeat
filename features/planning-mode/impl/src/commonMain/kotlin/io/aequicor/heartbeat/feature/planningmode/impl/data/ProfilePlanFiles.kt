@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.planningmode.api.PlanChat
 import io.aequicor.heartbeat.feature.planningmode.api.PlanLimits
+import io.aequicor.heartbeat.feature.planningmode.api.isValidPlanChat
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanFileText
 import io.aequicor.heartbeat.feature.planningmode.impl.domain.PlanFiles
 import kotlinx.coroutines.withContext
@@ -20,12 +21,12 @@ import okio.Path.Companion.toPath
 
 /**
  * Plan texts in `<profile files>/planning/<chat>/plan.md`, next to the revisions and digests of what the studio wrote
- * (`plan.sha256`): a text matching neither was edited outside the studio. The stamp is replaced before the plan and
- * keeps the previous text's revision and digest, so a reader between the two replacements sees either text as the
- * studio's own; the revision lets a plan written just before an interrupted index save load with the revision it was
- * written as. Writes go through a temporary file and an atomic move, so a reader never sees half a plan. Files larger
- * than a plan can be are not read. Chat ids are validated by [PlanChat] and cannot leave the directory. Texts are
- * user data and never logged.
+ * (`plan.sha256`): a text matching neither, even without trailing whitespace an editor may add, was edited outside the
+ * studio. The stamp is replaced before the plan and keeps the previous text's revision and digest, and a reader reads
+ * the plan before the stamp, so a reader around one write sees either text as the studio's own; the revision lets a
+ * plan written just before an interrupted index save load with the revision it was written as. Writes go through a
+ * temporary file and an atomic move, so a reader never sees half a plan. Files larger than a plan can be are not read.
+ * Chat ids are validated by [PlanChat] and cannot leave the directory. Texts are user data and never logged.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
@@ -42,19 +43,22 @@ internal class ProfilePlanFiles(
         val directory = root / chat.value
         val file = directory / PLAN_FILE
         if (!fs.exists(file)) return@withContext null
-        val stamps = stamps(directory)
         val size = fs.metadata(file).size ?: 0
-        if (size > MAX_FILE_BYTES) {
+        // The plan is read before the stamp: the writer replaces them in the opposite order.
+        val text = if (size > MAX_FILE_BYTES) null else fs.read(file) { readUtf8() }
+        val stamps = stamps(directory)
+        if (text == null) {
             log.w { "plan file too large, not read: chat=$chat bytes=$size" }
             return@withContext PlanFileText("", isExternal = true, stamps.firstOrNull()?.revision, isOversized = true)
         }
-        val text = fs.read(file) { readUtf8() }
         val digest = text.digest()
+        val trimmed = text.trimEnd()
         val own = stamps.firstOrNull { it.digest == digest }
-        if (own != null) {
-            PlanFileText(text, isExternal = false, own.revision)
-        } else {
-            PlanFileText(text, isExternal = true, stamps.firstOrNull()?.revision)
+        val ownTrimmed = own ?: stamps.firstOrNull { it.digest == trimmed.digest() }
+        when {
+            own != null -> PlanFileText(text, isExternal = false, own.revision)
+            ownTrimmed != null -> PlanFileText(trimmed, isExternal = false, ownTrimmed.revision)
+            else -> PlanFileText(text, isExternal = true, stamps.firstOrNull()?.revision)
         }
     }
 
@@ -75,6 +79,12 @@ internal class ProfilePlanFiles(
 
     override suspend fun delete(chat: PlanChat): Unit = withContext(dispatchers.io) {
         fs.deleteRecursively(root / chat.value)
+    }
+
+    override suspend fun chats(): Set<PlanChat> = withContext(dispatchers.io) {
+        fs.listOrNull(root).orEmpty()
+            .filter { fs.metadataOrNull(it)?.isDirectory == true && isValidPlanChat(it.name) }
+            .mapTo(mutableSetOf()) { PlanChat(it.name) }
     }
 
     /**

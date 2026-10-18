@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.planningmode.api.PlanAuthor
 import io.aequicor.heartbeat.feature.planningmode.api.PlanChat
+import io.aequicor.heartbeat.feature.planningmode.api.PlanLimits
 import io.aequicor.heartbeat.feature.planningmode.api.PlanMode
 import io.aequicor.heartbeat.feature.planningmode.api.PlanStatus
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningEffect
@@ -43,7 +44,7 @@ class PlanningEffectsTest {
         assertEquals("# A", loaded.plans.getValue(Chat).text)
         assertEquals("", loaded.plans.getValue(Other).text)
         assertEquals(mapOf(Session to Chat), loaded.bindings)
-        assertEquals(emptySet(), loaded.external)
+        assertEquals(emptySet(), loaded.repaired)
     }
 
     @Test
@@ -53,7 +54,7 @@ class PlanningEffectsTest {
         effects.handle(PlanningEffect.Load, scope)
         val loaded = scope.sent.single() as PlanningIntent.Internal.Loaded
         val plan = loaded.plans.getValue(Chat)
-        assertEquals(setOf(Chat), loaded.external)
+        assertEquals(setOf(Chat), loaded.repaired)
         assertEquals(Plan(Chat, PlanMode.Planning, PlanStatus.Draft, 3, "# Edited", Now, PlanAuthor.External), plan)
     }
 
@@ -79,7 +80,7 @@ class PlanningEffectsTest {
         assertEquals(PlanStatus.Draft, plan.status)
         assertEquals(PlanAuthor.External, plan.updatedBy)
         assertEquals(Now, plan.updatedAt)
-        assertEquals(setOf(Chat), loaded.external)
+        assertEquals(setOf(Chat), loaded.repaired)
     }
 
     @Test
@@ -101,7 +102,47 @@ class PlanningEffectsTest {
         val plan = (scope.sent.single() as PlanningIntent.Internal.Loaded).plans.getValue(Chat)
         assertEquals(2, plan.revision)
         effects.handle(PlanningEffect.Persist(mapOf(Chat to plan), emptyMap(), emptySet(), 1), scope)
-        assertEquals(emptyList(), files.log)
+        val edited = plan.copy(revision = 3, text = "# Studio", updatedBy = PlanAuthor.User)
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to edited), emptyMap(), setOf(Chat), 2), scope)
+        assertEquals(emptyList(), files.log, "a studio change does not replace the oversized file")
+        assertEquals(PlanIndex(listOf(edited.copy(text = ""))), index.stored)
+    }
+
+    @Test
+    fun `an external text longer than a plan loads empty and is protected until taken over`() = runTest {
+        index.stored = PlanIndex(listOf(record(Chat, revision = 2, status = PlanStatus.Approved)))
+        val long = "x".repeat(PlanLimits.MAX_CHARS + 1)
+        files.texts[Chat] = PlanFileText(long, isExternal = true, revision = 2)
+        effects.handle(PlanningEffect.Load, scope)
+        val loaded = scope.sent.single() as PlanningIntent.Internal.Loaded
+        val plan = loaded.plans.getValue(Chat)
+        assertEquals(record(Chat, revision = 2, status = PlanStatus.Approved), plan)
+        assertEquals(emptySet(), loaded.repaired)
+
+        val edited = plan.copy(revision = 3, text = "# Studio")
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to edited), emptyMap(), setOf(Chat), 1), scope)
+        assertEquals(long, files.texts.getValue(Chat).text)
+
+        files.texts[Chat] = PlanFileText("# Short", isExternal = true, revision = 2)
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to edited), emptyMap(), setOf(Chat), 2), scope)
+        assertEquals("# Short", files.texts.getValue(Chat).text, "a shortened file is not overwritten either")
+
+        val takenOver = edited.copy(revision = 4, text = "# Short", updatedBy = PlanAuthor.External)
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to takenOver), emptyMap(), setOf(Chat), 3), scope)
+        assertEquals(PlanFileText("# Short", isExternal = false, revision = 4), files.texts[Chat])
+        val next = takenOver.copy(revision = 5, text = "# Next")
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to next), emptyMap(), setOf(Chat), 4), scope)
+        assertEquals("# Next", files.texts.getValue(Chat).text)
+    }
+
+    @Test
+    fun `an external edit is loaded without trailing whitespace`() = runTest {
+        index.stored = PlanIndex(listOf(record(Chat, revision = 2)))
+        files.texts[Chat] = PlanFileText("# Edited\n\n", isExternal = true, revision = 2)
+        effects.handle(PlanningEffect.Load, scope)
+        val plan = (scope.sent.single() as PlanningIntent.Internal.Loaded).plans.getValue(Chat)
+        assertEquals("# Edited", plan.text)
+        assertEquals(3, plan.revision)
     }
 
     @Test
@@ -122,9 +163,8 @@ class PlanningEffectsTest {
         val plan = record(Chat, revision = 3).copy(text = "# A")
         effects.handle(PlanningEffect.Persist(mapOf(Chat to plan), emptyMap(), setOf(Chat), 1), scope)
         files.isDeleteBroken = true
-        assertFailsWith<IllegalStateException> {
-            effects.handle(PlanningEffect.Persist(emptyMap(), emptyMap(), setOf(Chat), 2), scope)
-        }
+        effects.handle(PlanningEffect.Persist(emptyMap(), emptyMap(), setOf(Chat), 2), scope)
+        assertEquals(PlanIndex(), index.stored, "the index is saved despite the failed delete")
         files.isDeleteBroken = false
         val fresh = record(Chat, revision = 0)
         effects.handle(PlanningEffect.Persist(mapOf(Chat to fresh), emptyMap(), emptySet(), 3), scope)
@@ -133,11 +173,42 @@ class PlanningEffectsTest {
         val other = record(Other, revision = 1).copy(text = "# O")
         effects.handle(PlanningEffect.Persist(mapOf(Chat to fresh, Other to other), emptyMap(), emptySet(), 4), scope)
         files.isDeleteBroken = true
-        assertFailsWith<IllegalStateException> {
-            effects.handle(PlanningEffect.Persist(mapOf(Chat to fresh), emptyMap(), setOf(Other), 5), scope)
-        }
-        files.isDeleteBroken = false
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to fresh), emptyMap(), setOf(Other), 5), scope)
+        assertEquals(PlanIndex(listOf(fresh)), index.stored)
         effects.handle(PlanningEffect.Persist(mapOf(Chat to fresh), emptyMap(), emptySet(), 6), scope)
+        assertEquals(setOf(Chat, Other), files.texts.keys, "still failing")
+        files.isDeleteBroken = false
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to fresh), emptyMap(), emptySet(), 7), scope)
+        assertEquals(setOf(Chat), files.texts.keys)
+    }
+
+    @Test
+    fun `a new plan saved while a delete fails survives a restart`() = runTest {
+        val plan = record(Chat, revision = 1).copy(text = "# A")
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to plan), emptyMap(), setOf(Chat), 1), scope)
+        files.isDeleteBroken = true
+        effects.handle(PlanningEffect.Persist(emptyMap(), emptyMap(), setOf(Chat), 2), scope)
+        val other = record(Other, revision = 1).copy(text = "# O")
+        effects.handle(PlanningEffect.Persist(mapOf(Other to other), emptyMap(), setOf(Other), 3), scope)
+        assertEquals(PlanIndex(listOf(other.copy(text = ""))), index.stored)
+
+        files.isDeleteBroken = false
+        val restarted = PlanningEffects(index, files, FixedClock)
+        restarted.handle(PlanningEffect.Load, scope)
+        val loaded = scope.sent.single() as PlanningIntent.Internal.Loaded
+        assertEquals(setOf(Other), loaded.plans.keys)
+        assertEquals(setOf(Other), files.texts.keys, "the orphan of the forgotten chat is deleted on load")
+    }
+
+    @Test
+    fun `orphans are kept when nothing was stored or a delete fails on load`() = runTest {
+        files.texts[Chat] = PlanFileText("# A", isExternal = false, revision = 1)
+        effects.handle(PlanningEffect.Load, scope)
+        assertEquals(setOf(Chat), files.texts.keys)
+
+        index.stored = PlanIndex()
+        files.isDeleteBroken = true
+        PlanningEffects(index, files, FixedClock).handle(PlanningEffect.Load, scope)
         assertEquals(setOf(Chat), files.texts.keys)
     }
 
@@ -207,7 +278,10 @@ class PlanningEffectsTest {
         override suspend fun delete(chat: PlanChat) {
             check(!isDeleteBroken) { "busy" }
             texts.remove(chat)
+            log += "delete $chat"
         }
+
+        override suspend fun chats(): Set<PlanChat> = texts.keys.toSet()
     }
 
     private class Recorder : EffectScope<PlanningIntent> {

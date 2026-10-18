@@ -81,6 +81,8 @@ internal class MemoryPlanFiles : PlanFiles {
     override suspend fun delete(chat: PlanChat) {
         texts.remove(chat)
     }
+
+    override suspend fun chats(): Set<PlanChat> = texts.keys.toSet()
 }
 
 internal class Toggles(var isEnabled: Boolean = true) : FeatureToggles {

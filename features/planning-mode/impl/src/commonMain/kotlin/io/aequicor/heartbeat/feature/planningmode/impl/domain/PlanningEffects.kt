@@ -7,13 +7,17 @@ import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.planningmode.api.PlanAuthor
 import io.aequicor.heartbeat.feature.planningmode.api.PlanChat
+import io.aequicor.heartbeat.feature.planningmode.api.PlanEdit
+import io.aequicor.heartbeat.feature.planningmode.api.PlanLimits
 import io.aequicor.heartbeat.feature.planningmode.api.PlanMode
 import io.aequicor.heartbeat.feature.planningmode.api.PlanStatus
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningEffect
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningIntent
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningOutput
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningState
+import io.aequicor.heartbeat.feature.planningmode.api.applyEdit
 import io.aequicor.heartbeat.feature.planningmode.api.externallyEdited
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Clock
@@ -24,9 +28,15 @@ internal typealias PlanningMachine = Machine<PlanningState, PlanningIntent, Plan
 /**
  * Executes the effects of the planning machine; failures are mapped by the spec's `onEffectFailure`. Saves run one
  * at a time and a save not newer than the last handled one is dropped, so a late save never brings an older plan
- * back. Every save writes each plan whose revision is newer than the one written last and repeats deletions that
- * failed, so a failed save is completed by the next one. Files are written before the index and carry their
- * revision: after an interruption the plan loads with the newer text and its own revision.
+ * back. Every save writes each plan whose revision is newer than the one written last, then the index, then repeats
+ * deletions that failed, so a failed write is completed by the next save and a failed delete never blocks the index.
+ * Files are written before the index and carry their revision: after an interruption the plan loads with the newer
+ * text and its own revision. Files of chats the stored index does not know (deletions that failed before a restart)
+ * are deleted on load.
+ *
+ * A file too long to be a plan loads as an empty plan and is protected: the studio does not write over it until the
+ * file is gone, shortened to the studio's own text or taken over by the machine (the agent tools refuse to work from
+ * it and ask for it to be shortened); skipped writes are logged.
  */
 internal class PlanningEffects(
     private val index: PlanIndexStore,
@@ -41,6 +51,9 @@ internal class PlanningEffects(
     /** Chats whose plan is gone but whose files may still exist; kept until a delete succeeds. */
     private val deletions = mutableSetOf<PlanChat>()
 
+    /** Chats whose file was too long to load; the studio does not overwrite it. */
+    private val tooLong = mutableSetOf<PlanChat>()
+
     override suspend fun handle(effect: PlanningEffect, machine: EffectScope<PlanningIntent>) {
         when (effect) {
             PlanningEffect.Load -> machine.send(load())
@@ -49,28 +62,65 @@ internal class PlanningEffects(
     }
 
     private suspend fun load(): PlanningIntent.Internal.Loaded = saving.withLock {
-        val stored = index.load() ?: PlanIndex()
+        val stored = index.load()
+        tooLong.clear()
+        val records = stored ?: PlanIndex()
         val repaired = mutableSetOf<PlanChat>()
-        val plans = stored.plans.associate { record ->
-            val file = files.read(record.chat)
-            val plan = when {
-                file == null || file.isOversized -> record.copy(text = "")
-                file.isExternal -> externallyEdited(record, file.text, clock.now(), file.revision ?: record.revision)
-                (file.revision ?: 0) > record.revision -> recovered(record, file.text, file.revision ?: 0)
-                else -> record.copy(text = file.text)
-            }
+        val plans = records.plans.associate { record ->
+            val plan = loaded(record)
             if (plan.revision != record.revision) repaired += record.chat
-            // An external edit is written again with its new revision; other files are as the studio wrote them.
-            if (file != null && file.isExternal && !file.isOversized) {
-                fileRevisions.remove(record.chat)
-            } else {
-                fileRevisions[record.chat] = plan.revision
-            }
             record.chat to plan
         }
-        val bindings = stored.bindings.filter { it.chat in plans }.associate { it.session to it.chat }
+        if (stored != null) deleteOrphans(plans.keys)
+        val bindings = records.bindings.filter { it.chat in plans }.associate { it.session to it.chat }
         log.i { "plans loaded: plans=${plans.size} bindings=${bindings.size} repaired=${repaired.size}" }
         PlanningIntent.Internal.Loaded(plans, bindings, repaired)
+    }
+
+    /**
+     * [record] joined with its file, compared as an external edit is: trailing whitespace is not a change. An external
+     * edit is written again with its new revision; other files are as the studio wrote them.
+     */
+    private suspend fun loaded(record: Plan): Plan {
+        val file = files.read(record.chat)
+        if (file == null) {
+            fileRevisions[record.chat] = record.revision
+            return record.copy(text = "")
+        }
+        val text = applyEdit(record.text, PlanEdit.Replace(file.text))
+        val plan = when {
+            file.isOversized || text.length > PlanLimits.MAX_CHARS -> {
+                log.w { "plan file too long, loaded empty and protected: chat=${record.chat}" }
+                tooLong += record.chat
+                record.copy(text = "")
+            }
+
+            file.isExternal -> externallyEdited(record, text, clock.now(), file.revision ?: record.revision)
+
+            (file.revision ?: 0) > record.revision -> recovered(record, text, file.revision ?: 0)
+
+            else -> record.copy(text = text)
+        }
+        if (file.isExternal && record.chat !in tooLong) {
+            fileRevisions.remove(record.chat)
+        } else {
+            fileRevisions[record.chat] = plan.revision
+        }
+        return plan
+    }
+
+    /** Deletes files of chats without a plan in the stored index; a failed delete is repeated by the next save. */
+    private suspend fun deleteOrphans(known: Set<PlanChat>) {
+        val orphans = try {
+            files.chats() - known
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "plan files not listed, orphans kept" }
+            emptySet()
+        }
+        deletions += orphans
+        orphans.forEach { delete(it) }
     }
 
     /**
@@ -96,21 +146,48 @@ internal class PlanningEffects(
         gone.forEach(fileRevisions::remove)
         // A new plan of a chat replaces its files instead of deleting them.
         deletions.removeAll(effect.plans.keys)
+        tooLong.retainAll(effect.plans.keys)
         effect.plans.values.forEach { plan ->
-            if (plan.revision > (fileRevisions[plan.chat] ?: -1)) {
+            if (plan.revision > (fileRevisions[plan.chat] ?: -1) && !isProtected(plan)) {
                 files.write(plan.chat, plan.text, plan.revision)
                 fileRevisions[plan.chat] = plan.revision
                 log.v { "plan written: chat=${plan.chat} revision=${plan.revision} length=${plan.text.length}" }
             }
         }
-        deletions.toList().forEach { chat ->
-            files.delete(chat)
-            deletions.remove(chat)
-            log.i { "plan deleted: chat=$chat" }
-        }
         val records = effect.plans.values.map { it.copy(text = "") }
         val bindings = effect.bindings.map { (session, chat) -> PlanBinding(session, chat) }
         index.save(PlanIndex(records, bindings))
         log.v { "plan index saved: plans=${records.size} revision=${effect.revision}" }
+        deletions.toList().forEach { delete(it) }
+    }
+
+    /**
+     * Whether the file of [plan] was too long to load and still holds a text the machine has not taken over, so
+     * writing [plan] would replace it without the user knowing.
+     */
+    private suspend fun isProtected(plan: Plan): Boolean {
+        if (plan.chat !in tooLong) return false
+        val file = files.read(plan.chat)
+        val text = file?.text?.let { applyEdit(plan.text, PlanEdit.Replace(it)) }
+        val isUsable = file != null && !file.isOversized && text != null && text.length <= PlanLimits.MAX_CHARS
+        val isTakenOver = file == null || (isUsable && (!file.isExternal || text == plan.text))
+        if (isTakenOver) {
+            tooLong -= plan.chat
+        } else {
+            log.w { "plan file too long or changed outside the studio, not overwritten: chat=${plan.chat}" }
+        }
+        return !isTakenOver
+    }
+
+    private suspend fun delete(chat: PlanChat) {
+        try {
+            files.delete(chat)
+            deletions -= chat
+            log.i { "plan deleted: chat=$chat" }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "plan files not deleted, repeated by the next save: chat=$chat" }
+        }
     }
 }
