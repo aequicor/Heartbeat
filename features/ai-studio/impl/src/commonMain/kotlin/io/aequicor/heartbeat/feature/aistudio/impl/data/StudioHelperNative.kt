@@ -53,7 +53,8 @@ internal class StudioHelperNative(
             if (receipt == null) log.w { "Helper turn has no journaled request; terminal evidence is not saved" }
             if (receipt == null || receipt.phase !in NATIVE_PHASES) return@evidence null
             check(record.ref == session) { "Helper native identity changed" }
-            val settled = confirmed(record, request, turn, outcome) ?: return@evidence null
+            val settled = confirmed(record, Turn(turn, request, checkNotNull(record.target), outcome))
+                ?: return@evidence null
             attempts.terminal(helper, request, terminal(session, turn, settled, items()))
             log.v { "Saved exact helper terminal evidence" }
         }
@@ -69,9 +70,12 @@ internal class StudioHelperNative(
         val turn = active.state.value.lastCompletedTurn()?.takeIf {
             it.request == request && active.state.value.isTerminalFor(it.id) && it.outcome != null
         } ?: return@evidence null
-        tools.finishTurn(active.ref, turn.id)
-        val settled = confirmed(record, request, turn.id, checkNotNull(turn.outcome)) ?: return@evidence null
-        terminal(active.ref, turn.id, settled, read(active.features.requireFeature(SessionHistory)))
+        val receipt = attempts.receipt(HelperId(record.id), request)
+        check(receipt?.session == null || receipt.session == active.ref) { "Helper receipt session changed" }
+        val localTurn = receipt?.turn ?: turn.id
+        tools.finishTurn(active.ref, localTurn, request)
+        val settled = confirmed(record, turn) ?: return@evidence null
+        terminal(active.ref, localTurn, settled, read(active.features.requireFeature(SessionHistory)))
     }
 
     suspend fun stop(record: StudioChatRecord, request: RequestId, active: ActiveSession?): StudioHelperTerminal? =
@@ -84,7 +88,7 @@ internal class StudioHelperNative(
                 val result = capability.feature.stop(
                     ref,
                     request,
-                    OwnedTurnAccess(target, record.resolvedExecutionWorkspace(), receipt.turn),
+                    OwnedTurnAccess(target, record.resolvedExecutionWorkspace()),
                 )
                 (result as? OwnedTurnStop.Confirmed)?.turn ?: return@evidence null
             } else if (capability == FeatureAccess.Unsupported) {
@@ -92,13 +96,14 @@ internal class StudioHelperNative(
             } else {
                 return@evidence null
             }
-            check(turn.request == request && (receipt.turn == null || receipt.turn == turn.id)) {
+            check(turn.request == request) {
                 "Helper stop returned another request"
             }
-            tools.finishTurn(ref, turn.id)
+            val localTurn = receipt.turn ?: turn.id
+            tools.finishTurn(ref, localTurn, request)
             val outcome = checkNotNull(turn.outcome)
             val items = stoppedHistory(ref, active, outcome) ?: return@evidence null
-            terminal(ref, turn.id, outcome, items)
+            terminal(ref, localTurn, turn, items)
         }
 
     private suspend fun stoppedHistory(
@@ -113,13 +118,12 @@ internal class StudioHelperNative(
         return stored?.let { read(it) }
     }
 
-    /** Native terminal can precede an adapter-owned tool's cleanup; the engine owns that extra barrier. */
-    private suspend fun confirmed(
-        record: StudioChatRecord,
-        request: RequestId,
-        turn: TurnId,
-        outcome: TurnOutcome,
-    ): TurnOutcome? = when (
+    /**
+     * Native terminal can precede an adapter-owned tool's cleanup; the engine owns that extra barrier. Helper
+     * receipts contain facade turn ids, so the adapter resolves the immutable request under its exact route.
+     * Never pass a facade id as expectedTurn: the adapter journals a different id, also after a restart.
+     */
+    private suspend fun confirmed(record: StudioChatRecord, turn: Turn): Turn? = when (
         val capability = facade.engines.features(
             checkNotNull(record.ref).engine,
         ).resolve(StopsOwnedTurns)
@@ -127,15 +131,15 @@ internal class StudioHelperNative(
         is FeatureAccess.Available -> {
             val result = capability.feature.stop(
                 record.ref,
-                request,
-                OwnedTurnAccess(checkNotNull(record.target), record.resolvedExecutionWorkspace(), turn),
+                checkNotNull(turn.request),
+                OwnedTurnAccess(checkNotNull(record.target), record.resolvedExecutionWorkspace()),
             ) as? OwnedTurnStop.Confirmed
-            result?.turn?.takeIf { it.id == turn && it.request == request }?.outcome
+            result?.turn?.takeIf { it.request == turn.request }
         }
 
         is FeatureAccess.Unavailable -> null
 
-        FeatureAccess.Unsupported -> outcome
+        FeatureAccess.Unsupported -> turn
     }
 
     private suspend fun stopLive(active: ActiveSession?, request: RequestId, expected: TurnId?): Turn? {
@@ -173,21 +177,25 @@ internal class StudioHelperNative(
         return items
     }
 
-    private fun terminal(ref: SessionRef, turn: TurnId, outcome: TurnOutcome, items: List<SessionItem>) =
-        StudioHelperTerminal(
-            ref,
-            turn,
-            when (outcome) {
-                TurnOutcome.Completed -> StudioHelperTerminalOutcome.Completed
-                is TurnOutcome.Failed -> StudioHelperTerminalOutcome.Failed
-                TurnOutcome.Cancelled -> StudioHelperTerminalOutcome.Cancelled
-                TurnOutcome.Unknown -> StudioHelperTerminalOutcome.Unknown
-            },
-            // Engines mark history with their own turn ids, which differ from the facade turn (Koog), so only a turn
-            // that completed may fall back to the messages after its prompt; any other outcome needs exact marks.
-            answerOf(items, turn, SchedulerLimits.MAX_PAYLOAD, isMarkedOnly = outcome != TurnOutcome.Completed)
-                .orEmpty(),
-        )
+    /** Receipt identity stays in facade ids; history is marked with the adapter's confirmed turn id. */
+    private fun terminal(ref: SessionRef, turn: TurnId, native: Turn, items: List<SessionItem>) = StudioHelperTerminal(
+        ref,
+        turn,
+        when (checkNotNull(native.outcome)) {
+            TurnOutcome.Completed -> StudioHelperTerminalOutcome.Completed
+            is TurnOutcome.Failed -> StudioHelperTerminalOutcome.Failed
+            TurnOutcome.Cancelled -> StudioHelperTerminalOutcome.Cancelled
+            TurnOutcome.Unknown -> StudioHelperTerminalOutcome.Unknown
+        },
+        // Engines mark history with their own turn ids, which differ from the facade turn (Koog), so only a turn
+        // that completed may fall back to the messages after its prompt; any other outcome needs exact marks.
+        answerOf(
+            items,
+            native.id,
+            SchedulerLimits.MAX_PAYLOAD,
+            isMarkedOnly = native.outcome != TurnOutcome.Completed,
+        ).orEmpty(),
+    )
 
     private suspend fun <T> evidence(block: suspend () -> T?): T? = try {
         block()
