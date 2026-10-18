@@ -314,8 +314,7 @@ private class ExecutionFixture(private val dispatcher: CoroutineDispatcher) {
     fun execution(storage: HarnessRunStorage) = WorkflowRunExecution(
         storage,
         WorkflowCodeExecutor(UnusedHost, HarnessExecutionLane(dispatcher), NeutralOrigins, workflow.clock) { it },
-        WorkflowHelperPorts(grants, resources, helpers, bindings),
-        organisms.ports,
+        WorkflowAgentPorts(WorkflowHelperPorts(grants, resources, helpers, bindings), organisms.ports),
         AdmittedRuns,
         workflow.clock,
     ) {}

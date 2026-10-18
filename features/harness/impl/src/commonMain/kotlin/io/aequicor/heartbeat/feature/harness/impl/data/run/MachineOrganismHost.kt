@@ -65,8 +65,12 @@ internal class MachineOrganismHost(private val machines: MachineRegistry) : Orga
             // Conceiving an existing id is ignored: the organism is there if the machine shows it.
             SendResult.Ignored -> when (view(organism)) {
                 OrganismView.Unavailable -> OrganismConception.Unavailable
+
                 OrganismView.Absent -> OrganismConception.Rejected
-                else -> OrganismConception.Accepted
+
+                is OrganismView.Answered, is OrganismView.Stalled, OrganismView.Developing,
+                OrganismView.Aborting, OrganismView.AbortUnconfirmed, OrganismView.Aborted,
+                -> OrganismConception.Accepted
             }
         }
     }
