@@ -78,7 +78,8 @@ public sealed interface WorkflowStatus {
 /**
  * Durable workflow journal projection. The driver saves changes before native submission and before sending
  * machine feedback. [driverGeneration] fences stale drivers. [cancellation] retains Running capacity until
- * StopRun has durable proof that every helper is settled. Permission requests are reconstructed, never persisted.
+ * StopRun has durable proof that every helper is settled. Permission requests of helpers ([awaiting]) and of the
+ * cells of organisms ([organismRequests]) are reconstructed, never persisted.
  */
 @Serializable
 public data class WorkflowRun(
@@ -96,6 +97,7 @@ public data class WorkflowRun(
     val status: WorkflowStatus = WorkflowStatus.Running,
     val steps: List<WorkflowStep> = emptyList(),
     @Transient val awaiting: Map<SessionRef, List<PermissionRequest>> = emptyMap(),
+    @Transient val organismRequests: List<OrganismPermission> = emptyList(),
     val wake: WakeId? = null,
     val cancellation: WorkflowFailure? = null,
     val finishedAt: Instant? = null,
@@ -112,6 +114,9 @@ public data class WorkflowRun(
     override fun toString(): String = "WorkflowRun(id=$id, generation=$driverGeneration, " +
         "status=${status::class.simpleName.orEmpty()}, ***)"
 }
+
+/** The run without its live permission requests, which belong to one driver generation and are never stored. */
+public fun WorkflowRun.withoutLiveRequests(): WorkflowRun = copy(awaiting = emptyMap(), organismRequests = emptyList())
 
 /** A trusted UI caller or the exact session that launched the workflow. */
 public sealed interface WorkflowViewer {

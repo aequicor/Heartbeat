@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
 import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -93,6 +94,35 @@ public sealed interface HarnessRunsIntent : MachineIntent {
             override fun toString(): String = "PermissionsChanged(run=$run, generation=$generation, ***)"
         }
 
+        /**
+         * Current live requests of the cells of the organisms the run owns, replacing the previous ones as a whole.
+         * Like [PermissionsChanged] they are never stored and belong to one driver generation.
+         */
+        public data class OrganismPermissionsChanged(
+            val run: RunId,
+            val generation: Long,
+            val requests: List<OrganismPermission>,
+        ) : Internal {
+            override fun toString(): String = "OrganismPermissionsChanged(run=$run, generation=$generation, ***)"
+        }
+
+        /**
+         * The user's answer to [step]'s organism cell [cell], which is asking. Only [WorkflowViewer.User] decides:
+         * the cell works for the workflow and no session, the workflow's caller included, may answer for the user.
+         * The answer is delivered by the step's owner, never by the machine.
+         */
+        public data class DecideOrganismPermission(
+            override val requestId: RequestId,
+            val run: RunId,
+            val step: StepKey,
+            val cell: String,
+            val decision: PermissionDecision,
+            val by: WorkflowViewer,
+        ) : Internal,
+            Command {
+            override fun toString(): String = "DecideOrganismPermission(run=$run, step=${step.value}, ***)"
+        }
+
         /** Durable terminal receipt, after helper cleanup; late receipts from another generation are ignored. */
         public data class Finished(
             val run: RunId,
@@ -134,6 +164,20 @@ public sealed interface HarnessRunsEffect : MachineEffect {
 
     /** Stop driver jobs without terminalizing runs or claiming native helper completion. */
     public data class Pause(val runs: List<WorkflowRun>) : HarnessRunsEffect
+
+    /**
+     * Hands the user's answer to the owner of [step] in the driver generation that showed the request. The owner
+     * re-checks that the cell still asks and sends the answer; a driver that has moved on drops it.
+     */
+    public data class AnswerOrganism(
+        val run: RunId,
+        val generation: Long,
+        val step: StepKey,
+        val cell: String,
+        val decision: PermissionDecision,
+    ) : HarnessRunsEffect {
+        override fun toString(): String = "AnswerOrganism(run=$run, generation=$generation, step=${step.value}, ***)"
+    }
 }
 
 /** Admission and terminal notifications; consumers obtain persisted results from the journal projection. */

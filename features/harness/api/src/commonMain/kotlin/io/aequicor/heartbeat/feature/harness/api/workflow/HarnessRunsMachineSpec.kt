@@ -25,6 +25,9 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | StepStarted | current driver, valid preparation/progress/recovery | stay, replace step | none |
  * | Ready | StepFinished/StepFailed | current driver, immutable correlation | stay, memoize terminal step | none |
  * | Ready | PermissionsChanged | current executing driver | stay, transient permissions | none |
+ * | Ready | OrganismPermissionsChanged | current executing driver | stay, transient organism requests | none |
+ * | Ready | DecideOrganismPermission | not the user, unknown/terminal run or no such request | stay | Rejected |
+ * | Ready | DecideOrganismPermission | the user answers a request the run shows | stay | AnswerOrganism |
  * | Ready | Recovered | next generation and attempt, previous driver revoked | stay, fence generation | Drive |
  * | Ready | Finished/Failed | current proof, matching cancellation | stay, terminal + retention | RunFinished |
  * | Ready | TerminalRestored | current projection, same invocation, terminal record | stay, restore it | RunFinished |
@@ -125,6 +128,7 @@ public val HarnessRunsMachineSpec: MachineSpec<
                     ?: HarnessRunsOutput.CancellationRequested(intent.requestId, intent.run)
             }
         }
+        organismRequests()
         workflowProgress()
         workflowCompletion()
         on<HarnessRunsIntent.Internal.Suspended>(guard = { !state.isSuspended }) {
@@ -149,7 +153,12 @@ public val HarnessRunsMachineSpec: MachineSpec<
     onEffectFailure { effect, _ ->
         when (effect) {
             HarnessRunsEffect.Restore -> HarnessRunsIntent.Internal.RestoreFailed
-            is HarnessRunsEffect.Drive, is HarnessRunsEffect.StopRun, is HarnessRunsEffect.Pause -> null
+
+            is HarnessRunsEffect.Drive,
+            is HarnessRunsEffect.StopRun,
+            is HarnessRunsEffect.Pause,
+            is HarnessRunsEffect.AnswerOrganism,
+            -> null
         }
     }
 }

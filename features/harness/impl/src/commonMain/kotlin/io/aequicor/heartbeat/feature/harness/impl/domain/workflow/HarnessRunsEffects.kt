@@ -33,6 +33,9 @@ internal class HarnessRunsEffects(
             is HarnessRunsEffect.StopRun -> drivers.drive(effect.run)
 
             is HarnessRunsEffect.Pause -> effect.runs.forEach { drivers.pause(it) }
+
+            is HarnessRunsEffect.AnswerOrganism ->
+                execution.answerOrganism(effect.run, effect.generation, effect.step, effect.cell, effect.decision)
         }
     }
 }

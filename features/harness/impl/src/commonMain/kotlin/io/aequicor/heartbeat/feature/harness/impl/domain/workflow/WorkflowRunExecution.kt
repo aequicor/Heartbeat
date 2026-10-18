@@ -1,14 +1,17 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
+import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStep
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStepFailed
+import io.aequicor.heartbeat.feature.harness.api.workflow.withoutLiveRequests
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
@@ -51,6 +54,9 @@ internal class WorkflowRunExecution(
 
     /** Results delivered to the outbox whose durable mark is not yet confirmed; cleared once the mark commits. */
     private val delivered = MutableStateFlow<Set<RunId>>(emptySet())
+
+    /** The organism requests of every run whose driver generation is executing now, for the user's answers. */
+    private val inboxes = MutableStateFlow<Map<RunId, OrganismInbox>>(emptyMap())
 
     /**
      * Revoked author work has joined. Stop native work but preserve Running replay state and its requests.
@@ -118,6 +124,9 @@ internal class WorkflowRunExecution(
             permissions::update,
             driver = currentCoroutineContext()[Job],
         )
+        val requests = WorkflowOrganismRequests {
+            feedback(HarnessRunsIntent.Internal.OrganismPermissionsChanged(run.id, run.driverGeneration, it))
+        }
         val organismSteps = WorkflowOrganismDriver(
             run,
             progress,
@@ -126,16 +135,52 @@ internal class WorkflowRunExecution(
             { isCurrent() && access.isAdmitted(run) },
             driver = currentCoroutineContext()[Job],
         )
-        val outcome = try {
-            WorkflowStatus.Completed(code.execute(run, progress, agents, organismSteps, origin))
-        } catch (error: WorkflowStepFailed) {
-            // Typed author failure is journaled; exception text and cause never enter storage or logs.
-            log.w(error) { "Workflow ended with a typed failure" }
-            progress.replace { it.copy(cancellation = error.reason) }
-            WorkflowStatus.Failed(error.reason)
+        val outcome = withAnswers(run, requests) {
+            try {
+                WorkflowStatus.Completed(code.execute(run, progress, agents, organismSteps, origin))
+            } catch (error: WorkflowStepFailed) {
+                // Typed author failure is journaled; exception text and cause never enter storage or logs.
+                log.w(error) { "Workflow ended with a typed failure" }
+                progress.replace { it.copy(cancellation = error.reason) }
+                WorkflowStatus.Failed(error.reason)
+            }
         }
         if (!isCurrent()) throw WorkflowExecutionUnavailable()
         finish(progress, outcome, projection)
+    }
+
+    /**
+     * Hands the user's answer to the lane of [step] in the driver generation that showed the request. An answer for
+     * any other generation, a run no driver executes or a request that is no longer shown is dropped: the user sees
+     * the request again if it still asks. Only the lane that owns the organism sends the answer to it.
+     */
+    suspend fun answerOrganism(
+        run: RunId,
+        generation: Long,
+        step: StepKey,
+        cell: String,
+        decision: PermissionDecision,
+    ) {
+        val inbox = inboxes.value[run]?.takeIf { it.generation == generation }
+        if (inbox == null || !inbox.requests.answer(step, cell, decision)) {
+            log.d { "Workflow organism answer has no live request" }
+        }
+    }
+
+    private suspend fun <T> withAnswers(
+        run: WorkflowRun,
+        requests: WorkflowOrganismRequests,
+        block: suspend () -> T,
+    ): T {
+        val inbox = OrganismInbox(run.driverGeneration, requests)
+        inboxes.update { it + (run.id to inbox) }
+        log.v { "Workflow organism answers open" }
+        try {
+            return block()
+        } finally {
+            inboxes.update { if (it[run.id] === inbox) it - run.id else it }
+            log.v { "Workflow organism answers closed" }
+        }
     }
 
     /**
@@ -173,7 +218,7 @@ internal class WorkflowRunExecution(
         var stored: WorkflowRun = storage.find(requested.id) ?: run {
             check(requested.steps.isEmpty() && requested.attempt == 0) { "Workflow journal is missing" }
             // A start can be suspended before its first effect runs; its immutable admitted input remains valid.
-            val initial = requested.copy(driverGeneration = 0, attempt = 0, steps = emptyList(), awaiting = emptyMap())
+            val initial = requested.copy(driverGeneration = 0, attempt = 0, steps = emptyList()).withoutLiveRequests()
             commit(initial, null)
         }
         if (stored.status != WorkflowStatus.Running) return stored
@@ -183,8 +228,7 @@ internal class WorkflowRunExecution(
                 driverGeneration = stored.driverGeneration + 1,
                 attempt = maxOf(stored.attempt, requested.attempt),
                 cancellation = stored.cancellation ?: requested.cancellation,
-                awaiting = emptyMap(),
-            )
+            ).withoutLiveRequests()
             stored = commit(proposed, stored.driverGeneration)
         }
         if (stored.cancellation == null && requested.cancellation != null) {
@@ -208,7 +252,7 @@ internal class WorkflowRunExecution(
         cleanup(progress.state.value, onlyTerminalSteps = false)
         releaseOrganisms(progress.state.value, onlyTerminalSteps = false)
         val committed = progress.replace {
-            it.copy(status = status, finishedAt = maxOf(it.startedAt, clock.now()), awaiting = emptyMap())
+            it.copy(status = status, finishedAt = maxOf(it.startedAt, clock.now())).withoutLiveRequests()
         }
         terminal(committed, projection)
     }
@@ -274,6 +318,8 @@ internal class WorkflowRunExecution(
         }
     }
 }
+
+private class OrganismInbox(val generation: Long, val requests: WorkflowOrganismRequests)
 
 private fun WorkflowStep.feedback(run: WorkflowRun): HarnessRunsIntent.Internal = when (phase) {
     StepPhase.Prepared, StepPhase.Running -> HarnessRunsIntent.Internal.StepStarted(run.id, run.driverGeneration, this)
