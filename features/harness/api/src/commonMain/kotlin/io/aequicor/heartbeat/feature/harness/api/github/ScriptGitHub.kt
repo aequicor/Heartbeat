@@ -64,7 +64,10 @@ public sealed interface GitHubWriteResult {
     /** Native host decision status; return and park the process rather than holding an executor while waiting. */
     public data class Decision(val id: String, val phase: ProcessDecisionPhase) : GitHubWriteResult
 
-    /** Durable server identity. The same key replays this result even after local process journal eviction. */
+    /**
+     * Durable server identity, retained after local journal eviction. Privileged replays require fresh evidence
+     * before returning confirmation or completing host consent; cached ScriptData is not a trusted host receipt.
+     */
     public data class Confirmed(val result: ResultRef) : GitHubWriteResult
 
     /** Reserved or sent; call reconcile, never retry with a fresh key to evade an unknown outcome. */
@@ -93,6 +96,9 @@ public enum class GitHubWriteRefusal {
 
     /** Current remote head or tag differs from the request. */
     SubjectConflict,
+
+    /** GitHub cannot condition this operation on the approved SHA; no decision or write was reserved. */
+    UnsafeReference,
 }
 
 /**
@@ -104,8 +110,10 @@ public enum class GitHubWriteRefusal {
  * Writes first reserve a permanent key in protected harness data (`hb_github`), then BeginWrite, then call GitHub,
  * then ConfirmWrite. A crash at any point after reservation permits reconciliation only. The registry shares the
  * ScriptData quota and never evicts keys. Namespace deletion is an explicit destructive reset requiring manual
- * reconciliation. Merge and release require separate host-owned authority; script ProcessAuthority grants alone
- * are insufficient. Server text and correlation markers never confer authority.
+ * reconciliation. Merge requires separate host-owned authority; script ProcessAuthority grants alone are
+ * insufficient. New dispatch and release operations are refused with [GitHubWriteRefusal.UnsafeReference], since
+ * GitHub cannot condition their mutable reference on the approved SHA. Existing reservations remain available
+ * for read-only reconciliation. Server text and correlation markers never confer authority.
  */
 public interface ScriptGitHub {
     /** Read a single page; maximum 50 records. Failed reads never replace observed state. */
@@ -113,7 +121,8 @@ public interface ScriptGitHub {
 
     /**
      * One immutable operation at the exact process input revision; key reuse must carry the same request.
-     * Merge, release and dispatch require [context] and a native host decision for the complete typed payload.
+     * Merge requires [context] and a native host decision for the complete typed payload. New dispatch and release
+     * requests are refused before any decision or reservation; an existing operation may only replay or reconcile.
      * Pending/denied/revoked decisions reserve no external operation. After approval repeat the same request;
      * Executing/Completed with a missing external registry returns Unknown rather than resending.
      */

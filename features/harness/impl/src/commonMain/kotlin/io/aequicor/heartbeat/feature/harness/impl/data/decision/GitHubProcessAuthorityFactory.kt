@@ -76,7 +76,7 @@ internal class GitHubProcessAuthorityFactory(
             val entry = ledger.find(binding) ?: request(operation, binding) ?: return@safe stopped()
             if (entry.github != operation.snapshot() || entry.command != null) return@safe stopped()
             when {
-                entry.decision.permits(binding, clock.now()) -> GitHubAuthorization.Allowed(entry.decision.id)
+                entry.decision.permits(binding, clock.now()) -> GitHubAuthorization.Allowed(entry.decision.id, binding)
 
                 entry.decision.phase == ProcessDecisionPhase.Executing ||
                     entry.decision.phase == ProcessDecisionPhase.Completed ->
@@ -93,9 +93,9 @@ internal class GitHubProcessAuthorityFactory(
             val id = operation.decisionId ?: return@safe false
             val binding = binding(operation) ?: return@safe false
             val entry = host.ready()?.find(id) ?: return@safe false
-            if (entry.github != operation.snapshot() || entry.command != null ||
-                !entry.decision.permits(binding, clock.now())
-            ) {
+            val isSamePayload = entry.github == operation.snapshot() && entry.command == null &&
+                operation.decisionBinding == binding
+            if (!isSamePayload || !entry.decision.permits(binding, clock.now())) {
                 return@safe false
             }
             if (!host.edit(ProcessDecisionEdit.Change(id, ProcessDecisionCommand.Claim(binding)))) return@safe false
@@ -108,7 +108,10 @@ internal class GitHubProcessAuthorityFactory(
         override suspend fun complete(operation: GitHubOperation) {
             safe(false) {
                 val entry = operation.decisionId?.let { host.ready()?.find(it) } ?: return@safe false
-                if (entry.github != operation.snapshot() || entry.decision.binding.harness != request.harness.id ||
+                // Older reservations have no binding copy; the private host entry still owns their origin identity.
+                val original = operation.decisionBinding ?: entry.decision.binding
+                if (original != bindingSnapshot(operation, original.harnessRevision)) return@safe false
+                if (entry.github != operation.snapshot() || entry.decision.binding != original ||
                     entry.decision.phase != ProcessDecisionPhase.Executing
                 ) {
                     return@safe false
@@ -131,18 +134,25 @@ internal class GitHubProcessAuthorityFactory(
 
         private suspend fun binding(operation: GitHubOperation): ProcessActionBinding? {
             if (!access.isActive || !commands.isAvailable || !toggles.get(HarnessProcessCommandsEnabled)) return null
-            val context = operation.context ?: return null
             val head = operation.change.expectedHead() ?: return null
             if (!isCurrent(operation) || !isWithinScope(operation)) return null
             val localHead = readGit(operation, listOf("rev-parse", "--verify", "HEAD"))
             val origin = readGit(operation, listOf("config", "--get", "remote.origin.url"))?.githubRepository()
             val repository = "github.com/${operation.repository.owner}/${operation.repository.name}".lowercase()
             if (localHead != head.value || origin != repository || !access.isActive) return null
+            return bindingSnapshot(operation, request.harness.revision)
+        }
+
+        /** Pure reconstruction uses the saved origin revision for cleanup after a later source activation. */
+        private fun bindingSnapshot(operation: GitHubOperation, harnessRevision: Long): ProcessActionBinding? {
+            val context = operation.context ?: return null
+            val head = operation.change.expectedHead() ?: return null
+            val repository = "github.com/${operation.repository.owner}/${operation.repository.name}".lowercase()
             val digest = ("github-action-v1\n" + Json.encodeToString(operation.snapshot())).encodeUtf8().sha256().hex()
             return ProcessActionBinding(
                 request.harness.id,
                 request.item.id,
-                request.harness.revision,
+                harnessRevision,
                 context.attempt,
                 operation.inputRevision,
                 head,
@@ -150,7 +160,9 @@ internal class GitHubProcessAuthorityFactory(
                 repository,
                 operation.change.authority(),
                 digest,
-            )
+            ).takeIf {
+                it.process.process == operation.process && it.process.incarnation == operation.incarnation
+            }
         }
 
         private suspend fun isCurrent(operation: GitHubOperation): Boolean {

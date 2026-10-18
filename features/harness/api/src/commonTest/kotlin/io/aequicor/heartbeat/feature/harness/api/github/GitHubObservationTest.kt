@@ -7,6 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class GitHubObservationTest {
@@ -34,6 +35,81 @@ class GitHubObservationTest {
         assertNull(next.verifiedHead)
         assertEquals(next, next.accept(pull))
         assertFailsWith<IllegalArgumentException> { next.copy(verifiedHead = sha) }
+    }
+
+    @Test
+    fun `same timestamp head conflict invalidates once and late delivery cannot restore verification`() {
+        val pull = GitHubEntity.Pull("1", earlier, 1, sha, "master", "work", "", "open", true)
+        val original = GitHubObservation(pull, verifiedHead = sha)
+        val changed = pull.copy(head = SubjectSha("b".repeat(40)))
+        val ambiguous = original.accept(changed)
+        assertTrue(ambiguous.isAmbiguous)
+        assertEquals(1, ambiguous.inputRevision)
+        assertEquals(pull, ambiguous.entity)
+        assertNull(ambiguous.current)
+        assertNull(ambiguous.verifiedHead)
+        assertEquals(ambiguous, ambiguous.accept(pull))
+        assertEquals(ambiguous, ambiguous.accept(changed))
+        assertEquals(ambiguous, ambiguous.accept(changed.copy(updatedAt = later)))
+        assertFailsWith<IllegalArgumentException> { ambiguous.copy(verifiedHead = sha) }
+    }
+
+    @Test
+    fun `same timestamp issue edit invalidates once until authoritative refresh`() {
+        val issue = GitHubEntity.Issue("1", earlier, 1, GitHubNodeId("I_1"), "title", "first", "open")
+        val edit = issue.copy(body = "second")
+        val ambiguous = GitHubObservation(issue).accept(edit)
+        assertEquals(1, ambiguous.inputRevision)
+        assertEquals(ambiguous, ambiguous.accept(edit))
+        assertEquals(ambiguous, ambiguous.accept(issue))
+        val refreshed = ambiguous.refresh(edit)
+        assertFalse(refreshed.isAmbiguous)
+        assertEquals(edit, refreshed.current)
+        assertEquals(1, refreshed.inputRevision)
+        assertEquals(refreshed, refreshed.refresh(edit))
+    }
+
+    @Test
+    fun `dismissal with unchanged submission time makes review evidence unavailable`() {
+        val approved = GitHubEntity.Review("1", earlier, sha, "APPROVED")
+        val dismissed = approved.copy(state = "DISMISSED")
+        val ambiguous = GitHubObservation(approved).accept(dismissed)
+        assertNull(ambiguous.current)
+        assertEquals(1, ambiguous.inputRevision)
+        assertEquals(ambiguous, ambiguous.accept(approved))
+        assertEquals(dismissed, ambiguous.refresh(dismissed).current)
+    }
+
+    @Test
+    fun `ambiguity survives serialization and legacy observation remains usable`() {
+        val issue = GitHubEntity.Issue("1", earlier, 1, GitHubNodeId("I_1"), "title", "first", "open")
+        val original = GitHubObservation(issue)
+        val legacy = Json.encodeToString(original)
+        assertFalse("isAmbiguous" in legacy)
+        assertEquals(issue, Json.decodeFromString<GitHubObservation>(legacy).current)
+        val ambiguous = original.accept(issue.copy(body = "second"))
+        val restored = Json.decodeFromString<GitHubObservation>(Json.encodeToString(ambiguous))
+        assertEquals(ambiguous, restored)
+        assertNull(restored.current)
+        assertEquals(restored, restored.accept(issue))
+    }
+
+    @Test
+    fun `authoritative refresh accepts equal and newer head but never restores verification`() {
+        val pull = GitHubEntity.Pull("1", earlier, 1, sha, "master", "work", "", "open", true)
+        val changed = pull.copy(head = SubjectSha("b".repeat(40)))
+        val original = GitHubObservation(pull, verifiedHead = sha)
+        val refreshed = original.refresh(changed)
+        assertEquals(changed, refreshed.current)
+        assertEquals(1, refreshed.inputRevision)
+        assertNull(refreshed.verifiedHead)
+        val ambiguous = original.accept(changed)
+        assertEquals(refreshed, ambiguous.refresh(changed))
+        val newer = ambiguous.refresh(changed.copy(updatedAt = later))
+        assertFalse(newer.isAmbiguous)
+        assertEquals(1, newer.inputRevision)
+        assertNull(newer.verifiedHead)
+        assertEquals(newer, newer.refresh(pull))
     }
 
     @Test

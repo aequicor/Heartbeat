@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.github
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessActionBinding
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubActionContext
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubChange
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubFailure
@@ -18,10 +19,10 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessRecord
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
 import io.aequicor.heartbeat.feature.harness.api.process.ResultRef
 import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
-import io.aequicor.heartbeat.feature.harness.api.process.WritePhase
-import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HostWriteConfirmation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
@@ -48,7 +49,7 @@ internal fun interface GitHubHostAuthority {
 
 /** Host-only preparation result; a decision identity is durable data, never a capability passed to author code. */
 internal sealed interface GitHubAuthorization {
-    data class Allowed(val decisionId: String? = null) : GitHubAuthorization
+    data class Allowed(val decisionId: String? = null, val binding: ProcessActionBinding? = null) : GitHubAuthorization
     data class Stopped(val result: GitHubWriteResult) : GitHubAuthorization
 }
 
@@ -56,7 +57,7 @@ internal sealed interface GitHubAuthorization {
 internal class HarnessScriptGitHub(
     private val access: HarnessInstanceAccess,
     private val origins: HarnessCallOrigins,
-    private val processes: ScriptProcesses,
+    private val processes: HarnessScriptProcesses,
     private val registry: GitHubRegistry,
     private val host: GitHubHost,
     private val processGate: Mutex,
@@ -110,6 +111,11 @@ internal class HarnessScriptGitHub(
         if (operation.sameRequest(candidate)) replay(operation) else refused(GitHubWriteRefusal.KeyConflict)
 
     private suspend fun fresh(record: ProcessRecord, candidate: GitHubOperation): GitHubWriteResult {
+        // Preflight and response checks cannot condition mutable remote refs on the approved SHA.
+        // Keep historical reservations readable, but never create new unsafe decisions or reservations.
+        if (candidate.change is GitHubChange.Dispatch || candidate.change is GitHubChange.CreateRelease) {
+            return refused(GitHubWriteRefusal.UnsafeReference)
+        }
         if (record.inputRevision != candidate.inputRevision) return refused(GitHubWriteRefusal.StaleProcess)
         if (!hasGrant(record, candidate)) return refused(GitHubWriteRefusal.NotAuthorized)
         val authorization = if (candidate.change.isOrdinary()) {
@@ -120,7 +126,8 @@ internal class HarnessScriptGitHub(
             )
         }
         if (authorization is GitHubAuthorization.Stopped) return authorization.result
-        val admitted = candidate.copy(decisionId = (authorization as GitHubAuthorization.Allowed).decisionId)
+        val allowed = authorization as GitHubAuthorization.Allowed
+        val admitted = candidate.copy(decisionId = allowed.decisionId, decisionBinding = allowed.binding)
         // A pre-existing local key belongs to an operation outside this registry. Never infer it is ours.
         if (record.writes.any { it.key == candidate.key }) return refused(GitHubWriteRefusal.KeyConflict)
         return when (val reservation = registry.reserve(admitted)) {
@@ -185,7 +192,8 @@ internal class HarnessScriptGitHub(
     private suspend fun replay(operation: GitHubOperation): GitHubWriteResult = when {
         operation.refusal != null -> refused(operation.refusal)
 
-        operation.result != null -> confirm(operation, operation.result)
+        // ScriptData is not a host receipt. Privileged decisions require fresh remote proof on every replay.
+        operation.result != null && operation.change.isOrdinary() -> confirm(operation, operation.result)
 
         else -> {
             val result = guardedEvidence { reconciliation.find(operation) }
@@ -197,15 +205,17 @@ internal class HarnessScriptGitHub(
         // Persist the result first: a crash before ConfirmWrite replays the same immutable external identity.
         registry.settle(operation, result = result)
         if (!operation.change.isOrdinary()) authority.complete(operation)
-        val record = processes.get(operation.process)
-        val local = record?.takeIf { it.incarnation == operation.incarnation }?.writes?.firstOrNull {
-            it.key ==
-                operation.key
-        }
-        if (local != null && (local.isUnresolved || local.phase == WritePhase.Confirmed(result))) {
-            val confirmed = processes.apply(operation.process, ProcessCommand.ConfirmWrite(operation.key, result))
-            check(confirmed !is ProcessReduction.Rejected) { "GitHub local confirmation was refused" }
-        }
+        val confirmed = processes.confirmHostWrite(
+            HostWriteConfirmation(
+                operation.process,
+                operation.incarnation,
+                operation.key,
+                ResultRef("github_operation", operation.marker),
+                operation.change.authority(),
+                result,
+            ),
+        )
+        check(confirmed !is ProcessReduction.Rejected) { "GitHub local confirmation was refused" }
         return GitHubWriteResult.Confirmed(result)
     }
 

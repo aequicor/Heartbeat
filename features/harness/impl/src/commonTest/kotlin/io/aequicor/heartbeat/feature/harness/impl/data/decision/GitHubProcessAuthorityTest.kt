@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionEdit
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionPhase
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubChange
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubQuery
+import io.aequicor.heartbeat.feature.harness.api.github.GitHubWriteRefusal
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubWriteResult
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.StageName
@@ -154,7 +155,7 @@ class GitHubProcessAuthorityTest {
     }
 
     @Test
-    fun `release and dispatch carry their exact payload through the native decision`() = runTest {
+    fun `release and dispatch are refused before a native decision or reservation`() = runTest {
         val changes = listOf(
             GitHubChange.CreateRelease("v1", DECISION_HEAD, "private release notes"),
             GitHubChange.Dispatch(42, "master", DECISION_HEAD, mapOf("target" to "production")),
@@ -162,21 +163,23 @@ class GitHubProcessAuthorityTest {
         for (change in changes) {
             val fixture = GitHubDecisionTestEnv(this)
             fixture.initialize()
-            fixture.approve(change)
-            fixture.write(change)
-            assertEquals(change, fixture.env.host.ready()!!.entries.single().github?.change)
-            assertEquals(1, fixture.remote.writes)
+            assertEquals(GitHubWriteResult.Refused(GitHubWriteRefusal.UnsafeReference), fixture.write(change))
+            assertTrue(fixture.env.host.ready()!!.entries.isEmpty())
+            assertNull(fixture.env.scriptData.read("hb_github").value)
+            assertTrue(fixture.env.processes.get(fixture.env.process)!!.writes.isEmpty())
+            assertEquals(0, fixture.remote.writes)
         }
     }
 
     @Test
-    fun `dispatch input ordering cannot issue another decision for the same payload`() = runTest {
+    fun `dispatch input ordering cannot bypass the unsafe reference refusal`() = runTest {
         val fixture = GitHubDecisionTestEnv(this)
         fixture.initialize()
         val first = GitHubChange.Dispatch(42, "master", DECISION_HEAD, linkedMapOf("a" to "1", "b" to "2"))
         val second = first.copy(inputs = linkedMapOf("b" to "2", "a" to "1"))
-        assertEquals(fixture.write(first), fixture.write(second))
-        assertEquals(1, fixture.env.host.ready()!!.entries.size)
+        assertEquals(GitHubWriteResult.Refused(GitHubWriteRefusal.UnsafeReference), fixture.write(first))
+        assertEquals(GitHubWriteResult.Refused(GitHubWriteRefusal.UnsafeReference), fixture.write(second))
+        assertTrue(fixture.env.host.ready()!!.entries.isEmpty())
         assertNull(fixture.env.scriptData.read("hb_github").value)
     }
 

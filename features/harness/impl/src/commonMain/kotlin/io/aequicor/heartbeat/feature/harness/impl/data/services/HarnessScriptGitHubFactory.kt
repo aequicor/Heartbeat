@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
-import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
 import io.aequicor.heartbeat.feature.harness.impl.data.decision.GitHubProcessAuthorityFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubApi
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubHost
@@ -17,6 +16,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubTransport
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.HarnessScriptGitHub
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import kotlinx.coroutines.sync.Mutex
 import kotlin.time.Clock
 
@@ -43,7 +43,7 @@ internal class HarnessScriptGitHubFactory(
         request: HarnessActivationRequest,
         access: HarnessInstanceAccess,
         data: ScriptData,
-        processes: ScriptProcesses,
+        processes: HarnessScriptProcesses,
         processGate: Mutex,
     ): HarnessScriptGitHub = HarnessScriptGitHub(
         access,

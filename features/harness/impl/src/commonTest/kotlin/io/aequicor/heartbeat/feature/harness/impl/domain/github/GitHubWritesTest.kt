@@ -135,6 +135,25 @@ class GitHubWritesTest {
     }
 
     @Test
+    fun `cached GitHub result never settles another target reusing an evicted local key`() = runTest {
+        val env = ProcessesTestEnv(this)
+        env.processes.open(PROCESS)
+        env.processes.apply(PROCESS, ProcessCommand.Grant(ProcessAuthority.Write))
+        val github = service(env, IssueGitHub())
+        val original = github.write(PROCESS, 0, KEY, REPOSITORY, CHANGE)
+        repeat(9) { index ->
+            github.write(PROCESS, 0, WriteKey("evict_$index"), REPOSITORY, CHANGE)
+        }
+        env.processes.apply(
+            PROCESS,
+            ProcessCommand.BeginWrite(KEY, ProcessAuthority.Write, ResultRef("other_system", "another_call")),
+        )
+        val foreign = env.processes.get(PROCESS)!!.write(KEY)
+        assertEquals(original, github.reconcile(PROCESS, KEY))
+        assertEquals(foreign, env.processes.get(PROCESS)!!.write(KEY))
+    }
+
+    @Test
     fun `script grants never authorize merge release or workflow execution`() = runTest {
         val env = ProcessesTestEnv(this)
         env.processes.open(PROCESS)
@@ -148,10 +167,12 @@ class GitHubWritesTest {
             GitHubChange.CreateRelease("v1", sha, ""),
             GitHubChange.Dispatch(1, "master", sha),
         )) {
-            assertEquals(
-                GitHubWriteResult.Refused(GitHubWriteRefusal.NotAuthorized),
-                github.write(PROCESS, 0, KEY, REPOSITORY, change),
-            )
+            val refusal = if (change is GitHubChange.Merge) {
+                GitHubWriteRefusal.NotAuthorized
+            } else {
+                GitHubWriteRefusal.UnsafeReference
+            }
+            assertEquals(GitHubWriteResult.Refused(refusal), github.write(PROCESS, 0, KEY, REPOSITORY, change))
         }
         assertTrue(remote.calls.isEmpty())
     }

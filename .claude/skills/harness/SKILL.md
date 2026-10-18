@@ -140,12 +140,18 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   без вытеснения, общая квота байтов. `Unknown` допускает только чтение/сверку, отсутствие или неполная/неоднозначная
   страница не разрешает повтор. Ключи и корреляция сохраняются после вытеснения восьми слотов `ProcessRecord`.
   Допуск записи проверяется после API-очереди под общим processMutex; смена ревизии/закрытие не обгоняют отправку.
-  Merge/release/dispatch требуют независимого host-owned допуска, самодекларации `ProcessAuthority` недостаточно;
+  Merge требует независимого host-owned допуска, самодекларации `ProcessAuthority` недостаточно;
+  новые Dispatch/CreateRelease возвращают UnsafeReference до reservation/decision/send: branch/tag REST API не
+  гарантирует атомарный expected SHA. Legacy unknown операции остаются read/reconcile only.
   `GitHubActionContext` связывает фактический workspace и process stage/attempt с типизированным payload, ключом,
   revision и SHA. Native decision хранится отдельно от ScriptData в общем с командами журнале #472; Pending не
   резервирует внешнюю запись. Claim выполняется после API-очереди с повторной проверкой scope/origin/HEAD и процесса;
   consumed identity не позволяет повтор даже после сброса hb_github. Завершает исходное решение только доказанный
-  Confirmed/reconcile, а не возврат транспорта. Нужны оба toggles harness.github и harness.process_actions.
+  Confirmed/reconcile, а не возврат транспорта. Host Complete требует свежего remote evidence и полного исходного
+  binding; script-owned cached result не считается host receipt. Локальный ConfirmWrite атомарно сверяет incarnation,
+  key, authority и marker target. Нужны оба toggles harness.github и harness.process_actions.
+  `GitHubObservation.current` недоступен при равновременном конфликте; persisted ambiguity разрешается только
+  `refresh` из последовательно ожидаемого свежего чтения, не очередным event/cached page.
   Ни текст, ни маркер операции не являются разрешением.
   Приватные payload и идентификаторы скрыты в `toString`, тела и диагностики gh не логируются.
 - UI (`impl/ui`) не импортирует `harness:api`: только презентационные модели (`presentation/HarnessUiModels.kt`).

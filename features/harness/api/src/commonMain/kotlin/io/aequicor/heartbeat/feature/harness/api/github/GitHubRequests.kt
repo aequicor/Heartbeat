@@ -134,7 +134,9 @@ public sealed interface GitHubChange {
     }
 
     /**
-     * Dispatch a branch or tag expecting an exact commit. A moved ref never confirms as the expected run.
+     * Description of a dispatch for exact run evidence and reconciliation. New dispatches are currently refused
+     * with [GitHubWriteRefusal.UnsafeReference]: GitHub accepts a mutable branch or tag without an expected-SHA
+     * condition, so preflight and response checks cannot ensure execution of the approved code.
      * [correlationInput], if provided, must be declared by the workflow;
      * the host injects its operation marker there. Lost responses remain Unknown unless exact evidence is found.
      */
@@ -155,7 +157,10 @@ public sealed interface GitHubChange {
         override fun toString(): String = "GitHubChange.Merge(***)"
     }
 
-    /** Create a draft release after host-owned admission; tag must already resolve to [head]. */
+    /**
+     * Description of a draft release for exact tag evidence and reconciliation. New releases are currently
+     * refused with [GitHubWriteRefusal.UnsafeReference]: GitHub cannot atomically require the tag to equal [head].
+     */
     @Serializable
     public data class CreateRelease(val tag: String, val head: SubjectSha, val body: String) : GitHubChange {
         override fun toString(): String = "GitHubChange.CreateRelease(***)"

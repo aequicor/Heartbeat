@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.github
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessActionBinding
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubActionContext
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubChange
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubRepository
@@ -123,6 +124,7 @@ internal data class GitHubOperation(
     val refusal: GitHubWriteRefusal? = null,
     val context: GitHubActionContext? = null,
     val decisionId: String? = null,
+    val decisionBinding: ProcessActionBinding? = null,
 ) {
     fun sameRequest(other: GitHubOperation): Boolean = process == other.process && incarnation == other.incarnation &&
         inputRevision == other.inputRevision && key == other.key && repository == other.repository &&
