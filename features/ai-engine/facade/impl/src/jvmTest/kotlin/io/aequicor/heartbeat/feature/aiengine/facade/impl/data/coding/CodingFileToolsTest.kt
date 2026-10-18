@@ -75,7 +75,7 @@ class CodingFileToolsTest {
     @Test
     fun onlyWritesAreMutating() {
         assertEquals(
-            setOf("write_file", "edit_file"),
+            setOf("write_file", "edit_file", "delete_file", "move_file"),
             tools.values.filter(CodingTool::isMutating).map { it.descriptor.name }.toSet(),
         )
     }
