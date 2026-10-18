@@ -54,19 +54,21 @@ internal class StudioOrganisms(
         require(!isWorktree) { "An organism does not run in an isolated checkout" }
         require(request.goal.length <= OrganismBounds.MAX_GOAL) { "The goal is too long for an organism" }
         // The user's own pick for this submission, never text of the prompt: only the claim proves its origin.
-        val chosen = harnesses.preselected(request.submissionId)[HarnessTools.GROUP].orEmpty()
-        require(isValidHarnessChoice(chosen)) { "The harness choice is more than an organism can hold" }
+        val harnessChoice = harnesses.preselected(request.submissionId)[HarnessTools.GROUP].orEmpty()
+        require(isValidHarnessChoice(harnessChoice)) { "The harness choice is not one an organism can hold" }
         target(request.settings.modelId, stored = null)
         living()
-        return OrganismAdmission(chat, chosen)
+        return OrganismAdmission(chat, harnessChoice)
     }
 
     /**
      * Conceives the organism of [chat] from its first message, or submits a follow-up to its completed zygote.
      * The chat never gets a native session of its own. Null for an ordinary chat. The machine owns acceptance;
      * rejected messages keep the caller's draft. Each turn retains its own [attachments] through recovery.
-     * A new organism takes the harness choice its chat was created with; a follow-up changes nothing. The claim of
-     * [submissionId] is released here, whether or not the organism was conceived.
+     * A new organism takes the harness choice its chat was created with; a follow-up changes nothing. The claim of an
+     * organism chat under [submissionId] is released here, whether or not the organism was conceived; an ordinary chat
+     * keeps its claim for its own turn. The choice is not shown again in the chat of an organism that is not yet
+     * conceived: it lives with the chat record until the organism takes it.
      * Fails when organic AI is off/asleep, the organism is busy/aborted, or input is invalid.
      */
     suspend fun submit(

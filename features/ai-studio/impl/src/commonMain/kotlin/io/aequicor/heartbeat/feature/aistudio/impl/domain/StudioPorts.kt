@@ -155,7 +155,7 @@ interface StudioBackend {
  * The organism a new chat is created for: it grows from [goal] on [settings]. The harness choice of the composer
  * travels as the claim of [submissionId]; the chat keeps it from its creation on.
  */
-data class OrganismRequest(val goal: String, val settings: RunSettings, val submissionId: String = "")
+data class OrganismRequest(val goal: String, val settings: RunSettings, val submissionId: String)
 
 /** The organism [this] creation asks for, if it is one. */
 internal fun AiStudioEffect.CreateSession.organism(): OrganismRequest? =

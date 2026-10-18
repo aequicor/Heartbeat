@@ -60,6 +60,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
@@ -69,6 +70,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.organism
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.organicai.api.Cell
@@ -98,9 +100,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
@@ -178,13 +182,50 @@ class StudioOrganismsTest {
         val organisms = StudioOrganisms(Registry(OrganicMachine(OrganicAiState.Living())), selections, claims)
         val other = OrganismRequest("Build", settings, "send-1")
         assertEquals(emptySet(), organisms.admit("chat-1", other, isWorktree = false).harnesses)
-        val unnamed = OrganismRequest("Build", settings)
+        val unnamed = OrganismRequest("Build", settings, "")
         assertEquals(emptySet(), organisms.admit("chat-1", unnamed, isWorktree = false).harnesses)
         val machine = OrganicMachine(OrganicAiState.Living())
         val conceiving = StudioOrganisms(Registry(machine), selections, claims)
         conceiving.submit(chat, "Build it", settings, emptyList(), "send-1") {}
         assertEquals(emptySet(), (machine.sent.single() as OrganicAiIntent.Public.Conceive).conception.harnesses)
         assertEquals(listOf("send-1"), claims.released)
+    }
+
+    @Test
+    fun `the creation of an organism chat carries its submission id to the admission`() {
+        val creation = AiStudioEffect.CreateSession(
+            paneId = 1,
+            projectId = null,
+            prompt = "Build it",
+            settings = settings,
+            requestId = 7,
+            submissionId = "send-1",
+            isOrganism = true,
+        )
+        assertEquals(OrganismRequest("Build it", settings, "send-1"), creation.organism())
+        assertNull(creation.copy(isOrganism = false).organism())
+    }
+
+    @Test
+    fun `an admitted chat holds its organism id and the choice for every attempt to conceive it`() {
+        val admission = OrganismAdmission("chat-1", setOf("compose", "verify"))
+        val admitted = admission.on(chat.copy(organismId = null))
+        assertEquals("chat-1", admitted.organismId)
+        assertEquals(setOf("compose", "verify"), admitted.organismHarnesses)
+    }
+
+    @Test
+    fun `the choice of a chat survives its record being written and read and is absent otherwise`() {
+        val json = Json
+        val record = OrganismAdmission("chat-1", setOf("compose")).on(chat.copy(organismId = null))
+        val written = json.encodeToString(StudioChatRecord.serializer(), record)
+        assertTrue("organismHarnesses" in written)
+        assertEquals(record, json.decodeFromString(StudioChatRecord.serializer(), written))
+
+        val plain = json.encodeToString(StudioChatRecord.serializer(), chat)
+        assertFalse("organismHarnesses" in plain)
+        val legacy = json.decodeFromString(StudioChatRecord.serializer(), plain)
+        assertEquals(emptySet(), legacy.organismHarnesses)
     }
 
     @Test
@@ -243,7 +284,7 @@ class StudioOrganismsTest {
     fun `an organism chat is admitted only when its organism could be conceived`() = runTest {
         val organisms = { machine: OrganicMachine? -> StudioOrganisms(Registry(machine), selections, claims) }
         val living = organisms(OrganicMachine(OrganicAiState.Living()))
-        val request = OrganismRequest("Build", settings)
+        val request = OrganismRequest("Build", settings, "")
         assertEquals(OrganismAdmission("chat-2", emptySet()), living.admit("chat-2", request, isWorktree = false))
         val long = request.copy(goal = "x".repeat(MAX_GOAL + 1))
         assertFailsWith<IllegalArgumentException> { living.admit("chat-2", long, isWorktree = false) }
