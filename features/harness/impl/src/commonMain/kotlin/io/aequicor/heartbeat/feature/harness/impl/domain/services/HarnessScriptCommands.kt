@@ -7,12 +7,17 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.ItemName
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessCommandSnapshot
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommand
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommandRefusal
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommandResult
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommands
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcessCommandResult
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptRegistration
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
+import io.aequicor.heartbeat.feature.harness.impl.domain.decision.HarnessProcessCommandHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessCommandInvocation
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandOutcome
@@ -37,6 +42,7 @@ internal data class HarnessCommandHost(
     val scopes: HarnessCreationScope,
     val slots: HarnessCommandRuns,
     val origins: HarnessCallOrigins,
+    val processes: HarnessProcessCommandHost? = null,
     val isEnabled: suspend () -> Boolean,
 )
 
@@ -101,6 +107,53 @@ internal class HarnessScriptCommands(
         return result
     }
 
+    override suspend fun runForProcess(
+        name: ItemName,
+        workspace: WorkspaceRef?,
+        process: ProcessWorkflowKey,
+        parameters: Map<String, String>,
+    ): ScriptProcessCommandResult {
+        check(!host.origins.current().isHookRestricted) { "Hooks cannot run commands" }
+        check(access.isActive) { "Commands require the published activation" }
+        val call = processInvocation(name, workspace, process, parameters)
+            ?: return ScriptProcessCommandResult.Unavailable
+        val executor = host.processes
+        val isAvailable = executor != null && host.isEnabled() && host.commands.isAvailable
+        val isAdmitted = isAvailable && scopeRefusal(call.workspace) == null
+        return if (!isAdmitted || !host.slots.tryAcquire(request.harness.id)) {
+            ScriptProcessCommandResult.Unavailable
+        } else {
+            try {
+                executor.execute(call)
+            } finally {
+                host.slots.release(request.harness.id)
+            }
+        }
+    }
+
+    private fun processInvocation(
+        name: ItemName,
+        workspace: WorkspaceRef?,
+        process: ProcessWorkflowKey,
+        parameters: Map<String, String>,
+    ): ProcessCommandInvocation? {
+        val command = state.value.commands[name] ?: return null
+        val arguments = command.arguments(parameters.toMap())
+        val authority = command.requiresDecision
+        return if (arguments == null || authority == null || workspace == null) {
+            null
+        } else {
+            ProcessCommandInvocation(
+                request,
+                access,
+                process,
+                workspace,
+                authority,
+                ProcessCommandSnapshot(command.program, arguments, command.timeout.inWholeMilliseconds),
+            )
+        }
+    }
+
     private suspend fun admitted(
         name: ItemName,
         workspace: WorkspaceRef?,
@@ -112,6 +165,7 @@ internal class HarnessScriptCommands(
             !host.isEnabled() -> ScriptCommandRefusal.Disabled
             !host.commands.isAvailable -> ScriptCommandRefusal.Unsupported
             command == null -> ScriptCommandRefusal.NotDefined
+            command.requiresDecision != null -> ScriptCommandRefusal.DecisionRequired
             arguments == null -> ScriptCommandRefusal.InvalidParameter
             workspace == null -> ScriptCommandRefusal.NoProject
             else -> scopeRefusal(workspace)
@@ -171,7 +225,7 @@ private fun ScriptCommand.arguments(values: Map<String, String>): List<String>? 
     return if (isValid) arguments.map { argument -> placeholder(argument)?.let(values::get) ?: argument } else null
 }
 
-private fun LocalCommandOutcome.result(): ScriptCommandResult = when (this) {
+internal fun LocalCommandOutcome.result(): ScriptCommandResult = when (this) {
     is LocalCommandOutcome.Exited -> ScriptCommandResult.Exited(exitCode, output)
     is LocalCommandOutcome.TimedOut -> ScriptCommandResult.TimedOut(output)
     LocalCommandOutcome.NoProject -> ScriptCommandResult.Refused(ScriptCommandRefusal.NoProject)

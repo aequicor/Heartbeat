@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -136,6 +137,7 @@ class MachineOrganismHostTest {
         assertEquals(target, conception.immunityTarget)
         assertEquals(WorkspaceRef("project"), conception.workspace)
         assertEquals(TrustLevel.Ask, conception.trust)
+        assertEquals(AgentToolDecisionMode.AutomaticSafety, conception.decisionMode)
     }
 
     @Test

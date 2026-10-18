@@ -180,6 +180,7 @@ internal class CellDriver(
             cell.configuration?.reasoningEffort,
             organism.target?.takeIf { it != target },
             organism.harnesses,
+            organism.decisionMode,
         )
     }
 

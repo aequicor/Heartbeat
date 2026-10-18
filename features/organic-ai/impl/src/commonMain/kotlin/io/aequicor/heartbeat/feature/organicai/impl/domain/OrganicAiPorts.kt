@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.organicai.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
@@ -57,6 +58,8 @@ internal data class CellRoute(
     val reviewTarget: EngineTarget? = null,
     /** The organism's harness choice ([Organism.harnesses]); the session is opened with it, never a subset. */
     val harnesses: Set<String> = emptySet(),
+    /** Durable host policy of the organism, applied to every submitted turn. */
+    val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
 )
 
 /** Own checkouts of the cells of sandbox organisms; worktree mode owns the checkouts, their branches and runs. */

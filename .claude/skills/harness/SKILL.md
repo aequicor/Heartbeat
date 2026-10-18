@@ -91,9 +91,18 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   параметр — только целый аргумент `{name}` с полным совпадением regex. `run` проверяет опубликованную активацию,
   тогл, платформу, область проекта харнесса (`HarnessCreationScope`, worktree → исходный проект) и
   `HarnessLimits.COMMAND_RUNS` на харнесс, запрещён из хуков; запуск — `LocalCommands` (`scheduler:api`).
-  Ревью исходника — единственная проверка команд (`HARNESS_COMMANDS_POLICY` и для агентских правок, и для
+  Для unguarded-деклараций ревью исходника — единственная проверка команд (`HARNESS_COMMANDS_POLICY` и для агентских правок, и для
   конфигурации проекта): нажатия, таймеры и события не перепроверяются. Прямой `ProcessBuilder` — риск для ревьюера.
   Логируются только харнесс, итог и длительность, без программы, параметров и вывода.
+- Защищённые команды процесса (`ScriptCommand.requiresDecision`, тогл `harness.process_actions`, default false) обычный
+  `commands.run` не исполняет. `runForProcess` сам строит и сверяет точный снимок с текущим HEAD, GitHub origin,
+  worktree, lifetime/attempt/input, approved source revision, argv и timeout; запрос и одноразовый Claim хранит хост
+  отдельно от `ScriptData` в зашифрованном профильном журнале (256 записей / 1 МиБ, без вытеснения consumed identity).
+  Решение — только нативный экран деталей харнесса. `ui_call`, callback, события, GitHub и `ProcessCommand.Grant`
+  не одобряют запрос. Claim — необратимый допуск: после него отзыв не обещается; неопределённый исход требует сверки.
+  Это exact-command consent, а не доказательство семантики authority: source review требует conditional external write
+  с тем же полным SHA и отклоняет альтернативный unguarded/ProcessBuilder путь. Kotlin runtime не sandbox.
+  Raw `ScriptData.write(hb_processes)` берёт общий processMutex; host processData пишет под уже взятым барьером.
 - Логи: никогда не логируются исходники, тексты, payload, wake note, диагностика компилятора и сообщения
   исключений скриптов — только класс исключения. Частые события — `log.v` и `@HighFrequency`.
 - Данные `ScriptData` принадлежат харнессу целиком и сохраняются в профильном `SecretStore`; ключ не содержит

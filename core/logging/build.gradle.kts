@@ -5,6 +5,9 @@ plugins {
 
 kotlin {
     sourceSets {
+        jvmMain.dependencies {
+            implementation(libs.slf4j.api)
+        }
         commonMain.dependencies {
             // implementation: Napier не должен быть виден за пределами core:logging (RawLoggingCall)
             implementation(libs.napier)

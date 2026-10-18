@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.LogLevel
+import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
@@ -28,6 +31,32 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CodexSessionObservationTest {
+    @Test
+    fun `closing runtime ends tree observation without failure warnings`() = runTest {
+        val warnings = mutableListOf<String>()
+        Log.init(
+            isDebug = false,
+            sinks = listOf(
+                LogSink { level, tag, _, message ->
+                    if (level == LogLevel.WARNING && tag in setOf("CodexRuntime", "CodexSessionTrees")) {
+                        warnings += message
+                    }
+                },
+            ),
+        )
+        try {
+            val fixture = ObservationFixture(Fixture(this))
+            val observation = backgroundScope.launch { fixture.observe().collect {} }
+            runCurrent()
+            fixture.fixture.runtime.close()
+            runCurrent()
+            assertTrue(warnings.isEmpty())
+            observation.cancel()
+        } finally {
+            Log.init(isDebug = false)
+        }
+    }
+
     @Test
     fun `completed tree waits for events then resumes polling a new root turn`() = runTest {
         val fixture = ObservationFixture(Fixture(this))
