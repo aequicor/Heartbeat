@@ -19,7 +19,10 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessEnd
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
 import io.aequicor.heartbeat.feature.harness.api.process.StageName
 import io.aequicor.heartbeat.feature.harness.api.process.workflowKey
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflowCancellation
@@ -74,6 +77,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowLibrar
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -86,12 +90,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
@@ -181,7 +187,7 @@ private object ScriptInstance : HarnessInstanceAccess {
 private class LaunchFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher) {
     val clock = RunDeliveryClock()
     private val stored = KeyValueHarnessRunStorage(RunDeliveryTestStore(clock), clock, Dispatchers.Unconfined)
-    var beforeSave: () -> Unit = {}
+    var beforeSave: suspend () -> Unit = {}
     var afterSave: () -> Unit = {}
     val storage = object : HarnessRunStorage by stored {
         override suspend fun save(run: WorkflowRun, expectedGeneration: Long?): Boolean {
@@ -317,6 +323,41 @@ private val HARNESS = Harness(
 )
 
 class ProcessWorkflowLaunchesTest {
+    @Test
+    fun `closing an attempt waits for its reserved workflow dispatch`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = ProtectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            data.processMutex,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+        )
+        val saving = CompletableDeferred<Unit>()
+        val continueSave = CompletableDeferred<Unit>()
+        fixture.beforeSave = {
+            saving.complete(Unit)
+            continueSave.await()
+        }
+        val start = async { host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin()) }
+        saving.await()
+        val close = async { processes.apply(key.process, ProcessCommand.Close(ProcessEnd.Completed)) }
+        runCurrent()
+        assertFalse(close.isCompleted)
+        continueSave.complete(Unit)
+        assertEquals(start.await(), fixture.storage.load().single().id)
+        assertIs<ProcessReduction.Changed>(close.await())
+    }
+
     @Test
     fun `a reserved attempt can be cancelled before its journal is created`() = runTest {
         val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))

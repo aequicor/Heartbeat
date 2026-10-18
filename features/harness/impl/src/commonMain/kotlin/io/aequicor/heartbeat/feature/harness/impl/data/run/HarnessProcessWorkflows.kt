@@ -42,7 +42,6 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
@@ -66,7 +65,6 @@ internal class HarnessProcessWorkflows(
     private val runs: Lazy<HarnessRunsMachine>,
     private val clock: Clock,
 ) {
-    private val lock = Mutex()
     private val log = Log.tag("HarnessProcessWorkflow")
 
     suspend fun start(
@@ -75,7 +73,7 @@ internal class HarnessProcessWorkflows(
         name: ItemName,
         input: JsonObject,
         origin: HarnessCallOrigin,
-    ): RunId = lock.withLock {
+    ): RunId = data.processMutex.withLock {
         checkAccess(owner)
         check(!origin.isHookRestricted) { "Hooks cannot start workflows" }
         val processes = processes(owner)
@@ -103,7 +101,7 @@ internal class HarnessProcessWorkflows(
                 )
         ).encodeUtf8().sha256().hex()
         val proposal = ProcessWorkflow(RunId("wf_" + Uuid.random().toHexString()), owner.request.item.id, digest)
-        val reduction = processes.apply(
+        val reduction = processes.applyHost(
             key.process,
             ProcessCommand.StartWorkflow(key, proposal, record.inputRevision, record.subject),
         )
@@ -155,7 +153,7 @@ internal class HarnessProcessWorkflows(
     }
 
     suspend fun cancel(owner: HarnessInstanceTarget, key: ProcessWorkflowKey): ScriptWorkflowCancellation =
-        lock.withLock {
+        data.processMutex.withLock {
             checkAccess(owner)
             try {
                 cancelOwned(owner, key)
@@ -193,7 +191,7 @@ internal class HarnessProcessWorkflows(
         claim: ProcessWorkflow,
     ): ScriptWorkflowCancellation {
         val outcome = AttemptOutcome.Failed(AttemptFailure.Cancelled)
-        val result = processes.apply(key.process, ProcessCommand.CancelWorkflow(key, claim))
+        val result = processes.applyHost(key.process, ProcessCommand.CancelWorkflow(key, claim))
         // Missing protected journal proves no native submission; closing this attempt prevents any later dispatch.
         return when {
             result is ProcessReduction.Changed -> ScriptWorkflowCancellation.Finished
@@ -274,6 +272,7 @@ internal class HarnessProcessWorkflows(
     private fun processes(owner: HarnessInstanceTarget): HarnessScriptProcesses = HarnessScriptProcesses(
         HarnessScriptData(owner.request.harness.id, owner.access, data),
         clock,
+        data.processMutex,
     )
 
     private fun checkAccess(owner: HarnessInstanceTarget) {

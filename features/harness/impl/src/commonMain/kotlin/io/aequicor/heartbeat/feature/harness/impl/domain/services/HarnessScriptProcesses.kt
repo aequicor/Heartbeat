@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.feature.harness.api.process.reduce
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -29,7 +31,11 @@ import kotlin.uuid.Uuid
  * on a concurrent write. Nothing that was stored is ever logged; unreadable content surfaces as a generic failure
  * and, being one envelope, makes the whole set unreadable until the [STORAGE_KEY] entry is deleted.
  */
-internal class HarnessScriptProcesses(private val data: ScriptData, private val clock: Clock) : ScriptProcesses {
+internal class HarnessScriptProcesses(
+    private val data: ScriptData,
+    private val clock: Clock,
+    private val gate: Mutex = Mutex(),
+) : ScriptProcesses {
     private val log = Log.tag("HarnessScriptProcesses")
 
     override suspend fun get(id: ProcessId): ProcessRecord? = decode(data.read(STORAGE_KEY).value).firstOrNull {
@@ -38,7 +44,7 @@ internal class HarnessScriptProcesses(private val data: ScriptData, private val 
 
     override suspend fun list(): List<ProcessRecord> = decode(data.read(STORAGE_KEY).value)
 
-    override suspend fun open(id: ProcessId, inputRevision: Long): ProcessRecord {
+    override suspend fun open(id: ProcessId, inputRevision: Long): ProcessRecord = gate.withLock {
         require(inputRevision >= 0) { "Invalid input revision" }
         var opened: ProcessRecord? = null
         var isCreated = false
@@ -62,10 +68,15 @@ internal class HarnessScriptProcesses(private val data: ScriptData, private val 
             }
         }
         if (isCreated) log.i { "process opened" } else log.v { "process already open" }
-        return checkNotNull(opened) { "Process was not opened" }
+        checkNotNull(opened) { "Process was not opened" }
     }
 
-    override suspend fun apply(id: ProcessId, command: ProcessCommand): ProcessReduction {
+    override suspend fun apply(id: ProcessId, command: ProcessCommand): ProcessReduction = gate.withLock {
+        applyHost(id, command)
+    }
+
+    /** The host holds [gate] across reservation, journal write and dispatch. */
+    suspend fun applyHost(id: ProcessId, command: ProcessCommand): ProcessReduction {
         var outcome: ProcessReduction = ProcessReduction.Rejected(ProcessRejection.UnknownProcess)
         data.update(STORAGE_KEY) { current ->
             val records = decode(current)
@@ -89,7 +100,7 @@ internal class HarnessScriptProcesses(private val data: ScriptData, private val 
         return result
     }
 
-    override suspend fun remove(id: ProcessId): Boolean {
+    override suspend fun remove(id: ProcessId): Boolean = gate.withLock {
         var isStored = false
         var isRemoved = false
         data.update(STORAGE_KEY) { current ->
@@ -108,7 +119,7 @@ internal class HarnessScriptProcesses(private val data: ScriptData, private val 
             !isRemoved -> log.v { "process removal refused" }
             else -> log.v { "process to remove is not stored" }
         }
-        return isRemoved
+        isRemoved
     }
 
     private fun ProcessRecord.isRemovable(): Boolean = phase is ProcessPhase.Ended && unresolvedWrites().isEmpty()

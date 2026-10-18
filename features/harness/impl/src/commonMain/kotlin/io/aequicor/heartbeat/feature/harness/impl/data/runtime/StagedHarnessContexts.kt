@@ -60,7 +60,7 @@ internal class StagedHarnessContexts(
                 workflows.create(request, access),
                 sessions.create(request, access),
                 scriptData,
-                HarnessScriptProcesses(scriptData, clock),
+                HarnessScriptProcesses(scriptData, clock, data.processMutex),
                 commands.create(request, access),
             ),
         )
