@@ -44,7 +44,8 @@ internal const val QUICK_ACTIONS_TAG = "quick-actions"
 /**
  * The quick actions of the canonical app, one row above the chat input, and the notice of the last failure above
  * them. Actions that do not fit the width move into a menu in their declared order. Pressing one asks its
- * confirmation first; the press goes to the owner's methods through the app, never to the chat input.
+ * confirmation first; the press goes to the owner's methods through the app, never to the chat input. Open
+ * confirmations and menus are revoked when the execution authority changes.
  */
 @Composable
 internal fun QuickActionsView(
@@ -74,12 +75,13 @@ internal fun QuickActionsView(
 
 @Composable
 private fun QuickActionRow(state: AppQuickActionsUi, onIntent: (PlaceIntent) -> Unit) {
-    var confirming by remember { mutableStateOf<String?>(null) }
-    var isMenuOpen by remember { mutableStateOf(false) }
+    var confirming by remember(state.authority) { mutableStateOf<String?>(null) }
+    var isMenuOpen by remember(state.authority) { mutableStateOf(false) }
     val actions = state.actions
     val run = { action: QuickActionUi -> onIntent(PlaceIntent.RunQuickAction(action, state.authority)) }
     val press = { action: QuickActionUi -> if (action.confirm == null) run(action) else confirming = action.id }
     val moreLabel = stringResource(Res.string.service_ui_quick_actions_more)
+    val busyLabel = stringResource(Res.string.service_ui_busy)
     OverflowRow(
         count = actions.size,
         gap = HbTheme.spacing.s,
@@ -88,7 +90,7 @@ private fun QuickActionRow(state: AppQuickActionsUi, onIntent: (PlaceIntent) -> 
             HbMenuButton(
                 icon = HbIcons.More,
                 contentDescription = moreLabel,
-                items = hidden.map { actions[it].menuItem(state.isAvailable) }.toImmutableList(),
+                items = hidden.map { actions[it].menuItem(state.isAvailable, busyLabel) }.toImmutableList(),
                 isExpanded = isMenuOpen,
                 onExpandedChange = { isMenuOpen = it },
                 onItem = { id -> actions.firstOrNull { it.id == id }?.let(press) },
@@ -133,8 +135,13 @@ private fun QuickActionButton(action: QuickActionUi, isAvailable: Boolean, onPre
     }
 }
 
-private fun QuickActionUi.menuItem(isAvailable: Boolean): HbMenuItem =
-    HbMenuItem(id = id, label = label, icon = iconOf(icon), isEnabled = isEnabled && isAvailable && !isBusy)
+private fun QuickActionUi.menuItem(isAvailable: Boolean, busyLabel: String): HbMenuItem = HbMenuItem(
+    id = id,
+    label = label,
+    icon = iconOf(icon),
+    isEnabled = isEnabled && isAvailable && !isBusy,
+    badge = busyLabel.takeIf { isBusy },
+)
 
 /**
  * [count] items from [item] side by side; the ones that do not fit [overflow] into one trailing control for

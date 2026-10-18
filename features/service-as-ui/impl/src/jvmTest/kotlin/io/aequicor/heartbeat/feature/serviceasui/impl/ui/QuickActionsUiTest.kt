@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.testTag
@@ -114,6 +117,57 @@ class QuickActionsUiTest {
             onNodeWithText("Drop stage two?").assertIsDisplayed()
             onAllNodes(hasText("Drop stage") and hasClickAction()).onLast().performClick()
             assertEquals(listOf<PlaceIntent>(PlaceIntent.RunQuickAction(risky, authority)), intents)
+        }
+
+    @Test
+    fun `changing authority revokes an open confirmation even when the action id is unchanged`() =
+        runSkikoComposeUiTest(size = Size(600f, 400f)) {
+            val intents = mutableListOf<PlaceIntent>()
+            val risky = quick("drop", "Drop stage", ButtonStyleUi.Danger, confirm = "Drop stage two?")
+            var state by mutableStateOf(ui(risky))
+            val replacement = SurfaceInputBinding()
+            setContent { HbTheme(darkTheme = false) { QuickActionsView(state, { intents += it }) } }
+
+            onNodeWithText("Drop stage").performClick()
+            onNodeWithText("Drop stage two?").assertIsDisplayed()
+            runOnIdle { state = state.copy(authority = replacement) }
+
+            onNodeWithText("Drop stage two?").assertDoesNotExist()
+            assertEquals(emptyList(), intents)
+            onNodeWithText("Drop stage").performClick()
+            onNodeWithText("Drop stage two?").assertIsDisplayed()
+            onAllNodes(hasText("Drop stage") and hasClickAction()).onLast().performClick()
+            assertEquals(listOf<PlaceIntent>(PlaceIntent.RunQuickAction(risky, replacement)), intents)
+        }
+
+    @Test
+    fun `changing authority closes the overflow before actions of the new context can be selected`() =
+        runSkikoComposeUiTest(size = Size(190f, 400f)) {
+            val intents = mutableListOf<PlaceIntent>()
+            var state by mutableStateOf(ui(start, review, finish))
+            val replacement = SurfaceInputBinding()
+            setContent { HbTheme(darkTheme = true) { QuickActionsView(state, { intents += it }) } }
+
+            onNodeWithContentDescription("More quick actions").performClick()
+            onNodeWithText("Finish process").assertIsDisplayed()
+            runOnIdle { state = state.copy(authority = replacement) }
+
+            onNodeWithText("Finish process").assertDoesNotExist()
+            assertEquals(emptyList(), intents)
+            onNodeWithContentDescription("More quick actions").performClick()
+            onNodeWithText("Finish process").performClick()
+            assertEquals(listOf<PlaceIntent>(PlaceIntent.RunQuickAction(finish, replacement)), intents)
+        }
+
+    @Test
+    fun `a busy action in overflow shows its running status and stays disabled`() =
+        runSkikoComposeUiTest(size = Size(190f, 400f)) {
+            val busy = finish.copy(isBusy = true)
+            setContent { HbTheme(darkTheme = false) { QuickActionsView(ui(start, review, busy), {}) } }
+
+            onNodeWithContentDescription("More quick actions").performClick()
+            onNodeWithText("Finish process").assertIsNotEnabled()
+            onNodeWithText("Running").assertIsDisplayed()
         }
 
     @Test
