@@ -54,7 +54,15 @@ class HarnessScriptProcessesTest {
     fun `opening creates the process once and returns the stored record`() = runTest {
         val env = ProcessesTestEnv(this)
         val first = env.processes.open(issue, inputRevision = 3)
-        assertEquals(ProcessRecord(issue, Instant.fromEpochSeconds(PROCESS_TEST_START), inputRevision = 3), first)
+        assertEquals(
+            ProcessRecord(
+                issue,
+                Instant.fromEpochSeconds(PROCESS_TEST_START),
+                inputRevision = 3,
+                incarnation = first.incarnation,
+            ),
+            first,
+        )
         env.clock.seconds = PROCESS_TEST_START + 60
 
         val again = env.processes.open(issue, inputRevision = 9)
@@ -238,13 +246,12 @@ class HarnessScriptProcessesTest {
     fun `a change that does not fit the namespace throws and leaves the stored set untouched`() = runTest {
         val secrets = HarnessDataTestSecrets()
         val env = ProcessesTestEnv(this, secrets)
-        // Measure the stored envelope around one character of filler, then fill the namespace so that exactly
-        // FREE_BYTES remain: enough for the first process, not for a second one or a longer record.
+        // Measure the existing process and envelope, then leave too little space for any changed process record.
+        env.processes.open(issue)
         env.data.write("filler", JsonPrimitive("x"), env.data.read("filler").revision)
         val overhead = secrets.values.values.single().encodeToByteArray().size - 1
         val filler = JsonPrimitive("x".repeat(HarnessLimits.DATA_BYTES - overhead - FREE_BYTES))
         assertIs<ScriptDataWriteResult.Written>(env.data.write("filler", filler, env.data.read("filler").revision))
-        env.processes.open(issue)
         val before = env.data.read(STORAGE_KEY)
 
         val failures = listOf(
@@ -353,6 +360,6 @@ class HarnessScriptProcessesTest {
 
     private companion object {
         const val CONCURRENT = 6
-        const val FREE_BYTES = 105
+        const val FREE_BYTES = 16
     }
 }

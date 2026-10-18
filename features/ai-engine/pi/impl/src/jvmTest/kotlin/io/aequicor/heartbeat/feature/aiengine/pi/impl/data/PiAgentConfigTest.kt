@@ -22,6 +22,7 @@ import kotlin.test.assertTrue
 
 class PiAgentConfigTest {
     private val home = Path.of("/data/pi/home")
+    private val patternHome = home.toString().replace('\\', '/')
     private val agentDir = Path.of("/tmp/pi-1")
     private val noSecrets: suspend (String) -> String? = { null }
 
@@ -116,11 +117,11 @@ class PiAgentConfigTest {
         // A relative pattern keeps its file name match and is anchored at the profile home for the relative one.
         assertEquals(
             listOf(
-                "$home/skills",
-                "+$home/local/one",
-                "+$home/local/*.ts",
+                "${home.resolve("skills")}",
+                "+${home.resolve("local/one")}",
+                "+$patternHome/local/*.ts",
                 "!old/**",
-                "!$home/old/**",
+                "!$patternHome/old/**",
                 "/abs/skill",
                 "~/mine",
                 "!/abs/old",
@@ -128,11 +129,18 @@ class PiAgentConfigTest {
             (written.getValue("skills") as JsonArray).toList(),
         )
         assertEquals(
-            listOf("prompts/*.md", "$home/prompts/*.md", "-$home/prompts/draft.md").map(::JsonPrimitive),
+            listOf(
+                "prompts/*.md",
+                "$patternHome/prompts/*.md",
+                "-${home.resolve("prompts/draft.md")}",
+            ).map(::JsonPrimitive),
             (written.getValue("prompts") as JsonArray).toList(),
         )
         // Remote packages load only once installed into the profile home.
-        assertEquals(listOf(JsonPrimitive("$home/pkg")), (written.getValue("packages") as JsonArray).toList())
+        assertEquals(
+            listOf(JsonPrimitive("${home.resolve("pkg")}")),
+            (written.getValue("packages") as JsonArray).toList(),
+        )
         assertTrue(config.isSkillsLoaded && config.isPromptsLoaded && config.isDiscovering)
     }
 
@@ -161,7 +169,12 @@ class PiAgentConfigTest {
         assertEquals(listOf("codemode"), discovering.tools)
         val extensions = json(discovering.files.getValue(SETTINGS_FILE)).getValue("extensions")
         assertEquals(
-            listOf("$home/ext", "-builtin:mcp", "-builtin:tool-search", "-builtin:llama.cpp").map(::JsonPrimitive),
+            listOf(
+                "${home.resolve("ext")}",
+                "-builtin:mcp",
+                "-builtin:tool-search",
+                "-builtin:llama.cpp",
+            ).map(::JsonPrimitive),
             (extensions as JsonArray).toList(),
         )
         assertFalse(

@@ -152,3 +152,4 @@ include(":features:chromium-bridge:api", ":features:chromium-bridge:impl", ":fea
 include(":features:app-update:api", ":features:app-update:impl")
 include(":features:service-as-ui:api", ":features:service-as-ui:impl")
 include(":features:project-config:api", ":features:project-config:impl")
+include(":features:planning-mode:api", ":features:planning-mode:impl")

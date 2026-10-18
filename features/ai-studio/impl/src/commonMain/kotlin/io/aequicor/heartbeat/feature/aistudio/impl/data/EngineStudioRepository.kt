@@ -131,6 +131,7 @@ internal data class StudioChatRecord(
     /** Managed execution identity, distinct from the project's sidebar grouping. */
     val executionWorkspace: WorkspaceRef? = null,
     val worktreeTaskId: String? = null,
+    val virtualParentWorkspace: WorkspaceRef? = null,
     /** Explicit isolation choice; old records without it follow the sandbox toggle when preparation resumes. */
     val isSandbox: Boolean? = null,
     val configuration: StudioSessionSettings? = null,
@@ -165,6 +166,8 @@ internal data class StudioChatRecord(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRepository>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRuntime>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioConfigurationAccess>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioChatModes>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioTurnHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioChatResolver>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioHelperChatWriter>())
@@ -200,7 +203,8 @@ internal class EngineStudioRepository(
     StudioConfigurationAccess,
     StudioChatResolver,
     StudioHelperChatWriter,
-    StudioHelperAccess {
+    StudioHelperAccess,
+    StudioChatModes {
     private val log = Log.tag("EngineStudio")
     private val nativeSession = StudioNativeSessionOperations(learning)
     private val store = stores.keyValue(ChatSpec)
@@ -225,7 +229,6 @@ internal class EngineStudioRepository(
     private val handlesLock = Mutex()
     private val handles = mutableMapOf<String, ActiveSession>()
     private val stopRequests = mutableSetOf<String>()
-
     private val conversationLocks = StudioConversationLocks(handlesLock)
     private val carry = StudioContextCarry(
         conversationLocks,
@@ -377,9 +380,8 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun saveHelper(record: StudioChatRecord) {
-        check(record.helper != null && record.ref == null && record.lastRunRequest == null)
-        log.v { "Persist empty helper identity" }
-        saveConversation(record)
+        log.v { "Save helper workspace" }
+        saveHelperWorkspace(record, workspaces, worktrees, ::saveConversation)
     }
 
     private suspend fun saveConversation(changed: StudioChatRecord) = lock.withLock {
@@ -474,9 +476,7 @@ internal class EngineStudioRepository(
         log.i { "Execute the reserved native request" }
         val admitted = helperAdmission.prepare(record(request.id), request)
         try {
-            update(
-                request.id,
-            ) { copy(lastRunRequest = request.request, hasLastRunSucceeded = false, runRevision = runRevision + 1) }
+            update(request.id) { startedRun(request.request) }
             val result = turns.execute(this, admitted)
             update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
             val isBriefed = request.compaction != null && request.isBriefed
@@ -528,13 +528,7 @@ internal class EngineStudioRepository(
     override suspend fun openTurn(id: String, settings: RunSettings, preselected: ToolChoices): ActiveSession {
         log.i { "Open the conversation's fixed execution workspace" }
         val active = open(id, target(id, settings), preselected)
-        update(id) {
-            copy(
-                updatedAt = clock.now(),
-                hasFailed = false,
-                failureKind = RunFailureKind.Unknown,
-            )
-        }
+        update(id) { copy(updatedAt = clock.now()).withoutFailure() }
         return active
     }
 
@@ -580,13 +574,17 @@ internal class EngineStudioRepository(
     private suspend fun target(id: String, settings: RunSettings): EngineTarget {
         val selected = selections.observe().first()
         val record = record(id)
-        val chosen = state.value.configurations[id]?.applied?.modelId
-            ?: record.configuration?.modelId ?: record.target?.studioModelId() ?: settings.modelId
+        val chosen = record.turnModelId(state.value.configurations[id]?.applied, settings.modelId)
         val target = requireNotNull(turnTarget(chosen, record.target, selected.defaultTarget)) {
             "Select a connected model in settings"
         }
         check(selected.isEnabled(target)) { "The selected route is no longer enabled" }
         return target
+    }
+
+    override suspend fun move(id: String, change: StudioChatRecord.() -> StudioChatRecord) {
+        log.i { "Move the conversation into another execution mode" }
+        update(id, change)
     }
 
     override suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {
@@ -913,6 +911,10 @@ private class StudioNativeSessionOperations(private val learning: StudioLearning
         }
     }
 }
+
+/** The model of the next turn: the applied, then the stored configuration, then the chat's route, then [fallback]. */
+internal fun StudioChatRecord.turnModelId(applied: StudioSessionSettings?, fallback: String): String =
+    applied?.modelId ?: configuration?.modelId ?: target?.studioModelId() ?: fallback
 
 /** The model chosen for this turn wins; a chat keeps its stored route only when none was chosen. */
 internal fun turnTarget(modelId: String, stored: EngineTarget?, default: EngineTarget?): EngineTarget? =

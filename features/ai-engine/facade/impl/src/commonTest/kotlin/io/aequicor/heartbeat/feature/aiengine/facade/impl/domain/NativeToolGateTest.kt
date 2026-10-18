@@ -37,6 +37,16 @@ import kotlin.test.assertTrue
 
 internal class NativeToolGateTest {
     @Test
+    fun `virtual workspaces deny native tools even when full trust policy and hooks would allow them`() = runTest {
+        val hook = Hook()
+        val tools = fixture(hook)
+        val virtual = CONTEXT.copy(workspace = WorkspaceRef("sandbox-test"))
+        assertIs<NativeVerdict.Deny>(tools.authorizeNative(virtual, call()))
+        assertIs<NativePreparation.Deny>(tools.prepareNative(virtual, call()))
+        assertTrue(hook.calls.isEmpty())
+    }
+
+    @Test
     fun `off and unknown tools are denied before hooks coverage or permission`() = runTest {
         val hook = Hook()
         val tools = fixture(

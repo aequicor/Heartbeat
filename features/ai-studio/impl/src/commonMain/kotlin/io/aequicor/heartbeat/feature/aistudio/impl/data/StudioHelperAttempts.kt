@@ -166,9 +166,25 @@ internal class StudioHelperAttempts(
         cancelled
     }
 
-    suspend fun accepted(helper: HelperId, request: RequestId, session: SessionRef, turn: TurnId) = lock.withLock {
+    suspend fun accepted(
+        helper: HelperId,
+        request: RequestId,
+        session: SessionRef,
+        turn: TurnId,
+        isVirtualContinuation: Boolean = false,
+    ) = lock.withLock {
         val records = read(helper)
-        val receipt = checkNotNull(records[request.value]) { "The helper request was not journaled" }
+        val receipt = records[request.value] ?: if (isVirtualContinuation) {
+            StudioHelperReceipt(
+                request,
+                StudioHelperPhase.Accepted,
+                "virtual-continuation:${request.value}",
+                session,
+                turn,
+            )
+        } else {
+            error("The helper request was not journaled")
+        }
         receipt.requireNativeIdentity(session, turn)
         check(receipt.phase in NATIVE_PHASES) { "A revoked helper request cannot be accepted" }
         if (receipt.phase == StudioHelperPhase.Terminal) return@withLock

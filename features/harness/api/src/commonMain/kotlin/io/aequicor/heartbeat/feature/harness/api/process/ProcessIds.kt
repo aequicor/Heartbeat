@@ -175,6 +175,6 @@ private val SHA_PATTERN = Regex("[0-9a-f]{40}|[0-9a-f]{64}")
  * Visible ASCII without quote and backslash: one byte per character and no JSON escaping, which is what makes
  * [ProcessLimits.RECORD_BYTES] a ceiling that holds.
  */
-private fun isPlainToken(value: String): Boolean = value.isNotEmpty() &&
+internal fun isPlainToken(value: String): Boolean = value.isNotEmpty() &&
     value.length <= ProcessLimits.REF_CHARS &&
     value.all { it.code in VISIBLE_ASCII && it != '"' && it != '\\' }

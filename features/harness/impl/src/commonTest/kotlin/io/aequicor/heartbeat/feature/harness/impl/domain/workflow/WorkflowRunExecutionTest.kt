@@ -108,6 +108,25 @@ internal class WorkflowRunExecutionTest {
     }
 
     @Test
+    fun `retention failure cannot prevent terminal result publication or machine feedback`() = runTest {
+        val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
+        val terminal = fixture.workflow.initial.copy(
+            status = WorkflowStatus.Failed(WorkflowFailure.Cancelled),
+            finishedAt = fixture.workflow.clock.now(),
+        )
+        assertTrue(fixture.workflow.storage.save(terminal, null))
+        var restored = false
+        val execution = fixture.execution(
+            fixture.workflow.storage,
+            onTerminal = { throw IllegalStateException("Retention unavailable") },
+            feedback = { if (it is HarnessRunsIntent.Internal.TerminalRestored) restored = true },
+        )
+        assertFailsWith<IllegalStateException> { execution.execute(terminal) { true } }
+        assertEquals(listOf(terminal.id.action), fixture.finished)
+        assertTrue(restored)
+    }
+
+    @Test
     fun `uncertain outbox mark retries only the mark without publishing the result again`() = runTest {
         val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
         val terminal = fixture.workflow.initial.copy(
@@ -311,13 +330,19 @@ private class ExecutionFixture(private val dispatcher: CoroutineDispatcher) {
         }
     }
 
-    fun execution(storage: HarnessRunStorage) = WorkflowRunExecution(
+    fun execution(
+        storage: HarnessRunStorage,
+        onTerminal: suspend (WorkflowRun) -> Unit = {},
+        feedback: suspend (HarnessRunsIntent.Internal) -> Unit = {},
+    ) = WorkflowRunExecution(
         storage,
         WorkflowCodeExecutor(UnusedHost, HarnessExecutionLane(dispatcher), NeutralOrigins, workflow.clock) { it },
         WorkflowAgentPorts(WorkflowHelperPorts(grants, resources, helpers, bindings), organisms.ports),
         AdmittedRuns,
         workflow.clock,
-    ) {}
+        onTerminal,
+        feedback,
+    )
 
     fun drivers(scope: CoroutineScope) = ProfileWorkflowDrivers(scope, execution) { _, _ -> true }
 

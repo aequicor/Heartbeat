@@ -405,7 +405,9 @@ internal suspend fun resolvePiWorkspace(
     workspaces: LocalWorkspaces,
     configured: Map<String, String>,
 ): String? = ref?.let {
-    workspaces.resolve(it) ?: configured[it.value] ?: piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
+    workspaces.executionDirectory(
+        it,
+    ) ?: configured[it.value] ?: piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
 }
 
 internal class PiFeatures(private val entries: List<Pair<EngineFeatureKey<*>, EngineFeature>>) : EngineFeatures {

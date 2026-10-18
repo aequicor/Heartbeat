@@ -838,6 +838,8 @@ class AiStudioModelTest {
         configuration: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration =
             io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineConfiguration(),
         securityLevels: kotlinx.coroutines.flow.Flow<StudioSecurityLevel> = flowOf(StudioSecurityLevel.Automatic),
+        planning: io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning =
+            io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning.None,
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts(attachments)
@@ -877,6 +879,7 @@ class AiStudioModelTest {
             facade = EmptyStudioFacade(),
             safetyReviewMonitor = safetyReviews,
             configuration = configuration,
+            planning = planning,
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {

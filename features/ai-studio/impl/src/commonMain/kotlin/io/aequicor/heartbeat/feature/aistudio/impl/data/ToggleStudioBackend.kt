@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.AiStudioEffects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.EngineStudioEffects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAvailability
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanRuntime
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
@@ -38,6 +40,8 @@ internal class ToggleStudioBackend(
     private val clock: Clock,
     private val views: Lazy<StudioSessionViews>,
     private val projects: Lazy<StudioProjects>? = null,
+    private val planning: Lazy<StudioPlanning>? = null,
+    private val plans: Lazy<StudioPlanRuntime>? = null,
 ) : StudioBackend {
     private val log = Log.tag("StudioBackend")
     private val lock = Mutex()
@@ -59,7 +63,14 @@ internal class ToggleStudioBackend(
         val repository = engineRepository.value
         Selected(
             repository,
-            EngineStudioEffects(repository, engineRuntime.value, availability, projects?.value),
+            EngineStudioEffects(
+                repository,
+                engineRuntime.value,
+                availability,
+                projects?.value,
+                planning?.value ?: StudioPlanning.None,
+                plans?.value ?: StudioPlanRuntime.None,
+            ),
         )
     } else {
         log.i { "Studio uses the demo workspace" }
