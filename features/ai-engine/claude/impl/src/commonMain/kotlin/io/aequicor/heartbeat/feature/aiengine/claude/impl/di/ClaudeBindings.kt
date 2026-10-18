@@ -103,7 +103,10 @@ public object ClaudeBindings {
 @ContributesTo(AppScope::class)
 @BindingContainer
 public object ClaudeDefaults {
-    /** Enabled by default; the engine still needs a Claude Code CLI and its login (the desktop app's is found). */
+    /**
+     * Enabled by default; the engine still needs a Claude Code CLI and its login (on macOS the CLI of the Claude
+     * Code desktop app is found too).
+     */
     @Provides
     @IntoSet
     public fun toggle(): FeatureToggle<*> = ClaudeEngine.Enabled

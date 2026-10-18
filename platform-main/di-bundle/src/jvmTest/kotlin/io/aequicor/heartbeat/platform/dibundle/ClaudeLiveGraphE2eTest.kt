@@ -178,6 +178,7 @@ class ClaudeLiveGraphE2eTest {
                 .create(CreateSessionRequest(target))
             chat.say("Write the numbers from 1 to 400, one per line, with a short sentence after each.")
             chat.state.first { it is ActiveSessionState.Running }
+            assertTrue(awaitClaudeProcesses().isNotEmpty(), "a CLI process was running when the binding went away")
             profile.facade.bindings.disconnect(target.binding)
             assertTrue(profile.facade.bindings.state.value.none { it.id == target.binding }, "the binding is gone")
             var attempts = 0
@@ -309,6 +310,7 @@ class ClaudeLiveGraphE2eTest {
                 .create(CreateSessionRequest(target))
             chat.say("Write the numbers from 1 to 400, one per line, with a short sentence after each.")
             chat.state.first { it is ActiveSessionState.Running }
+            assertTrue(awaitClaudeProcesses().isNotEmpty(), "a CLI process was running when the app closed")
             profile.close()
             var attempts = 0
             while (claudeProcesses().isNotEmpty() && attempts++ < PROCESS_EXIT_POLLS) delay(PROCESS_EXIT_POLL)
@@ -342,7 +344,7 @@ class ClaudeLiveGraphE2eTest {
         }
 
     @Test
-    fun `a CLI killed before its first frame leaves a handle its owner reconciles and keeps working`() = runBlocking {
+    fun `a CLI killed while its turn runs leaves a handle its owner reconciles and keeps working`() = runBlocking {
         withTimeout(SCENARIO_TIMEOUT) {
             val profile = openProfile()
             val target = profile.connect()
@@ -350,7 +352,8 @@ class ClaudeLiveGraphE2eTest {
                 .create(CreateSessionRequest(target))
             val turn = chat.say("Write the numbers from 1 to 400, one per line, with a short sentence after each.")
             chat.state.first { it is ActiveSessionState.Running }
-            // The state flips on acceptance; the process may start a moment later.
+            // The turn is accepted on the CLI's first frames, so this is a lost turn; a death before any frame is
+            // covered by the unit tests of the runtime, where the transport can end without one.
             var killed = emptyList<ProcessHandle>()
             var attempts = 0
             while (killed.isEmpty() && attempts++ < KILL_POLLS) {
@@ -492,6 +495,17 @@ class ClaudeLiveGraphE2eTest {
     private fun claudeProcesses() = ProcessHandle.current().descendants()
         .filter { it.isAlive && it.info().command().orElse("").contains("claude") }
         .toList()
+
+    /** The CLI processes of a running turn; the process may appear a moment after the state flips. */
+    private suspend fun awaitClaudeProcesses(): List<ProcessHandle> {
+        var running = claudeProcesses()
+        var attempts = 0
+        while (running.isEmpty() && attempts++ < KILL_POLLS) {
+            delay(PROCESS_EXIT_POLL)
+            running = claudeProcesses()
+        }
+        return running
+    }
 
     private suspend fun openProfile(vararg extra: FeatureToggle.Flag): LiveProfile {
         val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)

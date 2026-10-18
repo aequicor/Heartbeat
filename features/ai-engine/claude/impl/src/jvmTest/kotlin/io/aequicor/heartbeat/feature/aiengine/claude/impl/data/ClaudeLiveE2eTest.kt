@@ -425,9 +425,11 @@ class ClaudeLiveE2eTest {
         val session = runtime.create(CreateSessionRequest(target()))
         val turn = session.say("Write the numbers from 1 to 400, one per line, with a short sentence after each.")
         session.state.first { it is ActiveSessionState.Running }
-        ProcessHandle.current().descendants()
-            .filter { it.info().command().orElse("").contains("claude") }
-            .forEach { it.destroyForcibly() }
+        val processes = ProcessHandle.current().descendants()
+            .filter { it.isAlive && it.info().command().orElse("").contains("claude") }
+            .toList()
+        assertTrue(processes.isNotEmpty(), "a CLI process was running during the turn")
+        processes.forEach { it.destroyForcibly() }
         // The turn's outcome is unknown, so the handle waits for a reconciliation instead of resending anything.
         val unavailable = withTimeout(TURN_TIMEOUT) {
             session.state.first { it is ActiveSessionState.Unavailable || it is ActiveSessionState.Ready }
@@ -444,9 +446,11 @@ class ClaudeLiveE2eTest {
     }
 
     @Test
-    fun `a cli killed before it opens the session leaves a handle that can be used again`() = live { fixture ->
+    fun `a cli killed just after the turn is accepted leaves a handle that can be used again`() = live { fixture ->
         val runtime = fixture.runtime()
         val session = runtime.create(CreateSessionRequest(target()))
+        // say() returns once the CLI's first frames are in, so this is a lost turn; a death before any frame is
+        // covered by the unit tests of the runtime, where the transport can end without one.
         val turn = session.say("Write the numbers from 1 to 400, one per line, with a short sentence after each.")
         var killed = false
         var attempts = 0
