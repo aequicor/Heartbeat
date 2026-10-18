@@ -148,7 +148,7 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
             val affinity = Path.of(sandbox.pool).resolve("slot-${checkNotNull(sandbox.slot)}.affinity")
             check(!Files.isSymbolicLink(affinity)) { "InvalidSlotPool" }
             Files.writeString(affinity, sandbox.affinity)
-            val slot = slotDirectory(sandbox.pool, checkNotNull(sandbox.slot)).toRealPath()
+            val slot = slotDirectory(sandbox.pool, sandbox.slot).toRealPath()
             check(Path.of(execution.directory).toRealPath().startsWith(slot)) { "BuildDirectoryOutsideSlot" }
             startedAt = System.nanoTime()
             true

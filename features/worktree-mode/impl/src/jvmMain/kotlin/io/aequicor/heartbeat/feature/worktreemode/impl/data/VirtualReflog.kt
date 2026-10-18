@@ -8,12 +8,13 @@ import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
+import java.util.Locale
 
 /** Append cursor with a tail fingerprint detects resets even when a later commit hides their last message. */
 @Serializable
 internal data class ReflogCursor(val size: Long, val tail: String)
 
-internal data class ReflogDelta(val cursor: ReflogCursor?, val requiresManual: Boolean)
+internal data class ReflogDelta(val cursor: ReflogCursor?, val isManualRequired: Boolean)
 
 /** Rewritten, truncated, missing, or excessively large logs require explicit continuation. */
 internal fun advanceReflog(path: String, previous: ReflogCursor?): ReflogDelta {
@@ -26,7 +27,7 @@ internal fun advanceReflog(path: String, previous: ReflogCursor?): ReflogDelta {
             (previous.size > size || channel.fingerprint(previous.size) != previous.tail)
         val added = size - (previous?.size ?: size)
         val isUnbounded = added !in 0..MAX_REFLOG_DELTA
-        val reset = if (previous == null || isRewritten || isUnbounded) {
+        val isReset = if (previous == null || isRewritten || isUnbounded) {
             false
         } else {
             channel.readRange(previous.size, added.toInt()).decodeToString().lineSequence().any { line ->
@@ -34,14 +35,14 @@ internal fun advanceReflog(path: String, previous: ReflogCursor?): ReflogDelta {
                 action.startsWith("reset:") || action.startsWith("checkout:")
             }
         }
-        ReflogDelta(cursor, isRewritten || isUnbounded || reset)
+        ReflogDelta(cursor, isRewritten || isUnbounded || isReset)
     }
 }
 
 private fun FileChannel.fingerprint(end: Long): String {
     val length = end.coerceAtMost(REFLOG_TAIL_BYTES).toInt()
     return MessageDigest.getInstance("SHA-256").digest(readRange(end - length, length))
-        .joinToString("") { "%02x".format(it) }
+        .joinToString("") { "%02x".format(Locale.ROOT, it) }
 }
 
 private fun FileChannel.readRange(start: Long, length: Int): ByteArray {

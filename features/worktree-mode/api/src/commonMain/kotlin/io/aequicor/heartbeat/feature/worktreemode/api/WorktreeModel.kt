@@ -170,6 +170,8 @@ public data class WorktreeTask(
     val sourceBranch: String? = null,
     val branch: String? = null,
     val baseCommit: String? = null,
+    /** Immutable sandbox base captured before materialization; no automatic rebase is permitted. */
+    val pinnedBaseCommit: String? = null,
     val phase: WorktreePhase = WorktreePhase.Preparing,
     val run: WorktreeRun? = null,
     val actionRequest: WorktreeActionRequest? = null,
@@ -186,6 +188,8 @@ public data class WorktreeTask(
     @SerialName("sandbox") val isSandbox: Boolean = false,
     val seal: WorktreeSeal? = null,
     val virtualSandbox: VirtualSandboxState? = null,
+    // Preserve the existing serialized field and named-argument API for saved sandbox continuations.
+    @Suppress("BooleanPropertyNaming")
     val pendingVirtualContinuation: Boolean = false,
     val virtualInterruptedRequests: List<io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId> = emptyList(),
     val virtualContinuations: Map<String, String> = emptyMap(),

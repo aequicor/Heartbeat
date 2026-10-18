@@ -54,6 +54,51 @@ import kotlin.test.assertTrue
 
 class WorktreeJournalTest {
     @Test
+    fun `pinned stages keep a physical sandbox and replay the same base when the toggle changes`() = runTest {
+        val fixture = Fixture()
+        fixture.git.isVirtualSupported = true
+        fixture.toggles.isSandbox = true
+        fixture.journal.load()
+        val request = WorktreeIntent.Public.Prepare(CHAT, PROJECT, isSandbox = true, isBasePinned = true)
+        fixture.send(request)
+        val first = fixture.task()
+        assertTrue(first.isSandbox)
+        assertNull(first.virtualSandbox)
+        assertEquals(first.baseCommit, first.pinnedBaseCommit)
+        fixture.toggles.isSandbox = false
+        fixture.send(request)
+        assertEquals(first, fixture.task())
+        assertEquals(first.pinnedBaseCommit, fixture.reopen().load()[CHAT]?.pinnedBaseCommit)
+        assertFailsWith<IllegalStateException> { fixture.send(request.copy(baseCommit = "different")) }
+        assertFailsWith<IllegalStateException> { fixture.send(request.copy(project = WorkspaceRef("other"))) }
+    }
+
+    @Test
+    fun `a new pinned stage refuses a disabled sandbox without a plain worktree fallback`() = runTest {
+        val fixture = Fixture()
+        fixture.journal.load()
+        assertFailsWith<IllegalStateException> {
+            fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, isSandbox = true, isBasePinned = true))
+        }
+        assertTrue(fixture.reopen().load().isEmpty())
+    }
+
+    @Test
+    fun `repeated pinned seal gives a fresh durable acknowledgement of the same proof`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, isSandbox = true, isBasePinned = true))
+        val seal = WorktreeIntent.Public.Seal(CHAT, "proof")
+        fixture.send(seal)
+        val first = fixture.task()
+        fixture.send(seal)
+        assertEquals(first.seal, fixture.task().seal)
+        assertTrue(fixture.task().revision > first.revision)
+        assertEquals(fixture.task().seal, fixture.reopen().load()[CHAT]?.seal)
+    }
+
+    @Test
     fun `completed virtual children keep reusable workspaces and immutable result snapshots`() = runTest {
         val fixture = Fixture()
         fixture.git.isVirtualSupported = true

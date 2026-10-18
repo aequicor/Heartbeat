@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCache
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCommand
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSeal
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -17,6 +18,48 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DesktopWorktreeGitTest {
+    @Test
+    fun `pinned checkout starts at the requested commit after source HEAD moves and its proof stays immutable`() =
+        runTest {
+            val root = repository()
+            val git = DesktopWorktreeGit(RealTestDispatchers)
+            try {
+                val captured = git.plan(root.toString(), "pinned-stage")
+                Files.writeString(root.resolve("source.txt"), "new source")
+                command(root, "git", "add", ".")
+                command(root, "git", "commit", "-m", "source moved")
+                val current = git.plan(root.toString(), "pinned-stage")
+                val pinned = git.pin(current, captured.baseCommit)
+                var record = pinned.record().let {
+                    it.copy(
+                        task = it.task.copy(isSandbox = true, pinnedBaseCommit = pinned.baseCommit),
+                    )
+                }
+                git.materialize(record)
+                assertEquals("committed", Files.readString(Path.of(record.directory).resolve("source.txt")))
+                Files.writeString(Path.of(record.directory).resolve("result.txt"), "first output")
+                val proof = git.seal(record, "stage-result")
+                // A crash after update-ref but before journal acknowledgement must reuse its captured object.
+                Files.writeString(Path.of(record.directory).resolve("result.txt"), "later edit")
+                assertEquals(proof, git.seal(record, "stage-result"))
+                record = record.copy(
+                    task = record.task.copy(seal = WorktreeSeal("other", proof)),
+                    resultProofs = mapOf("stage-result" to proof),
+                )
+                assertEquals(proof, git.seal(record, "stage-result"))
+                command(root, "git", "update-ref", "refs/heartbeat/results/stage-result", current.baseCommit)
+                assertFailsWith<IllegalStateException> { git.seal(record, "stage-result") }
+                command(root, "git", "update-ref", "-d", "refs/heartbeat/results/stage-result")
+                assertFailsWith<IllegalStateException> { git.seal(record, "stage-result") }
+                assertEquals("new source", Files.readString(root.resolve("source.txt")))
+                assertEquals("", command(root, "git", "status", "--porcelain"))
+                assertFailsWith<IllegalArgumentException> { git.pin(current, "HEAD") }
+                assertFailsWith<IllegalStateException> { git.pin(current, "f".repeat(40)) }
+            } finally {
+                removeTestTree(root)
+            }
+        }
+
     @Test
     fun `foreground Java compiler output flag remains a supported generic command`() = runTest {
         val root = repository()
