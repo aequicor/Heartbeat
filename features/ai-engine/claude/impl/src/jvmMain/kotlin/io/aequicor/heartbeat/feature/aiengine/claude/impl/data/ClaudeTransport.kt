@@ -397,7 +397,15 @@ internal class ProcessClaudeTransport(
         val directory = if (workspace == null) {
             configuration.workingDirectory ?: System.getProperty("user.home")
         } else {
-            configuration.workspaces[workspace] ?: (if (workspaces.isAvailable) workspaces.resolve(workspace) else null)
+            (
+                if (workspaces.isAvailable) {
+                    workspaces.executionDirectory(
+                        workspace,
+                    )
+                } else {
+                    null
+                }
+            ) ?: configuration.workspaces[workspace]
                 ?: throw EngineException(
                     EngineFailure.Engine(EngineFailureReason.RequirementsNotMet),
                 )

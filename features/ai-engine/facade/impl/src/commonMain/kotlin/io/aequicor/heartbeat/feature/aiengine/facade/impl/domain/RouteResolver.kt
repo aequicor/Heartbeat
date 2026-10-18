@@ -39,6 +39,7 @@ class RouteResolver(
     private val registry: EngineRegistry,
     private val gate: EngineGate,
     private val bindings: EngineBindingsService,
+    private val workspaces: io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces? = null,
 ) {
     private val log = Log.tag("RouteResolver")
 
@@ -50,6 +51,12 @@ class RouteResolver(
         model: ModelId? = null,
     ): ResolvedRoute {
         val registration = gate.requireEnabled(engine)
+        val virtual = workspace?.let { workspaces?.virtual(it) }
+        check(workspace?.value?.startsWith("sandbox-") != true || virtual != null) { "VirtualWorkspaceUnavailable" }
+        if (virtual != null) {
+            if (!registration.descriptor.isVirtualWorkspaceSupported) fail(OperationNotAllowed)
+            virtual.revision()
+        }
         if (!registry.supportsPlatform(registration)) fail(EngineUnavailable)
         val saved = bindings.requireBinding(binding, engine)
         if (!saved.isEnabled) {

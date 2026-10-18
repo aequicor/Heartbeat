@@ -3,10 +3,16 @@
     <string name="builds_title">Сборки</string>
     <string name="builds_back">Назад</string>
     <string name="builds_section_capacity">Параллельные сборки</string>
-    <string name="builds_section_capacity_hint">Сборки агентов всех проектов идут через одну очередь на компьютер. У каждого типа сборки свой вес, проекты чередуются, а сборка, которой не хватает ресурсов, ждёт, а не тормозит остальные.</string>
+    <string name="builds_section_capacity_hint">У каждого Git-проекта свой менеджер и очередь сборок. Тип команды определяет оценку затрат процессора и памяти.</string>
     <string name="builds_auto">Автоматически (%1$d)</string>
     <string name="builds_auto_hint">Оценка по процессорам и памяти этого компьютера</string>
     <string name="builds_parallel">%1$d одновременно</string>
-    <string name="builds_sandbox_hint">Если включены песочницы, они собираются в общих тёплых слотах своего репозитория: не больше четырёх слотов на репозиторий и не больше лимита.</string>
+    <string name="builds_sandbox_hint">Сессии проекта переиспользуют постоянный пул сборочных worktree. Его размер настраивается отдельно для каждого проекта; по умолчанию — два слота.</string>
+    <string name="builds_sandbox_section">Песочницы</string>
+    <string name="builds_pool_size">Размер пула worktree: %1$d</string>
+    <string name="builds_pool_clear">Очистить пул</string>
+    <string name="builds_pause_timeout">Ожидание внешнего редактирования: %1$d мин.</string>
+    <string name="builds_increase">+</string>
+    <string name="builds_decrease">−</string>
     <string name="builds_save_failed">Не удалось сохранить лимит. Попробуйте ещё раз.</string>
 </resources>

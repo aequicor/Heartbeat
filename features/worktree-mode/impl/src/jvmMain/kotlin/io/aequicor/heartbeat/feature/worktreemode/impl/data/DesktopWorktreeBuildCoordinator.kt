@@ -29,8 +29,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * App-wide build queue: FIFO per overlapping exclusive resources, weighted by build kind against the machine budget
- * and fair across projects ([admitBuilds]). Reattached workers already run and are counted without admission.
+ * App-owned registry of independent project managers, keyed by canonical Git common directory. Registrations in
+ * different profiles share a manager, its queue and reusable slots. No cross-project FIFO is imposed.
  */
 @Inject
 @SingleIn(AppScope::class)
@@ -39,6 +39,47 @@ internal class DesktopWorktreeBuildCoordinator(
     @ForScope(AppScope::class) private val app: ScopeHandle,
     private val dispatchers: DispatcherProvider,
     private val capacity: BuildCapacity,
+    private val settings: ProjectBuildSettings? = null,
+) : WorktreeBuildCoordinator {
+    private val registry = Mutex()
+    private val projects = mutableMapOf<String, ProjectBuildQueue>()
+    private val owners = mutableMapOf<String, ProjectBuildQueue>()
+    private val arbiter = ProjectBuildArbiter()
+
+    private suspend fun manager(execution: BuildExecution): ProjectBuildQueue = registry.withLock {
+        projects.getOrPut(
+            execution.project,
+        ) { ProjectBuildQueue(app, dispatchers, capacity, settings, execution.project, arbiter) }
+            .also { owners[execution.id] = it }
+    }
+
+    override suspend fun occupiedSlots(project: String): Set<Int> =
+        registry.withLock { projects[project] }?.occupiedSlots(project).orEmpty()
+
+    override suspend fun execute(
+        execution: BuildExecution,
+        isReattachment: Boolean,
+        update: suspend (WorktreeBuildOperation) -> Unit,
+    ): WorktreeBuildOperation = manager(execution).execute(execution, isReattachment, update).also {
+        registry.withLock { owners.remove(execution.id) }
+    }
+
+    override suspend fun cancel(id: String): Boolean = registry.withLock { owners[id] }?.cancel(id) ?: false
+    override suspend fun recover(execution: BuildExecution): WorktreeBuildOperation = manager(
+        execution,
+    ).recover(execution)
+    override suspend fun acquireLease(execution: BuildExecution) = manager(execution).acquireLease(execution)
+    override suspend fun releaseLease(execution: BuildExecution): Boolean = manager(execution).releaseLease(execution)
+}
+
+/** One project's queue and slot affinity; its workers own OS locks independently of profile lifetime. */
+internal class ProjectBuildQueue(
+    private val app: ScopeHandle,
+    private val dispatchers: DispatcherProvider,
+    private val capacity: BuildCapacity,
+    private val settings: ProjectBuildSettings?,
+    private val project: String,
+    private val arbiter: ProjectBuildArbiter = ProjectBuildArbiter(),
 ) : WorktreeBuildCoordinator {
     private val log = Log.tag("WorktreeBuildCoordinator")
     private val mutex = Mutex()
@@ -52,10 +93,20 @@ internal class DesktopWorktreeBuildCoordinator(
     }
 
     init {
+        app.coroutineScope.launch { arbiter.changes.collect { mutex.withLock { admit() } } }
         // A raised limit or a disabled queue admits waiting builds without waiting for the next enqueue.
         app.coroutineScope.launch {
             capacity.changes().collect { mutex.withLock { admit() } }
         }
+        if (settings != null) {
+            app.coroutineScope.launch {
+                settings.changes().collect { mutex.withLock { admit() } }
+            }
+        }
+    }
+
+    override suspend fun occupiedSlots(project: String): Set<Int> = mutex.withLock {
+        jobs.values.filter { it !in waiting }.mapNotNull { it.execution.sandbox?.slot }.toSet()
     }
 
     override suspend fun execute(
@@ -144,8 +195,10 @@ internal class DesktopWorktreeBuildCoordinator(
             )
         }
         val budget = capacity.budget()
-        val slots = budget.slotsPerRepository
+        val configuration = settings?.get(project)
+        val slots = if (configuration?.isClearing == true) 0 else configuration?.poolSize ?: 2
         val external = externalSlots(running, slots)
+        restoreAffinity(slots)
         val queued = waiting.map { job ->
             val sandbox = job.execution.sandbox
             QueuedBuild(
@@ -156,7 +209,7 @@ internal class DesktopWorktreeBuildCoordinator(
                 sandbox?.let { SlotDemand(it.pool, slots, affinity[it.affinity]) },
             )
         }
-        val admission = admitBuilds(queued, running + external, budget)
+        val admission = arbiter.admit(queued, running, budget, external)
         val eligible = waiting.filter { it.execution.id in admission.admitted }
         waiting.removeAll(eligible.toSet())
         eligible.forEach { job ->
@@ -177,6 +230,24 @@ internal class DesktopWorktreeBuildCoordinator(
         if (external.isNotEmpty() && waiting.any { it.execution.sandbox != null }) scheduleRecheck()
     }
 
+    private suspend fun restoreAffinity(slots: Int) {
+        withContext(dispatchers.io) {
+            waiting.mapNotNull { it.execution.sandbox }.filter { it.affinity !in affinity }.forEach { sandbox ->
+                for (index in 0 until slots) {
+                    val marker = Path.of(sandbox.pool).resolve("slot-$index.affinity")
+                    if (Files.isRegularFile(
+                            marker,
+                            java.nio.file.LinkOption.NOFOLLOW_LINKS,
+                        ) && Files.size(marker) <= MAX_AFFINITY_BYTES &&
+                        Files.readString(marker) == sandbox.affinity
+                    ) {
+                        affinity[sandbox.affinity] = index
+                    }
+                }
+            }
+        }
+    }
+
     /**
      * Slots locked by workers this coordinator does not track: another profile's builds or workers not reattached
      * yet. They count as occupied, so a new build takes a free slot instead of waiting on the lock.
@@ -195,7 +266,8 @@ internal class DesktopWorktreeBuildCoordinator(
     }
 
     private fun isSlotLocked(pool: String, index: Int): Boolean = try {
-        withFreeResource(slotDirectory(pool, index).toString()) {} == null
+        Files.exists(Path.of(pool).resolve("slot-$index.unavailable")) ||
+            withFreeResource(slotDirectory(pool, index).toString()) {} == null
     } catch (error: java.io.IOException) {
         log.w(IllegalStateException("SlotProbeFailed (${error::class.simpleName.orEmpty()})")) {
             "Build slot availability is unknown; it stays assignable"
@@ -242,6 +314,7 @@ internal class DesktopWorktreeBuildCoordinator(
                 withContext(NonCancellable) {
                     mutex.withLock {
                         jobs.remove(job.execution.id)
+                        arbiter.release(job.execution.id)
                         admit()
                     }
                 }
@@ -485,3 +558,5 @@ internal fun workerClasspath(): String {
     ).forEach { type -> type.protectionDomain?.codeSource?.location?.let { paths += Path.of(it.toURI()).toString() } }
     return paths.joinToString(java.io.File.pathSeparator)
 }
+
+private const val MAX_AFFINITY_BYTES = 128

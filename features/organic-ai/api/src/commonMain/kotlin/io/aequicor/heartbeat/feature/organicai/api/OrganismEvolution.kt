@@ -129,6 +129,11 @@ private fun Organism.follow(cell: Cell, intent: TurnIntent): Step? {
 
         is OrganicAiIntent.Internal.TurnSettled -> settle(cell, intent.settlement)
 
+        is OrganicAiIntent.Internal.WorkspaceContinued -> Step(
+            updated(cell.id) { recover(it, phase.work) },
+            drive = cell.id,
+        )
+
         is OrganicAiIntent.Internal.ReceiveLetters -> if (intent.until in 0..cell.inbox.size) {
             Step(
                 updated(cell.id) {

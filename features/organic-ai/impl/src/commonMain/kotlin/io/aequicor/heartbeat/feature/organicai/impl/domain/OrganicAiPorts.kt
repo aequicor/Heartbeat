@@ -91,13 +91,20 @@ internal interface CellWorkspaces {
 
     /** The branch of each cell's sandbox that worktree mode knows. */
     suspend fun branches(organism: Organism): Map<CellId, String>
+    suspend fun isPaused(organism: Organism, cell: CellId): Boolean = false
+    suspend fun awaitAvailable(organism: Organism, cell: CellId) = Unit
 }
 
 /**
  * The work of a finished sandbox cell: its [branch], cut from [base], and the [commit] that holds every file of its
  * checkout on top of that branch. A parent integrates the commit into its own checkout with git.
  */
-internal data class CellResult(val branch: String, val base: String?, val commit: String)
+internal data class CellResult(
+    val branch: String,
+    val base: String?,
+    val commit: String,
+    val virtualWorkspace: WorkspaceRef? = null,
+)
 
 /**
  * The run of one turn of a sandbox cell in worktree mode. Reporting never fails the turn: a report that is lost leaves

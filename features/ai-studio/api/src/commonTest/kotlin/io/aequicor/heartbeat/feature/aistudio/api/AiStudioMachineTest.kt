@@ -42,6 +42,7 @@ class AiStudioMachineTest {
                 AiStudioEffect.ObserveRuntime,
                 AiStudioEffect.ObserveModels,
                 AiStudioEffect.ObserveProjects,
+                AiStudioEffect.ObservePlanning,
             ),
         )
     }

@@ -93,13 +93,15 @@ private const val RULES =
         "in an older session, call organism_status with receive=true and the same arguments."
 
 private const val SANDBOX =
-    "Your checkout is a sandbox: a separate copy of the project on a branch of your own. Nothing you change there " +
+    "Your workspace is an isolated sandbox. New sandboxes are virtual: use hosted " +
+        "file tools for all code access. Nothing you change there " +
         "reaches the project or another cell by itself, and you never edit the project's original checkout. Build " +
         "and test with run_build, not natively. Your final answer ends your task; mark_task_complete is not needed. " +
         "When your cell completes, the host captures everything in your checkout, committed or not. When a child's " +
-        "result comes with a host note about its sandbox branch, integrate it into your own checkout before your " +
-        "final answer, as the note says. You may name your branch (git branch --show-current) for orientation, " +
-        "but it may exclude uncommitted work. Studio publishes the zygote's captured result commit separately " +
+        "result comes with a host integration note, integrate it with " +
+        "sandbox_integrate when the note gives a virtual workspace, " +
+        "or follow its legacy branch instructions. Do not run native Git in a virtual " +
+        "workspace. Studio publishes the zygote's captured result commit separately " +
         "after completion; the user decides whether to integrate that commit into the project."
 
 private const val RECOVERY =

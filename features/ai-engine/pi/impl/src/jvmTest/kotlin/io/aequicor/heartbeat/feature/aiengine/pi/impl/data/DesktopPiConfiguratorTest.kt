@@ -86,7 +86,7 @@ class DesktopPiConfiguratorTest {
     @Test
     fun `a linked file is written through its link`() = runTest {
         val target = root.resolve("CLAUDE.md").apply { writeText("Shared") }
-        Files.createSymbolicLink(root.resolve("AGENTS.md"), target.fileName)
+        piTestSymbolicLink(root.resolve("AGENTS.md"), target.fileName)
         val revision = configurator.readProject(root.toString()).documents.getValue(PiDocuments.Agents).revision
 
         configurator.writeProject(
@@ -102,14 +102,22 @@ class DesktopPiConfiguratorTest {
     @Test
     fun `a file or folder linking out of the project is neither read nor written`() = runTest {
         val private = outside.resolve("profile").apply { writeText("export TOKEN=secret") }
-        Files.createSymbolicLink(root.resolve("AGENTS.md"), private)
+        piTestSymbolicLink(root.resolve("AGENTS.md"), private)
 
         assertEquals(ConfigFailure.Storage, refused { configurator.readProject(root.toString()) })
         Files.delete(root.resolve("AGENTS.md"))
-        Files.createSymbolicLink(root.resolve(".pi"), outside)
+        piTestDirectoryLink(root.resolve(".pi"), outside)
         val write = mapOf(PiDocuments.Settings to "{}")
         assertEquals(ConfigFailure.Storage, refused { configurator.writeProject(root.toString(), write, emptyMap()) })
         assertEquals("export TOKEN=secret", private.readText())
+        assertFalse(Files.exists(outside.resolve("settings.json")))
+    }
+
+    @Test
+    fun `a directory link cannot write settings outside the project`() = runTest {
+        piTestDirectoryLink(root.resolve(".pi"), outside)
+        val write = mapOf(PiDocuments.Settings to "{}")
+        assertEquals(ConfigFailure.Storage, refused { configurator.writeProject(root.toString(), write, emptyMap()) })
         assertFalse(Files.exists(outside.resolve("settings.json")))
     }
 

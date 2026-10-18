@@ -42,6 +42,8 @@ public data class EngineDescriptor(
     val nativeTools: List<NativeToolSpec> = emptyList(),
     /** The adapter rebuilds hosted instructions on every turn, including after native context compaction. */
     val areInstructionsRefreshedPerTurn: Boolean = false,
+    /** Supports hosted-only project IO and an isolated process cwd for virtual Git workspaces. */
+    val isVirtualWorkspaceSupported: Boolean = false,
 ) {
     init {
         require(nativeTools.map { it.name }.distinct().size == nativeTools.size) { "Duplicate native tool name" }

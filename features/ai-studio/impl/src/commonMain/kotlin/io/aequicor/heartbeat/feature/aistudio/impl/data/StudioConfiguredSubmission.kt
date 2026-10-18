@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
@@ -30,6 +31,7 @@ internal class StudioConfiguredSubmission(
     private val origins: StudioRequestOrigins,
     private val security: StudioSecurityPolicy,
     private val rollovers: StudioRolloverObserver = StudioRolloverObserver { _, _ -> },
+    private val planning: StudioPlanning = StudioPlanning.None,
 ) {
     private val log = Log.tag("StudioConfiguredSubmission")
 
@@ -58,6 +60,10 @@ internal class StudioConfiguredSubmission(
             efforts.state.value.effectiveEffort(target, supported)
         }
         log.i { "Submitting prompt length=${request.prompt.length} trust=${trust ?: "default"}" }
+        // The plan and its read-only rule follow the chat into the session before anything of the turn changes.
+        // Binding fails closed: a planning chat whose session stays unbound, or plans still loading, fail the turn
+        // unsent.
+        planning.bind(id, active.ref)
         val seed = record.pendingSeed.takeIf { request.compaction == null }
         // The ledger and marks follow the chat before its first turn in the new session prepares its prompt.
         if (seed != null) record.previousRefs.lastOrNull()?.let { rollovers.rolledOver(it, active.ref) }

@@ -50,8 +50,11 @@ public interface ScriptProcesses {
      * older try of a write; [ProcessReduction.Rejected] leaves the record as it was, including
      * [io.aequicor.heartbeat.feature.harness.api.process.ProcessRejection.UnknownProcess] for a process that is not
      * stored.
+     *
+     * Workflow reservations and their cancellation are issued only by the host through the keyed workflow API, so a
+     * script cannot pass them here: the type admits ordinary record changes only.
      */
-    public suspend fun apply(id: ProcessId, command: ProcessCommand): ProcessReduction
+    public suspend fun apply(id: ProcessId, command: ProcessCommand.Record): ProcessReduction
 
     /**
      * Forgets an ended process whose external writes are all settled, and returns true; also true when [id] is not

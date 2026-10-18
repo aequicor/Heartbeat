@@ -25,9 +25,11 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrigin
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowProcessOwner
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRejection
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRouting
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessOwnedContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
@@ -54,10 +56,12 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import okio.ByteString.Companion.encodeUtf8
@@ -150,12 +154,41 @@ internal class HarnessWorkflowLaunches(
         return item is HarnessItem.Workflow && approved.matches(current, item)
     }
 
-    suspend fun start(launch: WorkflowLaunch, isCallerCurrent: () -> Boolean = { true }): WorkflowLaunchResult {
+    suspend fun start(
+        launch: WorkflowLaunch,
+        process: WorkflowProcessOwner? = null,
+        reserved: RunId? = null,
+        isCallerCurrent: () -> Boolean = { true },
+    ): WorkflowLaunchResult {
+        require((process == null) == (reserved == null))
         check(isCallerCurrent() && isCurrent(launch)) { "Workflow admission changed" }
+        return submitDetached(launch, process, reserved, isCallerCurrent)
+    }
+
+    /**
+     * A keyed caller already owns a durable reservation. Submission runs in the profile job, so cancelling the caller
+     * cannot leave a journal record without its admission; the caller waits for the outcome uninterruptibly.
+     */
+    suspend fun startReserved(
+        launch: WorkflowLaunch,
+        process: WorkflowProcessOwner,
+        reserved: RunId,
+        isCallerCurrent: () -> Boolean,
+    ): WorkflowLaunchResult {
+        check(isCallerCurrent() && isCurrent(launch)) { "Workflow admission changed" }
+        return submitDetached(launch, process, reserved, isCallerCurrent)
+    }
+
+    private suspend fun submitDetached(
+        launch: WorkflowLaunch,
+        process: WorkflowProcessOwner?,
+        reserved: RunId?,
+        isCallerCurrent: () -> Boolean,
+    ): WorkflowLaunchResult {
         val result = CompletableDeferred<WorkflowLaunchResult>()
         val job = profile.coroutineScope.launch {
             try {
-                result.complete(submit(launch, isCallerCurrent))
+                result.complete(submit(launch, process, reserved, isCallerCurrent))
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -165,18 +198,32 @@ internal class HarnessWorkflowLaunches(
             }
         }
         job.invokeOnCompletion { if (it != null) result.completeExceptionally(it) }
-        return result.await()
+        return if (reserved == null) result.await() else withContext(NonCancellable) { result.await() }
     }
 
-    private suspend fun submit(launch: WorkflowLaunch, isCallerCurrent: () -> Boolean): WorkflowLaunchResult {
-        val machine = runs.value
-        if (machine.state.value is HarnessRunsState.Idle || machine.state.value is HarnessRunsState.Failed) {
-            machine.send(HarnessRunsIntent.Internal.Start)
-        }
-        val ready = withTimeoutOrNull(5.seconds) { machine.state.first { it is HarnessRunsState.Ready } }
-            as? HarnessRunsState.Ready ?: error("Workflow journal is unavailable")
-        check(!ready.isSuspended && isCallerCurrent() && isCurrent(launch)) { "Workflow admission changed" }
-        val id = RunId("wf_" + Uuid.random().toHexString())
+    private suspend fun existing(
+        launch: WorkflowLaunch,
+        process: WorkflowProcessOwner?,
+        id: RunId,
+        ready: HarnessRunsState.Ready,
+    ): WorkflowLaunchResult? {
+        val run = storage.find(id) ?: return null
+        check(run.harness == launch.harness.id && run.process == process) { "Workflow key conflicts" }
+        val isConfirmed = run.status != WorkflowStatus.Running || ready.runs.any { it.id == id } || admit(run) == true
+        // A journaled run the machine refuses is not running: reporting its id as started would be a false success.
+        check(isConfirmed) { "Workflow start was not confirmed" }
+        return WorkflowLaunchResult(id, run.wake != null, isConfirmed)
+    }
+
+    private suspend fun submit(
+        launch: WorkflowLaunch,
+        process: WorkflowProcessOwner?,
+        reserved: RunId?,
+        isCallerCurrent: () -> Boolean,
+    ): WorkflowLaunchResult {
+        val ready = ready(launch, isCallerCurrent)
+        val id = reserved ?: RunId("wf_" + Uuid.random().toHexString())
+        if (reserved != null) existing(launch, process, id, ready)?.let { return it }
         val at = clock.now()
         val context = ownership.encode(launch.harness.id, launch.origin)
         val wake = launch.caller?.takeIf { toggles.get(SchedulerEnabled) }?.let { caller ->
@@ -192,6 +239,7 @@ internal class HarnessWorkflowLaunches(
             id, launch.harness.id, launch.workflow.id,
             pinWorkflow(launch.harness, launch.workflow) { it.encodeUtf8().sha256().hex() },
             launch.input, launch.caller, launch.kind, at, at + HarnessLimits.RUN_TIME, wake = wake?.id,
+            process = process,
             routing = WorkflowRouting(
                 launch.workspace,
                 HelperHandoff(launch.initiator, HARNESS_WAKE_OWNER, context),
@@ -201,7 +249,7 @@ internal class HarnessWorkflowLaunches(
         )
         // The journal record precedes every side effect: after a crash past this point Restore drives the run,
         // so neither the run nor a caller wake about a run that never existed can be lost or orphaned.
-        record(run)
+        record(run, isKeyed = reserved != null)
         var isStartSent = false
         val isAccepted = try {
             if (wake != null) {
@@ -227,14 +275,25 @@ internal class HarnessWorkflowLaunches(
         return WorkflowLaunchResult(id, wake != null, isAccepted == true)
     }
 
+    private suspend fun ready(launch: WorkflowLaunch, isCallerCurrent: () -> Boolean): HarnessRunsState.Ready {
+        val machine = runs.value
+        if (machine.state.value is HarnessRunsState.Idle || machine.state.value is HarnessRunsState.Failed) {
+            machine.send(HarnessRunsIntent.Internal.Start)
+        }
+        val ready = withTimeoutOrNull(5.seconds) { machine.state.first { it is HarnessRunsState.Ready } }
+            as? HarnessRunsState.Ready ?: error("Workflow journal is unavailable")
+        check(!ready.isSuspended && isCallerCurrent() && isCurrent(launch)) { "Workflow admission changed" }
+        return ready
+    }
+
     /** A failed or uncertain create is withdrawn: discard removes only this exact unclaimed record, if any. */
-    private suspend fun record(run: WorkflowRun) {
+    private suspend fun record(run: WorkflowRun, isKeyed: Boolean) {
         val isSaved = try {
             storage.save(run, null)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            withdraw(run, null)
+            if (!isKeyed) withdraw(run, null)
             throw error
         }
         check(isSaved) { "Workflow journal rejected the run" }

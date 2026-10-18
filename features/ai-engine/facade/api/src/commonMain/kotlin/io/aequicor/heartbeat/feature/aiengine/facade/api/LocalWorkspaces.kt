@@ -7,6 +7,19 @@ public data class LocalWorkspace(val ref: WorkspaceRef, val name: String)
 
 /** Registry of directories explicitly selected by the user, shared by local engine adapters. */
 public interface LocalWorkspaces {
+    /** A virtual workspace never resolves to a physical project directory. */
+    public suspend fun virtual(ref: WorkspaceRef): VirtualWorkspace? = null
+
+    /** Native process cwd: an empty host directory for virtual workspaces, the project for physical ones. */
+    public suspend fun executionDirectory(ref: WorkspaceRef): String? {
+        virtual(ref)?.let { workspace ->
+            workspace.revision()
+            return workspace.processDirectory
+        }
+        check(!ref.value.startsWith("sandbox-")) { "VirtualWorkspaceUnavailable" }
+        return resolve(ref)
+    }
+
     /** Whether this platform supports opening local project directories. */
     public val isAvailable: Boolean
 

@@ -59,7 +59,14 @@ internal class StudioConversationCreation(
             Result.success(record)
         } else {
             val project = WorkspaceRef(checkNotNull(record.projectId))
-            worktrees.send(WorktreeIntent.Public.Prepare(record.worktreeTaskId, project, record.isSandbox))
+            worktrees.send(
+                WorktreeIntent.Public.Prepare(
+                    record.worktreeTaskId,
+                    project,
+                    record.isSandbox,
+                    record.virtualParentWorkspace,
+                ),
+            )
             val task = worktrees.await(record.worktreeTaskId) {
                 it.executionWorkspace != null || it.phase == WorktreePhase.Failed
             }
