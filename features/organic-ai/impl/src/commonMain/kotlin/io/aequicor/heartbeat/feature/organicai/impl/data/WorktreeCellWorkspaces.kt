@@ -32,11 +32,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -58,14 +56,13 @@ import kotlin.uuid.Uuid
 internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : CellWorkspaces {
     private val log = Log.tag("WorktreeCellWorkspaces")
 
-    /** One capture per cell at a time, so a result read twice at once is sealed once; guarded by [guard]. */
-    private val sealing = mutableMapOf<String, Mutex>()
-    private val guard = Mutex()
+    /** Fixed stripes serialize readers of one cell without retaining every cell id for the profile lifetime. */
+    private val sealing = List(SEAL_STRIPES) { Mutex() }
 
     override suspend fun prepare(organism: Organism, cell: CellId): WorkspaceRef {
         val project = checkNotNull(organism.workspace) { "A sandbox organism needs a project" }
         val key = organism.sandboxTask(cell)
-        val known = tasks().first()[key]
+        val known = snapshot()[key]
         known?.takeIf { it.isUsable() }?.let { return checkNotNull(it.executionWorkspace) }
         dispatch(WorktreeIntent.Public.Prepare(key, project, isSandbox = true))
         log.i { "organism ${organism.id.value} cell ${cell.value}: sandbox requested" }
@@ -78,7 +75,7 @@ internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : C
     override suspend fun begin(organism: Organism, cell: CellId, request: RequestId): CellRun {
         val key = organism.sandboxTask(cell)
         closeStale(key, request)
-        val current = tasks().first()[key]
+        val current = snapshot()[key]
         // A repeated drive of the same request finds its run already prepared and starts nothing.
         if (current?.isPreparedFor(request) != true) {
             dispatch(WorktreeIntent.Public.RunStarted(key, request, WorktreeRunKind.Coding))
@@ -91,7 +88,7 @@ internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : C
 
     override suspend fun adopt(organism: Organism, cell: CellId, session: SessionRef, turn: TurnId): CellRun? {
         val key = organism.sandboxTask(cell)
-        val task = tasks().first()[key]
+        val task = snapshot()[key]
         val run = task?.run?.takeIf { it.isOf(session, turn) } ?: return null
         if (task.phase == WorktreePhase.RecoveryRequired) {
             dispatch(WorktreeIntent.Public.RunAdopted(key, run.request, session, turn))
@@ -104,11 +101,11 @@ internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : C
 
     override suspend fun result(organism: Organism, cell: CellId): CellResult? {
         val key = organism.sandboxTask(cell)
-        val capture = guard.withLock { sealing.getOrPut(key) { Mutex() } }
+        val capture = sealing[key.hashCode().mod(sealing.size)]
         return capture.withLock {
-            val task = tasks().first()[key] ?: return@withLock null
+            val task = snapshot()[key] ?: return@withLock null
             val branch = task.branch ?: return@withLock null
-            // An ended cell never works again, so the capture it already has stays its result.
+            // Readers share the current result; starting another run invalidates its previous seal.
             val existing = task.seal?.commit
             val commit = existing ?: seal(key, task)
             commit?.let { CellResult(branch, task.baseCommit, it) }
@@ -116,7 +113,7 @@ internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : C
     }
 
     override suspend fun branches(organism: Organism): Map<CellId, String> {
-        val tasks = tasks().first()
+        val tasks = snapshot()
         return organism.cells.mapNotNull { cell ->
             tasks[organism.sandboxTask(cell.id)]?.branch?.let { cell.id to it }
         }.toMap()
@@ -140,7 +137,7 @@ internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : C
      * the engine is settled with its identity, one that never did is rejected.
      */
     private suspend fun closeStale(key: String, request: RequestId) {
-        val task = tasks().first()[key] ?: return
+        val task = snapshot()[key] ?: return
         val stale = task.run?.takeIf { it.outcome == null && it.request != request } ?: return
         val session = stale.session
         val turn = stale.turn
@@ -160,7 +157,13 @@ internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : C
     private fun tasks(): Flow<Map<String, WorktreeTask>> = machines.observe(
         WorktreeMachineKey,
     ).flatMapLatest { machine ->
-        machine?.state?.map { (it as? WorktreeState.Ready)?.tasks.orEmpty() } ?: flowOf(emptyMap())
+        machine?.state ?: flowOf(WorktreeState.Idle)
+    }.mapNotNull { state ->
+        when (state) {
+            is WorktreeState.Ready -> state.tasks
+            WorktreeState.LoadError -> throw unavailable("the worktree journal is unavailable")
+            WorktreeState.Idle, WorktreeState.Loading -> null
+        }
     }
 
     /** The first state of the task newer than [after] that satisfies [until]; an older state is never reused. */
@@ -169,15 +172,14 @@ internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : C
             tasks().mapNotNull { it[key] }.first { it.revision > after && until(it) }
         } ?: throw unavailable("timed out")
 
+    /** A missing or loading journal is never mistaken for an empty restored journal. */
+    private suspend fun snapshot(): Map<String, WorktreeTask> = withTimeoutOrNull(READY_MILLIS) {
+        tasks().first()
+    } ?: throw unavailable("the worktree journal is unavailable")
+
     /** Waits for the restored journal, then hands the command over; a refusal is a failure of the cell's turn. */
     private suspend fun dispatch(intent: WorktreeIntent.Public) {
-        val machine = withTimeoutOrNull(READY_MILLIS) { machines.observe(WorktreeMachineKey).filterNotNull().first() }
-        val state = machine?.let { running ->
-            withTimeoutOrNull(READY_MILLIS) {
-                running.state.first { it is WorktreeState.Ready || it is WorktreeState.LoadError }
-            }
-        }
-        if (state !is WorktreeState.Ready) throw unavailable("the worktree journal is unavailable")
+        snapshot()
         val sent = machines.send(WorktreeMachineKey, intent)
         if (sent != SendResult.Accepted) throw unavailable("rejected: $sent")
     }
@@ -235,6 +237,7 @@ internal class WorktreeCellWorkspaces(private val machines: MachineRegistry) : C
     }
 
     private companion object {
+        const val SEAL_STRIPES = 32
         const val READY_MILLIS = 30_000L
         const val WAIT_MILLIS = 120_000L
         const val LOST = "NativeOutcomeUnknown"

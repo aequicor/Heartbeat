@@ -154,6 +154,8 @@ class PromptsTest {
         val prompt = turnPrompt(sandboxed, sandboxed.zygote)
         assertTrue("Your checkout is a sandbox" in prompt && "git merge" !in prompt, prompt)
         assertTrue("host note about its sandbox branch" in prompt && "mark_task_complete is not needed" in prompt)
+        assertTrue("Studio publishes the zygote's captured result commit separately" in prompt)
+        assertFalse("the zygote's branch is the organism's result" in prompt)
         assertTrue("Your checkout is a sandbox" in turnPrompt(sandboxed, sandboxed.cell(C1)!!))
     }
 

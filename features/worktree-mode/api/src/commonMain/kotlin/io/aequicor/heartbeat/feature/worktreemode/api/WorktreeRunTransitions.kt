@@ -27,6 +27,8 @@ internal fun WorktreeTask.runStarted(command: WorktreeIntent.Public.RunStarted):
             isCompletionDismissed = false,
             verifiedPullRequestUrl = null,
             expectedAction = null,
+            // A resumed checkout produces a new result, even when the same cell owns both turns.
+            seal = null,
         )
     } else {
         this

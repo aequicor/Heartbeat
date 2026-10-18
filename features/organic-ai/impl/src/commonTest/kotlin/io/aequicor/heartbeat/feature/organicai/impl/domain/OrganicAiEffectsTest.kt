@@ -474,16 +474,22 @@ class OrganicAiEffectsTest {
     }
 
     @Test
-    fun `a live turn the sandbox does not hold gets a new run and a recovery without one submits`() = runTest {
+    fun `an unmatched live turn keeps its sandbox recovery barrier without a replacement run`() = runTest {
         val recovering = sandboxed(cell(C1, phase = working(C1, isRecovery = true)))
         cells.handle.active = TurnId("live")
-        effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
-        assertEquals("begin c1 ${request(C1).value}", workspaces.events.first())
-        assertEquals("accepted live", workspaces.events[1])
+        val failure = assertFailsWith<EngineException> {
+            effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), failure.failure)
+        assertEquals(emptyList(), workspaces.events)
         assertEquals(emptyList(), cells.handle.submitted)
+        assertEquals(emptyList(), cells.handle.cancelled)
+        assertTrue(machine.sent.none { it is OrganicAiIntent.Internal.TurnAccepted })
+    }
 
-        workspaces.events.clear()
-        cells.handle.active = null
+    @Test
+    fun `a recovery without a live turn starts a new sandbox run and submits`() = runTest {
+        val recovering = sandboxed(cell(C1, phase = working(C1, isRecovery = true)))
         effects.handle(OrganicAiEffect.Drive(recovering, C1, request(C1)), machine)
         assertEquals("begin c1 ${request(C1).value}", workspaces.events.first())
         assertEquals(1, cells.handle.submitted.size)

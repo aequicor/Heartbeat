@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.duration_minutes
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.duration_seconds
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.message_copied
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.message_copy
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_result
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.reasoning_title
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_access
@@ -57,6 +58,7 @@ internal fun timelineLabels(section: String, calendar: StudioCalendar = StudioCa
         compacted = stringResource(Res.string.context_compacted),
         rolledOver = stringResource(Res.string.context_rolled_over),
         collapsedTools = stringResource(Res.string.collapsed_tool_calls),
+        organismResult = stringResource(Res.string.organism_result),
         failed = FailureLabels(
             unknown = stringResource(Res.string.run_failed),
             limit = stringResource(Res.string.run_failed_limit),

@@ -23,16 +23,24 @@ import io.aequicor.heartbeat.feature.organicai.impl.organism
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSeal
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.failed
 import io.aequicor.heartbeat.feature.worktreemode.api.runPrepared
 import io.aequicor.heartbeat.feature.worktreemode.api.transition
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class WorktreeCellWorkspacesTest {
     private val project = WorkspaceRef("project")
     private val sandboxed = organism().copy(workspace = project, isolation = OrganismIsolation.Sandbox)
@@ -109,6 +117,91 @@ class WorktreeCellWorkspacesTest {
         assertEquals(fresh, task.run?.request)
         assertEquals(true, task.run?.isPrepared)
         assertEquals(WorktreePhase.Working, task.phase)
+    }
+
+    @Test
+    fun `a new run waits for restoration before closing the previous request`() = runTest {
+        val stale = RequestId("organic-o1-c1-1")
+        val fresh = RequestId("organic-o1-c1-2")
+        machine.state.value = WorktreeState.Loading
+        val starting = async { workspaces.begin(sandboxed, C1, fresh) }
+        runCurrent()
+        assertEquals(false, starting.isCompleted)
+        assertEquals(emptyList(), machine.sent)
+
+        val restored = running(stale, withTurn = true).copy(phase = WorktreePhase.RecoveryRequired)
+        machine.state.value = WorktreeState.Ready(mapOf(key to restored))
+        starting.await()
+        assertEquals(
+            listOf<WorktreeIntent.Public>(
+                WorktreeIntent.Public.RunSettled(key, stale, session, turn, TurnOutcome.Unknown),
+                WorktreeIntent.Public.RunStarted(key, fresh, WorktreeRunKind.Coding),
+            ),
+            machine.sent,
+        )
+        assertEquals(fresh, machine.task(key).run?.request)
+    }
+
+    @Test
+    fun `adoption waits for the restored identity of the live native turn`() = runTest {
+        val request = RequestId("organic-o1-c1-1")
+        machine.state.value = WorktreeState.Loading
+        val adopting = async { workspaces.adopt(sandboxed, C1, session, turn) }
+        runCurrent()
+        assertEquals(false, adopting.isCompleted)
+        assertEquals(emptyList(), machine.sent)
+
+        val restored = running(request, withTurn = true).copy(phase = WorktreePhase.RecoveryRequired)
+        machine.state.value = WorktreeState.Ready(mapOf(key to restored))
+        checkNotNull(adopting.await())
+        assertEquals(
+            listOf<WorktreeIntent.Public>(WorktreeIntent.Public.RunAdopted(key, request, session, turn)),
+            machine.sent,
+        )
+        assertEquals(request, machine.task(key).run?.request)
+    }
+
+    @Test
+    fun `workspace and result readers wait for the existing restored sandbox`() = runTest {
+        machine.state.value = WorktreeState.Loading
+        val workspace = async { workspaces.prepare(sandboxed, C1) }
+        val result = async { workspaces.result(sandboxed, C1) }
+        val branches = async { workspaces.branches(sandboxed.withCells(C1)) }
+        runCurrent()
+        assertEquals(false, workspace.isCompleted)
+        assertEquals(false, result.isCompleted)
+        assertEquals(false, branches.isCompleted)
+        assertEquals(emptyList(), machine.sent)
+
+        val restored = prepared(revision = 1).copy(branch = "branch", seal = WorktreeSeal("capture", "saved"))
+        machine.state.value = WorktreeState.Ready(mapOf(key to restored))
+        assertEquals(WorkspaceRef("checkout"), workspace.await())
+        assertEquals(CellResult("branch", null, "saved"), result.await())
+        assertEquals(mapOf(C1 to "branch"), branches.await())
+        assertEquals(emptyList(), machine.sent)
+    }
+
+    @Test
+    fun `a failed journal refuses every sandbox lookup without treating it as empty`() = runTest {
+        machine.state.value = WorktreeState.LoadError
+        assertFailsWith<EngineException> { workspaces.prepare(sandboxed, C1) }
+        assertFailsWith<EngineException> { workspaces.begin(sandboxed, C1, RequestId("request")) }
+        assertFailsWith<EngineException> { workspaces.adopt(sandboxed, C1, session, turn) }
+        assertFailsWith<EngineException> { workspaces.result(sandboxed, C1) }
+        assertFailsWith<EngineException> { workspaces.branches(sandboxed) }
+        assertEquals(emptyList(), machine.sent)
+    }
+
+    @Test
+    fun `waiting for restoration is cancellable and cannot start a run after cancellation`() = runTest {
+        machine.state.value = WorktreeState.Loading
+        val starting = async { workspaces.begin(sandboxed, C1, RequestId("request")) }
+        runCurrent()
+        starting.cancelAndJoin()
+        machine.state.value = WorktreeState.Ready(mapOf(key to prepared(revision = 1)))
+        runCurrent()
+        assertEquals(true, starting.isCancelled)
+        assertEquals(emptyList(), machine.sent)
     }
 
     @Test
@@ -193,6 +286,25 @@ class WorktreeCellWorkspacesTest {
         assertEquals(first, workspaces.result(sandboxed, C1))
         assertEquals(1, machine.sent.count { it is WorktreeIntent.Public.Seal })
         assertEquals("commit-1", machine.task(key).seal?.commit)
+    }
+
+    @Test
+    fun `overlapping readers share one capture even while the seal is pending`() = runTest {
+        machine.publish(prepared(revision = 1).copy(branch = "heartbeat/worktree-c1"))
+        val captured = CompletableDeferred<Unit>()
+        machine.onSeal = { captured.await() }
+        val first = async { workspaces.result(sandboxed, C1) }
+        runCurrent()
+        val second = async { workspaces.result(sandboxed, C1) }
+        runCurrent()
+        assertEquals(false, first.isCompleted)
+        assertEquals(false, second.isCompleted)
+        assertEquals(1, machine.sent.count { it is WorktreeIntent.Public.Seal })
+
+        captured.complete(Unit)
+        assertEquals(CellResult("heartbeat/worktree-c1", null, "commit-1"), first.await())
+        assertEquals(first.await(), second.await())
+        assertEquals(1, machine.sent.count { it is WorktreeIntent.Public.Seal })
     }
 
     @Test

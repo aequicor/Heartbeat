@@ -238,6 +238,48 @@ class WorktreeMachineTest {
     }
 
     @Test
+    fun `a new run invalidates the previous sealed result before the checkout resumes work`() {
+        val completed = running.transition(settled).sealed(WorktreeSeal("seal-1", "first-result"))
+        val nextRequest = RequestId("follow-up")
+        val continued = completed.transition(WorktreeIntent.Public.RunStarted(task.chatId, nextRequest))
+        assertEquals(WorktreePhase.Working, continued.phase)
+        assertEquals(nextRequest, continued.run?.request)
+        assertNull(continued.seal)
+
+        val nextTurn = TurnId("follow-up-turn")
+        val finishedTurn = WorktreeIntent.Public.RunSettled(
+            task.chatId,
+            nextRequest,
+            session,
+            nextTurn,
+            TurnOutcome.Completed,
+        )
+        val finished = continued
+            .transition(WorktreeIntent.Public.RunAccepted(task.chatId, nextRequest, session, nextTurn))
+            .transition(finishedTurn)
+        assertNull(finished.seal)
+        val fresh = WorktreeSeal("seal-2", "follow-up-result")
+        assertEquals(fresh, finished.sealed(fresh).seal)
+    }
+
+    @Test
+    fun `ignored starts preserve the previous seal`() {
+        val seal = WorktreeSeal("seal-1", "first-result")
+        val completed = running.transition(settled).sealed(seal)
+        val command = WorktreeIntent.Public.RunStarted(task.chatId, RequestId("next"))
+        assertEquals(completed, completed.transition(command.copy(chatId = "other")))
+        val unavailableTasks = listOf(
+            running.sealed(seal),
+            completed.copy(executionWorkspace = null),
+            completed.copy(phase = WorktreePhase.Preparing),
+            completed.copy(phase = WorktreePhase.ActionWorking),
+        )
+        for (unavailable in unavailableTasks) {
+            assertEquals(unavailable, unavailable.transition(command))
+        }
+    }
+
+    @Test
     fun `a failed seal is recorded in the task without failing the checkout or a native run`() {
         val seal = WorktreeIntent.Public.Seal(task.chatId, "seal-1")
         val failed = running.operationFailed(seal, "TurnActive")

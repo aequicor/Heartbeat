@@ -69,7 +69,8 @@ internal interface CellWorkspaces {
     /**
      * Registers the turn of [request] with the sandbox of [cell] before anything is submitted, so the hosted build
      * tools of the sandbox act only for this turn's session. A run the cell left unsettled by an older request, such
-     * as one cut short by a restart, is closed first. Fails when the sandbox cannot take the run.
+     * as one cut short by a restart, is closed first. The caller must have found no live native turn to adopt.
+     * Fails when the sandbox cannot take the run.
      */
     suspend fun begin(organism: Organism, cell: CellId, request: RequestId): CellRun
 
@@ -81,7 +82,8 @@ internal interface CellWorkspaces {
 
     /**
      * What an ended [cell] leaves: its sandbox branch and an immutable commit capturing all files of its checkout,
-     * committed or not, taken once and reused afterwards. Null when worktree mode cannot capture it now.
+     * committed or not, taken once per completed run and invalidated when the cell starts another run.
+     * Null when worktree mode cannot capture it now.
      */
     suspend fun result(organism: Organism, cell: CellId): CellResult?
 

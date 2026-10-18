@@ -46,6 +46,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -58,6 +59,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -66,6 +68,7 @@ import kotlin.test.assertTrue
  * A sandbox organism end to end: the real machine, effects, driver and worktree adapter run against a worktree machine
  * that applies the real task transitions and engine handles whose native turns outlive a restart.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class SandboxScenarioTest {
     private val project = WorkspaceRef("project")
     private val worktree = WorktreeFake(isCutting = true)
@@ -134,6 +137,34 @@ class SandboxScenarioTest {
             }
             assertTrue(natives.routes.values.flatten().none { it.workspace == project })
         }
+
+    @Test
+    fun `a completed zygote seals a fresh result after follow up and resume`() = runTest {
+        val process = process(OrganicAiState.Living())
+        process.send(OrganicAiIntent.Public.Conceive(conception))
+        runCurrent()
+        natives.finish(ZYGOTE)
+        runCurrent()
+        val first = assertNotNull(worktree.task(key(ZYGOTE)).seal?.commit)
+
+        process.send(OrganicAiIntent.Public.FollowUp(ORGANISM, "add the missing feature"))
+        runCurrent()
+        assertNull(worktree.task(key(ZYGOTE)).seal)
+        natives.finish(ZYGOTE)
+        runCurrent()
+        val second = assertNotNull(worktree.task(key(ZYGOTE)).seal?.commit)
+        assertNotEquals(first, second)
+
+        process.send(OrganicAiIntent.Public.Resume(ORGANISM))
+        runCurrent()
+        assertNull(worktree.task(key(ZYGOTE)).seal)
+        natives.finish(ZYGOTE)
+        runCurrent()
+        assertNotEquals(second, assertNotNull(worktree.task(key(ZYGOTE)).seal?.commit))
+        assertTrue(process.organism().status is OrganismStatus.Completed)
+        assertEquals(1, worktree.prepares.size)
+        assertEquals(3, natives.handle(ZYGOTE).submitted.size)
+    }
 
     @Test
     fun `aborting the organism cancels every run and keeps the checkouts`() = runTest {

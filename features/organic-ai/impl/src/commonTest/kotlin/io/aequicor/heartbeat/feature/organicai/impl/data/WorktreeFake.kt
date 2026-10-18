@@ -37,6 +37,7 @@ internal class WorktreeFake(private val isCutting: Boolean = false) :
     val sent = mutableListOf<WorktreeIntent.Public>()
     var result = SendResult.Accepted
     var onPrepare: () -> Unit = {}
+    var onSeal: suspend () -> Unit = {}
     var failRuns = false
     var failSeals = false
     var seals = 0
@@ -90,14 +91,17 @@ internal class WorktreeFake(private val isCutting: Boolean = false) :
                 }
             }
 
-            is WorktreeIntent.Public.Seal -> change(intent.chatId) {
-                it.sealed(
-                    if (failSeals) {
-                        WorktreeSeal(intent.operation, failure = "TurnActive")
-                    } else {
-                        WorktreeSeal(intent.operation, "commit-${++seals}")
-                    },
-                )
+            is WorktreeIntent.Public.Seal -> {
+                onSeal()
+                change(intent.chatId) {
+                    it.sealed(
+                        if (failSeals) {
+                            WorktreeSeal(intent.operation, failure = "TurnActive")
+                        } else {
+                            WorktreeSeal(intent.operation, "commit-${++seals}")
+                        },
+                    )
+                }
             }
 
             else -> change(intent.runKey()) { it.transition(intent) }

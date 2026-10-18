@@ -98,8 +98,9 @@ private const val SANDBOX =
         "and test with run_build, not natively. Your final answer ends your task; mark_task_complete is not needed. " +
         "When your cell completes, the host captures everything in your checkout, committed or not. When a child's " +
         "result comes with a host note about its sandbox branch, integrate it into your own checkout before your " +
-        "final answer, as the note says. Name your own branch (git branch --show-current) in your final answer: " +
-        "the zygote's branch is the organism's result, and the user decides what reaches the project."
+        "final answer, as the note says. You may name your branch (git branch --show-current) for orientation, " +
+        "but it may exclude uncommitted work. Studio publishes the zygote's captured result commit separately " +
+        "after completion; the user decides whether to integrate that commit into the project."
 
 private const val RECOVERY =
     "Heartbeat restarted or the user resumed your work. Your previous turn may have partly happened. Check " +

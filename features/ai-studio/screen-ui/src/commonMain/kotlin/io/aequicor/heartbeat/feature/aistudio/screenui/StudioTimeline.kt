@@ -53,6 +53,7 @@ internal data class TimelineLabels(
     val compacted: String,
     val rolledOver: String,
     val collapsedTools: String,
+    val organismResult: String = "",
 )
 
 /** Failed-run notices, one per [FailureUi]. */
@@ -330,6 +331,14 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
             part.toHb(labels, isStreaming = isStreaming && index == streamingPartIndex)
         }.toImmutableList(),
         label = labels.calendar.timeLabel(createdAt).takeIf { isTimestampKnown },
+    )
+
+    is MessageUi.OrganismResult -> HbChatMessage(
+        id = id,
+        author = labels.studio,
+        text = fill(labels.organismResult, branch, base, commit),
+        role = HbChatRole.System,
+        kind = HbMessageKind.Markdown,
     )
 
     is MessageUi.Stopped -> HbChatMessage(

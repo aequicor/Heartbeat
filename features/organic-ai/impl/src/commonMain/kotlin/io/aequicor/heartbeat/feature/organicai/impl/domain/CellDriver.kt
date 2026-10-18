@@ -3,6 +3,9 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -103,7 +106,9 @@ internal class CellDriver(
 
     /**
      * The worktree run of the turn: the one of a native turn that survived a restart ([live]) when the sandbox still
-     * holds it, else a new one for [request]. A cell that shares the organism's project has no run.
+     * holds it, else a new one for [request] only when no native turn is running. An unmatched live turn keeps
+     * its recovery barrier: a new request must never claim it without a native submission. A cell that shares
+     * the organism's project has no run.
      */
     private suspend fun runOf(
         organism: Organism,
@@ -113,7 +118,11 @@ internal class CellDriver(
         live: TurnId?,
     ): CellRun = when {
         !organism.isSandboxed -> CellRun.None
-        else -> live?.let { workspaces.adopt(organism, cell, session, it) } ?: workspaces.begin(organism, cell, request)
+
+        live == null -> workspaces.begin(organism, cell, request)
+
+        else -> workspaces.adopt(organism, cell, session, live)
+            ?: throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
     }
 
     /**
