@@ -28,6 +28,7 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 | Раздел `harnesses` конфигурации проекта (`.heartbeat`, `.hbai`) | `impl/domain/config/HarnessConfigCodec.kt` (раскладка файлов), `impl/data/config/HarnessConfigSection.kt` (проверка кода и политики, `Create`/`Update(Content)`) |
 | UI-методы для интерфейсов service-as-ui (`ui.method`) | `harness/api/script/ScriptUi.kt`; `impl/domain/runtime/HarnessUiDispatch.kt` (`connectedAdmission`); провайдер `impl/data/serviceui/HarnessServiceUiProvider.kt` |
 | Постоянные данные мини-приложения (`data.read/write/update`) | `api/script/ScriptData.kt`; `impl/domain/services/HarnessScriptData`, `impl/data/services/ProtectedHarnessData` |
+| GitHub-порт скриптов (`github`, тогл `harness.github`) | контракты `api/github`; транспорт и сверка `impl/domain/github`, desktop gh `impl/data/github`; сборка activation-сервиса `data/services/HarnessScriptGitHubFactory` |
 | Durable-процессы разработки (`processes.open/get/list/apply/remove`) | модель и переходы — `api/process` (`ProcessRecord`, `ProcessCommand`, `reduce`); сервис — `api/script/ScriptProcesses.kt`, `impl/domain/services/HarnessScriptProcesses` поверх `ScriptData` |
 | Хуки сессий, политика, гейт нативных вызовов | `ai-engine/facade:{api,impl}` (`SessionHooks`, `ToolPolicy`, `authorizeNative`) |
 | Адаптивные помощники (`AgentOptions.adaptive`, `sessions.spawn(..., adaptive)`) | `api/workflow/AdaptiveAgent.kt`; порт `impl/domain/services/HarnessHelperModels.kt`, адаптер над `AdaptiveModels` (`adaptive-subagents:api`) — `impl/data/services/AdaptiveHarnessHelperModels.kt` |
@@ -119,6 +120,16 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   ожидание остаются в списке. Номер попытки записи сквозной и не
   переиспользуется. Полномочия `Write`/`Publish`/`Merge`/`Release` выдаются
   командой `Grant` и по отдельности — это самодекларация скрипта, не одобрение человека и не граница безопасности.
+- GitHub-порт (`github`, `api/github`) читает только фиксированные github.com маршруты, использует существующий
+  логин gh и не раскрывает credentials. Каждая операция проверяет опубликованную активацию, запрещена из хуков
+  и ограничена тоглом `harness.github` (по умолчанию false). Бизнес-стадии остаются в харнессе. Постоянный реестр
+  `hb_github` в том же `ScriptData` резервирует immutable запрос до `BeginWrite` и внешнего вызова; 128 ключей,
+  без вытеснения, общая квота байтов. `Unknown` допускает только чтение/сверку, отсутствие или неполная/неоднозначная
+  страница не разрешает повтор. Ключи и корреляция сохраняются после вытеснения восьми слотов `ProcessRecord`.
+  Допуск записи проверяется после API-очереди под общим processMutex; смена ревизии/закрытие не обгоняют отправку.
+  Merge/release/dispatch требуют независимого host-owned допуска, самодекларации `ProcessAuthority` недостаточно;
+  до интеграции такого допуска production factory их запрещает. Ни текст, ни маркер операции не являются разрешением.
+  Приватные payload и идентификаторы скрыты в `toString`, тела и диагностики gh не логируются.
 - UI (`impl/ui`) не импортирует `harness:api`: только презентационные модели (`presentation/HarnessUiModels.kt`).
   Presentation видит только порты `domain` (`domain/authoring/HarnessLibraryPorts.kt`), не `data`. Навигацию
   экранов выполняют компоненты по `MVIAction` сторов; retained-модели навигатор не держат. Экран повторяет

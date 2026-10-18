@@ -23,6 +23,7 @@ internal fun harnessCompilerConfiguration(kind: HarnessCodeKind, classpath: Harn
         dependencies(JvmDependency(classpath.entries.map { it.toFile() }))
         compilerOptions("-language-version", "2.4", "-jvm-target", "17")
         defaultImports(
+            "io.aequicor.heartbeat.feature.harness.api.github.*",
             "io.aequicor.heartbeat.feature.harness.api.ItemName",
             "io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey",
             "io.aequicor.heartbeat.feature.harness.api.process.workflowKey",
