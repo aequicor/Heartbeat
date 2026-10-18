@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessRecord
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
@@ -336,7 +337,7 @@ internal class HarnessProcessWorkflows(
     /** Process highwater and lifetime are checked before releasing any journal protection. */
     suspend fun releaseSettled(harness: HarnessId) {
         val raw = data.read(harness, HarnessScriptProcesses.STORAGE_KEY) {}
-        val records = HarnessScriptProcesses.decodeStored(raw.value).associateBy { it.id }
+        val records = decodeProcessRecords(raw.value)
         val terminal = storage.load().filter {
             it.process != null && it.harness == harness &&
                 !it.isProcessReleased && it.status != WorkflowStatus.Running
@@ -350,6 +351,17 @@ internal class HarnessProcessWorkflows(
                 throw HarnessStorageUncertain()
             }
         }
+    }
+
+    private fun decodeProcessRecords(value: JsonElement?): Map<ProcessId, ProcessRecord> = try {
+        HarnessScriptProcesses.decodeStored(value).associateBy { it.id }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        // Decoder messages may quote stored script data. Only a safe failure reaches driver logging.
+        val failure = IllegalStateException("Stored process is unreadable")
+        log.w(failure) { "Stored process could not be read (${error::class.simpleName.orEmpty()})" }
+        throw failure
     }
 }
 

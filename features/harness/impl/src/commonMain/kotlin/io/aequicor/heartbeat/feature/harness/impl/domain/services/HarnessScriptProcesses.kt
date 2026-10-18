@@ -150,6 +150,13 @@ internal class HarnessScriptProcesses(
 
     private suspend fun canRemoveWorkflow(record: ProcessRecord): Boolean {
         val storage = runs ?: return true
+        val harness = owner ?: return true
+        val hasRunning = storage.load().any { run ->
+            val key = run.process?.key
+            run.harness == harness && key?.process == record.id && key.incarnation == record.incarnation &&
+                run.status == WorkflowStatus.Running
+        }
+        if (hasRunning) return false
         return record.history.mapNotNull { entry ->
             entry.attempt.workflow?.let { entry to it }
         }.all { (entry, workflow) ->

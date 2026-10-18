@@ -198,7 +198,7 @@ internal class HarnessWorkflowLaunches(
             }
         }
         job.invokeOnCompletion { if (it != null) result.completeExceptionally(it) }
-        return withContext(NonCancellable) { result.await() }
+        return if (reserved == null) result.await() else withContext(NonCancellable) { result.await() }
     }
 
     private suspend fun existing(

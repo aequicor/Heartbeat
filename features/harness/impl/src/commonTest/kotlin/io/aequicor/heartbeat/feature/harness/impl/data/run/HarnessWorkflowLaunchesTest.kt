@@ -19,10 +19,14 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
+import io.aequicor.heartbeat.feature.harness.api.process.ExecutorKind
+import io.aequicor.heartbeat.feature.harness.api.process.ExecutorRef
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessEnd
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
 import io.aequicor.heartbeat.feature.harness.api.process.ResultRef
 import io.aequicor.heartbeat.feature.harness.api.process.StageName
@@ -135,6 +139,23 @@ class HarnessWorkflowLaunchesTest {
         assertTrue(result.isConfirmed && result.hasWake)
         assertEquals(listOf(result.run), fixture.storage.load().map { it.id })
         assertTrue(fixture.port.cancelled.isEmpty())
+    }
+
+    @Test
+    fun `ordinary start caller can cancel while detached submission is waiting`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val saving = CompletableDeferred<Unit>()
+        val continueSave = CompletableDeferred<Unit>()
+        fixture.beforeSave = {
+            saving.complete(Unit)
+            continueSave.await()
+        }
+        val start = async { fixture.launches.start(fixture.prepare()) }
+        saving.await()
+        start.cancel()
+        runCurrent()
+        assertTrue(start.isCompleted)
+        continueSave.complete(Unit)
     }
 
     @Test
@@ -404,6 +425,77 @@ class ProcessWorkflowLaunchesTest {
         )
         host.releaseSettled(HARNESS.id)
         assertTrue(processes.remove(key.process))
+    }
+
+    @Test
+    fun `running workflow still blocks removal after its attempt leaves bounded history`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = ProtectedHarnessData(HarnessDataTestSecrets())
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, SCRIPT, 0), ScriptInstance)
+        val processes = HarnessScriptProcesses(
+            HarnessScriptData(HARNESS.id, ScriptInstance, data),
+            fixture.clock,
+            data.processMutex,
+            HARNESS.id,
+            fixture.storage,
+        )
+        val key = processes.open(ProcessId("task")).workflowKey(StageName("verify"))
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+        )
+        val run = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        assertIs<ProcessReduction.Changed>(
+            processes.apply(
+                key.process,
+                ProcessCommand.Finish(key.attempt, AttemptOutcome.Failed(AttemptFailure.Cancelled)),
+            ),
+        )
+        repeat(ProcessLimits.HISTORY + 1) {
+            val started = assertIs<ProcessReduction.Changed>(
+                processes.apply(
+                    key.process,
+                    ProcessCommand.Start(StageName("verify"), ExecutorRef(ExecutorKind.External, "next")),
+                ),
+            ).record
+            assertIs<ProcessReduction.Changed>(
+                processes.apply(
+                    key.process,
+                    ProcessCommand.Finish(started.inFlight!!.number, AttemptOutcome.Failed(AttemptFailure.Cancelled)),
+                ),
+            )
+        }
+        assertTrue(processes.get(key.process)!!.history.none { it.attempt.workflow?.run == run })
+        assertIs<ProcessReduction.Changed>(processes.apply(key.process, ProcessCommand.Close(ProcessEnd.Completed)))
+        assertFalse(processes.remove(key.process))
+    }
+
+    @Test
+    fun `host retention decoder does not expose malformed process data`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val data = ProtectedHarnessData(HarnessDataTestSecrets())
+        val raw = data.read(HARNESS.id, HarnessScriptProcesses.STORAGE_KEY) {}
+        data.write(
+            HARNESS.id,
+            HarnessScriptProcesses.STORAGE_KEY,
+            JsonPrimitive("private script input"),
+            raw.revision,
+        ) {}
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+        )
+        val failure = assertFailsWith<IllegalStateException> { host.releaseSettled(HARNESS.id) }
+        assertEquals("Stored process is unreadable", failure.message)
+        assertEquals(null, failure.cause)
     }
 
     @Test

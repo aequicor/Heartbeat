@@ -216,9 +216,10 @@ internal class WorkflowRunExecution(
     }
 
     private suspend fun terminal(run: WorkflowRun, projection: Long) {
-        onTerminal(run)
         publish(run)
         feedback(HarnessRunsIntent.Internal.TerminalRestored(run, projection))
+        // Retention reconciliation may fail independently of terminal delivery; a retry can repeat it safely.
+        onTerminal(run)
     }
 
     /**
