@@ -161,13 +161,15 @@ private class AnswerFixture {
     val execution = WorkflowRunExecution(
         workflow.storage,
         WorkflowCodeExecutor(scriptHost, HarnessExecutionLane(Dispatchers.Default), origins, workflow.clock, ::hash),
-        WorkflowHelperPorts(
-            grants,
-            WorkflowHelperResources(helpers, grants),
-            helpers,
-            SpawnTestBindings(mutableListOf()),
+        WorkflowAgentPorts(
+            WorkflowHelperPorts(
+                grants,
+                WorkflowHelperResources(helpers, grants),
+                helpers,
+                SpawnTestBindings(mutableListOf()),
+            ),
+            organisms.ports,
         ),
-        organisms.ports,
         access,
         workflow.clock,
     ) {

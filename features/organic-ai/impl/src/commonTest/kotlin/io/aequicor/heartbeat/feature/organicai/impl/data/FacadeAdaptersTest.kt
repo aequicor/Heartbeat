@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.ORGANISM
 import io.aequicor.heartbeat.feature.organicai.impl.TARGET
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellKey
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRoute
+import io.aequicor.heartbeat.feature.organicai.impl.domain.ReleaseOutcome
 import io.aequicor.heartbeat.feature.organicai.impl.message
 import io.aequicor.heartbeat.feature.organicai.impl.session
 import kotlinx.coroutines.CompletableDeferred
@@ -319,7 +320,7 @@ class FacadeAdaptersTest {
     }
 
     @Test
-    fun `a cancelled sleep still stops and closes every handle`() = runTest {
+    fun `a cancelled sleep retains a handle when its turn does not stop`() = runTest {
         val native = FakeSession(session("new")).apply {
             finish = null
             ignoresCancel = true
@@ -331,6 +332,10 @@ class FacadeAdaptersTest {
         sleeping.cancel()
         advanceUntilIdle()
         assertEquals(1, native.cancelled.size)
+        assertEquals(0, native.closes)
+        assertTrue(cells.hasPendingRelease(ORGANISM))
+        native.ignoresCancel = false
+        cells.releaseAll()
         assertEquals(1, native.closes)
     }
 
@@ -377,11 +382,93 @@ class FacadeAdaptersTest {
         val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val handle = cells.open(key, route, null)
         val turn = handle.submit(RequestId("r1"), "work", null)
-        cells.release(key, native.ref, ReleaseMode.Lyse)
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Lyse))
         assertEquals(listOf(turn), native.cancelled)
         assertEquals(1, native.closes)
         assertTrue(native.isArchived)
         assertFailsWith<EngineException> { cells.open(key, route, native.ref) }
+    }
+
+    @Test
+    fun `a lysed cell this process holds no handle of counts as stopped and is archived`() = runTest {
+        val native = FakeSession(session("stored"))
+        val cells = FacadeCellSessions(FakeFacade(stored = mapOf(native.ref to native)))
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Lyse))
+        assertTrue(native.isArchived)
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, null, ReleaseMode.Lyse))
+    }
+
+    @Test
+    fun `a turn that does not stop leaves the lysis unconfirmed and its handle open for the next try`() = runTest {
+        val native = FakeSession(session("new")).apply {
+            finish = null
+            ignoresCancel = true
+        }
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val turn = cells.open(key, route, null).submit(RequestId("r1"), "work", null)
+        assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, native.ref, ReleaseMode.Lyse))
+        assertEquals(0, native.closes)
+        assertFalse(native.isArchived)
+        assertFailsWith<EngineException> { cells.open(key, route, native.ref) }
+        assertFailsWith<EngineException> {
+            cells.respond(key, PermissionDecision(turn, PermissionRequestId("p1"), PermissionOptionId("allow")))
+        }
+
+        native.ignoresCancel = false
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Lyse))
+        assertEquals(listOf(turn, turn), native.cancelled)
+        assertEquals(1, native.closes)
+        assertTrue(native.isArchived)
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Lyse))
+        assertEquals(1, native.closes)
+    }
+
+    @Test
+    fun `a session that stays unavailable leaves the lysis unconfirmed`() = runTest {
+        val native = FakeSession(session("new")).apply { finish = null }
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val turn = cells.open(key, route, null).submit(RequestId("r1"), "work", null)
+        val running = Turn(turn, RequestId("r1"), TARGET)
+        native.state.value = ActiveSessionState.Unavailable(EngineFailure.Unknown(), running)
+        assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, native.ref, ReleaseMode.Lyse))
+        assertEquals(0, native.closes)
+        assertFalse(native.isArchived)
+
+        native.synchronized = ActiveSessionState.Ready(Turn(turn, null, TARGET, TurnOutcome.Cancelled))
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Lyse))
+        assertEquals(1, native.closes)
+    }
+
+    @Test
+    fun `a cell still being created is not confirmed stopped until its opener is done`() = runTest {
+        val native = FakeSession(session("new"))
+        val facade = FakeFacade(ArrayDeque(listOf(native)))
+        val cells = FacadeCellSessions(facade)
+        var during: ReleaseOutcome? = null
+        facade.onCreate = { during = cells.release(key, null, ReleaseMode.Lyse) }
+        assertFailsWith<EngineException> { cells.open(key, route, null) }
+        assertEquals(ReleaseOutcome.Unconfirmed, during)
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, null, ReleaseMode.Lyse))
+    }
+
+    @Test
+    fun `a recovered turn that does not stop after its cell was lysed is kept for the next lysis`() = runTest {
+        val running = Turn(TurnId("native"), RequestId("r0"), TARGET)
+        val stored = FakeSession(session("stored")).apply {
+            resumedAs = ActiveSessionState.Running(running)
+            ignoresCancel = true
+        }
+        val facade = FakeFacade(stored = mapOf(stored.ref to stored))
+        val cells = FacadeCellSessions(facade)
+        facade.onResume = { cells.release(key, stored.ref, ReleaseMode.Lyse) }
+        assertFailsWith<EngineException> { cells.open(key, route, stored.ref) }
+        assertEquals(0, stored.closes)
+        assertFalse(stored.isArchived)
+
+        stored.ignoresCancel = false
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, stored.ref, ReleaseMode.Lyse))
+        assertEquals(1, stored.closes)
+        assertTrue(stored.isArchived)
     }
 
     @Test

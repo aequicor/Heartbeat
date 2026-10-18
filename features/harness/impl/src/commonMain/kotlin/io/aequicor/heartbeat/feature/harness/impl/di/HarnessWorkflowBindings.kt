@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsEff
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.ProfileWorkflowDrivers
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowAgentPorts
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowCodeExecutor
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelperJournal
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelperPorts
@@ -83,8 +84,10 @@ public object HarnessWorkflowBindings {
     ): WorkflowRunExecution = WorkflowRunExecution(
         storage,
         code,
-        WorkflowHelperPorts(grants, resources, helpers, bindings, models),
-        WorkflowOrganismPorts(organismResources, organisms) { it.encodeUtf8().sha256().hex() },
+        WorkflowAgentPorts(
+            WorkflowHelperPorts(grants, resources, helpers, bindings, models),
+            WorkflowOrganismPorts(organismResources, organisms) { it.encodeUtf8().sha256().hex() },
+        ),
         access,
         clock,
     ) { machine.value.send(it) }

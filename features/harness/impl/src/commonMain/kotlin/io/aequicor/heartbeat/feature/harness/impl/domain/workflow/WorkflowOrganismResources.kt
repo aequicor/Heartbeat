@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOutcome
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
@@ -22,8 +21,9 @@ internal data class WorkflowOrganismPorts(
 
 /**
  * Profile-owned organism quota slots, each a durable grant that outlives a paused or cancelled driver. A slot is
- * returned only after organic AI shows that no cell of the organism can take another turn: an unconfirmed stop keeps
- * both the quota and the proof, because an organism that is merely asleep revives when organic AI awakens.
+ * returned only after organic AI shows that no cell of the organism can take another turn and its native work
+ * stopped: an unconfirmed stop keeps both the quota and the proof, because an organism that is merely asleep revives
+ * when organic AI awakens, and one that is merely marked aborted may still run its turns until the release reports.
  */
 internal class WorkflowOrganismResources(
     private val journal: WorkflowOrganismJournal,
@@ -41,18 +41,23 @@ internal class WorkflowOrganismResources(
     /**
      * Stops the organism of [grant] and returns its slot once it has ended; false while that is not confirmed and
      * [keepTrying] is false. [step] is the recorded step of the grant: its outcome can already prove the end, such as
-     * an answer or an abort that was seen, and a refusal means nothing was ever conceived. Anything else asks organic
-     * AI to abort and reads the result back: neither a command nor a timeout proves that the work stopped.
+     * an answer, and a refusal means nothing was ever conceived. An abort that was seen proves nothing, since it only
+     * marks the organism. Anything else asks organic AI to abort and reads the result back: neither a command, a
+     * mark nor a timeout proves that the work stopped, only the confirmed release of its sessions does. A release
+     * that organic AI could not confirm is asked for again, but not at every poll.
      */
     suspend fun release(grant: WorkflowOrganismGrant, step: WorkflowStep?, keepTrying: () -> Boolean): Boolean {
         if (step.isKnownEnded()) {
             settle(grant)
             return true
         }
+        var cooldown = 0
         while (true) {
             var view = host.view(grant.organism)
-            if (!view.isEnded && view != OrganismView.Unavailable) {
+            if (cooldown > 0) cooldown--
+            if (view.isAbortable && (view != OrganismView.AbortUnconfirmed || cooldown == 0)) {
                 host.abort(grant.organism)
+                if (view == OrganismView.AbortUnconfirmed) cooldown = ABORT_RETRY_POLLS
                 view = host.view(grant.organism)
             }
             if (view.isEnded) {
@@ -84,14 +89,19 @@ internal class WorkflowOrganismResources(
     }
 }
 
-/** An answered, aborted or refused step proves that no cell works for it; every other ending needs a read. */
+/**
+ * An answered or refused step proves that no cell works for it. An abort that was seen does not: the organism is only
+ * marked, and every other ending needs a read.
+ */
 private fun WorkflowStep?.isKnownEnded(): Boolean {
     val outcome = this?.takeIf { it.phase == StepPhase.Completed }?.result?.toOrganismOutcome()
-    return outcome is OrganismOutcome.Answered || outcome is OrganismOutcome.Refused ||
-        outcome == OrganismOutcome.Ended(OrganismEnd.Aborted)
+    return outcome is OrganismOutcome.Answered || outcome is OrganismOutcome.Refused
 }
 
 internal val ORGANISM_POLL_INTERVAL = 250.milliseconds
+
+/** Polls between two asks to release an abort that organic AI could not confirm: 10 seconds. */
+internal const val ABORT_RETRY_POLLS = 40
 
 /** Polls an organism that was never conceived waits for organic AI to awaken before it is refused: 30 seconds. */
 internal const val ORGANISM_UNAVAILABLE_POLLS = 120

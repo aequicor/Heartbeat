@@ -143,6 +143,27 @@ class WorkflowOrganismRelayTest {
     }
 
     @Test
+    fun `abort hides live requests but keeps the slot until native work stops`() = runTest {
+        val fixture = RelayFixture()
+        fixture.host.views[organism] = OrganismView.Developing(listOf(builder))
+        val running = async { fixture.engine().execute(definition) }
+        advanceBy(poll * 2)
+        assertEquals(listOf(shown), fixture.published.last())
+        assertTrue(fixture.requests.answer(STEP, "c1", ALLOW))
+        fixture.host.views[organism] = OrganismView.Aborting
+        advanceBy(poll * 2)
+        assertTrue(fixture.published.last().isEmpty())
+        assertTrue(fixture.host.decided.isEmpty())
+        assertFalse(fixture.requests.answer(STEP, "c1", ALLOW))
+        assertTrue(running.isActive)
+        assertEquals(1, fixture.organisms.grants.pending().size)
+        fixture.host.views[organism] = OrganismView.Aborted
+        advanceBy(poll * 2)
+        running.await()
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+    }
+
+    @Test
     fun `a lane that is no longer admitted sends no answer`() = runTest {
         val fixture = RelayFixture()
         fixture.host.views[organism] = OrganismView.Developing(listOf(builder))

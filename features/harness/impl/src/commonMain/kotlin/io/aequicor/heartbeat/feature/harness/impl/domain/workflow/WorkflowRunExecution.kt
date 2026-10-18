@@ -39,17 +39,16 @@ internal interface WorkflowRunAccess {
  * Any uncertain infrastructure exception leaves the same operation retryable; no new prompt is inferred from
  * a lost acknowledgement. Terminal records are authoritative even if their machine feedback was interrupted.
  */
-// Independent ports stay explicit at this coordinator boundary; helper and organism ports are already grouped.
-@Suppress("LongParameterList")
 internal class WorkflowRunExecution(
     private val storage: HarnessRunStorage,
     private val code: WorkflowCodeExecutor,
-    private val ports: WorkflowHelperPorts,
-    private val organisms: WorkflowOrganismPorts,
+    executors: WorkflowAgentPorts,
     private val access: WorkflowRunAccess,
     private val clock: Clock,
     private val feedback: suspend (HarnessRunsIntent.Internal) -> Unit,
 ) {
+    private val ports = executors.helpers
+    private val organisms = executors.organisms
     private val log = Log.tag("HarnessWorkflow")
     private val resources = ports.resources
     private val helpers = ports.helpers

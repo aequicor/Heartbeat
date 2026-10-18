@@ -8,11 +8,15 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineSpec
 import io.aequicor.heartbeat.feature.organicai.api.Organism
+import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
+import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.isDeveloping
 import io.aequicor.heartbeat.feature.organicai.api.zygote
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -63,7 +67,7 @@ internal class OrganicAiEffects(
                 machine.send(OrganicAiIntent.Internal.Ruled(effect.organism.id, effect.case, ruling))
             }
 
-            is OrganicAiEffect.Release -> release(effect)
+            is OrganicAiEffect.Release -> release(effect, machine)
         }
     }
 
@@ -77,7 +81,13 @@ internal class OrganicAiEffects(
     }
 
     private suspend fun restore(machine: EffectScope<OrganicAiIntent>) {
-        val organisms = journal.load()
+        val organisms = journal.load().map { organism ->
+            if (organism.status == OrganismStatus.Aborted && cells.hasPendingRelease(organism.id)) {
+                organism.copy(sessions = SessionRelease.Unconfirmed)
+            } else {
+                organism
+            }
+        }
         log.i { "restored ${organisms.size} organisms, ${organisms.count { it.isDeveloping }} developing" }
         machine.send(OrganicAiIntent.Internal.Restored(organisms))
     }
@@ -145,12 +155,26 @@ internal class OrganicAiEffects(
         machine.send(OrganicAiIntent.Internal.Hibernated)
     }
 
-    private suspend fun release(effect: OrganicAiEffect.Release) {
-        effect.cells.forEach { id ->
-            val cell = effect.organism.cell(id) ?: return@forEach
-            cells.release(CellKey(effect.organism.id, id), cell.session, effect.mode, cell.turns)
+    /**
+     * Lets the cells go, all at once so one stuck turn does not delay the others. The release an abort asked for is
+     * reported to the machine, confirmed only when every cell was seen to stop.
+     */
+    private suspend fun release(effect: OrganicAiEffect.Release, machine: EffectScope<OrganicAiIntent>) {
+        val outcomes = coroutineScope {
+            effect.cells.map { id ->
+                async {
+                    val cell = effect.organism.cell(id) ?: return@async ReleaseOutcome.Stopped
+                    cells.release(CellKey(effect.organism.id, id), cell.session, effect.mode, cell.turns)
+                }
+            }.awaitAll()
         }
-        log.i { "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})" }
+        val unconfirmed = outcomes.count { it != ReleaseOutcome.Stopped }
+        val isConfirmed = unconfirmed == 0
+        val summary = "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})"
+        if (isConfirmed) log.i { summary } else log.w { "$summary, $unconfirmed not confirmed" }
+        if (effect.organism.sessions == SessionRelease.Releasing) {
+            machine.send(OrganicAiIntent.Internal.SessionsReleased(effect.organism.id, isConfirmed))
+        }
     }
 
     /** A snapshot that cannot be written now is written by the next change of its organism or the next sleep. */

@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
 import io.aequicor.heartbeat.feature.organicai.api.CaseId
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.DeathCause
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
@@ -28,8 +29,11 @@ import io.aequicor.heartbeat.feature.organicai.api.Letter
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.Organism
+import io.aequicor.heartbeat.feature.organicai.api.OrganismId
+import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.api.Ruling
+import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.Settlement
 import io.aequicor.heartbeat.feature.organicai.api.Work
 import io.aequicor.heartbeat.feature.organicai.impl.C1
@@ -43,6 +47,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.organism
 import io.aequicor.heartbeat.feature.organicai.impl.request
 import io.aequicor.heartbeat.feature.organicai.impl.session
 import io.aequicor.heartbeat.feature.organicai.impl.working
+import io.aequicor.heartbeat.feature.organicai.impl.zygoteCell
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -294,6 +299,41 @@ class OrganicAiEffectsTest {
         assertEquals(listOf(CellKey(ORGANISM, C1) to decision), cells.responses)
     }
 
+    private fun aborted(): Organism {
+        val killed = CellPhase.Dead(DeathCause.Aborted)
+        return organism(cell(C1, phase = killed), zygote = zygoteCell(killed))
+            .copy(status = OrganismStatus.Aborted, sessions = SessionRelease.Releasing)
+    }
+
+    @Test
+    fun `the release of an abort is confirmed once every cell was seen to stop`() = runTest {
+        effects.handle(OrganicAiEffect.Release(aborted(), listOf(ZYGOTE, C1), ReleaseMode.Lyse), machine)
+        assertEquals(
+            listOf<OrganicAiIntent>(OrganicAiIntent.Internal.SessionsReleased(ORGANISM, isConfirmed = true)),
+            machine.sent,
+        )
+    }
+
+    @Test
+    fun `one cell that did not stop leaves the release of an abort unconfirmed`() = runTest {
+        cells.unstoppable += C1
+        effects.handle(OrganicAiEffect.Release(aborted(), listOf(ZYGOTE, C1), ReleaseMode.Lyse), machine)
+        // The cells are released together, so the stuck one does not keep the other from going.
+        assertEquals(listOf(ZYGOTE, C1), cells.released.map { it.first.cell })
+        assertEquals(
+            listOf<OrganicAiIntent>(OrganicAiIntent.Internal.SessionsReleased(ORGANISM, isConfirmed = false)),
+            machine.sent,
+        )
+    }
+
+    @Test
+    fun `the release of an ordinary kill or retirement reports nothing`() = runTest {
+        val lysed = organism(cell(C1, phase = CellPhase.Dead(DeathCause.Lysed(CaseId("k1"), "cancer"))))
+        effects.handle(OrganicAiEffect.Release(lysed, listOf(C1), ReleaseMode.Lyse), machine)
+        effects.handle(OrganicAiEffect.Release(lysed, listOf(C1), ReleaseMode.Retire), machine)
+        assertEquals(emptyList(), machine.sent)
+    }
+
     private val permission = PermissionRequest(
         PermissionRequestId("p1"),
         TurnId("t1"),
@@ -352,9 +392,20 @@ class OrganicAiEffectsTest {
             responses += key to decision
         }
 
-        override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int) {
+        /** What lysing a cell proves; a cell listed in [unstoppable] never stops. */
+        val unstoppable = mutableSetOf<CellId>()
+
+        override suspend fun release(
+            key: CellKey,
+            session: SessionRef?,
+            mode: ReleaseMode,
+            generation: Int,
+        ): ReleaseOutcome {
             released += Triple(key, session, mode)
+            return if (key.cell in unstoppable) ReleaseOutcome.Unconfirmed else ReleaseOutcome.Stopped
         }
+
+        override suspend fun hasPendingRelease(organism: OrganismId) = false
 
         override suspend fun releaseAll() {
             releasedAll++
