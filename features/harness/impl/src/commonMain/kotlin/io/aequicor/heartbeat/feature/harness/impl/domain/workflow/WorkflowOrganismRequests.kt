@@ -27,7 +27,7 @@ internal class WorkflowOrganismRequests(private val publish: suspend (List<Organ
     /** Replaces what [step] shows and publishes the merged snapshot if it changed; no requests drop stale answers. */
     suspend fun show(step: StepKey, requests: List<OrganismPermission>) = lock.withLock {
         if (requests.isEmpty()) answers.remove(step)
-        if ((shown[step] ?: emptyList()) == requests) return@withLock
+        if (shown[step].orEmpty() == requests) return@withLock
         if (requests.isEmpty()) shown.remove(step) else shown[step] = requests
         publish(shown.keys.sortedBy { it.value }.flatMap { shown.getValue(it) })
     }

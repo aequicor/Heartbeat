@@ -71,6 +71,29 @@ class WorkflowOrganismRelayTest {
     }
 
     @Test
+    fun `accepted intent without delivery restores the live request for explicit retry`() = runTest {
+        val fixture = RelayFixture()
+        // Acceptance does not clear the live permission, just like an asynchronous Respond that failed.
+        fixture.host.views[organism] = OrganismView.Developing(listOf(builder))
+        val running = launch { fixture.engine().execute(definition) }
+        advanceBy(poll * 2)
+        assertTrue(fixture.requests.answer(STEP, "c1", ALLOW))
+        advanceBy(poll * 2)
+        assertTrue(fixture.published.last().isEmpty())
+        advanceBy(poll * ORGANISM_ANSWER_RETRY_POLLS)
+        assertEquals(listOf(shown), fixture.published.last())
+        assertEquals(1, fixture.host.decided.size)
+        assertTrue(fixture.requests.answer(STEP, "c1", ALLOW))
+        advanceBy(poll * 2)
+        assertEquals(2, fixture.host.decided.size)
+        fixture.host.views[organism] = OrganismView.Developing()
+        advanceBy(poll * (ORGANISM_ANSWER_RETRY_POLLS + 1))
+        assertTrue(fixture.published.last().isEmpty())
+        assertFalse(fixture.requests.answer(STEP, "c1", ALLOW))
+        running.cancelAndJoin()
+    }
+
+    @Test
     fun `a request that organic AI did not take stays shown to be answered again`() = runTest {
         val fixture = RelayFixture()
         fixture.host.isDecisionAccepted = false

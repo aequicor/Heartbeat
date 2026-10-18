@@ -97,11 +97,14 @@ internal class WorkflowOrganismDriver(
     ): OrganismOutcome {
         var step = first
         var unavailablePolls = 0
-        val answered = mutableSetOf<AskedRequest>()
+        val answered = mutableMapOf<AskedRequest, Int>()
         while (true) {
             admitted()
             val view = host.view(organism)
-            if (view !is OrganismView.Developing) requests.show(step.key, emptyList())
+            if (view !is OrganismView.Developing) {
+                answered.clear()
+                requests.show(step.key, emptyList())
+            }
             val outcome = when (view) {
                 OrganismView.Unavailable -> refusalAfter(step, ++unavailablePolls)
 
@@ -137,23 +140,29 @@ internal class WorkflowOrganismDriver(
 
     /**
      * Gives the user's queued answers to the cells that asked and shows the rest. An answer reaches only a cell that
-     * still asks for exactly that, and a request the organism has taken is hidden until it is gone, so a repeated
-     * click cannot answer twice. A request organic AI did not take stays shown for the user to answer again.
+     * still asks for exactly that. An accepted intent is not a delivery receipt: its asynchronous Respond may fail.
+     * Hide the request briefly against double clicks, then offer a still-live request again for an explicit user
+     * retry. Never resend automatically. Unaccepted answers stay shown; disappeared requests lose suppression.
      */
     private suspend fun relay(
         organism: WorkflowOrganism,
         key: StepKey,
         asking: List<OrganismCellRequest>,
-        answered: MutableSet<AskedRequest>,
+        answered: MutableMap<AskedRequest, Int>,
     ) {
-        answered.retainAll(asking.mapTo(mutableSetOf()) { it.asked() })
+        val live = asking.mapTo(mutableSetOf()) { it.asked() }
+        val pending = answered.iterator()
+        while (pending.hasNext()) {
+            val entry = pending.next()
+            if (entry.key !in live || entry.value <= 1) pending.remove() else entry.setValue(entry.value - 1)
+        }
         for (answer in requests.take(key)) {
             val target = asking.firstOrNull { it.cell == answer.cell && it.request.accepts(answer.decision) }
             if (target == null || target.asked() in answered) continue
             admitted()
             if (host.decide(organism, answer.cell, answer.decision)) {
-                answered += target.asked()
-                log.i { "Workflow organism cell request answered" }
+                answered[target.asked()] = ORGANISM_ANSWER_RETRY_POLLS
+                log.i { "Workflow organism cell answer submitted" }
             }
         }
         val open = asking.filter { it.asked() !in answered }
@@ -236,6 +245,9 @@ internal class WorkflowOrganismDriver(
         throw WorkflowExecutionUnavailable()
     }
 }
+
+/** Five seconds of observed development; only suppresses clicks and never authorizes another response. */
+internal const val ORGANISM_ANSWER_RETRY_POLLS = 20
 
 /** A request as the lane tells it apart from others: the cell that asked and the turn's own request. */
 private data class AskedRequest(val cell: String, val request: PermissionRequestId, val turn: TurnId)

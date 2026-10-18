@@ -82,8 +82,9 @@ internal interface OrganismHost {
     suspend fun abort(organism: WorkflowOrganism)
 
     /**
-     * Gives the user's [decision] to [cell] of [organism]. True when organic AI took it; false when the machine is
-     * asleep or no longer waits for it, so the request is still the user's to answer. Answers are never logged.
+     * Submits the user's [decision] for [cell] of [organism]. True means the machine accepted the intent, not that
+     * its asynchronous delivery succeeded. A still-live request must remain retryable. False means the machine is
+     * asleep or no longer waits for it. Answers are never logged.
      */
     suspend fun decide(organism: WorkflowOrganism, cell: String, decision: PermissionDecision): Boolean
 }
