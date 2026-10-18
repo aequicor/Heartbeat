@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.ResultRef
 import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Required
 import kotlinx.serialization.Serializable
@@ -23,14 +24,33 @@ import kotlin.uuid.Uuid
  * No eviction: a full registry refuses new keys before any external call.
  * Stored in the protected harness namespace.
  */
-internal class GitHubRegistry(private val data: ScriptData) {
+internal class GitHubRegistry(data: ScriptData) {
+    // This registry is host-only and may write while its caller already holds the process writer barrier.
+    private val data = (data as? HarnessScriptData)?.processData() ?: data
     private val log = Log.tag("GitHubRegistry")
 
     suspend fun find(process: ProcessId, incarnation: String, key: WriteKey): GitHubOperation? = decode(
         data.read(KEY).value,
     ).firstOrNull { it.process == process && it.incarnation == incarnation && it.key == key }
 
-    suspend fun reserve(candidate: GitHubOperation): GitHubReservation {
+    /** Host-only complete lifetime inventory, including keys outside the bounded process write window. */
+    suspend fun snapshot(process: ProcessId, incarnation: String): GitHubRegistrySnapshot {
+        val stored = data.read(KEY)
+        return GitHubRegistrySnapshot(
+            process,
+            incarnation,
+            stored.revision,
+            decode(stored.value).filter { it.process == process && it.incarnation == incarnation },
+        )
+    }
+
+    /** External verification must not seal evidence against a registry that changed while reads were in flight. */
+    suspend fun isCurrent(snapshot: GitHubRegistrySnapshot): Boolean =
+        this.snapshot(snapshot.process, snapshot.incarnation) == snapshot
+
+    /** Imported keys count inside the native CAS, so concurrent fresh reservations cannot overrun lifetime quota. */
+    suspend fun reserve(candidate: GitHubOperation, retainedKeys: Set<WriteKey> = emptySet()): GitHubReservation {
+        require(retainedKeys.size <= MAX_OPERATIONS)
         var result: GitHubReservation = GitHubReservation.Full
         data.update(KEY) { value ->
             val entries = decode(value)
@@ -43,7 +63,8 @@ internal class GitHubRegistry(private val data: ScriptData) {
                     value
                 }
 
-                entries.size >= MAX_OPERATIONS -> {
+                entries.size >= MAX_OPERATIONS || candidate.key in retainedKeys ||
+                    entries.lifetimeKeys(candidate).union(retainedKeys).size >= MAX_OPERATIONS -> {
                     result = GitHubReservation.Full
                     value
                 }
@@ -55,6 +76,50 @@ internal class GitHubRegistry(private val data: ScriptData) {
             }
         }
         return result
+    }
+
+    /** Writer-barrier only: persist this receipt immediately before the single external submission. */
+    suspend fun markSendStarted(operation: GitHubOperation): Boolean {
+        var isMarked = false
+        data.update(KEY) { value ->
+            val entries = decode(value)
+            val current = entries.singleOrNull { it.marker == operation.marker && it.sameRequest(operation) }
+            isMarked = current != null && current.hasSendStarted == false &&
+                current.result == null && current.refusal == null
+            if (isMarked) {
+                encode(
+                    entries.map {
+                        if (it == current) it.copy(hasSendStarted = true) else it
+                    },
+                )
+            } else {
+                value
+            }
+        }
+        return isMarked
+    }
+
+    /** Writer-barrier only: close a positively never-submitted reservation before its producer can resume. */
+    suspend fun closeUnsent(operation: GitHubOperation): GitHubOperation? {
+        var closed: GitHubOperation? = null
+        data.update(KEY) { value ->
+            val entries = decode(value)
+            val current = entries.singleOrNull { it.marker == operation.marker && it.sameRequest(operation) }
+            closed = current?.takeIf { it.hasSendStarted == false && it.result == null }?.let {
+                if (it.refusal != null) it else it.copy(refusal = GitHubWriteRefusal.Unavailable)
+            }
+            val next = closed
+            if (next != null && next != current) {
+                encode(
+                    entries.map {
+                        if (it == current) next else it
+                    },
+                )
+            } else {
+                value
+            }
+        }
+        return closed
     }
 
     suspend fun settle(operation: GitHubOperation, result: ResultRef? = null, refusal: GitHubWriteRefusal? = null) {
@@ -106,6 +171,18 @@ internal class GitHubRegistry(private val data: ScriptData) {
     }
 }
 
+private fun List<GitHubOperation>.lifetimeKeys(candidate: GitHubOperation): Set<WriteKey> =
+    filter { it.process == candidate.process && it.incarnation == candidate.incarnation }.map { it.key }.toSet()
+
+internal data class GitHubRegistrySnapshot(
+    val process: ProcessId,
+    val incarnation: String,
+    val revision: Long,
+    val operations: List<GitHubOperation>,
+) {
+    override fun toString(): String = "GitHubRegistrySnapshot(***)"
+}
+
 @Serializable
 private data class StoredGitHub(val version: Int, val operations: List<GitHubOperation>) {
     override fun toString(): String = "StoredGitHub(***)"
@@ -125,6 +202,8 @@ internal data class GitHubOperation(
     val context: GitHubActionContext? = null,
     val decisionId: String? = null,
     val decisionBinding: ProcessActionBinding? = null,
+    /** Null preserves legacy uncertainty; false is durable proof that submission has not begun. */
+    val hasSendStarted: Boolean? = null,
 ) {
     fun sameRequest(other: GitHubOperation): Boolean = process == other.process && incarnation == other.incarnation &&
         inputRevision == other.inputRevision && key == other.key && repository == other.repository &&

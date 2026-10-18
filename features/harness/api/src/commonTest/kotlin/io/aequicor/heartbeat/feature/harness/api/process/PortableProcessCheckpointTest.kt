@@ -180,6 +180,74 @@ class PortableProcessCheckpointTest {
     }
 
     @Test
+    fun `pre send refusal round trips only as a permanent audit reference`() {
+        val tombstone = refusedTombstone()
+        val source = refusedRecord(ResultRef("github_operation", tombstone.marker))
+        val receipts = receipts().copy(registryEntries = 1, github = listOf(tombstone))
+        val checkpoint = ready(source, receipts)
+        val decoded = decodePortableProcessCheckpoint(Json.encodeToString(checkpoint).encodeToByteArray())
+        val write = decoded.writes.single()
+        assertNull(write.target)
+        assertNull(write.result)
+        assertEquals(tombstone, write.refusal)
+        val imported = importCheckpoint(decoded)
+        val restored = imported.record.writes.single()
+        assertEquals(ResultRef("handover_refusal", tombstone.payloadDigest), restored.target)
+        assertEquals(WritePhase.NotApplied, restored.phase)
+        assertEquals(source.nextWriteTry, imported.record.nextWriteTry)
+        assertTrue(imported.evidence.isEmpty())
+        assertTrue(imported.record.grants.isEmpty())
+        assertEquals(decoded, ready(imported.record, receipts))
+    }
+
+    @Test
+    fun `unmatched generic and falsely confirmed refusals still require remote evidence`() {
+        val tombstone = refusedTombstone()
+        val receipts = receipts().copy(evidence = emptyMap(), registryEntries = 1, github = listOf(tombstone))
+        for (target in listOf(
+            ResultRef("github_operation", "9".repeat(32)),
+            ResultRef("handover_refusal", "9".repeat(64)),
+            ResultRef("other", tombstone.marker),
+        )) {
+            assertRefused(refusedRecord(target), PortableProcessRefusal.MissingEvidence, receipts)
+        }
+        val source = refusedRecord(ResultRef("github_operation", tombstone.marker))
+        val confirmed = source.copy(writes = source.writes.map { it.copy(phase = WritePhase.Confirmed(sourceResult)) })
+        assertRefused(confirmed, PortableProcessRefusal.MissingEvidence, receipts)
+    }
+
+    @Test
+    fun `refusal manifests reject missing registry entry contradictory effect and mismatched key`() {
+        val tombstone = refusedTombstone()
+        val source = refusedRecord(ResultRef("github_operation", tombstone.marker))
+        val checkpoint = ready(source, receipts().copy(registryEntries = 1, github = listOf(tombstone)))
+        val write = checkpoint.writes.single()
+        assertFailsWith<IllegalArgumentException> { checkpoint.copy(github = emptyList()) }
+        assertFailsWith<IllegalArgumentException> { write.copy(target = sealedTarget) }
+        assertFailsWith<IllegalArgumentException> { write.copy(result = sealedResult) }
+        assertFailsWith<IllegalArgumentException> { write.copy(refusal = null) }
+        assertFailsWith<IllegalArgumentException> { write.copy(key = WriteKey("different")) }
+        assertFailsWith<IllegalArgumentException> {
+            write.copy(refusal = tombstone.copy(result = sealedResult, refusal = null))
+        }
+    }
+
+    private fun refusedTombstone(): PortableGitHubTombstone = PortableGitHubTombstone(
+        WriteKey("refused"),
+        0,
+        "c".repeat(64),
+        "d".repeat(32),
+        refusal = GitHubWriteRefusal.NotAuthorized,
+    )
+
+    private fun refusedRecord(target: ResultRef): ProcessRecord = newProcess().copy(
+        updatedAt = processAt(4),
+        writes = listOf(
+            ExternalWrite(WriteKey("refused"), ProcessAuthority.Write, target, WritePhase.NotApplied, 29, processAt(4)),
+        ),
+    )
+
+    @Test
     fun `unknown registry outcomes cannot be represented as settled tombstones`() {
         assertFailsWith<IllegalArgumentException> {
             PortableGitHubTombstone(WriteKey("unknown"), 0, "c".repeat(64), "d".repeat(32))

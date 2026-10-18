@@ -126,18 +126,22 @@ public data class PortableProcessAttempt(
     override fun toString(): String = "PortableProcessAttempt(number=$number, ***)"
 }
 
-/** Settled write with its original key and monotonic try number; both references are host sealed. */
+/** Settled write with sealed remote evidence or an exact permanent pre-send refusal, never fabricated evidence. */
 @Serializable
 public data class PortableProcessWrite(
     val key: WriteKey,
     val authority: ProcessAuthority,
-    val target: PortableEvidence,
+    val target: PortableEvidence?,
     val result: PortableEvidence?,
     val tries: Int,
     val at: Instant,
+    val refusal: PortableGitHubTombstone? = null,
 ) {
     init {
         require(tries in 1 until Int.MAX_VALUE)
+        require((target == null) != (refusal == null))
+        require(refusal == null || (refusal.key == key && refusal.refusal != null))
+        require(refusal == null || result == null)
     }
 
     override fun toString(): String = "PortableProcessWrite(tries=$tries, ***)"
@@ -184,6 +188,7 @@ public data class PortableProcessCheckpoint(
         require(history.map { it.stage }.distinct().size <= ProcessLimits.STAGES)
         require(writes.map { it.key }.distinct().size == writes.size)
         require(writes.all { it.at in createdAt..updatedAt })
+        require(writes.mapNotNull { it.refusal }.all { it in github })
         require(github.map { it.key }.distinct().size == github.size)
         require(github.all { it.inputRevision <= inputRevision })
         require(nextWriteTry == (writes.maxOfOrNull { it.tries } ?: 0) + 1)

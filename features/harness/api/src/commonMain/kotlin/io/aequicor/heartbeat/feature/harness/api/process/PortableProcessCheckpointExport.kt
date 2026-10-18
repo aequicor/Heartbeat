@@ -83,13 +83,15 @@ public fun ProcessRecord.portableCheckpoint(
         )
     }
     val writes = writes.map {
+        val refusal = it.portableRefusal(receipts.github)
         PortableProcessWrite(
             it.key,
             it.authority,
-            receipts.evidence.getValue(it.target),
+            if (refusal == null) receipts.evidence.getValue(it.target) else null,
             (it.phase as? WritePhase.Confirmed)?.let { confirmed -> receipts.evidence.getValue(confirmed.result) },
             it.tries,
             it.at,
+            refusal,
         )
     }
     val ended = phase as? ProcessPhase.Ended
@@ -139,14 +141,36 @@ private fun PortableProcessReceipts.hasCompleteRegistry(inputRevision: Long): Bo
         github.all { it.inputRevision <= inputRevision }
 
 private fun ProcessRecord.hasPortableEvidence(receipts: PortableProcessReceipts): Boolean {
-    val areAllSealed = requiredEvidence().all { it in receipts.evidence }
+    val areAllSealed = requiredEvidence(receipts.github).all { it in receipts.evidence }
     val seals = receipts.evidence.values + receipts.github.mapNotNull { it.result }
     return areAllSealed && seals.groupBy { it.digest }.values.all { it.distinct().size == 1 }
 }
 
-private fun ProcessRecord.requiredEvidence(): List<ResultRef> =
+private fun ProcessRecord.requiredEvidence(github: List<PortableGitHubTombstone>): List<ResultRef> =
     history.mapNotNull { (it.outcome as? AttemptOutcome.Succeeded)?.result } +
-        writes.flatMap { listOfNotNull(it.target, (it.phase as? WritePhase.Confirmed)?.result) }
+        writes.flatMap {
+            listOfNotNull(
+                it.target.takeIf { _ -> it.portableRefusal(github) == null },
+                (it.phase as? WritePhase.Confirmed)?.result,
+            )
+        }
+
+/**
+ * Matches only a terminal pre-send refusal by permanent key and exact native marker or imported audit digest.
+ * This proof records that nothing was dispatched; it never substitutes for remote evidence of an external effect.
+ */
+public fun ExternalWrite.portableRefusal(github: List<PortableGitHubTombstone>): PortableGitHubTombstone? {
+    if (phase != WritePhase.NotApplied) return null
+    return github.singleOrNull { tombstone ->
+        tombstone.key == key && tombstone.refusal != null && target.matchesRefusal(tombstone)
+    }
+}
+
+private fun ResultRef.matchesRefusal(tombstone: PortableGitHubTombstone): Boolean = when (kind) {
+    "github_operation" -> id == tombstone.marker
+    "handover_refusal" -> id == tombstone.payloadDigest
+    else -> false
+}
 
 /** Import yields a plan, never writes storage, starts an attempt, schedules a wake or replays an external write. */
 public sealed interface PortableProcessImport {
@@ -213,7 +237,7 @@ public fun PortableProcessCheckpoint.prepareImport(
             ExternalWrite(
                 it.key,
                 it.authority,
-                it.target.asResultRef(),
+                it.target?.asResultRef() ?: ResultRef("handover_refusal", checkNotNull(it.refusal).payloadDigest),
                 it.result?.let { result -> WritePhase.Confirmed(result.asResultRef()) } ?: WritePhase.NotApplied,
                 it.tries,
                 it.at,
