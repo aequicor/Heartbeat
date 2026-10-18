@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.scheduler.api.GraphAction
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTask
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskPhase
@@ -23,6 +24,8 @@ import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandRunner
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ProfileBackgroundCapacity
 import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphDriver
 import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphMachine
+import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphSafety
+import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphTools
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -144,4 +147,6 @@ internal class GraphFixture(scope: TestScope, val machine: GraphMachine = GraphM
     fun graph(tasks: List<GraphTask>, id: String = "graph") =
         TaskGraph(id, SESSION, PROJECT, TARGET, TaskGraphDefinition(tasks), "approved")
     fun command(id: String) = GraphTask(id, GraphAction.Command(id))
+    fun tools(reviewer: AgentSafetyReviewer = AgentSafetyReviewer { _, _, _ -> error("Unexpected safety review") }) =
+        TaskGraphTools(machine, driver, lazyOf(TaskGraphSafety(reviewer)))
 }
