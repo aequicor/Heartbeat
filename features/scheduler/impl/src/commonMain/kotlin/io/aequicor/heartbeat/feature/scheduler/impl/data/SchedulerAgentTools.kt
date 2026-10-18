@@ -47,8 +47,9 @@ import kotlin.time.Instant
 
 /**
  * The agent's side of the scheduler: sleep until an event or a deadline, publish a named signal, cancel and list own
- * wakes. Each finished turn publishes the session's `turn_finished` key once per profile lifetime, even when
- * reconciliation repeats hosted cleanup. Failed publications remain retryable. All tools
+ * wakes. Recent successful `turn_finished` publications are deduplicated in a 512-turn LRU window, refreshed
+ * by repeated cleanup. Older turns can notify again after eviction. Failed publications remain retryable; an
+ * interrupted publication may already have reached the hot bus, so its retry can repeat the event. All tools
  * address only the calling session, never decoded from arguments. A helper never sleeps: its host owns waiting,
  * cancellation and recovery. Notes and payloads are never logged.
  */
@@ -75,7 +76,7 @@ internal class SchedulerAgentTools(
 
     private val log = Log.tag("SchedulerAgentTools")
     private val publication = Mutex()
-    private val publishedTurns = mutableSetOf<Pair<SessionRef, TurnId>>()
+    private val publishedTurns = linkedSetOf<Pair<SessionRef, TurnId>>()
 
     override val isDetachedSupported: Boolean get() = true
 
@@ -109,8 +110,11 @@ internal class SchedulerAgentTools(
         val isPublished = withTimeoutOrNull(PUBLISH_TIMEOUT) {
             publication.withLock {
                 val key = session to turn
-                if (key !in publishedTurns) {
+                if (publishedTurns.remove(key)) {
+                    publishedTurns.add(key)
+                } else {
                     bus.publish(EventKeys.turnFinished(session), EventOrigin.Session(session, request))
+                    if (publishedTurns.size == PUBLISHED_TURN_WINDOW) publishedTurns.remove(publishedTurns.first())
                     publishedTurns.add(key)
                 }
             }
@@ -222,6 +226,7 @@ internal class SchedulerAgentTools(
     private fun failure(message: String) = AgentToolResult(message.replaceFirstChar(Char::uppercase), isError = true)
 
     private companion object {
+        const val PUBLISHED_TURN_WINDOW = 512
         val PUBLISH_TIMEOUT = 1.seconds
 
         val INSTRUCTIONS = """

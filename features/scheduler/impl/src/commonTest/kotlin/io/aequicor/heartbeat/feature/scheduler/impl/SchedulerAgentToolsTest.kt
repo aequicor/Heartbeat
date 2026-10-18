@@ -278,6 +278,26 @@ class SchedulerAgentToolsTest {
     }
 
     @Test
+    fun `notification history evicts old turns while repeated cleanup refreshes a recent turn`() = runTest {
+        val fixture = fixture()
+        val events = mutableListOf<BusEvent>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
+        suspend fun finish(id: String) {
+            fixture.tools.finishTurn(SESSION, TurnId(id), RequestId(id))
+        }
+        finish("recent")
+        repeat(511) { finish("other-$it") }
+        finish("recent")
+        finish("overflow")
+        finish("recent")
+        finish("other-0")
+        runCurrent()
+        assertEquals(514, events.size)
+        assertEquals(1, events.count { it.origin == EventOrigin.Session(SESSION, RequestId("recent")) })
+        assertEquals(2, events.count { it.origin == EventOrigin.Session(SESSION, RequestId("other-0")) })
+    }
+
+    @Test
     fun `timed out turn notification remains retryable without duplicating a successful publication`() = runTest {
         val delegate = InMemorySchedulerBus(VirtualClock(testScheduler))
         var calls = 0
