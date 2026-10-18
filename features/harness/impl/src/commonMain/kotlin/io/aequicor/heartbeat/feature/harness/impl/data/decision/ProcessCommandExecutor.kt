@@ -13,6 +13,8 @@ import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecision
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionCommand
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionEdit
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionPhase
+import io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermitKind
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessAuthority
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessPhase
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessRecord
 import io.aequicor.heartbeat.feature.harness.api.process.SubjectSha
@@ -23,6 +25,7 @@ import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessCommandsE
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.HarnessProcessCommandHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessCommandInvocation
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessDecisionHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.NativeOwnershipAdmission
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.result
@@ -102,6 +105,17 @@ internal class ProcessCommandExecutor(
         val id = entry.decision.id
         if (!claim(call, entry)) return ScriptProcessCommandResult.Unavailable
         check(call.access.isActive) { "Process command activation expired" }
+        val current = checkNotNull(record(call)) { "Process disappeared after native admission" }
+        check(data.ownership != null || current.ownershipKey == null) { "Ownership runtime is unavailable" }
+        val ownership = data.ownership?.enter(
+            call.activation.harness.id,
+            current,
+            OwnershipPermitKind.Command,
+            id,
+        ) ?: NativeOwnershipAdmission.Legacy
+        if (ownership !is NativeOwnershipAdmission.Fresh && ownership != NativeOwnershipAdmission.Legacy) {
+            return ScriptProcessCommandResult.Unavailable
+        }
         val command = call.command
         val result = commands.run(
             LocalCommandRequest(
@@ -113,7 +127,9 @@ internal class ProcessCommandExecutor(
         ).result()
         // Timeout/cancellation may have partial external effects: preserve the consumed claim for reconciliation.
         if (result !is ScriptCommandResult.TimedOut) {
-            host.edit(ProcessDecisionEdit.Change(id, ProcessDecisionCommand.Complete))
+            // Persist the positive native receipt before releasing the shared permit; restart can repair release.
+            check(host.edit(ProcessDecisionEdit.Change(id, ProcessDecisionCommand.Complete)))
+            if (ownership is NativeOwnershipAdmission.Fresh) data.ownership?.complete(ownership.intent)
         }
         return ScriptProcessCommandResult.Finished(result)
     }
@@ -141,7 +157,10 @@ internal class ProcessCommandExecutor(
 
     private suspend fun binding(call: ProcessCommandInvocation): ProcessActionBinding? {
         check(call.access.isActive) { "Process command activation expired" }
-        val record = record(call) ?: return null
+        val record = record(
+            call,
+        )?.takeUnless { call.authority == ProcessAuthority.Transfer }
+            ?: return null
         val head = readGit(call, listOf("rev-parse", "--verify", "HEAD"))
         val repository = readGit(call, listOf("config", "--get", "remote.origin.url"))?.repository()
         val subject = record.subject

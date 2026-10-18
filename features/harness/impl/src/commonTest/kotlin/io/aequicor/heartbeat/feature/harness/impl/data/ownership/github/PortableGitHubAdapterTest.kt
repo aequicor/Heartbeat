@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.harness.api.github.GitHubChange
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubNodeId
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubRepository
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubWriteRefusal
+import io.aequicor.heartbeat.feature.harness.api.github.GitHubWriteResult
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
 import io.aequicor.heartbeat.feature.harness.api.process.ExecutorKind
 import io.aequicor.heartbeat.feature.harness.api.process.ExecutorRef
@@ -26,18 +27,23 @@ import io.aequicor.heartbeat.feature.harness.api.process.StageName
 import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
 import io.aequicor.heartbeat.feature.harness.api.process.WritePhase
 import io.aequicor.heartbeat.feature.harness.api.process.portableCheckpoint
+import io.aequicor.heartbeat.feature.harness.impl.data.services.CommandOrigins
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessDataTestSecrets
 import io.aequicor.heartbeat.feature.harness.impl.data.services.ProcessesTestEnv
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.FakeGitHubTransport
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubApi
+import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubHostAuthority
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubOperation
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubRegistry
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubReservation
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubResponse
+import io.aequicor.heartbeat.feature.harness.impl.domain.github.HarnessScriptGitHub
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.ImportedGitHubCheck
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.PortableGitHubFailure
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.marked
 import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.OwnershipLocalProcess
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.TestScope
@@ -86,6 +92,42 @@ class PortableGitHubAdapterTest {
         ).checkpoint
         assertTrue(afterRetention.writes.isEmpty())
         assertEquals(1, afterRetention.github.size)
+    }
+
+    @Test
+    fun `imported keys replay through script GitHub without new native sends`() = runTest {
+        val source = PortableGitHubEnv(this)
+        source.register()
+        val target = PortableGitHubEnv(this)
+        assertTrue(target.imported.install(target.local, source.manifest()))
+        target.processes.data.update(HarnessScriptProcesses.STORAGE_KEY) {
+            HarnessScriptProcesses.encodeStored(listOf(target.record))
+        }
+        val api = GitHubApi(target.transport, target.processes.clock)
+        val service = HarnessScriptGitHub(
+            target.processes.access,
+            CommandOrigins(),
+            target.processes.processes,
+            target.registry,
+            GitHubHost(
+                api,
+                GitHubHostAuthority { error("Imported replay must not request another approval") },
+            ) { true },
+            target.processes.processGate,
+            target.adapter,
+            target.local.harness,
+        )
+        val result = service.write(
+            target.local.process,
+            0,
+            target.operation.key,
+            target.repository,
+            target.operation.change,
+        )
+        assertEquals(GitHubWriteResult.Confirmed(checkNotNull(source.operation.result)), result)
+        assertIs<GitHubWriteResult.Confirmed>(service.reconcile(target.local.process, target.operation.key))
+        assertTrue(target.registry.snapshot(target.local.process, target.local.incarnation).operations.isEmpty())
+        assertTrue(target.transport.calls.all { it.method == "GET" })
     }
 
     @Test

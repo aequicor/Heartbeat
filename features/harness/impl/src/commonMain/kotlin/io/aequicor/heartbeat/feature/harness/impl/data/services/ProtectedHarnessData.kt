@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptDataSnapshot
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptDataWriteResult
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.HarnessOwnershipRuntime
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessProcessArchiveStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
@@ -41,6 +42,7 @@ import okio.ByteString.Companion.encodeUtf8
 internal class ProtectedHarnessData(
     private val secrets: SecretStore,
     override val archives: HarnessProcessArchiveStorage,
+    override val ownership: HarnessOwnershipRuntime? = null,
 ) : HarnessDataStorage {
     override val processMutex = Mutex()
     private val mutex = Mutex()

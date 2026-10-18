@@ -66,7 +66,8 @@ internal class WorkflowRunExecution(
             val progress = WorkflowRunJournal(run, storage) { feedback(it.feedback(run)) }
             finish(progress, WorkflowStatus.Failed(checkNotNull(run.cancellation)), requested.driverGeneration)
         } else {
-            cleanup(run, onlyTerminalSteps = false)
+            val progress = WorkflowRunJournal(run, storage) { feedback(it.feedback(run)) }
+            cleanup(run, onlyTerminalSteps = false, progress)
             return false
         }
         return true
@@ -99,7 +100,7 @@ internal class WorkflowRunExecution(
             }
             delay(RETRY_INTERVAL)
         }
-        cleanup(run, onlyTerminalSteps = true)
+        cleanup(run, onlyTerminalSteps = true, progress)
         releaseOrganisms(run, onlyTerminalSteps = true)
         val origin = access.origin(run)
         val routing = run.routing
@@ -207,7 +208,7 @@ internal class WorkflowRunExecution(
     }
 
     private suspend fun finish(progress: WorkflowRunJournal, status: WorkflowStatus, projection: Long) {
-        cleanup(progress.state.value, onlyTerminalSteps = false)
+        cleanup(progress.state.value, onlyTerminalSteps = false, progress)
         releaseOrganisms(progress.state.value, onlyTerminalSteps = false)
         val committed = progress.replace {
             it.copy(status = status, finishedAt = maxOf(it.startedAt, clock.now()), awaiting = emptyMap())
@@ -227,19 +228,31 @@ internal class WorkflowRunExecution(
      * Leases this run already holds are released before any new slot is claimed: acquiring first could wait for
      * this owner's own capacity forever. Steps without a live record then take one slot at a time.
      */
-    private suspend fun cleanup(run: WorkflowRun, onlyTerminalSteps: Boolean) {
+    private fun WorkflowStep.needsCleanup(
+        covered: Set<io.aequicor.heartbeat.feature.harness.api.workflow.StepKey>,
+        isCoordinated: Boolean,
+    ): Boolean = helper != null && key !in covered && needsRelease(isCoordinated)
+
+    private fun WorkflowStep.needsRelease(isCoordinated: Boolean): Boolean =
+        !isTerminal || (isCoordinated && !isNativeReleased)
+
+    private suspend fun cleanup(run: WorkflowRun, onlyTerminalSteps: Boolean, progress: WorkflowRunJournal) {
         val records = resources.records(run.id)
         for (record in records) {
             if (onlyTerminalSteps && run.steps.singleOrNull { it.key == record.key }?.isTerminal != true) continue
-            settle(resources.acquire(record))
+            settle(resources.acquire(record), run, progress)
         }
         if (onlyTerminalSteps) return
         val covered = records.mapTo(mutableSetOf()) { it.key }
-        for (step in run.steps.filter { it.helper != null && it.key !in covered && !it.isTerminal }) {
+        val isCoordinated = run.process?.ownership != null
+        for (step in run.steps.filter {
+            it.needsCleanup(covered, isCoordinated)
+        }) {
             val helper = checkNotNull(step.helper)
             val binding = bindings.lookup(helper)
             if (binding == null) {
-                // An expired proof cannot release the helper; retrying would keep this run Running forever.
+                if (isCoordinated) throw WorkflowExecutionUnavailable()
+                // Legacy runs retain their previous behavior; shared transfers require positive release proof.
                 log.w { "Skip cleanup of a workflow helper whose ownership proof expired" }
                 continue
             }
@@ -256,12 +269,25 @@ internal class WorkflowRunExecution(
             )
             val resource = resources.acquire(grant, helper)
             resource.bind(helper)
-            settle(resource)
+            settle(resource, run, progress)
         }
     }
 
-    private suspend fun settle(resource: WorkflowHelperResource) {
-        while (!resources.release(resource)) delay(RETRY_INTERVAL)
+    private suspend fun settle(resource: WorkflowHelperResource, run: WorkflowRun, progress: WorkflowRunJournal) {
+        while (!resources.release(resource) {
+                if (run.process?.ownership != null) {
+                    progress.replace { latest ->
+                        latest.copy(
+                            steps = latest.steps.map {
+                                if (it.key == resource.grant.key) it.copy(isNativeReleased = true) else it
+                            },
+                        )
+                    }
+                }
+            }
+        ) {
+            delay(RETRY_INTERVAL)
+        }
     }
 
     /**

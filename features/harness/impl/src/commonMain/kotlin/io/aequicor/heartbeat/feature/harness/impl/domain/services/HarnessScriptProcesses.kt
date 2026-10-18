@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.process.ArchivedProcess
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
+import io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermitKind
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchivePage
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchiveReason
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchiveRef
@@ -26,9 +27,14 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.NativeOwnershipAdmission
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.OwnershipNativeIntent
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.ownershipIntent
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -58,6 +64,52 @@ internal class HarnessScriptProcesses(
 ) : ScriptProcesses {
     private val data = (data as? HarnessScriptData)?.processData() ?: data
     private val log = Log.tag("HarnessScriptProcesses")
+    internal val ownership = (data as? HarnessScriptData)?.ownership
+    private val harnessOwner = owner ?: (data as? HarnessScriptData)?.harnessOwner
+
+    internal suspend fun admitEffect(
+        record: ProcessRecord,
+        kind: OwnershipPermitKind,
+        correlation: String,
+    ): NativeOwnershipAdmission {
+        check(ownership != null || record.ownershipKey == null) { "Ownership runtime is unavailable" }
+        return ownership?.enter(
+            checkNotNull(harnessOwner),
+            record,
+            kind,
+            correlation,
+        ) ?: NativeOwnershipAdmission.Legacy
+    }
+
+    internal suspend fun completeEffect(intent: OwnershipNativeIntent): Boolean =
+        checkNotNull(ownership).complete(intent)
+
+    internal suspend fun findEffect(
+        id: ProcessId,
+        incarnation: String,
+        kind: OwnershipPermitKind,
+        correlation: String,
+    ): OwnershipNativeIntent? {
+        val record = get(id)?.takeIf { it.incarnation == incarnation } ?: return null
+        return ownership?.find(checkNotNull(harnessOwner), record, kind, correlation)
+    }
+
+    private suspend fun <T> mutate(record: ProcessRecord?, block: suspend () -> T): T {
+        if (record == null) return block()
+        return when (val admission = admitEffect(record, OwnershipPermitKind.Mutation, Uuid.random().toHexString())) {
+            NativeOwnershipAdmission.Legacy -> block()
+
+            is NativeOwnershipAdmission.Fresh -> try {
+                block()
+            } finally {
+                // This producer has joined its atomic LOCAL transaction. No native operation occurs in block.
+                withContext(NonCancellable) { completeEffect(admission.intent) }
+            }
+
+            is NativeOwnershipAdmission.Recover, NativeOwnershipAdmission.Unavailable ->
+                error("Process ownership admission is unavailable")
+        }
+    }
 
     override suspend fun get(id: ProcessId): ProcessRecord? = decode(data.read(STORAGE_KEY).value).firstOrNull {
         it.id == id
@@ -96,7 +148,18 @@ internal class HarnessScriptProcesses(
     }
 
     override suspend fun apply(id: ProcessId, command: ProcessCommand.Record): ProcessReduction {
-        val result = gate.withLock { reduceStored(id, command) }
+        val result = gate.withLock {
+            val record = get(id)
+            val isOwned = record != null && (
+                record.ownershipKey != null ||
+                    ownership?.binding(checkNotNull(harnessOwner), record) != null
+            )
+            if (isOwned && (command is ProcessCommand.Start || command is ProcessCommand.BeginWrite)) {
+                ProcessReduction.Rejected(ProcessRejection.OwnershipUnavailable)
+            } else {
+                mutate(record) { reduceStored(id, command) }
+            }
+        }
         if (result is ProcessReduction.Changed || command is ProcessCommand.Finish || command is ProcessCommand.Close) {
             releaseSettled()
         }
@@ -127,7 +190,25 @@ internal class HarnessScriptProcesses(
      * Host-only path for workflow reservations and their cancellation. The script API cannot reach it: scripts use
      * [apply], which admits ordinary record changes only.
      */
-    suspend fun applyHost(id: ProcessId, command: ProcessCommand): ProcessReduction = reduceStored(id, command)
+    suspend fun applyHost(id: ProcessId, command: ProcessCommand): ProcessReduction =
+        if (command is ProcessCommand.SettleWorkflow || command is ProcessCommand.CancelWorkflow) {
+            reduceStored(id, command)
+        } else {
+            mutate(get(id)) { reduceStored(id, command) }
+        }
+
+    /** Host GitHub intent; unlike script BeginWrite it is covered by native dispatch admission. */
+    internal suspend fun beginHostWrite(
+        id: ProcessId,
+        command: ProcessCommand.Record,
+        isCurrent: suspend () -> Boolean = { true },
+    ): ProcessReduction = gate.withLock {
+        if (isCurrent()) {
+            mutate(get(id)) { reduceStored(id, command) }
+        } else {
+            ProcessReduction.Rejected(ProcessRejection.OwnershipUnavailable)
+        }
+    }
 
     private suspend fun reduceStored(id: ProcessId, command: ProcessCommand): ProcessReduction {
         val isVersioned = isVersioningEnabled()
@@ -203,10 +284,16 @@ internal class HarnessScriptProcesses(
         return isRemoved
     }
 
+    private suspend fun canRemoveUnowned(record: ProcessRecord): Boolean =
+        record.ownershipKey == null && ownership?.binding(
+            checkNotNull(harnessOwner),
+            record,
+        ) == null && canRemove(record)
+
     private suspend fun removeStored(id: ProcessId): Boolean {
         releaseSettled()
         val before = get(id)
-        if (before != null && !canRemove(before)) return false
+        if (before != null && !canRemoveUnowned(before)) return false
         if (before != null && shouldArchive(before)) archiveRecord(before)
         var isStored = false
         var isRemoved = false
@@ -261,6 +348,7 @@ internal class HarnessScriptProcesses(
         list()
         val archived = checkNotNull(archives).getOwned(checkNotNull(owner), ref) ?: return@withLock null
         val source = archived.record.forRestore()
+        check(source.ownershipKey == null) { "Shared process restoration requires ownership reconciliation" }
         val existing = get(source.id)
         if (existing != null) {
             check(existing.incarnation == source.incarnation) { "Another process lifetime is active" }
@@ -355,7 +443,12 @@ internal class HarnessScriptProcesses(
                 val result = reduceStored(record.id, ProcessCommand.SettleWorkflow(binding.key, receipt))
                 check(result !is ProcessReduction.Rejected) { "Workflow cleanup receipt conflicts with the process" }
             }
-            if (!isCurrent && !storage.releaseProcess(run.id)) error("Process workflow retention is unavailable")
+            if (!isCurrent) {
+                run.ownershipIntent()?.let { intent ->
+                    check(ownership?.complete(intent) == true) { "Workflow ownership receipt is unavailable" }
+                }
+                if (!storage.releaseProcess(run.id)) error("Process workflow retention is unavailable")
+            }
         }
     }
 

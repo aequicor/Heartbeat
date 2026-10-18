@@ -173,7 +173,7 @@ class GitHubOwnershipBackendTest {
     private fun ProcessOwnership.changed(command: OwnershipCommand): ProcessOwnership =
         assertIs<OwnershipReduction.Changed>(reduceOwnership(command)).record
 
-    private class Server : GitHubTransport {
+    internal class Server : GitHubTransport {
         override val isAvailable = true
         val files = mutableMapOf<String, String>()
         var defaultBranch = "main"
@@ -202,13 +202,7 @@ class GitHubOwnershipBackendTest {
             if (request.method == "PUT") beforePut()
             return lock.withLock {
                 when {
-                    path == "repos/owner/repo" -> GitHubResponse(
-                        200,
-                        buildJsonObject {
-                            put("default_branch", defaultBranch)
-                            put("permissions", buildJsonObject { put("push", true) })
-                        },
-                    )
+                    path in setOf("repos/owner/repo", "repos/owner/repo/issues/1") -> metadata(path)
 
                     path.endsWith("git/refs") -> {
                         hasBranch = true
@@ -244,6 +238,22 @@ class GitHubOwnershipBackendTest {
                 }
             }
         }
+
+        private fun metadata(path: String): GitHubResponse = GitHubResponse(
+            200,
+            if (path.endsWith("/issues/1")) {
+                buildJsonObject {
+                    put("node_id", "I_task")
+                    put("number", 1)
+                }
+            } else {
+                buildJsonObject {
+                    put("node_id", "R_repository")
+                    put("default_branch", defaultBranch)
+                    put("permissions", buildJsonObject { put("push", true) })
+                }
+            },
+        )
 
         private fun update(path: String, body: JsonObject): GitHubResponse {
             assertEquals(OWNERSHIP_BRANCH, body["branch"]?.jsonPrimitive?.content)

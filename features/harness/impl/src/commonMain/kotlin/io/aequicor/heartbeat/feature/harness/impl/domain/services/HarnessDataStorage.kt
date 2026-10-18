@@ -12,6 +12,10 @@ internal interface HarnessDataStorage {
     /** One profile barrier for process mutations and reserved workflow dispatch. */
     val processMutex: Mutex
 
+    /** Protected distributed admission; absent only in explicit legacy/test hosts. */
+    val ownership: io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.HarnessOwnershipRuntime?
+        get() = null
+
     /** Same-profile archive, shared with lifecycle cleanup and scoped process services. */
     val archives: HarnessProcessArchiveStorage? get() = null
 
