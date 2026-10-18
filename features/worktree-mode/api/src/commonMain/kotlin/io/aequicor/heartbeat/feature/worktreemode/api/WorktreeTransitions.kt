@@ -99,7 +99,7 @@ public fun WorktreeTask.failed(reason: String): WorktreeTask = if (reason.starts
 }
 
 /** The outcome of the latest seal of the checkout. */
-public fun WorktreeTask.sealed(seal: WorktreeSeal): WorktreeTask = copy(seal = seal)
+public fun WorktreeTask.sealed(seal: WorktreeSeal): WorktreeTask = copy(seal = seal, sealRevision = sealRevision + 1)
 
 /** Delayed effects report failure only to their owning request; rejected builds never poison a newer run. */
 public fun WorktreeTask.operationFailed(command: WorktreeIntent.Public, reason: String): WorktreeTask {
@@ -138,6 +138,7 @@ public fun WorktreeTask.reconciled(isPresent: Boolean, workspace: WorkspaceRef?,
 public fun WorktreeTask.trackingMain(command: WorktreeIntent.Public.TrackMainSession): WorktreeTask = copy(
     phase = WorktreePhase.Working,
     run = WorktreeRun(command.request, session = command.session, turn = command.turn, isPrepared = true),
+    closedSubmission = null,
     isCompletionDismissed = true,
     isIsolated = false,
 )

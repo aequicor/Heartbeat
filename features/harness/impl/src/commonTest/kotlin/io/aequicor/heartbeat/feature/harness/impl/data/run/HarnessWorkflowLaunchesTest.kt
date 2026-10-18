@@ -111,6 +111,30 @@ import kotlin.time.Instant
 
 class HarnessWorkflowLaunchesTest {
     @Test
+    fun `admission pins every selected harness including restrictions beyond the contribution limit`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        fixture.active = listOf(HARNESS) + (1..10).map {
+            HARNESS.copy(id = HarnessId("restriction-$it"), name = HarnessName("restriction_$it"))
+        }
+        val launch = fixture.prepare()
+        val selected = fixture.active.map { it.id }.toSet()
+        assertEquals(selected, launch.organismContext?.harnesses)
+        val result = fixture.launches.start(launch)
+        assertEquals(selected, fixture.storage.find(result.run)?.routing?.organismContext?.harnesses)
+        fixture.active = listOf(HARNESS)
+        assertEquals(selected, fixture.storage.find(result.run)?.routing?.organismContext?.harnesses)
+    }
+
+    @Test
+    fun `selection changed after admission preparation cannot silently expand or narrow the environment`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val launch = fixture.prepare()
+        fixture.active = listOf(HARNESS, HARNESS.copy(id = HarnessId("new"), name = HarnessName("new")))
+        assertFailsWith<IllegalStateException> { fixture.launches.start(launch) }
+        assertTrue(fixture.storage.load().isEmpty())
+    }
+
+    @Test
     fun `rejected start withdraws its persisted run and the caller wake scheduled after it`() = runTest {
         val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         fixture.runs.rejection = WorkflowRejection.Capacity

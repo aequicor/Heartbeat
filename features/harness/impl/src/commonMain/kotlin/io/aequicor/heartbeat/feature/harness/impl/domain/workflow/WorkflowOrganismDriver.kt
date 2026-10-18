@@ -129,7 +129,13 @@ internal class WorkflowOrganismDriver(
         options: OrganismOptions,
     ): OrganismOutcome? {
         admitted()
-        return when (host.conceive(organism, goal, options, workspace)) {
+        val context = run.routing?.organismContext
+        val conceived = when {
+            context != null -> host.conceiveIsolated(organism, goal, options, workspace, context)
+            options.execution != null -> OrganismConception.Rejected
+            else -> host.conceive(organism, goal, options, workspace)
+        }
+        return when (conceived) {
             OrganismConception.Accepted -> null
             OrganismConception.Unavailable -> OrganismOutcome.Refused(OrganismRefusal.Unavailable)
             OrganismConception.Rejected -> OrganismOutcome.Refused(OrganismRefusal.Rejected)
@@ -141,7 +147,16 @@ internal class WorkflowOrganismDriver(
         organism: WorkflowOrganism,
         shouldRetry: () -> Boolean,
     ): OrganismOutcome? = when (view.release) {
-        OrganismRelease.Confirmed -> OrganismOutcome.Answered(view.text)
+        OrganismRelease.Confirmed -> if (run.routing?.organismContext != null) {
+            val output = host.output(organism)
+            if (output == null) {
+                OrganismOutcome.Ended(OrganismEnd.Failed)
+            } else {
+                OrganismOutcome.Answered(view.text, output)
+            }
+        } else {
+            OrganismOutcome.Answered(view.text)
+        }
 
         OrganismRelease.Pending -> null
 

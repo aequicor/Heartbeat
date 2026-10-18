@@ -10,9 +10,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 /**
  * Organic AI: sessions organized as organisms. A zygote grows from the goal; working cells divide, complain about
  * cancerous cells and ask for binding answers through their hosted tools; each case goes to a fresh immune session.
- * Results stay in durable inboxes and are read by a hosted tool. Only an explicitly requested wait wakes a resting
- * cell, with a host-only reminder to read its inbox. A dispute can wake all its waiting parties. Every change of an
- * organism inside [OrganicAiState.Living] is a data update, so turns and judgements of other cells keep running.
+ * The host decision policy is fixed at conception and retained by division, resume and restore; every cell turn
+ * uses that policy independently of its trust level. Results stay in durable inboxes and are read by a hosted tool.
+ * Only an explicitly requested wait wakes a resting cell, with a host-only reminder to read its inbox. A dispute
+ * can wake all its waiting parties. Every change of an organism inside [OrganicAiState.Living] is a data update,
+ * so turns and judgements of other cells keep running.
  *
  * | From | Intent | Guard | To / update | Effects | Output |
  * |---|---|---|---|---|---|
@@ -67,7 +69,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * session of a cell is created the host prepares the cell's sandbox through worktree mode under
  * [Organism.sandboxTask] and reports it with WorkspaceBound; the session is then opened in that checkout, never in the
  * organism's project. Checkout, branch, native run and builds of a cell live in the worktree journal, the organism
- * keeps only the checkout reference, so both survive a restart independently.
+ * keeps only the checkout reference, so both survive a restart independently. A host-pinned [Organism.baseCommit]
+ * makes every cell use a physical sandbox from that exact commit; children integrate branches explicitly and no
+ * automatic virtual-source rebase changes this base.
  *
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →

@@ -37,12 +37,13 @@ import kotlin.uuid.Uuid
  * and, being one envelope, makes the whole set unreadable until the [STORAGE_KEY] entry is deleted.
  */
 internal class HarnessScriptProcesses(
-    private val data: ScriptData,
+    data: ScriptData,
     private val clock: Clock,
-    private val gate: Mutex = Mutex(),
+    private val gate: Mutex = (data as? HarnessScriptData)?.processMutex ?: Mutex(),
     private val owner: HarnessId? = null,
     private val runs: HarnessRunStorage? = null,
 ) : ScriptProcesses {
+    private val data = (data as? HarnessScriptData)?.processData() ?: data
     private val log = Log.tag("HarnessScriptProcesses")
 
     override suspend fun get(id: ProcessId): ProcessRecord? = decode(data.read(STORAGE_KEY).value).firstOrNull {

@@ -228,6 +228,31 @@ class WorktreeCellWorkspacesTest {
     }
 
     @Test
+    fun `an older unaccepted submission keeps its recovery barrier until native idle reconciliation`() = runTest {
+        val stale = RequestId("uncertain")
+        val lost = running(stale, withTurn = false).transition(
+            WorktreeIntent.Public.RunSubmissionObservationLost(key, stale, session, "Lost"),
+        )
+        machine.publish(lost)
+        assertFailsWith<EngineException> { workspaces.begin(sandboxed, C1, RequestId("next")) }
+        assertEquals(lost, machine.task(key))
+        assertEquals(emptyList(), machine.sent)
+    }
+
+    @Test
+    fun `begin failure after persisting execution intent closes its unsubmitted request`() = runTest {
+        val request = RequestId("unsent")
+        machine.publish(prepared(revision = 1))
+        machine.failAfterRunStarted = true
+        assertFailsWith<IllegalStateException> { workspaces.begin(sandboxed, C1, request) }
+        val closed = machine.task(key)
+        assertNull(closed.run)
+        assertEquals(request, closed.closedSubmission)
+        assertEquals(WorktreePhase.Failed, closed.phase)
+        assertEquals(WorktreeIntent.Public.RunRejected(key, request, "RequestRejected"), machine.sent.last())
+    }
+
+    @Test
     fun `reports reach the same run and the settled one releases the sandbox for the next request`() = runTest {
         val request = RequestId("organic-o1-c1-1")
         val run = workspaces.begin(sandboxedWith(prepared(revision = 1)), C1, request)
@@ -243,15 +268,22 @@ class WorktreeCellWorkspacesTest {
     }
 
     @Test
-    fun `a lost run keeps its identity unsettled and the next request closes it`() = runTest {
+    fun `a lost submission keeps its identity unsettled until native idle is confirmed`() = runTest {
         val request = RequestId("organic-o1-c1-1")
         machine.publish(prepared(revision = 1))
         val run = workspaces.begin(sandboxed, C1, request)
         run.lost(session, null)
         assertEquals(WorktreePhase.RecoveryRequired, machine.task(key).phase)
         assertNull(machine.task(key).run?.outcome)
+        assertFailsWith<EngineException> {
+            workspaces.begin(sandboxed, C1, RequestId("organic-o1-c1-2"))
+        }
+        assertEquals(WorktreePhase.RecoveryRequired, machine.task(key).phase)
+        assertNull(machine.task(key).closedSubmission)
+        machine.send(WorktreeIntent.Public.RunSubmissionReconciled(key, request, session))
         workspaces.begin(sandboxed, C1, RequestId("organic-o1-c1-2"))
         assertEquals(WorktreePhase.Working, machine.task(key).phase)
+        assertNull(machine.task(key).closedSubmission)
     }
 
     @Test

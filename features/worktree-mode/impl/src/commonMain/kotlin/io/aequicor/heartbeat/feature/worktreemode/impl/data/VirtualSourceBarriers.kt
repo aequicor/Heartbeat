@@ -26,13 +26,13 @@ internal class VirtualSourceBarriers : VirtualSourceBarrier {
         barrier.lock.withLock {
             barrier.participants[owner] = participant
             val participants = barrier.participants.values.toList()
-            var paused = false
-            participants.forEach { if (it.inspect()) paused = true }
-            if (!paused && !explicit) return@withLock
-            participants.forEach { it.pause(paused) }
-            var stopped = true
-            participants.forEach { if (!it.stop()) stopped = false }
-            if (stopped) participants.forEach { it.resume(explicit, resolve) }
+            var isPaused = false
+            participants.forEach { if (it.inspect()) isPaused = true }
+            if (!isPaused && !explicit) return@withLock
+            participants.forEach { it.pause(isPaused) }
+            var isStopped = true
+            participants.forEach { if (!it.stop()) isStopped = false }
+            if (isStopped) participants.forEach { it.resume(explicit, resolve) }
         }
     }
 

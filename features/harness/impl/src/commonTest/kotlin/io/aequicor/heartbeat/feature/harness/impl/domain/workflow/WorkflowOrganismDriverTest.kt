@@ -1,7 +1,10 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismCommit
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismExecution
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOutcome
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismRefusal
@@ -10,8 +13,11 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganism
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganismContext
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRouting
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStep
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStepFailed
+import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -35,6 +41,61 @@ class WorkflowOrganismDriverTest {
     private val definition: WorkflowDefinition = {
         seen += organism("Ship it", options)
         JsonNull
+    }
+
+    @Test
+    fun `sandbox result waits for native release and replays its proof`() = runTest {
+        val fixture = OrganismFixture()
+        val context = WorkflowOrganismContext(setOf(HarnessId("owner"), HarnessId("restriction")))
+        fixture.workflow.initial = fixture.workflow.initial.copy(
+            routing = WorkflowRouting(null, HelperHandoff(), organismContext = context),
+        )
+        val proof = OrganismCommit("heartbeat/task", "a".repeat(40), "b".repeat(40))
+        fixture.organisms.host.proof = proof
+        val running = async { fixture.engine().execute(definition) }
+        advanceBy(poll * 2)
+        assertEquals(listOf(context), fixture.organisms.host.environments)
+        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Answered("done", OrganismRelease.Pending)
+        advanceBy(poll * 2)
+        assertEquals(0, fixture.organisms.host.proofReads)
+        assertEquals(StepPhase.Running, fixture.step("s0").phase)
+        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Answered("done")
+        advanceBy(poll * 2)
+        running.await()
+        fixture.engine().execute(definition)
+        assertEquals(
+            listOf<OrganismOutcome>(OrganismOutcome.Answered("done", proof), OrganismOutcome.Answered("done", proof)),
+            seen,
+        )
+        assertEquals(1, fixture.organisms.host.conceived.size)
+        assertEquals(1, fixture.organisms.host.proofReads)
+    }
+
+    @Test
+    fun `missing sandbox proof gives a failed stage instead of a text only answer`() = runTest {
+        val fixture = OrganismFixture()
+        val context = WorkflowOrganismContext(setOf(HarnessId("owner")))
+        fixture.workflow.initial = fixture.workflow.initial.copy(
+            routing = WorkflowRouting(null, HelperHandoff(), organismContext = context),
+        )
+        val running = async { fixture.engine().execute(definition) }
+        advanceBy(poll * 2)
+        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Answered("looks successful")
+        advanceBy(poll * 2)
+        running.await()
+        assertEquals(listOf<OrganismOutcome>(OrganismOutcome.Ended(OrganismEnd.Failed)), seen)
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+    }
+
+    @Test
+    fun `explicit sandbox request without trusted host context never falls back to a shared organism`() = runTest {
+        val fixture = OrganismFixture()
+        fixture.engine().execute {
+            seen += organism("Ship it", options.copy(execution = OrganismExecution()))
+            JsonNull
+        }
+        assertEquals(listOf<OrganismOutcome>(OrganismOutcome.Refused(OrganismRefusal.Rejected)), seen)
+        assertTrue(fixture.organisms.host.conceived.isEmpty())
     }
 
     @Test

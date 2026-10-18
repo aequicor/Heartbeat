@@ -25,6 +25,8 @@ internal data class WorktreeRecord(
     @SerialName("outputsReclaimed") val isOutputsReclaimed: Boolean = false,
     val parentWorkspace: io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef? = null,
     val runTarget: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget? = null,
+    /** Pinned result operations keep their committed identity even when a later seal becomes the visible one. */
+    val resultProofs: Map<String, String> = emptyMap(),
 ) {
     override fun toString(): String = "WorktreeRecord"
 }
@@ -130,6 +132,12 @@ internal interface WorktreeGit :
     VirtualSandboxAccess {
     val isAvailable: Boolean
     suspend fun plan(source: String, identity: String): WorktreeProvision
+
+    /** Resolves an explicit full commit within the same repository without changing the selected checkout. */
+    suspend fun pin(plan: WorktreeProvision, commit: String): WorktreeProvision {
+        check(plan.baseCommit == commit) { "PinnedBaseUnavailable" }
+        return plan
+    }
     suspend fun trackMain(source: String): WorktreeProvision
     suspend fun materialize(record: WorktreeRecord)
     suspend fun exists(record: WorktreeRecord): Boolean

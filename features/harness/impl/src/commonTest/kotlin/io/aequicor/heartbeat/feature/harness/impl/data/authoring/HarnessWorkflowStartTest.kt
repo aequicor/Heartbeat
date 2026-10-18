@@ -286,6 +286,7 @@ private object StartToggles : FeatureToggles {
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = when (toggle) {
         HarnessEnabled -> flowOf(true)
         SchedulerEnabled -> flowOf(false)
+        io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessIsolatedOrganisms -> flowOf(false)
         else -> error("Unexpected toggle")
     } as Flow<T>
 

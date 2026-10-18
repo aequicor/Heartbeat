@@ -238,6 +238,19 @@ class WorktreeMachineTest {
     }
 
     @Test
+    fun `repeated and failed seals each acknowledge their outcome independently of task revisions`() {
+        val proof = WorktreeSeal("proof", "abc")
+        val first = task.sealed(proof)
+        val repeated = first.sealed(proof)
+        val failed = repeated.operationFailed(WorktreeIntent.Public.Seal(task.chatId, "proof"), "MissingProof")
+        assertEquals(1L, first.sealRevision)
+        assertEquals(2L, repeated.sealRevision)
+        assertEquals(3L, failed.sealRevision)
+        assertEquals(WorktreeSeal("proof", failure = "MissingProof"), failed.seal)
+        assertEquals(task.revision, failed.revision)
+    }
+
+    @Test
     fun `a new run invalidates the previous sealed result before the checkout resumes work`() {
         val completed = running.transition(settled).sealed(WorktreeSeal("seal-1", "first-result"))
         val nextRequest = RequestId("follow-up")

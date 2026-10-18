@@ -32,7 +32,9 @@ internal class StoredBuildLimits(
         val projects = projects ?: return flowOf(emptyList())
         val workspaces = workspaces ?: return flowOf(emptyList())
         return combine(workspaces.observe(), projects.changes().onStart { emit(Unit) }) { available, _ ->
-            journal?.value?.sandboxRecords().orEmpty().distinctBy { it.commonDirectory }.mapNotNull { record ->
+            val records = journal?.value?.sandboxRecords().orEmpty().asSequence()
+                .distinctBy { it.commonDirectory }.toList()
+            records.mapNotNull { record ->
                 val project = available.firstOrNull { it.ref == record.task.project } ?: return@mapNotNull null
                 ProjectBuildPool(project.ref.value, project.name, projects.get(record.commonDirectory).poolSize)
             }

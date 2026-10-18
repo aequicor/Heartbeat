@@ -13,6 +13,8 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineSpec
+import io.aequicor.heartbeat.feature.harness.impl.data.decision.HarnessProcessCommandsEnabled
+import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessIsolatedOrganisms
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessCommandsEnabled
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessGitHubEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEffects
@@ -43,6 +45,11 @@ public object HarnessToggleBindings {
     @IntoSet
     public fun enabled(): FeatureToggle<*> = HarnessEnabled
 
+    /** Trusted sandbox context for workflow organism stages. */
+    @Provides
+    @IntoSet
+    public fun isolatedOrganisms(): FeatureToggle<*> = HarnessIsolatedOrganisms
+
     /** Mini-app commands of approved scripts. */
     @Provides
     @IntoSet
@@ -52,4 +59,9 @@ public object HarnessToggleBindings {
     @Provides
     @IntoSet
     public fun github(): FeatureToggle<*> = HarnessGitHubEnabled
+
+    /** Exact host-owned decisions for process commands. */
+    @Provides
+    @IntoSet
+    public fun processCommands(): FeatureToggle<*> = HarnessProcessCommandsEnabled
 }

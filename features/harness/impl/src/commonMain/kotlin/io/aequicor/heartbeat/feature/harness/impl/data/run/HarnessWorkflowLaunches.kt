@@ -5,6 +5,7 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.SendResult
@@ -24,6 +25,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganismContext
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrigin
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowProcessOwner
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRejection
@@ -81,6 +83,7 @@ internal data class WorkflowLaunch(
     val origin: HarnessCallOrigin,
     val kind: WorkflowOrigin,
     val generation: Long,
+    val organismContext: WorkflowOrganismContext? = null,
 ) {
     override fun toString(): String = "WorkflowLaunch(***)"
 }
@@ -137,8 +140,16 @@ internal class HarnessWorkflowLaunches(
             "Workflow admission changed"
         }
         require(isWorkflowInput(item.input, input)) { "Workflow input does not match its schema" }
-        val launch =
-            WorkflowLaunch(current, item, input, caller, workspace, initiator, origin, kind, state.activationGeneration)
+        val selected = if (toggles.get(HarnessIsolatedOrganisms)) {
+            WorkflowOrganismContext(
+                active.value.applicable(workspace, caller).map { it.id }.toSet() + current.id,
+            )
+        } else {
+            null
+        }
+        val launch = WorkflowLaunch(
+            current, item, input, caller, workspace, initiator, origin, kind, state.activationGeneration, selected,
+        )
         check(isCurrent(launch)) { "Workflow admission changed" }
         return launch
     }
@@ -245,6 +256,7 @@ internal class HarnessWorkflowLaunches(
                 HelperHandoff(launch.initiator, HARNESS_WAKE_OWNER, context),
                 epoch.value,
                 launch.generation,
+                launch.organismContext,
             ),
         )
         // The journal record precedes every side effect: after a crash past this point Restore drives the run,
@@ -355,9 +367,21 @@ internal class HarnessWorkflowLaunches(
         ) {
             return false
         }
+        if (launch.organismContext != null) {
+            val selected = active.value.applicable(launch.workspace, launch.caller)
+                .map { it.id }.toSet() + launch.harness.id
+            if (selected != launch.organismContext.harnesses) return false
+        }
         return launch.caller == null || active.value.active(
             launch.workspace,
             launch.caller,
         ).any { it.id == launch.harness.id }
     }
 }
+
+/** Captured once at workflow admission; disabling it does not change an already admitted organism environment. */
+internal val HarnessIsolatedOrganisms = FeatureToggle.Flag(
+    "harness.isolated_organisms",
+    "Workflow: организмы в песочницах с выбранными харнессами и закреплённой базой",
+    default = false,
+)
