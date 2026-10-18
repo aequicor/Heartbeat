@@ -8,7 +8,6 @@ import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskRun
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphState
 import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphToolSpecs
-import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphTools
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -33,7 +32,7 @@ class TaskGraphToolsTest {
     @Test
     fun `every declared graph tool is in the catalog so policy can turn it off`() = runTest {
         val f = GraphFixture(this)
-        val tools = TaskGraphTools(f.machine, f.driver)
+        val tools = f.tools()
         val catalog = tools.catalog.map { it.name }.toSet()
         assertEquals(TaskGraphToolSpecs.all.map { it.name }.toSet(), catalog)
         assertTrue(tools.specifications(PROJECT).all { it.name in catalog })
@@ -43,7 +42,7 @@ class TaskGraphToolsTest {
     @Test
     fun `causal metadata does not change the literal legacy approval binding`() = runTest {
         val f = GraphFixture(this)
-        val tools = TaskGraphTools(f.machine, f.driver)
+        val tools = f.tools()
         val spec = tools.specifications(PROJECT).first { it.name == TaskGraphToolSpecs.CREATE }
         val arguments = args(
             """{"graph_id":"graph","tasks":[{"id":"A","action":{"kind":"command","command":"A"}}]}""",
@@ -66,7 +65,7 @@ class TaskGraphToolsTest {
     @Test
     fun `creation keeps its first exact initiator across idempotent retries from another request`() = runTest {
         val f = GraphFixture(this)
-        val tools = TaskGraphTools(f.machine, f.driver)
+        val tools = f.tools()
         val spec = tools.specifications(PROJECT).first { it.name == TaskGraphToolSpecs.CREATE }
         val first = context.copy(request = RequestId("first"))
         val approval = tools.approval(first, spec, create)
@@ -86,7 +85,7 @@ class TaskGraphToolsTest {
     @Test
     fun `creation binds full graph to the owner and is idempotent after lost response`() = runTest {
         val f = GraphFixture(this)
-        val tools = TaskGraphTools(f.machine, f.driver)
+        val tools = f.tools()
         val spec = tools.specifications(PROJECT).first { it.name == TaskGraphToolSpecs.CREATE }
         assertTrue(tools.requiresDecision(context, spec, create))
         assertNull(tools.existingAuthorization(context, spec, create))
@@ -117,7 +116,7 @@ class TaskGraphToolsTest {
             ),
         )
         f.machine.state.value = TaskGraphState.Ready(listOf(graph), persisted = 0)
-        val tools = TaskGraphTools(f.machine, f.driver)
+        val tools = f.tools()
         val spec = tools.specifications(PROJECT).first { it.name == TaskGraphToolSpecs.RESOLVE }
         val decision = args(
             """{"graph_id":"graph","task_id":"A","execution":"old","decision":"retry","explanation":"checked"}""",
