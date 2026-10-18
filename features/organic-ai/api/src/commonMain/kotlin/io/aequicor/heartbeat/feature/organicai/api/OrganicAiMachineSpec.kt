@@ -10,9 +10,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 /**
  * Organic AI: sessions organized as organisms. A zygote grows from the goal; working cells divide, complain about
  * cancerous cells and ask for binding answers through their hosted tools; each case goes to a fresh immune session.
- * Results stay in durable inboxes and are read by a hosted tool. Only an explicitly requested wait wakes a resting
- * cell, with a host-only reminder to read its inbox. A dispute can wake all its waiting parties. Every change of an
- * organism inside [OrganicAiState.Living] is a data update, so turns and judgements of other cells keep running.
+ * The host decision policy is fixed at conception and retained by division, resume and restore; every cell turn
+ * uses that policy independently of its trust level. Results stay in durable inboxes and are read by a hosted tool.
+ * Only an explicitly requested wait wakes a resting cell, with a host-only reminder to read its inbox. A dispute
+ * can wake all its waiting parties. Every change of an organism inside [OrganicAiState.Living] is a data update,
+ * so turns and judgements of other cells keep running.
  *
  * | From | Intent | Guard | To / update | Effects | Output |
  * |---|---|---|---|---|---|

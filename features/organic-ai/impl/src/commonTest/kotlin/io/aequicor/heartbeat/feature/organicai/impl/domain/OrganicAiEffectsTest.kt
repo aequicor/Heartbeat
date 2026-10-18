@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.organicai.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -38,6 +39,24 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 internal class OrganicAiEffectsTest : OrganicEffectsFixture() {
+    @Test
+    fun `automatic policy reaches zygote descendants and recovered turns`() = runTest {
+        for (id in listOf(ZYGOTE, C1)) {
+            for (recovery in listOf(false, true)) {
+                val source = organism(cell(C1)).copy(decisionMode = AgentToolDecisionMode.AutomaticSafety)
+                val recovered = source.copy(
+                    cells = source.cells.map {
+                        if (it.id == id) it.copy(phase = working(id, isRecovery = recovery)) else it
+                    },
+                )
+                effects.handle(OrganicAiEffect.Drive(recovered, id, request(id)), machine)
+                assertEquals(AgentToolDecisionMode.AutomaticSafety, cells.routes.last().decisionMode)
+            }
+        }
+        effects.handle(OrganicAiEffect.Drive(organism(cell(C1)), C1, request(C1)), machine)
+        assertEquals(AgentToolDecisionMode.Interactive, cells.routes.last().decisionMode)
+    }
+
     @Test
     fun `a germinating cell binds its new session submits its genesis and settles with its answer`() = runTest {
         val germinating = organism(cell(C1).copy(session = null))
