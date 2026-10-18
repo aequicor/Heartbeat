@@ -209,7 +209,13 @@ private val API = """
       AttemptOutcome.Failed(AttemptFailure.Interrupted))), ProcessRecovery.WriteOpen (MarkWriteUnknown(key,
       write.tries), look at the external system itself, then ConfirmWrite or WriteNotApplied(key, write.tries)) and
       ProcessRecovery.WaitOpen (check the state the wait was about, an event may have been missed, isDue says a
-      deadline passed, then Resume(wait.number) or keep waiting). A kept attempt or wait stays listed, so never
+      deadline passed, then resume or keep waiting). Prefer processes.reconcileWait(id) { record, wait ->
+      /* query actual external state */ false } from Activated and event/timer handlers. It reads the durable wait
+      once, checks the condition outside the transaction, and applies ResumeChecked with that snapshot only when
+      satisfied. A concurrent input revision or SHA update gives Rejected(StaleRevision); reconcile again. A late
+      answer cannot resume a newer wait or reopened process. Persist observed revision/SHA before reconciliation;
+      the local comparison cannot discover remote edits by itself. Waiting uses no workflow or live agent; each
+      resumed stage starts a new keyed workflow with its own deadline. A kept attempt or wait stays listed, so never
       loop until the list is empty. Ended processes are removed with remove(id). Never log ids, results or journal
       entries.
     - workflows.start(process.workflowKey(StageName("verify")), ItemName("verify"), input) reserves the process

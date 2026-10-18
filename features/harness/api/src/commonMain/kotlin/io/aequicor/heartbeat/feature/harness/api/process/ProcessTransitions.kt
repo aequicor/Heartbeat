@@ -14,7 +14,7 @@ import kotlin.time.Instant
  * | [Start] | Idle | Running (new attempt bound to the current input revision and subject) |
  * | [Finish] | Running (that attempt) | Idle, attempt closed with the outcome |
  * | [Wait] | Idle | Waiting (no executor attached), numbered |
- * | [Resume] | Waiting (that wait) | Idle |
+ * | [Resume] / [ResumeChecked] | Waiting (that wait; checked also binds lifetime and inputs) | Idle |
  * | [ReviseInput] / [ObserveSubject] | Idle, Running, Waiting | same phase, newer input or subject |
  * | [Grant] / [Revoke] | Idle, Running, Waiting | same phase, authority added or removed |
  * | [BeginWrite] | Idle, Running, Waiting | same phase, write journaled as Intended (needs the authority) |
@@ -22,10 +22,12 @@ import kotlin.time.Instant
  * | [Close] | Idle, Running (attempt abandoned), Waiting | Ended |
  *
  * Exact replays are answered with [ProcessReduction.Unchanged] where the record alone proves them: a [Finish] of an
- * already closed attempt with the same outcome, a [Resume] of a wait that is already over, a [ReviseInput] to the
+ * already closed attempt with the same outcome, a [Resume] or [ResumeChecked] of a wait already over,
+ * a [ReviseInput] to the
  * current revision, an [ObserveSubject] of the current subject, a [BeginWrite] of a confirmed write, a settlement
  * that is already recorded, a [Close] with the verdict already reached. Everything else that does not fit is rejected.
- * After [Close] only [Finish], [Resume], [Close] and the write settlements are still answered; any other command,
+ * After [Close] only [Finish], [Resume], [ResumeChecked], [Close] and write settlements are answered;
+ * any other command,
  * an exact replay of [ReviseInput] or [ObserveSubject] included, is [ProcessRejection.Closed].
  *
  * External writes never repeat blindly. [BeginWrite] journals the intent before the caller touches the external
@@ -56,6 +58,9 @@ public sealed interface ProcessCommand {
     /** Ordinary record changes, distinct from host workflow reservation and cancellation commands. */
     public sealed interface Record : ProcessCommand
 
+    /** Completion of a durable wait, with optional snapshot validation. */
+    public sealed interface WaitCompletion : Record
+
     /** Starts attempt number [ProcessRecord.nextAttempt] of [stage] on [executor]. */
     public data class Start(val stage: StageName, val executor: ExecutorRef) : ProcessCommand.Record
 
@@ -69,7 +74,14 @@ public sealed interface ProcessCommand {
      * Ends wait number [wait]; whether it was satisfied or timed out is for the harness to find out. A duplicate
      * that names a wait which is already over changes nothing, so it can never end a newer wait.
      */
-    public data class Resume(val wait: Int) : ProcessCommand.Record
+    public data class Resume(val wait: Int) : ProcessCommand.WaitCompletion
+
+    /**
+     * Resumes only the wait snapshot checked by the caller. Capture [ProcessRecord.waitKey] before IO; after the
+     * external condition is satisfied apply this command. Stale observations are refused atomically by the store.
+     * Replays of an already finished wait are unchanged, including after a newer wait was opened.
+     */
+    public data class ResumeChecked(val key: ProcessWaitKey) : ProcessCommand.WaitCompletion
 
     /** Records that the process input is now at [revision]; revisions only grow. */
     public data class ReviseInput(val revision: Long) : ProcessCommand.Record
@@ -193,7 +205,7 @@ private fun ProcessRecord.reduceStandard(command: ProcessCommand.Record, now: In
 
         is ProcessCommand.Close -> close(command.end, now)
 
-        is ProcessCommand.Resume -> resume(command.wait, now)
+        is ProcessCommand.WaitCompletion -> completeWait(command, now)
 
         is ProcessCommand.ConfirmWrite -> confirmWrite(command.key, command.result, now)
 
@@ -271,6 +283,12 @@ private fun ProcessRecord.wait(command: ProcessCommand.Wait, now: Instant): Proc
 
     is ProcessPhase.Ended -> rejected(ProcessRejection.Closed)
 }
+
+private fun ProcessRecord.completeWait(command: ProcessCommand.WaitCompletion, now: Instant): ProcessReduction =
+    when (command) {
+        is ProcessCommand.Resume -> resume(command.wait, now)
+        is ProcessCommand.ResumeChecked -> resumeChecked(command.key, now)
+    }
 
 private fun ProcessRecord.resume(number: Int, now: Instant): ProcessReduction {
     val waiting = (phase as? ProcessPhase.Waiting)?.wait

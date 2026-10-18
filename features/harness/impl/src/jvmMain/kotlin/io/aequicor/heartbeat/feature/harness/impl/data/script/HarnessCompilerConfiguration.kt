@@ -26,6 +26,8 @@ internal fun harnessCompilerConfiguration(kind: HarnessCodeKind, classpath: Harn
             "io.aequicor.heartbeat.feature.harness.api.ItemName",
             "io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey",
             "io.aequicor.heartbeat.feature.harness.api.process.workflowKey",
+            "io.aequicor.heartbeat.feature.harness.api.process.waitKey",
+            "io.aequicor.heartbeat.feature.harness.api.script.reconcileWait",
             "io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflowState",
             "io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflowCancellation",
             "io.aequicor.heartbeat.feature.harness.api.script.on",
