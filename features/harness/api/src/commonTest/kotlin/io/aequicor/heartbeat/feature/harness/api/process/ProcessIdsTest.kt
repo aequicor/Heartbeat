@@ -8,12 +8,9 @@ import kotlin.test.assertTrue
 
 class ProcessIdsTest {
     @Test
-    fun `process id storage key is always a valid data key`() {
-        val longest = ProcessId("a".repeat(ProcessLimits.ID_CHARS))
-        assertTrue(DATA_KEY.matches(longest.storageKey))
-        assertTrue(longest.storageKey.length <= DATA_KEY_CHARS)
-        assertEquals("process_p1", ProcessId("p1").storageKey)
-        assertEquals("process_7_x", ProcessId("7_x").storageKey)
+    fun `process id and write key do not print their value`() {
+        assertEquals("ProcessId(***)", ProcessId("issue_7").toString())
+        assertEquals("WriteKey(***)", WriteKey("merge_pr_abc1234").toString())
     }
 
     @Test
@@ -79,10 +76,5 @@ class ProcessIdsTest {
         assertFalse("secret" in result.toString())
         assertTrue("Human" in executor.toString())
         assertTrue("comment" in result.toString())
-    }
-
-    private companion object {
-        private const val DATA_KEY_CHARS = 64
-        private val DATA_KEY = Regex("[a-z][a-z0-9_]{0,63}")
     }
 }

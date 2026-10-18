@@ -167,8 +167,9 @@ private val API = """
       ProcessReduction.Changed, ProcessRecovery.AttemptOpen): processes.open(ProcessId("issue_7"), inputRevision),
       get(id): ProcessRecord?, list(), apply(id, ProcessCommand): ProcessReduction (Changed — already stored —,
       Unchanged — an exact replay — or Rejected(reason)), remove(id). They live in the data namespace under the
-      reserved keys process_<id> and processes, share its quotas, allow at most ${ProcessLimits.PROCESSES} processes
-      and need the same published activation; never touch those keys through data. Names are bounded: ProcessId
+      reserved key hb_processes, share its quotas (a change that does not fit throws IllegalArgumentException), allow
+      at most ${ProcessLimits.PROCESSES} processes and need the same published activation; never touch that key
+      through data. Names are bounded: ProcessId
       [a-z0-9_]{1,40}, StageName and WriteKey [a-z][a-z0-9_]*, SubjectSha a full 40/64-digit hex, ExecutorRef and
       ResultRef ids visible ASCII without quotes and backslashes; a violation is an IllegalArgumentException when
       the value is built. A record has a stage (the latest attempt's), attempts bound to the input revision and

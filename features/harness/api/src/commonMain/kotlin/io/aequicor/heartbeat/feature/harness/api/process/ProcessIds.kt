@@ -5,12 +5,12 @@ import kotlinx.serialization.Serializable
 import kotlin.jvm.JvmInline
 
 /**
- * Quotas that keep one [ProcessRecord] small enough for a single `ScriptData` key: the whole namespace of a
- * harness holds at most `HarnessLimits.DATA_BYTES` bytes, shared by all of its processes. Every text field of the
- * record is bounded here, so [RECORD_BYTES] is a proven ceiling, not a hope.
+ * Quotas that keep a [ProcessRecord] small: the whole `ScriptData` namespace of a harness holds at most
+ * `HarnessLimits.DATA_BYTES` bytes, shared by all of its processes and the script's own data. Every text field of
+ * the record is bounded here, so [RECORD_BYTES] is a proven ceiling, not a hope.
  */
 public object ProcessLimits {
-    /** Longest [ProcessId]; `process_<id>` stays a valid `ScriptData` key (at most 64 characters). */
+    /** Longest [ProcessId]. */
     public const val ID_CHARS: Int = 40
 
     /** Longest [StageName] and [ResultRef] kind slug. */
@@ -39,14 +39,15 @@ public object ProcessLimits {
 
     /**
      * Processes one harness keeps at the same time, ended ones included until they are removed. Eight records at
-     * [RECORD_BYTES] stay below `HarnessLimits.DATA_BYTES`, so the namespace quota cannot be what stops a process.
+     * [RECORD_BYTES] take about 192 KiB of the 256 KiB `HarnessLimits.DATA_BYTES` that the script's own data shares:
+     * a script that keeps much data of its own can make a change fail with the namespace quota error instead.
      */
     public const val PROCESSES: Int = 8
 }
 
 /**
- * Host-generated identity of one development process, `[a-z0-9_]{1,40}`. The persisted record of a process
- * lives under [storageKey], which is a valid `ScriptData` key by construction.
+ * Identity of one development process, `[a-z0-9_]{1,40}`, chosen by the harness. It is never printed: like the other
+ * identifiers of a record it may be derived from private work.
  */
 @Serializable
 @JvmInline
@@ -55,10 +56,7 @@ public value class ProcessId(public val value: String) {
         require(value.length <= ProcessLimits.ID_CHARS && ID_PATTERN.matches(value)) { "Invalid ProcessId" }
     }
 
-    /** `ScriptData` key of this process: `process_<id>`. */
-    public val storageKey: String get() = "process_$value"
-
-    override fun toString(): String = "ProcessId($value)"
+    override fun toString(): String = "ProcessId(***)"
 }
 
 /**

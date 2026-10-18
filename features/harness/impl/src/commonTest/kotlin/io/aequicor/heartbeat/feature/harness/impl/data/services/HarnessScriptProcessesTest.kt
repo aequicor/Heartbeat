@@ -18,11 +18,13 @@ import io.aequicor.heartbeat.feature.harness.api.process.StageName
 import io.aequicor.heartbeat.feature.harness.api.process.SubjectSha
 import io.aequicor.heartbeat.feature.harness.api.process.WaitReason
 import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses.Companion.STORAGE_KEY
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -60,8 +62,7 @@ class HarnessScriptProcessesTest {
         val result = env.processes.apply(issue, ProcessCommand.ReviseInput(2))
         assertEquals(ProcessReduction.Rejected(ProcessRejection.UnknownProcess), result)
         assertTrue(env.processes.list().isEmpty())
-        assertNull(env.data.read(issue.storageKey).value)
-        assertNull(env.data.read("processes").value)
+        assertNull(env.data.read(STORAGE_KEY).value)
     }
 
     @Test
@@ -74,17 +75,17 @@ class HarnessScriptProcessesTest {
         assertIs<ProcessPhase.Running>(record.phase)
         assertEquals(record, env.processes.get(issue))
 
-        val revision = env.data.read(issue.storageKey).revision
+        val revision = env.data.read(STORAGE_KEY).revision
         val rejected = env.processes.apply(issue, ProcessCommand.Start(planning, helper))
         assertEquals(ProcessReduction.Rejected(ProcessRejection.AttemptInFlight), rejected)
         val finished = env.processes.apply(issue, ProcessCommand.Finish(1, AttemptOutcome.Succeeded(plan)))
         assertIs<ProcessReduction.Changed>(finished)
-        val settled = env.data.read(issue.storageKey).revision
+        val settled = env.data.read(STORAGE_KEY).revision
         assertEquals(revision + 1, settled)
 
         val replay = env.processes.apply(issue, ProcessCommand.Finish(1, AttemptOutcome.Succeeded(plan)))
         assertIs<ProcessReduction.Unchanged>(replay)
-        assertEquals(settled, env.data.read(issue.storageKey).revision)
+        assertEquals(settled, env.data.read(STORAGE_KEY).revision)
     }
 
     @Test
@@ -114,29 +115,63 @@ class HarnessScriptProcessesTest {
     }
 
     @Test
-    fun `concurrent commands never lose each other`() = runTest {
-        val env = ProcessesTestEnv(this)
-        env.processes.open(issue)
-        val results = (1..CONCURRENT).map { revision ->
-            async { env.processes.apply(issue, ProcessCommand.ReviseInput(revision.toLong())) }
+    fun `concurrent opens and commands never lose each other`() = runTest {
+        val secrets = HarnessDataTestSecrets().apply {
+            beforeRead = { yield() }
+            beforeWrite = { yield() }
+        }
+        val env = ProcessesTestEnv(this, secrets)
+        val ids = (1..CONCURRENT).map { ProcessId("p$it") }
+        ids.map { async { env.processes.open(it) } }.awaitAll()
+        assertEquals(ids.toSet(), env.processes.list().map { it.id }.toSet())
+
+        env.processes.apply(ids.first(), ProcessCommand.Grant(ProcessAuthority.Write))
+        val keys = (1..ProcessLimits.WRITES).map { WriteKey("w$it") }
+        val results = keys.map { key ->
+            async { env.processes.apply(ids.first(), ProcessCommand.BeginWrite(key, ProcessAuthority.Write, plan)) }
         }.awaitAll()
 
-        assertTrue(results.none { it is ProcessReduction.Rejected && it.reason != ProcessRejection.StaleRevision })
-        assertEquals(CONCURRENT.toLong(), env.processes.get(issue)?.inputRevision)
+        assertTrue(results.all { it is ProcessReduction.Changed })
+        assertEquals(keys.toSet(), env.processes.get(ids.first())?.writes?.map { it.key }?.toSet())
+        assertEquals(ids.toSet(), env.processes.list().map { it.id }.toSet())
     }
 
     @Test
-    fun `list keeps the order of opening and skips an id without a record`() = runTest {
+    fun `list keeps the order of opening`() = runTest {
         val env = ProcessesTestEnv(this)
         val ids = listOf("b_two", "a_one", "c_three").map(::ProcessId)
         ids.forEach { env.processes.open(it) }
         assertEquals(ids, env.processes.list().map { it.id })
-
-        val index = checkNotNull(env.data.read("processes").value)
-        val withGhost = Json.parseToJsonElement(index.toString().replace("]", ",\"ghost\"]"))
-        env.data.write("processes", withGhost, env.data.read("processes").revision)
-        assertEquals(ids, env.processes.list().map { it.id })
         assertNull(env.processes.get(ProcessId("ghost")))
+    }
+
+    @Test
+    fun `a removed process can be opened again as a fresh one`() = runTest {
+        val env = ProcessesTestEnv(this)
+        env.processes.open(issue, inputRevision = 4)
+        env.processes.apply(issue, ProcessCommand.Close(ProcessEnd.Completed))
+        assertTrue(env.processes.remove(issue))
+
+        val again = env.processes.open(issue, inputRevision = 1)
+        assertEquals(1, again.inputRevision)
+        assertEquals(ProcessPhase.Idle, again.phase)
+        assertEquals(listOf(again), env.processes.list())
+    }
+
+    @Test
+    fun `an open cut short by the activation leaves no trace and takes no slot`() = runTest {
+        val secrets = HarnessDataTestSecrets()
+        val env = ProcessesTestEnv(this, secrets)
+        secrets.beforeRead = { env.access.isActive = false }
+        repeat(ProcessLimits.PROCESSES + 1) { n ->
+            assertFailsWith<IllegalStateException> { env.processes.open(ProcessId("p$n")) }
+            env.access.isActive = true
+        }
+        secrets.beforeRead = {}
+        assertTrue(env.processes.list().isEmpty())
+
+        repeat(ProcessLimits.PROCESSES) { env.processes.open(ProcessId("q$it")) }
+        assertEquals(ProcessLimits.PROCESSES, env.processes.list().size)
     }
 
     @Test
@@ -172,7 +207,7 @@ class HarnessScriptProcessesTest {
         assertTrue(env.processes.remove(issue))
         assertNull(env.processes.get(issue))
         assertTrue(env.processes.list().isEmpty())
-        assertNull(env.data.read("processes").value)
+        assertNull(env.data.read(STORAGE_KEY).value)
         assertTrue(env.processes.remove(issue))
     }
 
@@ -180,9 +215,9 @@ class HarnessScriptProcessesTest {
     fun `an unreadable record is reported without its content and never overwritten`() = runTest {
         val env = ProcessesTestEnv(this)
         env.processes.open(issue)
-        val stored = checkNotNull(env.data.read(issue.storageKey).value)
+        val stored = checkNotNull(env.data.read(STORAGE_KEY).value)
         val newer = Json.parseToJsonElement(stored.toString().replace("\"v\":1", "\"v\":2,\"secret\":\"private\""))
-        env.data.write(issue.storageKey, newer, env.data.read(issue.storageKey).revision)
+        env.data.write(STORAGE_KEY, newer, env.data.read(STORAGE_KEY).revision)
 
         val failures = listOf(
             assertFailsWith<IllegalStateException> { env.processes.get(issue) },
@@ -195,7 +230,7 @@ class HarnessScriptProcessesTest {
             assertFalse("private" in failure.message.orEmpty())
             assertNull(failure.cause)
         }
-        assertEquals(newer, env.data.read(issue.storageKey).value)
+        assertEquals(newer, env.data.read(STORAGE_KEY).value)
     }
 
     @Test
@@ -220,6 +255,6 @@ class HarnessScriptProcessesTest {
     }
 
     private companion object {
-        const val CONCURRENT = 12
+        const val CONCURRENT = 6
     }
 }

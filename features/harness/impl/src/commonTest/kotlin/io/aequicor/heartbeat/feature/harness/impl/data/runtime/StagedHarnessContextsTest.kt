@@ -84,6 +84,7 @@ class StagedHarnessContextsTest {
         assertFailsWith<IllegalStateException> { script.prompts.render(ItemName("missing")) }
         assertFailsWith<IllegalStateException> { script.commands.run(ItemName("missing"), null) }
         assertFailsWith<IllegalStateException> { script.workflows.start(ItemName("missing")) }
+        assertFailsWith<IllegalStateException> { script.processes.list() }
         context.close()
     }
 }

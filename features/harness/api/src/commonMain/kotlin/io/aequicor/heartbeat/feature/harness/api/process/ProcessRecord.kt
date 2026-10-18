@@ -143,7 +143,7 @@ public sealed interface ProcessPhase {
 }
 
 /**
- * Durable state of one development process, stored as a single record under [ProcessId.storageKey]. It is a plain
+ * Durable state of one development process, stored as a single record. It is a plain
  * value: every change is a [reduce] step that returns the next record, so a crash between two steps leaves either
  * the old or the new record, never a mix.
  *

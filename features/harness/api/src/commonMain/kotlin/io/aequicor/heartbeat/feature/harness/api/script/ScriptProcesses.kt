@@ -11,18 +11,20 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
  * external writes, kept across restarts independently of any chat or live session. The host fixes the harness owner;
  * scripts cannot address another harness.
  *
- * The records live in the harness's [ScriptData] namespace under `process_<id>` and the index key `processes`, so they
- * share its quotas and its access rules: every call requires a live, published approved activation, and a process
- * outlives source replacement, detach, disable and restart. Do not use these keys with [ScriptData] directly. A
+ * The records of all processes live in the harness's [ScriptData] namespace in one reserved key, `hb_processes`, so
+ * they share its quotas and its access rules: every call requires a live, published approved activation, and a process
+ * outlives source replacement, detach, disable and restart. Do not use that key with [ScriptData] directly. A
  * harness keeps at most [ProcessLimits.PROCESSES] processes. Stage graphs, GitHub rules and texts stay in the
  * harness; the platform only guarantees that a record is consistent and a change is atomic.
  *
  * Every change goes through a [ProcessCommand], which the host reduces against the freshly stored record and writes
  * with a compare-and-set; a concurrent writer makes the host re-read and reduce again, never overwrite. Read before
  * you decide, but never rely on a record you read earlier: send the command that expresses your decision and handle
- * the reduction. Identifiers, results and journal entries must never be logged. A stored record that cannot be read
- * (written by a newer version, damaged) is reported as `IllegalStateException` without its content; it is never
- * silently skipped or overwritten.
+ * the reduction. Identifiers, results and journal entries must never be logged. Stored processes that cannot be
+ * read (written by a newer version, damaged) are reported as `IllegalStateException` without their content; they
+ * are never silently skipped or overwritten, and because they share one key the whole set is unreadable then.
+ * Because the namespace quota is shared with the script's own data, a change that would exceed it throws
+ * `IllegalArgumentException` instead of returning a [ProcessReduction].
  */
 public interface ScriptProcesses {
     /** The stored record, or null if the process was never opened or has been removed. */

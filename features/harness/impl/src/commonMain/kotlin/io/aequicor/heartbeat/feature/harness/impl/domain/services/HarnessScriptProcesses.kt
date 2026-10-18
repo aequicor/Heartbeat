@@ -18,48 +18,63 @@ import kotlinx.serialization.json.JsonElement
 import kotlin.time.Clock
 
 /**
- * Durable processes over the harness's [ScriptData]: one versioned envelope per process under `process_<id>` and an
- * ordered index of ids under [INDEX_KEY]. [ScriptData] writes one key at a time, so an open writes the index first
- * and the record second, and a removal deletes the record first and the index entry second. The index is therefore
- * always a superset of the records: a crash between the two writes leaves an id without a record, which reads as
- * absent, never a record that listing cannot find.
+ * Durable processes over the harness's [ScriptData]: every process of the harness lives in one versioned envelope
+ * under the single reserved key [STORAGE_KEY], in the order the processes were opened. [ScriptData] writes one key
+ * at a time with a compare-and-set, so opening, changing and removing a process is one atomic write: there is no
+ * index that could disagree with the records, no half-opened process that occupies a slot, and no race between an
+ * open and a removal of the same process.
  *
- * Every mutation is a [ScriptData.update]: the pure reduction runs against the freshly read record and is retried
- * on a concurrent write. Nothing that was stored is ever logged; unreadable content surfaces as a generic failure.
+ * Every mutation is a [ScriptData.update]: the pure reduction runs against the freshly read envelope and is retried
+ * on a concurrent write. Nothing that was stored is ever logged; unreadable content surfaces as a generic failure
+ * and, being one envelope, makes the whole set unreadable until the stored data is cleared.
  */
 internal class HarnessScriptProcesses(private val data: ScriptData, private val clock: Clock) : ScriptProcesses {
-    private val log = Log.tag("HarnessProcesses")
+    private val log = Log.tag("HarnessScriptProcesses")
 
-    override suspend fun get(id: ProcessId): ProcessRecord? = data.read(id.storageKey).value?.let(::decodeRecord)
+    override suspend fun get(id: ProcessId): ProcessRecord? = decode(data.read(STORAGE_KEY).value).firstOrNull {
+        it.id == id
+    }
 
-    override suspend fun list(): List<ProcessRecord> = readIndex(data.read(INDEX_KEY).value)
-        .mapNotNull { get(it) }
+    override suspend fun list(): List<ProcessRecord> = decode(data.read(STORAGE_KEY).value)
 
     override suspend fun open(id: ProcessId, inputRevision: Long): ProcessRecord {
         require(inputRevision >= 0) { "Invalid input revision" }
-        addToIndex(id)
         var opened: ProcessRecord? = null
-        data.update(id.storageKey) { current ->
-            val existing = current?.let(::decodeRecord)
-            val record = existing ?: ProcessRecord(id, clock.now(), inputRevision = inputRevision)
-            opened = record
-            if (existing == null) encodeRecord(record) else current
+        var isCreated = false
+        data.update(STORAGE_KEY) { current ->
+            val records = decode(current)
+            val existing = records.firstOrNull { it.id == id }
+            isCreated = existing == null
+            opened = existing
+            if (existing != null) {
+                current
+            } else {
+                require(records.size < ProcessLimits.PROCESSES) { "Too many processes" }
+                val record = ProcessRecord(id, clock.now(), inputRevision = inputRevision)
+                opened = record
+                encode(records + record, record)
+            }
         }
-        log.i { "process opened" }
+        if (isCreated) log.i { "process opened" } else log.v { "process already open" }
         return checkNotNull(opened) { "Process was not opened" }
     }
 
     override suspend fun apply(id: ProcessId, command: ProcessCommand): ProcessReduction {
         var outcome: ProcessReduction = ProcessReduction.Rejected(ProcessRejection.UnknownProcess)
-        data.update(id.storageKey) { current ->
-            val record = current?.let(::decodeRecord)
+        data.update(STORAGE_KEY) { current ->
+            val records = decode(current)
+            val record = records.firstOrNull { it.id == id }
             if (record == null) {
                 outcome = ProcessReduction.Rejected(ProcessRejection.UnknownProcess)
                 current
             } else {
                 val reduction = record.reduce(command, clock.now())
                 outcome = reduction
-                if (reduction is ProcessReduction.Changed) encodeRecord(reduction.record) else current
+                if (reduction is ProcessReduction.Changed) {
+                    encode(records.map { if (it.id == id) reduction.record else it }, reduction.record)
+                } else {
+                    current
+                }
             }
         }
         val result = outcome
@@ -69,70 +84,49 @@ internal class HarnessScriptProcesses(private val data: ScriptData, private val 
     }
 
     override suspend fun remove(id: ProcessId): Boolean {
+        var isStored = false
         var isRemoved = false
-        data.update(id.storageKey) { current ->
-            val record = current?.let(::decodeRecord)
+        data.update(STORAGE_KEY) { current ->
+            val records = decode(current)
+            val record = records.firstOrNull { it.id == id }
+            isStored = record != null
             isRemoved = record == null || record.isRemovable()
-            if (isRemoved) null else current
+            when {
+                record == null || !isRemoved -> current
+                records.size == 1 -> null
+                else -> encode(records - record, null)
+            }
         }
-        if (isRemoved) dropFromIndex(id)
-        log.i { "process removal ${if (isRemoved) "done" else "refused"}" }
+        when {
+            isRemoved && isStored -> log.i { "process removed" }
+            !isRemoved -> log.i { "process removal refused" }
+            else -> log.v { "process to remove is not stored" }
+        }
         return isRemoved
-    }
-
-    private suspend fun addToIndex(id: ProcessId) {
-        data.update(INDEX_KEY) { current ->
-            val ids = readIndex(current)
-            when {
-                id in ids -> current
-
-                else -> {
-                    require(ids.size < ProcessLimits.PROCESSES) { "Too many processes" }
-                    encodeIndex(ids + id)
-                }
-            }
-        }
-    }
-
-    private suspend fun dropFromIndex(id: ProcessId) {
-        data.update(INDEX_KEY) { current ->
-            val ids = readIndex(current)
-            when {
-                id !in ids -> current
-                ids.size == 1 -> null
-                else -> encodeIndex(ids - id)
-            }
-        }
     }
 
     private fun ProcessRecord.isRemovable(): Boolean = phase is ProcessPhase.Ended && unresolvedWrites().isEmpty()
 
-    private fun decodeRecord(element: JsonElement): ProcessRecord = guarded {
-        val stored = Json.decodeFromJsonElement(StoredProcess.serializer(), element)
-        check(stored.v == VERSION) { "Unsupported process version" }
-        stored.record
-    }
-
-    private fun encodeRecord(record: ProcessRecord): JsonElement {
-        val element = Json.encodeToJsonElement(StoredProcess.serializer(), StoredProcess(VERSION, record))
-        require(element.toString().encodeToByteArray().size <= ProcessLimits.RECORD_BYTES + ENVELOPE_BYTES) {
-            "Process record is too large"
-        }
-        return element
-    }
-
-    private fun readIndex(element: JsonElement?): List<ProcessId> = if (element == null) {
+    private fun decode(element: JsonElement?): List<ProcessRecord> = if (element == null) {
         emptyList()
     } else {
         guarded {
-            val stored = Json.decodeFromJsonElement(StoredIndex.serializer(), element)
-            check(stored.v == VERSION) { "Unsupported process index version" }
-            stored.ids
+            val stored = Json.decodeFromJsonElement(StoredProcesses.serializer(), element)
+            check(stored.v == VERSION) { "Unsupported process version" }
+            check(stored.records.size <= ProcessLimits.PROCESSES) { "Too many stored processes" }
+            check(stored.records.map { it.id }.toSet().size == stored.records.size) { "Duplicate process" }
+            stored.records
         }
     }
 
-    private fun encodeIndex(ids: List<ProcessId>): JsonElement =
-        Json.encodeToJsonElement(StoredIndex.serializer(), StoredIndex(VERSION, ids))
+    /** [changed] is the one record this write adds or replaces: it must stay within its proven size ceiling. */
+    private fun encode(records: List<ProcessRecord>, changed: ProcessRecord?): JsonElement {
+        if (changed != null) {
+            val size = Json.encodeToJsonElement(ProcessRecord.serializer(), changed).toString().encodeToByteArray().size
+            require(size <= ProcessLimits.RECORD_BYTES) { "Process record is too large" }
+        }
+        return Json.encodeToJsonElement(StoredProcesses.serializer(), StoredProcesses(VERSION, records))
+    }
 
     /** Decoder messages may quote stored values: neither they nor their cause may escape or reach the log. */
     private inline fun <T> guarded(block: () -> T): T = try {
@@ -146,19 +140,17 @@ internal class HarnessScriptProcesses(private val data: ScriptData, private val 
     }
 
     @Serializable
-    private data class StoredProcess(val v: Int, val record: ProcessRecord) {
-        override fun toString(): String = "StoredProcess(***)"
+    private data class StoredProcesses(val v: Int, val records: List<ProcessRecord>) {
+        override fun toString(): String = "StoredProcesses(***)"
     }
 
-    @Serializable
-    private data class StoredIndex(val v: Int, val ids: List<ProcessId>) {
-        override fun toString(): String = "StoredIndex(***)"
-    }
+    internal companion object {
+        /**
+         * The one `ScriptData` key that holds every process of a harness. Reserved: a script must not use it, and its
+         * name is specific enough not to be picked by accident.
+         */
+        const val STORAGE_KEY = "hb_processes"
 
-    private companion object {
-        /** Not `process_<something>`: no process id can collide with it. */
-        const val INDEX_KEY = "processes"
-        const val VERSION = 1
-        const val ENVELOPE_BYTES = 64
+        private const val VERSION = 1
     }
 }
