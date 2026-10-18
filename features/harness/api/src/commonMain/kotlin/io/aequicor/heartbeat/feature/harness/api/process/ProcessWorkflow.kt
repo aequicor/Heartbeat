@@ -21,15 +21,44 @@ public data class ProcessWorkflowKey(
     override fun toString(): String = "ProcessWorkflowKey(***)"
 }
 
-/** Immutable admission binding. The digest covers the workflow, input, revision, script and project context. */
+/**
+ * Admission identity; the digest covers workflow, input, revision, script and project context. [isSettled] is a
+ * host-only native cleanup receipt. It survives expiration of the workflow journal and never changes that identity.
+ * [isDispatchClosed] prevents a restored reservation from recreating an expired native journal; the caller must
+ * reconcile an unknown result explicitly before starting a new attempt.
+ */
 @Serializable
-public data class ProcessWorkflow(val run: RunId, val script: ItemId, val digest: String) {
+public data class ProcessWorkflow(
+    val run: RunId,
+    val script: ItemId,
+    val digest: String,
+    val isSettled: Boolean = false,
+    val isDispatchClosed: Boolean = false,
+) {
     init {
         require(isPlainToken(run.value) && isPlainToken(script.value))
         require(digest.length == WORKFLOW_DIGEST_CHARS && digest.all { it in '0'..'9' || it in 'a'..'f' })
     }
 
     override fun toString(): String = "ProcessWorkflow(***)"
+}
+
+/** A host receipt survives workflow journal expiry; scripts cannot issue this command through ScriptProcesses. */
+internal fun ProcessRecord.settleWorkflow(command: ProcessCommand.SettleWorkflow, now: Instant): ProcessReduction {
+    val key = command.key
+    if (key.process != id || key.incarnation != incarnation) return rejected(ProcessRejection.UnknownAttempt)
+    if (inFlight?.number == key.attempt) return rejected(ProcessRejection.AttemptInFlight)
+    val closed = history.firstOrNull { it.attempt.number == key.attempt } ?: return ProcessReduction.Unchanged(this)
+    val workflow = closed.attempt.workflow ?: return rejected(ProcessRejection.OutcomeConflict)
+    if (closed.attempt.stage != key.stage ||
+        workflow.copy(isSettled = false, isDispatchClosed = false) !=
+        command.workflow.copy(isSettled = false, isDispatchClosed = false)
+    ) {
+        return rejected(ProcessRejection.OutcomeConflict)
+    }
+    if (workflow.isSettled) return ProcessReduction.Unchanged(this)
+    val settled = closed.copy(attempt = closed.attempt.copy(workflow = workflow.copy(isSettled = true)))
+    return changed(copy(history = history.map { if (it == closed) settled else it }, updatedAt = now))
 }
 
 /** Returns the current attempt key for this stage, or the next attempt number without performing IO. */
@@ -51,6 +80,8 @@ internal fun ProcessRecord.reserveWorkflow(command: ProcessCommand.StartWorkflow
 
 private fun ProcessRecord.reservationRejection(command: ProcessCommand.StartWorkflow): ProcessRejection? = when {
     command.key.process != id || command.key.incarnation != incarnation -> ProcessRejection.UnknownAttempt
+
+    command.workflow.isSettled || command.workflow.isDispatchClosed -> ProcessRejection.OutcomeConflict
 
     definition != command.definition -> ProcessRejection.DefinitionMismatch
 

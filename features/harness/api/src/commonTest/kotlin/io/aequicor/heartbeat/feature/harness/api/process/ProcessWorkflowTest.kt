@@ -109,6 +109,24 @@ class ProcessWorkflowTest {
         )
     }
 
+    @Test
+    fun `only a matching closed workflow accepts a durable native cleanup receipt`() {
+        val running = reserve()
+        val command = ProcessCommand.SettleWorkflow(key, claim)
+        running.expectRejected(command, ProcessRejection.AttemptInFlight)
+        val closed = running.change(ProcessCommand.Finish(1, AttemptOutcome.Succeeded(ResultRef("report", "r"))))
+        val settled = closed.change(command)
+        assertEquals(true, settled.history.single().attempt.workflow?.isSettled)
+        settled.expectUnchanged(command)
+        assertEquals(closed.history.single().outcome, settled.history.single().outcome)
+        settled.expectRejected(
+            command.copy(workflow = claim.copy(digest = "b".repeat(64))),
+            ProcessRejection.OutcomeConflict,
+        )
+        settled.expectRejected(command.copy(key = key.copy(incarnation = "other")), ProcessRejection.UnknownAttempt)
+        settled.expectUnchanged(ProcessCommand.StartWorkflow(key, claim))
+    }
+
     private fun reserve(): ProcessRecord = assertIs<ProcessReduction.Changed>(
         initial.reduce(ProcessCommand.StartWorkflow(key, claim), now),
     ).record

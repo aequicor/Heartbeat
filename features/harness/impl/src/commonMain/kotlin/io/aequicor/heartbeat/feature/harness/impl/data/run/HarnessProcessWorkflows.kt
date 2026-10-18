@@ -41,6 +41,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataSto
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDurableProcessesEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.confirmProcessWorkflow
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -121,6 +122,7 @@ internal class HarnessProcessWorkflows(
             releaseSettled(owner.request.harness.id)
             val stored = storage.find(claim.run)
             if (stored == null) {
+                check(!claim.isDispatchClosed) { "Archived workflow requires reconciliation" }
                 // A closed or pruned attempt must never create an executor, even after retention removed its result.
                 check(reserved.inFlight?.number == key.attempt) { "Workflow attempt is already closed" }
                 val count = storage.load().count {
@@ -174,7 +176,7 @@ internal class HarnessProcessWorkflows(
         key: ProcessWorkflowKey,
         claim: ProcessWorkflow,
     ) {
-        if (storage.find(claim.run) != null) return
+        if (claim.isDispatchClosed || storage.find(claim.run) != null) return
         try {
             processes.applyHost(key.process, ProcessCommand.CancelWorkflow(key, claim))
         } catch (error: CancellationException) {
@@ -235,6 +237,7 @@ internal class HarnessProcessWorkflows(
         if (claim == null) return ScriptWorkflowCancellation.Missing
         val run = storage.find(claim.run)
         return when {
+            run == null && claim.isDispatchClosed -> ScriptWorkflowCancellation.Unavailable
             run == null -> cancelReservation(processes, record, key, claim)
             !matches(run, owner, key, claim) -> ScriptWorkflowCancellation.Missing
             run.status != WorkflowStatus.Running -> ScriptWorkflowCancellation.Finished
@@ -265,13 +268,15 @@ internal class HarnessProcessWorkflows(
         record: ProcessRecord,
         key: ProcessWorkflowKey,
         claim: ProcessWorkflow,
-    ): ScriptWorkflowState = if (record.history.any {
+    ): ScriptWorkflowState {
+        val isCancelled = record.history.any {
             it.attempt.number == key.attempt && it.outcome == AttemptOutcome.Failed(AttemptFailure.Cancelled)
         }
-    ) {
-        ScriptWorkflowState.Found(claim.run, WorkflowStatus.Failed(WorkflowFailure.Cancelled), true)
-    } else {
-        ScriptWorkflowState.Unavailable
+        return if ((!claim.isDispatchClosed || claim.isSettled) && isCancelled) {
+            ScriptWorkflowState.Found(claim.run, WorkflowStatus.Failed(WorkflowFailure.Cancelled), true)
+        } else {
+            ScriptWorkflowState.Unavailable
+        }
     }
 
     private suspend fun requestCancellation(
@@ -333,6 +338,7 @@ internal class HarnessProcessWorkflows(
         data.processMutex,
         definition = ProcessDefinition(owner.request.item.id, owner.request.harness.revision),
         isVersioningEnabled = { toggles.get(HarnessDurableProcessesEnabled) },
+        archives = data.archives,
     )
 
     private fun checkAccess(owner: HarnessInstanceTarget) {
@@ -367,6 +373,9 @@ internal class HarnessProcessWorkflows(
             val record = records[binding.key.process]
             val isCurrent = record?.incarnation == binding.key.incarnation &&
                 record.inFlight?.number == binding.key.attempt
+            if (!isCurrent && record?.incarnation == binding.key.incarnation) {
+                data.confirmProcessWorkflow(harness, run, clock.now())
+            }
             if (!isCurrent && !storage.releaseProcess(run.id)) {
                 throw HarnessStorageUncertain()
             }

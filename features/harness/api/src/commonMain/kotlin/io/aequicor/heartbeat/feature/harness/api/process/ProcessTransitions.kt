@@ -10,6 +10,7 @@ import kotlin.time.Instant
  * | Command | From | To |
  * |---|---|---|
  * | [CancelWorkflow] | exact pending reservation | Idle, same attempt cancelled |
+ * | [SettleWorkflow] | closed attempt, exact native identity | same phase, durable native cleanup receipt |
  * | [StartWorkflow] | Idle or exact replay | Running with one immutable workflow reservation |
  * | [Start] | Idle | Running (new attempt bound to the current input revision and subject) |
  * | [Finish] | Running (that attempt) | Idle, attempt closed with the outcome |
@@ -44,6 +45,9 @@ import kotlin.time.Instant
  * while its key is still remembered.
  */
 public sealed interface ProcessCommand {
+    /** Host-only confirmation that native workflow cleanup completed, persisted before releasing its journal. */
+    public data class SettleWorkflow(val key: ProcessWorkflowKey, val workflow: ProcessWorkflow) : ProcessCommand
+
     /** Closes only this exact reservation after the host proves its protected workflow journal was never created. */
     public data class CancelWorkflow(val key: ProcessWorkflowKey, val workflow: ProcessWorkflow) : ProcessCommand
 
@@ -207,6 +211,7 @@ public fun ProcessRecord.reduce(command: ProcessCommand, at: Instant): ProcessRe
     return when (command) {
         is ProcessCommand.StartWorkflow -> reserveWorkflow(command, now)
         is ProcessCommand.CancelWorkflow -> cancelWorkflow(command, now)
+        is ProcessCommand.SettleWorkflow -> settleWorkflow(command, now)
         is ProcessCommand.Record -> reduceStandard(command, now)
     }
 }

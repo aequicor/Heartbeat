@@ -199,6 +199,8 @@ class ProcessRecordSerializationTest {
             RunId("wf_" + "w".repeat(SHA256_CHARS - 3)),
             ItemId("s".repeat(ProcessLimits.REF_CHARS)),
             "d".repeat(SHA256_CHARS),
+            isSettled = true,
+            isDispatchClosed = true,
         )
         val full = fullyLoaded().copy(incarnation = "l".repeat(ProcessLimits.REF_CHARS))
         val keyed = full.copy(

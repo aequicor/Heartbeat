@@ -74,6 +74,7 @@ internal class StagedHarnessContexts(
                     runStorage,
                     ProcessDefinition(request.item.id, request.harness.revision),
                     { toggles.get(HarnessDurableProcessesEnabled) },
+                    data.archives,
                 ),
                 commands.create(request, access),
             ),

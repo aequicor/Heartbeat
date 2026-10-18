@@ -83,6 +83,7 @@ internal class KeyValueHarnessLibrary(
             return@access receipt
         }
         if (previous != harness) throw HarnessStorageConflict()
+        data.prepareRemoval(harness.id)
         val attachments = current.attachments.mapValues { it.value - harness.id }.filterValues { it.isNotEmpty() }
         commit(
             receipt.operationId("remove"),

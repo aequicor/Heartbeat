@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.services
 
+import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
@@ -19,20 +20,25 @@ internal const val PROCESS_TEST_START = 1_000L
  */
 internal class ProcessesTestEnv(
     scope: TestScope,
-    secrets: HarnessDataTestSecrets = HarnessDataTestSecrets(),
+    secrets: SecretStore = HarnessDataTestSecrets(),
     owner: HarnessId = HarnessId("owner"),
     restartedAt: Long = 0,
     definition: ProcessDefinition? = null,
     isVersioningEnabled: suspend () -> Boolean = { true },
+    isArchiveEnabled: Boolean = false,
 ) {
     val clock = ProcessesTestClock(PROCESS_TEST_START + restartedAt)
     val access = ProcessesTestAccess(scope)
-    val data = HarnessScriptData(owner, access, ProtectedHarnessData(secrets))
+    val archives = ProtectedProcessArchives(secrets, clock, CommandToggles(isArchiveEnabled))
+    val storage = ProtectedHarnessData(secrets, archives)
+    val data = HarnessScriptData(owner, access, storage)
     val processes = HarnessScriptProcesses(
         data,
         clock,
         definition = definition,
         isVersioningEnabled = isVersioningEnabled,
+        owner = owner,
+        archives = archives,
     )
 }
 

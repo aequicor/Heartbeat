@@ -2,8 +2,12 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.services
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.process.ArchivedProcess
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchivePage
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchiveReason
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchiveRef
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
@@ -12,6 +16,7 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessPhase
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessRecord
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessRejection
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflow
 import io.aequicor.heartbeat.feature.harness.api.process.reduce
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
@@ -45,6 +50,7 @@ internal class HarnessScriptProcesses(
     private val runs: HarnessRunStorage? = null,
     private val definition: ProcessDefinition? = null,
     private val isVersioningEnabled: suspend () -> Boolean = { true },
+    private val archives: HarnessProcessArchiveStorage? = null,
 ) : ScriptProcesses {
     private val log = Log.tag("HarnessScriptProcesses")
 
@@ -57,6 +63,7 @@ internal class HarnessScriptProcesses(
     override suspend fun open(id: ProcessId, inputRevision: Long): ProcessRecord = gate.withLock {
         require(inputRevision >= 0) { "Invalid input revision" }
         val binding = if (isVersioningEnabled()) definition else null
+        if (get(id) == null) makeRoom()
         var opened: ProcessRecord? = null
         var isCreated = false
         data.update(STORAGE_KEY) { current ->
@@ -116,10 +123,17 @@ internal class HarnessScriptProcesses(
                 }
             }
         }
-        val result = outcome
+        logReduction(command, outcome)
+        return outcome
+    }
+
+    private fun logReduction(command: ProcessCommand, result: ProcessReduction) {
         val summary = "process command ${command::class.simpleName.orEmpty()} -> ${result::class.simpleName.orEmpty()}"
-        if (result is ProcessReduction.Changed) log.i { summary } else log.v { summary }
-        return result
+        if (result is ProcessReduction.Changed && command !is ProcessCommand.SettleWorkflow) {
+            log.i { summary }
+        } else {
+            log.v { summary }
+        }
     }
 
     /** Cleanup of old work remains possible; every new continuation requires current approved logic. */
@@ -131,6 +145,7 @@ internal class HarnessScriptProcesses(
             is ProcessCommand.Finish,
             is ProcessCommand.Close,
             is ProcessCommand.CancelWorkflow,
+            is ProcessCommand.SettleWorkflow,
             is ProcessCommand.ConfirmWrite,
             is ProcessCommand.MarkWriteUnknown,
             is ProcessCommand.WriteNotApplied,
@@ -164,28 +179,114 @@ internal class HarnessScriptProcesses(
     }
 
     private suspend fun removeStored(id: ProcessId): Boolean {
+        releaseSettled()
         val before = get(id)
-        if (before != null && (!before.isRemovable() || !canRemoveWorkflow(before))) return false
+        if (before != null && !canRemove(before)) return false
+        if (before != null && shouldArchive(before)) archiveRecord(before)
         var isStored = false
         var isRemoved = false
         data.update(STORAGE_KEY) { current ->
             val records = decode(current)
             val record = records.firstOrNull { it.id == id }
             isStored = record != null
-            isRemoved = record == null || record.isRemovable()
+            isRemoved = record == null || (record == before && record.isRemovable())
             when {
                 record == null || !isRemoved -> current
                 records.size == 1 -> null
                 else -> encode(records - record, null)
             }
         }
+        logRemoval(isRemoved, isStored)
+        return isRemoved
+    }
+
+    private fun logRemoval(isRemoved: Boolean, isStored: Boolean) {
         when {
             isRemoved && isStored -> log.i { "process removed" }
             !isRemoved -> log.v { "process removal refused" }
             else -> log.v { "process to remove is not stored" }
         }
-        return isRemoved
     }
+
+    private suspend fun canRemove(record: ProcessRecord): Boolean = record.isRemovable() && canRemoveWorkflow(record)
+
+    override suspend fun archive(id: ProcessId): ArchivedProcess? = gate.withLock {
+        releaseSettled()
+        val record = get(id) ?: return@withLock null
+        if (!record.isRemovable() || !canRemoveWorkflow(record)) return@withLock null
+        check(shouldArchive(record)) { "Durable process archives are disabled" }
+        archiveRecord(record)
+    }
+
+    override suspend fun archived(after: ProcessArchiveRef?, limit: Int, process: ProcessId?): ProcessArchivePage {
+        list() // Live scoped access is required, including for an empty archive.
+        return checkNotNull(archives).listOwned(checkNotNull(owner), after, limit, process)
+    }
+
+    override suspend fun readArchive(ref: ProcessArchiveRef): ArchivedProcess? {
+        list()
+        return checkNotNull(archives).getOwned(checkNotNull(owner), ref)
+    }
+
+    override suspend fun restore(ref: ProcessArchiveRef): ProcessRecord? = gate.withLock {
+        list()
+        val archived = checkNotNull(archives).getOwned(checkNotNull(owner), ref) ?: return@withLock null
+        val source = archived.record.forRestore()
+        val existing = get(source.id)
+        if (existing != null) {
+            check(existing.incarnation == source.incarnation) { "Another process lifetime is active" }
+            return@withLock existing
+        }
+        makeRoom()
+        var restored: ProcessRecord? = null
+        data.update(STORAGE_KEY) { current ->
+            val records = decode(current)
+            val found = records.firstOrNull { it.id == source.id }
+            if (found != null) {
+                check(found.incarnation == source.incarnation) { "Another process lifetime is active" }
+                restored = found
+                current
+            } else {
+                require(records.size < ProcessLimits.PROCESSES) { "Too many processes" }
+                restored = source
+                encode(records + source, source)
+            }
+        }
+        log.i { "process restored from protected archive" }
+        checkNotNull(restored)
+    }
+
+    private fun ProcessRecord.forRestore(): ProcessRecord {
+        val running = phase as? ProcessPhase.Running ?: return this
+        val workflow = running.attempt.workflow ?: return this
+        val attempt = running.attempt.copy(workflow = workflow.copy(isDispatchClosed = true))
+        return copy(phase = ProcessPhase.Running(attempt))
+    }
+
+    /** Quota reclamation only removes terminal records after archive confirmation. */
+    private suspend fun makeRoom() {
+        val records = list()
+        if (records.size < ProcessLimits.PROCESSES) return
+        if (archives?.isEnabled() != true && records.none { it.definition != null }) return
+        for (record in records) {
+            if (shouldArchive(record) && removeStored(record.id)) {
+                releaseSettled()
+                return
+            }
+        }
+    }
+
+    private suspend fun shouldArchive(record: ProcessRecord): Boolean {
+        val storage = archives
+        check(storage != null || record.definition == null) { "Protected process archive is unavailable" }
+        return record.definition != null || storage?.isEnabled() == true
+    }
+
+    private suspend fun archiveRecord(record: ProcessRecord): ArchivedProcess = checkNotNull(archives).store(
+        checkNotNull(owner),
+        record,
+        ProcessArchiveReason.Completed,
+    )
 
     private fun ProcessRecord.isRemovable(): Boolean = phase is ProcessPhase.Ended && unresolvedWrites().isEmpty()
 
@@ -202,8 +303,9 @@ internal class HarnessScriptProcesses(
             entry.attempt.workflow?.let { entry to it }
         }.all { (entry, workflow) ->
             val stored = storage.find(workflow.run)
-            (stored == null && entry.outcome == AttemptOutcome.Failed(AttemptFailure.Cancelled)) ||
-                (stored != null && stored.status != WorkflowStatus.Running)
+            val isNeverDispatched = stored == null && !workflow.isDispatchClosed &&
+                entry.outcome == AttemptOutcome.Failed(AttemptFailure.Cancelled)
+            workflow.isSettled || isNeverDispatched || (stored != null && stored.status != WorkflowStatus.Running)
         }
     }
 
@@ -219,6 +321,11 @@ internal class HarnessScriptProcesses(
             val record = records[binding.key.process]
             val isCurrent = record?.incarnation == binding.key.incarnation &&
                 record.inFlight?.number == binding.key.attempt
+            if (!isCurrent && record?.incarnation == binding.key.incarnation) {
+                val receipt = ProcessWorkflow(run.id, binding.script, binding.digest)
+                val result = reduceStored(record.id, ProcessCommand.SettleWorkflow(binding.key, receipt))
+                check(result !is ProcessReduction.Rejected) { "Workflow cleanup receipt conflicts with the process" }
+            }
             if (!isCurrent && !storage.releaseProcess(run.id)) error("Process workflow retention is unavailable")
         }
     }
@@ -265,6 +372,16 @@ internal class HarnessScriptProcesses(
             check(stored.records.size <= ProcessLimits.PROCESSES) { "Too many stored processes" }
             check(stored.records.map { it.id }.toSet().size == stored.records.size) { "Duplicate process" }
             return stored.records
+        }
+
+        /** Host-only CAS encoding for native cleanup receipts; ordinary script writes use the scoped service. */
+        fun encodeStored(records: List<ProcessRecord>): JsonElement {
+            check(records.size <= ProcessLimits.PROCESSES)
+            for (record in records) {
+                val bytes = Json.encodeToString(ProcessRecord.serializer(), record).encodeToByteArray().size
+                require(bytes <= ProcessLimits.RECORD_BYTES) { "Process record is too large" }
+            }
+            return Json.encodeToJsonElement(StoredProcesses.serializer(), StoredProcesses(VERSION, records))
         }
 
         /**

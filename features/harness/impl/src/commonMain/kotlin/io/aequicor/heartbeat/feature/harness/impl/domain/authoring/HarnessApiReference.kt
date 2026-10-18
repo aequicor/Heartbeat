@@ -223,7 +223,15 @@ private val API = """
       ProcessDefinition(item, revision))) explicitly accepts the current code. Migrate only between stages with no
       unresolved external writes. Legacy records have definition=null and require explicit acceptance too. Migration
       keeps attempts, waits and workflow structural keys; unknown schemaVersion fails closed without overwriting.
-      Ended processes are removed with remove(id). Never log ids, results or journal
+      In durable mode (or for existing pins), remove(id) archives a settled ended process before deleting its active
+      record. archive(id) confirms a snapshot without removing it; archived(after, limit, process) searches this
+      harness's archive, readArchive(ref) resolves it, restore(ref) returns the same logical process without rewinding
+      newer active state or changing workflow keys. A different active lifetime conflicts. Restore never starts
+      execution; reconcile open work and migrate changed logic explicitly. Native cleanup receipts survive workflow
+      retention. A full active quota reclaims only eligible completed records after confirmed archival; a full archive
+      fails without deleting originals. Deleting a harness preserves its processes before removing the namespace;
+      the profile ProcessArchiveReader still resolves their refs. Public results stay with their external provider,
+      private record snapshots stay protected in this profile. Never log ids, results or journal
       entries.
     - workflows.start(process.workflowKey(StageName("verify")), ItemName("verify"), input) reserves the process
       attempt atomically before dispatch and returns the same RunId on an exact retry. Keep this key; a fresh
