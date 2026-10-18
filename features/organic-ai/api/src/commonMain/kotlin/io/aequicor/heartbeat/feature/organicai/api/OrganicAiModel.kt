@@ -164,6 +164,12 @@ public data class Organism(
     val version: Long = 0,
     /** Original goal inputs; only references are journaled, never file bytes or native paths. */
     val attachments: List<ResourceRef> = emptyList(),
+    /**
+     * Whether the native work of an [OrganismStatus.Aborted] organism is known to have stopped; every other
+     * organism keeps the default. Observed from the host and not saved: a restored organism is held by no session
+     * of this process and nothing drives an ended one, so it reads as released.
+     */
+    @Transient val sessions: SessionRelease = SessionRelease.Released,
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }
@@ -171,7 +177,8 @@ public data class Organism(
     }
 
     override fun toString(): String =
-        "Organism(id=${id.value}, cells=${cells.size}, cases=${cases.size}, status=$status, version=$version)"
+        "Organism(id=${id.value}, cells=${cells.size}, cases=${cases.size}, status=$status, sessions=$sessions, " +
+            "version=$version)"
 }
 
 /** Lifecycle of an organism. Only an explicit abort kills it: the zygote is never judged or killed. */
@@ -187,9 +194,27 @@ public sealed interface OrganismStatus {
         override fun toString(): String = "Completed(result=${result.length} chars)"
     }
 
-    /** Aborted from outside; every living cell was lysed. */
+    /**
+     * Aborted from outside; every living cell was marked dead. This marks the organism: whether the host stopped
+     * its native turns is [Organism.sessions].
+     */
     @Serializable
     public data object Aborted : OrganismStatus
+}
+
+/**
+ * Whether the host let go of the sessions of the cells an abort killed. The abort itself only marks the organism,
+ * so their native turns may still run until the host reports otherwise.
+ */
+public enum class SessionRelease {
+    /** The host is cancelling the turns and closing the handles. */
+    Releasing,
+
+    /** The host could not confirm that every turn stopped; another abort tries again. */
+    Unconfirmed,
+
+    /** Every turn the host held stopped and its handle closed, or the organism is not held by this process. */
+    Released,
 }
 
 /**

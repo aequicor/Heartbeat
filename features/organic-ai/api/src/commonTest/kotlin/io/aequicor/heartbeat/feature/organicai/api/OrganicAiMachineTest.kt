@@ -250,7 +250,7 @@ class OrganicAiMachineTest {
             zygote = zygoteCell(CellPhase.Dead(DeathCause.Aborted)),
             status = OrganismStatus.Aborted,
             version = 2,
-        )
+        ).copy(sessions = SessionRelease.Releasing)
         spec.assertTransition(
             living(before),
             OrganicAiIntent.Public.Abort(ORGANISM),

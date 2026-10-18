@@ -74,6 +74,7 @@ internal fun Conception.conceive(): Step {
 private fun Organism.evolve(intent: OrganismIntent): Step? = when (intent) {
     is OrganicAiIntent.Public.Conceive -> null
     is OrganicAiIntent.Public.Abort -> abort()
+    is OrganicAiIntent.Internal.SessionsReleased -> sessionsReleased(intent.isConfirmed)
     is OrganicAiIntent.Public.Resume -> resume()
     is OrganicAiIntent.Public.FollowUp -> followUp(intent)
     is OrganicAiIntent.Public.Decide -> decide(intent.cell, intent.decision)
@@ -197,14 +198,36 @@ private fun Organism.resume(): Step? {
 }
 
 private fun Organism.abort(): Step? {
+    if (status == OrganismStatus.Aborted) return retryRelease()
     if (!isDeveloping) return null
     val ended = cells.filter(Cell::isAlive).map(Cell::id)
     val aborted = copy(
         cells = cells.map { if (it.isAlive) it.copy(phase = CellPhase.Dead(DeathCause.Aborted)) else it },
         cases = emptyList(),
         status = OrganismStatus.Aborted,
+        // Nothing alive means no session was held for the abort: there is nothing to wait for.
+        sessions = if (ended.isEmpty()) SessionRelease.Released else SessionRelease.Releasing,
     )
     return Step(aborted, release = ended, releaseMode = ReleaseMode.Lyse, isFinished = true)
+}
+
+/** Another abort lets the sessions of the cells it killed go again, but only after a release could not confirm. */
+private fun Organism.retryRelease(): Step? {
+    if (sessions != SessionRelease.Unconfirmed) return null
+    val killed = cells.filter { it.phase == CellPhase.Dead(DeathCause.Aborted) }.map(Cell::id)
+    return Step(
+        copy(sessions = SessionRelease.Releasing),
+        isDurable = false,
+        release = killed,
+        releaseMode = ReleaseMode.Lyse,
+    )
+}
+
+/** The host's report on the release an abort asked for; a late or repeated one changes nothing. */
+private fun Organism.sessionsReleased(isConfirmed: Boolean): Step? {
+    if (status != OrganismStatus.Aborted || sessions != SessionRelease.Releasing) return null
+    val released = if (isConfirmed) SessionRelease.Released else SessionRelease.Unconfirmed
+    return Step(copy(sessions = released), isDurable = false)
 }
 
 private fun Organism.divide(intent: OrganicAiIntent.Internal.Divide): Step? {

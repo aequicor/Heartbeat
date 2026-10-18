@@ -27,7 +27,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * | Living | Resume | stalled / unarmed resting | recovery / reminder | Persist; DriveCells / Drive / Resolve | — |
  * | Living | Resume | completed | Developing, zygote recovery | Persist; Drive / Resolve | — |
  * | Living | FollowUp | completed, valid input | Developing, zygote Working(FollowUp) | Persist; Drive / Resolve | — |
- * | Living | Abort | developing | living cells Dead(Aborted), Aborted | Persist; Release(Lyse) | Finished |
+ * | Living | Abort | developing | cells Dead, Aborted, sessions Releasing | Persist; Release(Lyse) | Finished |
+ * | Living | Abort | aborted, sessions Unconfirmed | sessions Releasing | Release(Lyse) | — |
+ * | Living | SessionsReleased | aborted, sessions Releasing | sessions Released / Unconfirmed | — | — |
  * | Living | Divide | parent working, limits, next cell id | + child Working(Genesis) | Persist; Drive(child) | — |
  * | Living | Complain / Dispute | filer working, no refusal, next case id | + case, + trial | Persist; Judge | — |
  * | Living | JudgeConvened | trial without ruling | trial judge session | Persist | — |
@@ -50,10 +52,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * A user can resume a completed zygote with its goal and history; descendants and inbox cursors stay unchanged.
  * Follow-up messages start a fresh zygote turn in the same session; their text and inputs survive recovery.
  * A completed organism never restarts automatically, and an aborted organism cannot be resumed.
+ * An abort marks the organism at once; its native turns stop only when the host lets the sessions go, and
+ * [Organism.sessions] tells the two apart: Releasing while the host works, Released once every turn was seen to stop,
+ * Unconfirmed when it could not tell, which another abort retries. The release state is not journaled: a restored
+ * organism is held by no session of this process and nothing drives an ended one, so it reads as Released.
  *
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →
- * Unresolved, Drive → TurnSettled(Broke(Engine)), Judge → Ruled(None), Hibernate → Hibernated.
+ * Unresolved, Drive → TurnSettled(Broke(Engine)), Judge → Ruled(None), Hibernate → Hibernated, Release of an
+ * abort → SessionsReleased(unconfirmed).
  */
 public val OrganicAiMachineSpec: MachineSpec<OrganicAiState, OrganicAiIntent, OrganicAiEffect, OrganicAiOutput> =
     machineSpec(OrganicAiMachineKey, OrganicAiState.Dormant) {
@@ -155,7 +162,12 @@ private fun OrganicAiEffect.failure(error: Throwable): OrganicAiIntent? = when (
 
     is OrganicAiEffect.Hibernate -> OrganicAiIntent.Internal.Hibernated
 
+    // Only the release an abort asked for is waited on; one that fails for any other organism is only logged.
+    is OrganicAiEffect.Release ->
+        OrganicAiIntent.Internal.SessionsReleased(organism.id, isConfirmed = false)
+            .takeIf { organism.sessions == SessionRelease.Releasing }
+
     is OrganicAiEffect.Revive, is OrganicAiEffect.DriveCells,
-    is OrganicAiEffect.Persist, is OrganicAiEffect.Respond, is OrganicAiEffect.Release,
+    is OrganicAiEffect.Persist, is OrganicAiEffect.Respond,
     -> null
 }
