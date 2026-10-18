@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineSpec
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessCommandsEnabled
+import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessGitHubEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEffects
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessLibraryStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
@@ -46,4 +47,9 @@ public object HarnessToggleBindings {
     @Provides
     @IntoSet
     public fun commands(): FeatureToggle<*> = HarnessCommandsEnabled
+
+    /** Recoverable GitHub adapter, off until host permission integration. */
+    @Provides
+    @IntoSet
+    public fun github(): FeatureToggle<*> = HarnessGitHubEnabled
 }

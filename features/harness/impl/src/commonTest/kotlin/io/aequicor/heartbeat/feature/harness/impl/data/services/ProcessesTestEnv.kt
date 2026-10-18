@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlin.time.Clock
@@ -25,7 +26,8 @@ internal class ProcessesTestEnv(
     val clock = ProcessesTestClock(PROCESS_TEST_START + restartedAt)
     val access = ProcessesTestAccess(scope)
     val data = HarnessScriptData(owner, access, ProtectedHarnessData(secrets))
-    val processes = HarnessScriptProcesses(data, clock)
+    val processGate = Mutex()
+    val processes = HarnessScriptProcesses(data, clock, processGate)
 }
 
 internal class ProcessesTestClock(var seconds: Long) : Clock {

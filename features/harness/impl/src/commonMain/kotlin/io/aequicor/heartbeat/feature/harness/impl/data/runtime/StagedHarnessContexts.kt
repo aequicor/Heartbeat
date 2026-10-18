@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessScriptCommandsFactory
+import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessScriptGitHubFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
@@ -38,6 +39,7 @@ internal class StagedHarnessContexts(
     private val data: HarnessDataStorage,
     private val runStorage: HarnessRunStorage,
     private val commands: HarnessScriptCommandsFactory,
+    private val github: HarnessScriptGitHubFactory,
     private val clock: Clock,
     private val sessions: HarnessScriptSessionsFactory,
 ) : HarnessRuntimeContextFactory {
@@ -53,6 +55,7 @@ internal class StagedHarnessContexts(
 
     private fun scriptContext(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessScriptContext {
         val scriptData = HarnessScriptData(request.harness.id, access, data)
+        val processes = HarnessScriptProcesses(scriptData, clock, data.processMutex, request.harness.id, runStorage)
         return HarnessScriptContext(
             request,
             access,
@@ -62,8 +65,9 @@ internal class StagedHarnessContexts(
                 workflows.create(request, access),
                 sessions.create(request, access),
                 scriptData,
-                HarnessScriptProcesses(scriptData, clock, data.processMutex, request.harness.id, runStorage),
+                processes,
                 commands.create(request, access),
+                github.create(access, scriptData, processes, data.processMutex),
             ),
         )
     }
