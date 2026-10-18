@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessLibrarySnapshot
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageConflict
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageCorrupt
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
@@ -24,6 +26,22 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 class HarnessLibraryStorageTest {
+    @Test
+    fun `failed archive preparation keeps the harness in the library before deletion commits`() = runTest {
+        val stores = HarnessTestStores()
+        stores.library().save(storageHarness, storageReceipt)
+        val before = stores.libraryValues.values.toMap()
+        val failing = object : HarnessDataStorage by stores.scriptData {
+            override suspend fun prepareRemoval(owner: HarnessId) = error("Archive unavailable")
+        }
+        val library = KeyValueHarnessLibrary(stores, storageClock, failing)
+        assertFailsWith<HarnessStorageUncertain> {
+            library.remove(storageHarness, storageReceipt.copy(requestId = RequestId("delete"), generation = 2))
+        }
+        assertEquals(before, stores.libraryValues.values)
+        assertEquals(listOf(storageHarness), stores.library().load().harnesses)
+    }
+
     @Test
     fun `committed library attachments approval and deletion survive new repository instances`() = runTest {
         val stores = HarnessTestStores()

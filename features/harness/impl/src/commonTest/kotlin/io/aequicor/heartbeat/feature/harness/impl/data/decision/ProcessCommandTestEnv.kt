@@ -20,7 +20,7 @@ import io.aequicor.heartbeat.feature.harness.api.process.workflowKey
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessDataTestSecrets
 import io.aequicor.heartbeat.feature.harness.impl.data.services.ProcessesTestAccess
 import io.aequicor.heartbeat.feature.harness.impl.data.services.ProcessesTestClock
-import io.aequicor.heartbeat.feature.harness.impl.data.services.ProtectedHarnessData
+import io.aequicor.heartbeat.feature.harness.impl.data.services.protectedHarnessData
 import io.aequicor.heartbeat.feature.harness.impl.domain.code
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessCommandInvocation
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessDecisionEffects
@@ -61,7 +61,7 @@ internal class ProcessCommandTestEnv(test: TestScope) {
     val secrets = HarnessDataTestSecrets()
     val clock = ProcessesTestClock(1_000)
     val access = ProcessesTestAccess(test)
-    val data = ProtectedHarnessData(secrets)
+    val data = protectedHarnessData(secrets)
     val scriptData = HarnessScriptData(harness.id, access, data)
     val processes = HarnessScriptProcesses(scriptData, clock, data.processMutex)
     val local = ProcessTestCommands()

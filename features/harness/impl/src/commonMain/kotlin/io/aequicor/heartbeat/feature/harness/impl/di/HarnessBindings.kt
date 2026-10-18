@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEffects
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessLibraryStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRuntimeControl
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDurableProcessesEnabled
 
 /** Constructs a single profile-owned library without eagerly starting it when the toggle is disabled. */
 @ContributesTo(ProfileScope::class)
@@ -53,6 +54,11 @@ public object HarnessToggleBindings {
     @Provides
     @IntoSet
     public fun commands(): FeatureToggle<*> = HarnessCommandsEnabled
+
+    /** Versioned multi-stage execution and archival of protected process state. */
+    @Provides
+    @IntoSet
+    public fun durableProcesses(): FeatureToggle<*> = HarnessDurableProcessesEnabled
 
     /** Exact host-owned decisions for process commands. */
     @Provides
