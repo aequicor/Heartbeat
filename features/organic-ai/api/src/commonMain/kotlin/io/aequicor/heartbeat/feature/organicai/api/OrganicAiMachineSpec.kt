@@ -50,6 +50,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * A user can resume a completed zygote with its goal and history; descendants and inbox cursors stay unchanged.
  * Follow-up messages start a fresh zygote turn in the same session; their text and inputs survive recovery.
  * A completed organism never restarts automatically, and an aborted organism cannot be resumed.
+ * A conception's harness choice becomes the organism's and no intent changes it.
  *
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →

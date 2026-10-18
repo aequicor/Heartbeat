@@ -61,15 +61,22 @@ public fun Organism.targetOf(cell: Cell): EngineTarget? = cell.configuration?.ta
 
 /**
  * The session of the sub-session [key] (a cell id, or a case id for its last judge) and how to reopen it as the
- * organism opened it: a cell on its model ([targetOf]) and the organism's project with the detached hosted tools, a
- * judge on the immune model with neither. Reopening it so never changes what a cell may do. Null while it has no
- * session.
+ * organism opened it: a cell on its model ([targetOf]) and the organism's project with the detached hosted tools and,
+ * when the organism carries harnesses, the session hooks that deliver them (the first holder of an engine session
+ * decides this), a judge on the immune model with neither. Reopening it so never changes what a cell may do. Null
+ * while it has no session.
  */
 public fun Organism.sessionOf(key: String): OrganismSession? {
     cells.firstOrNull { it.id.value == key }?.let { cell ->
         val ref = cell.session ?: return null
         val target = targetOf(cell) ?: return null
-        return OrganismSession(ref, ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true))
+        val request = ResumeSessionRequest(
+            target,
+            workspace,
+            areDetachedToolsEnabled = true,
+            areSessionHooksEnabled = harnesses.isNotEmpty(),
+        )
+        return OrganismSession(ref, request)
     }
     val judge = trials.firstOrNull { it.case.id.value == key }?.judge ?: return null
     val target = immunityTarget ?: target ?: return null

@@ -80,8 +80,11 @@ public object OrganismBounds {
     /** Characters of a cell result kept and passed to its parent; a longer answer is cut by the host. */
     public const val MAX_RESULT: Int = 20_000
 
-    /** Harnesses one organism carries; the harness library admits as many to a single session. */
-    public const val MAX_HARNESSES: Int = 8
+    /**
+     * Harnesses one organism carries: as many as the harness library holds. A harness the user chose is never dropped
+     * (a smaller set could lose a restricting one), so the choice is refused rather than cut.
+     */
+    public const val MAX_HARNESSES: Int = 32
 
     /** Characters of one harness id; ids are opaque to the organism. */
     public const val MAX_HARNESS_ID: Int = 128
@@ -149,10 +152,7 @@ public data class Conception(
         require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
             "Invalid organism goal"
         }
-        require(
-            harnesses.size <= OrganismBounds.MAX_HARNESSES &&
-                harnesses.all { it.isNotBlank() && it.length <= OrganismBounds.MAX_HARNESS_ID },
-        ) { "Invalid organism harnesses" }
+        require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
     }
 
     override fun toString(): String = "Conception(id=${id.value}, goal=${goal.length} chars)"
@@ -182,20 +182,30 @@ public data class Organism(
     /** Original goal inputs; only references are journaled, never file bytes or native paths. */
     val attachments: List<ResourceRef> = emptyList(),
     /**
-     * The harness choice of its [Conception], fixed for the organism's life: every working cell, however it came to
-     * be, runs on exactly these, so a cell can never widen or narrow the environment. A journal written before
-     * harnesses existed reads as none.
+     * The harness choice of its [Conception], fixed for the organism's life: no intent changes it, and every working
+     * cell, however it came to be, opens with exactly these and is connected to them before each new prompt. A cell
+     * can still connect more harnesses to its own session with its tools. A harness deleted or turned off later
+     * stops the turns that need it (a zygote stalls, a descendant dies) until the organism is aborted. A journal
+     * written before harnesses existed reads as none.
      */
     val harnesses: Set<String> = emptySet(),
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }
         require(cells.map { it.id }.distinct().size == cells.size) { "Duplicate cell" }
+        require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
     }
 
     override fun toString(): String =
         "Organism(id=${id.value}, cells=${cells.size}, cases=${cases.size}, status=$status, version=$version)"
 }
+
+/**
+ * Whether [harnesses] is a choice an organism can hold ([OrganismBounds]): trimmed, non-blank ids of a bounded length,
+ * in a bounded number. Hosts ask before they create what would carry the choice, so a refusal never comes late.
+ */
+public fun isValidHarnessChoice(harnesses: Set<String>): Boolean = harnesses.size <= OrganismBounds.MAX_HARNESSES &&
+    harnesses.all { it.isNotBlank() && it == it.trim() && it.length <= OrganismBounds.MAX_HARNESS_ID }
 
 /** Lifecycle of an organism. Only an explicit abort kills it: the zygote is never judged or killed. */
 @Serializable

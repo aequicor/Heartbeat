@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.organicai.api
 
 import io.aequicor.heartbeat.core.statemachine.assertTransition
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -92,11 +94,51 @@ class OrganismHarnessesTest {
     fun `a conception refuses too many or malformed harness ids`() {
         val tooMany = (1..OrganismBounds.MAX_HARNESSES + 1).mapTo(mutableSetOf()) { "h$it" }
         assertFailsWith<IllegalArgumentException> { Conception(ORGANISM, GOAL, harnesses = tooMany) }
+        assertFailsWith<IllegalArgumentException> { Conception(ORGANISM, GOAL, harnesses = setOf("")) }
         assertFailsWith<IllegalArgumentException> { Conception(ORGANISM, GOAL, harnesses = setOf(" ")) }
+        assertFailsWith<IllegalArgumentException> { Conception(ORGANISM, GOAL, harnesses = setOf("h1 ")) }
         assertFailsWith<IllegalArgumentException> {
             Conception(ORGANISM, GOAL, harnesses = setOf("x".repeat(OrganismBounds.MAX_HARNESS_ID + 1)))
         }
+        val longest = "x".repeat(OrganismBounds.MAX_HARNESS_ID)
+        assertEquals(setOf(longest), Conception(ORGANISM, GOAL, harnesses = setOf(longest)).harnesses)
         val most = (1..OrganismBounds.MAX_HARNESSES).mapTo(mutableSetOf()) { "h$it" }
         assertEquals(most, Conception(ORGANISM, GOAL, harnesses = most).harnesses)
+    }
+
+    @Test
+    fun `an organism refuses a choice its conception would refuse`() {
+        val tooMany = (1..OrganismBounds.MAX_HARNESSES + 1).mapTo(mutableSetOf()) { "h$it" }
+        assertFailsWith<IllegalArgumentException> { organism().copy(harnesses = tooMany) }
+        assertFailsWith<IllegalArgumentException> { organism().copy(harnesses = setOf("")) }
+        assertFailsWith<IllegalArgumentException> { organism().copy(harnesses = setOf("h1\n")) }
+        assertFailsWith<IllegalArgumentException> {
+            val record = json.encodeToString(Organism.serializer(), organism().copy(harnesses = chosen))
+            json.decodeFromString(Organism.serializer(), record.replace("\"compose\"", "\" \""))
+        }
+    }
+
+    @Test
+    fun `the choice survives the resolution of a missing model`() {
+        val conception = Conception(ORGANISM, GOAL, harnesses = chosen)
+        val conceived = step(OrganicAiState.Living(), OrganicAiIntent.Public.Conceive(conception))
+        assertEquals(chosen, conceived.harnesses)
+        val resolved = step(living(conceived), OrganicAiIntent.Internal.Targeted(ORGANISM, TARGET))
+        assertEquals(chosen, resolved.harnesses)
+    }
+
+    @Test
+    fun `a cell of an organism with harnesses reopens with the session hooks that deliver them`() {
+        val workspace = WorkspaceRef("project")
+        val with = organism(cell(C1)).copy(workspace = workspace, harnesses = chosen)
+        assertEquals(
+            ResumeSessionRequest(TARGET, workspace, areDetachedToolsEnabled = true, areSessionHooksEnabled = true),
+            with.sessionOf("c1")?.reopening,
+        )
+        val without = organism(cell(C1)).copy(workspace = workspace)
+        assertEquals(
+            ResumeSessionRequest(TARGET, workspace, areDetachedToolsEnabled = true, areSessionHooksEnabled = false),
+            without.sessionOf("c1")?.reopening,
+        )
     }
 }
