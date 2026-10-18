@@ -31,16 +31,17 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.toSessionEffort
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioInputContexts
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
@@ -135,6 +136,7 @@ class AiStudioModel(
     facade: EngineFacade,
     safetyReviewMonitor: AgentSafetyReviewMonitor,
     configuration: EngineConfiguration = UnavailableEngineConfiguration(),
+    planning: StudioPlanning = StudioPlanning.None,
 ) {
     private val log = Log.tag("AiStudioModel")
     private val inputContexts = StudioInputContexts()
@@ -152,6 +154,7 @@ class AiStudioModel(
     private val previewRequests = MutableStateFlow<List<ResourceRef>>(emptyList())
 
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
+    private val plans = StudioPlanView(machine, planning)
     private val appUpdate = StudioAppUpdate(machines)
     private val safetyReviews = StudioSafetyReviews(safetyReviewMonitor, entries.showsSafetyReviews)
     private val projectTrust = StudioProjectTrust(configuration, facade)
@@ -240,6 +243,7 @@ class AiStudioModel(
                     }
                 }
                 launch { organisms.observe(pipeline) }
+                launch { plans.observe(pipeline) }
                 launch { observeResearch(pipeline) }
                 if (host == StudioScreenHost.Window) launch { appUpdate.observe(pipeline) }
                 launch { safetyReviews.observe(pipeline) }
@@ -479,12 +483,17 @@ class AiStudioModel(
             is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent, environment)
             is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
             is AiStudioScreenIntent.Sidebar -> pipeline.updateState { copy(sidebar = sidebar.reduce(intent)) }
-            is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
+            is AiStudioScreenIntent.ChatMode -> chatMode(pipeline, intent)
             is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
             is AiStudioScreenIntent.RemoteApplied -> pipeline.updateState { copy(remoteSeq = intent.seq) }
             is AiStudioScreenIntent.Embed -> embeddedScreens.handle(pipeline, intent, environment)
             AiStudioScreenIntent.InstallAppUpdate -> installAppUpdate()
         }
+    }
+
+    private suspend fun chatMode(pipeline: StudioPipeline, intent: AiStudioScreenIntent.ChatMode) = when (intent) {
+        is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
+        is AiStudioScreenIntent.Plan -> plans.handle(pipeline, intent)
     }
 
     private suspend fun installAppUpdate() {
@@ -688,7 +697,7 @@ class AiStudioModel(
     }
 
     private suspend fun selectEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEffort) {
-        val effort = if (intent.effort == EffortUi.VeryHigh) "xhigh" else intent.effort.name.lowercase()
+        val effort = intent.effort.toDomain().toSessionEffort()
         selectSetting(pipeline, intent.paneId, StudioSettingChange.Effort(effort)) {
             copy(effort = intent.effort.toDomain())
         }

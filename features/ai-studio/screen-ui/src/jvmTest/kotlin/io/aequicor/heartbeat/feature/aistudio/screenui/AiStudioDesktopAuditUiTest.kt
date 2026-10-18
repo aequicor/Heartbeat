@@ -321,7 +321,7 @@ private fun AiStudioScreenState.auditIntent(intent: StudioIntent): AiStudioScree
     is StudioIntent.Composer,
     is StudioIntent.DiagramAction,
     is StudioIntent.SessionAction,
-    is StudioIntent.Organism,
+    is StudioIntent.ChatMode,
     is StudioIntent.SelectHarness,
     is StudioIntent.CardFocusApplied,
     is StudioIntent.OpenApp,
