@@ -21,11 +21,11 @@ import kotlinx.collections.immutable.toImmutableSet
 
 /** Every machine state maps to a phase: no `else`, so a new machine state breaks the build here. */
 internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudioScreenState = when (machine) {
-    AiStudioState.Idle, AiStudioState.Loading -> copy(phase = StudioPhase.Loading)
+    AiStudioState.Idle, AiStudioState.Loading -> copy(phase = StudioPhase.Loading, isPlanningEnabled = false)
 
-    AiStudioState.Disabled -> copy(phase = StudioPhase.Disabled)
+    AiStudioState.Disabled -> copy(phase = StudioPhase.Disabled, isPlanningEnabled = false)
 
-    AiStudioState.LoadError -> copy(phase = StudioPhase.Error)
+    AiStudioState.LoadError -> copy(phase = StudioPhase.Error, isPlanningEnabled = false)
 
     is AiStudioState.Ready -> copy(
         phase = StudioPhase.Ready,
@@ -34,6 +34,7 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         isProjectAddingAvailable = machine.isProjectAddingAvailable,
         isWorktreeAvailable = machine.isWorktreeAvailable,
         isSandboxAvailable = machine.isSandboxAvailable,
+        isPlanningEnabled = machine.isPlanningAvailable,
         repositoryProjects = machine.repositoryProjects.toImmutableSet(),
         addingProjectTo = machine.addingProjectTo,
         projectErrorPane = machine.projectErrorPane,

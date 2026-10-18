@@ -10,29 +10,25 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeAction
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeExpectedAction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
-import io.aequicor.heartbeat.feature.worktreemode.api.actionPrepared
-import io.aequicor.heartbeat.feature.worktreemode.api.actionVerified
 import io.aequicor.heartbeat.feature.worktreemode.api.buildUpdated
 import io.aequicor.heartbeat.feature.worktreemode.api.canChooseAction
-import io.aequicor.heartbeat.feature.worktreemode.api.claimAction
 import io.aequicor.heartbeat.feature.worktreemode.api.failed
 import io.aequicor.heartbeat.feature.worktreemode.api.hasActiveBuilds
 import io.aequicor.heartbeat.feature.worktreemode.api.hasActiveRun
-import io.aequicor.heartbeat.feature.worktreemode.api.needsRecovery
 import io.aequicor.heartbeat.feature.worktreemode.api.operationFailed
 import io.aequicor.heartbeat.feature.worktreemode.api.preflightRecovered
 import io.aequicor.heartbeat.feature.worktreemode.api.prepared
@@ -41,6 +37,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.runPrepared
 import io.aequicor.heartbeat.feature.worktreemode.api.sealed
 import io.aequicor.heartbeat.feature.worktreemode.api.trackingMain
 import io.aequicor.heartbeat.feature.worktreemode.api.transition
+import io.aequicor.heartbeat.feature.worktreemode.api.virtualChanged
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -72,6 +69,9 @@ internal class WorktreeJournal(
     private val builds: WorktreeBuildCoordinator,
     private val workspaces: LocalWorkspaces,
     private val toggles: FeatureToggles,
+    private val projectSettings: Lazy<ProjectBuildSettings> = lazy { error("ProjectBuildSettingsUnavailable") },
+    private val facade: Lazy<EngineFacade>? = null,
+    private val sourceBarriers: VirtualSourceBarrier = VirtualSourceBarriers(),
 ) {
     private val log = Log.tag("WorktreeJournal")
     private val store = stores.keyValue(WorktreeJournalSpec)
@@ -79,6 +79,18 @@ internal class WorktreeJournal(
     private var records: Map<String, WorktreeRecord>? = null
     private val preparations = mutableMapOf<String, Mutex>()
     private val upkeep = SandboxUpkeep(git)
+    private val actions = WorktreeActionRunner(git, builds, ::record, ::update)
+    private val virtual = VirtualTaskLifecycle(
+        git,
+        builds,
+        facade,
+        sourceBarriers,
+        all = { mutex.withLock { read().values.toList() } },
+        find = ::record,
+        change = ::update,
+        settle = { commitTransition(it) },
+        finishTask = ::finishVirtual,
+    )
 
     suspend fun load(): Map<String, WorktreeTask> {
         val saved = mutex.withLock { read() }
@@ -105,16 +117,25 @@ internal class WorktreeJournal(
         val task = authenticated(context) ?: return null
         val current = record(task.chatId) ?: return null
         if (current.task.buildPlan == null) return null
-        return git.build(current, "approval", command)
+        val execution = git.build(current, "approval", command)
+        return if (current.task.virtualSandbox != null) {
+            val configuration = projectSettings.value.get(current.commonDirectory)
+            check(configuration.plan == current.task.buildPlan) { "ProjectBuildConfigurationChanged" }
+            execution.copy(projectConfigurationRevision = configuration.revision)
+        } else {
+            execution
+        }
     }
 
     suspend fun observeWorkers(emit: suspend (WorktreeTask) -> Unit) {
         val restored = mutex.withLock { read().values.toList() }
-        // Sandbox upkeep runs after Loaded is published, so restoration is never delayed by Git.
         restored.forEach { reclaimOutputs(it.task.chatId) }
         pruneSandboxSnapshots(git, restored)
         val saved = mutex.withLock { read().values.toList() }
-        observeRecords(saved, emit)
+        coroutineScope {
+            launch { observeRecords(saved, emit) }
+            virtual.observe(emit)
+        }
     }
 
     private suspend fun observeRecords(saved: List<WorktreeRecord>, emit: suspend (WorktreeTask) -> Unit) =
@@ -146,11 +167,15 @@ internal class WorktreeJournal(
         } ?: return null
         val run = task.run ?: return null
         if (run.outcome != null || !run.isPrepared) return null
-        if (run.session == context.session && run.turn == context.turn) return task
+        if (run.session == context.session && run.turn == context.turn) {
+            if (context.target != null) update(task.chatId) { it.copy(runTarget = context.target) }
+            return task
+        }
         // A tool call itself proves acceptance and may reach us before the submit waiter gets its acknowledgement.
         if (run.session == null && run.turn == null && context.request == run.request) {
             return update(task.chatId) {
                 it.copy(
+                    runTarget = context.target,
                     task = it.task.transition(
                         WorktreeIntent.Public.RunAccepted(task.chatId, run.request, context.session, context.turn),
                     ),
@@ -187,7 +212,7 @@ internal class WorktreeJournal(
 
             is WorktreeIntent.Public.TrackMainSession -> trackMain(command)?.let { emit(it.task) }
 
-            is WorktreeIntent.Public.Recheck -> recheck(command.chatId, emit)
+            is WorktreeIntent.Public.Recheck -> recheckCommand(command, emit)
 
             is WorktreeIntent.Public.ChooseAction -> choose(command)?.let { emit(it.task) }
 
@@ -244,12 +269,19 @@ internal class WorktreeJournal(
         }
     }
 
+    private suspend fun recheckCommand(command: WorktreeIntent.Public.Recheck, emit: suspend (WorktreeTask) -> Unit) {
+        record(command.chatId)?.takeIf { it.task.virtualSandbox != null }?.let { selected ->
+            virtual.refresh(selected, command.isResume, command.resolveConflicts)
+            virtual.related(selected.commonDirectory).forEach { emit(it.task) }
+        } ?: recheck(command.chatId, emit)
+    }
+
     private suspend fun signalCompletion(
         command: WorktreeIntent.Public.TaskCompleteSignaled,
         emit: suspend (WorktreeTask) -> Unit,
     ) {
         val changed = commitTransition(command) ?: return
-        emit(verifyAction(changed).task)
+        emit(actions.verify(changed).task)
     }
 
     private suspend fun commitTransition(command: WorktreeIntent.Public): WorktreeRecord? {
@@ -265,6 +297,12 @@ internal class WorktreeJournal(
         } else {
             check(!existing.task.hasActiveBuilds()) { "BuildConfigurationBusy" }
             git.validatePlan(existing, command.plan)
+            if (existing.task.virtualSandbox != null) {
+                projectSettings.value.configure(
+                    existing.commonDirectory,
+                    command.plan,
+                )
+            }
             commitTransition(command)
         }
     }
@@ -272,7 +310,20 @@ internal class WorktreeJournal(
     private suspend fun beginRun(command: WorktreeIntent.Public.RunStarted): WorktreeRecord? =
         upkeep.prepareRun(command.chatId) {
             requireAvailable()
-            val pending = update(command.chatId) { it.startingRun(command) } ?: return@prepareRun null
+            val captured = update(command.chatId) {
+                if (it.task.virtualSandbox == null) it.startingRun(command) else it
+            } ?: return@prepareRun null
+            val pending = if (captured.task.virtualSandbox != null) {
+                val engine = facade?.value?.engines?.state?.value?.firstOrNull {
+                    it.descriptor.id == command.target?.engine
+                }
+                check(engine?.descriptor?.isVirtualWorkspaceSupported != false) { "VirtualWorkspaceUnsupported" }
+                val checked = virtual.refresh(captured, explicit = false)
+                check(checked?.task?.virtualSandbox?.let { it.isReady || it.isResolving } == true) { "SandboxPaused" }
+                update(command.chatId) { it.startingRun(command) } ?: return@prepareRun null
+            } else {
+                captured
+            }
             if (pending.task.run?.request != command.request || pending.task.run?.isPrepared == true) {
                 pending
             } else {
@@ -286,12 +337,22 @@ internal class WorktreeJournal(
 
     /** Serialized with run preparation, so a new native turn cannot start between the check and the capture. */
     private suspend fun seal(command: WorktreeIntent.Public.Seal, emit: suspend (WorktreeTask) -> Unit) {
-        val sealed = upkeep.prepareRun(command.chatId) {
-            sealCheckout(git, command, { record(command.chatId) }) { seal ->
+        val result = upkeep.prepareRun(command.chatId) {
+            val captured = sealCheckout(git, command, { record(command.chatId) }) { seal ->
                 update(command.chatId) { it.copy(task = it.task.sealed(seal)) }
+            } ?: return@prepareRun null
+            val state = if (command.handoff && captured.task.virtualSandbox != null) {
+                git.handoffVirtual(captured)
+            } else {
+                null
+            }
+            if (state != null) {
+                update(command.chatId) { it.copy(task = it.task.virtualChanged(state)) }
+            } else {
+                captured
             }
         }
-        sealed?.let { emit(it.task) }
+        result?.let { emit(it.task) }
     }
 
     private suspend fun cancelBuild(command: WorktreeIntent.Public.CancelBuild): WorktreeRecord? {
@@ -304,20 +365,31 @@ internal class WorktreeJournal(
     }
 
     private suspend fun settleRun(command: WorktreeIntent.Public.RunSettled, emit: suspend (WorktreeTask) -> Unit) {
-        val changed = commitTransition(command) ?: return
-        val verified = verifyAction(changed)
+        val captured = upkeep.prepareRun(command.chatId) { settleCaptured(command) } ?: return
+        emit(captured.task)
+        if (captured.task.run?.request == command.request && command.outcome == TurnOutcome.Cancelled) {
+            captured.task.builds.values.filter { it.phase !in terminalBuildPhases }.forEach { builds.cancel(it.id) }
+        }
+    }
+
+    private suspend fun settleCaptured(command: WorktreeIntent.Public.RunSettled): WorktreeRecord? {
+        val changed = commitTransition(command) ?: return null
+        val verified = actions.verify(changed)
         val isMatching = verified.task.run?.let { it.request == command.request && it.turn == command.turn } == true
         val isCompletedMerge =
             verified.task.run?.let { it.kind == WorktreeRunKind.Merge && it.outcome != null } == true
         val released = if (isMatching && isCompletedMerge && verified.mergeLease?.id == command.request.value) {
-            releaseMerge(verified)
+            actions.releaseMerge(verified)
         } else {
             verified
         }
-        emit(released.task)
-        if (isMatching && command.outcome == TurnOutcome.Cancelled) {
-            released.task.builds.values.filter { it.phase !in terminalBuildPhases }.forEach { builds.cancel(it.id) }
-        }
+        val ready = virtual.finish(released)
+        val captured = virtual.captureChild(ready, isMatching && command.outcome == TurnOutcome.Completed)
+        return captured
+    }
+
+    private suspend fun finishVirtual(chatId: String): WorktreeRecord? = upkeep.prepareRun(chatId) {
+        record(chatId)?.let { virtual.finish(it) }
     }
 
     private suspend fun rejectRun(command: WorktreeIntent.Public.RunRejected): WorktreeRecord? {
@@ -325,7 +397,7 @@ internal class WorktreeJournal(
         val changed = commitTransition(command) ?: return null
         val isRejected = before?.task?.run?.let { it.request == command.request && it.turn == null } == true
         return if (isRejected && before.mergeLease?.id == command.request.value && changed.task.run == null) {
-            releaseMerge(changed)
+            actions.releaseMerge(changed)
         } else {
             changed
         }
@@ -335,7 +407,13 @@ internal class WorktreeJournal(
         val before = record(command.chatId)
         val changed = commitTransition(command) ?: return null
         val isCleared = before?.task?.run?.request == command.request && changed.task.run == null
-        return if (isCleared && before.mergeLease?.id == command.request.value) releaseMerge(changed) else changed
+        return if (isCleared && before.mergeLease?.id == command.request.value) {
+            actions.releaseMerge(
+                changed,
+            )
+        } else {
+            changed
+        }
     }
 
     private suspend fun deliveryFailed(command: WorktreeIntent.Public.ActionDeliveryFailed): WorktreeRecord? {
@@ -346,7 +424,7 @@ internal class WorktreeJournal(
             it.copy(task = next)
         } ?: return null
         return if (isRejected && changed.mergeLease?.id == command.operation) {
-            releaseMerge(changed)
+            actions.releaseMerge(changed)
         } else {
             changed
         }
@@ -368,7 +446,7 @@ internal class WorktreeJournal(
             changed.task.run?.request == command.request && changed.task.run?.turn == null &&
             changed.mergeLease?.id == command.request.value
         return if (command is WorktreeIntent.Public.ChooseAction || isRejectedBeforeAcceptance) {
-            releaseMerge(changed).task
+            actions.releaseMerge(changed).task
         } else {
             changed.task
         }
@@ -396,6 +474,11 @@ internal class WorktreeJournal(
                 branch = plan.branch,
                 baseCommit = plan.baseCommit,
                 isSandbox = isSandbox(command),
+                virtualSandbox = if (isSandbox(command) && git.isVirtualSupported) {
+                    VirtualSandboxState(baseCommit = plan.baseCommit, snapshot = plan.baseCommit)
+                } else {
+                    null
+                },
             )
             val pending = WorktreeRecord(
                 task,
@@ -404,14 +487,15 @@ internal class WorktreeJournal(
                 plan.commonDirectory,
                 identity,
                 pullRequestBase = plan.pullRequestBase,
+                parentWorkspace = command.parentWorkspace,
             )
             // The checkout and branch can always be found after a crash, even before registration finishes.
             mutex.withLock { write(read() + (command.chatId to pending)) }
             emit(task)
             git.materialize(pending)
-            val workspace = workspaces.registerManaged(plan.directory)
+            val workspace = git.virtualWorkspace(pending) ?: workspaces.registerManaged(plan.directory).ref
             val completed = update(command.chatId) {
-                it.copy(task = it.task.prepared(workspace.ref))
+                it.copy(task = it.task.prepared(workspace))
             }
             completed?.let { emit(it.task) }
         }
@@ -473,123 +557,8 @@ internal class WorktreeJournal(
         return when {
             !existing.task.canChooseAction() -> existing
             isSimpleChoice -> commitTransition(command)
-            else -> prepareAction(command, existing)
+            else -> actions.prepare(command, existing)
         }
-    }
-
-    private suspend fun prepareAction(
-        command: WorktreeIntent.Public.ChooseAction,
-        existing: WorktreeRecord,
-    ): WorktreeRecord? {
-        val kind = when (command.action) {
-            WorktreeAction.CreatePr -> WorktreeRunKind.CreatePr
-            WorktreeAction.Merge -> WorktreeRunKind.Merge
-            WorktreeAction.Refine -> WorktreeRunKind.Coding
-            WorktreeAction.Leave -> error("InvalidCompletionAction")
-        }
-        val operation = Uuid.random().toString()
-        val expected = WorktreeExpectedAction(operation, kind)
-        var isClaimed = false
-        val claimed = update(command.chatId) {
-            if (it.task.run != existing.task.run || !it.task.canChooseAction() || it.mergeLease != null) {
-                it
-            } else {
-                isClaimed = true
-                it.copy(task = it.task.claimAction(expected))
-            }
-        }
-        return if (isClaimed && claimed != null) prepareClaimedAction(command, claimed, expected) else claimed
-    }
-
-    private suspend fun prepareClaimedAction(
-        command: WorktreeIntent.Public.ChooseAction,
-        claimed: WorktreeRecord,
-        expected: WorktreeExpectedAction,
-    ): WorktreeRecord? = try {
-        val current = if (expected.kind == WorktreeRunKind.Merge) acquireActionLease(claimed, expected) else claimed
-        when {
-            current == null -> null
-            !current.ownsAction(expected) -> abandonAction(current, expected)
-            else -> publishAction(command, current, expected)
-        }
-    } catch (error: CancellationException) {
-        throw error
-    } catch (error: Exception) {
-        val current = record(command.chatId)
-        if (current == null || current.ownsAction(expected)) throw error
-        log.w(IllegalStateException("StaleActionPreparationFailed (${error::class.simpleName.orEmpty()})")) {
-            "Discard action preparation failure after its claim was superseded"
-        }
-        abandonAction(current, expected)
-    }
-
-    private suspend fun acquireActionLease(
-        claimed: WorktreeRecord,
-        expected: WorktreeExpectedAction,
-    ): WorktreeRecord? {
-        val target = git.mergePreflight(claimed)
-        val lease = git.mergeLease(claimed, expected.operation)
-        val leased = update(claimed.task.chatId) {
-            if (it.ownsAction(expected)) it.copy(mergeLease = lease, mergeTargetCommit = target) else it
-        }
-        if (leased?.ownsAction(expected) == true) builds.acquireLease(lease)
-        return record(claimed.task.chatId)
-    }
-
-    private suspend fun publishAction(
-        command: WorktreeIntent.Public.ChooseAction,
-        current: WorktreeRecord,
-        expected: WorktreeExpectedAction,
-    ): WorktreeRecord? {
-        val prompt = if (expected.kind == WorktreeRunKind.Coding) {
-            checkNotNull(command.refinement)
-        } else {
-            git.actionPrompt(current, merge = expected.kind == WorktreeRunKind.Merge)
-        }
-        val request = WorktreeActionRequest(expected.operation, expected.kind, prompt)
-        val prepared = update(command.chatId) { it.copy(task = it.task.actionPrepared(request)) }
-        return when {
-            prepared == null -> null
-            prepared.ownsAction(expected) -> prepared
-            else -> abandonAction(prepared, expected)
-        }
-    }
-
-    private fun WorktreeRecord.ownsAction(expected: WorktreeExpectedAction): Boolean =
-        task.phase == WorktreePhase.ActionWorking && task.expectedAction == expected
-
-    private suspend fun abandonAction(record: WorktreeRecord, expected: WorktreeExpectedAction): WorktreeRecord {
-        val isNativeRunning = record.task.run?.let {
-            it.request.value == expected.operation && it.outcome == null
-        } == true
-        return if (record.mergeLease?.id == expected.operation && !isNativeRunning) releaseMerge(record) else record
-    }
-
-    private suspend fun releaseMerge(record: WorktreeRecord): WorktreeRecord {
-        val lease = record.mergeLease ?: return record
-        if (!builds.releaseLease(lease)) {
-            return update(record.task.chatId) {
-                it.copy(task = it.task.needsRecovery("MergeLeaseReleasePending"))
-            } ?: record
-        }
-        return update(record.task.chatId) {
-            if (it.mergeLease?.id == lease.id) it.copy(mergeLease = null) else it
-        } ?: record
-    }
-
-    private suspend fun verifyAction(record: WorktreeRecord): WorktreeRecord {
-        val run = record.task.run ?: return record
-        if (run.kind == WorktreeRunKind.Coding || run.outcome != TurnOutcome.Completed || !run.isCompletionSignaled) {
-            return record
-        }
-        val isVerified = git.verifyAction(record, run.kind == WorktreeRunKind.Merge, run.pullRequestUrl)
-        val url = if (run.kind == WorktreeRunKind.CreatePr) run.pullRequestUrl else null
-        return update(record.task.chatId) {
-            if (it.task.run != run) return@update it
-            it.copy(
-                task = if (isVerified) it.task.actionVerified(url) else it.task.needsRecovery("ActionResultUnverified"),
-            )
-        } ?: record
     }
 
     private suspend fun runBuild(command: WorktreeIntent.Public.RunBuild, emit: suspend (WorktreeTask) -> Unit) {
@@ -607,10 +576,7 @@ internal class WorktreeJournal(
         ) { "BuildConfigurationChanged" }
         check(current.task.run?.outcome == null && current.task.run?.turn != null) { "TurnUnavailable" }
         check(current.task.hasActiveRun(command.expectedRun)) { "TurnUnavailable" }
-        val execution = git.build(current, command.operation, command.command).let { prepared ->
-            val sandbox = prepared.sandbox ?: return@let prepared
-            prepared.copy(sandbox = sandbox.copy(snapshot = git.snapshot(current, command.operation)))
-        }
+        val execution = prepareBuild(current, command)
         val queued = try {
             queueBuild(command, execution)
         } catch (error: CancellationException) {
@@ -626,6 +592,31 @@ internal class WorktreeJournal(
             project(projection) { buildUpdate(command.chatId, build)?.let { emit(it.task) } }
         }
         buildUpdate(command.chatId, result)?.let { emit(it.task) }
+    }
+
+    private suspend fun prepareBuild(current: WorktreeRecord, command: WorktreeIntent.Public.RunBuild): BuildExecution {
+        val projectConfiguration = if (current.task.virtualSandbox != null) {
+            projectSettings.value.get(current.commonDirectory).also {
+                check(it.revision == command.expectedProjectRevision && it.plan == current.task.buildPlan) {
+                    "ProjectBuildConfigurationChanged"
+                }
+            }
+        } else {
+            null
+        }
+        return git.build(current, command.operation, command.command).let { prepared ->
+            val sandbox = prepared.sandbox ?: return@let prepared
+            val snapshot = git.snapshot(current, command.operation)
+            if (current.task.virtualSandbox != null) {
+                check(
+                    snapshot == command.expectedSnapshot,
+                ) { "SandboxRevisionChanged" }
+            }
+            prepared.copy(
+                sandbox = sandbox.copy(snapshot = snapshot),
+                projectConfigurationRevision = projectConfiguration?.revision ?: 0,
+            )
+        }
     }
 
     private suspend fun queueBuild(command: WorktreeIntent.Public.RunBuild, execution: BuildExecution) =
@@ -661,9 +652,7 @@ internal class WorktreeJournal(
         if (current.provisioning.isBlank()) return current
         val isPresent = git.isAvailable && git.exists(current)
         val workspace = if (isPresent && current.task.executionWorkspace == null) {
-            workspaces.registerManaged(
-                current.directory,
-            ).ref
+            git.virtualWorkspace(current) ?: workspaces.registerManaged(current.directory).ref
         } else {
             null
         }
@@ -677,7 +666,7 @@ internal class WorktreeJournal(
         val changed = update(chatId) {
             if (it.task.revision == current.task.revision) it.copy(task = restored) else it
         }
-        return if (!restart && changed != null) verifyAction(changed) else changed
+        return if (!restart && changed != null) actions.verify(changed) else changed
     }
 
     private suspend fun requireEnabled() {
@@ -722,9 +711,10 @@ internal class WorktreeJournal(
     }
 
     private suspend fun write(next: Map<String, WorktreeRecord>) {
-        log.d { "Persist worktree journal count=${next.size}" }
+        log.v { "Persist worktree journal count=${next.size}" }
         store.set(JournalKey, Json.encodeToString(next.values.toList()))
         records = next
+        virtual.changed()
     }
 }
 

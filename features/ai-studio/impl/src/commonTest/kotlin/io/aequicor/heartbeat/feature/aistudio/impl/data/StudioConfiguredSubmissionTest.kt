@@ -30,17 +30,20 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
+import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
@@ -49,6 +52,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.reflect.safeCast
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
@@ -267,10 +271,51 @@ class StudioConfiguredSubmissionTest {
         assertEquals(parent, fixture.session.requests.single().reviewTarget)
     }
 
+    @Test
+    fun `the plan of the chat is bound to its session before the native prompt`() = runTest {
+        lateinit var fixture: SubmissionFixture
+        val bound = mutableListOf<Triple<String, SessionRef, Int>>()
+        val planning = BindingPlanning { chatId, session ->
+            bound += Triple(chatId, session, fixture.session.requests.size)
+        }
+        fixture = SubmissionFixture(this, planning = planning)
+
+        fixture.submit("planning")
+
+        assertEquals(listOf(Triple("chat", fixture.session.ref, 0)), bound)
+        assertEquals(1, fixture.session.requests.size)
+    }
+
+    @Test
+    fun `a plan that cannot follow the chat into its session keeps the prompt unsent`() = runTest {
+        val planning = BindingPlanning { _, _ -> error("The plan could not follow the chat into its session") }
+        val fixture = SubmissionFixture(this, planning = planning)
+
+        assertFailsWith<IllegalStateException> { fixture.submit("planning") }
+
+        assertEquals(0, fixture.session.requests.size)
+    }
+
+    private class BindingPlanning(private val onBind: (String, SessionRef) -> Unit) : StudioPlanning {
+        override val availability: Flow<Boolean> = flowOf(true)
+        override val plans: Flow<Map<String, Plan>> = flowOf(emptyMap())
+        override suspend fun canEnter() = true
+        override suspend fun enter(chatId: String) = true
+        override suspend fun leave(chatId: String) = true
+        override suspend fun bind(chatId: String, session: SessionRef) = onBind(chatId, session)
+        override suspend fun startImplementation(chatId: String, revision: Long) = false
+        override suspend fun approve(chatId: String, revision: Long) = false
+        override suspend fun write(chatId: String, text: String, base: Long) = false
+    }
+
     private fun PromptRequest.text(): String = parts.filterIsInstance<ContentPart.Text>().joinToString { it.text }
 }
 
-private class SubmissionFixture(test: TestScope, private val isTrustSupported: Boolean = true) {
+private class SubmissionFixture(
+    test: TestScope,
+    private val isTrustSupported: Boolean = true,
+    planning: StudioPlanning = StudioPlanning.None,
+) {
     val configuration = StudioConfigurationFixture(test)
     private val target: EngineTarget = configuration.target
     val access = configuration.access
@@ -293,6 +338,7 @@ private class SubmissionFixture(test: TestScope, private val isTrustSupported: B
                 return security.value
             }
         },
+        planning = planning,
     )
 
     init {

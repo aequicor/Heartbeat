@@ -65,4 +65,9 @@ data class WorktreeUi(
     val builds: ImmutableList<BuildUi>,
     /** Source-only sandbox whose builds run in shared build slots of the repository. */
     val isSandbox: Boolean = false,
+    val taskId: String? = null,
+    val sandboxPhase: String? = null,
+    val isSandboxResolving: Boolean = false,
+    val sandboxConflicts: ImmutableList<String> = kotlinx.collections.immutable.persistentListOf(),
+    val resultCommit: String? = null,
 )

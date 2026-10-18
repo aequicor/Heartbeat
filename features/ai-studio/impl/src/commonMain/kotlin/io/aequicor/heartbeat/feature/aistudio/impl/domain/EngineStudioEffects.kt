@@ -24,6 +24,8 @@ class EngineStudioEffects(
     private val runtime: StudioRuntime,
     private val availability: StudioAvailability,
     private val projects: StudioProjects? = null,
+    private val planning: StudioPlanning = StudioPlanning.None,
+    private val plans: StudioPlanRuntime = StudioPlanRuntime.None,
 ) : EffectHandler<AiStudioEffect, AiStudioIntent> {
     private val log = Log.tag("EngineStudioEffects")
 
@@ -54,7 +56,7 @@ class EngineStudioEffects(
                 .distinctUntilChanged()
                 .collect { machine.send(AiStudioIntent.Internal.ModelsChanged(it)) }
 
-            AiStudioEffect.ObserveProjects -> observeProjects(machine)
+            is AiStudioEffect.ChatOptions -> observeOptions(effect, machine)
 
             is AiStudioEffect.Usage -> usage(effect)
 
@@ -62,30 +64,9 @@ class EngineStudioEffects(
                 AiStudioIntent.Internal.ProjectChosen(effect.paneId, checkNotNull(projects).choose()),
             )
 
-            is AiStudioEffect.CreateSession -> {
-                requireBrowserCreationSupport(effect)
-                val session = repository.createSession(
-                    effect.projectId,
-                    titleOf(effect.prompt),
-                    effect.isWorktree,
-                    effect.organism(),
-                    isSandbox = effect.isSandbox,
-                )
-                machine.send(
-                    AiStudioIntent.Internal.SessionCreated(
-                        effect.paneId,
-                        session.id,
-                        effect.prompt,
-                        effect.settings,
-                        effect.requestId,
-                        effect.attachments,
-                        effect.submissionId,
-                        effect.environment,
-                    ),
-                )
-            }
+            is AiStudioEffect.CreateSession -> createSession(effect, machine)
 
-            is AiStudioEffect.Run -> runEffect(effect, machine)
+            is AiStudioEffect.Turn -> turn(effect, machine)
 
             is AiStudioEffect.Cancel -> {
                 log.i { "User requested stop" }
@@ -98,6 +79,44 @@ class EngineStudioEffects(
             }
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+        }
+    }
+
+    private suspend fun createSession(effect: AiStudioEffect.CreateSession, machine: EffectScope<AiStudioIntent>) {
+        requireBrowserCreationSupport(effect)
+        // Refused before anything is saved: no orphan chat or worktree copy is left behind.
+        if (effect.isPlanning) check(planning.canEnter()) { "Planning mode is unavailable" }
+        val session = repository.createSession(
+            effect.projectId,
+            titleOf(effect.prompt),
+            effect.isWorktree,
+            effect.organism(),
+            isSandbox = effect.isSandbox,
+        )
+        // A race lost after the check above leaves the saved conversation as an idle sidebar entry.
+        if (effect.isPlanning) check(planning.enter(session.id)) { "Planning mode could not start" }
+        machine.send(
+            AiStudioIntent.Internal.SessionCreated(
+                effect.paneId,
+                session.id,
+                effect.prompt,
+                effect.settings,
+                effect.requestId,
+                effect.attachments,
+                effect.submissionId,
+                effect.environment,
+            ),
+        )
+    }
+
+    private suspend fun turn(effect: AiStudioEffect.Turn, machine: EffectScope<AiStudioIntent>) {
+        when (effect) {
+            is AiStudioEffect.Run -> runEffect(effect, machine)
+
+            is AiStudioEffect.ImplementPlan -> {
+                val outcome = plans.implementPlan(effect.sessionId, effect.implementation, effect.settings)
+                machine.send(AiStudioIntent.Internal.RunFinished(effect.sessionId, outcome))
+            }
         }
     }
 
@@ -130,6 +149,16 @@ class EngineStudioEffects(
         when (effect) {
             is AiStudioEffect.SaveSettings -> runtime.saveDefaults(effect.settings, effect.version)
             is AiStudioEffect.ChangeSessionSetting -> runtime.configure(effect.sessionId, effect.change)
+        }
+    }
+
+    private suspend fun observeOptions(effect: AiStudioEffect.ChatOptions, machine: EffectScope<AiStudioIntent>) {
+        when (effect) {
+            AiStudioEffect.ObserveProjects -> observeProjects(machine)
+
+            AiStudioEffect.ObservePlanning -> planning.availability.distinctUntilChanged().collect {
+                machine.send(AiStudioIntent.Internal.PlanningAvailabilityChanged(it))
+            }
         }
     }
 

@@ -1,7 +1,10 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data
 
+import dev.zacsweers.metro.BindingContainer
 import dev.zacsweers.metro.ContributesBinding
+import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.Multibinds
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
@@ -11,6 +14,8 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -44,11 +49,17 @@ internal data class WorkspaceDirectory(val path: String, val name: String) {
 internal class StoredLocalWorkspaces(
     @ForScope(ProfileScope::class) stores: DataStores,
     private val directories: WorkspaceDirectories,
+    private val virtualProviders: Lazy<Set<VirtualWorkspaceProvider>> = lazy { emptySet() },
 ) : LocalWorkspaces {
     private val log = Log.tag("LocalWorkspaces")
     private val store = stores.keyValue(LocalWorkspacesSpec)
     private val mutex = Mutex()
     override val isAvailable: Boolean get() = directories.isAvailable
+
+    override suspend fun virtual(ref: WorkspaceRef): VirtualWorkspace? {
+        for (provider in virtualProviders.value) provider.find(ref)?.let { return it }
+        return null
+    }
 
     override fun observe(): Flow<List<LocalWorkspace>> {
         if (!isAvailable) return flowOf(emptyList())
@@ -106,6 +117,15 @@ internal class StoredLocalWorkspaces(
     } catch (error: SerializationException) {
         throw error.safeWorkspaceFailure()
     }
+}
+
+/** Virtual backends are optional on platforms without local coding. */
+@ContributesTo(ProfileScope::class)
+@BindingContainer
+public interface VirtualWorkspaceBindings {
+    /** Empty on unsupported platforms. */
+    @Multibinds(allowEmpty = true)
+    public fun virtualWorkspaceProviders(): Set<VirtualWorkspaceProvider>
 }
 
 /** Discards path-bearing messages, serialized data and causes before an error reaches application logs. */

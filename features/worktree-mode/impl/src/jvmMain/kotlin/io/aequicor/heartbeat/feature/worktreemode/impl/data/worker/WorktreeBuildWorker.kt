@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.BuildExecution
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.isSecretEnvironmentName
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.slotDirectory
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.nio.channels.FileChannel
@@ -55,6 +56,9 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
     private val descendants = ConcurrentHashMap<Long, ProcessHandle>()
     private val child = java.util.concurrent.atomic.AtomicReference<Process?>()
     private val captured = BoundedBuildOutput()
+    private var terminalOperation: WorktreeBuildOperation? = null
+    private var isFinalizing = false
+    private var isSlotOwned = false
 
     // A sandbox build restarts the command timeout after its slot is prepared.
     private var startedAt = System.nanoTime()
@@ -65,6 +69,7 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
         try {
             publish(WorktreeBuildPhase.WaitingForResource)
             if (acquireLocks()) {
+                isSlotOwned = true
                 when {
                     execution.isHold -> holdLease()
                     syncSlot() -> runCommand()
@@ -83,12 +88,51 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
         } finally {
             // Process termination precedes publishing a terminal state and releasing the lease.
             terminateTree(child.get(), descendants)
+            rollback()
+            isFinalizing = true
+            terminalOperation?.let { publish(it.phase, it.exitCode, it.failure) }
             locks.asReversed().forEach { (channel, lock) ->
                 lock.release()
                 channel.close()
             }
             execution.sandbox?.let { releaseSnapshot(it, execution.id) }
             Runtime.getRuntime().removeShutdownHook(shutdown)
+        }
+    }
+
+    private fun rollback() {
+        try {
+            if (isSlotOwned) execution.sandbox?.let(::restoreSlot)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            workerLog.e(IllegalStateException("SlotRollbackFailed (${error::class.simpleName.orEmpty()})")) {
+                "Build slot requires recovery before reuse"
+            }
+            quarantine()
+            terminalOperation = execution.let {
+                WorktreeBuildOperation(
+                    it.id,
+                    it.command.id,
+                    WorktreeBuildPhase.Failed,
+                    failure = "SlotRollbackFailed",
+                    configurationRevision = it.configurationRevision,
+                )
+            }
+        }
+    }
+
+    private fun quarantine() {
+        try {
+            execution.sandbox?.let(::quarantineSlot)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (quarantineError: Exception) {
+            workerLog.e(
+                IllegalStateException("SlotQuarantineFailed (${quarantineError::class.simpleName.orEmpty()})"),
+            ) {
+                "Slot ownership is unavailable; recovery journal is retained"
+            }
         }
     }
 
@@ -101,6 +145,11 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
         publish(WorktreeBuildPhase.Running)
         return try {
             captured.append(prepareSlot(sandbox) { stopped()?.takeUnless { it == "BuildTimedOut" } })
+            val affinity = Path.of(sandbox.pool).resolve("slot-${checkNotNull(sandbox.slot)}.affinity")
+            check(!Files.isSymbolicLink(affinity)) { "InvalidSlotPool" }
+            Files.writeString(affinity, sandbox.affinity)
+            val slot = slotDirectory(sandbox.pool, checkNotNull(sandbox.slot)).toRealPath()
+            check(Path.of(execution.directory).toRealPath().startsWith(slot)) { "BuildDirectoryOutsideSlot" }
             startedAt = System.nanoTime()
             true
         } catch (error: SlotPreparationStopped) {
@@ -245,6 +294,15 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
             failure,
             configurationRevision = execution.configurationRevision,
         )
+        if (!isFinalizing && phase in setOf(
+                WorktreeBuildPhase.Completed,
+                WorktreeBuildPhase.Cancelled,
+                WorktreeBuildPhase.Failed,
+            )
+        ) {
+            terminalOperation = operation
+            return
+        }
         val current = ProcessHandle.current()
         writeWorkerState(
             job,

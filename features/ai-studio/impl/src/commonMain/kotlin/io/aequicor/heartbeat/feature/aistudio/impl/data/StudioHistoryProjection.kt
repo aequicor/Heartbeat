@@ -217,13 +217,15 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
     /** A learning call shows its arguments as a card, so only the tool result goes to the console. */
     private fun toolRun(item: SessionItem.ToolCall): StudioToolRun {
         val learning = learningCall(item.name, item.arguments)
-        val output = if (learning == null) item.arguments else ""
+        val plan = planProposal(item.name, item.arguments)
+        val output = if (learning == null && plan == null) item.arguments else ""
         return StudioToolRun(
             item.call.value,
             item.name,
             item.status.toStudio(),
             output,
             learning = learning,
+            plan = plan,
             isLiveCard = isLibraryUiShow(item.name, item.arguments),
         )
     }
@@ -244,6 +246,7 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
             output = listOfNotNull(previous?.output?.takeIf(String::isNotBlank), item.parts.text())
                 .filter(String::isNotBlank).joinToString("\n"),
             learning = previous?.learning,
+            plan = previous?.plan,
             createdChecklistId = item.createdChecklistId(previous) ?: previous?.createdChecklistId,
             shownCardId = item.shownCardId(previous) ?: previous?.shownCardId,
             isLiveCard = previous?.isLiveCard == true || ServiceUiTools.isLiveCard(

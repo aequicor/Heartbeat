@@ -37,6 +37,7 @@ import okio.ByteString.Companion.encodeUtf8
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class ProtectedHarnessData(private val secrets: SecretStore) : HarnessDataStorage {
+    override val processMutex = Mutex()
     private val mutex = Mutex()
     private val revisions = MutableStateFlow<Map<HarnessId, Long>>(emptyMap())
     private val log = Log.tag("HarnessData")

@@ -42,7 +42,7 @@ import androidx.compose.ui.test.withKeyDown
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_menu_section
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_modes_section
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_checkout_dirty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_unknown
@@ -106,7 +106,7 @@ class StudioWorktreeUiTest {
         setContent {
             sandboxLabel = stringResource(Res.string.sandbox_mode)
             worktreeLabel = stringResource(Res.string.worktree_mode)
-            modeLabel = stringResource(Res.string.organism_menu_section)
+            modeLabel = stringResource(Res.string.composer_modes_section)
             addLabel = stringResource(Res.string.composer_add)
             HbTheme(darkTheme = false) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {

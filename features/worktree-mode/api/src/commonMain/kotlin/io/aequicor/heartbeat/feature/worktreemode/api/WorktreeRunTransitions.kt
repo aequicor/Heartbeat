@@ -23,6 +23,8 @@ internal fun WorktreeTask.runStarted(command: WorktreeIntent.Public.RunStarted):
             phase = if (command.kind == WorktreeRunKind.Coding) WorktreePhase.Working else WorktreePhase.ActionWorking,
             run = WorktreeRun(command.request, command.kind),
             actionRequest = null,
+            pendingVirtualContinuation = false,
+            virtualContinuations = continuedRequests(command.request),
             failure = null,
             isCompletionDismissed = false,
             verifiedPullRequestUrl = null,
@@ -145,4 +147,12 @@ private fun WorktreeTask.canSignalCompletion(active: WorktreeRun, summary: Strin
     val isStaleCodingAction = phase == WorktreePhase.ActionWorking && active.kind == WorktreeRunKind.Coding
     val isSignalValid = summary.isNotBlank() && isCompletionAvailable && !isStaleCodingAction
     return isSuccessfulOrUnsettled && isSignalValid
+}
+
+/** Follows the logical helper request across fresh accepted turns without replaying the original. */
+private fun WorktreeTask.continuedRequests(request: RequestId): Map<String, String> {
+    val previous = run?.request?.takeIf { it in virtualInterruptedRequests } ?: return virtualContinuations
+    return virtualContinuations.mapValues { (_, value) ->
+        if (value == previous.value) request.value else value
+    } + (previous.value to request.value)
 }

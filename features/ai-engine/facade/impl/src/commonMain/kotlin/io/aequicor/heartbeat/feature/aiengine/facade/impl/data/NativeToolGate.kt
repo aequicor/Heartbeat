@@ -29,6 +29,7 @@ internal class NativeToolGate(
     private val hooks: SessionHooks,
     private val safety: Lazy<AgentSafetyReviewer>,
     private val hostedNames: () -> Set<String>,
+    private val isVirtual: suspend (AgentToolContext) -> Boolean = { false },
 ) {
     private val log = Log.tag("NativeToolGate")
 
@@ -48,6 +49,7 @@ internal class NativeToolGate(
         call: NativeToolCall,
         decidedBy: (String) -> Unit,
     ): NativePreflight {
+        if (isVirtual(context)) return denied("Native tools are unavailable in a virtual workspace; use hosted tools")
         val policy = policy(context)
         if (!policy.allows(call)) return denied("Native tool is disabled or its policy is unavailable")
         decidedBy("hook")

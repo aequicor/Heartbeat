@@ -222,7 +222,7 @@ class LocalCodexTransportTest {
     }
 
     @Test
-    fun `restricted execution connections reuse one version probe of the captured executable`() = runTest {
+    fun `desktop prerelease restrictions reuse one version probe of the captured executable`() = runTest {
         assumeFalse(System.getProperty("os.name").startsWith("Windows"))
         val dispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
@@ -234,7 +234,7 @@ class LocalCodexTransportTest {
         val arguments = temporaryFolder.newFile("probed-arguments")
         val context = LaunchContext(
             LaunchSettings(
-                executable = executable("probed", "0.160.0").absolutePath,
+                executable = executable("probed", "0.163.0-alpha.10.2").absolutePath,
                 environment = listOf(
                     EnvironmentEntry("HEARTBEAT_TEST_VERSIONS", probes.absolutePath),
                     EnvironmentEntry("HEARTBEAT_TEST_ARGS", arguments.absolutePath),
@@ -248,7 +248,7 @@ class LocalCodexTransportTest {
             FakeScope(backgroundScope),
         ).prepare()
         repeat(2) { launch.open(CodexNativeOff(isShellDisabled = true)).close() }
-        assertEquals("0.160.0", launch.version())
+        assertEquals("0.163.0-alpha.10.2", launch.version())
         assertEquals(1, probes.readLines().size)
     }
 

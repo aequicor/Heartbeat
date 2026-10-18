@@ -197,6 +197,14 @@ public sealed interface OrganicAiIntent : MachineIntent {
         ) : Internal,
             TurnIntent
 
+        /** The previous native request stopped and its virtual workspace is ready for a fresh continuation. */
+        public data class WorkspaceContinued(
+            override val organism: OrganismId,
+            override val cell: CellId,
+            override val request: RequestId,
+        ) : Internal,
+            TurnIntent
+
         /** Marks the inbox prefix returned by the receive tool; concurrent appended letters stay unread. */
         public data class ReceiveLetters(
             override val organism: OrganismId,

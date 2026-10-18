@@ -56,7 +56,8 @@ object AiEngineSessionBindings {
         context: FacadeContext,
         tools: ProfileAgentTools,
         hooks: SessionHooks,
-    ): SessionPolicy = SessionPolicy(routes, enabled, handles, context, tools, hooks)
+        workspaces: io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces,
+    ): SessionPolicy = SessionPolicy(routes, enabled, handles, context, tools, hooks, workspaces)
 
     /** Builds handles; native commands run in the profile scope. */
     @Provides

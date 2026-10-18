@@ -72,6 +72,8 @@ data class StudioToolRun(
     val diff: String? = null,
     val feedback: FeedbackRecord? = null,
     val learning: StudioLearningCall? = null,
+    /** The agent's request to review a revision of the chat's plan. */
+    val plan: StudioPlanProposal? = null,
     /** Stable attachment identity decoded only from a successful hosted checklist creation result. */
     val createdChecklistId: String? = null,
     /** Card the agent showed in its reply, decoded only from a successful hosted `ui_show` result. */
@@ -225,4 +227,22 @@ internal fun studioModelTarget(id: String): EngineTarget? {
     }
 }
 
+/** The session effort level of [this] run effort: engines name the very high level `xhigh`. */
+internal fun ReasoningEffort.toSessionEffort(): String =
+    if (this == ReasoningEffort.VeryHigh) VERY_HIGH_SESSION_EFFORT else name.lowercase()
+
+/** The run effort of a session's reasoning effort level, or null when the studio has no such level. */
+internal fun String.toRunEffort(): ReasoningEffort? = if (equals(VERY_HIGH_SESSION_EFFORT, ignoreCase = true)) {
+    ReasoningEffort.VeryHigh
+} else {
+    ReasoningEffort.entries.firstOrNull { it.name.equals(this, ignoreCase = true) }
+}
+
+private const val VERY_HIGH_SESSION_EFFORT = "xhigh"
+
 private val log = Log.tag("StudioModels")
+
+/** A `plan_propose` call: the [revision] to review, when readable, and the agent's [summary]; user data. */
+data class StudioPlanProposal(val revision: Long?, val summary: String) {
+    override fun toString(): String = "StudioPlanProposal(revision=${revision ?: "unknown"}, length=${summary.length})"
+}

@@ -39,7 +39,7 @@ internal class EngineStudioHelperChatRecords(
         }
         val record = newStudioHelperRecord(Uuid.random().toString(), clock.now(), request, parent)
         record.executionWorkspace?.let { workspace ->
-            checkNotNull(workspaces.resolve(workspace)) { "The helper workspace is unavailable" }
+            checkNotNull(workspaces.executionDirectory(workspace)) { "The helper workspace is unavailable" }
         }
         // One write persists the empty chat, route, owner and parent before exposing its id. No native IO.
         writer.saveHelper(record)
