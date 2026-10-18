@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
@@ -55,7 +56,7 @@ internal class CellDriver(
         val handle = cells.open(key, route, cell.session, cell.turns)
         val turn = start(organism, cell, phase, handle, machine) ?: return
         val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, id, request, turn)
-        if (machine.send(accepted) != SendResult.Accepted) return abandon(key, handle, turn)
+        if (machine.send(accepted) != SendResult.Accepted) return abandon(organism, key, handle, turn)
         val outcome = handle.await(turn) { pending ->
             machine.send(OrganicAiIntent.Internal.PermissionsChanged(organism.id, id, request, pending))
         }
@@ -80,7 +81,7 @@ internal class CellDriver(
         if (cell.session == null) {
             val bound = OrganicAiIntent.Internal.SessionBound(organism.id, cell.id, phase.request, handle.session)
             if (machine.send(bound) != SendResult.Accepted) {
-                abandon(CellKey(organism.id, cell.id), handle, turn = null)
+                abandon(organism, CellKey(organism.id, cell.id), handle, turn = null)
                 return null
             }
         }
@@ -100,7 +101,7 @@ internal class CellDriver(
         if (!isConnected(organism, cell.id, handle)) {
             val broke = Settlement.Broke(Breakdown.Harnesses)
             val result = machine.send(OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, broke))
-            log.w { "organism ${organism.id.value} cell ${cell.id.value}: harnesses not connected, unsent, $result" }
+            log.i { "organism ${organism.id.value} cell ${cell.id.value}: harnesses not connected, unsent, $result" }
             return null
         }
         journal.save(organism)
@@ -143,10 +144,25 @@ internal class CellDriver(
         }
 
     /** The cell ended while its turn was being set up: its new session and turn must not live on. */
-    private suspend fun abandon(key: CellKey, handle: CellHandle, turn: TurnId?) {
+    private suspend fun abandon(organism: Organism, key: CellKey, handle: CellHandle, turn: TurnId?) {
         log.i { "organism ${key.organism.value} cell ${key.cell.value} ended meanwhile; abandoning its session" }
         turn?.let { handle.cancel(it) }
-        cells.release(key, handle.session, ReleaseMode.Lyse)
+        if (cells.release(key, handle.session, ReleaseMode.Lyse)) disconnect(organism, handle.session)
+    }
+
+    /**
+     * Lets go of the organism's harness connections to the session of a cell that ended, so its dead sessions never
+     * fill the connection quota of a harness. A failure is logged only: the cell is gone either way.
+     */
+    suspend fun disconnect(organism: Organism, session: SessionRef) {
+        if (organism.harnesses.isEmpty()) return
+        try {
+            harnesses.disconnect(session, organism.harnesses)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "organism ${organism.id.value}: harness connections of an ended cell were not removed" }
+        }
     }
 
     private fun CellPhase.Working.kind(): String = when {

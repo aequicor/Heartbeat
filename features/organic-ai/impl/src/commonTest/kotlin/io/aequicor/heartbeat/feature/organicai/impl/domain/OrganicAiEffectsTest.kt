@@ -214,6 +214,52 @@ class OrganicAiEffectsTest {
     }
 
     @Test
+    fun `an ended cell lets go of the harness connections of its session`() = runTest {
+        val chosen = setOf("compose", "verify")
+        val ended = organism(cell(C1, phase = CellPhase.Dead(DeathCause.Aborted))).copy(harnesses = chosen)
+        effects.handle(OrganicAiEffect.Release(ended, listOf(ZYGOTE, C1), ReleaseMode.Lyse), machine)
+        assertEquals(listOf(session("z") to chosen, session("c1") to chosen), harnesses.disconnected)
+        harnesses.disconnected.clear()
+
+        effects.handle(OrganicAiEffect.Release(ended, listOf(C1), ReleaseMode.Retire), machine)
+        assertEquals(listOf(session("c1") to chosen), harnesses.disconnected)
+    }
+
+    @Test
+    fun `a stale retirement keeps the connections of a session that is in use again`() = runTest {
+        cells.isReleased = false
+        val resumed = organism(cell(C1)).copy(harnesses = setOf("compose"))
+        effects.handle(OrganicAiEffect.Release(resumed, listOf(ZYGOTE), ReleaseMode.Retire), machine)
+        assertEquals(1, cells.released.size)
+        assertEquals(emptyList(), harnesses.disconnected)
+    }
+
+    @Test
+    fun `connections that cannot be removed never keep the other cells from being released`() = runTest {
+        harnesses.disconnectFailure = IllegalStateException("1 of 1 harness connections of a cell session were kept")
+        val ended = organism(cell(C1, phase = CellPhase.Dead(DeathCause.Aborted))).copy(harnesses = setOf("compose"))
+        effects.handle(OrganicAiEffect.Release(ended, listOf(ZYGOTE, C1), ReleaseMode.Lyse), machine)
+        assertEquals(2, cells.released.size)
+        assertEquals(2, harnesses.disconnected.size)
+    }
+
+    @Test
+    fun `an organism without harnesses disconnects nothing when its cells end`() = runTest {
+        val ended = organism(cell(C1, phase = CellPhase.Dead(DeathCause.Aborted)))
+        effects.handle(OrganicAiEffect.Release(ended, listOf(ZYGOTE, C1), ReleaseMode.Lyse), machine)
+        assertEquals(2, cells.released.size)
+        assertEquals(emptyList(), harnesses.disconnected)
+    }
+
+    @Test
+    fun `an abandoned turn lets go of the connections it made`() = runTest {
+        machine.refuse = { it is OrganicAiIntent.Internal.TurnAccepted }
+        val germinating = organism(cell(C1)).copy(harnesses = setOf("compose"))
+        effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
+        assertEquals(listOf(cells.handle.session to setOf("compose")), harnesses.disconnected)
+    }
+
+    @Test
     fun `a recovery turn connects again but adopting a running turn does not`() = runTest {
         val chosen = setOf("compose")
         val recovering = organism(cell(C1, phase = working(C1, turn = 2, isRecovery = true))).copy(harnesses = chosen)
@@ -398,11 +444,18 @@ class OrganicAiEffectsTest {
 
     private class Harnesses : CellHarnesses {
         val connected = mutableListOf<Pair<SessionRef, Set<String>>>()
+        val disconnected = mutableListOf<Pair<SessionRef, Set<String>>>()
         var failure: Exception? = null
+        var disconnectFailure: Exception? = null
 
         override suspend fun connect(session: SessionRef, harnesses: Set<String>) {
             connected += session to harnesses
             failure?.let { throw it }
+        }
+
+        override suspend fun disconnect(session: SessionRef, harnesses: Set<String>) {
+            disconnected += session to harnesses
+            disconnectFailure?.let { throw it }
         }
     }
 
@@ -429,6 +482,9 @@ class OrganicAiEffectsTest {
         val responses = mutableListOf<Pair<CellKey, PermissionDecision>>()
         var releasedAll = 0
 
+        /** False answers as a stale retirement does: nothing was let go. */
+        var isReleased = true
+
         override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
             failOpen?.let { throw it }
             opened += key to existing
@@ -440,8 +496,9 @@ class OrganicAiEffectsTest {
             responses += key to decision
         }
 
-        override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int) {
+        override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int): Boolean {
             released += Triple(key, session, mode)
+            return isReleased
         }
 
         override suspend fun releaseAll() {

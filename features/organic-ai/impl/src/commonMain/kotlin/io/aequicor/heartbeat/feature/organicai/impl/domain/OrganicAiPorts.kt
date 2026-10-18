@@ -59,18 +59,26 @@ internal data class CellRoute(
 )
 
 /**
- * Connects the harnesses of an organism to the native session of one of its cells. A cell's turn follows only a
- * complete connection, so a harness that cannot be connected stops the turn instead of running it without the
- * environment the user chose.
+ * Connects the harnesses of an organism to the native session of one of its cells, and lets them go when the cell
+ * ends. A cell's turn follows only a complete connection, so a harness that cannot be connected stops the turn
+ * instead of running it without the environment the user chose.
  */
-internal fun interface CellHarnesses {
+internal interface CellHarnesses {
     /**
      * Returns once every one of [harnesses] is durably connected to [session]; a connection already there is not
-     * written again. Throws when any cannot be connected (the library is off or unavailable, the harness is gone or
-     * disabled, a write was refused or not confirmed). Without [harnesses] it does nothing, even with the harness
-     * feature off.
+     * written again, and a library that is still loading or busy is awaited for a while. Throws when any cannot be
+     * connected (the library is off or unavailable, the harness is gone or disabled, a write was refused or not
+     * confirmed). Without [harnesses] it does nothing, even with the harness feature off.
      */
     suspend fun connect(session: SessionRef, harnesses: Set<String>)
+
+    /**
+     * Removes the connections of [harnesses] to [session], whose cell has ended, so dead sessions never fill the
+     * connection quota of a harness. A cell that wakes again is connected anew before its next prompt. Throws when
+     * any connection stays; a connection not there is not written. Does nothing without [harnesses] or with the
+     * harness feature off.
+     */
+    suspend fun disconnect(session: SessionRef, harnesses: Set<String>)
 }
 
 /** Engine sessions of cells; one handle per cell is kept open while the cell lives. */
@@ -90,9 +98,10 @@ internal interface CellSessions {
     /**
      * Lets the session of [key] go. [ReleaseMode.Lyse] cancels its turn, closes it and archives the session;
      * failures are logged, never thrown, so one cell cannot keep others alive. Retirement applies only to
-     * [generation] or an older open handle; lysis always ends the cell.
+     * [generation] or an older open handle; lysis always ends the cell. False when a retirement was stale and let
+     * nothing go, so the cell's session is still in use.
      */
-    suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int = 0)
+    suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int = 0): Boolean
 
     /** Cancels every running turn and closes every handle without archiving, before sleep. */
     suspend fun releaseAll()

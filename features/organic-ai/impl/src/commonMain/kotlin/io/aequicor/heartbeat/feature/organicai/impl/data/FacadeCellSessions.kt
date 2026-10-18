@@ -123,10 +123,10 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         handle.features.resolve(RequestsPermissions).orThrow().respond(decision)
     }
 
-    override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int) {
+    override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int): Boolean {
         val handle = mutex.withLock {
             // A completed zygote may already have been resumed in the same native session.
-            if (mode == ReleaseMode.Retire && generation < (generations[key] ?: 0)) return
+            if (mode == ReleaseMode.Retire && generation < (generations[key] ?: 0)) return false
             if (mode == ReleaseMode.Lyse) lysed += key
             handles.remove(key)
         }
@@ -148,6 +148,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
                 log.w(e) { "cell ${key.cell.value} of ${key.organism.value} was not fully released ($mode)" }
             }
         }
+        return true
     }
 
     override suspend fun releaseAll() {

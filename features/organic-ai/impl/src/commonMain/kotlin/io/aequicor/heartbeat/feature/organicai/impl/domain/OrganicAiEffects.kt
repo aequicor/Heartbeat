@@ -148,7 +148,9 @@ internal class OrganicAiEffects(
     private suspend fun release(effect: OrganicAiEffect.Release) {
         effect.cells.forEach { id ->
             val cell = effect.organism.cell(id) ?: return@forEach
-            cells.release(CellKey(effect.organism.id, id), cell.session, effect.mode, cell.turns)
+            val isReleased = cells.release(CellKey(effect.organism.id, id), cell.session, effect.mode, cell.turns)
+            // A stale retirement let nothing go: that cell's session is in use again and keeps its connections.
+            if (isReleased) cell.session?.let { driver.disconnect(effect.organism, it) }
         }
         log.i { "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})" }
     }

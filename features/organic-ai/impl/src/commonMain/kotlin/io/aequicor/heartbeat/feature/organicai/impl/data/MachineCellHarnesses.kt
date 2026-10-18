@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.CellHarnesses
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -33,12 +34,13 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 /**
- * Connects an organism's harnesses to its cell sessions through the harness machine. Only a committed connection (or
- * the exact receipt of the write) counts: a pending write, an unanswered one or a refused one is a failure, so a
- * cell never turns in a smaller environment than the user chose. A connection the session already has is not
- * written again, which makes a restart or a repeated turn harmless. The library takes one attachment write at a
- * time, so the cells of the profile queue behind one lock; a busy library is awaited for at most fifteen seconds per
- * harness. Harness ids and titles are never logged.
+ * Connects an organism's harnesses to its cell sessions through the harness machine, and lets them go when the cell
+ * ends. Only a committed connection (or the exact receipt of the write) counts: a pending write, an unanswered one or
+ * a refused one is a failure, so a cell never turns in a smaller environment than the user chose. A connection
+ * already in the wanted state is not written again, which makes a restart or a repeated turn harmless. A library that
+ * is still loading (after a restart it starts beside the organisms) or busy with another change is awaited; each
+ * harness gets fifteen seconds in all, and the library takes one attachment write at a time, so the cells of the
+ * profile queue behind one lock held only while a write is sent. Harness ids and titles are never logged.
  */
 @ContributesBinding(ProfileScope::class)
 @SingleIn(ProfileScope::class)
@@ -51,65 +53,129 @@ internal class MachineCellHarnesses(private val machines: MachineRegistry, priva
     override suspend fun connect(session: SessionRef, harnesses: Set<String>) {
         if (harnesses.isEmpty()) return
         check(toggles.get(HarnessEnabled)) { "Harnesses are turned off" }
-        val library = checkNotNull(machines.find(HarnessMachineKey)) { "The harness library is not running" }
         for (harness in harnesses.sorted()) {
-            val isConnected = writes.withLock {
-                withTimeoutOrNull(CONFIRMATION) { attach(library, session, HarnessId(harness)) }
-            } == true
-            check(isConnected) { "A harness chosen for the organism could not be connected" }
+            val outcome = settle(Change(session, HarnessId(harness), isAttached = true))
+            check(outcome == Outcome.Done) { "A harness chosen for the organism could not be connected: $outcome" }
         }
-        log.i { "cell session carries the harnesses of its organism count=${harnesses.size}" }
+        log.d { "cell session carries the harnesses of its organism count=${harnesses.size}" }
     }
 
-    private suspend fun attach(library: Library, session: SessionRef, harness: HarnessId): Boolean {
+    override suspend fun disconnect(session: SessionRef, harnesses: Set<String>) {
+        if (harnesses.isEmpty()) return
+        if (!toggles.get(HarnessEnabled)) {
+            log.d { "harnesses are turned off; a cell session keeps its stored connections" }
+            return
+        }
+        val failures = harnesses.sorted().count {
+            settle(Change(session, HarnessId(it), isAttached = false)) != Outcome.Done
+        }
+        check(failures == 0) { "$failures of ${harnesses.size} harness connections of a cell session were kept" }
+        log.d { "cell session let go of the harnesses of its organism count=${harnesses.size}" }
+    }
+
+    /** Waits for the library, then settles [change] in it; bounded in time. */
+    private suspend fun settle(change: Change): Outcome = withTimeoutOrNull(CONFIRMATION) {
+        val library = machines.observe(HarnessMachineKey).filterNotNull().first()
         var busy = 0
-        while (busy < BUSY_ATTEMPTS) {
-            val ready = usable(library, harness) ?: return false
-            if (harness in ready.attachments[session].orEmpty()) return true
-            val isBusy = ready.attachmentWrite != null || ready.isReloading ||
-                ready.pending.values.any { it is HarnessMutation.Remove }
-            if (isBusy) {
-                log.d { "harness library is busy with another change; waiting for it" }
-                library.state.first { it != ready }
-                continue
-            }
-            when (submit(library, session, harness)) {
-                Receipt.Saved -> return harness in usable(library, harness)?.attachments?.get(session).orEmpty()
-                Receipt.Refused -> return false
-                Receipt.Busy -> busy++
+        var outcome: Outcome? = null
+        while (outcome == null && busy < BUSY_ATTEMPTS) {
+            when (val step = next(library, change)) {
+                is Step.Final -> outcome = step.outcome
+                Step.Retry -> Unit
+                Step.Busy -> busy++
             }
         }
-        return false
+        outcome ?: Outcome.Failed("the library stayed busy")
+    } ?: Outcome.Failed("no confirmation within $CONFIRMATION")
+
+    /** One look at the library: the end of the change, a wait for the library to move, or one write. */
+    private suspend fun next(library: Library, change: Change): Step {
+        val state = library.state.value
+        val refusal = refusal(library, state)
+        val ready = state as? HarnessState.Ready
+        return when {
+            refusal != null -> Step.Final(Outcome.Failed(refusal))
+
+            // It starts beside the organisms after a restart: not a refusal, only not yet.
+            ready == null -> awaiting(library, state)
+
+            change.isAttached && !isUsable(ready, change.harness) ->
+                Step.Final(Outcome.Failed("the harness is gone, off or removed"))
+
+            ready.isConnected(change) == change.isAttached -> Step.Final(Outcome.Done)
+
+            isBusy(ready, change.harness) -> awaiting(library, ready)
+
+            else -> write(library, ready, change)
+        }
     }
 
-    /** The settled library while the harness still exists and is enabled; null when it cannot be connected now. */
-    private suspend fun usable(library: Library, harness: HarnessId): HarnessState.Ready? {
-        if (!toggles.get(HarnessEnabled) || machines.find(HarnessMachineKey) !== library) return null
-        val ready = library.state.value as? HarnessState.Ready ?: return null
-        return ready.takeIf {
-            !it.isSuspended && it.pending[harness] !is HarnessMutation.Remove &&
-                it.harnesses.any { entry -> entry.harness.id == harness && entry.harness.isEnabled }
-        }
+    /** Why a library in [state] can never take the change, or null while it can, now or once it has loaded. */
+    private suspend fun refusal(library: Library, state: HarnessState): String? = when {
+        !toggles.get(HarnessEnabled) -> "harnesses are turned off"
+        machines.find(HarnessMachineKey) !== library -> "the library was replaced"
+        state.isSuspended -> "the library is suspended"
+        state is HarnessState.Failed -> "the library could not be loaded"
+        else -> null
     }
+
+    private suspend fun awaiting(library: Library, seen: HarnessState): Step {
+        log.v { "harness library is not ready for a connection change; waiting for it" }
+        library.state.first { it != seen }
+        return Step.Retry
+    }
+
+    private fun isUsable(ready: HarnessState.Ready, harness: HarnessId): Boolean =
+        ready.pending[harness] !is HarnessMutation.Remove &&
+            ready.harnesses.any { entry -> entry.harness.id == harness && entry.harness.isEnabled }
+
+    /** Any change in flight that the machine would answer with [HarnessRejection.Busy]. */
+    private fun isBusy(ready: HarnessState.Ready, harness: HarnessId): Boolean =
+        ready.attachmentWrite != null || ready.isReloading || harness in ready.pending ||
+            ready.pending.values.any { it is HarnessMutation.Remove }
+
+    /** Sends one write; a library that moved on while the write waited its turn is looked at again. */
+    private suspend fun write(library: Library, ready: HarnessState.Ready, change: Change): Step =
+        when (val receipt = sendOnce(library, ready, change)) {
+            Receipt.Saved -> Step.Final(confirmed(library, change))
+            is Receipt.Refused -> Step.Final(Outcome.Failed(receipt.reason))
+            Receipt.Busy -> Step.Busy
+            null -> Step.Retry
+        }
+
+    private fun confirmed(library: Library, change: Change): Outcome =
+        if (library.state.value.isConnected(change) == change.isAttached) {
+            log.i { "harness ${if (change.isAttached) "connected to" else "disconnected from"} a cell session" }
+            Outcome.Done
+        } else {
+            Outcome.Failed("the connection changed right after its write")
+        }
+
+    /** Sends the write under the lock, unless the library changed since [ready] was read; null then. */
+    private suspend fun sendOnce(library: Library, ready: HarnessState.Ready, change: Change): Receipt? =
+        writes.withLock { if (library.state.value !== ready) null else submit(library, change) }
 
     /** Subscribes before sending, so a receipt that arrives at once is never missed. */
     @OptIn(ExperimentalUuidApi::class)
-    private suspend fun submit(library: Library, session: SessionRef, harness: HarnessId): Receipt = coroutineScope {
+    private suspend fun submit(library: Library, change: Change): Receipt = coroutineScope {
         val request = RequestId(Uuid.random().toHexString())
         val receipt = CompletableDeferred<Receipt>()
         val outputs = launch(start = CoroutineStart.UNDISPATCHED) {
-            library.outputs.collect { output -> output.receipt(request, harness, session)?.let(receipt::complete) }
+            library.outputs.collect { output -> output.receipt(request, change)?.let(receipt::complete) }
         }
         val states = launch(start = CoroutineStart.UNDISPATCHED) {
             library.state.collect { state ->
-                if (state is HarnessState.Ready && harness in state.attachments[session].orEmpty()) {
-                    receipt.complete(Receipt.Saved)
-                }
+                if (state.isConnected(change) == change.isAttached) receipt.complete(Receipt.Saved)
             }
         }
         try {
-            val result = library.send(HarnessIntent.Public.Attach(request, harness, session))
-            if (result == SendResult.Accepted) receipt.await() else Receipt.Refused
+            val intent = if (change.isAttached) {
+                HarnessIntent.Public.Attach(request, change.harness, change.session)
+            } else {
+                HarnessIntent.Public.Detach(request, change.harness, change.session)
+            }
+            val result = library.send(intent)
+            if (result == SendResult.Accepted) receipt.await() else Receipt.Refused("the request was $result")
         } finally {
             outputs.cancel()
             states.cancel()
@@ -119,19 +185,67 @@ internal class MachineCellHarnesses(private val machines: MachineRegistry, priva
 
 private typealias Library = MachineRef<HarnessState, HarnessIntent.Public, HarnessOutput>
 
-/** How one attachment write ended. */
-private enum class Receipt { Saved, Busy, Refused }
+/** The connection of [harness] to [session] to be made ([isAttached]) or removed. */
+private data class Change(val session: SessionRef, val harness: HarnessId, val isAttached: Boolean)
 
-private fun HarnessOutput.receipt(request: RequestId, harness: HarnessId, session: SessionRef): Receipt? = when {
-    this is HarnessOutput.Attached && requestId == request && id == harness && this.session == session -> Receipt.Saved
+/** Whether a settled library holds the connection; a library that is not settled holds none. */
+private fun HarnessState.isConnected(change: Change): Boolean =
+    this is HarnessState.Ready && change.harness in attachments[change.session].orEmpty()
 
-    this is HarnessOutput.Rejected && requestId == request ->
-        if (reason == HarnessRejection.Busy) Receipt.Busy else Receipt.Refused
+/** How one connection change ended: done, or why it was not (never an id or a title). */
+private sealed interface Outcome {
+    data object Done : Outcome
 
-    this is HarnessOutput.StorageFailed && requestId == request -> Receipt.Refused
-
-    else -> null
+    data class Failed(val reason: String) : Outcome {
+        override fun toString(): String = reason
+    }
 }
+
+/** What one look at the library led to. */
+private sealed interface Step {
+    data class Final(val outcome: Outcome) : Step
+
+    data object Retry : Step
+
+    data object Busy : Step
+}
+
+/** How one attachment write ended. */
+private sealed interface Receipt {
+    data object Saved : Receipt
+
+    data object Busy : Receipt
+
+    data class Refused(val reason: String) : Receipt
+}
+
+private fun HarnessOutput.receipt(request: RequestId, change: Change): Receipt? = when (this) {
+    is HarnessOutput.Attached ->
+        Receipt.Saved.takeIf { change.isAttached && requestId == request && isOf(change, id, session) }
+
+    is HarnessOutput.Detached ->
+        Receipt.Saved.takeIf { !change.isAttached && requestId == request && isOf(change, id, session) }
+
+    is HarnessOutput.Rejected -> if (requestId == request) refusal(reason) else null
+
+    is HarnessOutput.StorageFailed ->
+        Receipt.Refused("the library could not store it").takeIf { requestId == request }
+
+    is HarnessOutput.Created,
+    is HarnessOutput.Updated,
+    is HarnessOutput.Deleted,
+    is HarnessOutput.ApprovalChanged,
+    is HarnessOutput.ItemActivated,
+    is HarnessOutput.ItemFailed,
+    is HarnessOutput.RuntimeFailed,
+    -> null
+}
+
+private fun isOf(change: Change, harness: HarnessId, session: SessionRef): Boolean =
+    change.harness == harness && change.session == session
+
+private fun refusal(reason: HarnessRejection): Receipt =
+    if (reason == HarnessRejection.Busy) Receipt.Busy else Receipt.Refused("the library refused it ($reason)")
 
 private val CONFIRMATION = 15.seconds
 private const val BUSY_ATTEMPTS = 3

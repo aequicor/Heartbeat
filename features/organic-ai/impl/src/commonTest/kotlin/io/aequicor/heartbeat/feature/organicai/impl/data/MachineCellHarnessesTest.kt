@@ -17,6 +17,8 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
+import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
+import io.aequicor.heartbeat.feature.harness.api.HarnessLoad
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
@@ -26,7 +28,9 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.impl.session
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -58,14 +62,30 @@ class MachineCellHarnessesTest {
         emptyList(), ToolPolicySpec(), null, 0, at, at,
     )
 
-    /** The library commits the attachment and reports it, as the real one does. */
+    /** The library commits the attachment or its removal and reports it, as the real one does. */
     private fun commits() {
         library.onSend = { intent ->
-            val attach = intent as HarnessIntent.Public.Attach
             val current = library.state.value as HarnessState.Ready
-            val connected = current.attachments[attach.session].orEmpty() + attach.id
-            library.state.value = current.copy(attachments = current.attachments + (attach.session to connected))
-            library.outputs.emit(HarnessOutput.Attached(attach.requestId, attach.id, attach.session))
+            when (intent) {
+                is HarnessIntent.Public.Attach -> {
+                    val connected = current.attachments[intent.session].orEmpty() + intent.id
+                    library.state.value =
+                        current.copy(attachments = current.attachments + (intent.session to connected))
+                    library.outputs.emit(HarnessOutput.Attached(intent.requestId, intent.id, intent.session))
+                }
+
+                is HarnessIntent.Public.Detach -> {
+                    val remaining = current.attachments[intent.session].orEmpty() - intent.id
+                    library.state.value = current.copy(
+                        attachments = (current.attachments + (intent.session to remaining)).filterValues {
+                            it.isNotEmpty()
+                        },
+                    )
+                    library.outputs.emit(HarnessOutput.Detached(intent.requestId, intent.id, intent.session))
+                }
+
+                else -> error("unexpected intent")
+            }
             SendResult.Accepted
         }
     }
@@ -179,12 +199,150 @@ class MachineCellHarnessesTest {
     }
 
     @Test
-    fun `a suspended or loading library fails without any write`() = runTest {
+    fun `a suspended or failed library fails at once without any write`() = runTest {
         library.state.value = ready.copy(isSuspended = true)
         assertFailsWith<IllegalStateException> { port.connect(cell, setOf("compose")) }
-        library.state.value = HarnessState.Idle()
+        library.state.value = HarnessState.Failed()
         assertFailsWith<IllegalStateException> { port.connect(cell, setOf("compose")) }
         assertTrue(library.sent.isEmpty())
+    }
+
+    @Test
+    fun `a library that is still loading is awaited and then used`() = runTest {
+        library.state.value = HarnessState.Idle()
+        commits()
+        val connecting = async { port.connect(cell, setOf("compose")) }
+        runCurrent()
+        assertFalse(connecting.isCompleted)
+        library.state.value = HarnessState.Loading(HarnessLoad(1, 0))
+        runCurrent()
+        assertFalse(connecting.isCompleted)
+        library.state.value = ready
+        connecting.await()
+        assertEquals(1, library.sent.size)
+    }
+
+    @Test
+    fun `a library that never loads fails after the deadline`() = runTest {
+        library.state.value = HarnessState.Loading(HarnessLoad(1, 0))
+        val connecting = async { assertFailsWith<IllegalStateException> { port.connect(cell, setOf("compose")) } }
+        runCurrent()
+        advanceTimeBy(16.seconds)
+        runCurrent()
+        assertTrue(connecting.isCompleted)
+        connecting.await()
+        assertTrue(library.sent.isEmpty())
+    }
+
+    @Test
+    fun `a library that starts after the organism is awaited`() = runTest {
+        registry.machine.value = null
+        commits()
+        val connecting = async { port.connect(cell, setOf("compose")) }
+        runCurrent()
+        assertFalse(connecting.isCompleted)
+        registry.machine.value = library
+        connecting.await()
+        assertEquals(1, library.sent.size)
+    }
+
+    @Test
+    fun `a change pending for the same harness is awaited instead of retried`() = runTest {
+        val receipt = HarnessReceipt(RequestId("save"), HarnessId("compose"), 0, 1)
+        val saving = HarnessMutation.Save(receipt, harness("compose"), isCreated = false)
+        library.state.value = ready.copy(pending = mapOf(HarnessId("compose") to saving))
+        commits()
+        val connecting = async { port.connect(cell, setOf("compose")) }
+        runCurrent()
+        assertTrue(library.sent.isEmpty())
+        assertFalse(connecting.isCompleted)
+        library.state.value = ready
+        connecting.await()
+        assertEquals(1, library.sent.size)
+    }
+
+    @Test
+    fun `cells connect one write at a time and a cancelled cell frees the line`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        library.onSend = { intent ->
+            gate.await()
+            val attach = intent as HarnessIntent.Public.Attach
+            val current = library.state.value as HarnessState.Ready
+            val connected = current.attachments[attach.session].orEmpty() + attach.id
+            library.state.value = current.copy(attachments = current.attachments + (attach.session to connected))
+            library.outputs.emit(HarnessOutput.Attached(attach.requestId, attach.id, attach.session))
+            SendResult.Accepted
+        }
+        val first = async { port.connect(cell, setOf("compose")) }
+        val second = async { port.connect(session("other"), setOf("compose")) }
+        runCurrent()
+        assertEquals(1, library.sent.size)
+        first.cancel()
+        runCurrent()
+        gate.complete(Unit)
+        second.await()
+        assertEquals(2, library.sent.size)
+    }
+
+    @Test
+    fun `a refusal says why without naming the harness`() = runTest {
+        library.onSend = { intent ->
+            library.outputs.emit(HarnessOutput.Rejected(intent.requestId, HarnessRejection.Limit))
+            SendResult.Accepted
+        }
+        val failure = assertFailsWith<IllegalStateException> { port.connect(cell, setOf("compose")) }
+        assertTrue("Limit" in failure.message.orEmpty())
+        assertFalse("compose" in failure.message.orEmpty())
+    }
+
+    @Test
+    fun `disconnecting removes only connections the session has`() = runTest {
+        library.state.value = ready.copy(attachments = mapOf(cell to setOf(HarnessId("compose"))))
+        commits()
+        port.disconnect(cell, setOf("compose", "verify"))
+        assertEquals(listOf(HarnessId("compose")), library.sent.map { (it as HarnessIntent.Public.Detach).id })
+        assertEquals(emptyMap(), (library.state.value as HarnessState.Ready).attachments)
+        port.disconnect(cell, setOf("compose", "verify"))
+        assertEquals(1, library.sent.size)
+    }
+
+    @Test
+    fun `disconnecting needs neither a harness that still exists nor an enabled one`() = runTest {
+        val disabled = harness("compose", isEnabled = false)
+        library.state.value = HarnessState.Ready(
+            listOf(HarnessEntry(disabled)),
+            attachments = mapOf(cell to setOf(HarnessId("compose"), HarnessId("gone"))),
+        )
+        commits()
+        port.disconnect(cell, setOf("compose"))
+        assertEquals(setOf(HarnessId("gone")), (library.state.value as HarnessState.Ready).attachments[cell])
+        port.disconnect(session("other"), setOf("gone"))
+        assertEquals(1, library.sent.size)
+    }
+
+    @Test
+    fun `disconnecting a refused removal fails but writes are bounded`() = runTest {
+        library.state.value = ready.copy(attachments = mapOf(cell to setOf(HarnessId("compose"))))
+        library.onSend = { intent ->
+            library.outputs.emit(HarnessOutput.Rejected(intent.requestId, HarnessRejection.Conflict))
+            SendResult.Accepted
+        }
+        assertFailsWith<IllegalStateException> { port.disconnect(cell, setOf("compose")) }
+        assertEquals(1, library.sent.size)
+    }
+
+    @Test
+    fun `disconnecting does nothing without harnesses or with the feature off`() = runTest {
+        library.state.value = ready.copy(attachments = mapOf(cell to setOf(HarnessId("compose"))))
+        port.disconnect(cell, emptySet())
+        toggles.enabled.value = false
+        port.disconnect(cell, setOf("compose"))
+        assertTrue(library.sent.isEmpty())
+    }
+
+    @Test
+    fun `an organism carries as many harnesses as the library holds`() {
+        assertEquals(HarnessLimits.HARNESSES, OrganismBounds.MAX_HARNESSES)
     }
 
     @Test
