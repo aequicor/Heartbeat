@@ -220,12 +220,16 @@ internal class HarnessScriptProcesses(
 
     override suspend fun archived(after: ProcessArchiveRef?, limit: Int, process: ProcessId?): ProcessArchivePage {
         list() // Live scoped access is required, including for an empty archive.
-        return checkNotNull(archives).listOwned(checkNotNull(owner), after, limit, process)
+        val page = checkNotNull(archives).listOwned(checkNotNull(owner), after, limit, process)
+        list() // Retiring an activation during protected IO must also revoke the returned data.
+        return page
     }
 
     override suspend fun readArchive(ref: ProcessArchiveRef): ArchivedProcess? {
         list()
-        return checkNotNull(archives).getOwned(checkNotNull(owner), ref)
+        val snapshot = checkNotNull(archives).getOwned(checkNotNull(owner), ref)
+        list()
+        return snapshot
     }
 
     override suspend fun restore(ref: ProcessArchiveRef): ProcessRecord? = gate.withLock {

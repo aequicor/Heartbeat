@@ -20,10 +20,15 @@ import io.aequicor.heartbeat.feature.harness.api.process.waitKey
 import io.aequicor.heartbeat.feature.harness.api.process.workflowKey
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -204,6 +209,51 @@ class ProcessArchiveLifecycleTest {
         assertNull(other.processes.restore(snapshot.ref))
         assertNull(other.processes.readArchive(snapshot.ref))
         assertEquals(snapshot, other.archives.get(snapshot.ref)) // Profile reader still resolves the durable link.
+    }
+
+    @Test
+    fun `archive reads refuse results when activation retires during protected IO`() = runTest {
+        val secrets = HarnessDataTestSecrets()
+        val env = ProcessesTestEnv(this, secrets, definition = definition, isArchiveEnabled = true)
+        env.processes.open(id)
+        env.processes.apply(id, ProcessCommand.Close(ProcessEnd.Completed))
+        val snapshot = requireNotNull(env.processes.archive(id))
+        for (isListing in listOf(false, true)) {
+            env.access.isActive = true
+            var reads = 0
+            secrets.beforeRead = {
+                if (++reads == 2) env.access.isActive = false
+            }
+            assertFailsWith<IllegalStateException> {
+                if (isListing) env.processes.archived() else env.processes.readArchive(snapshot.ref)
+            }
+            secrets.beforeRead = {}
+            assertEquals(snapshot, env.archives.get(snapshot.ref))
+        }
+    }
+
+    @Test
+    fun `cancelled archive reads cannot deliver protected results`() = runTest {
+        val secrets = HarnessDataTestSecrets()
+        val env = ProcessesTestEnv(this, secrets, definition = definition, isArchiveEnabled = true)
+        env.processes.open(id)
+        env.processes.apply(id, ProcessCommand.Close(ProcessEnd.Completed))
+        val snapshot = requireNotNull(env.processes.archive(id))
+        for (isListing in listOf(false, true)) {
+            var reads = 0
+            secrets.beforeRead = {
+                if (++reads == 2) currentCoroutineContext().cancel()
+            }
+            var isReturned = false
+            val reading = async {
+                if (isListing) env.processes.archived() else env.processes.readArchive(snapshot.ref)
+                isReturned = true
+            }
+            assertFailsWith<CancellationException> { reading.await() }
+            assertFalse(isReturned)
+            secrets.beforeRead = {}
+            assertEquals(snapshot, env.archives.get(snapshot.ref))
+        }
     }
 
     @Test
