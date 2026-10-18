@@ -39,6 +39,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRoute
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellSessions
 import io.aequicor.heartbeat.feature.organicai.impl.domain.ReleaseOutcome
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -74,17 +75,20 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
      */
     private val lingering = mutableMapOf<CellKey, MutableList<ActiveSession>>()
 
+    /** Admitted sends and handles being stopped; admission and release share [mutex], never native IO. */
+    private val submitting = mutableMapOf<ActiveSession, CompletableDeferred<Unit>>()
+    private val stopping = mutableSetOf<ActiveSession>()
+
+    /** Last retired native session, so a late duplicate wrapper cannot restore ownership after retirement. */
+    private val retired = mutableMapOf<CellKey, Pair<SessionRef, Int>>()
+
     /** Sleeps so far: a handle opened across a sleep is not kept; guarded by [mutex]. */
     private var sleeps = 0
 
     override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
-        val awake = mutex.withLock {
-            if (key in lysed || generation < (generations[key] ?: 0)) throw closed()
-            generations[key] = generation
-            handles[key]?.takeIf { it.isOpen() }?.let { return FacadeCellHandle(it, checked(route)) }
-            openers[key] = (openers[key] ?: 0) + 1
-            sleeps
-        }
+        val awake = mutex.withLock { sleeps }
+        val cached = acquire(key, route, existing, generation, awake)
+        if (cached != null) return cached
         // From its creation until it is cached nobody owns the handle: a cancelled caller would drop it unclosed, so
         // neither step may be cancelled.
         return withContext(NonCancellable) {
@@ -101,6 +105,46 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
             }
         }
     }
+
+    /** Returns a cached handle after earlier sends settle, or reserves a new opener under [mutex]. */
+    private suspend fun acquire(
+        key: CellKey,
+        route: CellRoute,
+        existing: SessionRef?,
+        generation: Int,
+        awake: Int,
+    ): CellHandle? {
+        while (true) {
+            val pending = mutex.withLock {
+                checkOpening(key, generation, awake)
+                generations[key] = generation
+                val cached = handles[key]?.takeIf { it.isOpen() } ?: recoverHeld(key, existing)
+                if (cached != null) {
+                    val sending = submitting[cached]
+                    if (sending != null) return@withLock sending
+                    return wrap(key, cached, checked(route), generation, awake)
+                }
+                openers[key] = (openers[key] ?: 0) + 1
+                null
+            }
+            if (pending == null) return null
+            // Recovery must observe the earlier send's outcome before deciding whether to adopt or submit a turn.
+            pending.await()
+        }
+    }
+
+    /** Rechecks an opener after any admission wait; called only under [mutex]. */
+    private fun checkOpening(key: CellKey, generation: Int, awake: Int) {
+        if (key in lysed || sleeps != awake || generation < (generations[key] ?: 0)) throw closed()
+    }
+
+    /** Moves a retained recovery handle back to the live cache; called only under [mutex]. */
+    private fun recoverHeld(key: CellKey, existing: SessionRef?): ActiveSession? =
+        lingering[key]?.firstOrNull { it.ref == existing && it.isOpen() && it !in stopping }?.also { held ->
+            lingering[key]?.remove(held)
+            if (lingering[key]?.isEmpty() == true) lingering.remove(key)
+            handles[key] = held
+        }
 
     /** Claims an opened handle only if its cell, turn generation and profile lifetime still match. */
     private suspend fun retainOpened(
@@ -122,21 +166,42 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
             }
         }
         return when {
-            kept === opened -> FacadeCellHandle(opened, route)
+            kept === opened -> wrap(key, opened, route, generation, awake)
 
             // Another opener of the cell won; a session created here is an unused duplicate.
-            kept != null -> FacadeCellHandle(kept, route).also {
-                discard(key, opened, isStopped = false, isArchived = isCreated)
+            kept != null -> wrap(key, kept, route, generation, awake).also {
+                discard(key, opened, generation, isStopped = false, isArchived = isCreated)
             }
 
             // The cell was lysed or the cells slept meanwhile: a turn the session runs must stop, and neither a
             // lysed cell's session nor a new one the organism never learnt of may stay listed.
             else -> {
-                discard(key, opened, isStopped = !isStale || isLysed, isArchived = isLysed || isCreated)
+                discard(key, opened, generation, isStopped = !isStale || isLysed, isArchived = isLysed || isCreated)
                 throw closed()
             }
         }
     }
+
+    /** A wrapper keeps the generation and sleep epoch in which its driver acquired the handle. */
+    private fun wrap(key: CellKey, active: ActiveSession, route: CellRoute, generation: Int, awake: Int): CellHandle =
+        FacadeCellHandle(active, route) { send ->
+            // A native handoff can outlive its cancelled caller. Keep admission until its outcome is observed.
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    val isCurrent = key !in lysed && sleeps == awake && generations[key] == generation
+                    val isAvailable = handles[key] === active && active !in stopping && active !in submitting
+                    if (!isCurrent || !isAvailable) throw closed()
+                    submitting[active] = CompletableDeferred()
+                }
+                try {
+                    send()
+                } finally {
+                    withContext(NonCancellable) {
+                        mutex.withLock { submitting.remove(active)?.complete(Unit) }
+                    }
+                }
+            }
+        }
 
     override suspend fun respond(key: CellKey, decision: PermissionDecision) {
         val handle = mutex.withLock { handles[key].takeIf { key !in lysed } } ?: throw closed()
@@ -149,29 +214,32 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         mode: ReleaseMode,
         generation: Int,
     ): ReleaseOutcome = when (mode) {
-        ReleaseMode.Retire -> retire(key, generation)
+        ReleaseMode.Retire -> retire(key, session, generation)
 
         // The handles are out of the live cache and nothing else would release them: finish even when cancelled.
         ReleaseMode.Lyse -> withContext(NonCancellable) { lyse(key, session) }
     }
 
-    private suspend fun retire(key: CellKey, generation: Int): ReleaseOutcome {
-        val handle = mutex.withLock {
+    private suspend fun retire(key: CellKey, session: SessionRef?, generation: Int): ReleaseOutcome {
+        val held = mutex.withLock {
             // A completed zygote may already have been resumed in the same native session.
             if (generation < (generations[key] ?: 0)) return ReleaseOutcome.Stopped
+            val current = handles[key]
+            val ref = current?.ref ?: session
+            val duplicates = lingering[key].orEmpty().filter { it.ref == ref }
+            val all = listOfNotNull(current) + duplicates
+            if (all.any { it in submitting || it in stopping }) return ReleaseOutcome.Unconfirmed
             handles.remove(key)
+            lingering[key]?.removeAll(duplicates.toSet())
+            if (lingering[key]?.isEmpty() == true) lingering.remove(key)
+            if (ref != null) retired[key] = ref to generation
+            all
         }
         return withContext(NonCancellable) {
-            try {
-                handle?.close()
-                log.d { "cell ${key.cell.value} of ${key.organism.value} released (${ReleaseMode.Retire})" }
-                ReleaseOutcome.Stopped
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.w(e) { "cell ${key.cell.value} of ${key.organism.value} was not fully released (Retire)" }
-                ReleaseOutcome.Unconfirmed
-            }
+            // Completion of this generation proves the shared native turn ended, even if an older wrapper is stale.
+            val isClosed = held.map { closeHeld(key, it) }.all { it }
+            log.d { "cell ${key.cell.value} of ${key.organism.value} released (${ReleaseMode.Retire})" }
+            if (isClosed) ReleaseOutcome.Stopped else ReleaseOutcome.Unconfirmed
         }
     }
 
@@ -194,6 +262,19 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
 
     /** Stops one held handle and closes it once its turn is seen to stop; a failure leaves it owned. */
     private suspend fun stopHeld(key: CellKey, handle: ActiveSession): Boolean {
+        mutex.withLock {
+            if (handle in submitting || !stopping.add(handle)) return false
+        }
+        val isStopped = try {
+            stopClaimed(key, handle)
+        } finally {
+            withContext(NonCancellable) { mutex.withLock { stopping -= handle } }
+        }
+        return isStopped
+    }
+
+    /** Admission is revoked for this handle until its stop and close have both completed. */
+    private suspend fun stopClaimed(key: CellKey, handle: ActiveSession): Boolean {
         val isStopped = try {
             handle.stopTurn(LYSIS_WAIT)
         } catch (e: CancellationException) {
@@ -208,9 +289,9 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
                 lingering[key]?.remove(handle)
                 if (lingering[key]?.isEmpty() == true) lingering.remove(key)
             }
-            closeQuietly(handle)
+            return closeHeld(key, handle)
         }
-        return isStopped
+        return false
     }
 
     override suspend fun hasPendingRelease(organism: OrganismId): Boolean = mutex.withLock {
@@ -236,7 +317,13 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
      * A handle no cell uses; its turn is stopped when [isStopped], since recovery may find one running. An
      * unconfirmed stop retains ownership even on exceptions or a sleep, and the session stays listed for retry.
      */
-    private suspend fun discard(key: CellKey, opened: ActiveSession, isStopped: Boolean, isArchived: Boolean) {
+    private suspend fun discard(
+        key: CellKey,
+        opened: ActiveSession,
+        generation: Int,
+        isStopped: Boolean,
+        isArchived: Boolean,
+    ) {
         var isKept = isStopped
         try {
             if (isStopped) isKept = !opened.stopTurn(LYSIS_WAIT)
@@ -246,24 +333,43 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
             log.w(e) { "unused cell session on ${opened.ref.engine.value} was not stopped" }
         } finally {
             withContext(NonCancellable) {
-                if (isKept) {
-                    mutex.withLock { lingering.getOrPut(key) { mutableListOf() } += opened }
-                } else {
-                    closeQuietly(opened)
-                }
+                if (isKept) isKept = retainDiscarded(key, opened, generation)
+                if (!isKept) isKept = !closeHeld(key, opened)
             }
         }
         if (isArchived && !isKept) archiveQuietly(opened.ref)
     }
 
-    private suspend fun closeQuietly(handle: ActiveSession) {
-        try {
-            withContext(NonCancellable) { handle.close() }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "session on ${handle.ref.engine.value} was not closed" }
+    /** Recovery can adopt or retire the same native session while an older opener is still stopping it. */
+    private suspend fun retainDiscarded(key: CellKey, opened: ActiveSession, generation: Int): Boolean =
+        mutex.withLock {
+            val isOwnedElsewhere = handles[key]?.let { it !== opened && it.ref == opened.ref } == true
+            val isRetired = retired[key]?.let { it.first == opened.ref && it.second >= generation } == true
+            if (isOwnedElsewhere || isRetired) return@withLock false
+            lingering.getOrPut(key) { mutableListOf() } += opened
+            true
         }
+
+    /** A failed close retains a retryable resource even after its native turn is known to have ended. */
+    private suspend fun closeHeld(key: CellKey, handle: ActiveSession): Boolean {
+        val isClosed = closeQuietly(handle)
+        if (!isClosed) {
+            mutex.withLock {
+                val held = lingering.getOrPut(key) { mutableListOf() }
+                if (handle !in held) held += handle
+            }
+        }
+        return isClosed
+    }
+
+    private suspend fun closeQuietly(handle: ActiveSession): Boolean = try {
+        withContext(NonCancellable) { handle.close() }
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "session on ${handle.ref.engine.value} was not closed" }
+        false
     }
 
     /** An effort the model no longer advertises is dropped: the engine would refuse the turn. */
@@ -357,7 +463,11 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
 }
 
 /** One cell's open session; its turns run at the [route]'s effort and review model. */
-private class FacadeCellHandle(private val active: ActiveSession, private val route: CellRoute) : CellHandle {
+private class FacadeCellHandle(
+    private val active: ActiveSession,
+    private val route: CellRoute,
+    private val submission: suspend (suspend () -> TurnId) -> TurnId,
+) : CellHandle {
     /** Turns followed only because the session remembered them after an ambiguous delivery. */
     private val doubtful = mutableSetOf<TurnId>()
 
@@ -370,8 +480,10 @@ private class FacadeCellHandle(private val active: ActiveSession, private val ro
         text: String,
         trust: TrustLevel?,
         attachments: List<ResourceRef>,
-    ): TurnId = active.submit(request, text, trust, attachments, route.reasoningEffort, route.reviewTarget).also {
-        if (active.state.value is ActiveSessionState.Unavailable) doubtful += it
+    ): TurnId = submission {
+        active.submit(request, text, trust, attachments, route.reasoningEffort, route.reviewTarget).also {
+            if (active.state.value is ActiveSessionState.Unavailable) doubtful += it
+        }
     }
 
     override suspend fun cancel(turn: TurnId) = active.cancelQuietly(turn)
