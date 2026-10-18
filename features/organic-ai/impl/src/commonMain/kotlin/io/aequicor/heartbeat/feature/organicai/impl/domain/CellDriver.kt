@@ -55,8 +55,17 @@ internal class CellDriver(
             return
         }
         log.i { "organism ${organism.id.value} cell ${id.value}: ${phase.kind()} turn ${cell.turns} starts" }
-        val route = routeOf(organism, cell, target, request, machine) ?: return
-        runTurn(organism, cell, phase, route, machine)
+        try {
+            val route = routeOf(organism, cell, target, request, machine) ?: return
+            if (organism.isSandboxed) workspaces.awaitAvailable(organism, id)
+            runTurn(organism, cell, phase, route, machine)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (!organism.isSandboxed || !workspaces.isPaused(organism, id)) throw error
+            workspaces.awaitAvailable(organism, id)
+            machine.send(OrganicAiIntent.Internal.WorkspaceContinued(organism.id, id, request))
+        }
     }
 
     /** The turn of [phase] in the cell's session, which opens on [route]. */
@@ -108,6 +117,11 @@ internal class CellDriver(
         }
         val settlement = settlement(handle, turn, outcome)
         run.settled(handle.session, turn, outcome)
+        if (organism.isSandboxed && workspaces.isPaused(organism, cell.id)) {
+            workspaces.awaitAvailable(organism, cell.id)
+            machine.send(OrganicAiIntent.Internal.WorkspaceContinued(organism.id, cell.id, phase.request))
+            return
+        }
         val settled = OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, settlement)
         val result = machine.send(settled)
         log.i {
