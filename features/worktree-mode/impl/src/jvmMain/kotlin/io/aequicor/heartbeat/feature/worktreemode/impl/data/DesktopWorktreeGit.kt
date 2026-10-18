@@ -25,17 +25,23 @@ import kotlin.coroutines.coroutineContext
 /** Git argv calls and canonical path validation; native stderr is never allowed into logs or exceptions. */
 @Inject
 @ContributesBinding(ProfileScope::class)
-internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) : WorktreeGit {
+internal class DesktopWorktreeGit(
+    private val dispatchers: DispatcherProvider,
+    private val virtual: Lazy<VirtualSandboxStore> = lazy { error("VirtualWorkspaceBackendUnavailable") },
+    private val builds: Lazy<WorktreeBuildCoordinator>? = null,
+) : WorktreeGit {
     private val log = Log.tag("WorktreeGit")
     override val isAvailable: Boolean = true
 
     override suspend fun plan(source: String, identity: String): WorktreeProvision = withContext(dispatchers.io) {
         require(identity.matches(Regex("[a-zA-Z0-9-]+"))) { "InvalidProvisionIdentity" }
-        val root = Path.of(git(source, "rev-parse", "--show-toplevel")).toRealPath()
+        val root = Path.of(
+            gitOptional(source, "rev-parse", "--show-toplevel") ?: error("GitRepositoryRequired"),
+        ).toRealPath()
         val common = Path.of(
             git(root.toString(), "rev-parse", "--path-format=absolute", "--git-common-dir"),
         ).toRealPath()
-        val base = git(root.toString(), "rev-parse", "--verify", "HEAD^{commit}")
+        val base = gitOptional(root.toString(), "rev-parse", "--verify", "HEAD^{commit}") ?: error("GitHeadRequired")
         val sourceBranch = gitOptional(root.toString(), "symbolic-ref", "--quiet", "--short", "HEAD")
         val parent = common.resolve("heartbeat-worktree-data").resolve("checkouts")
         val directory = parent.resolve(identity).normalize()
@@ -53,6 +59,10 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
 
     override suspend fun materialize(record: WorktreeRecord) = withContext(dispatchers.io) {
         validateRecord(record)
+        if (record.task.virtualSandbox != null) {
+            virtual.value.create(record)
+            return@withContext
+        }
         if (exists(record)) return@withContext
         val directory = Path.of(record.directory)
         check(!Files.exists(directory)) { "CheckoutDirectoryOccupied" }
@@ -81,6 +91,9 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
 
     override suspend fun exists(record: WorktreeRecord): Boolean = withContext(dispatchers.io) {
         validateRecord(record)
+        if (record.task.virtualSandbox != null) {
+            return@withContext virtual.value.find(DesktopVirtualWorkspaces.workspace(record)) != null
+        }
         val directory = Path.of(record.directory)
         if (!Files.isDirectory(directory)) return@withContext false
         if (directory.toRealPath() != directory.toAbsolutePath().normalize()) return@withContext false
@@ -102,7 +115,6 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         check(exists(record)) { "WorktreeUnavailable" }
         require(plan.system.isNotBlank() && plan.system.length <= MAX_NAME) { "InvalidBuildSystem" }
         require(plan.commands.isNotEmpty() && plan.commands.size <= MAX_COMMANDS) { "InvalidBuildCommands" }
-        require(plan.caches.isNotEmpty()) { "NeedsConfiguration" }
         require(plan.commands.map { it.id }.distinct().size == plan.commands.size) { "DuplicateBuildCommands" }
         require(plan.caches.map { it.id }.distinct().size == plan.caches.size) { "DuplicateBuildCaches" }
         plan.caches.forEach { cache ->
@@ -126,11 +138,6 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             require(command.environment.keys.all { ENVIRONMENT.matches(it) }) { "InvalidBuildEnvironment" }
             require(command.environment.keys.none(::isSecretEnvironmentName)) { "SecretBuildEnvironment" }
             require(command.environment.keys.none { it in FORBIDDEN_ENVIRONMENT }) { "ProtectedBuildEnvironment" }
-            if (Path.of(command.executable).fileName.toString().lowercase().startsWith("gradle")) {
-                require(
-                    command.environment["GRADLE_USER_HOME"]?.contains("{cache:") == true,
-                ) { "GradleSharedUserCacheRequired" }
-            }
             checkoutDirectory(record, command.directory)
             // Shared resources can only be protected while the entire build remains in the worker's process tree.
             require(
@@ -170,15 +177,23 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         val data = Path.of(record.commonDirectory).resolve("heartbeat-worktree-data")
         val job = data.resolve("jobs").resolve(id)
         val directory = checkoutDirectory(record, selected.directory)
+        val virtualState = if (record.task.virtualSandbox != null) {
+            val ref = DesktopVirtualWorkspaces.workspace(record)
+            virtual.value.snapshot(ref)
+            virtual.value.state(ref)
+        } else {
+            null
+        }
         val sandbox = if (record.task.isSandbox) {
             SandboxBuild(
-                snapshot = "",
+                snapshot = virtualState?.snapshot.orEmpty(),
                 pool = data.resolve(SLOT_POOL).toString(),
                 // The original checkout outlives the task, so slots stay creatable after the sandbox is removed.
                 repository = record.sourceDirectory,
-                relativeDirectory = Path.of(record.directory).toRealPath().relativize(directory).toString()
+                relativeDirectory = Path.of(buildRoot(record)).toRealPath().relativize(directory).toString()
                     .ifEmpty { "." },
                 affinity = record.provisioning,
+                baseCommit = virtualState?.baseCommit,
             )
         } else {
             null
@@ -198,6 +213,7 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
     }
 
     override suspend fun reclaim(record: WorktreeRecord) = withContext(dispatchers.io) {
+        if (record.task.virtualSandbox != null) return@withContext
         check(record.task.isSandbox && exists(record)) { "SandboxUnavailable" }
         git(record.directory, "clean", "-d", "-X", "--force", "--quiet")
         Unit
@@ -234,13 +250,28 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         val registered = gitOptional(record.sourceDirectory, "worktree", "list", "--porcelain").orEmpty()
             .lineSequence().filter { it.startsWith("worktree ") }
             .map { Path.of(it.removePrefix("worktree ")).normalize() }
-        val present = if (Files.isDirectory(pool)) Files.list(pool).use { it.toList() } else emptyList()
+        val present = if (Files.isDirectory(pool)) {
+            Files.list(pool).use { files ->
+                files.map { file ->
+                    val name = file.fileName.toString().removeSuffix(
+                        ".unavailable",
+                    ).removeSuffix(".transaction").removeSuffix(".affinity")
+                    pool.resolve(name)
+                }.toList()
+            }
+        } else {
+            emptyList()
+        }
         val surplus = (registered + present).filter { it.parent == pool }.distinct().filter { slot ->
             SLOT_NAME.matchEntire(
                 slot.fileName.toString(),
             )?.groupValues?.get(1)?.toIntOrNull()?.let { it >= keep } == true
         }.toList()
-        val removed = surplus.count { slot -> removeFreeSlot(record, slot) }
+        val occupied = builds?.value?.occupiedSlots(record.commonDirectory).orEmpty()
+        val removed = surplus.count { slot ->
+            val index = SLOT_NAME.matchEntire(slot.fileName.toString())?.groupValues?.get(1)?.toIntOrNull()
+            index !in occupied && removeFreeSlot(record, slot)
+        }
         if (removed > 0) log.i { "Removed surplus build slots count=$removed keep=$keep" }
         removed < surplus.size
     }
@@ -252,6 +283,9 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             validateSlotOwnership(slot, Path.of(record.commonDirectory).toRealPath())
             gitOptional(record.sourceDirectory, "worktree", "remove", "--force", slot.toString())
             if (Files.exists(slot, java.nio.file.LinkOption.NOFOLLOW_LINKS)) removeSlot(slot)
+            Files.deleteIfExists(slot.resolveSibling("${slot.fileName}.transaction"))
+            Files.deleteIfExists(slot.resolveSibling("${slot.fileName}.unavailable"))
+            Files.deleteIfExists(slot.resolveSibling("${slot.fileName}.affinity"))
             true
         } finally {
             held.close()
@@ -261,7 +295,11 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
     override suspend fun snapshot(record: WorktreeRecord, id: String): String = withContext(dispatchers.io) {
         require(id.matches(IDENTIFIER)) { "InvalidBuildIdentity" }
         check(record.task.isSandbox && exists(record)) { "SandboxUnavailable" }
-        val commit = commitFiles(record, "Heartbeat sandbox snapshot")
+        val commit = if (record.task.virtualSandbox != null) {
+            virtual.value.snapshot(DesktopVirtualWorkspaces.workspace(record))
+        } else {
+            commitFiles(record, "Heartbeat sandbox snapshot")
+        }
         git(record.sourceDirectory, "update-ref", "$SNAPSHOT_REFS$id", commit)
         log.d { "Sandbox snapshot captured operation=$id" }
         commit
@@ -270,7 +308,11 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
     override suspend fun seal(record: WorktreeRecord, id: String): String = withContext(dispatchers.io) {
         require(id.matches(IDENTIFIER)) { "InvalidSealIdentity" }
         check(record.task.isIsolated && exists(record)) { "SealUnavailable" }
-        val commit = commitFiles(record, "Heartbeat result")
+        val commit = if (record.task.virtualSandbox != null) {
+            virtual.value.snapshot(DesktopVirtualWorkspaces.workspace(record))
+        } else {
+            commitFiles(record, "Heartbeat result")
+        }
         git(record.sourceDirectory, "update-ref", "$RESULT_REFS$id", commit)
         log.d { "Checkout result sealed operation=$id" }
         commit
@@ -446,8 +488,14 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
     private fun checkoutDirectory(record: WorktreeRecord, relative: String): Path {
         val input = Path.of(relative)
         require(!input.isAbsolute) { "BuildDirectoryMustBeRelative" }
-        val root = Path.of(record.directory).toRealPath()
+        val root = Path.of(buildRoot(record)).toRealPath()
         val resolved = root.resolve(input).normalize()
+        if (record.task.virtualSandbox != null) {
+            require(
+                resolved.startsWith(root) && input.none { it.toString() == ".git" },
+            ) { "BuildDirectoryOutsideCheckout" }
+            return resolved
+        }
         require(resolved.startsWith(root) && Files.isDirectory(resolved) && resolved.toRealPath().startsWith(root)) {
             "BuildDirectoryOutsideCheckout"
         }
@@ -457,7 +505,7 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
     private fun cacheDirectory(record: WorktreeRecord, location: String): Path {
         val result = canonicalResource(record, location)
         val source = Path.of(record.sourceDirectory).toRealPath()
-        val checkout = Path.of(record.directory).toRealPath()
+        val checkout = Path.of(buildRoot(record)).toRealPath()
         val common = Path.of(record.commonDirectory).toRealPath()
         require(
             result != source && result != checkout && (
@@ -468,7 +516,13 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         ) {
             "InvalidSharedCacheDirectory"
         }
-        require(!result.startsWith(source.resolve("build")) && !result.startsWith(source.resolve(".gradle"))) {
+        require(
+            if (record.task.virtualSandbox != null) {
+                !result.startsWith(source)
+            } else {
+                !result.startsWith(source.resolve("build")) && !result.startsWith(source.resolve(".gradle"))
+            },
+        ) {
             "ProjectOutputsCannotBeSharedCaches"
         }
         return result
@@ -491,6 +545,38 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         return ancestor.toRealPath().resolve(ancestor.relativize(resolved)).normalize()
     }
 
+    private fun buildRoot(record: WorktreeRecord): String =
+        if (record.task.virtualSandbox != null) record.sourceDirectory else record.directory
+
+    override val isVirtualSupported: Boolean get() = false
+
+    override suspend fun pauseVirtual(record: WorktreeRecord) =
+        virtual.value.pause(DesktopVirtualWorkspaces.workspace(record))
+
+    override suspend fun virtualSourceClean(record: WorktreeRecord): Boolean =
+        virtual.value.sourceClean(DesktopVirtualWorkspaces.workspace(record))
+
+    override suspend fun virtualWorkspace(record: WorktreeRecord) =
+        if (record.task.virtualSandbox != null) DesktopVirtualWorkspaces.workspace(record) else null
+
+    override suspend fun inspectVirtual(record: WorktreeRecord) = if (record.task.virtualSandbox != null) {
+        virtual.value.inspect(
+            DesktopVirtualWorkspaces.workspace(record),
+        )
+    } else {
+        null
+    }
+
+    override suspend fun resumeVirtual(record: WorktreeRecord, explicit: Boolean, resolveConflicts: Boolean) =
+        if (record.task.virtualSandbox != null) {
+            virtual.value.resume(DesktopVirtualWorkspaces.workspace(record), explicit, resolveConflicts)
+        } else {
+            null
+        }
+
+    override suspend fun handoffVirtual(record: WorktreeRecord) =
+        if (record.task.virtualSandbox != null) virtual.value.handoff(record) else null
+
     private suspend fun git(
         directory: String,
         vararg arguments: String,
@@ -509,10 +595,30 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         environment: Map<String, String> = emptyMap(),
     ): String? = withContext(dispatchers.io) {
         val output = Files.createTempFile("heartbeat-git-", ".out")
+        val hooks = Files.createTempDirectory("heartbeat-hooks-")
         var child: Process? = null
         try {
-            child = ProcessBuilder(arguments).directory(Path.of(directory).toFile()).redirectErrorStream(true)
-                .redirectOutput(output.toFile()).apply { environment().putAll(environment) }.start()
+            val command = if (arguments.first() == "git") {
+                arguments.take(2) + listOf(
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-c",
+                    "core.hooksPath=$hooks",
+                    "-c",
+                    "maintenance.auto=false",
+                    "-c",
+                    "gc.auto=0",
+                ) + arguments.drop(2)
+            } else {
+                arguments
+            }
+            child = ProcessBuilder(command).directory(Path.of(directory).toFile()).redirectErrorStream(true)
+                .redirectOutput(output.toFile()).apply {
+                    environment().keys.filter { it.startsWith("GIT_") }.forEach { environment().remove(it) }
+                    environment().putAll(environment)
+                    environment()["GIT_NO_REPLACE_OBJECTS"] = "1"
+                    environment()["GIT_NO_LAZY_FETCH"] = "1"
+                }.start()
             awaitChild(child)
             readGitOutput(child, output, optional)
         } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
@@ -528,8 +634,11 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             ) { "Git helper failed" }
             if (optional) null else error("GitProcessUnavailable")
         } finally {
-            stopNative(child)
-            Files.deleteIfExists(output)
+            withContext(kotlinx.coroutines.NonCancellable) {
+                stopNative(child)
+                cleanupGitTemporary(output)
+                cleanupGitTemporary(hooks)
+            }
         }
     }
 
