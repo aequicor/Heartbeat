@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.brief
 import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
@@ -58,7 +59,8 @@ import kotlin.uuid.Uuid
  * `subagent_spawn` / `subagent_receive`: subagents of ordinary chats. A spawn chooses the model configuration with
  * [AdaptiveModels] and starts a scheduler background agent in a helper chat, reviewed by the parent's review model;
  * the scheduler owns its work, recovery and result, retained for this feature until the parent reads it. Starting
- * needs an automatic safety review (or the user's decision in interactive hosts). Tasks and results are never logged.
+ * follows the host's trust policy in interactive mode and needs an independent review in automatic mode.
+ * Tasks and results are never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -85,7 +87,7 @@ internal class SubagentAgentTools(
     override suspend fun instructions(workspace: WorkspaceRef?): String = if (isEnabled()) INSTRUCTIONS else ""
 
     override suspend fun requiresDecision(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject) =
-        spec.name == SubagentTools.SPAWN
+        spec.name == SubagentTools.SPAWN && context.trust != TrustLevel.Full
 
     override suspend fun approval(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject) =
         if (spec.name == SubagentTools.SPAWN) {
