@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
@@ -18,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 
 /** Native launch identity and bounded observed history; no CLI credentials or MCP bearer are persisted. */
@@ -50,10 +52,23 @@ internal data class ClaudeHistorySnapshot(
     val events: List<Pair<Long, SessionEvent>> = emptyList(),
 )
 
+/**
+ * What the CLI reported for each model of one login [revision]: `value`, `resolvedModel`, vision and effort fields
+ * only. The adapter keeps it so image support and effort checks survive a restart without another discovery.
+ */
+@Serializable
+internal data class ClaudeModelCapabilities(val revision: AuthRevision, val models: List<JsonObject>)
+
 /** Profile-owned catalog of conversations created by this adapter. */
 internal interface ClaudeCatalog {
     suspend fun find(ref: SessionRef): ClaudeRecord?
     suspend fun save(record: ClaudeRecord)
+
+    /** The model entries of the last discovery for [revision]; null when none was saved for that login. */
+    suspend fun findModels(revision: AuthRevision): List<JsonObject>?
+
+    /** Replaces the saved model entries; one login is remembered, an older one is overwritten. */
+    suspend fun saveModels(revision: AuthRevision, models: List<JsonObject>)
 }
 
 private val ClaudeCatalogSpec = KeyValueSpec("claude_sessions")
@@ -78,11 +93,24 @@ internal class StoredClaudeCatalog(
         store.set(checkNotNull(key(record.ref)), record)
     }
 
+    override suspend fun findModels(revision: AuthRevision): List<JsonObject>? {
+        log.d { "Read saved Claude model capabilities" }
+        return store.get(ModelsKey)?.takeIf { it.revision == revision }?.models
+    }
+
+    override suspend fun saveModels(revision: AuthRevision, models: List<JsonObject>) {
+        log.d { "Persist Claude model capabilities count=${models.size}" }
+        store.set(ModelsKey, ClaudeModelCapabilities(revision, models))
+    }
+
     private fun key(ref: SessionRef): StoreKey<ClaudeRecord>? = if (NATIVE_UUID.matches(ref.nativeId)) {
         jsonKey<ClaudeRecord>("session_${ref.nativeId}", ClaudeRecord.serializer())
     } else {
         null
     }
 }
+
+private val ModelsKey: StoreKey<ClaudeModelCapabilities> =
+    jsonKey("model_capabilities", ClaudeModelCapabilities.serializer())
 
 private val NATIVE_UUID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")

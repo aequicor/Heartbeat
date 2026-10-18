@@ -178,7 +178,8 @@ internal class ClaudeSession(
         isEvicted
     }
 
-    fun stored(attachSession: suspend (ResumeSessionRequest) -> ActiveSession): EngineSession = object :
+    /** The stored view of this session; without [attachSession] it offers the history only. */
+    fun stored(attachSession: (suspend (ResumeSessionRequest) -> ActiveSession)?): EngineSession = object :
         EngineSession {
         override val summary = MutableStateFlow(
             SessionSummary(
@@ -186,16 +187,23 @@ internal class ClaudeSession(
                 workspace = route.workspace,
                 origin = SessionOrigin.Heartbeat,
                 lastRoute = route,
-                features = setOf(SessionHistory.id, ResumesSessions.id),
+                features = if (attachSession == null) {
+                    setOf(SessionHistory.id)
+                } else {
+                    setOf(SessionHistory.id, ResumesSessions.id)
+                },
             ),
         ).asStateFlow()
-        private val resumption = object : ResumesSessions {
-            override suspend fun resume(request: ResumeSessionRequest) = attachSession(request)
+        override val features = if (attachSession == null) {
+            ClaudeFeatures(SessionHistory to history)
+        } else {
+            ClaudeFeatures(
+                SessionHistory to history,
+                ResumesSessions to object : ResumesSessions {
+                    override suspend fun resume(request: ResumeSessionRequest) = attachSession(request)
+                },
+            )
         }
-        override val features = ClaudeFeatures(
-            SessionHistory to history,
-            ResumesSessions to resumption,
-        )
     }
 
     /** [failure] explains why the owning runtime stopped: profile closed, or its account was replaced. */

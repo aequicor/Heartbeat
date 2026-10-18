@@ -70,6 +70,8 @@ internal class ClaudeRuntime(
             ),
         )
     },
+    /** A runtime that only shows the history of stored sessions: their resumption is left to the owning runtime. */
+    private val isReadOnly: Boolean = false,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions,
@@ -182,7 +184,7 @@ internal class ClaudeRuntime(
             log.w { "Stored Claude session is unknown to this runtime" }
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
-        session.stored { request -> attach(ref, request) }
+        session.stored(if (isReadOnly) null else { request -> attach(ref, request) })
     }
 
     override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {

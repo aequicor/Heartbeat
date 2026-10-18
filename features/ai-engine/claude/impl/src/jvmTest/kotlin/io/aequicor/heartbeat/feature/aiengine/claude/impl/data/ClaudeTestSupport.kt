@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -31,6 +32,7 @@ import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlin.test.assertIs
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -175,6 +177,17 @@ internal class MemoryClaudeCatalog : ClaudeCatalog {
         records[ref.nativeId]?.let { Json.decodeFromString<ClaudeRecord>(it) }?.takeIf { it.ref == ref }
     override suspend fun save(record: ClaudeRecord) {
         records[record.ref.nativeId] = Json.encodeToString(ClaudeRecord.serializer(), record)
+    }
+
+    private var models: String? = null
+    override suspend fun findModels(revision: AuthRevision): List<JsonObject>? = models
+        ?.let { Json.decodeFromString<ClaudeModelCapabilities>(it) }
+        ?.takeIf { it.revision == revision }
+        ?.models
+
+    override suspend fun saveModels(revision: AuthRevision, models: List<JsonObject>) {
+        val capabilities = ClaudeModelCapabilities(revision, models)
+        this.models = Json.encodeToString(ClaudeModelCapabilities.serializer(), capabilities)
     }
 }
 
