@@ -95,4 +95,5 @@
     <string name="harness_hosted_hint">Харнесс может только выключить эти инструменты.</string>
     <string name="harness_tool_available">Разрешить %1$s</string>
     <string name="harness_pending_requests">Ждёт решений: %1$d</string>
+    <string name="harness_run_request_choices">Выберите от %1$d до %2$d вариантов. Выбрано: %3$d.</string>
 </resources>

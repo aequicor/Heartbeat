@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowViewer
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
@@ -311,9 +312,13 @@ internal class HarnessDetailModel(
 
     private fun HarnessDetailState.reflectRuns(state: HarnessRunsState): HarnessDetailState {
         val names = current()?.items?.associate { it.id to it.name.value }.orEmpty()
-        val owned = (state as? HarnessRunsState.Ready)?.runs.orEmpty().asSequence().filter { it.harness == id }
-            .sortedByDescending { it.startedAt }.take(RUNS_SHOWN).toList()
-        return copy(runs = owned.map { it.toUi(names[it.workflow] ?: it.workflow.value) }.toImmutableList())
+        val (active, history) = (state as? HarnessRunsState.Ready)?.runs.orEmpty().asSequence()
+            .filter { it.harness == id }
+            .sortedByDescending { it.startedAt }
+            .partition { it.status == WorkflowStatus.Running }
+        // Active runs are actionable regardless of age; only completed history is bounded.
+        val visible = active + history.take(HISTORY_SHOWN)
+        return copy(runs = visible.map { it.toUi(names[it.workflow] ?: it.workflow.value) }.toImmutableList())
     }
 }
 
@@ -328,4 +333,4 @@ private fun HarnessRejection.toUi(): DetailErrorUi = when (this) {
         DetailErrorUi.SaveFailed
 }
 
-private const val RUNS_SHOWN = 20
+private const val HISTORY_SHOWN = 20

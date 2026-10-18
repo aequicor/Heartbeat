@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.harness.impl.presentation.canSubmit
 import io.aequicor.heartbeat.feature.harness.impl.presentation.changeSelection
 import io.aequicor.heartbeat.feature.harness.impl.resources.Res
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_run_request_cell
+import io.aequicor.heartbeat.feature.harness.impl.resources.harness_run_request_choices
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -62,6 +63,7 @@ internal fun RunRequestCard(
                 accessibleLabel = request.title,
             )
         }
+        MultiChoiceHint(request, selected.size)
         val isSingle = request.kind == RequestKindUi.SingleChoice
         if (request.choices.isNotEmpty()) {
             HbColumn(if (isSingle) Modifier.selectableGroup() else Modifier, gap = HbTheme.spacing.none) {
@@ -93,4 +95,15 @@ internal fun RunRequestCard(
             }
         }
     }
+}
+
+/** Explains both incomplete and excessive selection without relying on the engine's question text. */
+@Composable
+private fun MultiChoiceHint(request: RunRequestUi, selected: Int) {
+    if (request.kind != RequestKindUi.MultiChoice) return
+    HbText(
+        stringResource(Res.string.harness_run_request_choices, request.min, request.max, selected),
+        style = HbTheme.typography.caption,
+        color = HbTheme.colors.textSecondary,
+    )
 }

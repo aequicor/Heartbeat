@@ -19,7 +19,10 @@ import io.aequicor.heartbeat.feature.harness.impl.presentation.RequestOptionUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.RunRequestUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.RunStatusUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.RunUi
+import io.aequicor.heartbeat.feature.harness.impl.resources.Res
+import io.aequicor.heartbeat.feature.harness.impl.resources.harness_run_request_choices
 import kotlinx.collections.immutable.persistentListOf
+import org.jetbrains.compose.resources.getString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -61,6 +64,30 @@ class HarnessRunRequestsUiTest {
                 intents,
             )
         }
+    }
+
+    @Test
+    fun `multiple choice shows its limits`() = runSkikoComposeUiTest(Size(900f, 800f)) {
+        val choice = request(
+            kind = RequestKindUi.MultiChoice,
+            choices = listOf("a", "b", "c").map { RequestChoiceUi(it, "Option $it") },
+            min = 2,
+            max = 2,
+        )
+        setContent { HbTheme { HarnessDetailContent(state(choice), {}, {}) } }
+        onNodeWithText(getString(Res.string.harness_run_request_choices, 2, 2, 0)).assertExists()
+        onNodeWithTag("harness-run-request-choice-${choice.key}-a").performClick()
+        onNodeWithText(getString(Res.string.harness_run_request_choices, 2, 2, 1)).assertExists()
+        onNodeWithTag("harness-run-request-option-${choice.key}-allow").assertIsNotEnabled()
+        onNodeWithTag("harness-run-request-choice-${choice.key}-b").performClick()
+        onNodeWithText(getString(Res.string.harness_run_request_choices, 2, 2, 2)).assertExists()
+        onNodeWithTag("harness-run-request-option-${choice.key}-allow").assertIsEnabled()
+        onNodeWithTag("harness-run-request-choice-${choice.key}-c").performClick()
+        onNodeWithText(getString(Res.string.harness_run_request_choices, 2, 2, 3)).assertExists()
+        onNodeWithTag("harness-run-request-option-${choice.key}-allow").assertIsNotEnabled()
+        onNodeWithTag("harness-run-request-option-${choice.key}-skip").assertIsEnabled()
+        onNodeWithTag("harness-run-request-choice-${choice.key}-c").performClick()
+        onNodeWithTag("harness-run-request-option-${choice.key}-allow").assertIsEnabled()
     }
 
     @Test

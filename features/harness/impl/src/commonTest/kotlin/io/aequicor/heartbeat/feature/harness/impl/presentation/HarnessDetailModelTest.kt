@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrigin
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowViewer
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
@@ -45,6 +46,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 class HarnessDetailModelTest {
@@ -182,6 +184,31 @@ class HarnessDetailModelTest {
         assertEquals(listOf("s0/c1/turn/req"), shown.requests.map { it.key })
         assertEquals(emptyList(), screen.states.value.runs.first { it.id == "wf_two" }.requests)
         assertFalse("private" in screen.states.value.toString())
+    }
+
+    @Test
+    fun `an old active request stays answerable after newer runs fill the history`() = runTest {
+        val pending = run(listOf(asking()))
+        val history = (1..21).map { index ->
+            run(emptyList(), "wf_done_$index").copy(
+                startedAt = STARTED + index.minutes,
+                status = WorkflowStatus.Completed(JsonObject(emptyMap())),
+                finishedAt = STARTED + index.minutes,
+            )
+        }
+        val runs = RecordingRuns(HarnessRunsState.Ready(history + pending))
+        val screen = subscribe(detail(RecordingLibrary(ready()), runs).store)
+        val visible = screen.states.value.runs
+        assertEquals(21, visible.size)
+        assertEquals(pending.id.value, visible.first().id)
+        assertEquals("wf_done_21", visible[1].id)
+        assertEquals("wf_done_2", visible.last().id)
+        val request = visible.first().requests.single()
+        screen.intent(HarnessDetailIntent.DecideRequest(request, "deny"))
+        runCurrent()
+        val answer = assertIs<HarnessRunsIntent.Internal.DecideOrganismPermission>(runs.sent.single())
+        assertEquals(pending.id, answer.run)
+        assertEquals(PermissionOptionId("deny"), answer.decision.option)
     }
 
     @Test
