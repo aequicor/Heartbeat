@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 import io.aequicor.heartbeat.feature.aiengine.facade.api.brief
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
 import io.aequicor.heartbeat.feature.organicai.api.Cell
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.DeathCause
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
@@ -14,9 +15,10 @@ import io.aequicor.heartbeat.feature.organicai.api.isZygote
 internal fun Cell.label(): String = if (isZygote) "the zygote" else "${id.value} \"$name\""
 
 /** One line per cell: id, name, parent, generation and state. */
-internal fun Organism.cellTable(): String = cells.joinToString("\n") { cell ->
+internal fun Organism.cellTable(branches: Map<CellId, String> = emptyMap()): String = cells.joinToString("\n") { cell ->
     val parent = cell.parent?.let { "child of ${it.value}" } ?: "zygote"
-    "- ${cell.id.value} \"${cell.name}\" ($parent, generation ${depth(cell.id)}): ${cell.phase.describe()}"
+    val branch = branches[cell.id]?.let { ", sandbox branch $it" }.orEmpty()
+    "- ${cell.id.value} \"${cell.name}\" ($parent, generation ${depth(cell.id)}$branch): ${cell.phase.describe()}"
 }
 
 /** Open cases, one per line, or a note that there are none. */
@@ -47,4 +49,5 @@ internal fun Breakdown.describe(): String = when (this) {
     is Breakdown.Engine -> "engine failure ${failure.code}"
     Breakdown.Interrupted -> "the turn was cancelled outside the organism"
     Breakdown.Unconfirmed -> "the engine could not confirm how the turn ended"
+    Breakdown.Harnesses -> "the harnesses chosen for the organism could not be connected"
 }

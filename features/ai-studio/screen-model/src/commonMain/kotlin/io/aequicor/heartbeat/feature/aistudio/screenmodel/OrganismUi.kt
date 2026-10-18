@@ -34,7 +34,7 @@ data class SubSessionObservationUi(val key: String, val isRunning: Boolean?, val
 /** Where the organism is in its life; a stalled zygote waits for an explicit resume. */
 @Serializable
 @SerialName("OrganismStatusUi")
-enum class OrganismStatusUi { Developing, Stalled, Completed, Aborted }
+enum class OrganismStatusUi { Developing, Stalled, Releasing, ReleaseUnconfirmed, Completed, Aborted }
 
 /** What a sub-session is: the zygote, a divided cell or a judge of a complaint or a dispute. */
 @Serializable

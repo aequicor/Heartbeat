@@ -19,9 +19,12 @@ import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEnabled
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineSpec
+import io.aequicor.heartbeat.feature.organicai.api.OrganicAiSandbox
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellDriver
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellHarnesses
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellSessions
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellWorkspaces
 import io.aequicor.heartbeat.feature.organicai.impl.domain.DefaultTargets
 import io.aequicor.heartbeat.feature.organicai.impl.domain.ImmunityCourt
 import io.aequicor.heartbeat.feature.organicai.impl.domain.JudgeSessions
@@ -43,14 +46,17 @@ public object OrganicAiBindings {
         journal: OrganismJournal,
         targets: DefaultTargets,
         cells: CellSessions,
+        workspaces: CellWorkspaces,
         judges: JudgeSessions,
         transcripts: SessionTranscripts,
+        harnesses: CellHarnesses,
     ): OrganicAiEffects = OrganicAiEffects(
         journal = journal,
         targets = targets,
         cells = cells,
-        driver = CellDriver(cells, journal),
+        driver = CellDriver(cells, journal, workspaces, harnesses),
         court = ImmunityCourt(judges, transcripts),
+        workspaces = workspaces,
     )
 
     @Provides
@@ -100,7 +106,7 @@ internal class OrganicAiStartup(
     }
 }
 
-/** Registers the disabled-by-default organic AI switch. */
+/** Registers the organic AI switch and the disabled-by-default switch of cell sandboxes. */
 @ContributesTo(AppScope::class)
 @BindingContainer
 public object OrganicAiToggleBindings {
@@ -108,4 +114,9 @@ public object OrganicAiToggleBindings {
     @Provides
     @IntoSet
     public fun toggle(): FeatureToggle<*> = OrganicAiEnabled
+
+    /** Exact FeatureToggle wildcard joins the application registry. */
+    @Provides
+    @IntoSet
+    public fun sandboxToggle(): FeatureToggle<*> = OrganicAiSandbox
 }

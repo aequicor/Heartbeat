@@ -113,9 +113,8 @@ private fun SafetySection(modifier: Modifier = Modifier) {
     HbSettingsSection(
         stringResource(Res.string.harness_approval_section),
         modifier.testTag("harness-safety"),
-    ) {
-        HbSettingsRow(stringResource(Res.string.harness_approval_section_hint))
-    }
+        description = stringResource(Res.string.harness_approval_section_hint),
+    ) {}
 }
 
 @Composable

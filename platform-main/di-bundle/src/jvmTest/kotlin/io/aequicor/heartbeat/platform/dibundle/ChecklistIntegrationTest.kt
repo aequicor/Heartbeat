@@ -89,9 +89,9 @@ class ChecklistIntegrationTest {
     }
 
     @Test
-    fun `checklists default off and ready mode persists with automatic wakes disabled`() = runTest {
+    fun `checklist ready mode persists with automatic wakes disabled`() = runTest {
         assertTrue(ChecklistEnabled in toggles.toggleControl.registered)
-        assertFalse(ChecklistEnabled.default)
+        assertTrue(ChecklistEnabled.default)
         toggles.toggleControl.setOverride(ChecklistEnabled, true)
         val first = app.profileSessions.open(ProfileId("checklist"))
         val access = first.graph as TestChecklistAccessors

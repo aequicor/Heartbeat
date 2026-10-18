@@ -100,6 +100,18 @@ public sealed interface WorktreeIntent : MachineIntent {
             val reason: String,
         ) : Public
 
+        /**
+         * A restarted host found the native turn of a pending Coding run still running and observes it again. Takes the
+         * run out of recovery only when [session] and [turn] are exactly the identity the run already recorded;
+         * a turn the run never recorded is never adopted, since nothing proves it belongs to [request].
+         */
+        public data class RunAdopted(
+            val chatId: String,
+            val request: RequestId,
+            val session: SessionRef,
+            val turn: TurnId,
+        ) : Public
+
         /** Native terminal result; successful completion also requires a signal from the same turn. */
         public data class RunSettled(
             val chatId: String,
@@ -158,6 +170,14 @@ public sealed interface WorktreeIntent : MachineIntent {
 
         /** Cancels a queued build or requests worker termination before releasing resources. */
         public data class CancelBuild(val chatId: String, val operation: String) : Public
+
+        /**
+         * Captures the files of the isolated checkout as an immutable commit on top of the task branch: the work the
+         * agent committed and whatever it left uncommitted (ignored files excluded). The branch, the index and the
+         * files stay untouched, so a sibling can integrate the result safely. Refused while a native run of the task
+         * is active. The outcome lands in [WorktreeTask.seal] under [operation], the failure included.
+         */
+        public data class Seal(val chatId: String, val operation: String) : Public
     }
 
     /** Persisted results; earlier revisions cannot overwrite later work. */

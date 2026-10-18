@@ -9,14 +9,18 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserConnectivity
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserErrorPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserProfile
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.networkRecoveriesWhileEnabled
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,14 +42,16 @@ internal interface DesktopBrowserPanelFactory : BrowserNativeResources {
 
     /**
      * The panel of [surface] whose documents [guard] restricts for an agent owner. The first creation of a surface
-     * fixes its guard: the session creates each tab's panel with the tab's guard before any view can ask for it.
-     * [onShortcut] receives tab keys pressed inside the page, on CEF's UI thread.
+     * fixes its guard and its [storage]: the session creates each tab's panel with the tab's guard and storage before
+     * any view can ask for it, and any other surface belongs to the user. [onShortcut] receives tab keys pressed
+     * inside the page, on CEF's UI thread.
      */
     fun create(
         surface: BrowserSurface,
         guard: DesktopBrowserAgentGuard,
         openTab: ((BrowserCommand.Load) -> Unit)? = null,
         onShortcut: ((BrowserShortcut) -> Unit)? = null,
+        storage: BrowserStorage = BrowserStorage.User,
     ): DesktopBrowserPanel
     fun close(surface: BrowserSurface)
 
@@ -69,6 +75,7 @@ internal class DefaultDesktopBrowserPanelFactory(
     override val errorPagesEnabled = errorPolicy.observe()
         .stateIn(scope.coroutineScope, SharingStarted.Eagerly, false)
     override val networkRestored = errorPagesEnabled.networkRecoveriesWhileEnabled(connectivity::restored)
+    private val log = Log.tag("DesktopBrowserPanelFactory")
     private val certificateExceptions = DesktopCertificateExceptions()
     override fun rememberCertificateException(url: String) = certificateExceptions.remember(url)
     override fun hasCertificateException(url: String): Boolean = certificateExceptions.contains(url)
@@ -79,6 +86,9 @@ internal class DefaultDesktopBrowserPanelFactory(
     private val monitor = Any()
     private val panels = mutableMapOf<BrowserSurface, DesktopBrowserPanel>()
     private val retired = mutableListOf<DesktopBrowserPanel>()
+
+    /** The agent session each panel in [panels] and [retired] stores for, if any; guarded by [monitor]. */
+    private val agentOwners = mutableMapOf<DesktopBrowserPanel, String>()
 
     init {
         profile.attach(::closePanels)
@@ -94,8 +104,23 @@ internal class DefaultDesktopBrowserPanelFactory(
         if (closing != null) {
             appScope.coroutineScope.launch {
                 closing.awaitClosed()
-                synchronized(monitor) { retired.remove(closing) }
+                val owner = synchronized(monitor) {
+                    retired.remove(closing)
+                    agentOwners.remove(closing)
+                }
+                owner?.let { releaseStorage(it) }
             }
+        }
+    }
+
+    /** The last tab of an agent session took its pages with it: the session's storage goes too. */
+    private suspend fun releaseStorage(owner: String) {
+        try {
+            profile.releaseAgentContext(owner) { synchronized(monitor) { owner in agentOwners.values } }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.redactedFailure()) { "Agent browser session storage could not be discarded" }
         }
     }
 
@@ -104,6 +129,7 @@ internal class DefaultDesktopBrowserPanelFactory(
         guard: DesktopBrowserAgentGuard,
         openTab: ((BrowserCommand.Load) -> Unit)?,
         onShortcut: ((BrowserShortcut) -> Unit)?,
+        storage: BrowserStorage,
     ): DesktopBrowserPanel = synchronized(monitor) {
         check(profile.isAvailable) { "Browser profile is unavailable" }
         panels.getOrPut(surface) {
@@ -114,7 +140,7 @@ internal class DefaultDesktopBrowserPanelFactory(
                 resources.preparation,
             ) { isReleased, changed ->
                 val app = resources.app()
-                profile.useContext { shared ->
+                val engine = { shared: CefRequestContext ->
                     check(!isReleased()) { "Browser surface is closed" }
                     DesktopBrowserEngine(
                         app,
@@ -130,7 +156,11 @@ internal class DefaultDesktopBrowserPanelFactory(
                         checkNotNull(CefRequestContext.createContext(shared, it))
                     }
                 }
-            }
+                when (storage) {
+                    BrowserStorage.User -> profile.useContext(engine)
+                    is BrowserStorage.Agent -> profile.useAgentContext(storage.owner, engine)
+                }
+            }.also { panel -> (storage as? BrowserStorage.Agent)?.let { agentOwners[panel] = it.owner } }
         }
     }
 
@@ -146,7 +176,11 @@ internal class DefaultDesktopBrowserPanelFactory(
         }
         closing.forEach(DesktopBrowserPanel::release)
         closing.forEach { it.awaitClosed() }
-        synchronized(monitor) { retired.removeAll(closing.toSet()) }
+        synchronized(monitor) {
+            retired.removeAll(closing.toSet())
+            // The profile discards the agent sessions' storage itself after the surfaces are closed.
+            agentOwners.clear()
+        }
         certificateExceptions.clear()
     }
 }

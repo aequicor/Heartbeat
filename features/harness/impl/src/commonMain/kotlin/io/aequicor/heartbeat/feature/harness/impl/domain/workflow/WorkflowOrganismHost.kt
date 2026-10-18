@@ -24,7 +24,7 @@ internal sealed interface OrganismView {
     data class Stalled(val end: OrganismEnd) : OrganismView
 
     /** The zygote answered after every descendant ended. */
-    data class Answered(val text: String) : OrganismView {
+    data class Answered(val text: String, val release: OrganismRelease = OrganismRelease.Confirmed) : OrganismView {
         override fun toString(): String = "Answered(${text.length} chars)"
     }
 
@@ -56,11 +56,20 @@ internal data class OrganismCellRequest(val cell: String, val name: String, val 
  * aborted does not.
  */
 internal val OrganismView.isEnded: Boolean
-    get() = this == OrganismView.Absent || this is OrganismView.Answered || this == OrganismView.Aborted
+    get() = this == OrganismView.Absent ||
+        (this is OrganismView.Answered && release == OrganismRelease.Confirmed) || this == OrganismView.Aborted
 
 /** Whether another abort moves the organism forward: it develops, is stalled or its release was not confirmed. */
 internal val OrganismView.isAbortable: Boolean
-    get() = this is OrganismView.Developing || this is OrganismView.Stalled || this == OrganismView.AbortUnconfirmed
+    get() = this is OrganismView.Developing || this is OrganismView.Stalled || isReleaseUnconfirmed
+
+/** Whether an ended organism needs another attempt to release its cells. */
+internal val OrganismView.isReleaseUnconfirmed: Boolean
+    get() = this == OrganismView.AbortUnconfirmed ||
+        (this is OrganismView.Answered && release == OrganismRelease.Unconfirmed)
+
+/** Native work confirmation accompanying an answer; the answer alone does not prove release. */
+internal enum class OrganismRelease { Pending, Unconfirmed, Confirmed }
 
 /** How organic AI took a conception. */
 internal enum class OrganismConception {

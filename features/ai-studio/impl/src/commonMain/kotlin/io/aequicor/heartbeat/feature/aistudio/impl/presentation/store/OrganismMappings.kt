@@ -21,7 +21,9 @@ import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.Ruling
+import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.Trial
+import io.aequicor.heartbeat.feature.organicai.api.isDeveloping
 import io.aequicor.heartbeat.feature.organicai.api.zygote
 import kotlinx.collections.immutable.toImmutableList
 
@@ -50,18 +52,7 @@ internal fun Organism.toUi(): OrganismUi = OrganismUi(
         TrustLevel.Full -> ApprovalUi.AutoApprove
         null -> null
     },
-    status = when {
-        status is OrganismStatus.Completed -> OrganismStatusUi.Completed
-
-        status == OrganismStatus.Aborted -> OrganismStatusUi.Aborted
-
-        zygote.phase is CellPhase.Stalled -> OrganismStatusUi.Stalled
-
-        zygote.phase == CellPhase.Resting && cells.any { it.phase == CellPhase.Resting && !it.isAwaitingResults } ->
-            OrganismStatusUi.Stalled
-
-        else -> OrganismStatusUi.Developing
-    },
+    status = statusUi(),
     subSessions = (
         cells.map { cell -> cell.toSubSession().copy(depth = depthOf(cell)) } +
             trials.map { it.toSubSession().copy(depth = 1) }
@@ -70,6 +61,23 @@ internal fun Organism.toUi(): OrganismUi = OrganismUi(
         (cell.phase as? CellPhase.Working)?.awaiting.orEmpty().map { it.toUi(cell) }
     }.toImmutableList(),
 )
+
+private fun Organism.statusUi(): OrganismStatusUi = when {
+    !isDeveloping && sessions == SessionRelease.Releasing -> OrganismStatusUi.Releasing
+
+    !isDeveloping && sessions == SessionRelease.Unconfirmed -> OrganismStatusUi.ReleaseUnconfirmed
+
+    status is OrganismStatus.Completed -> OrganismStatusUi.Completed
+
+    status == OrganismStatus.Aborted -> OrganismStatusUi.Aborted
+
+    zygote.phase is CellPhase.Stalled -> OrganismStatusUi.Stalled
+
+    zygote.phase == CellPhase.Resting && cells.any { it.phase == CellPhase.Resting && !it.isAwaitingResults } ->
+        OrganismStatusUi.Stalled
+
+    else -> OrganismStatusUi.Developing
+}
 
 private fun Organism.depthOf(cell: Cell): Int {
     var parent = cell.parent

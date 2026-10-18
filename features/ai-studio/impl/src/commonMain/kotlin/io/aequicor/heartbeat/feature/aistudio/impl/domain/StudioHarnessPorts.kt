@@ -29,7 +29,8 @@ data class StudioHarnessChoices(
  * Chat side of the harness library; implemented over the harness machine, absent without the feature.
  * A new chat's choice stays on the screen until its submission: [claim] hands it over under the submission id,
  * which travels with the submission to its first turn, and [StudioHarnessAttach] connects it before that prompt.
- * The screen only claims; the turn uses and releases the claim, so leaving the screen never strands it.
+ * The screen only claims; the turn uses and releases the claim (a new organism chat reads it when it is created and
+ * releases it with its first submission), so leaving the screen never strands it.
  */
 interface StudioHarnesses {
     val choices: Flow<StudioHarnessChoices>
@@ -65,7 +66,8 @@ internal typealias ToolChoices = Map<String, Set<String>>
 internal interface StudioHarnessAttach {
     /**
      * The claim of [submissionId] as [CreateSessionRequest.preselected] choices, without using it: an engine that
-     * declares tools when it opens the session (Codex) already sees the chosen harnesses.
+     * declares tools when it opens the session (Codex) already sees the chosen harnesses, and a new organism chat
+     * takes its harness choice from the harness tools group entry when it is created.
      */
     fun preselected(submissionId: String): ToolChoices
 

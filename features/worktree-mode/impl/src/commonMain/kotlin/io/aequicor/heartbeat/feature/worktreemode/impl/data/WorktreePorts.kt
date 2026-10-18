@@ -92,6 +92,14 @@ internal interface SandboxGit {
     suspend fun snapshot(record: WorktreeRecord, id: String): String =
         throw UnsupportedOperationException("Sandboxes require Desktop")
 
+    /**
+     * Commits all files of the isolated checkout, committed work and uncommitted changes alike (ignored files
+     * excluded), on top of its HEAD as an immutable commit that stays reachable from a private result ref [id]. The
+     * branch, the agent's index and the files stay untouched. Works for any isolated checkout, not only sandboxes.
+     */
+    suspend fun seal(record: WorktreeRecord, id: String): String =
+        throw UnsupportedOperationException("Sealing requires Desktop")
+
     /** Removes ignored files (outputs of native builds the agent ran anyway) from a sandbox that no longer works. */
     suspend fun reclaim(record: WorktreeRecord) = Unit
 

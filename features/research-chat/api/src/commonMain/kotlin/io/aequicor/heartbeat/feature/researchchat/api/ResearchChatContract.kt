@@ -17,7 +17,7 @@ import kotlinx.serialization.Serializable
 public val ResearchChatEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "research_chat.enabled",
     "Чат-исследование: вопросы и общие источники вне проектов в Koog",
-    default = false,
+    default = true,
 )
 
 /**

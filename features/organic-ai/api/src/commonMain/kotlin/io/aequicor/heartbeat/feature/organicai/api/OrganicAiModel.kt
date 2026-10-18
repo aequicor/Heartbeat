@@ -24,6 +24,18 @@ import kotlinx.serialization.Transient
 public val OrganicAiEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "organic_ai.enabled",
     "Органический ИИ: зигота, деление клеток-сессий и иммунитет",
+    default = true,
+)
+
+/**
+ * New organisms of a chat with a project run every cell in a sandbox of its own ([OrganismIsolation.Sandbox]) instead
+ * of in the project's checkout. Needs worktree mode: a conception fails rather than falling back to the shared
+ * checkout. An organism keeps the isolation it was conceived with when the toggle changes.
+ */
+public val OrganicAiSandbox: FeatureToggle.Flag = FeatureToggle.Flag(
+    "organic_ai.sandbox",
+    "Органический ИИ: каждая клетка работает в своей песочнице",
+    default = false,
 )
 
 /** Caller-generated identity of an organism; never contains native paths, accounts or credentials. */
@@ -78,6 +90,15 @@ public object OrganismBounds {
 
     /** Characters of a cell result kept and passed to its parent; a longer answer is cut by the host. */
     public const val MAX_RESULT: Int = 20_000
+
+    /**
+     * Harnesses one organism carries: as many as the harness library holds. A harness the user chose is never dropped
+     * (a smaller set could lose a restricting one), so the choice is refused rather than cut.
+     */
+    public const val MAX_HARNESSES: Int = 32
+
+    /** Characters of one harness id; ids are opaque to the organism. */
+    public const val MAX_HARNESS_ID: Int = 128
 }
 
 /**
@@ -116,9 +137,27 @@ public data class GrowthLimits(
 }
 
 /**
+ * Where the cells of an organism work. The choice is made once, when the organism is conceived, and a saved
+ * organism keeps its own.
+ */
+@Serializable
+public enum class OrganismIsolation {
+    /** Every cell works in the organism's project itself, so parallel writers share one checkout. */
+    Shared,
+
+    /**
+     * Every cell works in a sandbox of its own: a separate checkout of the project's committed HEAD on a branch of
+     * its own, managed by worktree mode. The project's checkout is never written by a cell. A cell's finished work is
+     * a branch that its parent integrates explicitly.
+     */
+    Sandbox,
+}
+
+/**
  * Request to conceive an organism. A null [target] is resolved from the profile's default model when the zygote
  * starts; [immunityTarget] runs the judge sessions and defaults to [target]. Every cell works in [workspace] (no
- * project when null) with [trust]; actions the engine still asks about are escalated to the user.
+ * project when null) with [trust]; actions the engine still asks about are escalated to the user. With
+ * [OrganismIsolation.Sandbox] [workspace] is the project the cells' sandboxes are cut from and must be set.
  */
 @Serializable
 public data class Conception(
@@ -131,11 +170,20 @@ public data class Conception(
     val limits: GrowthLimits = GrowthLimits(),
     /** Profile-owned inputs of the goal, supplied with every cell's genesis (including recovery). */
     val attachments: List<ResourceRef> = emptyList(),
+    val isolation: OrganismIsolation = OrganismIsolation.Shared,
+    /**
+     * Harnesses the user chose for this organism before it existed, as the studio composer claimed them. The
+     * organism records them and every working cell opens its session with them; judges never get them. Only a choice
+     * made through host UI belongs here, never ids read from a prompt, a model answer or a tool argument.
+     */
+    val harnesses: Set<String> = emptySet(),
 ) {
     init {
         require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
             "Invalid organism goal"
         }
+        require(isolation == OrganismIsolation.Shared || workspace != null) { "A sandbox organism needs a project" }
+        require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
     }
 
     override fun toString(): String = "Conception(id=${id.value}, goal=${goal.length} chars)"
@@ -165,21 +213,39 @@ public data class Organism(
     /** Original goal inputs; only references are journaled, never file bytes or native paths. */
     val attachments: List<ResourceRef> = emptyList(),
     /**
-     * Whether the native work of an [OrganismStatus.Aborted] organism is known to have stopped; every other
-     * organism keeps the default. Observed from the host and not saved: a fresh profile restores Released;
+     * Whether the native work of an ended organism is known to have stopped; developing organisms keep the default.
+     * Observed from the host and not saved: a fresh profile restores Released;
      * awakening in the same profile restores Unconfirmed if the host still holds a handle or opener.
      */
     @Transient val sessions: SessionRelease = SessionRelease.Released,
+    /** Where cells work; fixed at conception. A sandbox organism cuts its cells' checkouts from [workspace]. */
+    val isolation: OrganismIsolation = OrganismIsolation.Shared,
+    /**
+     * The harness choice of its [Conception], fixed for the organism's life: no intent changes it, and every working
+     * cell, however it came to be, opens with exactly these and is connected to them before each new prompt. A cell
+     * can still connect more harnesses to its own session with its tools. A harness deleted or turned off later
+     * stops the turns that need it (a zygote stalls, a descendant dies) until the organism is aborted. A journal
+     * written before harnesses existed reads as none.
+     */
+    val harnesses: Set<String> = emptySet(),
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }
         require(cells.map { it.id }.distinct().size == cells.size) { "Duplicate cell" }
+        require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
     }
 
     override fun toString(): String =
         "Organism(id=${id.value}, cells=${cells.size}, cases=${cases.size}, status=$status, sessions=$sessions, " +
             "version=$version)"
 }
+
+/**
+ * Whether [harnesses] is a choice an organism can hold ([OrganismBounds]): trimmed, non-blank ids of a bounded length,
+ * in a bounded number. Hosts ask before they create what would carry the choice, so a refusal never comes late.
+ */
+public fun isValidHarnessChoice(harnesses: Set<String>): Boolean = harnesses.size <= OrganismBounds.MAX_HARNESSES &&
+    harnesses.all { it.isNotBlank() && it == it.trim() && it.length <= OrganismBounds.MAX_HARNESS_ID }
 
 /** Lifecycle of an organism. Only an explicit abort kills it: the zygote is never judged or killed. */
 @Serializable
@@ -203,8 +269,8 @@ public sealed interface OrganismStatus {
 }
 
 /**
- * Whether the host let go of all cell sessions of an aborted organism, including earlier lysis.
- * The abort itself only marks the organism,
+ * Whether the host let go of all cell sessions of an ended organism, including earlier lysis.
+ * An answer or abort only marks the organism,
  * so their native turns may still run until the host reports otherwise.
  */
 public enum class SessionRelease {
@@ -234,7 +300,9 @@ public data class CellConfiguration(
 /**
  * One engine session of an organism. [parent] is null only for the zygote. [session] is set once the native
  * session exists; [inbox] is an append-only result log read by the cell's tool. [receivedLetters] is its read
- * cursor, so reads can be replayed after ambiguous tool delivery. [turns] makes request ids unique.
+ * cursor, so reads can be replayed after ambiguous tool delivery. [turns] makes request ids unique. [workspace] is
+ * the cell's own sandbox checkout once worktree mode prepared it, always before its session is created; the checkout
+ * itself, its branch and the native run of the cell belong to the worktree journal, under [Organism.sandboxTask].
  */
 @Serializable
 public data class Cell(
@@ -252,6 +320,8 @@ public data class Cell(
     val isAwaitingResults: Boolean = false,
     /** Its own model configuration; null runs it on the organism's model and the profile's effort. */
     val configuration: CellConfiguration? = null,
+    /** Its own sandbox checkout; null works in the organism's [Organism.workspace]. */
+    val workspace: WorkspaceRef? = null,
 ) {
     init {
         require(receivedLetters in 0..inbox.size) { "Invalid inbox cursor" }
@@ -397,6 +467,13 @@ public sealed interface Breakdown {
     /** The engine could not confirm how the turn ended and its history holds no answer. */
     @Serializable
     public data object Unconfirmed : Breakdown
+
+    /**
+     * The harnesses chosen for the organism ([Organism.harnesses]) could not be connected to the cell's session, so
+     * no prompt was sent: a turn never runs in a smaller environment than the user chose.
+     */
+    @Serializable
+    public data object Harnesses : Breakdown
 }
 
 /** Why a cell ended without an answer. */

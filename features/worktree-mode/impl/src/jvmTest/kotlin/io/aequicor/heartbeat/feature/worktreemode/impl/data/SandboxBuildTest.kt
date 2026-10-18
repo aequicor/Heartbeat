@@ -45,6 +45,67 @@ class SandboxBuildTest {
     }
 
     @Test
+    fun `a seal captures committed and uncommitted work without moving the branch index or files`() = runTest {
+        val root = repository()
+        val git = DesktopWorktreeGit(RealTestDispatchers)
+        try {
+            val projectHead = command(root, "git", "rev-parse", "HEAD")
+            val record = sandbox(git, root)
+            val checkout = Path.of(record.directory)
+            Files.writeString(checkout.resolve("committed.txt"), "kept")
+            command(checkout, "git", "add", "committed.txt")
+            command(checkout, "git", "commit", "-m", "work")
+            val branchTip = command(checkout, "git", "rev-parse", "HEAD")
+            Files.writeString(checkout.resolve("source.txt"), "edited")
+            Files.writeString(checkout.resolve("added.txt"), "new")
+            Files.createDirectories(checkout.resolve("build"))
+            Files.writeString(checkout.resolve("build/output.bin"), "artifact")
+
+            val sealed = git.seal(record, "seal-1")
+
+            assertEquals(branchTip, command(checkout, "git", "rev-parse", "HEAD"))
+            assertEquals(branchTip, command(checkout, "git", "rev-parse", "$sealed^"))
+            assertEquals("kept", command(root, "git", "show", "$sealed:committed.txt"))
+            assertEquals("edited", command(root, "git", "show", "$sealed:source.txt"))
+            assertEquals("new", command(root, "git", "show", "$sealed:added.txt"))
+            assertFalse("build/output.bin" in command(root, "git", "ls-tree", "-r", "--name-only", sealed))
+            assertEquals(sealed, command(root, "git", "rev-parse", "refs/heartbeat/results/seal-1"))
+            assertEquals("", command(checkout, "git", "diff", "--cached", "--name-only"))
+            assertEquals("edited", Files.readString(checkout.resolve("source.txt")))
+            // The sealed work merges into a sibling that branched from the same base, like a parent integrates a child.
+            val sibling = sandbox(git, root, "sibling-test")
+            val siblingCheckout = Path.of(sibling.directory)
+            command(siblingCheckout, "git", "merge", "--no-ff", "--no-edit", sealed)
+            assertEquals("kept", Files.readString(siblingCheckout.resolve("committed.txt")))
+            assertEquals("new", Files.readString(siblingCheckout.resolve("added.txt")))
+            // Nothing the cells did reached the project's own checkout: same commit, no changes, no extra files.
+            assertEquals(projectHead, command(root, "git", "rev-parse", "HEAD"))
+            assertEquals("", command(root, "git", "status", "--porcelain"))
+            assertFalse(Files.exists(root.resolve("committed.txt")))
+            assertFalse(Files.exists(root.resolve("added.txt")))
+        } finally {
+            removeTestTree(root)
+        }
+    }
+
+    @Test
+    fun `a seal works for a plain worktree and its refs survive snapshot pruning`() = runTest {
+        val root = repository()
+        val git = DesktopWorktreeGit(RealTestDispatchers)
+        try {
+            val record = sandbox(git, root)
+            val plain = record.copy(task = record.task.copy(isSandbox = false))
+            val sealed = git.seal(plain, "seal-2")
+            assertFailsWith<IllegalStateException> { git.snapshot(plain, "operation-1") }
+            git.pruneSnapshots(record, emptySet())
+            assertEquals(sealed, command(root, "git", "rev-parse", "refs/heartbeat/results/seal-2"))
+            assertFailsWith<IllegalArgumentException> { git.seal(record, "bad id") }
+        } finally {
+            removeTestTree(root)
+        }
+    }
+
+    @Test
     fun `sandbox builds target a slot and lock only exclusive resources`() = runTest {
         val root = repository()
         val git = DesktopWorktreeGit(RealTestDispatchers)
@@ -297,8 +358,12 @@ class SandboxBuildTest {
         }
     }
 
-    private suspend fun sandbox(git: DesktopWorktreeGit, root: Path): WorktreeRecord {
-        val plan = git.plan(root.toString(), "sandbox-test")
+    private suspend fun sandbox(
+        git: DesktopWorktreeGit,
+        root: Path,
+        identity: String = "sandbox-test",
+    ): WorktreeRecord {
+        val plan = git.plan(root.toString(), identity)
         val record = WorktreeRecord(
             WorktreeTask(
                 "chat",
@@ -311,7 +376,7 @@ class SandboxBuildTest {
             plan.sourceDirectory,
             plan.directory,
             plan.commonDirectory,
-            "sandbox-test",
+            identity,
         )
         git.materialize(record)
         val build = WorktreeBuildPlan(

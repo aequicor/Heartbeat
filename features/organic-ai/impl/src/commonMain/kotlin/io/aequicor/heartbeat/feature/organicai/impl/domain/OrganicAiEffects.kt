@@ -3,15 +3,18 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineSpec
 import io.aequicor.heartbeat.feature.organicai.api.Organism
-import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
+import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.isDeveloping
+import io.aequicor.heartbeat.feature.organicai.api.isSandboxed
 import io.aequicor.heartbeat.feature.organicai.api.zygote
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -29,6 +32,7 @@ internal class OrganicAiEffects(
     private val cells: CellSessions,
     private val driver: CellDriver,
     private val court: ImmunityCourt,
+    private val workspaces: CellWorkspaces,
 ) : EffectHandler<OrganicAiEffect, OrganicAiIntent> {
     private val log = Log.tag("OrganicAiEffects")
 
@@ -82,7 +86,7 @@ internal class OrganicAiEffects(
 
     private suspend fun restore(machine: EffectScope<OrganicAiIntent>) {
         val organisms = journal.load().map { organism ->
-            if (organism.status == OrganismStatus.Aborted && cells.hasPendingRelease(organism.id)) {
+            if (!organism.isDeveloping && cells.hasPendingRelease(organism.id)) {
                 organism.copy(sessions = SessionRelease.Unconfirmed)
             } else {
                 organism
@@ -156,24 +160,51 @@ internal class OrganicAiEffects(
     }
 
     /**
-     * Lets the cells go, all at once so one stuck turn does not delay the others. The release an abort asked for is
+     * Lets the cells go, all at once so one stuck turn does not delay the others. The release an ending asked for is
      * reported to the machine, confirmed only when every cell was seen to stop.
      */
     private suspend fun release(effect: OrganicAiEffect.Release, machine: EffectScope<OrganicAiIntent>) {
-        val outcomes = coroutineScope {
+        val releases = coroutineScope {
             effect.cells.map { id ->
                 async {
-                    val cell = effect.organism.cell(id) ?: return@async ReleaseOutcome.Stopped
-                    cells.release(CellKey(effect.organism.id, id), cell.session, effect.mode, cell.turns)
+                    val cell = effect.organism.cell(id) ?: return@async ReleaseOutcome.Stopped to null
+                    val mode = if (cell.phase is CellPhase.Dead) ReleaseMode.Lyse else effect.mode
+                    if (mode == ReleaseMode.Retire) captureResult(effect.organism, id)
+                    val key = CellKey(effect.organism.id, id)
+                    val outcome = cells.release(key, cell.session, mode, cell.turns)
+                    val ended = cell.session?.takeIf { outcome == ReleaseOutcome.Stopped }
+                        ?.let { Ended(key, it, cell.turns) }
+                    outcome to ended
                 }
             }.awaitAll()
         }
-        val unconfirmed = outcomes.count { it != ReleaseOutcome.Stopped }
+        val unconfirmed = releases.count { it.first != ReleaseOutcome.Stopped }
         val isConfirmed = unconfirmed == 0
         val summary = "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})"
         if (isConfirmed) log.i { summary } else log.w { "$summary, $unconfirmed not confirmed" }
         if (effect.organism.sessions == SessionRelease.Releasing) {
             machine.send(OrganicAiIntent.Internal.SessionsReleased(effect.organism.id, isConfirmed))
+        }
+        releases.mapNotNull { it.second }.forEach {
+            driver.disconnect(effect.organism, it.session) { cells.isReleased(it.key, it.generation) }
+        }
+    }
+
+    /**
+     * A completed sandbox cell's checkout is captured, so its work survives however its parent integrates it, and the
+     * zygote's too: that is the organism's result. A capture that fails is logged and left to the reader's retry.
+     */
+    private suspend fun captureResult(organism: Organism, id: CellId) {
+        if (!organism.isSandboxed) return
+        try {
+            val result = workspaces.result(organism, id)
+            log.i {
+                "organism ${organism.id.value} cell ${id.value}: result ${if (result == null) "not " else ""}captured"
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "organism ${organism.id.value} cell ${id.value}: result was not captured" }
         }
     }
 
@@ -188,3 +219,6 @@ internal class OrganicAiEffects(
         }
     }
 }
+
+/** A cell session that was let go, with the turn generation it was released as. */
+private data class Ended(val key: CellKey, val session: SessionRef, val generation: Int)

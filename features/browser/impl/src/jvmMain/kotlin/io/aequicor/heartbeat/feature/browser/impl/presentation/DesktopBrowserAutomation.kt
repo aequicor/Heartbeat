@@ -97,7 +97,7 @@ internal class DesktopBrowserAutomation(
         if (operation in setOf(BrowserOperation.Click, BrowserOperation.Scroll, BrowserOperation.Drag)) {
             validate(arguments)
         }
-        return evaluate(browserSafetyScript(GEOMETRY_SCRIPT, operation, arguments)).jsonObject
+        return evaluate(browserSafetyScript(GEOMETRY_SCRIPT, operation, parsedSafetyArguments(arguments))).jsonObject
     }
 
     suspend fun perform(request: BrowserRequest): BrowserResult {
@@ -130,6 +130,7 @@ internal class DesktopBrowserAutomation(
                 BrowserOperation.ReturnControl,
                 BrowserOperation.CaptureResource,
                 BrowserOperation.ClearData,
+                BrowserOperation.Inspect,
                 -> error("Unsupported native operation")
             }
         return BrowserResult(

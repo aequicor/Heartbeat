@@ -74,6 +74,16 @@ class StudioTimelineTest {
     }
 
     @Test
+    fun `an organism capture is a host message with the mergeable snapshot`() {
+        val result = MessageUi.OrganismResult("result", "branch", "base", "snapshot")
+        val message = result.toHb(labels.copy(organismResult = "%1\$s %2\$s git merge --no-ff %3\$s"))
+        assertEquals("Studio", message.author)
+        assertEquals(HbChatRole.System, message.role)
+        assertEquals(HbMessageKind.Markdown, message.kind)
+        assertEquals("branch base git merge --no-ff snapshot", message.text)
+    }
+
+    @Test
     fun `failed runs show the notice of their failure class`() {
         val at = Instant.fromEpochSeconds(0)
         val messages = TimelineCache().update(

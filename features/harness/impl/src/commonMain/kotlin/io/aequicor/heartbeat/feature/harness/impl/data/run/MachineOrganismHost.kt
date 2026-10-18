@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganism
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismCellRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismConception
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismRelease
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismView
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
 import io.aequicor.heartbeat.feature.organicai.api.CellId
@@ -91,7 +92,14 @@ internal class MachineOrganismHost(private val machines: MachineRegistry) : Orga
 }
 
 private fun Organism.toView(): OrganismView = when (val ended = status) {
-    is OrganismStatus.Completed -> OrganismView.Answered(ended.result)
+    is OrganismStatus.Completed -> OrganismView.Answered(
+        ended.result,
+        when (sessions) {
+            SessionRelease.Releasing -> OrganismRelease.Pending
+            SessionRelease.Unconfirmed -> OrganismRelease.Unconfirmed
+            SessionRelease.Released -> OrganismRelease.Confirmed
+        },
+    )
 
     OrganismStatus.Aborted -> when {
         isStopped -> OrganismView.Aborted

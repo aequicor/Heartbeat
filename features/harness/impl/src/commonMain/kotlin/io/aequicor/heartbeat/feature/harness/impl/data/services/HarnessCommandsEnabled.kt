@@ -9,4 +9,5 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 internal val HarnessCommandsEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "harness.commands",
     description = "Харнессы: команды мини-аппов без агента",
+    default = true,
 )

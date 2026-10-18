@@ -42,6 +42,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_permission
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_permission_attention
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_resume
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_retry_release
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_state_answered
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_state_awaiting
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_state_completed
@@ -58,6 +59,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_state_work
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_status_aborted
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_status_completed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_status_developing
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_status_release_unconfirmed
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_status_releasing
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_status_stalled
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_sub_sessions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_unavailable
@@ -195,6 +198,8 @@ private fun SessionActivityBadge(count: Int, known: Boolean) {
 
 @Composable
 private fun organismActions(organism: OrganismUi): List<HbMenuItem> = listOfNotNull(
+    HbMenuItem(ABORT_ACTION, stringResource(Res.string.organism_retry_release), isGroupStart = true)
+        .takeIf { organism.status == OrganismStatusUi.ReleaseUnconfirmed },
     HbMenuItem(RESUME_ACTION, stringResource(Res.string.organism_resume), isGroupStart = true)
         .takeIf { organism.status == OrganismStatusUi.Stalled || organism.status == OrganismStatusUi.Completed },
     HbMenuItem(
@@ -230,7 +235,13 @@ internal fun OrganismNotices(content: PaneContent, descriptionMaxHeight: Dp, onI
             )
             return@HbColumn
         }
-        if (organism.status == OrganismStatusUi.Stalled || organism.status == OrganismStatusUi.Aborted) {
+        if (organism.status in setOf(
+                OrganismStatusUi.Stalled,
+                OrganismStatusUi.Aborted,
+                OrganismStatusUi.Releasing,
+                OrganismStatusUi.ReleaseUnconfirmed,
+            )
+        ) {
             HbText(
                 stringResource(organism.status.label()),
                 Modifier.fillMaxWidth().padding(HbTheme.spacing.m).testTag("organism-status-${content.pane.id}")
@@ -320,6 +331,8 @@ private val stateLabels = mapOf(
 )
 
 private fun OrganismStatusUi.label(): StringResource = when (this) {
+    OrganismStatusUi.Releasing -> Res.string.organism_status_releasing
+    OrganismStatusUi.ReleaseUnconfirmed -> Res.string.organism_status_release_unconfirmed
     OrganismStatusUi.Developing -> Res.string.organism_status_developing
     OrganismStatusUi.Stalled -> Res.string.organism_status_stalled
     OrganismStatusUi.Completed -> Res.string.organism_status_completed
