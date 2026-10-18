@@ -102,10 +102,13 @@ class PlanningEffectsTest {
         val plan = (scope.sent.single() as PlanningIntent.Internal.Loaded).plans.getValue(Chat)
         assertEquals(2, plan.revision)
         effects.handle(PlanningEffect.Persist(mapOf(Chat to plan), emptyMap(), emptySet(), 1), scope)
-        val edited = plan.copy(revision = 3, text = "# Studio", updatedBy = PlanAuthor.User)
-        effects.handle(PlanningEffect.Persist(mapOf(Chat to edited), emptyMap(), setOf(Chat), 2), scope)
-        assertEquals(emptyList(), files.log, "a studio change does not replace the oversized file")
-        assertEquals(PlanIndex(listOf(edited.copy(text = ""))), index.stored)
+        val agent = plan.copy(revision = 3, text = "# Agent", updatedBy = PlanAuthor.Agent)
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to agent), emptyMap(), setOf(Chat), 2), scope)
+        assertEquals(emptyList(), files.log, "only a user's edit replaces the oversized file")
+        assertEquals(PlanIndex(listOf(agent.copy(text = ""))), index.stored)
+        val edited = agent.copy(revision = 4, text = "# Studio", updatedBy = PlanAuthor.User)
+        effects.handle(PlanningEffect.Persist(mapOf(Chat to edited), emptyMap(), setOf(Chat), 3), scope)
+        assertEquals(PlanFileText("# Studio", isExternal = false, revision = 4), files.texts[Chat])
     }
 
     @Test

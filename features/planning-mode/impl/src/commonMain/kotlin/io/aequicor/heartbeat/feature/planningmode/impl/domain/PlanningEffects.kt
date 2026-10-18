@@ -35,8 +35,9 @@ internal typealias PlanningMachine = Machine<PlanningState, PlanningIntent, Plan
  * are deleted on load.
  *
  * A file too long to be a plan loads as an empty plan and is protected: the studio does not write over it until the
- * file is gone, shortened to the studio's own text or taken over by the machine (the agent tools refuse to work from
- * it and ask for it to be shortened); skipped writes are logged.
+ * file is gone, shortened to the studio's own text, taken over by the machine (the agent tools refuse to work from
+ * it and ask for it to be shortened) or replaced by an edit the user makes in the studio after loading, which is an
+ * explicit choice and must not be lost; a skipped write is logged once per revision.
  */
 internal class PlanningEffects(
     private val index: PlanIndexStore,
@@ -51,8 +52,11 @@ internal class PlanningEffects(
     /** Chats whose plan is gone but whose files may still exist; kept until a delete succeeds. */
     private val deletions = mutableSetOf<PlanChat>()
 
-    /** Chats whose file was too long to load; the studio does not overwrite it. */
-    private val tooLong = mutableSetOf<PlanChat>()
+    /** Chats whose file was too long to load, with the revision they loaded at; the studio does not overwrite it. */
+    private val tooLong = mutableMapOf<PlanChat, Long>()
+
+    /** The last revision whose write was skipped for a protected chat, so it is checked and logged once. */
+    private val skipped = mutableMapOf<PlanChat, Long>()
 
     override suspend fun handle(effect: PlanningEffect, machine: EffectScope<PlanningIntent>) {
         when (effect) {
@@ -64,6 +68,7 @@ internal class PlanningEffects(
     private suspend fun load(): PlanningIntent.Internal.Loaded = saving.withLock {
         val stored = index.load()
         tooLong.clear()
+        skipped.clear()
         val records = stored ?: PlanIndex()
         val repaired = mutableSetOf<PlanChat>()
         val plans = records.plans.associate { record ->
@@ -91,7 +96,7 @@ internal class PlanningEffects(
         val plan = when {
             file.isOversized || text.length > PlanLimits.MAX_CHARS -> {
                 log.w { "plan file too long, loaded empty and protected: chat=${record.chat}" }
-                tooLong += record.chat
+                tooLong[record.chat] = record.revision
                 record.copy(text = "")
             }
 
@@ -146,7 +151,8 @@ internal class PlanningEffects(
         gone.forEach(fileRevisions::remove)
         // A new plan of a chat replaces its files instead of deleting them.
         deletions.removeAll(effect.plans.keys)
-        tooLong.retainAll(effect.plans.keys)
+        tooLong.keys.retainAll(effect.plans.keys)
+        skipped.keys.retainAll(effect.plans.keys)
         effect.plans.values.forEach { plan ->
             if (plan.revision > (fileRevisions[plan.chat] ?: -1) && !isProtected(plan)) {
                 files.write(plan.chat, plan.text, plan.revision)
@@ -166,17 +172,27 @@ internal class PlanningEffects(
      * writing [plan] would replace it without the user knowing.
      */
     private suspend fun isProtected(plan: Plan): Boolean {
-        if (plan.chat !in tooLong) return false
-        val file = files.read(plan.chat)
-        val text = file?.text?.let { applyEdit(plan.text, PlanEdit.Replace(it)) }
-        val isUsable = file != null && !file.isOversized && text != null && text.length <= PlanLimits.MAX_CHARS
-        val isTakenOver = file == null || (isUsable && (!file.isExternal || text == plan.text))
+        val loadedAt = tooLong[plan.chat] ?: return false
+        if (skipped[plan.chat] == plan.revision) return true
+        val isUserEdit = plan.updatedBy == PlanAuthor.User && plan.revision > loadedAt
+        val isTakenOver = isUserEdit || isFileTakenOver(plan)
         if (isTakenOver) {
             tooLong -= plan.chat
+            skipped -= plan.chat
+            if (isUserEdit) log.i { "protected plan file replaced by the user's edit: chat=${plan.chat}" }
         } else {
+            skipped[plan.chat] = plan.revision
             log.w { "plan file too long or changed outside the studio, not overwritten: chat=${plan.chat}" }
         }
         return !isTakenOver
+    }
+
+    /** Whether the protected file of [plan] is gone or now holds a usable text the machine already has. */
+    private suspend fun isFileTakenOver(plan: Plan): Boolean {
+        val file = files.read(plan.chat) ?: return true
+        val text = applyEdit(plan.text, PlanEdit.Replace(file.text))
+        val isUsable = !file.isOversized && text.length <= PlanLimits.MAX_CHARS
+        return isUsable && (!file.isExternal || text == plan.text)
     }
 
     private suspend fun delete(chat: PlanChat) {
