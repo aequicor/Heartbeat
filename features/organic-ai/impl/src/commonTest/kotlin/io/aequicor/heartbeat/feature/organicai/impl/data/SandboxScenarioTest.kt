@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.TARGET
 import io.aequicor.heartbeat.feature.organicai.impl.ZYGOTE
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellDriver
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellHandle
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellHarnesses
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellKey
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRoute
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellSessions
@@ -248,7 +249,7 @@ class SandboxScenarioTest {
             journal,
             { TARGET },
             sessions,
-            CellDriver(sessions, journal, workspaces),
+            CellDriver(sessions, journal, workspaces, NoHarnesses),
             ImmunityCourt({ _, _, _ -> error("no judges in this scenario") }, { emptyList() }),
             workspaces,
         )
@@ -305,6 +306,16 @@ class SandboxScenarioTest {
         fun lose(cell: CellId) = handle(cell).lose()
     }
 
+    private object NoHarnesses : CellHarnesses {
+        override suspend fun connect(session: SessionRef, harnesses: Set<String>) = Unit
+
+        override suspend fun disconnect(
+            session: SessionRef,
+            harnesses: Set<String>,
+            isReleased: suspend () -> Boolean,
+        ) = Unit
+    }
+
     private class Sessions(private val natives: Natives) : CellSessions {
         override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
             natives.routes.getOrPut(key) { mutableListOf() } += route
@@ -313,9 +324,14 @@ class SandboxScenarioTest {
 
         override suspend fun respond(key: CellKey, decision: PermissionDecision) = Unit
 
-        override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int) {
+        override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int): Boolean {
             if (mode == ReleaseMode.Lyse) natives.handles[key]?.complete(TurnOutcome.Cancelled)
+            return true
         }
+
+        override suspend fun isLysed(key: CellKey): Boolean = false
+
+        override suspend fun isReleased(key: CellKey, generation: Int): Boolean = true
 
         override suspend fun releaseAll() = Unit
     }

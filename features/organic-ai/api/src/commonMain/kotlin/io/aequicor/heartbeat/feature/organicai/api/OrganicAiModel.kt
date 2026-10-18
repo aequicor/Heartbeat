@@ -90,6 +90,15 @@ public object OrganismBounds {
 
     /** Characters of a cell result kept and passed to its parent; a longer answer is cut by the host. */
     public const val MAX_RESULT: Int = 20_000
+
+    /**
+     * Harnesses one organism carries: as many as the harness library holds. A harness the user chose is never dropped
+     * (a smaller set could lose a restricting one), so the choice is refused rather than cut.
+     */
+    public const val MAX_HARNESSES: Int = 32
+
+    /** Characters of one harness id; ids are opaque to the organism. */
+    public const val MAX_HARNESS_ID: Int = 128
 }
 
 /**
@@ -162,12 +171,19 @@ public data class Conception(
     /** Profile-owned inputs of the goal, supplied with every cell's genesis (including recovery). */
     val attachments: List<ResourceRef> = emptyList(),
     val isolation: OrganismIsolation = OrganismIsolation.Shared,
+    /**
+     * Harnesses the user chose for this organism before it existed, as the studio composer claimed them. The
+     * organism records them and every working cell opens its session with them; judges never get them. Only a choice
+     * made through host UI belongs here, never ids read from a prompt, a model answer or a tool argument.
+     */
+    val harnesses: Set<String> = emptySet(),
 ) {
     init {
         require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
             "Invalid organism goal"
         }
         require(isolation == OrganismIsolation.Shared || workspace != null) { "A sandbox organism needs a project" }
+        require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
     }
 
     override fun toString(): String = "Conception(id=${id.value}, goal=${goal.length} chars)"
@@ -198,15 +214,31 @@ public data class Organism(
     val attachments: List<ResourceRef> = emptyList(),
     /** Where cells work; fixed at conception. A sandbox organism cuts its cells' checkouts from [workspace]. */
     val isolation: OrganismIsolation = OrganismIsolation.Shared,
+    /**
+     * The harness choice of its [Conception], fixed for the organism's life: no intent changes it, and every working
+     * cell, however it came to be, opens with exactly these and is connected to them before each new prompt. A cell
+     * can still connect more harnesses to its own session with its tools. A harness deleted or turned off later
+     * stops the turns that need it (a zygote stalls, a descendant dies) until the organism is aborted. A journal
+     * written before harnesses existed reads as none.
+     */
+    val harnesses: Set<String> = emptySet(),
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }
         require(cells.map { it.id }.distinct().size == cells.size) { "Duplicate cell" }
+        require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
     }
 
     override fun toString(): String =
         "Organism(id=${id.value}, cells=${cells.size}, cases=${cases.size}, status=$status, version=$version)"
 }
+
+/**
+ * Whether [harnesses] is a choice an organism can hold ([OrganismBounds]): trimmed, non-blank ids of a bounded length,
+ * in a bounded number. Hosts ask before they create what would carry the choice, so a refusal never comes late.
+ */
+public fun isValidHarnessChoice(harnesses: Set<String>): Boolean = harnesses.size <= OrganismBounds.MAX_HARNESSES &&
+    harnesses.all { it.isNotBlank() && it == it.trim() && it.length <= OrganismBounds.MAX_HARNESS_ID }
 
 /** Lifecycle of an organism. Only an explicit abort kills it: the zygote is never judged or killed. */
 @Serializable
@@ -409,6 +441,13 @@ public sealed interface Breakdown {
     /** The engine could not confirm how the turn ended and its history holds no answer. */
     @Serializable
     public data object Unconfirmed : Breakdown
+
+    /**
+     * The harnesses chosen for the organism ([Organism.harnesses]) could not be connected to the cell's session, so
+     * no prompt was sent: a turn never runs in a smaller environment than the user chose.
+     */
+    @Serializable
+    public data object Harnesses : Breakdown
 }
 
 /** Why a cell ended without an answer. */

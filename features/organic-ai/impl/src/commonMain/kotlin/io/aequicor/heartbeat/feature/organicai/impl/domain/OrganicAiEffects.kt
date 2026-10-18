@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
@@ -149,13 +150,21 @@ internal class OrganicAiEffects(
         machine.send(OrganicAiIntent.Internal.Hibernated)
     }
 
+    /**
+     * Lets every cell go first, so no turn runs on while connections are removed; only then are the connections of
+     * the sessions that really ended removed (a stale retirement let nothing go and keeps its session's connections).
+     * The removal is best effort: a sleep that cancels it leaves the connections behind.
+     */
     private suspend fun release(effect: OrganicAiEffect.Release) {
-        effect.cells.forEach { id ->
-            val cell = effect.organism.cell(id) ?: return@forEach
+        val ended = effect.cells.mapNotNull { id ->
+            val cell = effect.organism.cell(id) ?: return@mapNotNull null
             if (effect.mode == ReleaseMode.Retire) captureResult(effect.organism, id)
-            cells.release(CellKey(effect.organism.id, id), cell.session, effect.mode, cell.turns)
+            val key = CellKey(effect.organism.id, id)
+            val isReleased = cells.release(key, cell.session, effect.mode, cell.turns)
+            cell.session?.takeIf { isReleased }?.let { Ended(key, it, cell.turns) }
         }
         log.i { "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})" }
+        ended.forEach { driver.disconnect(effect.organism, it.session) { cells.isReleased(it.key, it.generation) } }
     }
 
     /**
@@ -187,3 +196,6 @@ internal class OrganicAiEffects(
         }
     }
 }
+
+/** A cell session that was let go, with the turn generation it was released as. */
+private data class Ended(val key: CellKey, val session: SessionRef, val generation: Int)

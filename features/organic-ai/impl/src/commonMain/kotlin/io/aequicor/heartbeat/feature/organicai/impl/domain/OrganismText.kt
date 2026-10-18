@@ -49,4 +49,5 @@ internal fun Breakdown.describe(): String = when (this) {
     is Breakdown.Engine -> "engine failure ${failure.code}"
     Breakdown.Interrupted -> "the turn was cancelled outside the organism"
     Breakdown.Unconfirmed -> "the engine could not confirm how the turn ended"
+    Breakdown.Harnesses -> "the harnesses chosen for the organism could not be connected"
 }

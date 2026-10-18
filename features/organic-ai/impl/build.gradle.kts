@@ -10,6 +10,7 @@ kotlin {
             implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.aiEngine.connections.api)
             implementation(projects.features.worktreeMode.api)
+            implementation(projects.features.harness.api)
             implementation(projects.core.stateMachine.api)
             implementation(projects.core.profileFacade.api)
             implementation(projects.core.logging)

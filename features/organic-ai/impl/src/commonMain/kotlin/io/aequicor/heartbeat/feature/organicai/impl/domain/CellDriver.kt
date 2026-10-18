@@ -29,10 +29,12 @@ import io.aequicor.heartbeat.feature.organicai.api.workspaceOf
 import kotlinx.coroutines.CancellationException
 
 /**
- * Runs one turn of a cell: opens its session, submits the turn's prompt (or adopts the native turn a recovery finds
- * still running), reports acceptance and pending permission requests, and settles the turn with its final answer.
- * The organism is journaled before a submission, so a request id never reaches an engine unsaved and a restart never
- * reuses it. Feedback the machine no longer takes means the cell ended meanwhile: the driver lets go and stops.
+ * Runs one turn of a cell: opens its session, connects the organism's harnesses to it, submits the turn's prompt (or
+ * adopts the native turn a recovery finds still running), reports acceptance and pending permission requests, and
+ * settles the turn with its final answer. The organism is journaled before a submission, so a request id never
+ * reaches an engine unsaved and a restart never reuses it. A harness that cannot be connected fails the turn before
+ * any prompt: the cell never works in a smaller environment than the user chose. Feedback the machine no longer takes
+ * means the cell ended meanwhile: the driver lets go and stops.
  * A cell of a sandbox organism gets its own checkout first: it is prepared and saved before the session is created, so
  * the session is never opened in the organism's project, also not on a retry or after a restart.
  */
@@ -40,6 +42,7 @@ internal class CellDriver(
     private val cells: CellSessions,
     private val journal: OrganismJournal,
     private val workspaces: CellWorkspaces,
+    private val harnesses: CellHarnesses,
 ) {
     private val log = Log.tag("CellDriver")
 
@@ -68,27 +71,17 @@ internal class CellDriver(
         val handle = cells.open(key, route, cell.session, cell.turns)
         if (cell.session == null) {
             val bound = OrganicAiIntent.Internal.SessionBound(organism.id, cell.id, phase.request, handle.session)
-            if (machine.send(bound) != SendResult.Accepted) return abandon(key, handle, turn = null, CellRun.None)
+            if (machine.send(bound) != SendResult.Accepted) {
+                return abandon(organism, key, handle, turn = null, CellRun.None, isConnected = false)
+            }
         }
+        // A turn the engine still runs started under an earlier connection; every new prompt needs a fresh check.
         val live = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() }
         val run = runOf(organism, cell.id, phase.request, handle.session, live)
         var turn = live
         try {
-            turn = live ?: submit(organism, cell, phase, handle)
-            run.accepted(handle.session, turn)
-            val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, cell.id, phase.request, turn)
-            if (machine.send(accepted) != SendResult.Accepted) return abandon(key, handle, turn, run)
-            val outcome = handle.await(turn) { pending ->
-                machine.send(OrganicAiIntent.Internal.PermissionsChanged(organism.id, cell.id, phase.request, pending))
-            }
-            val settlement = settlement(handle, turn, outcome)
-            run.settled(handle.session, turn, outcome)
-            val settled = OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, settlement)
-            val result = machine.send(settled)
-            log.i {
-                "organism ${organism.id.value} cell ${cell.id.value}: turn ${cell.turns} ${settlement.kind()}, " +
-                    "machine $result"
-            }
+            turn = live ?: submit(organism, cell, phase, handle, run, machine) ?: return
+            follow(organism, cell, phase, handle, run, turn, machine)
         } catch (e: CancellationException) {
             // The profile sleeps or the effect is replaced: the engine keeps the turn, so the run stays with it.
             throw e
@@ -98,10 +91,33 @@ internal class CellDriver(
         }
     }
 
-    /** Journals the organism, then hands the turn's prompt and inputs to the engine. */
-    private suspend fun submit(organism: Organism, cell: Cell, phase: CellPhase.Working, handle: CellHandle): TurnId {
-        journal.save(organism)
-        return handle.submit(phase.request, turnPrompt(organism, cell), organism.trust, phase.inputs(organism))
+    /** Reports the accepted [turn], waits for its end and settles it; a cell that ended meanwhile is let go. */
+    private suspend fun follow(
+        organism: Organism,
+        cell: Cell,
+        phase: CellPhase.Working,
+        handle: CellHandle,
+        run: CellRun,
+        turn: TurnId,
+        machine: EffectScope<OrganicAiIntent>,
+    ) {
+        val key = CellKey(organism.id, cell.id)
+        run.accepted(handle.session, turn)
+        val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, cell.id, phase.request, turn)
+        if (machine.send(accepted) != SendResult.Accepted) {
+            return abandon(organism, key, handle, turn, run, isConnected = true)
+        }
+        val outcome = handle.await(turn) { pending ->
+            machine.send(OrganicAiIntent.Internal.PermissionsChanged(organism.id, cell.id, phase.request, pending))
+        }
+        val settlement = settlement(handle, turn, outcome)
+        run.settled(handle.session, turn, outcome)
+        val settled = OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, settlement)
+        val result = machine.send(settled)
+        log.i {
+            "organism ${organism.id.value} cell ${cell.id.value}: turn ${cell.turns} ${settlement.kind()}, " +
+                "machine $result"
+        }
     }
 
     /**
@@ -152,7 +168,39 @@ internal class CellDriver(
             organism.trust,
             cell.configuration?.reasoningEffort,
             organism.target?.takeIf { it != target },
+            organism.harnesses,
         )
+    }
+
+    /**
+     * Connects the harnesses, journals the organism and hands the turn's prompt and inputs to the engine; without the
+     * harnesses nothing is sent. Null when the turn was settled unsent or the cell ended meanwhile.
+     */
+    private suspend fun submit(
+        organism: Organism,
+        cell: Cell,
+        phase: CellPhase.Working,
+        handle: CellHandle,
+        run: CellRun,
+        machine: EffectScope<OrganicAiIntent>,
+    ): TurnId? {
+        val isConnected = isConnected(organism, cell.id, handle)
+        // The cell may have been lysed while it waited for its connections, and whatever part of them was made must
+        // go: nothing may stay connected to a dead session, whether or not every connection succeeded.
+        val key = CellKey(organism.id, cell.id)
+        if (organism.harnesses.isNotEmpty() && cells.isLysed(key)) {
+            abandon(organism, key, handle, turn = null, run, isConnected = true)
+            return null
+        }
+        if (!isConnected) {
+            val broke = Settlement.Broke(Breakdown.Harnesses)
+            val result = machine.send(OrganicAiIntent.Internal.TurnSettled(organism.id, cell.id, phase.request, broke))
+            log.i { "organism ${organism.id.value} cell ${cell.id.value}: harnesses not connected, unsent, $result" }
+            run.lost(handle.session, turn = null)
+            return null
+        }
+        journal.save(organism)
+        return handle.submit(phase.request, turnPrompt(organism, cell), organism.trust, phase.inputs(organism))
     }
 
     /** The profile-owned inputs the turn's work carries: the goal's at genesis, the message's at a follow-up. */
@@ -160,6 +208,20 @@ internal class CellDriver(
         Work.Genesis -> organism.attachments
         is Work.FollowUp -> current.attachments
         Work.CheckInbox, is Work.Letters -> emptyList()
+    }
+
+    /** Whether the organism's harnesses are connected to the cell's session; a failure's reason stays in the log. */
+    private suspend fun isConnected(organism: Organism, id: CellId, handle: CellHandle): Boolean {
+        if (organism.harnesses.isEmpty()) return true
+        return try {
+            harnesses.connect(handle.session, organism.harnesses)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "organism ${organism.id.value} cell ${id.value}: harnesses were not connected" }
+            false
+        }
     }
 
     /**
@@ -179,13 +241,36 @@ internal class CellDriver(
         }
 
     /** The cell ended while its turn was being set up: its new session and turn must not live on. */
-    private suspend fun abandon(key: CellKey, handle: CellHandle, turn: TurnId?, run: CellRun) {
+    private suspend fun abandon(
+        organism: Organism,
+        key: CellKey,
+        handle: CellHandle,
+        turn: TurnId?,
+        run: CellRun,
+        isConnected: Boolean,
+    ) {
         log.i { "organism ${key.organism.value} cell ${key.cell.value} ended meanwhile; abandoning its session" }
         turn?.let {
             handle.cancel(it)
             run.settled(handle.session, it, TurnOutcome.Cancelled)
         }
-        cells.release(key, handle.session, ReleaseMode.Lyse)
+        val isReleased = cells.release(key, handle.session, ReleaseMode.Lyse)
+        if (isReleased && isConnected) disconnect(organism, handle.session)
+    }
+
+    /**
+     * Lets go of the organism's harness connections to the session of a cell that ended, so its dead sessions never
+     * fill the connection quota of a harness. A failure is logged only: the cell is gone either way.
+     */
+    suspend fun disconnect(organism: Organism, session: SessionRef, isReleased: suspend () -> Boolean = { true }) {
+        if (organism.harnesses.isEmpty()) return
+        try {
+            harnesses.disconnect(session, organism.harnesses, isReleased)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "organism ${organism.id.value}: harness connections of an ended cell were not removed" }
+        }
     }
 
     private fun CellPhase.Working.kind(): String = when {

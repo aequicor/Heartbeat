@@ -136,6 +136,8 @@ internal data class StudioChatRecord(
     val configuration: StudioSessionSettings? = null,
     /** Set for a conversation run as the organic AI organism of the same id. */
     val organismId: String? = null,
+    /** The harnesses the user chose when creating an organism chat; its organism is conceived with them. */
+    val organismHarnesses: Set<String> = emptySet(),
     /** Durable helper marker, also present for helpers with no caller. */
     val helper: StudioHelperIdentity? = null,
     /** Native sessions this chat continued from after rollovers, oldest first; see `StudioRollover`. */
@@ -367,9 +369,9 @@ internal class EngineStudioRepository(
             worktreeTaskId = id.takeIf { isWorktree },
             isSandbox = isSandbox.takeIf { isWorktree },
             executionWorkspace = executionWorkspace,
-            organismId = organism?.let { organisms.admit(id, it, isWorktree, projectId) },
         )
-        val record = conversations.create(pending, ::saveConversation)
+        val admitted = organism?.let { organisms.admit(id, it, isWorktree, projectId).on(pending) } ?: pending
+        val record = conversations.create(admitted, ::saveConversation)
         log.i { "Created studio conversation" }
         return StudioSession(record.id, record.projectId, title, record.updatedAt, isOrganism = organism != null)
     }
@@ -426,7 +428,8 @@ internal class EngineStudioRepository(
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
         requireBrowserHostSupport(record(sessionId), environment)
-        return organisms.submit(record(sessionId), prompt, settings, attachments, onAccepted) ?: launchRun(
+        val organism = organisms.submit(record(sessionId), prompt, settings, attachments, submissionId, onAccepted)
+        return organism ?: launchRun(
             sessionId,
             prompt,
             settings,
