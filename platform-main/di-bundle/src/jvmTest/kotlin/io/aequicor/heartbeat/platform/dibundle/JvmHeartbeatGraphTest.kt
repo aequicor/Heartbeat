@@ -17,6 +17,12 @@ class JvmHeartbeatGraphTest {
     }
 
     @Test
+    fun `testing flavor keeps local credentials without becoming a development launch`() {
+        val testing = createHeartbeatGraph(isDevelopment = false, hasLocalSecrets = true) as JvmHeartbeatGraph
+        assertEquals(SecretStorageProtection.LocalDevelopment, testing.secretStorage.protection)
+    }
+
+    @Test
     fun `graph resolves common and jvm-specific contributions from core modules`() {
         val graph = createHeartbeatGraph()
 

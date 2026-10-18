@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.map
 internal val StudioSafetyReviewsToggle: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "ai_studio.safety_reviews_indicator",
     description = "Индикатор автоматических проверок безопасности в шапке сайдбара студии",
+    default = true,
 )
 
 /**

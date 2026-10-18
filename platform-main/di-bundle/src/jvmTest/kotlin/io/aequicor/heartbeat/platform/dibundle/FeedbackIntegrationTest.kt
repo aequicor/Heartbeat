@@ -51,10 +51,9 @@ class FeedbackIntegrationTest {
     }
 
     @Test
-    fun `feedback is a registered toggle disabled by default`() = runTest {
+    fun `feedback is a registered toggle enabled by default`() = runTest {
         assertTrue(FeedbackEnabled in toggles.toggleControl.registered)
-        assertEquals(false, FeedbackEnabled.default)
-        assertEquals(false, toggles.featureToggles.get(FeedbackEnabled))
+        assertEquals(true, FeedbackEnabled.default)
     }
 
     @Test

@@ -6,5 +6,5 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 public val AutocompleteEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "autocomplete.enabled",
     description = "Композер: подсказки /команд, @скиллов и @файлов",
-    default = false,
+    default = true,
 )
