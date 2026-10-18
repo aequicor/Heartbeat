@@ -49,6 +49,7 @@ class SandboxBuildTest {
         val root = repository()
         val git = DesktopWorktreeGit(RealTestDispatchers)
         try {
+            val projectHead = command(root, "git", "rev-parse", "HEAD")
             val record = sandbox(git, root)
             val checkout = Path.of(record.directory)
             Files.writeString(checkout.resolve("committed.txt"), "kept")
@@ -77,6 +78,11 @@ class SandboxBuildTest {
             command(siblingCheckout, "git", "merge", "--no-ff", "--no-edit", sealed)
             assertEquals("kept", Files.readString(siblingCheckout.resolve("committed.txt")))
             assertEquals("new", Files.readString(siblingCheckout.resolve("added.txt")))
+            // Nothing the cells did reached the project's own checkout: same commit, no changes, no extra files.
+            assertEquals(projectHead, command(root, "git", "rev-parse", "HEAD"))
+            assertEquals("", command(root, "git", "status", "--porcelain"))
+            assertFalse(Files.exists(root.resolve("committed.txt")))
+            assertFalse(Files.exists(root.resolve("added.txt")))
         } finally {
             removeTestTree(root)
         }

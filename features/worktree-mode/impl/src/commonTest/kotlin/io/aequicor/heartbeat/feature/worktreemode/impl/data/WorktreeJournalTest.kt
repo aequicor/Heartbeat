@@ -399,6 +399,24 @@ class WorktreeJournalTest {
     }
 
     @Test
+    fun `a sandbox with a live native run keeps its outputs and ownership through every cleanup check`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT))
+        fixture.send(WorktreeIntent.Public.RunStarted(CHAT, REQUEST))
+        fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN))
+        val working = fixture.task()
+        fixture.send(WorktreeIntent.Public.Recheck(CHAT))
+        fixture.journal.observeWorkers { }
+        fixture.reopen().observeWorkers { }
+        assertEquals(0, fixture.git.reclaimCount)
+        assertEquals(working.run, fixture.journal.taskProjection(CHAT)?.run)
+        assertEquals(working.executionWorkspace, fixture.journal.taskProjection(CHAT)?.executionWorkspace)
+        assertEquals(CHECKOUT, fixture.journal.find(CHECKOUT)?.executionWorkspace)
+    }
+
+    @Test
     fun `a retained sandbox waits for cleanup before preparing a new native turn`() = runTest {
         val fixture = Fixture()
         fixture.toggles.isSandbox = true

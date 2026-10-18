@@ -1,12 +1,5 @@
 package io.aequicor.heartbeat.feature.organicai.impl.data
 
-import io.aequicor.heartbeat.core.statemachine.MachineEffect
-import io.aequicor.heartbeat.core.statemachine.MachineIntent
-import io.aequicor.heartbeat.core.statemachine.MachineKey
-import io.aequicor.heartbeat.core.statemachine.MachineOutput
-import io.aequicor.heartbeat.core.statemachine.MachineRef
-import io.aequicor.heartbeat.core.statemachine.MachineRegistry
-import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -28,20 +21,12 @@ import io.aequicor.heartbeat.feature.organicai.impl.cell
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellResult
 import io.aequicor.heartbeat.feature.organicai.impl.organism
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSeal
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.failed
 import io.aequicor.heartbeat.feature.worktreemode.api.runPrepared
-import io.aequicor.heartbeat.feature.worktreemode.api.sealed
 import io.aequicor.heartbeat.feature.worktreemode.api.transition
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -268,90 +253,4 @@ class WorktreeCellWorkspacesTest {
         revision = revision,
         isSandbox = true,
     )
-}
-
-private class WorktreeFake : MachineRef<WorktreeState, WorktreeIntent.Public, WorktreeOutput> {
-    override val name = "worktree-fake"
-    override val state = MutableStateFlow<WorktreeState>(WorktreeState.Ready())
-    override val outputs = emptyFlow<WorktreeOutput>()
-    val sent = mutableListOf<WorktreeIntent.Public>()
-    var result = SendResult.Accepted
-    var onPrepare: () -> Unit = {}
-    var failRuns = false
-    var failSeals = false
-    var seals = 0
-
-    fun publish(task: WorktreeTask) {
-        val tasks = (state.value as WorktreeState.Ready).tasks
-        state.value = WorktreeState.Ready(tasks + (task.chatId to task))
-    }
-
-    fun task(key: String): WorktreeTask = (state.value as WorktreeState.Ready).tasks.getValue(key)
-
-    override suspend fun send(intent: WorktreeIntent.Public): SendResult {
-        sent += intent
-        if (result != SendResult.Accepted) return result
-        when (intent) {
-            is WorktreeIntent.Public.Prepare -> onPrepare()
-
-            is WorktreeIntent.Public.RunStarted -> change(intent.chatId) { task ->
-                // The journal prepares the run in the same step; this is what the real one commits.
-                if (failRuns) {
-                    task.failed(
-                        "WorktreeUnavailable",
-                    )
-                } else {
-                    task.transition(intent).runPrepared(intent.request)
-                }
-            }
-
-            is WorktreeIntent.Public.Seal -> change(intent.chatId) {
-                it.sealed(
-                    if (failSeals) {
-                        WorktreeSeal(intent.operation, failure = "TurnActive")
-                    } else {
-                        WorktreeSeal(intent.operation, "commit-${++seals}")
-                    },
-                )
-            }
-
-            else -> change(intent.runKey()) { it.transition(intent) }
-        }
-        return result
-    }
-
-    private fun change(key: String, transform: (WorktreeTask) -> WorktreeTask) {
-        val before = task(key)
-        val after = transform(before)
-        if (after != before) publish(after.copy(revision = before.revision + 1))
-    }
-
-    private fun WorktreeIntent.Public.runKey(): String = when (this) {
-        is WorktreeIntent.Public.RunAccepted -> chatId
-        is WorktreeIntent.Public.RunSettled -> chatId
-        is WorktreeIntent.Public.RunRejected -> chatId
-        is WorktreeIntent.Public.RunAdopted -> chatId
-        is WorktreeIntent.Public.RunObservationLost -> chatId
-        is WorktreeIntent.Public.RunSubmissionObservationLost -> chatId
-        else -> error("unexpected $this")
-    }
-}
-
-private fun registry(machine: WorktreeFake?) = object : MachineRegistry {
-    @Suppress("UNCHECKED_CAST") // Only the checked worktree key is served by this fixture.
-    override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
-        key: MachineKey<S, I, P, E, O>,
-    ): MachineRef<S, P, O>? {
-        check(key == WorktreeMachineKey)
-        return machine as MachineRef<S, P, O>?
-    }
-
-    override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
-        key: MachineKey<S, I, P, E, O>,
-    ): StateFlow<MachineRef<S, P, O>?> = MutableStateFlow(find(key))
-
-    override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
-        key: MachineKey<S, I, P, E, O>,
-        intent: P,
-    ): SendResult = find(key)?.send(intent) ?: SendResult.NotRunning
 }
