@@ -16,6 +16,8 @@ public data class WorkflowRouting(
     val handoff: HelperHandoff,
     val libraryEpoch: String = "",
     val libraryGeneration: Long = 0,
+    /** Trusted selection fixed at admission; never decoded from workflow input. */
+    val organismContext: WorkflowOrganismContext? = null,
 ) {
     init {
         require(libraryGeneration >= 0)

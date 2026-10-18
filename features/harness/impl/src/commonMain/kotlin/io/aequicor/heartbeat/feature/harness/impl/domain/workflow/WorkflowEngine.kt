@@ -86,13 +86,15 @@ internal class WorkflowEngine(
 
     override suspend fun organism(goal: String, options: OrganismOptions): OrganismOutcome = position { place ->
         require(goal.isNotBlank() && goal.length <= HarnessLimits.ORGANISM_GOAL_CHARS) { "Invalid organism goal" }
-        val hash = hash(
+        val originalHash = hash(
             "organism",
             goal,
             options.title,
             options.target?.let { Json.encodeToString(it) },
             options.immunityTarget?.let { Json.encodeToString(it) },
         )
+        // Keep the legacy digest stable for old scripts and journaled steps.
+        val hash = options.execution?.let { hash(originalHash, Json.encodeToString(it)) } ?: originalHash
         val old = existing(place.key, hash)
         if (old?.phase == StepPhase.Completed) return@position organismResult(old)
         if (old?.phase == StepPhase.Failed) throw WorkflowStepFailed(checkNotNull(old.failure))

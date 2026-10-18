@@ -1,9 +1,11 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismCommit
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganism
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganismContext
 
 /** What organic AI shows of one organism a workflow owns. The text of an answer is never rendered by [toString]. */
 internal sealed interface OrganismView {
@@ -89,6 +91,18 @@ internal interface OrganismHost {
         options: OrganismOptions,
         workspace: WorkspaceRef?,
     ): OrganismConception
+
+    /** A captured environment requires sandbox execution, with no Shared fallback. Legacy hosts refuse it. */
+    suspend fun conceiveIsolated(
+        organism: WorkflowOrganism,
+        goal: String,
+        options: OrganismOptions,
+        workspace: WorkspaceRef?,
+        context: WorkflowOrganismContext,
+    ): OrganismConception = OrganismConception.Rejected
+
+    /** Git proof captured after every native cell stopped; null refuses a successful sandbox result. */
+    suspend fun output(organism: WorkflowOrganism): OrganismCommit? = null
 
     /**
      * Asks organic AI to abort [organism]; for one already aborted whose release was not confirmed it asks again.

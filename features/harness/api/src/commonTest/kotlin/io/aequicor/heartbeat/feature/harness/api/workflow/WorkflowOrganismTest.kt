@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.api.workflow
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -63,6 +64,30 @@ class WorkflowOrganismTest {
         }
         assertEquals("x".repeat(64), WorkflowOrganism("x".repeat(64)).id)
         assertEquals("wf-A_1", WorkflowOrganism("wf-A_1").id)
+    }
+
+    @Test
+    fun `sandbox execution rejects unbounded growth and partial Git references`() {
+        for (commit in listOf("HEAD", "abc123", "x".repeat(40))) {
+            assertFailsWith<IllegalArgumentException> { OrganismExecution(baseCommit = commit) }
+        }
+        assertFailsWith<IllegalArgumentException> { OrganismExecution(maxCells = 17) }
+        assertFailsWith<IllegalArgumentException> { OrganismExecution(maxDepth = 0) }
+        assertFailsWith<IllegalArgumentException> { OrganismExecution(maxCases = -1) }
+        assertFailsWith<IllegalArgumentException> { OrganismExecution(maxOpenCasesPerCell = 3) }
+        val requested = OrganismExecution("a".repeat(40), maxCells = 1, maxCases = 0)
+        assertEquals(requested, Json.decodeFromString<OrganismExecution>(Json.encodeToString(requested)))
+    }
+
+    @Test
+    fun `trusted selection and Git output survive replay while legacy answers remain readable`() {
+        val context = WorkflowOrganismContext(setOf(HarnessId("owner"), HarnessId("restriction")))
+        assertEquals(context, Json.decodeFromString<WorkflowOrganismContext>(Json.encodeToString(context)))
+        val output = OrganismCommit("heartbeat/result", "a".repeat(40), "b".repeat(40))
+        val answer = OrganismOutcome.Answered("done", output)
+        assertEquals(answer, Json.decodeFromString<OrganismOutcome>(Json.encodeToString<OrganismOutcome>(answer)))
+        val legacy = Json.decodeFromString<WorkflowRouting>("""{"workspace":null,"handoff":{}}""")
+        assertEquals(null, legacy.organismContext)
     }
 
     private companion object {

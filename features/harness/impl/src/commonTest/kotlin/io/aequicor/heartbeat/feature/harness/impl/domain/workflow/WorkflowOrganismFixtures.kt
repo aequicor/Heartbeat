@@ -1,10 +1,12 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismCommit
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganism
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganismContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageConflict
 import okio.ByteString.Companion.encodeUtf8
 
@@ -21,6 +23,25 @@ internal class FakeOrganismHost : OrganismHost {
     var abortLeaves: OrganismView = OrganismView.Aborted
     val conceived = mutableListOf<Pair<WorkflowOrganism, String>>()
     val aborted = mutableListOf<WorkflowOrganism>()
+    val environments = mutableListOf<WorkflowOrganismContext>()
+    var proof: OrganismCommit? = null
+    var proofReads = 0
+
+    override suspend fun output(organism: WorkflowOrganism): OrganismCommit? {
+        proofReads++
+        return proof
+    }
+
+    override suspend fun conceiveIsolated(
+        organism: WorkflowOrganism,
+        goal: String,
+        options: OrganismOptions,
+        workspace: WorkspaceRef?,
+        context: WorkflowOrganismContext,
+    ): OrganismConception {
+        environments += context
+        return conceive(organism, goal, options, workspace)
+    }
 
     override suspend fun view(organism: WorkflowOrganism): OrganismView =
         if (isAwake) views[organism] ?: OrganismView.Absent else OrganismView.Unavailable

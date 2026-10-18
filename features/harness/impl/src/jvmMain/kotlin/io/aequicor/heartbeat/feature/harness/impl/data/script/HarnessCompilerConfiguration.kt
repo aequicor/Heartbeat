@@ -35,6 +35,8 @@ internal fun harnessCompilerConfiguration(kind: HarnessCodeKind, classpath: Harn
             "io.aequicor.heartbeat.feature.harness.api.workflow.AgentComplexity",
             "io.aequicor.heartbeat.feature.harness.api.workflow.AgentNeed",
             "io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions",
+            "io.aequicor.heartbeat.feature.harness.api.workflow.OrganismExecution",
+            "io.aequicor.heartbeat.feature.harness.api.workflow.OrganismCommit",
             "io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOutcome",
             "io.aequicor.heartbeat.feature.harness.api.workflow.OrganismRefusal",
             "io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd",
