@@ -49,8 +49,11 @@ object AiEngineCatalogBindings {
 
     /** Explicit route checks shared by models and sessions. */
     @Provides
-    fun routes(gate: EngineGate, bindings: EngineBindingsService): RouteResolver =
-        RouteResolver(gate.registry, gate, bindings)
+    fun routes(
+        gate: EngineGate,
+        bindings: EngineBindingsService,
+        workspaces: io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces,
+    ): RouteResolver = RouteResolver(gate.registry, gate, bindings, workspaces)
 
     /** Cached model discovery. */
     @Provides

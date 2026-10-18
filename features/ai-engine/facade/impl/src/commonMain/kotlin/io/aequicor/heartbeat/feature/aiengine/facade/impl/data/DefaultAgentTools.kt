@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeConfirmation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
@@ -82,6 +83,7 @@ internal class DefaultAgentTools(
             AgentSafetyReview("uncertain", "Native automatic safety review is unavailable")
         },
     ),
+    private val workspaces: LocalWorkspaces? = null,
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
     private val legacyNames: Map<String, Set<String>> by lazy {
@@ -90,9 +92,16 @@ internal class DefaultAgentTools(
             .mapValues { (_, replacements) -> replacements.flatten().toSet() }
     }
     private val policyLookup: ToolPolicyResolver = LegacyToolNamesResolver(policies) { legacyNames }
-    private val nativeGate = NativeToolGate(policyLookup, hooks, safety) {
-        catalog().flatMap { it.tools }.map { it.name }.toSet()
-    }
+    private val nativeGate = NativeToolGate(
+        policyLookup,
+        hooks,
+        safety,
+        hostedNames = { catalog().flatMap { it.tools }.map { it.name }.toSet() },
+        isVirtual = { context ->
+            context.workspace?.value?.startsWith("sandbox-") == true ||
+                context.workspace?.let { workspaces?.virtual(it) } != null
+        },
+    )
     private val callsLock = Mutex()
     private val calls = mutableMapOf<Pair<SessionRef, TurnId>, MutableSet<Job>>()
     private val finishedTurns = mutableSetOf<Pair<SessionRef, TurnId>>()
@@ -529,7 +538,15 @@ internal class DefaultAgentTools(
         )
         // Names the session froze at creation and the policy both narrow the allowed list only: an owner whose
         // tools are all filtered out still answers for instructions independent of them.
-        val session = available.filter { (_, spec) -> scope.declared?.contains(spec.name) != false }
+        val virtual = scope.workspace?.let { workspaces?.virtual(it) }
+        check(
+            scope.workspace?.value?.startsWith("sandbox-") != true || virtual != null,
+        ) { "VirtualWorkspaceUnavailable" }
+        if (isExecuting) virtual?.revision()
+        val session = available.filter { (_, spec) ->
+            scope.declared?.contains(spec.name) != false &&
+                (virtual == null || virtualToolAllowed(spec.name))
+        }
         return Declared(available, session.filter { (_, spec) -> policy != null && spec.name !in policy.hostedDenied })
     }
 

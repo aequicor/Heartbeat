@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.ContextNoticeKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.LearningAction
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioLearningCall
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanProposal
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
@@ -172,6 +173,25 @@ class StudioHistoryProjectionTest {
             null,
             assertIs<StudioMessage.Reply>(listOf(other).toStudioMessages(now, false).single()).tools.single().learning,
         )
+    }
+
+    @Test
+    fun `a plan proposal card survives the result of its call`() {
+        val call = ToolCallId("propose")
+        val items = listOf(
+            SessionItem.ToolCall(
+                info("invocation", 0, "turn"),
+                call,
+                "mcp__heartbeat_tools__plan_propose",
+                """{"revision":3,"summary":"Ready"}""",
+                ToolCallStatus.Running,
+            ),
+            SessionItem.ToolResult(info("result", 1, "turn"), call, listOf(ContentPart.Text("Proposed."))),
+        )
+        val tool = assertIs<StudioMessage.Reply>(items.toStudioMessages(now, false).single()).tools.single()
+        assertEquals(StudioPlanProposal(3, "Ready"), tool.plan)
+        assertEquals(ToolRunStatus.Done, tool.status)
+        assertEquals("Proposed.", tool.output)
     }
 
     @Test

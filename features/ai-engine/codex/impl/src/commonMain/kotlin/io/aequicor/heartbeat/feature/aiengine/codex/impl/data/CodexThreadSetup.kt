@@ -44,7 +44,8 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         val chosen = preselected.takeIf { nativeId == null }.orEmpty()
         val session = nativeId?.let(::sessionRef)
         val policy = policy(ToolPolicyScope(identity.engine, route.workspace, session, target, chosen))
-        return CodexThreadRequest(nativeId, target, route, areDetachedToolsEnabled, policy, chosen)
+        val virtual = route.workspace?.let { host.workspaces.virtual(it) } != null
+        return CodexThreadRequest(nativeId, target, route, areDetachedToolsEnabled, policy, chosen, virtual)
             .also { restoreForOpening(it) }
     }
 
@@ -279,7 +280,7 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
             CodexIsolationSettings(
                 isSearchEnabled = tools.isSearchEnabled,
                 areQuestionsEnabled = runtime.questionsEnabled(),
-                areSubagentsEnabled = tools.areSubagentsAllowed && toggles.get(
+                areSubagentsEnabled = !request.isVirtualWorkspace && tools.areSubagentsAllowed && toggles.get(
                     io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled,
                 ),
                 off = request.off,
@@ -306,7 +307,7 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
     }
 
     private suspend fun workspacePath(workspace: WorkspaceRef?): String? = workspace?.let {
-        host.workspaces.resolve(it) ?: config.workspaces[it]
+        host.workspaces.executionDirectory(it) ?: config.workspaces[it]
             ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
     }
 

@@ -54,10 +54,18 @@ internal class SandboxSlotSweeper(
     private val workspaces: Lazy<LocalWorkspaces>,
     private val machine: Lazy<Machine<WorktreeState, WorktreeIntent, WorktreeOutput>>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val settings: ProjectBuildSettings? = null,
 ) : ProfileStartup {
     private val log = Log.tag("SandboxSlotSweeper")
 
     override fun start() {
+        if (settings != null) {
+            profile.coroutineScope.launch {
+                settings.changes().collectLatest {
+                    while (sweep(true)) delay(RETRY_MILLIS)
+                }
+            }
+        }
         profile.coroutineScope.launch {
             try {
                 combine(
@@ -91,13 +99,25 @@ internal class SandboxSlotSweeper(
             val slots = capacity.budget().slotsPerRepository
             var hasBusySlots = false
             journal.value.sandboxRecords().groupBy { it.commonDirectory }.values.forEach { records ->
-                val keep = slotsToKeep(
-                    isSandboxEnabled,
-                    hasWorkingSandbox = records.any { it.task.phase !in idlePhases },
-                    isProjectKnown = records.any { workspaces.value.resolve(it.task.project) != null },
-                    slots,
-                )
-                if (git.sweepSlots(records.first(), keep)) hasBusySlots = true
+                val configuration = settings?.get(records.first().commonDirectory)
+                val keep = if (configuration?.isClearing == true) {
+                    0
+                } else if (records.any { it.task.virtualSandbox != null }) {
+                    configuration?.poolSize ?: 2
+                } else {
+                    slotsToKeep(
+                        isSandboxEnabled,
+                        hasWorkingSandbox = records.any { it.task.phase !in idlePhases },
+                        isProjectKnown = records.any { workspaces.value.resolve(it.task.project) != null },
+                        slots,
+                    )
+                }
+                val busy = git.sweepSlots(records.first(), keep)
+                if (busy) {
+                    hasBusySlots = true
+                } else if (configuration?.isClearing == true) {
+                    settings?.finishClear(records.first().commonDirectory)
+                }
             }
             hasBusySlots
         } catch (error: CancellationException) {

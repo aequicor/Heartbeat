@@ -24,6 +24,10 @@ internal fun harnessCompilerConfiguration(kind: HarnessCodeKind, classpath: Harn
         compilerOptions("-language-version", "2.4", "-jvm-target", "17")
         defaultImports(
             "io.aequicor.heartbeat.feature.harness.api.ItemName",
+            "io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey",
+            "io.aequicor.heartbeat.feature.harness.api.process.workflowKey",
+            "io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflowState",
+            "io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflowCancellation",
             "io.aequicor.heartbeat.feature.harness.api.script.on",
             "io.aequicor.heartbeat.feature.harness.api.workflow.AgentOptions",
             "io.aequicor.heartbeat.feature.harness.api.workflow.AdaptiveAgent",

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.event.HarnessEvent
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
+import io.aequicor.heartbeat.feature.harness.impl.data.events.EmptyHarnessEventRuns
 import io.aequicor.heartbeat.feature.harness.impl.data.services.commandsTestFactory
 import io.aequicor.heartbeat.feature.harness.impl.data.services.harnessTestData
 import io.aequicor.heartbeat.feature.harness.impl.domain.code
@@ -66,6 +67,7 @@ class StagedHarnessContextsTest {
             schedulers,
             workflowTestFactory(origins),
             harnessTestData(),
+            EmptyHarnessEventRuns,
             commandsTestFactory(),
             Clock.System,
             { request, owner -> unusedScriptSessions(HarnessInstanceTarget(request, owner), origins) },

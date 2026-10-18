@@ -5,7 +5,8 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 
 /**
  * Durable workflow journals. Running entries never expire. Terminal entries keep their original completion
- * deadline (30 days) and only the newest 20 per harness survive. Missing committed running data fails closed.
+ * deadline (30 days) and only the newest 20 per harness survive, except process-owned journals protected until
+ * their attempt is closed. Missing committed running or protected data fails closed.
  * Every operation recovers the private KV journal before reading; no driver or helper executes here.
  */
 internal interface HarnessRunStorage {
@@ -30,6 +31,9 @@ internal interface HarnessRunStorage {
      * has already advanced is kept and false is returned; an absent record counts as discarded.
      */
     suspend fun discard(run: WorkflowRun): Boolean
+
+    /** Releases retention protection only after the process owner proves the attempt cannot be dispatched again. */
+    suspend fun releaseProcess(id: RunId): Boolean = false
 
     /** Whether the terminal result of [id] has already reached the durable scheduler outbox. */
     suspend fun isPublished(id: RunId): Boolean

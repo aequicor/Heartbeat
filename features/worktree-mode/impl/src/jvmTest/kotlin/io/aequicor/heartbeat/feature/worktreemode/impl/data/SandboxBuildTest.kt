@@ -241,7 +241,7 @@ class SandboxBuildTest {
             assertFailsWith<IllegalStateException> { git.sweepSlots(record, keep = 0) }
 
             assertEquals("unsaved work", Files.readString(checkout.resolve("untracked.txt")))
-            assertTrue(record.directory in command(root, "git", "worktree", "list", "--porcelain"))
+            assertTrue(record.directory.replace('\\', '/') in command(root, "git", "worktree", "list", "--porcelain"))
             assertEquals(checkout, slot.toRealPath())
         } finally {
             link?.let(Files::deleteIfExists)

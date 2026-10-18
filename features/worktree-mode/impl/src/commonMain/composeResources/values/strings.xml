@@ -3,10 +3,16 @@
     <string name="builds_title">Builds</string>
     <string name="builds_back">Back</string>
     <string name="builds_section_capacity">Parallel builds</string>
-    <string name="builds_section_capacity_hint">Agent builds of every project share one machine-wide queue. Each build kind has a weight; projects take turns, and a build that does not fit waits instead of slowing the others down.</string>
+    <string name="builds_section_capacity_hint">Each Git project has its own build manager and queue. Command kinds estimate processor and memory costs.</string>
     <string name="builds_auto">Automatic (%1$d)</string>
     <string name="builds_auto_hint">Estimated from processors and memory of this computer</string>
     <string name="builds_parallel">%1$d at a time</string>
-    <string name="builds_sandbox_hint">With sandboxes on, sandbox tasks build in shared warm build slots of their repository: at most four slots per repository and no more than the limit.</string>
+    <string name="builds_sandbox_hint">Sessions reuse their project’s persistent build-worktree pool. Its size is configured per project; the default is two slots.</string>
+    <string name="builds_sandbox_section">Sandboxes</string>
+    <string name="builds_pool_size">Worktree pool size: %1$d</string>
+    <string name="builds_pool_clear">Clear pool</string>
+    <string name="builds_pause_timeout">External edit wait: %1$d min.</string>
+    <string name="builds_increase">+</string>
+    <string name="builds_decrease">−</string>
     <string name="builds_save_failed">The limit could not be saved. Try again.</string>
 </resources>
