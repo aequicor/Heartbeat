@@ -40,6 +40,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -408,8 +410,10 @@ class WorktreeJournalTest {
         fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN))
         val working = fixture.task()
         fixture.send(WorktreeIntent.Public.Recheck(CHAT))
-        fixture.journal.observeWorkers { }
-        fixture.reopen().observeWorkers { }
+        backgroundScope.launch { fixture.journal.observeWorkers { } }
+        runCurrent()
+        backgroundScope.launch { fixture.reopen().observeWorkers { } }
+        runCurrent()
         assertEquals(0, fixture.git.reclaimCount)
         assertEquals(working.run, fixture.journal.taskProjection(CHAT)?.run)
         assertEquals(working.executionWorkspace, fixture.journal.taskProjection(CHAT)?.executionWorkspace)
@@ -524,7 +528,8 @@ class WorktreeJournalTest {
         val restored = fixture.reopen()
         restored.load()
         assertEquals(emptyList(), fixture.git.pruned)
-        restored.observeWorkers {}
+        backgroundScope.launch { restored.observeWorkers {} }
+        runCurrent()
         assertEquals(listOf(emptySet<String>()), fixture.git.pruned)
     }
 
