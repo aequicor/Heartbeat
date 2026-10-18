@@ -98,12 +98,12 @@ internal class PiRuntimeDistribution(
 
     private fun activeDirectory(pin: PiRuntimeRelease): Path? {
         val parent = versionRoot(pin)
-        if (!Files.isDirectory(root, NOFOLLOW_LINKS) || !Files.isDirectory(parent, NOFOLLOW_LINKS)) return null
+        if (!isRuntimeDirectory(root) || !isRuntimeDirectory(parent)) return null
         val pointer = parent.resolve("active")
         if (!Files.isRegularFile(pointer, NOFOLLOW_LINKS) || Files.size(pointer) > MAX_POINTER_BYTES) return null
         val name = Files.readString(pointer)
         if (!name.matches(Regex("runtime-[0-9a-f-]{36}"))) return null
-        return parent.resolve(name).takeIf { Files.isDirectory(it, NOFOLLOW_LINKS) }
+        return parent.resolve(name).takeIf(::isRuntimeDirectory)
     }
 
     private suspend fun existing(pin: PiRuntimeRelease): Path? = try {
@@ -124,8 +124,12 @@ internal class PiRuntimeDistribution(
         ) { "Pi cache version differs" }
         val files = metadata.getValue("files").jsonObject
         require(files.isNotEmpty() && files.size <= MAX_FILES) { "Invalid Pi cache inventory" }
-        val actual = Files.walk(directory).use { paths -> paths.filter { it != directory }.toList() }
-        require(actual.none(Files::isSymbolicLink)) { "Pi cache contains a link" }
+        val actual = Files.walk(directory).use { paths ->
+            paths.filter { it != directory }.map { path ->
+                require(!isRuntimeLink(path)) { "Pi cache contains a link" }
+                path
+            }.toList()
+        }
         require(
             actual.count { !Files.isDirectory(it, NOFOLLOW_LINKS) } == files.size + 1,
         ) { "Pi cache inventory differs" }
@@ -143,9 +147,9 @@ internal class PiRuntimeDistribution(
 
     private suspend fun install(pin: PiRuntimeRelease, archive: Path): Path {
         Files.createDirectories(root)
-        require(Files.isDirectory(root, NOFOLLOW_LINKS)) { "Pi cache root is not a directory" }
+        require(isRuntimeDirectory(root)) { "Pi cache root is not a directory" }
         val parent = Files.createDirectories(versionRoot(pin))
-        require(Files.isDirectory(parent, NOFOLLOW_LINKS)) { "Pi version root is not a directory" }
+        require(isRuntimeDirectory(parent)) { "Pi version root is not a directory" }
         val staging = Files.createTempDirectory(parent, ".install-")
         try {
             val files = PiRuntimeArchive().extract(archive, staging, pin.isZip)
@@ -169,7 +173,7 @@ internal class PiRuntimeDistribution(
     }
 
     private fun publish(parent: Path, name: String) {
-        require(Files.isDirectory(root, NOFOLLOW_LINKS) && Files.isDirectory(parent, NOFOLLOW_LINKS)) {
+        require(isRuntimeDirectory(root) && isRuntimeDirectory(parent)) {
             "Pi cache destination changed"
         }
         val temporary = parent.resolve(".active-${UUID.randomUUID()}")
@@ -200,3 +204,14 @@ private const val MARKER = ".heartbeat-runtime.json"
 private const val MAX_POINTER_BYTES = 128
 private const val MAX_MARKER_BYTES = 2L * 1024 * 1024
 private const val MAX_FILES = 10_000
+
+/** NOFOLLOW_LINKS alone treats Windows junctions as ordinary directories. */
+private fun isRuntimeDirectory(path: Path): Boolean = Files.isDirectory(path, NOFOLLOW_LINKS) && !isRuntimeLink(path)
+
+/** Canonicalize the parent first so normal aliases such as macOS /var do not look like a linked leaf. */
+private fun isRuntimeLink(path: Path): Boolean {
+    val absolute = path.toAbsolutePath()
+    val parent = absolute.parent ?: return false
+    val leaf = parent.toRealPath().resolve(absolute.fileName)
+    return leaf.toRealPath(NOFOLLOW_LINKS) != leaf.toRealPath()
+}
