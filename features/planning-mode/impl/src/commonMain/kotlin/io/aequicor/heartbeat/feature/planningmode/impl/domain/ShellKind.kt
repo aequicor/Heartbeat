@@ -1,7 +1,7 @@
-package io.aequicor.heartbeat.feature.planningmode.api
+package io.aequicor.heartbeat.feature.planningmode.impl.domain
 
 /** Shell a command runs in. */
-public enum class ShellKind {
+internal enum class ShellKind {
     /** `sh`, `bash`, `zsh` and compatible shells. */
     Posix,
 

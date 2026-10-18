@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.planningmode.api
+package io.aequicor.heartbeat.feature.planningmode.impl.domain
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -12,7 +12,7 @@ class ReadOnlyCommandsTest {
         "cat README.md",
         "head -n 40 src/Main.kt",
         "tail -n 20 build.log",
-        "wc -l *.kt",
+        "wc -l Main.kt",
         "grep -rn \"class Plan\" features",
         "grep -E 'a|b' file.txt",
         "rg --type kotlin PlanningMachineKey",
@@ -39,7 +39,7 @@ class ReadOnlyCommandsTest {
         "git status",
         "git log --oneline -20",
         "git -C features diff --stat",
-        "git --no-pager show HEAD~1",
+        "git --no-pager show 'HEAD~1'",
         "git blame -L 10,20 Main.kt",
         "git rev-parse --abbrev-ref HEAD",
         "git ls-files features/planning-mode",
@@ -52,8 +52,19 @@ class ReadOnlyCommandsTest {
         "git tag --list",
         "cd features && ls",
         "ls src | grep Plan",
-        "find . -name '*.kt' | xargs grep -l Planning",
-        "find . -name '*.kt' | xargs -n 1 wc -l",
+        "grep -rn 'foo.*bar' src",
+        "echo \"a*b\" 'c?d' 'x{1,2}'",
+        "sed -nE '5p' file",
+        "sed -n -s 1p a b",
+        "sort -rk2 -t, data.csv",
+        "sort -k 2 -t : names",
+        "tree -L 2 -I build",
+        "tree -aCL 3",
+        "git reflog",
+        "git reflog show HEAD",
+        "git log --oneline --stat",
+        "rg -n --no-search-zip foo",
+        "file -b icon.png",
         "grep foo file 2>/dev/null",
         "grep foo file 2>&1 | head",
         "ls missing &>/dev/null || echo absent",
@@ -125,6 +136,8 @@ class ReadOnlyCommandsTest {
         "xargs rm",
         "xargs",
         "xargs xargs rm",
+        "find . -name '*.kt' | xargs grep -l Planning",
+        "xargs -n 1 wc -l",
         "git commit -m x",
         "git push",
         "git checkout main",
@@ -164,6 +177,89 @@ class ReadOnlyCommandsTest {
     @Test
     fun `commands that may change anything need a decision`() {
         needsDecision.forEach { assertFalse(isReadOnlyCommand(it), it) }
+    }
+
+    @Test
+    fun `syntax the shell could expand needs a decision`() {
+        listOf(
+            "wc -l *.kt",
+            "ls file?",
+            "ls [ab].kt",
+            "ls a]",
+            "ls ~",
+            "cat ~/notes",
+            "git show HEAD~1",
+            "echo {a,b}",
+            "echo a}",
+            "echo \$HOME",
+            "echo \${HOME}",
+            "echo \"\$HOME\"",
+            "echo \"\\\$HOME\"",
+            "echo \$'\\x41'",
+            "echo !!",
+            "ls a(b)",
+            "ls a)",
+            "cat < ~/secret",
+            "cat < *.txt",
+            "ls \\\nrm",
+            "echo \"a\\\nb\"",
+        ).forEach { assertFalse(isReadOnlyCommand(it), it) }
+    }
+
+    @Test
+    fun `forbidden options and their abbreviations need a decision`() {
+        listOf(
+            "git reflog expire --all",
+            "git reflog delete x",
+            "git diff --out=patch",
+            "git diff --outp=patch",
+            "git diff --o=patch",
+            "git diff --ext",
+            "git grep --open vim foo",
+            "git grep -lO vim foo",
+            "git grep -Ovim foo",
+            "git log --exe=x",
+            "git log --upload-pa=x",
+            "sed -n -e '5p' file",
+            "sed -ne '5p' file",
+            "sed -n --expression=5p file",
+            "sed -n -f script file",
+            "sed -nf script file",
+            "sed -n --in-place 5p file",
+            "sed -n --in-pl 5p file",
+            "sed -n -i 5p file",
+            "sed -ni 5p file",
+            "sed -E '5p' file",
+            "sed -n -- 5p file",
+            "sed -n - 5p",
+            "sort --output=x in",
+            "sort --out=x in",
+            "sort --compress-program=sh in",
+            "sort -T dir in",
+            "sort -k",
+            "tree -o out",
+            "tree -Ro out",
+            "tree -aH .",
+            "tree --output=x",
+            "tree -L",
+            "grep x f >&3",
+            "grep x f 2>&1-",
+            "grep x f >& out",
+            "grep x f 2>&12",
+            "grep x f >&2x",
+            "rg --pre=sh foo",
+            "rg --hostname-bin=sh foo",
+            "rg -z foo",
+            "rg -nz foo",
+            "rg --search-zip foo",
+            "file -C",
+            "file --compile",
+            "file --comp",
+            "tail --fol a.log",
+            "tail --f a.log",
+            "date --se 2020-01-01",
+            "date --s=2020-01-01",
+        ).forEach { assertFalse(isReadOnlyCommand(it), it) }
     }
 
     @Test

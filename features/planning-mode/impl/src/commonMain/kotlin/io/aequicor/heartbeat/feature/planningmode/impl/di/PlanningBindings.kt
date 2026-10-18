@@ -8,6 +8,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
@@ -58,17 +59,22 @@ object PlanningBindings {
         override val state = machine.state
     }
 
-    /** Keeps planning chats read-only. */
+    /**
+     * Keeps planning chats read-only. Until the toggle is read its value is unknown (null), and the hook asks for a
+     * decision on every non-read action instead of letting a planning chat write right after a restart.
+     */
     @Provides
     @IntoSet
     @SingleIn(ProfileScope::class)
     internal fun readOnlyHook(
         view: PlanningView,
         toggles: FeatureToggles,
+        platform: PlatformInfo,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
     ): SessionHook {
-        val enabled = toggles.observe(PlanningModeEnabled).stateIn(scope.coroutineScope, SharingStarted.Eagerly, false)
-        return PlanningReadOnlyHook(view) { enabled.value }
+        val enabled = toggles.observe(PlanningModeEnabled)
+            .stateIn<Boolean?>(scope.coroutineScope, SharingStarted.Eagerly, null)
+        return PlanningReadOnlyHook(view, platform.host) { enabled.value }
     }
 
     /** Keeps the plan in the context of engines that keep their context natively. */

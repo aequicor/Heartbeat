@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.planningmode.impl.data
 
+import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
@@ -21,12 +22,13 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class PlanningReadOnlyHookTest {
     private val state = MutableStateFlow<PlanningState>(ready(PlanMode.Planning))
-    private var isEnabled = true
-    private val hook = PlanningReadOnlyHook(View(state)) { isEnabled }
+    private var isEnabled: Boolean? = true
+    private val hook = PlanningReadOnlyHook(View(state), HostPlatform.MacOs) { isEnabled }
 
     @Test
     fun `reads and planning tools continue while planning`() = runTest {
@@ -34,7 +36,7 @@ class PlanningReadOnlyHookTest {
         assertEquals(ToolHookVerdict.Continue, hook.beforeTool(call("plan_write", AgentToolAction.Edit)))
         assertEquals(
             ToolHookVerdict.Continue,
-            hook.beforeTool(call("mcp__heartbeat__plan_propose", AgentToolAction.Command)),
+            hook.beforeTool(call("mcp__heartbeat_tools__plan_propose", AgentToolAction.Command)),
         )
         assertEquals(
             ToolHookVerdict.Continue,
@@ -54,6 +56,37 @@ class PlanningReadOnlyHookTest {
         assertEquals(ToolHookVerdict.Continue, hook.beforeTool(shell("run_command", "rg Plan features")))
         assertIs<ToolHookVerdict.Ask>(hook.beforeTool(shell("bash", "./gradlew test")))
         assertIs<ToolHookVerdict.Ask>(hook.beforeTool(shell("powershell", "Get-ChildItem")))
+    }
+
+    @Test
+    fun `shell expansions and xargs need a decision`() = runTest {
+        assertIs<ToolHookVerdict.Ask>(hook.beforeTool(shell("Bash", "cat ~/.ssh/id_rsa \$HOME")))
+        assertIs<ToolHookVerdict.Ask>(hook.beforeTool(shell("Bash", "ls | xargs rm")))
+        assertIs<ToolHookVerdict.Ask>(hook.beforeTool(shell("Bash", "sed -n -e 5p file")))
+    }
+
+    @Test
+    fun `koog commands on windows run in power shell and need a decision`() = runTest {
+        val windows = PlanningReadOnlyHook(View(state), HostPlatform.Windows) { true }
+        assertIs<ToolHookVerdict.Ask>(windows.beforeTool(shell("run_command", "ls")))
+        assertEquals(ToolHookVerdict.Continue, windows.beforeTool(shell("Bash", "ls")))
+    }
+
+    @Test
+    fun `tools of other mcp servers keep their full name`() = runTest {
+        assertIs<ToolHookVerdict.Deny>(hook.beforeTool(call("mcp__other__plan_write", AgentToolAction.Edit)))
+        assertIs<ToolHookVerdict.Deny>(hook.beforeTool(call("mcp__other__plan_read", AgentToolAction.Command)))
+        assertIs<ToolHookVerdict.Deny>(hook.beforeTool(shell("mcp__other__bash", "ls")))
+    }
+
+    @Test
+    fun `mutations need a decision until the toggle is read`() = runTest {
+        isEnabled = null
+        state.value = ready(PlanMode.Implementing)
+        assertTrue(hook.isIntercepting)
+        assertIs<ToolHookVerdict.Ask>(hook.beforeTool(call("Write", AgentToolAction.Edit, native = true)))
+        assertIs<ToolHookVerdict.Ask>(hook.beforeTool(shell("Bash", "ls")))
+        assertEquals(ToolHookVerdict.Continue, hook.beforeTool(call("Read", AgentToolAction.Read)))
     }
 
     @Test
