@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
@@ -145,14 +146,20 @@ internal class OrganicAiEffects(
         machine.send(OrganicAiIntent.Internal.Hibernated)
     }
 
+    /**
+     * Lets every cell go first, so no turn runs on while connections are removed; only then are the connections of
+     * the sessions that really ended removed (a stale retirement let nothing go and keeps its session's connections).
+     * The removal is best effort: a sleep that cancels it leaves the connections behind.
+     */
     private suspend fun release(effect: OrganicAiEffect.Release) {
-        effect.cells.forEach { id ->
-            val cell = effect.organism.cell(id) ?: return@forEach
-            val isReleased = cells.release(CellKey(effect.organism.id, id), cell.session, effect.mode, cell.turns)
-            // A stale retirement let nothing go: that cell's session is in use again and keeps its connections.
-            if (isReleased) cell.session?.let { driver.disconnect(effect.organism, it) }
+        val ended = effect.cells.mapNotNull { id ->
+            val cell = effect.organism.cell(id) ?: return@mapNotNull null
+            val key = CellKey(effect.organism.id, id)
+            val isReleased = cells.release(key, cell.session, effect.mode, cell.turns)
+            cell.session?.takeIf { isReleased }?.let { Ended(key, it, cell.turns) }
         }
         log.i { "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})" }
+        ended.forEach { driver.disconnect(effect.organism, it.session) { cells.isReleased(it.key, it.generation) } }
     }
 
     /** A snapshot that cannot be written now is written by the next change of its organism or the next sleep. */
@@ -166,3 +173,6 @@ internal class OrganicAiEffects(
         }
     }
 }
+
+/** A cell session that was let go, with the turn generation it was released as. */
+private data class Ended(val key: CellKey, val session: SessionRef, val generation: Int)

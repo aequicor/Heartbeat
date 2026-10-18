@@ -98,13 +98,32 @@ class FacadeAdaptersTest {
         val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
         cells.open(key, route, existing = null, generation = 1)
         val resumed = cells.open(key, route, existing = native.ref, generation = 2)
-        cells.release(key, native.ref, ReleaseMode.Retire, generation = 1)
+        assertFalse(cells.release(key, native.ref, ReleaseMode.Retire, generation = 1))
         assertEquals(0, native.closes)
         assertFailsWith<EngineException> { cells.open(key, route, native.ref, generation = 1) }
         resumed.submit(RequestId("continued"), "check the remaining work", TrustLevel.AutoEdits)
         assertEquals(1, native.prompts.size)
-        cells.release(key, native.ref, ReleaseMode.Retire, generation = 2)
+        assertTrue(cells.release(key, native.ref, ReleaseMode.Retire, generation = 2))
         assertEquals(1, native.closes)
+    }
+
+    @Test
+    fun `a session is let go for its resources only until a later turn or a handle takes it again`() = runTest {
+        val native = FakeSession(session("continued"))
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        cells.open(key, route, existing = null, generation = 1)
+        assertFalse(cells.isReleased(key, generation = 1))
+        assertTrue(cells.release(key, native.ref, ReleaseMode.Retire, generation = 1))
+        assertTrue(cells.isReleased(key, generation = 1))
+        assertFalse(cells.isLysed(key))
+
+        cells.open(key, route, existing = native.ref, generation = 2)
+        assertFalse(cells.isReleased(key, generation = 1))
+        assertFalse(cells.isReleased(key, generation = 2))
+
+        assertTrue(cells.release(key, native.ref, ReleaseMode.Lyse, generation = 2))
+        assertTrue(cells.isLysed(key))
+        assertTrue(cells.isReleased(key, generation = 1))
     }
 
     @Test

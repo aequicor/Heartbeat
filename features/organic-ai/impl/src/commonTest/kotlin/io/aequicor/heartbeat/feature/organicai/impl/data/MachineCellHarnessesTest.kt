@@ -340,6 +340,99 @@ class MachineCellHarnessesTest {
         assertTrue(library.sent.isEmpty())
     }
 
+    private fun write(isAttached: Boolean) = HarnessAttachmentWrite(
+        RequestId("in-flight"),
+        HarnessId("compose"),
+        cell,
+        isAttached = isAttached,
+        attachments = emptyMap(),
+    )
+
+    @Test
+    fun `a connection is judged only after a removal in flight for it is done`() = runTest {
+        library.state.value = ready.copy(
+            attachments = mapOf(cell to setOf(HarnessId("compose"))),
+            attachmentWrite = write(isAttached = false),
+        )
+        commits()
+        val connecting = async { port.connect(cell, setOf("compose")) }
+        runCurrent()
+        assertFalse(connecting.isCompleted)
+        assertTrue(library.sent.isEmpty())
+        library.state.value = ready
+        connecting.await()
+        assertEquals(listOf(HarnessId("compose")), library.sent.map { (it as HarnessIntent.Public.Attach).id })
+    }
+
+    @Test
+    fun `a removal waits for a connection in flight for it and then removes it`() = runTest {
+        library.state.value = ready.copy(attachmentWrite = write(isAttached = true))
+        commits()
+        val disconnecting = async { port.disconnect(cell, setOf("compose")) }
+        runCurrent()
+        assertFalse(disconnecting.isCompleted)
+        assertTrue(library.sent.isEmpty())
+        library.state.value = ready.copy(attachments = mapOf(cell to setOf(HarnessId("compose"))))
+        disconnecting.await()
+        assertEquals(listOf(HarnessId("compose")), library.sent.map { (it as HarnessIntent.Public.Detach).id })
+        assertEquals(emptyMap(), (library.state.value as HarnessState.Ready).attachments)
+    }
+
+    @Test
+    fun `a removal of a session a newer turn reopened is skipped`() = runTest {
+        library.state.value = ready.copy(attachments = mapOf(cell to setOf(HarnessId("compose"))))
+        commits()
+        port.disconnect(cell, setOf("compose")) { false }
+        assertTrue(library.sent.isEmpty())
+        assertEquals(setOf(HarnessId("compose")), (library.state.value as HarnessState.Ready).attachments[cell])
+    }
+
+    @Test
+    fun `a removal that waited for the library asks again before it writes`() = runTest {
+        library.state.value = ready.copy(
+            attachments = mapOf(cell to setOf(HarnessId("compose"))),
+            attachmentWrite = write(isAttached = true).copy(session = session("elsewhere")),
+        )
+        commits()
+        var isReleased = true
+        val disconnecting = async { port.disconnect(cell, setOf("compose")) { isReleased } }
+        runCurrent()
+        assertFalse(disconnecting.isCompleted)
+        isReleased = false
+        library.state.value = ready.copy(attachments = mapOf(cell to setOf(HarnessId("compose"))))
+        disconnecting.await()
+        assertTrue(library.sent.isEmpty())
+    }
+
+    @Test
+    fun `all removals of a session share one deadline and say why they failed`() = runTest {
+        library.state.value = ready.copy(
+            attachments = mapOf(cell to setOf(HarnessId("compose"), HarnessId("verify"))),
+        )
+        library.onSend = { SendResult.Accepted }
+        val disconnecting = async {
+            assertFailsWith<IllegalStateException> { port.disconnect(cell, setOf("compose", "verify")) }
+        }
+        runCurrent()
+        advanceTimeBy(16.seconds)
+        runCurrent()
+        assertTrue(disconnecting.isCompleted)
+        assertTrue("no confirmation" in disconnecting.await().message.orEmpty())
+        assertEquals(1, library.sent.size)
+    }
+
+    @Test
+    fun `a removal the library refuses names the reason and no harness`() = runTest {
+        library.state.value = ready.copy(attachments = mapOf(cell to setOf(HarnessId("compose"))))
+        library.onSend = { intent ->
+            library.outputs.emit(HarnessOutput.Rejected(intent.requestId, HarnessRejection.Conflict))
+            SendResult.Accepted
+        }
+        val failure = assertFailsWith<IllegalStateException> { port.disconnect(cell, setOf("compose")) }
+        assertTrue("Conflict" in failure.message.orEmpty())
+        assertFalse("compose" in failure.message.orEmpty())
+    }
+
     @Test
     fun `an organism carries as many harnesses as the library holds`() {
         assertEquals(HarnessLimits.HARNESSES, OrganismBounds.MAX_HARNESSES)

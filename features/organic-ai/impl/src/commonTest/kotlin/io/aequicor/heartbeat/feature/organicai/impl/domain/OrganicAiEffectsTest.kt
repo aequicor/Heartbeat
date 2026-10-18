@@ -226,6 +226,42 @@ class OrganicAiEffectsTest {
     }
 
     @Test
+    fun `every cell is let go before any connection is removed and each removal asks if its cell is still gone`() =
+        runTest {
+            val events = mutableListOf<String>()
+            cells.events = events
+            harnesses.events = events
+            cells.letGo[CellKey(ORGANISM, C1)] = false
+            val ended = organism(cell(C1, phase = CellPhase.Dead(DeathCause.Aborted)))
+                .copy(harnesses = setOf("compose"))
+            effects.handle(OrganicAiEffect.Release(ended, listOf(ZYGOTE, C1), ReleaseMode.Retire), machine)
+            assertEquals(listOf("release zygote", "release c1", "disconnect z", "disconnect c1"), events)
+            assertEquals(listOf(true, false), harnesses.guards)
+        }
+
+    @Test
+    fun `a cell lysed while it connected abandons its turn and removes the connections it made`() = runTest {
+        cells.lysed += CellKey(ORGANISM, C1)
+        val germinating = organism(cell(C1)).copy(harnesses = setOf("compose"))
+        effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
+        assertEquals(listOf(cells.handle.session to setOf("compose")), harnesses.connected)
+        assertEquals(emptyList(), cells.handle.submitted)
+        assertEquals(emptyList(), journal.saved)
+        assertEquals(listOf(cells.handle.session to setOf("compose")), harnesses.disconnected)
+        assertEquals(ReleaseMode.Lyse, cells.released.single().third)
+    }
+
+    @Test
+    fun `a cell that ended before its session was bound has connected nothing to remove`() = runTest {
+        machine.refuse = { it is OrganicAiIntent.Internal.SessionBound }
+        val germinating = organism(cell(C1).copy(session = null)).copy(harnesses = setOf("compose"))
+        effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
+        assertEquals(1, cells.released.size)
+        assertEquals(emptyList(), harnesses.connected)
+        assertEquals(emptyList(), harnesses.disconnected)
+    }
+
+    @Test
     fun `a stale retirement keeps the connections of a session that is in use again`() = runTest {
         cells.isReleased = false
         val resumed = organism(cell(C1)).copy(harnesses = setOf("compose"))
@@ -445,16 +481,26 @@ class OrganicAiEffectsTest {
     private class Harnesses : CellHarnesses {
         val connected = mutableListOf<Pair<SessionRef, Set<String>>>()
         val disconnected = mutableListOf<Pair<SessionRef, Set<String>>>()
+
+        /** What the removal's guard answered when it was asked, in the order of removals. */
+        val guards = mutableListOf<Boolean>()
         var failure: Exception? = null
         var disconnectFailure: Exception? = null
+        var events: MutableList<String>? = null
 
         override suspend fun connect(session: SessionRef, harnesses: Set<String>) {
             connected += session to harnesses
             failure?.let { throw it }
         }
 
-        override suspend fun disconnect(session: SessionRef, harnesses: Set<String>) {
+        override suspend fun disconnect(
+            session: SessionRef,
+            harnesses: Set<String>,
+            isReleased: suspend () -> Boolean,
+        ) {
+            events?.add("disconnect ${session.nativeId}")
             disconnected += session to harnesses
+            guards += isReleased()
             disconnectFailure?.let { throw it }
         }
     }
@@ -497,9 +543,21 @@ class OrganicAiEffectsTest {
         }
 
         override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int): Boolean {
+            events?.add("release ${key.cell.value}")
             released += Triple(key, session, mode)
             return isReleased
         }
+
+        /** Cells that were lysed, as the real sessions would remember. */
+        val lysed = mutableSetOf<CellKey>()
+
+        /** The answer to [isReleased] by cell; a cell not listed is let go. */
+        val letGo = mutableMapOf<CellKey, Boolean>()
+        var events: MutableList<String>? = null
+
+        override suspend fun isLysed(key: CellKey): Boolean = key in lysed
+
+        override suspend fun isReleased(key: CellKey, generation: Int): Boolean = letGo[key] ?: true
 
         override suspend fun releaseAll() {
             releasedAll++

@@ -74,11 +74,13 @@ internal interface CellHarnesses {
 
     /**
      * Removes the connections of [harnesses] to [session], whose cell has ended, so dead sessions never fill the
-     * connection quota of a harness. A cell that wakes again is connected anew before its next prompt. Throws when
-     * any connection stays; a connection not there is not written. Does nothing without [harnesses] or with the
-     * harness feature off.
+     * connection quota of a harness. A cell that wakes again is connected anew before its next prompt; so that a late
+     * removal never strips a session a newer turn already uses, [isReleased] is asked again right before each write
+     * and a removal is skipped once it says no. All of it shares one deadline. Best effort: throws when any
+     * connection stays (a failed or cancelled removal is not retried later); a connection not there is not written.
+     * Does nothing without [harnesses] or with the harness feature off.
      */
-    suspend fun disconnect(session: SessionRef, harnesses: Set<String>)
+    suspend fun disconnect(session: SessionRef, harnesses: Set<String>, isReleased: suspend () -> Boolean = { true })
 }
 
 /** Engine sessions of cells; one handle per cell is kept open while the cell lives. */
@@ -102,6 +104,15 @@ internal interface CellSessions {
      * nothing go, so the cell's session is still in use.
      */
     suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int = 0): Boolean
+
+    /** Whether the cell [key] was lysed: it is never opened again, and nothing may be connected to its session. */
+    suspend fun isLysed(key: CellKey): Boolean
+
+    /**
+     * Whether the session of [key] is let go as of [generation]: the cell was lysed, or no later turn opened it
+     * and it has no open handle. A removal of its resources runs only while this holds.
+     */
+    suspend fun isReleased(key: CellKey, generation: Int): Boolean
 
     /** Cancels every running turn and closes every handle without archiving, before sleep. */
     suspend fun releaseAll()

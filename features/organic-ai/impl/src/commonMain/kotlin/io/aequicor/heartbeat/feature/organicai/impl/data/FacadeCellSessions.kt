@@ -151,6 +151,12 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         return true
     }
 
+    override suspend fun isLysed(key: CellKey): Boolean = mutex.withLock { key in lysed }
+
+    override suspend fun isReleased(key: CellKey, generation: Int): Boolean = mutex.withLock {
+        key in lysed || (key !in handles && (generations[key] ?: 0) <= generation)
+    }
+
     override suspend fun releaseAll() {
         val all = mutex.withLock {
             sleeps++
