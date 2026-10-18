@@ -11,11 +11,15 @@ import io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermitKind
 import io.aequicor.heartbeat.feature.harness.api.process.PortableProcessCheckpoint
 import io.aequicor.heartbeat.feature.harness.api.process.PortableProcessExport
 import io.aequicor.heartbeat.feature.harness.api.process.PortableProcessImport
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessAttempt
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessPhase
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessRecord
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflow
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey
 import io.aequicor.heartbeat.feature.harness.api.process.ResultRef
 import io.aequicor.heartbeat.feature.harness.api.process.portableCheckpoint
 import io.aequicor.heartbeat.feature.harness.api.process.prepareImport
@@ -29,6 +33,7 @@ import io.aequicor.heartbeat.feature.harness.impl.data.ownership.github.Protecte
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.OwnershipRead
 import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.OwnershipUnavailable
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.ownershipIntent
 import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.transfer.OwnershipDrainReceipt
 import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.transfer.OwnershipLocalResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.transfer.OwnershipReconciliationReceipt
@@ -124,7 +129,9 @@ internal class RuntimeOwnershipTransferLocal(
     override suspend fun drainAndSeal(context: OwnershipTransferContext): OwnershipLocalResult<OwnershipDrainReceipt> {
         if (!drain(context)) return OwnershipLocalResult.Pending
         return data.processMutex.withLock {
+            if (snapshot(context) == null) return@withLock OwnershipLocalResult.Pending
             val record = records().singleOrNull { it.id == context.binding.process } ?: return@withLock unavailable()
+            if (record.incarnation != context.binding.incarnation) return@withLock unavailable()
             val head = workspace.head(WorkspaceRef(context.binding.workspace), context.binding.identity)
                 ?: return@withLock unavailable()
             val pinned = record.copy(subject = head)
@@ -153,7 +160,7 @@ internal class RuntimeOwnershipTransferLocal(
         }
     }
 
-    private suspend fun drain(context: OwnershipTransferContext): Boolean {
+    private suspend fun drain(context: OwnershipTransferContext, isExporting: Boolean = true): Boolean {
         val source = checkNotNull(context.snapshot.transfer).source
         val ownedRuns = runs.load().filter {
             it.harness == context.binding.harness && it.process?.key?.process == context.binding.process &&
@@ -164,13 +171,17 @@ internal class RuntimeOwnershipTransferLocal(
             cancelWorkflow(checkNotNull(run.process).key)
         }
         if (active.isNotEmpty()) return false
-        return data.processMutex.withLock { drainJoined(context, ownedRuns) }
+        return data.processMutex.withLock { drainJoined(context, ownedRuns, isExporting) }
     }
 
-    private suspend fun drainJoined(context: OwnershipTransferContext, ownedRuns: List<WorkflowRun>): Boolean {
+    private suspend fun drainJoined(
+        context: OwnershipTransferContext,
+        ownedRuns: List<WorkflowRun>,
+        isExporting: Boolean,
+    ): Boolean {
         val isStopped = snapshot(
             context,
-        ) != null && settleRuns(context, ownedRuns) && settleUnstarted(context, ownedRuns)
+        ) != null && settleRuns(context, ownedRuns, isExporting) && settleUnstarted(context)
         val isReconciled = isStopped && repairMutationReceipts(
             context,
         ) && repairCommandReceipts(context) && repairGitHubReceipts(context)
@@ -178,12 +189,31 @@ internal class RuntimeOwnershipTransferLocal(
         return final != null && final.permits.isEmpty()
     }
 
-    private suspend fun settleRuns(context: OwnershipTransferContext, ownedRuns: List<WorkflowRun>): Boolean {
+    private suspend fun settleRuns(
+        context: OwnershipTransferContext,
+        ownedRuns: List<WorkflowRun>,
+        isExporting: Boolean,
+    ): Boolean {
         for (run in ownedRuns) {
-            val isReleased = run.steps.none { it.helper != null && !it.isNativeReleased }
-            if (!isReleased || !closeAttempt(context, run)) return false
-            data.confirmProcessWorkflow(context.binding.harness, run, clock.now())
+            if (!settleRun(context, run, isExporting)) return false
         }
+        return true
+    }
+
+    private suspend fun settleRun(context: OwnershipTransferContext, run: WorkflowRun, isExporting: Boolean): Boolean {
+        if (run.steps.any { it.helper != null && !it.isNativeReleased }) return false
+        val record = records().singleOrNull { it.id == context.binding.process } ?: return false
+        return if (!isExporting && record.inFlight?.workflow?.run == run.id) {
+            // Cancellation restores local admission, not portability. Keep its native result and attempt so the
+            // script can Finish after Activate; only the positively stopped native producer releases its permit.
+            run.status != WorkflowStatus.Running && run.ownershipIntent()?.let { runtime.complete(it) } == true
+        } else {
+            closeAttempt(context, run) && recordWorkflowReceipt(context, run)
+        }
+    }
+
+    private suspend fun recordWorkflowReceipt(context: OwnershipTransferContext, run: WorkflowRun): Boolean {
+        data.confirmProcessWorkflow(context.binding.harness, run, clock.now())
         return true
     }
 
@@ -237,24 +267,45 @@ internal class RuntimeOwnershipTransferLocal(
         null
     }
 
-    private suspend fun settleUnstarted(context: OwnershipTransferContext, known: List<WorkflowRun>): Boolean {
+    private suspend fun settleUnstarted(context: OwnershipTransferContext): Boolean {
         val record = records().singleOrNull { it.id == context.binding.process } ?: return false
-        val attempt = record.inFlight ?: return true
-        val reservation = attempt.workflow ?: return false
-        if (known.any { it.id == reservation.run } || runs.find(reservation.run) != null) return false
-        // The writer barrier joined the start producer; close its exact reservation before releasing admission.
-        val key = io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey(
-            record.id,
-            record.incarnation,
-            attempt.number,
-            attempt.stage,
-        )
-        val reduced = record.reduce(ProcessCommand.CancelWorkflow(key, reservation), clock.now())
-        if (reduced !is ProcessReduction.Changed || !replace(record, reduced.record)) return false
-        val settled = reduced.record.reduce(ProcessCommand.SettleWorkflow(key, reservation), clock.now())
-        if (settled !is ProcessReduction.Changed || !replace(reduced.record, settled.record)) return false
+        val attempts = listOfNotNull(record.inFlight) + record.history.map { it.attempt }
+        return attempts.filter { it.workflow != null }.all { settleMissingRun(context, it) }
+    }
+
+    private suspend fun settleMissingRun(context: OwnershipTransferContext, attempt: ProcessAttempt): Boolean {
+        val reservation = checkNotNull(attempt.workflow)
+        if (runs.find(reservation.run) != null) return true
+        // Writer barrier joined the start producer; a durable run must precede every native dispatch. Inspect
+        // closed history too: a previous cleanup may have committed CancelWorkflow before it was interrupted.
+        val record = records().single { it.id == context.binding.process }
+        val key = ProcessWorkflowKey(record.id, record.incarnation, attempt.number, attempt.stage)
+        val closed = if (record.inFlight?.number == attempt.number) {
+            reduceAndStore(record, ProcessCommand.CancelWorkflow(key, reservation))
+        } else {
+            record
+        }
+        val settled = closed?.let { reduceAndStore(it, ProcessCommand.SettleWorkflow(key, reservation)) }
+        return settled != null && completeReservation(context, settled, reservation)
+    }
+
+    private suspend fun reduceAndStore(record: ProcessRecord, command: ProcessCommand): ProcessRecord? =
+        when (val reduced = record.reduce(command, clock.now())) {
+            is ProcessReduction.Rejected -> null
+            is ProcessReduction.Unchanged -> reduced.record
+            is ProcessReduction.Changed -> reduced.record.takeIf { replace(record, it) }
+        }
+
+    private suspend fun completeReservation(
+        context: OwnershipTransferContext,
+        record: ProcessRecord,
+        reservation: ProcessWorkflow,
+    ): Boolean {
         val intent = runtime.find(context.binding.harness, record, OwnershipPermitKind.Workflow, reservation.run.value)
-        return intent == null || runtime.complete(intent)
+        val current = snapshot(context) ?: return false
+        // A proposal whose Admit never committed is not an outstanding producer. Closed admission plus the
+        // joined writer proves it cannot dispatch later; absence while an active producer exists never suffices.
+        return intent == null || current.permits.none { it.id == intent.permit.id } || runtime.complete(intent)
     }
 
     private suspend fun repairCommandReceipts(context: OwnershipTransferContext): Boolean {
@@ -339,20 +390,40 @@ internal class RuntimeOwnershipTransferLocal(
         context: OwnershipTransferContext,
         checkpoint: PortableProcessCheckpoint,
     ): Boolean {
+        val local = context.binding.local()
+        val bound = runtime.journal.binding(local) ?: return false
+        val pointer = context.snapshot.transfer?.checkpoint ?: return false
+        if (bound.fence != context.snapshot.fence || (bound.imported != null && bound.imported != pointer)) return false
         val existing = records().singleOrNull { it.id == checkpoint.process }
+        val isReplacementAllowed = bound.imported == null && bound.previousOwner != null &&
+            existing?.canReceive(checkpoint, context) == true
         val projection = checkpoint.prepareImport(
             context.binding.identity,
             context.binding.definition,
             context.binding.definitionDigest,
-            existing?.copy(ownershipKey = null),
+            if (isReplacementAllowed) null else existing?.copy(ownershipKey = null),
         )
-        val local = context.binding.local()
-        val bound = runtime.journal.binding(local)
-        return projection is PortableProcessImport.Ready && bound?.fence == context.snapshot.fence &&
-            imported.install(
-                local,
-                checkpoint,
-            ) && replace(existing, projection.record.copy(ownershipKey = context.binding.key))
+        if (projection !is PortableProcessImport.Ready || !imported.install(local, checkpoint)) return false
+        val next = projection.record.copy(ownershipKey = context.binding.key)
+        return (
+            existing == next || replace(
+                existing,
+                next,
+            )
+        ) && runtime.journal.bind(bound, bound.copy(imported = pointer))
+    }
+
+    private fun ProcessRecord.canReceive(
+        checkpoint: PortableProcessCheckpoint,
+        context: OwnershipTransferContext,
+    ): Boolean {
+        val isSameLifetime = incarnation == checkpoint.incarnation && createdAt == checkpoint.createdAt &&
+            ownershipKey == context.binding.key && definition == context.binding.definition
+        val isMonotonic = inputRevision <= checkpoint.inputRevision && nextAttempt <= checkpoint.nextAttempt &&
+            nextWait <= checkpoint.nextWait && nextWriteTry <= checkpoint.nextWriteTry
+        val end = phase as? ProcessPhase.Ended
+        val isEndPreserved = end == null || (checkpoint.end == end.end && checkpoint.endedAt == end.at)
+        return isSameLifetime && isMonotonic && inFlight == null && unresolvedWrites().isEmpty() && isEndPreserved
     }
 
     override suspend fun reconcileSource(
@@ -362,12 +433,12 @@ internal class RuntimeOwnershipTransferLocal(
         val previous = runtime.journal.binding(local) ?: return unavailable()
         if (!runtime.journal.bind(
                 previous,
-                previous.copy(fence = context.snapshot.fence),
+                previous.copy(fence = context.snapshot.fence, previousOwner = null, imported = null),
             )
         ) {
             return OwnershipLocalResult.Pending
         }
-        if (!drain(context) || !github.reconcileNative(local)) return OwnershipLocalResult.Pending
+        if (!drain(context, isExporting = false) || !github.reconcileNative(local)) return OwnershipLocalResult.Pending
         val current = snapshot(context) ?: return OwnershipLocalResult.Pending
         val record = records().singleOrNull { it.id == context.binding.process } ?: return unavailable()
         return if (record.unresolvedWrites().isEmpty()) {

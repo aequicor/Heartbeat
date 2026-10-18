@@ -73,7 +73,14 @@ class HarnessProcessDecisionsModelTest {
         )
         val typed = entry.copy(command = null, ownership = payload)
         val clock = ProcessesTestClock(150)
-        val storage = DecisionModelStorage(ProcessDecisionLedger(entries = listOf(typed)))
+        val otherTask = typed.copy(
+            decision = typed.decision.copy(
+                id = "decision_28",
+                binding = typed.decision.binding.copy(actionDigest = "c".repeat(64)),
+            ),
+            ownership = payload.copy(identity = payload.identity.copy(number = 28, taskNode = GitHubNodeId("PR_28"))),
+        )
+        val storage = DecisionModelStorage(ProcessDecisionLedger(entries = listOf(typed, otherTask)))
         val model = HarnessProcessDecisionsModel(
             "harness",
             ProcessDecisionHost(DecisionTestMachine(storage), clock),
@@ -81,8 +88,18 @@ class HarnessProcessDecisionsModelTest {
             backgroundScope,
             clock,
         )
-        val row = subscribe(model.store).states.value.rows.single()
+        val rows = subscribe(model.store).states.value.rows
+        val row = rows.first()
+        assertEquals(row.process, rows.last().process)
+        assertEquals(28L, checkNotNull(rows.last().ownership).taskNumber)
         val ownership = checkNotNull(row.ownership)
+        assertEquals("owner/repo", ownership.repository)
+        assertEquals(OwnershipTaskKindUi.Pull, ownership.taskKind)
+        assertEquals(27L, ownership.taskNumber)
+        assertEquals(
+            OwnershipTaskKindUi.Issue,
+            payload.copy(identity = payload.identity.copy(kind = GitHubTaskKind.Issue)).toUi().taskKind,
+        )
         assertEquals("heartbeat-processes", ownership.branch)
         assertEquals(source.value, ownership.source)
         assertEquals(recipient.value, ownership.recipient)

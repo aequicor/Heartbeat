@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.harness.api.github.GitHubRepository
 import io.aequicor.heartbeat.feature.harness.api.process.ExecutorHostId
 import io.aequicor.heartbeat.feature.harness.api.process.GitHubTaskIdentity
 import io.aequicor.heartbeat.feature.harness.api.process.GitHubTaskKind
+import io.aequicor.heartbeat.feature.harness.api.process.OwnershipCheckpoint
 import io.aequicor.heartbeat.feature.harness.api.process.OwnershipFence
 import io.aequicor.heartbeat.feature.harness.api.process.OwnershipKey
 import io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermit
@@ -35,6 +36,22 @@ class ProtectedOwnershipJournalTest {
         GitHubNodeId("I_task"),
     )
     private val key = OwnershipKey(identity.canonical.encodeUtf8().sha256().hex())
+
+    @Test
+    fun `published import receipt cannot be cleared or reassigned within its ownership epoch`() = runTest {
+        val journal = ProtectedOwnershipJournal(HarnessDataTestSecrets())
+        val old = OwnershipLocalBinding(local, identity, OwnershipFence(key, journal.host(), 1))
+        assertTrue(journal.bind(null, old))
+        val claim = old.copy(fence = old.fence.copy(epoch = 3), previousOwner = old.fence)
+        assertTrue(journal.bind(old, claim))
+        val published = claim.copy(imported = OwnershipCheckpoint("a".repeat(64), "checkpoint"))
+        assertTrue(journal.bind(claim, published))
+        assertFailsWith<IllegalStateException> { journal.bind(published, claim) }
+        assertFailsWith<IllegalStateException> { journal.bind(published, published.copy(previousOwner = null)) }
+        assertEquals(published, journal.binding(local))
+        val successor = published.copy(fence = published.fence.copy(epoch = 4), imported = null, previousOwner = null)
+        assertTrue(journal.bind(published, successor))
+    }
 
     @Test
     fun `host binding and exact native proposal survive restart independently of ScriptData`() = runTest {

@@ -13,11 +13,16 @@ internal data class ProcessOwnershipUi(
     val checkpoint: String?,
     val definition: String,
     val branch: String,
+    val repository: String,
+    val taskKind: OwnershipTaskKindUi,
+    val taskNumber: Long,
 ) {
     override fun toString(): String = "ProcessOwnershipUi(action=$action, ***)"
 }
 
 internal enum class OwnershipActionUi { Enroll, Prepare, Claim, Cancel }
+
+internal enum class OwnershipTaskKindUi { Issue, Pull }
 
 internal fun ProcessOwnershipSnapshot.toUi(): ProcessOwnershipUi = ProcessOwnershipUi(
     action = OwnershipActionUi.valueOf(action.name),
@@ -27,4 +32,7 @@ internal fun ProcessOwnershipSnapshot.toUi(): ProcessOwnershipUi = ProcessOwners
     checkpoint = checkpointDigest ?: expected?.transfer?.checkpoint?.digest,
     definition = definitionDigest,
     branch = coordinatorBranch,
+    repository = "${identity.repository.owner}/${identity.repository.name}",
+    taskKind = OwnershipTaskKindUi.valueOf(identity.kind.name),
+    taskNumber = identity.number,
 )

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.process.GitHubTaskIdentity
+import io.aequicor.heartbeat.feature.harness.api.process.OwnershipCheckpoint
 import io.aequicor.heartbeat.feature.harness.api.process.OwnershipFence
 import io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermit
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
@@ -22,7 +23,19 @@ internal data class OwnershipLocalBinding(
     /** Native-approved working copy for phase progress; null only in pre-runtime/test journals. */
     val workspace: io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef? = null,
     val definitionDigest: String? = null,
+    /** Protected proof that this profile held the same lifetime before the current recipient Claim. */
+    val previousOwner: OwnershipFence? = null,
+    /** Published import for this exact fence. Same-epoch replay must never overwrite newer local progress. */
+    val imported: OwnershipCheckpoint? = null,
 ) {
+    init {
+        require(
+            previousOwner == null || (
+                previousOwner.key == fence.key &&
+                    previousOwner.host == fence.host && previousOwner.epoch < fence.epoch
+            ),
+        )
+    }
     override fun toString(): String = "OwnershipLocalBinding(***)"
 }
 

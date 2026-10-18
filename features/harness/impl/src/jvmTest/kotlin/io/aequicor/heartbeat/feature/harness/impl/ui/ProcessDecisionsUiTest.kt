@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.harness.impl.presentation.OwnershipActionUi
+import io.aequicor.heartbeat.feature.harness.impl.presentation.OwnershipTaskKindUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ProcessDecisionStatusUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ProcessDecisionUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ProcessDecisionsUiIntent
@@ -93,30 +94,37 @@ class ProcessDecisionsUiTest {
     }
 
     @Test
-    fun `ownership decision visibly identifies hosts branch and definition`() = runSkikoComposeUiTest {
-        val ownership = ProcessOwnershipUi(
-            OwnershipActionUi.Prepare,
-            "source-host",
-            "recipient-host",
-            7,
-            "checkpoint-digest",
-            "reviewed-definition",
-            "heartbeat-processes",
-        )
-        setContent {
-            HbTheme {
-                ProcessDecisionsContent(
-                    ProcessDecisionsUiState(persistentListOf(row.copy(words = "", ownership = ownership))),
-                    {},
-                )
+    fun `ownership decision visibly identifies task hosts branch and definition at compact width`() =
+        runSkikoComposeUiTest(size = Size(420f, 900f)) {
+            val ownership = ProcessOwnershipUi(
+                OwnershipActionUi.Prepare,
+                "1".repeat(32),
+                "2".repeat(32),
+                7,
+                "c".repeat(64),
+                "d".repeat(64),
+                "heartbeat-processes",
+                "owner/repository",
+                OwnershipTaskKindUi.Pull,
+                27,
+            )
+            setContent {
+                HbTheme {
+                    ProcessDecisionsContent(
+                        ProcessDecisionsUiState(persistentListOf(row.copy(words = "", ownership = ownership))),
+                        {},
+                    )
+                }
             }
+            onNodeWithText("owner/repository ·", substring = true).assertIsDisplayed()
+            onNodeWithText("27", substring = true).assertIsDisplayed()
+            onNodeWithText("c".repeat(64), substring = true).assertIsDisplayed()
+            onNodeWithText("heartbeat-processes", substring = true).assertIsDisplayed()
+            onNodeWithText("1".repeat(32), substring = true).assertIsDisplayed()
+            onNodeWithText("2".repeat(32), substring = true).assertIsDisplayed()
+            onNodeWithText("d".repeat(64), substring = true).assertIsDisplayed()
+            onNodeWithTag("process-decision-allow-decision").assertIsDisplayed()
         }
-        onNodeWithText("heartbeat-processes", substring = true).assertIsDisplayed()
-        onNodeWithText("source-host", substring = true).assertIsDisplayed()
-        onNodeWithText("recipient-host", substring = true).assertIsDisplayed()
-        onNodeWithText("reviewed-definition", substring = true).assertIsDisplayed()
-        onNodeWithTag("process-decision-allow-decision").assertIsDisplayed()
-    }
 
     @Test
     fun `expired requests cannot offer allow or deny controls`() = runSkikoComposeUiTest {

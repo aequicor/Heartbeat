@@ -24,9 +24,11 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessDecisio
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubRegistry
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowFixture
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.TestScope
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -37,12 +39,24 @@ internal class OwnershipRuntimeTestEnv(
     server: GitHubOwnershipBackendTest.Server,
     val secrets: HarnessDataTestSecrets = HarnessDataTestSecrets(),
     val request: HarnessActivationRequest = HarnessActivationRequest(harness, code, 1),
+    writer: Mutex? = null,
 ) {
     val clock = ProcessesTestClock(1_000)
     val access = ProcessesTestAccess(scope)
     val toggles = ProcessTestToggles()
     val runtime = ProfileOwnershipRuntime(ProtectedOwnershipJournal(secrets), server, clock)
-    val data = ProtectedHarnessData(secrets, ProtectedProcessArchives(secrets, clock, toggles), runtime)
+    private val protectedData = ProtectedHarnessData(
+        secrets,
+        ProtectedProcessArchives(secrets, clock, toggles),
+        runtime,
+    )
+    val data: HarnessDataStorage = if (writer == null) {
+        protectedData
+    } else {
+        object : HarnessDataStorage by protectedData {
+            override val processMutex: Mutex = checkNotNull(writer)
+        }
+    }
     val decisions = ProcessDecisionHost(DecisionTestMachine(ProtectedProcessDecisions(secrets)), clock)
     val workspace = WorkspaceRef("project")
     val processes = HarnessScriptProcesses(
@@ -53,7 +67,9 @@ internal class OwnershipRuntimeTestEnv(
         definition = ProcessDefinition(request.item.id, request.harness.revision),
     )
     private val imported = ProtectedImportedGitHub(secrets)
-    private val verifier = OwnershipWorkspaceVerifier(ProcessTestCommands())
+    val commands = ProcessTestCommands()
+    private val verifier = OwnershipWorkspaceVerifier(commands)
+    val runs = WorkflowFixture().storage
     private val github = PortableGitHubAdapter(
         runtime.api,
         GitHubRegistry(HarnessScriptData(request.harness.id, access, data).processData()),
@@ -64,7 +80,7 @@ internal class OwnershipRuntimeTestEnv(
     val local = RuntimeOwnershipTransferLocal(
         target,
         host,
-        WorkflowFixture().storage,
+        runs,
         { error("Idle transfer must not fabricate a native cancellation receipt") },
         github,
         imported,

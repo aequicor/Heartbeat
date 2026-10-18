@@ -69,12 +69,20 @@ internal class NativeOwnershipConsent(
         if (isApproved && action == ProcessOwnershipAction.Claim) {
             val local = context.binding.local()
             val previous = runtime.journal.binding(local)
+            val fence = context.snapshot.fence.copy(
+                host = runtime.journal.host(),
+                epoch = context.snapshot.fence.epoch + 1,
+            )
+            val isReplay = previous?.fence == fence
+            val prior = if (isReplay) previous.previousOwner else previous?.fence
             val next = OwnershipLocalBinding(
                 local,
                 context.binding.identity,
-                context.snapshot.fence.copy(host = runtime.journal.host(), epoch = context.snapshot.fence.epoch + 1),
+                fence,
                 WorkspaceRef(context.binding.workspace),
                 context.binding.definitionDigest,
+                prior,
+                if (isReplay) previous.imported else null,
             )
             return runtime.journal.bind(previous, next)
         }
