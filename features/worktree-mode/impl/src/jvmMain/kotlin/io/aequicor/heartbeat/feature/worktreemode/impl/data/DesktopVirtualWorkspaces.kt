@@ -105,12 +105,12 @@ internal class DesktopVirtualWorkspaces(
         val record = history(known(ref))
         if (record.state.phase == VirtualSandboxPhase.HandedOff) return@withLock record.state
         val expected = record.pendingBase ?: record.state.baseCommit
-        val changed = record.isHistoryChanged || !sourceCleanRecord(
+        val isChanged = record.isHistoryChanged || !sourceCleanRecord(
             record,
         ) || git.text(record.source, "rev-parse", "HEAD") != expected
-        val canPause =
+        val isPauseAllowed =
             record.state.isReady || record.isResolving || record.state.phase == VirtualSandboxPhase.Conflicted
-        if (changed && canPause) {
+        if (isChanged && isPauseAllowed) {
             pauseRecord(record).state
         } else {
             save(record).state
@@ -125,9 +125,9 @@ internal class DesktopVirtualWorkspaces(
     override suspend fun sourceClean(ref: WorkspaceRef): Boolean = lock.withLock { sourceCleanRecord(known(ref)) }
 
     private suspend fun sourceCleanRecord(record: VirtualRecord): Boolean = try {
-        val clean = isClean(record.source) && git.text(record.source, "rev-parse", "HEAD").isNotEmpty()
+        val isSourceClean = isClean(record.source) && git.text(record.source, "rev-parse", "HEAD").isNotEmpty()
         unavailable.remove(record.ref)
-        clean
+        isSourceClean
     } catch (error: kotlinx.coroutines.CancellationException) {
         throw error
     } catch (error: Exception) {
@@ -172,15 +172,15 @@ internal class DesktopVirtualWorkspaces(
         }
 
     private suspend fun resumeBarrier(record: VirtualRecord, explicit: Boolean): VirtualRecord? {
-        val expired = record.state.deadlineMillis?.let { clock.now().toEpochMilliseconds() >= it } == true
+        val isExpired = record.state.deadlineMillis?.let { clock.now().toEpochMilliseconds() >= it } == true
         val isClean = sourceCleanRecord(record)
         val hasUntrackedHistory = isClean && record.reflogCursor == null &&
             git.text(record.source, "rev-parse", "HEAD") != record.state.baseCommit
-        val manual = record.state.phase == VirtualSandboxPhase.Manual || record.isHistoryChanged ||
-            expired || hasUntrackedHistory
+        val isManual = record.state.phase == VirtualSandboxPhase.Manual || record.isHistoryChanged ||
+            isExpired || hasUntrackedHistory
         return when {
             record.state.phase == VirtualSandboxPhase.HandedOff -> record
-            !explicit && manual -> record.copy(state = record.state.copy(phase = VirtualSandboxPhase.Manual))
+            !explicit && isManual -> record.copy(state = record.state.copy(phase = VirtualSandboxPhase.Manual))
             !isClean -> record.copy(state = record.state.copy(phase = VirtualSandboxPhase.Waiting))
             else -> null
         }
@@ -225,11 +225,11 @@ internal class DesktopVirtualWorkspaces(
                 ),
             )
         }
-        val resolving = explicit && resolveConflicts
+        val isResolving = explicit && resolveConflicts
         return current.copy(
-            isResolving = resolving,
+            isResolving = isResolving,
             isHistoryChanged = false,
-            state = current.state.copy(phase = VirtualSandboxPhase.Conflicted, isResolving = resolving),
+            state = current.state.copy(phase = VirtualSandboxPhase.Conflicted, isResolving = isResolving),
         )
     }
 
@@ -315,9 +315,9 @@ internal class DesktopVirtualWorkspaces(
         check(expectedRevision == null || target.state.revision == expectedRevision) { "SandboxRevisionChanged" }
         val childSnapshot = expectedSnapshot ?: result.state.snapshot
         val fork = result.snapshotForks[childSnapshot] ?: result.fork.takeIf { childSnapshot == result.state.snapshot }
-        check(fork != null) { "SandboxResultChanged" }
+        checkNotNull(fork) { "SandboxResultChanged" }
         check(result.parent == parent.value && result.common == target.common) { "SandboxResultNotOwned" }
-        val merged = git.merge(target.source, checkNotNull(fork), target.state.snapshot, childSnapshot)
+        val merged = git.merge(target.source, fork, target.state.snapshot, childSnapshot)
         val snapshot = git.commit(target.source, merged.tree, target.state.baseCommit)
         git.pin(target.source, target.id, snapshot)
         save(
@@ -358,7 +358,7 @@ internal class DesktopVirtualWorkspaces(
                     phase = if (remaining.isEmpty()) VirtualSandboxPhase.Ready else VirtualSandboxPhase.Conflicted,
                     conflicts = remaining,
                     revision = record.state.revision + 1,
-                    baseCommit = if (remaining.isEmpty()) checkNotNull(record.pendingBase) else record.state.baseCommit,
+                    baseCommit = if (remaining.isEmpty()) record.pendingBase else record.state.baseCommit,
                     snapshot = if (remaining.isEmpty()) snapshot else record.state.snapshot,
                     deadlineMillis = if (remaining.isEmpty()) null else record.state.deadlineMillis,
                     isResolving = remaining.isNotEmpty(),
@@ -470,7 +470,7 @@ internal class DesktopVirtualWorkspaces(
         return record.copy(
             reflogStamp = stamp,
             reflogCursor = delta.cursor,
-            isHistoryChanged = record.isHistoryChanged || delta.requiresManual || record.reflogCursor == null,
+            isHistoryChanged = record.isHistoryChanged || delta.isManualRequired || record.reflogCursor == null,
         )
     }
 

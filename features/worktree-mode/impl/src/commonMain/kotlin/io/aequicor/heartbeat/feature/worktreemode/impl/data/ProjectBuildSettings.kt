@@ -74,7 +74,10 @@ internal class StoredProjectBuildSettings(
     private companion object {
         const val DEFAULT_TIMEOUT = 240_000L
         val SPEC = KeyValueSpec("sandbox_project_builds", readPolicy = KeyValueReadPolicy.Strict)
-        val PROJECTS = jsonKey("projects", MapSerializer(String.serializer(), ProjectBuildConfiguration.serializer()))
+        val PROJECTS = jsonKey<Map<String, ProjectBuildConfiguration>>(
+            "projects",
+            MapSerializer(String.serializer(), ProjectBuildConfiguration.serializer()),
+        )
         val TIMEOUT = longKey("external_edit_timeout_millis")
     }
 }

@@ -15,6 +15,8 @@ public data class OrganismOptions(
     val title: String,
     val target: EngineTarget? = null,
     val immunityTarget: EngineTarget? = null,
+    /** Optional explicit sandbox request; unavailable host context refuses it instead of using Shared. */
+    val execution: OrganismExecution? = null,
 ) {
     override fun toString(): String = "OrganismOptions(***)"
 }
@@ -33,7 +35,7 @@ public sealed interface OrganismOutcome {
      */
     @Serializable
     @SerialName("answered")
-    public data class Answered(val text: String) : OrganismOutcome {
+    public data class Answered(val text: String, val output: OrganismCommit? = null) : OrganismOutcome {
         override fun toString(): String = "Answered(${text.length} chars)"
     }
 

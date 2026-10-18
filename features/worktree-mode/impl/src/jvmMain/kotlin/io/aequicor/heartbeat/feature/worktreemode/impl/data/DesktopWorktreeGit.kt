@@ -32,6 +32,12 @@ internal class DesktopWorktreeGit(
 ) : WorktreeGit {
     private val log = Log.tag("WorktreeGit")
     override val isAvailable: Boolean = true
+    private val proofs = PinnedSandboxProofs(
+        read = { directory, args -> process(directory, listOf("git", "--no-optional-locks") + args, optional = true) },
+        write = { directory, args ->
+            checkNotNull(process(directory, listOf("git", "--no-optional-locks") + args, optional = false))
+        },
+    )
 
     override suspend fun plan(source: String, identity: String): WorktreeProvision = withContext(dispatchers.io) {
         require(identity.matches(Regex("[a-zA-Z0-9-]+"))) { "InvalidProvisionIdentity" }
@@ -55,6 +61,10 @@ internal class DesktopWorktreeGit(
             base,
             pullRequestBase = sourceBranch ?: remoteDefaultBranch(root.toString()),
         )
+    }
+
+    override suspend fun pin(plan: WorktreeProvision, commit: String): WorktreeProvision = withContext(dispatchers.io) {
+        proofs.pin(plan, commit)
     }
 
     override suspend fun materialize(record: WorktreeRecord) = withContext(dispatchers.io) {
@@ -308,39 +318,23 @@ internal class DesktopWorktreeGit(
     override suspend fun seal(record: WorktreeRecord, id: String): String = withContext(dispatchers.io) {
         require(id.matches(IDENTIFIER)) { "InvalidSealIdentity" }
         check(record.task.isIsolated && exists(record)) { "SealUnavailable" }
+        proofs.existing(record, id)?.let { return@withContext it }
         val commit = if (record.task.virtualSandbox != null) {
             virtual.value.snapshot(DesktopVirtualWorkspaces.workspace(record))
         } else {
             commitFiles(record, "Heartbeat result")
         }
-        git(record.sourceDirectory, "update-ref", "$RESULT_REFS$id", commit)
+        proofs.publish(record, id, commit)
         log.d { "Checkout result sealed operation=$id" }
         commit
     }
 
-    /** The files of the checkout as a commit over HEAD, built in a private index copy: nothing of the agent changes. */
-    private suspend fun commitFiles(record: WorktreeRecord, message: String): String {
-        val gitDirectory = Path.of(git(record.directory, "rev-parse", "--absolute-git-dir"))
-        val index = Files.createTempFile("heartbeat-snapshot-", ".index")
-        try {
-            // A copy of the agent's index keeps stat data, so only changed files are hashed again.
-            val current = gitDirectory.resolve("index")
-            if (Files.isRegularFile(current)) {
-                Files.copy(current, index, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            } else {
-                Files.delete(index)
-            }
-            val environment = mapOf("GIT_INDEX_FILE" to index.toString()) + SNAPSHOT_IDENTITY
-            git(record.directory, "add", "--all", environment = environment)
-            val tree = git(record.directory, "write-tree", environment = environment)
-            val head = checkNotNull(gitOptional(record.directory, "rev-parse", "--verify", "HEAD^{commit}")) {
-                "SandboxBaseUnavailable"
-            }
-            return git(record.directory, "commit-tree", tree, "-p", head, "-m", message, environment = environment)
-        } finally {
-            Files.deleteIfExists(index)
+    private suspend fun commitFiles(record: WorktreeRecord, message: String): String =
+        commitCheckoutFiles(message) { args, environment ->
+            checkNotNull(
+                process(record.directory, listOf("git", "--no-optional-locks") + args, optional = false, environment),
+            )
         }
-    }
 
     override suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String {
         check(exists(record)) { "WorktreeUnavailable" }
@@ -670,20 +664,10 @@ internal class DesktopWorktreeGit(
         val SLOT_NAME = Regex("slot-([0-9]{1,3})")
         const val SNAPSHOT_REFS = "refs/heartbeat/snapshots/"
 
-        /** Sealed results are kept for their integrators, so the snapshot pruner never scans this namespace. */
-        const val RESULT_REFS = "refs/heartbeat/results/"
-
         /** Another profile may still queue a build of an older snapshot; a day covers any build timeout. */
         const val SNAPSHOT_GRACE_SECONDS = 86_400L
         const val MILLIS_PER_SECOND = 1_000L
 
-        /** Snapshots are private build inputs and must not depend on a configured user identity. */
-        val SNAPSHOT_IDENTITY = mapOf(
-            "GIT_AUTHOR_NAME" to "Heartbeat",
-            "GIT_AUTHOR_EMAIL" to "sandbox@heartbeat.invalid",
-            "GIT_COMMITTER_NAME" to "Heartbeat",
-            "GIT_COMMITTER_EMAIL" to "sandbox@heartbeat.invalid",
-        )
         const val MAX_NAME = 256
         const val MAX_COMMANDS = 64
         const val MAX_ARGUMENTS = 256

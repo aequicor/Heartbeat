@@ -41,6 +41,7 @@ public object ProcessLimits {
      * Processes one harness keeps at the same time, ended ones included until they are removed. Eight records at
      * [RECORD_BYTES] take about 192 KiB of the 256 KiB `HarnessLimits.DATA_BYTES` that the script's own data shares:
      * a script that keeps much data of its own can make a change fail with the namespace quota error instead.
+     * Durable mode can reclaim terminal slots on open, but only after confirmed protected archival and native cleanup.
      */
     public const val PROCESSES: Int = 8
 }

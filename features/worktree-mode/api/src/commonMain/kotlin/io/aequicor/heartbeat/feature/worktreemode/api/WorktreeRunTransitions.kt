@@ -22,6 +22,7 @@ internal fun WorktreeTask.runStarted(command: WorktreeIntent.Public.RunStarted):
         copy(
             phase = if (command.kind == WorktreeRunKind.Coding) WorktreePhase.Working else WorktreePhase.ActionWorking,
             run = WorktreeRun(command.request, command.kind),
+            closedSubmission = null,
             actionRequest = null,
             pendingVirtualContinuation = false,
             virtualContinuations = continuedRequests(command.request),
@@ -48,7 +49,11 @@ internal fun WorktreeTask.runAccepted(command: WorktreeIntent.Public.RunAccepted
 
 internal fun WorktreeTask.runRejected(command: WorktreeIntent.Public.RunRejected): WorktreeTask {
     val active = pendingRun(command.chatId, command.request) ?: return this
-    return if (active.turn == null) copy(phase = WorktreePhase.Failed, run = null, failure = command.reason) else this
+    return if (active.turn == null && active.session == null && phase != WorktreePhase.RecoveryRequired) {
+        copy(phase = WorktreePhase.Failed, run = null, failure = command.reason, closedSubmission = command.request)
+    } else {
+        this
+    }
 }
 
 internal fun WorktreeTask.runSubmissionObservationLost(
@@ -72,7 +77,12 @@ internal fun WorktreeTask.runSubmissionReconciled(
 ): WorktreeTask {
     val active = pendingRun(command.chatId, command.request) ?: return this
     return if (phase == WorktreePhase.RecoveryRequired && active.turn == null && active.session == command.session) {
-        copy(phase = WorktreePhase.Failed, run = null, failure = "NativeOutcomeUnknown")
+        copy(
+            phase = WorktreePhase.Failed,
+            run = null,
+            failure = "NativeOutcomeUnknown",
+            closedSubmission = command.request,
+        )
     } else {
         this
     }

@@ -28,6 +28,7 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 | Раздел `harnesses` конфигурации проекта (`.heartbeat`, `.hbai`) | `impl/domain/config/HarnessConfigCodec.kt` (раскладка файлов), `impl/data/config/HarnessConfigSection.kt` (проверка кода и политики, `Create`/`Update(Content)`) |
 | UI-методы для интерфейсов service-as-ui (`ui.method`) | `harness/api/script/ScriptUi.kt`; `impl/domain/runtime/HarnessUiDispatch.kt` (`connectedAdmission`); провайдер `impl/data/serviceui/HarnessServiceUiProvider.kt` |
 | Постоянные данные мини-приложения (`data.read/write/update`) | `api/script/ScriptData.kt`; `impl/domain/services/HarnessScriptData`, `impl/data/services/ProtectedHarnessData` |
+| GitHub-порт скриптов (`github`, тогл `harness.github`) | контракты `api/github`; транспорт и сверка `impl/domain/github`, desktop gh `impl/data/github`; сборка activation-сервиса `data/services/HarnessScriptGitHubFactory` |
 | Durable-процессы разработки (`processes.open/get/list/apply/remove`) | модель и переходы — `api/process` (`ProcessRecord`, `ProcessCommand`, `reduce`); сервис — `api/script/ScriptProcesses.kt`, `impl/domain/services/HarnessScriptProcesses` поверх `ScriptData` |
 | Хуки сессий, политика, гейт нативных вызовов | `ai-engine/facade:{api,impl}` (`SessionHooks`, `ToolPolicy`, `authorizeNative`) |
 | Адаптивные помощники (`AgentOptions.adaptive`, `sessions.spawn(..., adaptive)`) | `api/workflow/AdaptiveAgent.kt`; порт `impl/domain/services/HarnessHelperModels.kt`, адаптер над `AdaptiveModels` (`adaptive-subagents:api`) — `impl/data/services/AdaptiveHarnessHelperModels.kt` |
@@ -91,9 +92,18 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   параметр — только целый аргумент `{name}` с полным совпадением regex. `run` проверяет опубликованную активацию,
   тогл, платформу, область проекта харнесса (`HarnessCreationScope`, worktree → исходный проект) и
   `HarnessLimits.COMMAND_RUNS` на харнесс, запрещён из хуков; запуск — `LocalCommands` (`scheduler:api`).
-  Ревью исходника — единственная проверка команд (`HARNESS_COMMANDS_POLICY` и для агентских правок, и для
+  Для unguarded-деклараций ревью исходника — единственная проверка команд (`HARNESS_COMMANDS_POLICY` и для агентских правок, и для
   конфигурации проекта): нажатия, таймеры и события не перепроверяются. Прямой `ProcessBuilder` — риск для ревьюера.
   Логируются только харнесс, итог и длительность, без программы, параметров и вывода.
+- Защищённые команды процесса (`ScriptCommand.requiresDecision`, тогл `harness.process_actions`, default false) обычный
+  `commands.run` не исполняет. `runForProcess` сам строит и сверяет точный снимок с текущим HEAD, GitHub origin,
+  worktree, lifetime/attempt/input, approved source revision, argv и timeout; запрос и одноразовый Claim хранит хост
+  отдельно от `ScriptData` в зашифрованном профильном журнале (256 записей / 1 МиБ, без вытеснения consumed identity).
+  Решение — только нативный экран деталей харнесса. `ui_call`, callback, события, GitHub и `ProcessCommand.Grant`
+  не одобряют запрос. Claim — необратимый допуск: после него отзыв не обещается; неопределённый исход требует сверки.
+  Это exact-command consent, а не доказательство семантики authority: source review требует conditional external write
+  с тем же полным SHA и отклоняет альтернативный unguarded/ProcessBuilder путь. Kotlin runtime не sandbox.
+  Raw `ScriptData.write(hb_processes)` берёт общий processMutex; host processData пишет под уже взятым барьером.
 - Логи: никогда не логируются исходники, тексты, payload, wake note, диагностика компилятора и сообщения
   исключений скриптов — только класс исключения. Частые события — `log.v` и `@HighFrequency`.
 - Данные `ScriptData` принадлежат харнессу целиком и сохраняются в профильном `SecretStore`; ключ не содержит
@@ -116,10 +126,62 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   вызывается в item-владельце процессов при активации и повторно по прошествии `settleAfter` (аренда вызова: больше
   самого долгого вызова или попытки без записи итога; `Activated` рестарт от замены исходника не отличает, а вызов
   прежней активации может ещё идти, поэтому моложе пункты не показываются); живая попытка (workflow) и актуальное
-  ожидание остаются в списке. Номер попытки записи сквозной и не
+  ожидание остаются в списке. `processes.reconcileWait(id) { record, wait -> … }` проверяет внешнее состояние вне
+  транзакции и применяет `ResumeChecked` со снимком lifetime, номера ожидания, revision и SHA: устаревшая сверка
+  отклоняется, позднее событие не будит новое ожидание. Вызывай при Activated и событиях/таймерах; наблюдённые
+  revision/SHA сначала сохрани. Сверка не запускает workflow, его deadline ожидание процесса не ограничивает.
+  Номер попытки записи сквозной и не
   переиспользуется. Полномочия `Write`/`Publish`/`Merge`/`Release` выдаются
   командой `Grant` и по отдельности — это самодекларация скрипта, не одобрение человека и не граница безопасности.
+- GitHub-порт (`github`, `api/github`) читает только фиксированные github.com маршруты, использует существующий
+  логин gh и не раскрывает credentials. Каждая операция проверяет опубликованную активацию, запрещена из хуков
+  и ограничена тоглом `harness.github` (по умолчанию false). Бизнес-стадии остаются в харнессе. Постоянный реестр
+  `hb_github` в том же `ScriptData` резервирует immutable запрос до `BeginWrite` и внешнего вызова; 128 ключей,
+  без вытеснения, общая квота байтов. `Unknown` допускает только чтение/сверку, отсутствие или неполная/неоднозначная
+  страница не разрешает повтор. Ключи и корреляция сохраняются после вытеснения восьми слотов `ProcessRecord`.
+  Допуск записи проверяется после API-очереди под общим processMutex; смена ревизии/закрытие не обгоняют отправку.
+  Merge требует независимого host-owned допуска, самодекларации `ProcessAuthority` недостаточно;
+  новые Dispatch/CreateRelease возвращают UnsafeReference до reservation/decision/send: branch/tag REST API не
+  гарантирует атомарный expected SHA. Legacy unknown операции остаются read/reconcile only.
+  `GitHubActionContext` связывает фактический workspace и process stage/attempt с типизированным payload, ключом,
+  revision и SHA. Native decision хранится отдельно от ScriptData в общем с командами журнале #472; Pending не
+  резервирует внешнюю запись. Claim выполняется после API-очереди с повторной проверкой scope/origin/HEAD и процесса;
+  consumed identity не позволяет повтор даже после сброса hb_github. Завершает исходное решение только доказанный
+  Confirmed/reconcile, а не возврат транспорта. Host Complete требует свежего remote evidence и полного исходного
+  binding; script-owned cached result не считается host receipt. Локальный ConfirmWrite атомарно сверяет incarnation,
+  key, authority и marker target. Нужны оба toggles harness.github и harness.process_actions.
+  `GitHubObservation.current` недоступен при равновременном конфликте; persisted ambiguity разрешается только
+  `refresh` из последовательно ожидаемого свежего чтения, не очередным event/cached page.
+  Ни текст, ни маркер операции не являются разрешением.
+  Приватные payload и идентификаторы скрыты в `toString`, тела и диагностики gh не логируются.
 - UI (`impl/ui`) не импортирует `harness:api`: только презентационные модели (`presentation/HarnessUiModels.kt`).
+- Тогл `harness.durable_processes` (default false) включает закрепление новых процессов и архив. Уже закреплённые
+  процессы сохраняют защиту после его выключения; legacy-поведение незакреплённых записей при выключенном флаге
+  совместимо с прежним. Процесс закрепляет `ProcessDefinition(item, revision)` одобренной активации; при смене кода новые этапы и resume
+  отклоняются с `DefinitionMismatch`. Скрипт принимает версию явно через `MigrateDefinition(expected, next)` между
+  этапами и без незавершённых внешних записей; существующие workflow/ключи/доказательства не переписываются.
+  Legacy-записи читаются с `definition = null`, но продолжение требует такого же явного принятия версии.
+  Неизвестная `schemaVersion` не читается и не перезаписывается. Завершение/отмена прежних работ и сверка внешних
+  записей доступны при смене версии, чтобы миграция не блокировала cleanup.
+- Архив процессов — отдельные immutable записи `ProtectedProcessArchives` в профильном `SecretStore`, вне квоты
+  `ScriptData`; namespace харнесса их не удаляет. `ProcessArchiveReader` читает их и после удаления владельца.
+  `ProcessArchiveRef.asResultRef()` — устойчивая ссылка на доказательство внутри того же профиля. Исходный JSON
+  снимка сохраняется как есть, поэтому смена порядка сериализуемых полей не ломает старые ссылки. Запись повторяема
+  по digest владельца/содержимого/причины; перед успехом проверяется чтением. Лимит — 1024 снимка на профиль,
+  до 24 КиБ исходного процесса каждый, страницы до 100 записей; переполнение даёт ошибку без вытеснения доказательств.
+  Удержание постоянное до явного wipe профиля, без таймеров/самодельной чистки. Идентификаторы и содержимое не логируются.
+- `processes.archive/readArchive/archived/restore` доступны только текущей активации и своему владельцу.
+  `remove` и вытеснение завершённой записи при полном `open` подтверждают архив перед удалением точного снимка
+  активной записи; сбой/переполнение сохраняет оригинал. Native cleanup-квитанция `ProcessWorkflow.isSettled`
+  записывается хостом (`SettleWorkflow`, не ScriptProcesses.apply) до освобождения журнала workflow; она переживает
+  его retention, поэтому давно завершённые этапы не блокируют архивирование процесса.
+  Восстановленный Running сохраняет isDispatchClosed: без native journal повторный dispatch запрещён,
+  get/cancel возвращают Unavailable, а Finish(Cancelled) не подменяет квитанцию остановки.
+  Удаление харнесса сначала архивирует все его процессы, затем фиксирует удаление библиотеки; orphan cleanup
+  повторяет копирование до удаления namespace. Restore сохраняет исходные lifetime, счётчики, ожидания и workflow
+  keys, не запускает исполнителей, не откатывает уже живое состояние того же lifetime и отклоняет чужой active lifetime.
+  Открытые попытки/внешние записи требуют сверки; смена кода — явной миграции. Архив сохраняет ProcessRecord и ссылки
+  на доказательства; внешние результаты принадлежат их системе (публичные — GitHub), произвольные ScriptData не архивируются.
   Presentation видит только порты `domain` (`domain/authoring/HarnessLibraryPorts.kt`), не `data`. Навигацию
   экранов выполняют компоненты по `MVIAction` сторов; retained-модели навигатор не держат. Экран повторяет
   неудачную загрузку библиотеки через `Public.Reload` (в `Failed` без приостановки — новая загрузка).

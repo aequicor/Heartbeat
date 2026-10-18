@@ -11,6 +11,12 @@ import kotlinx.serialization.json.JsonElement
 internal interface HarnessDataStorage {
     /** One profile barrier for process mutations and reserved workflow dispatch. */
     val processMutex: Mutex
+
+    /** Same-profile archive, shared with lifecycle cleanup and scoped process services. */
+    val archives: HarnessProcessArchiveStorage? get() = null
+
+    /** Confirms preservation before the library commits harness deletion. */
+    suspend fun prepareRemoval(owner: HarnessId) = Unit
     fun revision(owner: HarnessId): Flow<Long>
     suspend fun read(owner: HarnessId, key: String, authorize: () -> Unit): ScriptDataSnapshot
     suspend fun write(

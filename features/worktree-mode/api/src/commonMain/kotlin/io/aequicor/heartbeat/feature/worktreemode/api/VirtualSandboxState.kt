@@ -34,19 +34,15 @@ public data class VirtualSandboxState(
  */
 public fun WorktreeTask.virtualChanged(state: VirtualSandboxState): WorktreeTask {
     if (state.revision < (virtualSandbox?.revision ?: -1)) return this
-    val interrupted = !state.isReady && !state.isResolving &&
+    val isInterrupted = !state.isReady && !state.isResolving &&
         (virtualSandbox?.isReady == true || virtualSandbox?.isResolving == true) && run != null && run.outcome == null
     return copy(
         virtualSandbox = state,
         baseCommit = state.baseCommit,
         phase = if (state.phase == VirtualSandboxPhase.HandedOff) WorktreePhase.Retained else phase,
-        pendingVirtualContinuation = pendingVirtualContinuation || interrupted,
-        virtualInterruptedRequests = if (interrupted) {
-            (
-                virtualInterruptedRequests + checkNotNull(
-                    run,
-                ).request
-            ).distinct()
+        pendingVirtualContinuation = pendingVirtualContinuation || isInterrupted,
+        virtualInterruptedRequests = if (isInterrupted) {
+            (virtualInterruptedRequests + run.request).distinct()
         } else {
             virtualInterruptedRequests
         },
@@ -55,8 +51,8 @@ public fun WorktreeTask.virtualChanged(state: VirtualSandboxState): WorktreeTask
 
 /** Schedules a fresh continuation once; accepted interrupted requests are never replayed. */
 public fun WorktreeTask.continueVirtual(operation: String, prompt: String): WorktreeTask {
-    val needsContinuation = pendingVirtualContinuation || virtualSandbox?.isResolving == true
-    if (run?.outcome == null || actionRequest != null || !needsContinuation) return this
+    val isContinuationNeeded = pendingVirtualContinuation || virtualSandbox?.isResolving == true
+    if (run?.outcome == null || actionRequest != null || !isContinuationNeeded) return this
     return copy(
         phase = WorktreePhase.ActionWorking,
         failure = null,

@@ -93,4 +93,21 @@
     <string name="harness_hosted_section">Инструменты Heartbeat</string>
     <string name="harness_hosted_hint">Харнесс может только выключить эти инструменты.</string>
     <string name="harness_tool_available">Разрешить %1$s</string>
+    <string name="process_decisions_title">Действия процессов</string>
+    <string name="process_decisions_hint">Разрешение действует только для показанного действия и снимка, без будущих действий.</string>
+    <string name="process_decisions_allow">Разрешить один раз</string>
+    <string name="process_decisions_deny">Отклонить</string>
+    <string name="process_decisions_revoke">Отозвать</string>
+    <string name="process_decisions_pending">Ожидает вашего решения</string>
+    <string name="process_decisions_approved">Разрешено до указанного срока</string>
+    <string name="process_decisions_denied">Отклонено</string>
+    <string name="process_decisions_revoked">Отозвано; уже запущенное действие могло выполниться</string>
+    <string name="process_decisions_executing">Принято к исполнению; отзыв уже невозможен. После перезапуска проверьте результат.</string>
+    <string name="process_decisions_completed">Завершено; повторное исполнение запрещено</string>
+    <string name="process_decisions_context">Репозиторий: %1$s\nРабочая копия: %2$s\nОперация: %3$s</string>
+    <string name="process_decisions_subject">SHA: %1$s</string>
+    <string name="process_decisions_process">Процесс: %1$s · этап: %2$s\nПопытка: %3$d · ревизия входа: %4$d</string>
+    <string name="process_decisions_deadline">Действует до: %1$s\nТаймаут: %2$d мс</string>
+    <string name="process_decisions_expired">Срок истёк; разрешение больше недоступно</string>
+    <string name="process_decisions_refused">Решение не применено: срок мог истечь, состояние измениться или выполняется запись. Обновите данные и проверьте текущее состояние.</string>
 </resources>

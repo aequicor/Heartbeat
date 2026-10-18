@@ -112,11 +112,11 @@ internal class SandboxSlotSweeper(
                         slots,
                     )
                 }
-                val busy = git.sweepSlots(records.first(), keep)
-                if (busy) {
+                val isBusy = git.sweepSlots(records.first(), keep)
+                if (isBusy) {
                     hasBusySlots = true
                 } else if (configuration?.isClearing == true) {
-                    settings?.finishClear(records.first().commonDirectory)
+                    settings.finishClear(records.first().commonDirectory)
                 }
             }
             hasBusySlots

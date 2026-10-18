@@ -29,4 +29,10 @@ internal class HarnessDataTestSecrets : SecretStore {
     override suspend fun usages(key: SecretKey): List<SecretUsage> = emptyList()
 }
 
-internal fun harnessTestData() = ProtectedHarnessData(HarnessDataTestSecrets())
+internal fun harnessTestData() = protectedHarnessData(HarnessDataTestSecrets())
+
+/** Legacy-mode data repository for tests that do not opt into the new process lifecycle. */
+internal fun protectedHarnessData(secrets: SecretStore): ProtectedHarnessData = ProtectedHarnessData(
+    secrets,
+    ProtectedProcessArchives(secrets, kotlin.time.Clock.System, CommandToggles(false)),
+)

@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -54,7 +55,8 @@ internal fun ActiveSessionState.activeTurn(): Turn? = when (this) {
 }
 
 /**
- * Submits [text] as [request]. [trust] goes only to a session that applies trust levels. A failed submission
+ * Submits [text] as [request] with the host decision policy [decisionMode], independently of [trust], which goes
+ * only to a session that applies trust levels. A failed submission
  * synchronizes an unavailable session first, then follows the turn of [request] the session runs or reports as
  * finished; a session still unavailable only remembers a turn, which is followed only when the delivery of
  * [request] was ambiguous. Anything else fails the submission.
@@ -66,12 +68,20 @@ internal suspend fun ActiveSession.submit(
     attachments: List<ResourceRef> = emptyList(),
     reasoningEffort: String? = null,
     reviewTarget: EngineTarget? = null,
+    decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
 ): TurnId {
     val trusted = trust?.takeIf { features.resolve(AppliesTrustLevels) is FeatureAccess.Available }
     val parts = listOf(ContentPart.Text(text)) + attachments.map {
         if (it.mediaType.startsWith("image/")) ContentPart.Image(it) else ContentPart.Resource(it)
     }
-    val prompt = PromptRequest(request, parts, reasoningEffort, trusted, reviewTarget = reviewTarget)
+    val prompt = PromptRequest(
+        request,
+        parts,
+        reasoningEffort,
+        trusted,
+        decisionMode = decisionMode,
+        reviewTarget = reviewTarget,
+    )
     return try {
         features.resolve(SendsPrompts).orThrow().send(prompt)
     } catch (e: EngineException) {

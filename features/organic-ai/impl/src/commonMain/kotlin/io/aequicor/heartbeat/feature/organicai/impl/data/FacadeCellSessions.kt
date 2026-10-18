@@ -503,7 +503,15 @@ private class FacadeCellHandle(
         trust: TrustLevel?,
         attachments: List<ResourceRef>,
     ): TurnId = submission {
-        active.submit(request, text, trust, attachments, route.reasoningEffort, route.reviewTarget).also {
+        active.submit(
+            request,
+            text,
+            trust,
+            attachments,
+            route.reasoningEffort,
+            route.reviewTarget,
+            route.decisionMode,
+        ).also {
             if (active.state.value is ActiveSessionState.Unavailable) doubtful += it
         }
     }

@@ -32,11 +32,7 @@ internal class VirtualTaskLifecycle(
     private val builds: WorktreeBuildCoordinator,
     private val facade: Lazy<EngineFacade>?,
     private val sourceBarriers: VirtualSourceBarrier,
-    private val all: suspend () -> List<WorktreeRecord>,
-    private val find: suspend (String) -> WorktreeRecord?,
-    private val change: suspend (String, (WorktreeRecord) -> WorktreeRecord) -> WorktreeRecord?,
-    private val settle: suspend (WorktreeIntent.Public.RunSettled) -> WorktreeRecord?,
-    private val finishTask: suspend (String) -> WorktreeRecord?,
+    private val access: VirtualTaskAccess,
 ) {
     private val log = Log.tag("VirtualTaskLifecycle")
     private val changed = MutableStateFlow(0L)
@@ -58,7 +54,8 @@ internal class VirtualTaskLifecycle(
         try {
             while (currentCoroutineContext().isActive) {
                 val epoch = changed.value
-                val projects = all().filter { it.task.virtualSandbox != null }.map { it.commonDirectory }.distinct()
+                val projects = access.all().asSequence()
+                    .filter { it.task.virtualSandbox != null }.map { it.commonDirectory }.distinct().toList()
                 val active = projects.mapNotNull { related(it).firstOrNull() }
                 if (active.isEmpty()) {
                     changed.first { it != epoch }
@@ -78,7 +75,7 @@ internal class VirtualTaskLifecycle(
         try {
             refresh(record, explicit = false)
             related(record.commonDirectory).forEach { current ->
-                finishTask(current.task.chatId)?.let { projection?.invoke(it.task) }
+                access.finishTask(current.task.chatId)?.let { projection?.invoke(it.task) }
             }
             failedProjects.remove(record.commonDirectory)
         } catch (error: CancellationException) {
@@ -93,11 +90,11 @@ internal class VirtualTaskLifecycle(
     }
 
     suspend fun captureChild(record: WorktreeRecord, completed: Boolean): WorktreeRecord {
-        val child = record.parentWorkspace != null && record.task.virtualSandbox != null
-        return if (child && completed) {
+        val isChild = record.parentWorkspace != null && record.task.virtualSandbox != null
+        return if (isChild && completed) {
             val operation = Uuid.random().toString()
             val commit = git.seal(record, operation)
-            change(record.task.chatId) {
+            access.change(record.task.chatId) {
                 val results = it.task.virtualResultSnapshots + (checkNotNull(record.task.run).request.value to commit)
                 it.copy(task = it.task.sealed(WorktreeSeal(operation, commit)).copy(virtualResultSnapshots = results))
             } ?: record
@@ -114,7 +111,7 @@ internal class VirtualTaskLifecycle(
             return record
         }
         val state = git.handoffVirtual(record) ?: return record
-        return change(record.task.chatId) { it.copy(task = it.task.virtualChanged(state)) } ?: record
+        return access.change(record.task.chatId) { it.copy(task = it.task.virtualChanged(state)) } ?: record
     }
 
     /** The durable barrier precedes cancellation; no new base is published until every owner confirms exit. */
@@ -129,10 +126,12 @@ internal class VirtualTaskLifecycle(
             this,
             object : VirtualSourceParticipant {
                 override suspend fun inspect(): Boolean {
-                    var paused = false
+                    var isPaused = false
                     related(project).forEach { record ->
                         val state = git.inspectVirtual(record) ?: return@forEach
-                        val current = change(record.task.chatId) { it.copy(task = it.task.virtualChanged(state)) }
+                        val current = access.change(record.task.chatId) {
+                            it.copy(task = it.task.virtualChanged(state))
+                        }
                         current?.let {
                             projection?.invoke(it.task)
                             if (state.phase == VirtualSandboxPhase.Conflicted && !state.isResolving) stop(it)
@@ -142,10 +141,10 @@ internal class VirtualTaskLifecycle(
                                 VirtualSandboxPhase.Waiting,
                             )
                         ) {
-                            paused = true
+                            isPaused = true
                         }
                     }
-                    return paused
+                    return isPaused
                 }
 
                 override suspend fun pause(all: Boolean) {
@@ -159,18 +158,18 @@ internal class VirtualTaskLifecycle(
                             return@forEach
                         }
                         val state = git.pauseVirtual(record) ?: return@forEach
-                        change(record.task.chatId) { it.copy(task = it.task.virtualChanged(state)) }
+                        access.change(record.task.chatId) { it.copy(task = it.task.virtualChanged(state)) }
                             ?.let { projection?.invoke(it.task) }
                     }
                 }
 
                 override suspend fun stop(): Boolean {
-                    var stopped = true
+                    var isStopped = true
                     related(project).forEach { record ->
-                        if (!stop(record)) stopped = false
-                        if (!git.virtualSourceClean(record)) stopped = false
+                        if (!stop(record)) isStopped = false
+                        if (!git.virtualSourceClean(record)) isStopped = false
                     }
-                    return stopped
+                    return isStopped
                 }
 
                 override suspend fun resume(explicit: Boolean, resolve: Boolean) {
@@ -188,16 +187,16 @@ internal class VirtualTaskLifecycle(
             explicit,
             resolveConflicts,
         )
-        return find(previous.task.chatId)
+        return access.find(previous.task.chatId)
     }
 
-    suspend fun related(project: String): List<WorktreeRecord> = all().filter {
+    suspend fun related(project: String): List<WorktreeRecord> = access.all().filter {
         it.commonDirectory == project && it.task.virtualSandbox != null && it.task.executionWorkspace != null &&
             it.task.virtualSandbox?.phase != VirtualSandboxPhase.HandedOff
     }
 
     private suspend fun stop(previous: WorktreeRecord): Boolean {
-        var current = find(previous.task.chatId) ?: return true
+        var current = access.find(previous.task.chatId) ?: return true
         if (current.task.virtualSandbox?.let {
                 it.isReady || it.isResolving || it.phase == VirtualSandboxPhase.HandedOff
             } ==
@@ -205,7 +204,7 @@ internal class VirtualTaskLifecycle(
         ) {
             return true
         }
-        var stopped = true
+        var isStopped = true
         current.task.builds.values.filter {
             it.phase !in setOf(
                 WorktreeBuildPhase.Completed,
@@ -213,14 +212,14 @@ internal class VirtualTaskLifecycle(
                 WorktreeBuildPhase.Failed,
             )
         }.forEach {
-            if (!builds.cancel(it.id)) stopped = false
+            if (!builds.cancel(it.id)) isStopped = false
         }
         val run = current.task.run
         if (run != null && run.outcome == null) {
             val session = run.session
             val target = current.runTarget
             if (session == null || target == null) {
-                stopped = false
+                isStopped = false
             } else {
                 val capability = facade?.value?.engines?.features(session.engine)?.resolve(StopsOwnedTurns)
                 val result = (capability as? FeatureAccess.Available)?.feature?.stop(
@@ -229,7 +228,7 @@ internal class VirtualTaskLifecycle(
                     OwnedTurnAccess(target, current.task.executionWorkspace, run.turn),
                 )
                 if (result is OwnedTurnStop.Confirmed) {
-                    current = settle(
+                    current = access.settle(
                         WorktreeIntent.Public.RunSettled(
                             current.task.chatId,
                             run.request,
@@ -239,16 +238,16 @@ internal class VirtualTaskLifecycle(
                         ),
                     ) ?: current
                 } else {
-                    stopped = false
+                    isStopped = false
                 }
             }
         }
-        return stopped
+        return isStopped
     }
 
     private suspend fun resume(current: WorktreeRecord, explicit: Boolean, resolveConflicts: Boolean) {
         val resumed = git.resumeVirtual(current, explicit, resolveConflicts) ?: return
-        change(current.task.chatId) {
+        access.change(current.task.chatId) {
             var task = it.task.virtualChanged(resumed)
             if ((resumed.isReady || resumed.isResolving) && !task.chatId.startsWith("organism.")) {
                 val prompt = if (resumed.isResolving) {
@@ -271,3 +270,12 @@ internal class VirtualTaskLifecycle(
         const val POLL_MILLIS = 2_000L
     }
 }
+
+/** Journal callbacks remain one coherent owner while lifecycle services are supplied independently. */
+internal data class VirtualTaskAccess(
+    val all: suspend () -> List<WorktreeRecord>,
+    val find: suspend (String) -> WorktreeRecord?,
+    val change: suspend (String, (WorktreeRecord) -> WorktreeRecord) -> WorktreeRecord?,
+    val settle: suspend (WorktreeIntent.Public.RunSettled) -> WorktreeRecord?,
+    val finishTask: suspend (String) -> WorktreeRecord?,
+)

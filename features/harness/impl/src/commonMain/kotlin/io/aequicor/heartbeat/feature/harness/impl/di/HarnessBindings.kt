@@ -13,11 +13,15 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineSpec
+import io.aequicor.heartbeat.feature.harness.impl.data.decision.HarnessProcessCommandsEnabled
+import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessIsolatedOrganisms
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessCommandsEnabled
+import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessGitHubEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEffects
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessLibraryStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRuntimeControl
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDurableProcessesEnabled
 
 /** Constructs a single profile-owned library without eagerly starting it when the toggle is disabled. */
 @ContributesTo(ProfileScope::class)
@@ -42,8 +46,28 @@ public object HarnessToggleBindings {
     @IntoSet
     public fun enabled(): FeatureToggle<*> = HarnessEnabled
 
+    /** Trusted sandbox context for workflow organism stages. */
+    @Provides
+    @IntoSet
+    public fun isolatedOrganisms(): FeatureToggle<*> = HarnessIsolatedOrganisms
+
     /** Mini-app commands of approved scripts. */
     @Provides
     @IntoSet
     public fun commands(): FeatureToggle<*> = HarnessCommandsEnabled
+
+    /** Opt-in recoverable GitHub adapter with native host admission. */
+    @Provides
+    @IntoSet
+    public fun github(): FeatureToggle<*> = HarnessGitHubEnabled
+
+    /** Versioned multi-stage execution and archival of protected process state. */
+    @Provides
+    @IntoSet
+    public fun durableProcesses(): FeatureToggle<*> = HarnessDurableProcessesEnabled
+
+    /** Exact host-owned decisions for process commands. */
+    @Provides
+    @IntoSet
+    public fun processCommands(): FeatureToggle<*> = HarnessProcessCommandsEnabled
 }

@@ -2,6 +2,9 @@ package io.aequicor.heartbeat.feature.harness.api.script
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.ItemName
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionPhase
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessAuthority
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
@@ -12,6 +15,8 @@ import kotlin.time.Duration.Companion.minutes
  * never a PowerShell cmdlet, function or `.ps1` script; wildcard or backtick syntax in [program] is refused.
  * Empty words, `cmd.exe` specials (`& | < > ^ % ! ( ) "`, line breaks), and words ending in `\` that also contain
  * whitespace or `, ; =` are refused as invalid on Windows. Other arguments containing `, ; =` stay one argument.
+ * A non-null [requiresDecision] disables ordinary run and requires a distinct host-owned process decision; approval
+ * of this source never approves later merges or releases. The label alone does not prove command semantics.
  * A relative [program] runs from the project directory (`./gradlew`, `.\gradlew.bat`). Pass the trusted
  * `ScriptUiCall.workspace`, never a project built from input.
  */
@@ -20,6 +25,7 @@ public data class ScriptCommand(
     val arguments: List<String> = emptyList(),
     val parameters: Map<String, Regex> = emptyMap(),
     val timeout: Duration = 1.minutes,
+    val requiresDecision: ProcessAuthority? = null,
 ) {
     override fun toString(): String = "ScriptCommand(arguments=${arguments.size}, timeout=$timeout)"
 }
@@ -62,14 +68,35 @@ public enum class ScriptCommandRefusal {
 
     /** HarnessLimits.COMMAND_RUNS commands of this harness are already running. */
     Busy,
+
+    /** This declaration requires an exact host-owned process decision; use runForProcess. */
+    DecisionRequired,
 }
 
 /**
  * Fixed commands of this script. Declarations are part of the reviewed source: approving the script approves every
  * later run of them — from UI methods (native buttons and WebView `heartbeat.call` alike), timers and events — with
- * no agent turn, review or user confirmation. Desktop only. Programs, parameters and output are never logged.
+ * no agent turn, review or user confirmation for unguarded declarations. A declaration with requiresDecision instead
+ * requires [runForProcess] and a separate host decision. Desktop only. Programs, parameters and output are never
+ * logged.
  */
 public interface ScriptCommands {
+    /**
+     * Requests or executes one guarded command for this exact process attempt. A Pending reply is durable and
+     * returns immediately; park the process and retry after the human decides in the native harness screen.
+     * Replays reuse the same decision. Denied, revoked, expired, already dispatched and completed snapshots never
+     * execute again. The declaration must specify ScriptCommand.requiresDecision; ordinary run refuses it.
+     * The host binds expanded words, timeout, script revision, project, repository, input revision and full HEAD SHA.
+     * Consent covers these words only; the authority label does not prove what a program does. The source reviewer
+     * must require conditional external writes bound to the shown SHA. No answer method is exposed to scripts.
+     */
+    public suspend fun runForProcess(
+        name: ItemName,
+        workspace: WorkspaceRef?,
+        process: ProcessWorkflowKey,
+        parameters: Map<String, String> = emptyMap(),
+    ): ScriptProcessCommandResult = ScriptProcessCommandResult.Unavailable
+
     /**
      * Declares [name] while the script is evaluated, copying its argument and parameter collections so later
      * mutations cannot change this declaration; later calls throw IllegalStateException. At most
@@ -90,4 +117,16 @@ public interface ScriptCommands {
         workspace: WorkspaceRef?,
         parameters: Map<String, String> = emptyMap(),
     ): ScriptCommandResult
+}
+
+/** Host-mediated execution is independent of the script's self-declared ProcessAuthority grants. */
+public sealed interface ScriptProcessCommandResult {
+    /** Observe or await this durable record; only the native host UI can answer it. */
+    public data class Decision(val id: String, val phase: ProcessDecisionPhase) : ScriptProcessCommandResult
+
+    /** The one claimed execution returned. Subsequent calls observe Completed without executing again. */
+    public data class Finished(val result: ScriptCommandResult) : ScriptProcessCommandResult
+
+    /** Admission failed or the journal could not be verified. This is never permission to run unguarded. */
+    public data object Unavailable : ScriptProcessCommandResult
 }

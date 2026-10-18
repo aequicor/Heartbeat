@@ -14,7 +14,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
-import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeAction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
@@ -71,7 +70,7 @@ internal class WorktreeJournal(
     private val toggles: FeatureToggles,
     private val projectSettings: Lazy<ProjectBuildSettings> = lazy { error("ProjectBuildSettingsUnavailable") },
     private val facade: Lazy<EngineFacade>? = null,
-    private val sourceBarriers: VirtualSourceBarrier = VirtualSourceBarriers(),
+    sourceBarriers: VirtualSourceBarrier = VirtualSourceBarriers(),
 ) {
     private val log = Log.tag("WorktreeJournal")
     private val store = stores.keyValue(WorktreeJournalSpec)
@@ -85,11 +84,13 @@ internal class WorktreeJournal(
         builds,
         facade,
         sourceBarriers,
-        all = { mutex.withLock { read().values.toList() } },
-        find = ::record,
-        change = ::update,
-        settle = { commitTransition(it) },
-        finishTask = ::finishVirtual,
+        access = VirtualTaskAccess(
+            all = { mutex.withLock { read().values.toList() } },
+            find = ::record,
+            change = ::update,
+            settle = { commitTransition(it) },
+            finishTask = ::finishVirtual,
+        ),
     )
 
     suspend fun load(): Map<String, WorktreeTask> {
@@ -339,7 +340,14 @@ internal class WorktreeJournal(
     private suspend fun seal(command: WorktreeIntent.Public.Seal, emit: suspend (WorktreeTask) -> Unit) {
         val result = upkeep.prepareRun(command.chatId) {
             val captured = sealCheckout(git, command, { record(command.chatId) }) { seal ->
-                update(command.chatId) { it.copy(task = it.task.sealed(seal)) }
+                update(command.chatId) {
+                    val proofs = if (it.task.pinnedBaseCommit != null && seal.commit != null) {
+                        it.resultProofs + (seal.operation to checkNotNull(seal.commit))
+                    } else {
+                        it.resultProofs
+                    }
+                    it.copy(task = it.task.sealed(seal), resultProofs = proofs)
+                }
             } ?: return@prepareRun null
             val state = if (command.handoff && captured.task.virtualSandbox != null) {
                 git.handoffVirtual(captured)
@@ -392,16 +400,18 @@ internal class WorktreeJournal(
         record(chatId)?.let { virtual.finish(it) }
     }
 
-    private suspend fun rejectRun(command: WorktreeIntent.Public.RunRejected): WorktreeRecord? {
-        val before = record(command.chatId)
-        val changed = commitTransition(command) ?: return null
-        val isRejected = before?.task?.run?.let { it.request == command.request && it.turn == null } == true
-        return if (isRejected && before.mergeLease?.id == command.request.value && changed.task.run == null) {
-            actions.releaseMerge(changed)
-        } else {
-            changed
+    private suspend fun rejectRun(command: WorktreeIntent.Public.RunRejected): WorktreeRecord? =
+        upkeep.prepareRun(command.chatId) {
+            // Cleanup queued after an accepted RunStarted must not overtake its durable preparation.
+            val before = record(command.chatId)
+            val changed = commitTransition(command) ?: return@prepareRun null
+            val isRejected = before?.task?.run?.let { it.request == command.request && it.turn == null } == true
+            if (isRejected && before.mergeLease?.id == command.request.value && changed.task.run == null) {
+                actions.releaseMerge(changed)
+            } else {
+                changed
+            }
         }
-    }
 
     private suspend fun reconcileSubmission(command: WorktreeIntent.Public.RunSubmissionReconciled): WorktreeRecord? {
         val before = record(command.chatId)
@@ -453,53 +463,17 @@ internal class WorktreeJournal(
     }
 
     private suspend fun prepare(command: WorktreeIntent.Public.Prepare, emit: suspend (WorktreeTask) -> Unit) {
-        require(command.chatId.isNotBlank()) { "InvalidChatIdentity" }
         val preparation = mutex.withLock { preparations.getOrPut(command.chatId) { Mutex() } }
-        preparation.withLock {
-            val known = record(command.chatId)
-            if (known != null && known.provisioning.isNotBlank()) {
-                requireAvailable()
-                check(git.exists(known)) { "WorktreeUnavailable" }
-                emit(known.task)
-                return@withLock
-            }
-            requireEnabled()
-            val source = checkNotNull(workspaces.resolve(command.project)) { "ProjectUnavailable" }
-            val identity = Uuid.random().toString()
-            val plan = git.plan(source, identity)
-            val task = WorktreeTask(
-                command.chatId,
-                command.project,
-                sourceBranch = plan.sourceBranch,
-                branch = plan.branch,
-                baseCommit = plan.baseCommit,
-                isSandbox = isSandbox(command),
-                virtualSandbox = if (isSandbox(command) && git.isVirtualSupported) {
-                    VirtualSandboxState(baseCommit = plan.baseCommit, snapshot = plan.baseCommit)
-                } else {
-                    null
-                },
-            )
-            val pending = WorktreeRecord(
-                task,
-                plan.sourceDirectory,
-                plan.directory,
-                plan.commonDirectory,
-                identity,
-                pullRequestBase = plan.pullRequestBase,
-                parentWorkspace = command.parentWorkspace,
-            )
-            // The checkout and branch can always be found after a crash, even before registration finishes.
-            mutex.withLock { write(read() + (command.chatId to pending)) }
-            emit(task)
-            git.materialize(pending)
-            val workspace = git.virtualWorkspace(pending) ?: workspaces.registerManaged(plan.directory).ref
-            val completed = update(command.chatId) {
-                it.copy(task = it.task.prepared(workspace))
-            }
-            completed?.let { emit(it.task) }
-        }
+        preparation.withLock { WorktreePreparation(this, git, workspaces, toggles).execute(command, emit) }
     }
+
+    internal suspend fun provision(record: WorktreeRecord, workspace: WorkspaceRef? = null): WorktreeTask? =
+        if (workspace == null) {
+            mutex.withLock { write(read() + (record.task.chatId to record)) }
+            record.task
+        } else {
+            update(record.task.chatId) { it.copy(task = it.task.prepared(workspace)) }?.task
+        }
 
     private suspend fun trackMain(command: WorktreeIntent.Public.TrackMainSession): WorktreeRecord? {
         val existing = mutex.withLock {
