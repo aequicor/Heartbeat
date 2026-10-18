@@ -102,7 +102,7 @@ public sealed interface ProcessDecisionCommand {
     /** A click in the host's native decision screen, fenced to the displayed record revision. */
     public data class Answer(val expectedRevision: Long, val isApproved: Boolean) : ProcessDecisionCommand
 
-    /** Revokes any uncompleted decision; this cannot undo an external action already dispatched. */
+    /** Revokes a decision before admission; an executing or completed action cannot be revoked. */
     public data class Revoke(val expectedRevision: Long) : ProcessDecisionCommand
 
     /** Executor admission, after reconstructing the exact live action binding. */
@@ -118,13 +118,13 @@ public sealed interface ProcessDecisionCommand {
  * | From | Input / guard | To |
  * |---|---|---|
  * | Pending | Answer, exact revision, before deadline | Approved or Denied |
- * | Pending, Approved, Denied, Executing | Revoke, exact revision | Revoked |
+ * | Pending, Approved, Denied | Revoke, exact revision | Revoked |
  * | Approved | Claim, equal binding, before deadline | Executing |
  * | Executing | Complete | Completed |
  * | any | stale revision, backwards clock, unsupported input | refused |
  *
- * A revoked executing decision stays revoked, including after a late receipt; it never becomes reusable. Unknown
- * dispatches remain Executing across restart and expiry and require reconciliation outside this pure transition.
+ * Admission is the irreversible boundary: revocation cannot cancel a consumed claim. Unknown dispatches remain
+ * Executing across restart and expiry and require reconciliation outside this pure transition.
  */
 public fun ProcessDecision.reduce(command: ProcessDecisionCommand, now: Instant): ProcessDecision? {
     if (now < updatedAt || revision == Long.MAX_VALUE) return null
@@ -137,8 +137,11 @@ private fun ProcessDecision.nextPhase(command: ProcessDecisionCommand, now: Inst
         is ProcessDecisionCommand.Answer -> answer(command, now)
 
         is ProcessDecisionCommand.Revoke -> ProcessDecisionPhase.Revoked.takeIf {
-            command.expectedRevision == revision && phase != ProcessDecisionPhase.Completed &&
-                phase != ProcessDecisionPhase.Revoked
+            command.expectedRevision == revision && phase in setOf(
+                ProcessDecisionPhase.Pending,
+                ProcessDecisionPhase.Approved,
+                ProcessDecisionPhase.Denied,
+            )
         }
 
         is ProcessDecisionCommand.Claim -> ProcessDecisionPhase.Executing.takeIf { permits(command.current, now) }

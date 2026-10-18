@@ -94,11 +94,11 @@ class ProcessDecisionTest {
     }
 
     @Test
-    fun `revocation during dispatch remains effective after a late receipt`() {
+    fun `admitted execution cannot falsely report successful revocation`() {
         val running = assertNotNull(approve().reduce(ProcessDecisionCommand.Claim(binding), now))
-        val revoked = assertNotNull(running.reduce(ProcessDecisionCommand.Revoke(running.revision), now))
-        assertNull(revoked.reduce(ProcessDecisionCommand.Complete, now))
-        assertNull(revoked.reduce(ProcessDecisionCommand.Claim(binding), now))
+        assertNull(running.reduce(ProcessDecisionCommand.Revoke(running.revision), now))
+        assertNull(running.reduce(ProcessDecisionCommand.Claim(binding), now))
+        assertEquals(ProcessDecisionPhase.Executing, running.phase)
     }
 
     @Test

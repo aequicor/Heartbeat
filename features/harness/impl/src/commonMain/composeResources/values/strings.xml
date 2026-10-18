@@ -91,4 +91,19 @@
     <string name="harness_hosted_section">Heartbeat tools</string>
     <string name="harness_hosted_hint">A harness can only turn these tools off.</string>
     <string name="harness_tool_available">Allow %1$s</string>
+    <string name="process_decisions_title">Process actions</string>
+    <string name="process_decisions_hint">Approve only the exact command and snapshot shown. Approval does not grant future actions.</string>
+    <string name="process_decisions_allow">Allow once</string>
+    <string name="process_decisions_deny">Deny</string>
+    <string name="process_decisions_revoke">Revoke</string>
+    <string name="process_decisions_pending">Waiting for your decision</string>
+    <string name="process_decisions_approved">Approved until the deadline</string>
+    <string name="process_decisions_denied">Denied</string>
+    <string name="process_decisions_revoked">Revoked; a dispatched action may already have taken effect</string>
+    <string name="process_decisions_executing">Accepted for execution; revocation cannot cancel it. After restart inspect the result.</string>
+    <string name="process_decisions_completed">Completed; repeated execution is blocked</string>
+    <string name="process_decisions_context">Repository: %1$s\nWorkspace: %2$s\nOperation: %3$s</string>
+    <string name="process_decisions_subject">SHA: %1$s</string>
+    <string name="process_decisions_process">Process: %1$s · stage: %2$s\nAttempt: %3$d · input revision: %4$d</string>
+    <string name="process_decisions_deadline">Valid until: %1$s\nTimeout: %2$d ms</string>
 </resources>
