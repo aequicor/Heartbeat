@@ -548,7 +548,7 @@ internal class DesktopWorktreeGit(
     private fun buildRoot(record: WorktreeRecord): String =
         if (record.task.virtualSandbox != null) record.sourceDirectory else record.directory
 
-    override val isVirtualSupported: Boolean get() = false
+    override val isVirtualSupported: Boolean get() = true
 
     override suspend fun pauseVirtual(record: WorktreeRecord) =
         virtual.value.pause(DesktopVirtualWorkspaces.workspace(record))

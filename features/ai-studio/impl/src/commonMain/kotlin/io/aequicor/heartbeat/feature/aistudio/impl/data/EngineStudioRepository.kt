@@ -131,6 +131,7 @@ internal data class StudioChatRecord(
     /** Managed execution identity, distinct from the project's sidebar grouping. */
     val executionWorkspace: WorkspaceRef? = null,
     val worktreeTaskId: String? = null,
+    val virtualParentWorkspace: WorkspaceRef? = null,
     /** Explicit isolation choice; old records without it follow the sandbox toggle when preparation resumes. */
     val isSandbox: Boolean? = null,
     val configuration: StudioSessionSettings? = null,
@@ -379,9 +380,8 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun saveHelper(record: StudioChatRecord) {
-        check(record.helper != null && record.ref == null && record.lastRunRequest == null)
-        log.v { "Persist empty helper identity" }
-        saveConversation(record)
+        log.v { "Save helper workspace" }
+        saveHelperWorkspace(record, workspaces, worktrees, ::saveConversation)
     }
 
     private suspend fun saveConversation(changed: StudioChatRecord) = lock.withLock {

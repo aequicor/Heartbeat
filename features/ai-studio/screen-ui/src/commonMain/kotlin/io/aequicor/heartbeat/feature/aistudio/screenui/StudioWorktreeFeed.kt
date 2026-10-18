@@ -17,6 +17,15 @@ import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.author_studio
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_conflicted
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_continue
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_engine_unsupported
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_git_required
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_handed_off
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_head_required
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_leave_paused
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_paused
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_resolve
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_action_working
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_build_cancel
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_build_position
@@ -93,6 +102,12 @@ internal data class WorktreeLabels(
     val recheck: String,
     val builds: BuildLabels,
     val failures: WorktreeFailureLabels,
+    val sandboxPaused: String = "",
+    val sandboxConflicted: String = "",
+    val sandboxContinue: String = "",
+    val sandboxResolve: String = "",
+    val sandboxLeavePaused: String = "",
+    val sandboxHandedOff: String = "",
 )
 
 /** Build copy beyond the shared tool status: queue details and the cancel action. */
@@ -119,11 +134,14 @@ internal data class WorktreeFailureLabels(
     val mergeInProgress: String,
     val actionUnverified: String,
     val unknown: String,
+    val gitRequired: String = unknown,
+    val headRequired: String = unknown,
+    val virtualUnsupported: String = unknown,
 ) {
     fun of(code: String): String = when (code) {
-        "OriginalCheckoutDirty" -> checkoutDirty
+        "OriginalCheckoutDirty", "SandboxSourceDirty" -> checkoutDirty
         "OriginalBranchChanged" -> branchChanged
-        "OriginalBranchMoved" -> branchMoved
+        "OriginalBranchMoved", "SandboxSourceChanged" -> branchMoved
         "OriginalBranchUnavailable" -> branchUnavailable
         "WorktreeUnavailable", "ProjectUnavailable" -> checkoutUnavailable
         "PullRequestBaseUnavailable" -> pullRequestBase
@@ -131,6 +149,13 @@ internal data class WorktreeFailureLabels(
         "ActionDeliveryFailed" -> actionDelivery
         "MergeInProgress", "MergeLeaseReleasePending" -> mergeInProgress
         "ActionResultUnverified", "ActionUnverified" -> actionUnverified
+        else -> sandboxFailure(code)
+    }
+
+    private fun sandboxFailure(code: String): String = when (code) {
+        "GitRepositoryRequired" -> gitRequired
+        "GitHeadRequired" -> headRequired
+        "VirtualWorkspaceUnsupported" -> virtualUnsupported
         else -> unknown
     }
 }
@@ -269,7 +294,16 @@ internal fun worktreeLabels(): WorktreeLabels = WorktreeLabels(
         mergeInProgress = stringResource(Res.string.worktree_failure_merge_in_progress),
         actionUnverified = stringResource(Res.string.worktree_failure_action_unverified),
         unknown = stringResource(Res.string.worktree_failure_unknown),
+        gitRequired = stringResource(Res.string.sandbox_git_required),
+        headRequired = stringResource(Res.string.sandbox_head_required),
+        virtualUnsupported = stringResource(Res.string.sandbox_engine_unsupported),
     ),
+    sandboxPaused = stringResource(Res.string.sandbox_paused),
+    sandboxConflicted = stringResource(Res.string.sandbox_conflicted),
+    sandboxContinue = stringResource(Res.string.sandbox_continue),
+    sandboxResolve = stringResource(Res.string.sandbox_resolve),
+    sandboxLeavePaused = stringResource(Res.string.sandbox_leave_paused),
+    sandboxHandedOff = stringResource(Res.string.sandbox_handed_off),
 )
 
 /** A card action and what it does. */
@@ -345,8 +379,54 @@ private fun WorktreeFeed.taskCard(labels: WorktreeLabels): WorktreeCard? {
         val status = if (isRestored) HbToolStatus.Complete else HbToolStatus.Pending
         worktreeCard(id, labels.worktree, status, task.branch.orEmpty(), commands = listOf(it))
     }
-    if (!isRestored) return linked
-    return task.phaseCard(id, session, labels, openPr) ?: linked
+    return if (!isRestored) {
+        linked
+    } else {
+        task.virtualCard(id, session, labels) ?: task.phaseCard(id, session, labels, openPr) ?: linked
+    }
+}
+
+private fun WorktreeUi.virtualCard(id: String, session: String, labels: WorktreeLabels): WorktreeCard? = when {
+    sandboxPhase == "HandedOff" -> worktreeCard(
+        id,
+        labels.sandboxHandedOff,
+        HbToolStatus.Complete,
+        listOfNotNull(summary, branch, resultCommit).joinToString("\n"),
+    )
+
+    isSandboxResolving -> worktreeCard(
+        id,
+        labels.sandboxResolve,
+        HbToolStatus.Running,
+        sandboxConflicts.joinToString("\n"),
+    )
+
+    sandboxPhase == null || sandboxPhase == "Ready" -> null
+
+    else -> pausedVirtualCard(id, taskId ?: session, labels)
+}
+
+private fun WorktreeUi.pausedVirtualCard(id: String, session: String, labels: WorktreeLabels): WorktreeCard {
+    val conflicted = sandboxPhase == "Conflicted"
+    val resume = CardCommand(
+        HbToolAction("sandbox-continue", if (conflicted) labels.sandboxResolve else labels.sandboxContinue),
+        WorktreeCommand.Send(StudioIntent.RecheckWorktree(session, isResume = true, resolveConflicts = conflicted)),
+    )
+    val leave = if (conflicted) {
+        CardCommand(
+            HbToolAction("sandbox-leave-paused", labels.sandboxLeavePaused, HbButtonStyle.Ghost),
+            WorktreeCommand.Send(StudioIntent.RecheckWorktree(session)),
+        )
+    } else {
+        null
+    }
+    return worktreeCard(
+        id,
+        if (conflicted) labels.sandboxConflicted else labels.sandboxPaused,
+        HbToolStatus.Pending,
+        sandboxConflicts.joinToString("\n"),
+        commands = listOfNotNull(resume, leave),
+    )
 }
 
 /**

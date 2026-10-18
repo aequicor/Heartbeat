@@ -1,4 +1,11 @@
 <resources>
+    <string name="sandbox_paused">Песочница приостановлена: проект редактируется извне</string>
+    <string name="sandbox_conflicted">Конфликты виртуальных изменений</string>
+    <string name="sandbox_continue">Продолжить</string>
+    <string name="sandbox_resolve">Поручить агенту разрешение и продолжить (рекомендуется)</string>
+    <string name="sandbox_leave_paused">Оставить на паузе</string>
+    <string name="sandbox_handed_off">Ветка сохранена и передана вам</string>
+
     <string name="miniapp_open">Открыть %1$s</string>
     <string name="session_tree_root">Корневая сессия</string>
     <string name="session_tree_unknown">неизвестно</string>
@@ -373,4 +380,7 @@
     <string name="planning_mode_hint">Агент вырабатывает план вместе с вами и только читает, пока вы не начнёте реализацию</string>
     <string name="planning_chip">План · рев. %1$d</string>
     <string name="planning_leave">Выйти из планирования</string>
+    <string name="sandbox_git_required">Sandbox и Worktree доступны только для Git-проектов.</string>
+    <string name="sandbox_head_required">Для Sandbox нужен начальный Git-коммит (HEAD).</string>
+    <string name="sandbox_engine_unsupported">Этот движок не поддерживает виртуальный доступ к проекту.</string>
 </resources>
