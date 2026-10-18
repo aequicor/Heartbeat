@@ -64,25 +64,16 @@ internal class StudioPlanView(
             }
 
             is AiStudioScreenIntent.SetPlanning -> {
-                val isApplied = if (intent.isEnabled) {
-                    planning.enter(
-                        intent.sessionId,
-                    )
-                } else {
-                    planning.leave(intent.sessionId)
-                }
-                log.i { "planning mode of a chat: ${intent.isEnabled} applied=$isApplied" }
+                val chat = intent.sessionId
+                val isApplied = if (intent.isEnabled) planning.enter(chat) else planning.leave(chat)
+                outcome("planning mode of a chat set to ${intent.isEnabled}", isApplied)
             }
 
-            is AiStudioScreenIntent.ApprovePlan -> {
-                val isApproved = planning.approve(intent.sessionId, intent.revision)
-                log.i { "plan approval: $isApproved" }
-            }
+            is AiStudioScreenIntent.ApprovePlan ->
+                outcome("plan approved", planning.approve(intent.sessionId, intent.revision))
 
-            is AiStudioScreenIntent.SavePlan -> {
-                val isSaved = planning.write(intent.sessionId, intent.text, intent.baseRevision)
-                log.i { "plan edit saved: $isSaved" }
-            }
+            is AiStudioScreenIntent.SavePlan ->
+                outcome("plan edit saved", planning.write(intent.sessionId, intent.text, intent.baseRevision))
 
             is AiStudioScreenIntent.ImplementPlan -> {
                 log.i { "implement the plan: mode=${intent.mode} fresh=${intent.isFreshContext}" }
@@ -96,6 +87,14 @@ internal class StudioPlanView(
                 sendTo(studio, AiStudioIntent.Public.ImplementPlan(intent.sessionId, implementation))
             }
         }
+    }
+
+    /**
+     * The planning feature refuses commands of a stale revision, a changed plan or a switched-off feature; the
+     * screen then keeps showing the current plan from the feature, and has no notice for it yet.
+     */
+    private fun outcome(action: String, isApplied: Boolean) {
+        if (isApplied) log.i { action } else log.w { "Refused: $action" }
     }
 }
 

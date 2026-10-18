@@ -201,9 +201,12 @@ class StudioPlanImplementerTest {
         val started = mutableListOf<Long>()
         override val availability: Flow<Boolean> = flowOf(true)
         override val plans: Flow<Map<String, Plan>> get() = flowOf(mapOf(CHAT to plan))
+        override suspend fun canEnter() = true
         override suspend fun enter(chatId: String) = true
         override suspend fun leave(chatId: String) = true
         override suspend fun bind(chatId: String, session: SessionRef) = Unit
+        override suspend fun approve(chatId: String, revision: Long) = true
+        override suspend fun write(chatId: String, text: String, base: Long) = true
         override suspend fun startImplementation(chatId: String, revision: Long): Boolean {
             if (canStart) started += revision
             return canStart

@@ -56,7 +56,7 @@ class EngineStudioEffects(
                 .distinctUntilChanged()
                 .collect { machine.send(AiStudioIntent.Internal.ModelsChanged(it)) }
 
-            AiStudioEffect.ObserveProjects -> observeProjects(machine)
+            is AiStudioEffect.ChatOptions -> observeOptions(effect, machine)
 
             is AiStudioEffect.Usage -> usage(effect)
 
@@ -84,6 +84,8 @@ class EngineStudioEffects(
 
     private suspend fun createSession(effect: AiStudioEffect.CreateSession, machine: EffectScope<AiStudioIntent>) {
         requireBrowserCreationSupport(effect)
+        // Refused before anything is saved: no orphan chat or worktree copy is left behind.
+        if (effect.isPlanning) check(planning.canEnter()) { "Planning mode is unavailable" }
         val session = repository.createSession(
             effect.projectId,
             titleOf(effect.prompt),
@@ -91,7 +93,7 @@ class EngineStudioEffects(
             effect.organism(),
             isSandbox = effect.isSandbox,
         )
-        // The saved conversation stays an idle sidebar entry when planning cannot start.
+        // A race lost after the check above leaves the saved conversation as an idle sidebar entry.
         if (effect.isPlanning) check(planning.enter(session.id)) { "Planning mode could not start" }
         machine.send(
             AiStudioIntent.Internal.SessionCreated(
@@ -147,6 +149,16 @@ class EngineStudioEffects(
         when (effect) {
             is AiStudioEffect.SaveSettings -> runtime.saveDefaults(effect.settings, effect.version)
             is AiStudioEffect.ChangeSessionSetting -> runtime.configure(effect.sessionId, effect.change)
+        }
+    }
+
+    private suspend fun observeOptions(effect: AiStudioEffect.ChatOptions, machine: EffectScope<AiStudioIntent>) {
+        when (effect) {
+            AiStudioEffect.ObserveProjects -> observeProjects(machine)
+
+            AiStudioEffect.ObservePlanning -> planning.availability.distinctUntilChanged().collect {
+                machine.send(AiStudioIntent.Internal.PlanningAvailabilityChanged(it))
+            }
         }
     }
 

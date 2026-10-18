@@ -86,6 +86,8 @@ public sealed interface AiStudioState : MachineState {
         val isSandboxAvailable: Boolean = false,
         /** Projects whose folder is a Git repository: only they offer an isolated checkout. */
         val repositoryProjects: Set<String> = emptySet(),
+        /** Planning mode is offered (its toggle is on); new panes may then choose it. */
+        val isPlanningAvailable: Boolean = false,
         val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
         /** Next creation token; never reused while Ready survives, even when pane ids are reused. */
         val nextCreateRequestId: Long = 0,
@@ -265,6 +267,9 @@ public sealed interface AiStudioIntent : MachineIntent {
             val isSandboxAvailable: Boolean = false,
         ) : Internal
 
+        /** Planning mode started or stopped being offered. */
+        public data class PlanningAvailabilityChanged(val isAvailable: Boolean) : Internal
+
         /** The picker registered a stable project id, or returned null when cancelled. */
         public data class ProjectChosen(val paneId: Int, val projectId: String?) : Internal
 
@@ -293,8 +298,14 @@ public sealed interface AiStudioEffect : MachineEffect {
     /** Reports the offered models for as long as the workspace is ready. */
     public data object ObserveModels : AiStudioEffect
 
+    /** Observations of the options a new chat may choose, for as long as the workspace is ready. */
+    public sealed interface ChatOptions : AiStudioEffect
+
     /** Observes whether local project selection is available. */
-    public data object ObserveProjects : AiStudioEffect
+    public data object ObserveProjects : ChatOptions
+
+    /** Observes whether planning mode is offered. */
+    public data object ObservePlanning : ChatOptions
 
     /** Read-only usage commands; failure never changes conversation execution state. */
     public sealed interface Usage : AiStudioEffect

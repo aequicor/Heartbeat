@@ -246,6 +246,7 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
             output = listOfNotNull(previous?.output?.takeIf(String::isNotBlank), item.parts.text())
                 .filter(String::isNotBlank).joinToString("\n"),
             learning = previous?.learning,
+            plan = previous?.plan,
             createdChecklistId = item.createdChecklistId(previous) ?: previous?.createdChecklistId,
             shownCardId = item.shownCardId(previous) ?: previous?.shownCardId,
             isLiveCard = previous?.isLiveCard == true || ServiceUiTools.isLiveCard(

@@ -62,7 +62,7 @@ class AiStudioEffects(
                 machine.send(AiStudioIntent.Internal.ModelsChanged(models.map { it.id }))
             }
 
-            AiStudioEffect.ObserveProjects -> machine.send(AiStudioIntent.Internal.ProjectAvailabilityChanged(false))
+            is AiStudioEffect.ChatOptions -> machine.send(unavailable(effect))
 
             is AiStudioEffect.ChooseProject -> error("Local folder selection is unavailable in the demo workspace")
 
@@ -284,3 +284,9 @@ internal fun StudioMessage.Reply.closed(): StudioMessage.Reply {
 }
 
 private const val TITLE_LENGTH = 60
+
+/** The demo workspace offers neither local projects nor planning. */
+private fun unavailable(effect: AiStudioEffect.ChatOptions): AiStudioIntent = when (effect) {
+    AiStudioEffect.ObserveProjects -> AiStudioIntent.Internal.ProjectAvailabilityChanged(false)
+    AiStudioEffect.ObservePlanning -> AiStudioIntent.Internal.PlanningAvailabilityChanged(false)
+}

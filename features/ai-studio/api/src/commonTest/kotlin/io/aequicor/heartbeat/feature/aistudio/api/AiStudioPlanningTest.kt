@@ -10,6 +10,7 @@ class AiStudioPlanningTest {
         panes = listOf(StudioPane(0), StudioPane(1, projectId = "project")),
         focusedPaneId = 0,
         settings = settings,
+        isPlanningAvailable = true,
     )
 
     @Test
@@ -39,6 +40,59 @@ class AiStudioPlanningTest {
         AiStudioMachineSpec.assertIgnored(
             ready.copy(panes = listOf(StudioPane(0, isCreating = true))),
             AiStudioIntent.Public.SelectPlanning(0, true),
+        )
+    }
+
+    @Test
+    fun `planning is offered only while the feature is available`() {
+        val unavailable = ready.copy(isPlanningAvailable = false)
+        AiStudioMachineSpec.assertIgnored(unavailable, AiStudioIntent.Public.SelectPlanning(0, true))
+        val stale = unavailable.copy(panes = listOf(ready.panes[0].copy(isPlanning = true), ready.panes[1]))
+        AiStudioMachineSpec.assertTransition(stale, AiStudioIntent.Public.SelectPlanning(0, false), unavailable)
+        AiStudioMachineSpec.assertTransition(
+            stale,
+            AiStudioIntent.Public.Submit(0, "Do it"),
+            stale.copy(
+                panes = listOf(stale.panes[0].copy(isCreating = true, createRequestId = 0), stale.panes[1]),
+                nextCreateRequestId = 1,
+            ),
+            effects = listOf(AiStudioEffect.CreateSession(0, null, "Do it", settings, requestId = 0)),
+        )
+    }
+
+    @Test
+    fun `losing planning clears it on idle new panes only`() {
+        val planning = ready.panes[0].copy(isPlanning = true)
+        val creating = StudioPane(1, isCreating = true, createRequestId = 0, isPlanning = true)
+        val from = ready.copy(panes = listOf(planning, creating))
+        AiStudioMachineSpec.assertTransition(
+            from,
+            AiStudioIntent.Internal.PlanningAvailabilityChanged(false),
+            from.copy(panes = listOf(ready.panes[0], creating), isPlanningAvailable = false),
+        )
+        val off = ready.copy(isPlanningAvailable = false)
+        AiStudioMachineSpec.assertTransition(off, AiStudioIntent.Internal.PlanningAvailabilityChanged(true), ready)
+    }
+
+    @Test
+    fun `a failed creation keeps planning only while it is available`() {
+        val creating = ready.copy(
+            panes = listOf(StudioPane(0, isCreating = true, createRequestId = 0, isPlanning = true), ready.panes[1]),
+            nextCreateRequestId = 1,
+        )
+        val failed = AiStudioIntent.Internal.CreateFailed(0, "Plan", 0)
+        AiStudioMachineSpec.assertTransition(
+            creating,
+            failed,
+            creating.copy(panes = listOf(StudioPane(0, createRequestId = 0, isPlanning = true), ready.panes[1])),
+            outputs = listOf(AiStudioOutput.SubmitFailed(0, "Plan", 0)),
+        )
+        val gone = creating.copy(isPlanningAvailable = false)
+        AiStudioMachineSpec.assertTransition(
+            gone,
+            failed,
+            gone.copy(panes = listOf(StudioPane(0, createRequestId = 0), ready.panes[1])),
+            outputs = listOf(AiStudioOutput.SubmitFailed(0, "Plan", 0)),
         )
     }
 

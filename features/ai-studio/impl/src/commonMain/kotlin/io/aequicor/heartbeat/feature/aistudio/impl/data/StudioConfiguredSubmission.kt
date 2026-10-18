@@ -60,6 +60,10 @@ internal class StudioConfiguredSubmission(
             efforts.state.value.effectiveEffort(target, supported)
         }
         log.i { "Submitting prompt length=${request.prompt.length} trust=${trust ?: "default"}" }
+        // The plan and its read-only rule follow the chat into the session before anything of the turn changes.
+        // Binding fails closed: a planning chat whose session stays unbound, or plans still loading, fail the turn
+        // unsent.
+        planning.bind(id, active.ref)
         val seed = record.pendingSeed.takeIf { request.compaction == null }
         // The ledger and marks follow the chat before its first turn in the new session prepares its prompt.
         if (seed != null) record.previousRefs.lastOrNull()?.let { rollovers.rolledOver(it, active.ref) }
@@ -72,8 +76,6 @@ internal class StudioConfiguredSubmission(
         }
         // The handoff turn's narrowed trust is not the chat's configuration: its session is never reflected again.
         if (request.isHandoff) controller.retire(id, active)
-        // The plan and its read-only rule follow the chat into the session before its prompt is prepared.
-        planning.bind(id, active.ref)
         val reviewTarget = record.helper?.model?.reviewTarget
         val submitted = send(active, constrained, effort, reviewTarget) {
             turnPolicy(request, record, trust, configurations)

@@ -52,6 +52,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.reflect.safeCast
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
@@ -274,16 +275,8 @@ class StudioConfiguredSubmissionTest {
     fun `the plan of the chat is bound to its session before the native prompt`() = runTest {
         lateinit var fixture: SubmissionFixture
         val bound = mutableListOf<Triple<String, SessionRef, Int>>()
-        val planning = object : StudioPlanning {
-            override val availability: Flow<Boolean> = flowOf(true)
-            override val plans: Flow<Map<String, Plan>> = flowOf(emptyMap())
-            override suspend fun enter(chatId: String) = true
-            override suspend fun leave(chatId: String) = true
-            override suspend fun bind(chatId: String, session: SessionRef) {
-                bound += Triple(chatId, session, fixture.session.requests.size)
-            }
-
-            override suspend fun startImplementation(chatId: String, revision: Long) = false
+        val planning = BindingPlanning { chatId, session ->
+            bound += Triple(chatId, session, fixture.session.requests.size)
         }
         fixture = SubmissionFixture(this, planning = planning)
 
@@ -291,6 +284,28 @@ class StudioConfiguredSubmissionTest {
 
         assertEquals(listOf(Triple("chat", fixture.session.ref, 0)), bound)
         assertEquals(1, fixture.session.requests.size)
+    }
+
+    @Test
+    fun `a plan that cannot follow the chat into its session keeps the prompt unsent`() = runTest {
+        val planning = BindingPlanning { _, _ -> error("The plan could not follow the chat into its session") }
+        val fixture = SubmissionFixture(this, planning = planning)
+
+        assertFailsWith<IllegalStateException> { fixture.submit("planning") }
+
+        assertEquals(0, fixture.session.requests.size)
+    }
+
+    private class BindingPlanning(private val onBind: (String, SessionRef) -> Unit) : StudioPlanning {
+        override val availability: Flow<Boolean> = flowOf(true)
+        override val plans: Flow<Map<String, Plan>> = flowOf(emptyMap())
+        override suspend fun canEnter() = true
+        override suspend fun enter(chatId: String) = true
+        override suspend fun leave(chatId: String) = true
+        override suspend fun bind(chatId: String, session: SessionRef) = onBind(chatId, session)
+        override suspend fun startImplementation(chatId: String, revision: Long) = false
+        override suspend fun approve(chatId: String, revision: Long) = false
+        override suspend fun write(chatId: String, text: String, base: Long) = false
     }
 
     private fun PromptRequest.text(): String = parts.filterIsInstance<ContentPart.Text>().joinToString { it.text }

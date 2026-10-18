@@ -19,32 +19,42 @@ interface StudioPlanning {
     /** Plans by chat id, empty until they are loaded. */
     val plans: Flow<Map<String, Plan>>
 
+    /**
+     * Whether a new chat could start planning now: the feature is on, plans are loaded in time and there is room for
+     * one more plan. Checked before the chat is created, so a refusal leaves no chat behind.
+     */
+    suspend fun canEnter(): Boolean
+
     /** Starts planning in [chatId]; false when planning is unavailable or the plan could not be created. */
     suspend fun enter(chatId: String): Boolean
 
-    /** Detaches the plan of [chatId] from its context; false when it has no attached plan. */
+    /** Detaches the plan of [chatId] from its context; false when planning is off or it has no attached plan. */
     suspend fun leave(chatId: String): Boolean
 
     /**
      * Binds [session] to the plan of [chatId] before a prompt is sent, so the plan and its read-only rule follow the
-     * chat into every native session. A chat without a plan, or plans that cannot be loaded in time, leave the
-     * session unbound; the read-only hook then still asks before changes of unknown sessions.
+     * chat into every native session. Fails closed: throws while plans are still loading after a short wait, and
+     * when a planning chat's plan cannot be bound, so the prompt is never sent. With the feature off, unreadable
+     * plans (the read-only hook then asks before changes of every session) or a chat without a plan, the session
+     * stays unbound.
      */
     suspend fun bind(chatId: String, session: SessionRef)
 
     /** Lifts planning in [chatId] for implementing [revision]; false when the plan is no longer at that revision. */
     suspend fun startImplementation(chatId: String, revision: Long): Boolean
 
-    /** Approves [revision] of the plan of [chatId]; false when it is no longer current. */
-    suspend fun approve(chatId: String, revision: Long): Boolean = false
+    /** Approves [revision] of the plan of [chatId]; false when planning is off or it is no longer current. */
+    suspend fun approve(chatId: String, revision: Long): Boolean
 
     /** Saves the user's [text] of the plan of [chatId] edited from [base]; false when the plan changed meanwhile. */
-    suspend fun write(chatId: String, text: String, base: Long): Boolean = false
+    suspend fun write(chatId: String, text: String, base: Long): Boolean
 
     /** No planning mode: the feature is not part of the graph. */
     object None : StudioPlanning {
         override val availability: Flow<Boolean> = flowOf(false)
         override val plans: Flow<Map<String, Plan>> = flowOf(emptyMap())
+
+        override suspend fun canEnter(): Boolean = false
 
         override suspend fun enter(chatId: String): Boolean = false
 
@@ -53,6 +63,10 @@ interface StudioPlanning {
         override suspend fun bind(chatId: String, session: SessionRef) = Unit
 
         override suspend fun startImplementation(chatId: String, revision: Long): Boolean = false
+
+        override suspend fun approve(chatId: String, revision: Long): Boolean = false
+
+        override suspend fun write(chatId: String, text: String, base: Long): Boolean = false
     }
 }
 

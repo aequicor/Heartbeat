@@ -50,14 +50,32 @@ class EngineStudioPlanningTest {
     }
 
     @Test
-    fun `creation fails when planning cannot start and keeps the chat as an idle entry`() = runTest {
+    fun `creation fails before saving a chat when planning cannot start`() = runTest {
         val repository = InMemoryStudioRepository(TestClock(this))
-        planning.canEnter = false
+        planning.canStart = false
+        val before = repository.observeWorkspace().first().sessions.size
+        val request = AiStudioEffect.CreateSession(1, null, "Plan it", DefaultRunSettings, 7, isPlanning = true)
+        assertFailsWith<IllegalStateException> { effects(repository).handle(request, machine) }
+        assertTrue(sent.isEmpty())
+        assertTrue(planning.entered.isEmpty())
+        assertEquals(before, repository.observeWorkspace().first().sessions.size)
+    }
+
+    @Test
+    fun `a lost race after the check keeps the saved chat as an idle entry`() = runTest {
+        val repository = InMemoryStudioRepository(TestClock(this))
+        planning.isEntering = false
         val before = repository.observeWorkspace().first().sessions.size
         val request = AiStudioEffect.CreateSession(1, null, "Plan it", DefaultRunSettings, 7, isPlanning = true)
         assertFailsWith<IllegalStateException> { effects(repository).handle(request, machine) }
         assertTrue(sent.isEmpty())
         assertEquals(before + 1, repository.observeWorkspace().first().sessions.size)
+    }
+
+    @Test
+    fun `planning availability reaches the studio machine`() = runTest {
+        effects(InMemoryStudioRepository(TestClock(this))).handle(AiStudioEffect.ObservePlanning, machine)
+        assertEquals(listOf<AiStudioIntent>(AiStudioIntent.Internal.PlanningAvailabilityChanged(true)), sent)
     }
 
     private fun effects(repository: InMemoryStudioRepository) = EngineStudioEffects(
@@ -71,14 +89,17 @@ class EngineStudioPlanningTest {
     )
 
     private class RecordingPlanning : StudioPlanning {
-        var canEnter = true
+        var canStart = true
+        var isEntering = true
         val entered = mutableListOf<String>()
         override val availability: Flow<Boolean> = flowOf(true)
         override val plans: Flow<Map<String, Plan>> = flowOf(emptyMap())
 
+        override suspend fun canEnter(): Boolean = canStart
+
         override suspend fun enter(chatId: String): Boolean {
-            if (canEnter) entered += chatId
-            return canEnter
+            if (isEntering) entered += chatId
+            return isEntering
         }
 
         override suspend fun leave(chatId: String): Boolean = false
@@ -86,6 +107,10 @@ class EngineStudioPlanningTest {
         override suspend fun bind(chatId: String, session: SessionRef) = Unit
 
         override suspend fun startImplementation(chatId: String, revision: Long) = false
+
+        override suspend fun approve(chatId: String, revision: Long) = false
+
+        override suspend fun write(chatId: String, text: String, base: Long) = false
     }
 }
 
