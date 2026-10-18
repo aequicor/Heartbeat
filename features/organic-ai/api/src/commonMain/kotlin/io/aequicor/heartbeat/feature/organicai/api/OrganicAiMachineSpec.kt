@@ -69,7 +69,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * session of a cell is created the host prepares the cell's sandbox through worktree mode under
  * [Organism.sandboxTask] and reports it with WorkspaceBound; the session is then opened in that checkout, never in the
  * organism's project. Checkout, branch, native run and builds of a cell live in the worktree journal, the organism
- * keeps only the checkout reference, so both survive a restart independently.
+ * keeps only the checkout reference, so both survive a restart independently. A host-pinned [Organism.baseCommit]
+ * makes every cell use a physical sandbox from that exact commit; children integrate branches explicitly and no
+ * automatic virtual-source rebase changes this base.
  *
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →

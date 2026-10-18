@@ -178,6 +178,8 @@ public data class Conception(
      * made through host UI belongs here, never ids read from a prompt, a model answer or a tool argument.
      */
     val harnesses: Set<String> = emptySet(),
+    /** Host-pinned committed base for every cell; null retains the historical live-source sandbox contract. */
+    val baseCommit: String? = null,
     /** Host-selected decision policy for every cell turn; fixed at conception and preserved across restart. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
 ) {
@@ -187,6 +189,9 @@ public data class Conception(
         }
         require(isolation == OrganismIsolation.Shared || workspace != null) { "A sandbox organism needs a project" }
         require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
+        require(baseCommit == null || (isolation == OrganismIsolation.Sandbox && isPinnedCommit(baseCommit))) {
+            "Invalid pinned organism base"
+        }
     }
 
     override fun toString(): String = "Conception(id=${id.value}, goal=${goal.length} chars)"
@@ -231,6 +236,8 @@ public data class Organism(
      * written before harnesses existed reads as none.
      */
     val harnesses: Set<String> = emptySet(),
+    /** Host-pinned committed base for every cell; null retains the historical live-source sandbox contract. */
+    val baseCommit: String? = null,
     /** Host-selected decision policy for every cell turn; fixed at conception and preserved across restart. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
 ) {
@@ -238,6 +245,9 @@ public data class Organism(
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }
         require(cells.map { it.id }.distinct().size == cells.size) { "Duplicate cell" }
         require(isValidHarnessChoice(harnesses)) { "Invalid organism harnesses" }
+        require(baseCommit == null || (isolation == OrganismIsolation.Sandbox && isPinnedCommit(baseCommit))) {
+            "Invalid pinned organism base"
+        }
     }
 
     override fun toString(): String =
@@ -687,3 +697,9 @@ public object OrganismTools {
 }
 
 private val SAFE_ID = Regex("[A-Za-z0-9_-]{1,64}")
+
+private fun isPinnedCommit(value: String): Boolean =
+    value.length in setOf(SHA1_LENGTH, SHA256_LENGTH) && value.all { it in '0'..'9' || it in 'a'..'f' }
+
+private const val SHA1_LENGTH = 40
+private const val SHA256_LENGTH = 64

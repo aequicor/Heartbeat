@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineSpec
 import io.aequicor.heartbeat.feature.harness.impl.data.decision.HarnessProcessCommandsEnabled
+import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessIsolatedOrganisms
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessCommandsEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEffects
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessLibraryStorage
@@ -42,6 +43,11 @@ public object HarnessToggleBindings {
     @Provides
     @IntoSet
     public fun enabled(): FeatureToggle<*> = HarnessEnabled
+
+    /** Trusted sandbox context for workflow organism stages. */
+    @Provides
+    @IntoSet
+    public fun isolatedOrganisms(): FeatureToggle<*> = HarnessIsolatedOrganisms
 
     /** Mini-app commands of approved scripts. */
     @Provides

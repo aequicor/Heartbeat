@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.organicai.api
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -15,6 +16,9 @@ class OrganismDecisionModeTest {
             GOAL,
             target = TARGET,
             decisionMode = AgentToolDecisionMode.AutomaticSafety,
+            workspace = WorkspaceRef("project"),
+            isolation = OrganismIsolation.Sandbox,
+            baseCommit = "a".repeat(40),
         )
         val conceived = checkNotNull(
             OrganicAiState.Living().evolve(OrganicAiIntent.Public.Conceive(conception)),
@@ -28,6 +32,7 @@ class OrganismDecisionModeTest {
         val saved = Json.encodeToString(Organism.serializer(), divided)
         val restored = Json.decodeFromString(Organism.serializer(), saved).awakened()
         assertEquals(AgentToolDecisionMode.AutomaticSafety, restored.decisionMode)
+        assertEquals(conception.baseCommit, restored.baseCommit)
         assertEquals(2, restored.cells.size)
 
         val stalled = restored.copy(cells = listOf(zygoteCell(CellPhase.Stalled(Breakdown.Interrupted, Work.Genesis))))

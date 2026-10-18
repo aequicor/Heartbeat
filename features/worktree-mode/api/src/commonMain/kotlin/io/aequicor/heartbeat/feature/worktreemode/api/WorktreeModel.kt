@@ -170,6 +170,8 @@ public data class WorktreeTask(
     val sourceBranch: String? = null,
     val branch: String? = null,
     val baseCommit: String? = null,
+    /** Immutable sandbox base captured before materialization; no automatic rebase is permitted. */
+    val pinnedBaseCommit: String? = null,
     val phase: WorktreePhase = WorktreePhase.Preparing,
     val run: WorktreeRun? = null,
     val actionRequest: WorktreeActionRequest? = null,
@@ -185,11 +187,17 @@ public data class WorktreeTask(
     val expectedAction: WorktreeExpectedAction? = null,
     @SerialName("sandbox") val isSandbox: Boolean = false,
     val seal: WorktreeSeal? = null,
+    /** Durable acknowledgement counter changed only by a seal outcome, including a repeated or failed seal. */
+    val sealRevision: Long = 0,
     val virtualSandbox: VirtualSandboxState? = null,
+    // Preserve the existing serialized field and named-argument API for saved sandbox continuations.
+    @Suppress("BooleanPropertyNaming")
     val pendingVirtualContinuation: Boolean = false,
     val virtualInterruptedRequests: List<io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId> = emptyList(),
     val virtualContinuations: Map<String, String> = emptyMap(),
     val virtualResultSnapshots: Map<String, String> = emptyMap(),
+    /** Host proof that the latest submission ended without an active native turn; cleared before any new run. */
+    val closedSubmission: RequestId? = null,
 )
 
 /**

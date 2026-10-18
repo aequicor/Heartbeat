@@ -280,7 +280,19 @@ private val API = """
       Images/Pdf/LongContext, tags such as coding, review, research, docs. Without both, or when nothing fits,
       the helper keeps the default model. The model is chosen once per step and kept on replay and recovery;
       changing adaptive for a recorded step fails the run as Diverged;
-    - organism(goal, OrganismOptions(title, target = null, immunityTarget = null)): OrganismOutcome — runs one
+    - OrganismExecution(baseCommit = null, maxCells = 16, maxDepth = 4, maxCases = 24,
+      maxOpenCasesPerCell = 2) requests an isolated stage. Limits can only be reduced; baseCommit must be a full
+      lowercase 40/64-digit Git commit. Null captures committed project HEAD before conception. Choose a previous
+      stage's Answered.output.commit explicitly to start from its result. Combining multiple cell branches is an
+      explicit agent Git operation inside the zygote sandbox; no merge or publication is automatic.
+      Requires the host's harness.isolated_organisms context captured at workflow launch. The host selects the full
+      caller harness set plus the owner, never IDs from workflow JSON. Parentless scripts carry their owner harness.
+      Every cell uses a pinned physical sandbox and the existing run_build snapshot queue. Missing sandbox support
+      refuses conception with no Shared fallback. Legacy runs without context keep their old contract; an explicit
+      execution request without context is refused. Context, growth options and base cannot change during replay.
+      After all native cells stop, Answered.output holds a host-verified branch/base/commit proof. Failed seal,
+      missing or substituted proof produces Ended(Failed); Answered still does not establish business success.
+    - organism(goal, OrganismOptions(title, target = null, immunityTarget = null, execution = null)): OrganismOutcome — runs one
       organism of organic AI (a zygote session that divides into cells, with an immune system) as the owned
       executor of a large stage. Handle the outcome with when: Answered(text) — the zygote answered after every
       cell ended; that is not proof the stage reached its goal, so check the goal yourself in a following step;

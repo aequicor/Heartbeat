@@ -22,8 +22,15 @@ internal suspend fun sealCheckout(
     val record = current() ?: return null
     check(record.task.isIsolated && record.task.executionWorkspace != null) { "SealUnavailable" }
     check(record.task.run?.let { it.outcome != null } != false) { "TurnActive" }
+    if (record.task.pinnedBaseCommit != null) {
+        check(record.resultProofs.size < MAX_RESULT_PROOFS || command.operation in record.resultProofs) {
+            "ResultProofCapacity"
+        }
+    }
     check(git.exists(record)) { "WorktreeUnavailable" }
     val captured = git.seal(record, command.operation)
     sealLog.i { "Checkout sealed operation=${command.operation}" }
     return commit(WorktreeSeal(command.operation, captured))
 }
+
+private const val MAX_RESULT_PROOFS = 64
