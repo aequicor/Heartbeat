@@ -68,12 +68,27 @@ internal class WorktreeCellWorkspaces(
         val project = checkNotNull(organism.workspace) { "A sandbox organism needs a project" }
         val key = organism.sandboxTask(cell)
         val known = snapshot()[key]
-        known?.takeIf { it.isUsable() }?.let { return checkNotNull(it.executionWorkspace) }
-        val parent = organism.cell(cell)?.parent?.let { parent ->
+        known?.takeIf { it.isUsable() }?.let {
+            check(
+                organism.baseCommit == null ||
+                    (it.project == project && it.isSandbox && it.pinnedBaseCommit == organism.baseCommit),
+            ) { "PinnedBaseMismatch" }
+            return checkNotNull(it.executionWorkspace)
+        }
+        val parent = organism.cell(cell)?.parent?.takeIf { organism.baseCommit == null }?.let { parent ->
             val parentTask = awaitTask(organism.sandboxTask(parent), after = -1) { it.isUsable() || it.isFailed() }
             checkNotNull(parentTask.executionWorkspace) { "SandboxParentUnavailable" }
         }
-        dispatch(WorktreeIntent.Public.Prepare(key, project, isSandbox = true, parentWorkspace = parent))
+        dispatch(
+            WorktreeIntent.Public.Prepare(
+                key,
+                project,
+                isSandbox = true,
+                parentWorkspace = parent,
+                isBasePinned = organism.baseCommit != null,
+                baseCommit = organism.baseCommit,
+            ),
+        )
         log.i { "organism ${organism.id.value} cell ${cell.value}: sandbox requested" }
         val task = awaitTask(key, after = known?.revision ?: -1) { it.isUsable() || it.isFailed() }
         if (!task.isUsable()) throw unavailable("failed: ${task.failure.orEmpty()}")
@@ -158,6 +173,8 @@ internal class WorktreeCellWorkspaces(
     private suspend fun sourceAvailable(task: WorktreeTask): Boolean = try {
         task.executionWorkspace?.let { local?.virtual(it)?.revision() }
         true
+    } catch (error: CancellationException) {
+        throw error
     } catch (error: IllegalStateException) {
         if (error.message !in setOf("SandboxPaused", "SandboxSourceDirty", "SandboxSourceChanged")) throw error
         log.w(error) { "Cell workspace source is unavailable" }

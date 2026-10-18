@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -25,6 +26,26 @@ class OrganismSandboxTest {
         organism(*others, zygote = zygote).copy(workspace = project, isolation = OrganismIsolation.Sandbox)
 
     private val bind = OrganicAiIntent.Internal.WorkspaceBound(ORGANISM, ZYGOTE, request(ZYGOTE), sandbox)
+
+    @Test
+    fun `pinned base survives conception division and serialization and cannot name a shared checkout`() {
+        val base = "a".repeat(40)
+        val request = Conception(
+            ORGANISM,
+            GOAL,
+            target = TARGET,
+            workspace = project,
+            isolation = OrganismIsolation.Sandbox,
+            baseCommit = base,
+        )
+        val grown = request.conceive().organism
+        assertEquals(base, grown.baseCommit)
+        assertEquals(base, Json.decodeFromString<Organism>(Json.encodeToString(grown)).baseCommit)
+        val divided = living(grown).evolve(OrganicAiIntent.Internal.Divide(ORGANISM, ZYGOTE, C1, "child", "Work"))
+        assertEquals(base, divided?.organism?.baseCommit)
+        assertFailsWith<IllegalArgumentException> { request.copy(baseCommit = "HEAD") }
+        assertFailsWith<IllegalArgumentException> { request.copy(isolation = OrganismIsolation.Shared) }
+    }
 
     @Test
     fun `workspace continuation creates fresh work and preserves children and inherited workspace`() {

@@ -64,6 +64,7 @@ internal fun Conception.conceive(): Step {
         attachments = attachments,
         isolation = isolation,
         harnesses = harnesses,
+        baseCommit = baseCommit,
     )
     val started = organism.updated(CellId.ZYGOTE) { organism.begin(it, Work.Genesis) }
     return if (target == null) {
