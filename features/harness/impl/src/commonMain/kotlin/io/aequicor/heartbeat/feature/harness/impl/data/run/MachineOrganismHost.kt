@@ -22,12 +22,15 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
+import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
+import io.aequicor.heartbeat.feature.organicai.api.isStopped
 import io.aequicor.heartbeat.feature.organicai.api.zygote
 
 /**
  * The organic AI machine as the workflow owner uses it, through public intents only. The machine exists only while
  * organic AI is on in the profile, so a missing or sleeping machine is [OrganismView.Unavailable], never absence:
- * a sleeping machine still owns its developing organisms and revives them on awakening. Texts are never logged.
+ * a sleeping machine still owns its developing organisms and revives them on awakening. An aborted organism is
+ * ended only once the machine confirms the release of its sessions. Texts are never logged.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -76,7 +79,11 @@ internal class MachineOrganismHost(private val machines: MachineRegistry) : Orga
 private fun Organism.toView(): OrganismView = when (val ended = status) {
     is OrganismStatus.Completed -> OrganismView.Answered(ended.result)
 
-    OrganismStatus.Aborted -> OrganismView.Aborted
+    OrganismStatus.Aborted -> when {
+        isStopped -> OrganismView.Aborted
+        sessions == SessionRelease.Unconfirmed -> OrganismView.AbortUnconfirmed
+        else -> OrganismView.Aborting
+    }
 
     OrganismStatus.Developing -> when (val phase = zygote.phase) {
         is CellPhase.Stalled -> OrganismView.Stalled(phase.breakdown.toEnd())

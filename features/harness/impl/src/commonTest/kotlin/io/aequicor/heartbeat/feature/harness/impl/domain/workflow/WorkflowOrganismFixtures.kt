@@ -16,6 +16,9 @@ internal class FakeOrganismHost : OrganismHost {
 
     /** Whether an abort ends the organism; false models a stop that organic AI does not confirm. */
     var isAbortEffective = true
+
+    /** What an effective abort leaves: Aborted, or Aborting while organic AI still releases the sessions. */
+    var abortLeaves: OrganismView = OrganismView.Aborted
     val conceived = mutableListOf<Pair<WorkflowOrganism, String>>()
     val aborted = mutableListOf<WorkflowOrganism>()
 
@@ -36,7 +39,9 @@ internal class FakeOrganismHost : OrganismHost {
 
     override suspend fun abort(organism: WorkflowOrganism) {
         aborted += organism
-        if (isAbortEffective && isAwake && views[organism]?.isEnded != true) views[organism] = OrganismView.Aborted
+        val view = views[organism]
+        val isAbortable = view?.isEnded != true && view != OrganismView.Aborting
+        if (isAbortEffective && isAwake && isAbortable) views[organism] = abortLeaves
     }
 }
 

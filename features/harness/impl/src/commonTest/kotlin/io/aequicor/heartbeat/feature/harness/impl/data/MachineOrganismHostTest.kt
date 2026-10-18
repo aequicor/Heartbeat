@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganism
 import io.aequicor.heartbeat.feature.harness.impl.data.run.MachineOrganismHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismConception
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.OrganismView
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.isAbortable
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.isEnded
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
 import io.aequicor.heartbeat.feature.organicai.api.Cell
@@ -29,12 +30,14 @@ import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.GrowthLimits
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
+import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineSpec
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiOutput
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
+import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.Work
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,6 +83,9 @@ class MachineOrganismHostTest {
             organism(phase = interrupted) to OrganismView.Stalled(OrganismEnd.Failed),
             organism(OrganismStatus.Completed("answer")) to OrganismView.Answered("answer"),
             organism(OrganismStatus.Aborted) to OrganismView.Aborted,
+            organism(OrganismStatus.Aborted, sessions = SessionRelease.Releasing) to OrganismView.Aborting,
+            organism(OrganismStatus.Aborted, sessions = SessionRelease.Unconfirmed) to
+                OrganismView.AbortUnconfirmed,
         )
         for ((found, expected) in views) {
             val ref = FakeOrganicMachine(OrganicAiState.Living(mapOf(id to found)))
@@ -88,6 +94,33 @@ class MachineOrganismHostTest {
             assertEquals(expected is OrganismView.Answered || expected == OrganismView.Aborted, view.isEnded)
         }
     }
+
+    @Test
+    fun `an organism that is only marked aborted is not ended until its sessions are released`() = runTest {
+        val developing = OrganicAiState.Living(mapOf(id to organism()))
+        val aborting = step(developing, OrganicAiIntent.Public.Abort(id))
+        assertEquals(OrganismView.Aborting, viewIn(aborting))
+        assertFalse(OrganismView.Aborting.isEnded)
+
+        val failed = step(aborting, OrganicAiIntent.Internal.SessionsReleased(id, isConfirmed = false))
+        assertEquals(OrganismView.AbortUnconfirmed, viewIn(failed))
+        assertFalse(OrganismView.AbortUnconfirmed.isEnded)
+        assertTrue(OrganismView.AbortUnconfirmed.isAbortable)
+
+        val retried = step(failed, OrganicAiIntent.Public.Abort(id))
+        assertEquals(OrganismView.Aborting, viewIn(retried))
+        assertFalse(OrganismView.Aborting.isAbortable)
+
+        val released = step(retried, OrganicAiIntent.Internal.SessionsReleased(id, isConfirmed = true))
+        assertEquals(OrganismView.Aborted, viewIn(released))
+        assertTrue(OrganismView.Aborted.isEnded)
+    }
+
+    /** The state the real organic AI spec moves to, so the host reads what the machine really shows. */
+    private fun step(from: OrganicAiState, intent: OrganicAiIntent): OrganicAiState =
+        OrganicAiMachineSpec.resolve(from, intent)?.to ?: error("The machine ignored $intent")
+
+    private suspend fun viewIn(state: OrganicAiState): OrganismView = host(FakeOrganicMachine(state)).view(bound)
 
     @Test
     fun `a conception pins the models and the route and caps trust at Ask`() = runTest {
@@ -138,6 +171,7 @@ class MachineOrganismHostTest {
     private fun organism(
         status: OrganismStatus = OrganismStatus.Developing,
         phase: CellPhase = CellPhase.Working(RequestId("request"), Work.Genesis),
+        sessions: SessionRelease = SessionRelease.Released,
     ) = Organism(
         id,
         "goal",
@@ -148,6 +182,7 @@ class MachineOrganismHostTest {
         GrowthLimits(),
         listOf(Cell(CellId.ZYGOTE, "zygote", null, "goal", phase)),
         status = status,
+        sessions = sessions,
     )
 }
 

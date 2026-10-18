@@ -70,7 +70,9 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   повтор и рестарт сверяются с тем же организмом. Зачинать можно только пока шаг `Prepared`; увиденный живым и
   исчезнувший организм даёт `Ended(Failed)`, а не замену. Слот возвращает только `WorkflowOrganismResources.release`
   после того, как машина organic AI показала окончание (`OrganismView.isEnded`); спящая или недоступная машина слот
-  не освобождает. Завершение или отмена запуска останавливают организмы (`WorkflowRunExecution.releaseOrganisms`),
+  не освобождает. Прерванный организм кончен лишь при `OrganismView.Aborted` (сессии освобождены,
+  `Organism.sessions == Released`): `Aborting` и `AbortUnconfirmed` — только метка, записанный исход `Ended(Aborted)`
+  слот не возвращает, а неподтверждённое освобождение `release` повторяет не на каждом опросе (`ABORT_RETRY_POLLS`). Завершение или отмена запуска останавливают организмы (`WorkflowRunExecution.releaseOrganisms`),
   пауза — нет. Организм адресует только владелец шага через `OrganismHost`; его идентификатор не раскрывается автору,
   инструментам и другим сессиям. `harness:api` не зависит от `organic-ai:api`.
 - UI-методы (`ui.method`) вызывает нажатие пользователя в интерфейсах service-as-ui, без хода агента; одобрение кода

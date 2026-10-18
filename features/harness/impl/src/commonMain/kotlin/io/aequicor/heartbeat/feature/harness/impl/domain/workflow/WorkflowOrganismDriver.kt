@@ -27,8 +27,9 @@ import kotlinx.coroutines.withContext
  * are saved before anything is conceived, and a repeated step reconciles with that organism instead of conceiving
  * another: conception is repeated only while the step is still Prepared, so an organism that was once seen alive
  * is never replaced. Only this lane addresses the organism. When its call ends or is cancelled, the quota is
- * returned only after organic AI shows the organism's work ended; a revoked driver leaves the organism running for
- * the next owner, which reconciles it. The business meaning of an answer is the workflow's to judge.
+ * returned only after organic AI shows the organism's work ended, which for an abort means its sessions were
+ * released; a revoked driver leaves the organism running for the next owner, which reconciles it. The business
+ * meaning of an answer is the workflow's to judge.
  */
 internal class WorkflowOrganismDriver(
     private val run: WorkflowRun,
@@ -112,7 +113,9 @@ internal class WorkflowOrganismDriver(
 
                 is OrganismView.Answered -> OrganismOutcome.Answered(view.text)
 
-                OrganismView.Aborted -> OrganismOutcome.Ended(OrganismEnd.Aborted)
+                // Aborted from outside: the step's outcome is known now, the lane's release waits for the confirmation.
+                OrganismView.Aborting, OrganismView.AbortUnconfirmed, OrganismView.Aborted ->
+                    OrganismOutcome.Ended(OrganismEnd.Aborted)
             }
             if (outcome != null) return finish(step, outcome)
             delay(ORGANISM_POLL_INTERVAL)

@@ -184,6 +184,66 @@ class WorkflowOrganismDriverTest {
     }
 
     @Test
+    fun `an organism that is only marked aborted keeps its slot until its sessions are released`() = runTest {
+        val fixture = OrganismFixture()
+        val running = async { fixture.engine().execute(definition) }
+        advanceBy(poll * 3)
+        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Aborting
+        advanceBy(poll * 40)
+        // The step's outcome is known and recorded, but the lane waits for the release before it returns.
+        assertEquals(StepPhase.Completed, fixture.step("s0").phase)
+        assertTrue(running.isActive)
+        assertEquals(1, fixture.organisms.grants.pending().size)
+        assertTrue(fixture.organisms.host.aborted.isEmpty())
+        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Aborted
+        advanceBy(poll * 2)
+        running.await()
+        assertEquals(listOf<OrganismOutcome>(OrganismOutcome.Ended(OrganismEnd.Aborted)), seen)
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+    }
+
+    @Test
+    fun `a stalled organism keeps its slot while the sessions of its abort are being released`() = runTest {
+        val fixture = OrganismFixture()
+        fixture.organisms.host.abortLeaves = OrganismView.Aborting
+        val running = async { fixture.engine().execute(definition) }
+        advanceBy(poll * 3)
+        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Stalled(OrganismEnd.Failed)
+        advanceBy(poll * 40)
+        assertTrue(running.isActive)
+        assertEquals(1, fixture.organisms.host.aborted.size)
+        assertEquals(1, fixture.organisms.grants.pending().size)
+        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Aborted
+        advanceBy(poll * 2)
+        running.await()
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+    }
+
+    @Test
+    fun `an abort that organic AI could not confirm is asked again at a pace until it is released`() = runTest {
+        val fixture = OrganismFixture()
+        val host = fixture.organisms.host
+        host.isAbortEffective = false
+        val running = async { fixture.engine().execute(definition) }
+        advanceBy(poll * 3)
+        host.views[organismOf("s0")] = OrganismView.AbortUnconfirmed
+        advanceBy(poll * (ABORT_RETRY_POLLS * 2 + 5))
+        assertTrue(running.isActive)
+        assertEquals(1, fixture.organisms.grants.pending().size)
+        // Not at every poll: the first ask and one more after each pause.
+        assertEquals(3, host.aborted.size)
+        host.isAbortEffective = true
+        host.abortLeaves = OrganismView.Aborting
+        advanceBy(poll * ABORT_RETRY_POLLS)
+        assertEquals(OrganismView.Aborting, host.views[organismOf("s0")])
+        assertTrue(running.isActive)
+        host.views[organismOf("s0")] = OrganismView.Aborted
+        advanceBy(poll * 2)
+        running.await()
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+    }
+
+    @Test
     fun `the second organism of a run waits for the quota of the first`() = runTest {
         assertEquals(1, HarnessLimits.ORGANISMS_PER_RUN)
         val fixture = OrganismFixture()
