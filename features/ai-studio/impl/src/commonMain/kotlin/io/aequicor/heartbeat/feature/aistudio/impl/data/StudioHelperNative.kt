@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -63,9 +64,9 @@ internal class StudioHelperNative(
     suspend fun result(
         record: StudioChatRecord,
         request: RequestId,
-        open: suspend () -> ActiveSession,
+        open: suspend () -> ActiveSession?,
     ): StudioHelperTerminal? = evidence {
-        val active = open()
+        val active = open() ?: return@evidence null
         check(active.ref == record.ref) { "Helper native identity changed" }
         val turn = active.state.value.lastCompletedTurn()?.takeIf {
             it.request == request && active.state.value.isTerminalFor(it.id) && it.outcome != null
@@ -203,7 +204,7 @@ internal class StudioHelperNative(
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        log.w(IllegalStateException("Helper operation failed (${error::class.simpleName.orEmpty()})")) {
+        log.w(error.redactedFailure()) {
             "Helper native evidence unavailable"
         }
         null
