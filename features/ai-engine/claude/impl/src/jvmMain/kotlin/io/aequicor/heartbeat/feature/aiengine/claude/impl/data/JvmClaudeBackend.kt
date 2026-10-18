@@ -289,7 +289,8 @@ internal class JvmClaudeBackend(
 
     /**
      * A runtime that only serves the history of stored sessions of [identity]; callers hold the backend mutex.
-     * The live runtime already checked the login of [liveRevision], so only another login asks the CLI.
+     * The live runtime checked the login of [liveRevision] when it opened, so an equal revision is trusted and only
+     * another login asks the CLI.
      */
     private suspend fun reading(identity: RuntimeIdentity, liveRevision: AuthRevision): ClaudeRuntime {
         val existing = reader

@@ -122,15 +122,19 @@ internal fun claudeTranscriptExists(
     if (Files.notExists(projects)) return false
     return try {
         Files.newDirectoryStream(projects).use { directories ->
-            // A stray file next to the project directories (`.DS_Store`) holds no conversation; `isDirectory` is
-            // false for it, whereas stat-ing below a file fails with "Not a directory" on some JDKs.
-            directories.any { Files.isDirectory(it) && isTranscript(it.resolve("$id.jsonl")) }
+            // A stray file next to the project directories (`.DS_Store`) holds no conversation; stat-ing below it
+            // fails with "Not a directory" on POSIX hosts, so only directories are searched.
+            directories.any { isDirectory(it) && isTranscript(it.resolve("$id.jsonl")) }
         }
     } catch (e: DirectoryIteratorException) {
         // The stream reports a failed read of its entries unchecked; callers handle only IOException.
         throw e.cause ?: IOException("The history directory could not be listed", e)
     }
 }
+
+/** Like [isTranscript]: an entry that cannot be told from absent (no permission to stat it) throws. */
+private fun isDirectory(path: Path): Boolean =
+    !Files.notExists(path) && Files.readAttributes(path, BasicFileAttributes::class.java).isDirectory
 
 /** A path that cannot be told from absent (no permission to stat it) throws instead of reading as no history. */
 private fun isTranscript(path: Path): Boolean =

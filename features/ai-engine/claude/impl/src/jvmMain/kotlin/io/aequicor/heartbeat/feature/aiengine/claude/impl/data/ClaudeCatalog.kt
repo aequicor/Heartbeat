@@ -89,7 +89,8 @@ internal class StoredClaudeCatalog(
     }
 
     override suspend fun save(record: ClaudeRecord) {
-        log.d { "Persist Claude session launch=${record.launch}" }
+        // Called for every frame of a turn: ordinary storage IO is verbose-only.
+        log.v { "Persist Claude session launch=${record.launch}" }
         store.set(checkNotNull(key(record.ref)), record)
     }
 

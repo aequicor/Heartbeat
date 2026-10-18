@@ -284,7 +284,7 @@ internal class ClaudeRuntime(
     private fun requireWritable() {
         if (isReadOnly) {
             log.w { "Claude reading runtime refused to start a session" }
-            throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
+            throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
         }
     }
 

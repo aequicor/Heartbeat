@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
@@ -41,6 +42,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -129,9 +131,9 @@ class ClaudeBackendTest {
         runCurrent()
         assertIs<ActiveSessionState.Running>(chat.state.value)
 
-        val view = backend.session(stored.ref)
         // The same login as the live runtime's needs no CLI check, and a second read reuses the reader.
         val calls = fixture.transport.calls.size
+        val view = backend.session(stored.ref)
         backend.session(stored.ref)
         assertEquals(calls, fixture.transport.calls.size)
 
@@ -142,6 +144,45 @@ class ClaudeBackendTest {
         // The viewing runtime shows the history only; resuming goes through the runtime that owns the source.
         assertIs<FeatureAccess.Unsupported>(view.features.resolve(ResumesSessions))
         live.close()
+    }
+
+    @Test
+    fun `reading a stored session of another login asks the CLI and leaves the live runtime alone`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val formerIdentity = fixture.identity()
+        val before = fixture.backend(backgroundScope).createRuntime(formerIdentity)
+        val stored = before.features.available(CreatesSessions).create(CreateSessionRequest(testTarget))
+        before.close()
+
+        fixture.transport.account = "current@example.test"
+        val backend = fixture.backend(backgroundScope)
+        val currentIdentity = fixture.identity()
+        val live = backend.createRuntime(currentIdentity)
+        assertNotEquals(formerIdentity.revision, currentIdentity.revision)
+
+        val error = assertFailsWith<EngineException> { backend.session(stored.ref) }
+
+        assertEquals(
+            AuthFailureReason.SourceChanged,
+            assertIs<EngineFailure.Authentication>(error.failure).reason.reason,
+        )
+        assertFalse(live.isClosed)
+        live.close()
+    }
+
+    @Test
+    fun `a reading runtime never starts or resumes a session`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val reader = fixture.runtime(isReadOnly = true)
+
+        val create = assertFailsWith<EngineException> { reader.create(CreateSessionRequest(testTarget)) }
+        val ref = SessionRef(ClaudeEngine.Id, ClaudeEngine.SessionSource, "none")
+        val attach = assertFailsWith<EngineException> { reader.attach(ref, ResumeSessionRequest(testTarget)) }
+
+        val denied = EngineFailure.Access(AccessFailureReason.OperationNotAllowed)
+        assertEquals(denied, create.failure)
+        assertEquals(denied, attach.failure)
+        reader.close()
     }
 
     @Test
