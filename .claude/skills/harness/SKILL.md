@@ -137,7 +137,12 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   страница не разрешает повтор. Ключи и корреляция сохраняются после вытеснения восьми слотов `ProcessRecord`.
   Допуск записи проверяется после API-очереди под общим processMutex; смена ревизии/закрытие не обгоняют отправку.
   Merge/release/dispatch требуют независимого host-owned допуска, самодекларации `ProcessAuthority` недостаточно;
-  до интеграции такого допуска production factory их запрещает. Ни текст, ни маркер операции не являются разрешением.
+  `GitHubActionContext` связывает фактический workspace и process stage/attempt с типизированным payload, ключом,
+  revision и SHA. Native decision хранится отдельно от ScriptData в общем с командами журнале #472; Pending не
+  резервирует внешнюю запись. Claim выполняется после API-очереди с повторной проверкой scope/origin/HEAD и процесса;
+  consumed identity не позволяет повтор даже после сброса hb_github. Завершает исходное решение только доказанный
+  Confirmed/reconcile, а не возврат транспорта. Нужны оба toggles harness.github и harness.process_actions.
+  Ни текст, ни маркер операции не являются разрешением.
   Приватные payload и идентификаторы скрыты в `toString`, тела и диагностики gh не логируются.
 - UI (`impl/ui`) не импортирует `harness:api`: только презентационные модели (`presentation/HarnessUiModels.kt`).
   Presentation видит только порты `domain` (`domain/authoring/HarnessLibraryPorts.kt`), не `data`. Навигацию

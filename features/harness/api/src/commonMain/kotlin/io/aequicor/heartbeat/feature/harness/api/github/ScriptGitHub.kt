@@ -1,10 +1,20 @@
 package io.aequicor.heartbeat.feature.harness.api.github
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionPhase
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey
 import io.aequicor.heartbeat.feature.harness.api.process.ResultRef
 import io.aequicor.heartbeat.feature.harness.api.process.SubjectSha
 import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
+import kotlinx.serialization.Serializable
 import kotlin.time.Instant
+
+/** Exact working copy and stage attempt for a host-owned GitHub decision. No permission is carried here. */
+@Serializable
+public data class GitHubActionContext(val workspace: WorkspaceRef, val attempt: ProcessWorkflowKey) {
+    override fun toString(): String = "GitHubActionContext(***)"
+}
 
 /** An explicit page; an opaque project cursor and a REST page are never interchangeable. */
 public data class GitHubSnapshot(
@@ -51,6 +61,9 @@ public sealed interface GitHubReadResult {
 
 /** Outcome of a durable operation; Unknown never authorizes another external call. */
 public sealed interface GitHubWriteResult {
+    /** Native host decision status; return and park the process rather than holding an executor while waiting. */
+    public data class Decision(val id: String, val phase: ProcessDecisionPhase) : GitHubWriteResult
+
     /** Durable server identity. The same key replays this result even after local process journal eviction. */
     public data class Confirmed(val result: ResultRef) : GitHubWriteResult
 
@@ -98,13 +111,19 @@ public interface ScriptGitHub {
     /** Read a single page; maximum 50 records. Failed reads never replace observed state. */
     public suspend fun read(repository: GitHubRepository, query: GitHubQuery): GitHubReadResult
 
-    /** One immutable operation at the exact process input revision; key reuse must carry the same request. */
+    /**
+     * One immutable operation at the exact process input revision; key reuse must carry the same request.
+     * Merge, release and dispatch require [context] and a native host decision for the complete typed payload.
+     * Pending/denied/revoked decisions reserve no external operation. After approval repeat the same request;
+     * Executing/Completed with a missing external registry returns Unknown rather than resending.
+     */
     public suspend fun write(
         process: ProcessId,
         inputRevision: Long,
         key: WriteKey,
         repository: GitHubRepository,
         change: GitHubChange,
+        context: GitHubActionContext? = null,
     ): GitHubWriteResult
 
     /** Read and reconcile the reserved operation; never sends a write, even if no matching object is found. */

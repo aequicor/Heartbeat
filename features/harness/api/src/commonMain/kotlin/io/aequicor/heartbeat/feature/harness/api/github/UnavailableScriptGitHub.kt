@@ -14,6 +14,7 @@ public object UnavailableScriptGitHub : ScriptGitHub {
         key: WriteKey,
         repository: GitHubRepository,
         change: GitHubChange,
+        context: GitHubActionContext?,
     ): GitHubWriteResult = GitHubWriteResult.Refused(GitHubWriteRefusal.Unavailable)
 
     override suspend fun reconcile(process: ProcessId, key: WriteKey): GitHubWriteResult =

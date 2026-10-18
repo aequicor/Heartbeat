@@ -5,8 +5,10 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptProcesses
+import io.aequicor.heartbeat.feature.harness.impl.data.decision.GitHubProcessAuthorityFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubApi
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.github.GitHubHostAuthority
@@ -18,7 +20,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstance
 import kotlinx.coroutines.sync.Mutex
 import kotlin.time.Clock
 
-/** Off until host-owned process permissions and production reconciliation are ready. */
+/** Opt-in external GitHub synchronization; dangerous writes additionally require native process decisions. */
 internal val HarnessGitHubEnabled = FeatureToggle.Flag(
     key = "harness.github",
     description = "Харнессы: восстановимая синхронизация с GitHub",
@@ -33,10 +35,12 @@ internal class HarnessScriptGitHubFactory(
     clock: Clock,
     private val origins: HarnessCallOrigins,
     private val toggles: FeatureToggles,
+    private val decisions: GitHubProcessAuthorityFactory? = null,
 ) {
     private val api = GitHubApi(transport, clock)
 
     fun create(
+        request: HarnessActivationRequest,
         access: HarnessInstanceAccess,
         data: ScriptData,
         processes: ScriptProcesses,
@@ -46,8 +50,10 @@ internal class HarnessScriptGitHubFactory(
         origins,
         processes,
         GitHubRegistry(data),
-        // Script grants cannot authorize merge, release or arbitrary workflow code.
-        GitHubHost(api, GitHubHostAuthority { false }) { toggles.get(HarnessGitHubEnabled) },
+        GitHubHost(
+            api,
+            decisions?.create(request, access, processes) ?: GitHubHostAuthority { false },
+        ) { toggles.get(HarnessGitHubEnabled) },
         processGate,
     )
 }

@@ -98,6 +98,7 @@ internal class ProcessCommandExecutor(
         call: ProcessCommandInvocation,
         entry: ProcessCommandDecision,
     ): ScriptProcessCommandResult {
+        if (entry.command != call.command || entry.github != null) return ScriptProcessCommandResult.Unavailable
         val id = entry.decision.id
         if (!claim(call, entry)) return ScriptProcessCommandResult.Unavailable
         check(call.access.isActive) { "Process command activation expired" }

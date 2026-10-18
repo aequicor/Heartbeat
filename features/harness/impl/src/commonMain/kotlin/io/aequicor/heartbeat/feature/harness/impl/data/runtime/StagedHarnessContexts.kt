@@ -67,7 +67,7 @@ internal class StagedHarnessContexts(
                 scriptData,
                 processes,
                 commands.create(request, access),
-                github.create(access, scriptData, processes, data.processMutex),
+                github.create(request, access, scriptData, processes, data.processMutex),
             ),
         )
     }

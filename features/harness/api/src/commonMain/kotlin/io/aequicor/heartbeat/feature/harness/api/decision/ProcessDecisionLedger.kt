@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.harness.api.decision
 
+import io.aequicor.heartbeat.feature.harness.api.github.GitHubChange
+import io.aequicor.heartbeat.feature.harness.api.github.GitHubRepository
+import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
@@ -15,9 +18,26 @@ public data class ProcessCommandSnapshot(val program: String, val arguments: Lis
     override fun toString(): String = "ProcessCommandSnapshot(***)"
 }
 
-/** A request and its immutable executable payload, kept outside all script-owned data. */
+/** Exact typed GitHub payload displayed before approval; correlation markers are host-generated, not consent. */
 @Serializable
-public data class ProcessCommandDecision(val decision: ProcessDecision, val command: ProcessCommandSnapshot) {
+public data class ProcessGitHubSnapshot(
+    val repository: GitHubRepository,
+    val change: GitHubChange,
+    val key: WriteKey,
+) {
+    override fun toString(): String = "ProcessGitHubSnapshot(***)"
+}
+
+/** A request and exactly one immutable payload, kept outside all script-owned data. Legacy command JSON is valid. */
+@Serializable
+public data class ProcessCommandDecision(
+    val decision: ProcessDecision,
+    val command: ProcessCommandSnapshot? = null,
+    val github: ProcessGitHubSnapshot? = null,
+) {
+    init {
+        require((command == null) != (github == null)) { "Exactly one decision payload is required" }
+    }
     override fun toString(): String = "ProcessCommandDecision(phase=${decision.phase}, ***)"
 }
 
@@ -79,7 +99,7 @@ private fun ProcessDecisionLedger.request(entry: ProcessCommandDecision, now: In
     val decision = entry.decision
     val previous = find(decision.binding)
     return when {
-        previous != null -> takeIf { previous.command == entry.command }
+        previous != null -> takeIf { previous.command == entry.command && previous.github == entry.github }
         find(decision.id) != null || entries.size >= ProcessDecisionLedger.MAX_ENTRIES -> null
         decision.phase != ProcessDecisionPhase.Pending || decision.revision != 0L -> null
         decision.createdAt > now || decision.expiresAt <= now || decision.updatedAt != decision.createdAt -> null

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.github
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.harness.api.github.GitHubActionContext
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubChange
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubFailure
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubQuery
@@ -29,10 +30,26 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * Admission for effects that may publish, integrate or run arbitrary workflow code. The host supplies this port;
- * scripts cannot implement it. Until host-owned grants are integrated, the production factory refuses these calls.
+ * scripts cannot implement it. Preparation never consumes consent; claim is called at the actual dispatch boundary.
  */
 internal fun interface GitHubHostAuthority {
     suspend fun allows(operation: GitHubOperation): Boolean
+
+    suspend fun prepare(operation: GitHubOperation): GitHubAuthorization = if (allows(operation)) {
+        GitHubAuthorization.Allowed()
+    } else {
+        GitHubAuthorization.Stopped(refused(GitHubWriteRefusal.NotAuthorized))
+    }
+
+    suspend fun claim(operation: GitHubOperation): Boolean = allows(operation)
+
+    suspend fun complete(operation: GitHubOperation) = Unit
+}
+
+/** Host-only preparation result; a decision identity is durable data, never a capability passed to author code. */
+internal sealed interface GitHubAuthorization {
+    data class Allowed(val decisionId: String? = null) : GitHubAuthorization
+    data class Stopped(val result: GitHubWriteResult) : GitHubAuthorization
 }
 
 /** Durable external writes. Reservation is atomic; only its creator may send once, every replay reads evidence. */
@@ -62,13 +79,28 @@ internal class HarnessScriptGitHub(
         key: WriteKey,
         repository: GitHubRepository,
         change: GitHubChange,
+        context: GitHubActionContext?,
     ): GitHubWriteResult = activated {
         require(inputRevision >= 0) { "Invalid input revision" }
-        val snapshot = if (change is GitHubChange.Dispatch) change.copy(inputs = change.inputs.toMap()) else change
+        val snapshot = if (change is GitHubChange.Dispatch) {
+            change.copy(
+                inputs = change.inputs.entries.sortedBy { it.key }.associate { it.key to it.value },
+            )
+        } else {
+            change
+        }
         snapshot.validate()
         if (!isEnabled() || !api.isAvailable) return@activated refused(GitHubWriteRefusal.Unavailable)
         val record = processes.get(process) ?: return@activated refused(GitHubWriteRefusal.StaleProcess)
-        val candidate = GitHubOperation(process, record.incarnation, inputRevision, key, repository, snapshot)
+        val candidate = GitHubOperation(
+            process,
+            record.incarnation,
+            inputRevision,
+            key,
+            repository,
+            snapshot,
+            context = context,
+        )
         val existing = registry.find(process, record.incarnation, key)
         if (existing != null) return@activated existing(existing, candidate)
         fresh(record, candidate)
@@ -79,10 +111,19 @@ internal class HarnessScriptGitHub(
 
     private suspend fun fresh(record: ProcessRecord, candidate: GitHubOperation): GitHubWriteResult {
         if (record.inputRevision != candidate.inputRevision) return refused(GitHubWriteRefusal.StaleProcess)
-        if (!allowed(record, candidate)) return refused(GitHubWriteRefusal.NotAuthorized)
+        if (!hasGrant(record, candidate)) return refused(GitHubWriteRefusal.NotAuthorized)
+        val authorization = if (candidate.change.isOrdinary()) {
+            GitHubAuthorization.Allowed()
+        } else {
+            authority.prepare(
+                candidate,
+            )
+        }
+        if (authorization is GitHubAuthorization.Stopped) return authorization.result
+        val admitted = candidate.copy(decisionId = (authorization as GitHubAuthorization.Allowed).decisionId)
         // A pre-existing local key belongs to an operation outside this registry. Never infer it is ours.
         if (record.writes.any { it.key == candidate.key }) return refused(GitHubWriteRefusal.KeyConflict)
-        return when (val reservation = registry.reserve(candidate)) {
+        return when (val reservation = registry.reserve(admitted)) {
             GitHubReservation.Full -> refused(GitHubWriteRefusal.Quota)
 
             is GitHubReservation.Existing -> if (reservation.operation.sameRequest(candidate)) {
@@ -110,7 +151,7 @@ internal class HarnessScriptGitHub(
         ) {
             return reject(operation, GitHubWriteRefusal.StaleProcess)
         }
-        if (!allowed(record, operation)) return reject(operation, GitHubWriteRefusal.NotAuthorized)
+        if (!hasGrant(record, operation)) return reject(operation, GitHubWriteRefusal.NotAuthorized)
         val begun = processes.apply(
             operation.process,
             ProcessCommand.BeginWrite(
@@ -128,11 +169,17 @@ internal class HarnessScriptGitHub(
             val latest = processes.get(operation.process)
             if (latest == null || !latest.isCurrent(operation)) return@withLock GitHubResponse(0)
             api.call(operation.change.request(operation.repository, operation.marker)) {
-                isEnabled() && allowed(latest, operation) && access.isActive
+                admit(latest, operation)
             }
         }
         val result = guardedEvidence { reconciliation.response(operation, response) }
         return if (result == null) GitHubWriteResult.Unknown else confirm(operation, result)
+    }
+
+    private suspend fun admit(record: ProcessRecord, operation: GitHubOperation): Boolean {
+        if (!isEnabled() || !access.isActive || !hasGrant(record, operation)) return false
+        val isClaimed = operation.change.isOrdinary() || authority.claim(operation)
+        return isClaimed && access.isActive && isEnabled()
     }
 
     private suspend fun replay(operation: GitHubOperation): GitHubWriteResult = when {
@@ -149,6 +196,7 @@ internal class HarnessScriptGitHub(
     private suspend fun confirm(operation: GitHubOperation, result: ResultRef): GitHubWriteResult {
         // Persist the result first: a crash before ConfirmWrite replays the same immutable external identity.
         registry.settle(operation, result = result)
+        if (!operation.change.isOrdinary()) authority.complete(operation)
         val record = processes.get(operation.process)
         val local = record?.takeIf { it.incarnation == operation.incarnation }?.writes?.firstOrNull {
             it.key ==
@@ -166,9 +214,8 @@ internal class HarnessScriptGitHub(
         return refused(reason)
     }
 
-    private suspend fun allowed(record: ProcessRecord, operation: GitHubOperation): Boolean =
-        operation.change.authority() in record.grants &&
-            (operation.change.isOrdinary() || authority.allows(operation))
+    private fun hasGrant(record: ProcessRecord, operation: GitHubOperation): Boolean =
+        operation.change.authority() in record.grants
 
     private suspend fun guardedEvidence(block: suspend () -> ResultRef?): ResultRef? = try {
         block()
@@ -195,7 +242,7 @@ internal class HarnessScriptGitHub(
 
 private fun refused(reason: GitHubWriteRefusal): GitHubWriteResult = GitHubWriteResult.Refused(reason)
 
-private fun GitHubChange.authority(): ProcessAuthority = when (this) {
+internal fun GitHubChange.authority(): ProcessAuthority = when (this) {
     is GitHubChange.Merge -> ProcessAuthority.Merge
 
     is GitHubChange.CreateRelease, is GitHubChange.Dispatch -> ProcessAuthority.Release
