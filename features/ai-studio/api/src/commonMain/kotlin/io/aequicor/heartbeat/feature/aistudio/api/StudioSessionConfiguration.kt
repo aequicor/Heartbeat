@@ -51,4 +51,7 @@ public enum class PlanImplementationMode {
 
     /** In a new source-only sandbox of the chat's project, built in warm build slots. */
     Sandbox,
+
+    /** By an organic AI organism conceived in the chat with the plan as its goal; the chat becomes its chat. */
+    Organism,
 }

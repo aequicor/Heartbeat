@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
@@ -31,7 +32,8 @@ internal class EngineStudioPlanHost(
     private val runs: StudioRunCoordinator,
     private val facade: EngineFacade,
     private val worktrees: StudioWorktrees,
-    private val isolation: Lazy<StudioChatIsolation>,
+    private val modes: Lazy<StudioChatModes>,
+    private val organisms: StudioOrganisms,
 ) : StudioPlanHost {
     private val log = Log.tag("StudioPlanHost")
 
@@ -78,8 +80,15 @@ internal class EngineStudioPlanHost(
         return checkNotNull(task.executionWorkspace)
     }
 
-    override suspend fun isolate(id: String, workspace: WorkspaceRef, isSandbox: Boolean) =
-        isolation.value.isolate(id, workspace, isSandbox)
+    override suspend fun admitOrganism(
+        id: String,
+        goal: String,
+        settings: RunSettings,
+        projectId: String?,
+    ): OrganismAdmission = organisms.admit(id, OrganismRequest(goal, settings, submissionId = ""), false, projectId)
+
+    override suspend fun move(id: String, change: StudioChatRecord.() -> StudioChatRecord) =
+        modes.value.move(id, change)
 
     override suspend fun runPlanTurn(id: String, prompt: String, settings: RunSettings): RunOutcome =
         runtime.value.run(id, prompt, settings)

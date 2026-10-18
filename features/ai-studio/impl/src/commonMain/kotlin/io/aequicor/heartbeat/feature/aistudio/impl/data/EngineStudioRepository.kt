@@ -166,7 +166,7 @@ internal data class StudioChatRecord(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRuntime>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioConfigurationAccess>())
-@ContributesBinding(ProfileScope::class, binding = binding<StudioChatIsolation>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioChatModes>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioTurnHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioChatResolver>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioHelperChatWriter>())
@@ -203,7 +203,7 @@ internal class EngineStudioRepository(
     StudioChatResolver,
     StudioHelperChatWriter,
     StudioHelperAccess,
-    StudioChatIsolation {
+    StudioChatModes {
     private val log = Log.tag("EngineStudio")
     private val nativeSession = StudioNativeSessionOperations(learning)
     private val store = stores.keyValue(ChatSpec)
@@ -582,9 +582,9 @@ internal class EngineStudioRepository(
         return target
     }
 
-    override suspend fun isolate(id: String, workspace: WorkspaceRef, isSandbox: Boolean) {
-        log.i { "Move the conversation into its isolated checkout sandbox=$isSandbox" }
-        update(id) { copy(worktreeTaskId = id, isSandbox = isSandbox, executionWorkspace = workspace) }
+    override suspend fun move(id: String, change: StudioChatRecord.() -> StudioChatRecord) {
+        log.i { "Move the conversation into another execution mode" }
+        update(id, change)
     }
 
     override suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {

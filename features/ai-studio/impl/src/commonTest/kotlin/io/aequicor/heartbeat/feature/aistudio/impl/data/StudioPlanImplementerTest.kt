@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.planningmode.api.PlanChat
 import io.aequicor.heartbeat.feature.planningmode.api.PlanMode
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class StudioPlanImplementerTest {
@@ -135,7 +137,7 @@ class StudioPlanImplementerTest {
                 "validate",
                 "prepare project sandbox=true",
                 "rollover",
-                "isolate checkout sandbox=true",
+                "move",
                 "adopt $Pi",
                 "run Go",
             ),
@@ -152,6 +154,45 @@ class StudioPlanImplementerTest {
         host.chat = host.chat.copy(projectId = "project", worktreeTaskId = CHAT)
         assertEquals(RunOutcome.Completed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
         assertEquals(listOf("validate", "run Go"), host.calls)
+    }
+
+    @Test
+    fun `a worktree move records the checkout in the chat`() = runTest {
+        host.chat = host.chat.copy(projectId = "project")
+        val request = PlanImplementation(2, host.chat.configuration!!, "Go", mode = PlanImplementationMode.Worktree)
+        implementer.implementPlan(CHAT, request, DefaultRunSettings)
+        assertEquals(CHAT, host.chat.worktreeTaskId)
+        assertEquals(false, host.chat.isSandbox)
+        assertEquals(WorkspaceRef("checkout"), host.chat.executionWorkspace)
+    }
+
+    @Test
+    fun `an organism implementation makes the chat its chat with the plan as the goal`() = runTest {
+        planning.plan = planning.plan.copy(text = "# Plan\n\n1. Build")
+        val settings = host.chat.configuration!!
+        val request = PlanImplementation(2, settings, "Go", mode = PlanImplementationMode.Organism)
+        assertEquals(RunOutcome.Completed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
+        assertEquals(listOf("validate", "admit", "rollover", "move", "adopt $Pi"), host.calls.dropLast(1))
+        assertEquals(CHAT, host.chat.organismId)
+        val turn = host.calls.last()
+        assertTrue(turn.startsWith("run Go\n\nImplement this plan (revision 2)") && "1. Build" in turn, turn)
+    }
+
+    @Test
+    fun `an organism cannot implement a plan from an isolated checkout`() = runTest {
+        host.chat = host.chat.copy(projectId = "project", worktreeTaskId = CHAT)
+        val request = PlanImplementation(2, host.chat.configuration!!, "Go", mode = PlanImplementationMode.Organism)
+        assertEquals(RunOutcome.Failed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
+        assertEquals(emptyList(), host.calls)
+    }
+
+    @Test
+    fun `a long plan is cut to the goal an organism holds`() {
+        val plan = planning.plan.copy(text = "x".repeat(OrganismBounds.MAX_GOAL * 2))
+        val goal = organismGoal("Go", plan)
+        assertEquals(OrganismBounds.MAX_GOAL, goal.length)
+        assertTrue("remaining sections were cut" in goal && goal.endsWith("</plan>"))
+        assertTrue("<plan>\n# Short\n</plan>" in organismGoal("Go", plan.copy(text = "# Short")))
     }
 
     private class FakePlanning : StudioPlanning {
@@ -200,8 +241,19 @@ class StudioPlanImplementerTest {
             return WorkspaceRef("checkout")
         }
 
-        override suspend fun isolate(id: String, workspace: WorkspaceRef, isSandbox: Boolean) {
-            calls += "isolate ${workspace.value} sandbox=$isSandbox"
+        override suspend fun admitOrganism(
+            id: String,
+            goal: String,
+            settings: RunSettings,
+            projectId: String?,
+        ): OrganismAdmission {
+            calls += "admit"
+            return OrganismAdmission(id, emptySet())
+        }
+
+        override suspend fun move(id: String, change: StudioChatRecord.() -> StudioChatRecord) {
+            chat = chat.change()
+            calls += "move"
         }
 
         override suspend fun runPlanTurn(id: String, prompt: String, settings: RunSettings): RunOutcome {
