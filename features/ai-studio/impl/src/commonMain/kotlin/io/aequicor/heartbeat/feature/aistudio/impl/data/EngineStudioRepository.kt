@@ -166,6 +166,7 @@ internal data class StudioChatRecord(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRuntime>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioConfigurationAccess>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioChatIsolation>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioTurnHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioChatResolver>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioHelperChatWriter>())
@@ -201,7 +202,8 @@ internal class EngineStudioRepository(
     StudioConfigurationAccess,
     StudioChatResolver,
     StudioHelperChatWriter,
-    StudioHelperAccess {
+    StudioHelperAccess,
+    StudioChatIsolation {
     private val log = Log.tag("EngineStudio")
     private val nativeSession = StudioNativeSessionOperations(learning)
     private val store = stores.keyValue(ChatSpec)
@@ -474,9 +476,7 @@ internal class EngineStudioRepository(
         log.i { "Execute the reserved native request" }
         val admitted = helperAdmission.prepare(record(request.id), request)
         try {
-            update(
-                request.id,
-            ) { copy(lastRunRequest = request.request, hasLastRunSucceeded = false, runRevision = runRevision + 1) }
+            update(request.id) { startedRun(request.request) }
             val result = turns.execute(this, admitted)
             update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
             val isBriefed = request.compaction != null && request.isBriefed
@@ -528,13 +528,7 @@ internal class EngineStudioRepository(
     override suspend fun openTurn(id: String, settings: RunSettings, preselected: ToolChoices): ActiveSession {
         log.i { "Open the conversation's fixed execution workspace" }
         val active = open(id, target(id, settings), preselected)
-        update(id) {
-            copy(
-                updatedAt = clock.now(),
-                hasFailed = false,
-                failureKind = RunFailureKind.Unknown,
-            )
-        }
+        update(id) { copy(updatedAt = clock.now()).withoutFailure() }
         return active
     }
 
@@ -586,6 +580,11 @@ internal class EngineStudioRepository(
         }
         check(selected.isEnabled(target)) { "The selected route is no longer enabled" }
         return target
+    }
+
+    override suspend fun isolate(id: String, workspace: WorkspaceRef, isSandbox: Boolean) {
+        log.i { "Move the conversation into its isolated checkout sandbox=$isSandbox" }
+        update(id) { copy(worktreeTaskId = id, isSandbox = isSandbox, executionWorkspace = workspace) }
     }
 
     override suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {

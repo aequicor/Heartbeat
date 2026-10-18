@@ -6,8 +6,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.PlanImplementation
+import io.aequicor.heartbeat.feature.aistudio.api.PlanImplementationMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -122,6 +124,36 @@ class StudioPlanImplementerTest {
         assertEquals(emptyList(), host.calls)
     }
 
+    @Test
+    fun `a worktree implementation prepares the checkout and continues the chat there`() = runTest {
+        host.chat = host.chat.copy(projectId = "project")
+        val settings = host.chat.configuration!!
+        val request = PlanImplementation(2, settings, "Go", mode = PlanImplementationMode.Sandbox)
+        assertEquals(RunOutcome.Completed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
+        assertEquals(
+            listOf(
+                "validate",
+                "prepare project sandbox=true",
+                "rollover",
+                "isolate checkout sandbox=true",
+                "adopt $Pi",
+                "run Go",
+            ),
+            host.calls,
+        )
+    }
+
+    @Test
+    fun `a chat already isolated or without a project is not moved again`() = runTest {
+        val settings = host.chat.configuration!!
+        val request = PlanImplementation(2, settings, "Go", mode = PlanImplementationMode.Worktree)
+        assertEquals(RunOutcome.Failed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
+        assertEquals(emptyList(), host.calls)
+        host.chat = host.chat.copy(projectId = "project", worktreeTaskId = CHAT)
+        assertEquals(RunOutcome.Completed, implementer.implementPlan(CHAT, request, DefaultRunSettings))
+        assertEquals(listOf("validate", "run Go"), host.calls)
+    }
+
     private class FakePlanning : StudioPlanning {
         var plan = Plan(PlanChat(CHAT), PlanMode.Planning, revision = 2, updatedAt = Instant.fromEpochSeconds(0))
         var canStart = true
@@ -163,6 +195,15 @@ class StudioPlanImplementerTest {
         override suspend fun adoptPlanSettings(id: String, settings: StudioSessionSettings) {
             calls += "adopt ${studioModelTarget(settings.modelId)}"
         }
+        override suspend fun prepareWorktree(id: String, project: String, isSandbox: Boolean): WorkspaceRef {
+            calls += "prepare $project sandbox=$isSandbox"
+            return WorkspaceRef("checkout")
+        }
+
+        override suspend fun isolate(id: String, workspace: WorkspaceRef, isSandbox: Boolean) {
+            calls += "isolate ${workspace.value} sandbox=$isSandbox"
+        }
+
         override suspend fun runPlanTurn(id: String, prompt: String, settings: RunSettings): RunOutcome {
             calls += "run $prompt"
             return RunOutcome.Completed

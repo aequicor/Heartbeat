@@ -28,14 +28,27 @@ public sealed interface StudioSettingChange {
 /**
  * Implementation of the plan of a planning chat in the same chat: [settings] choose the engine route, effort and
  * approval of the implementation. A route of another engine or connection, or [isFreshContext], continues the chat
- * in a new native session; otherwise the current session switches its settings. [prompt] is the user's first
- * implementation message.
+ * in a new native session; otherwise the current session switches its settings. [mode] may move the chat into an
+ * isolated checkout of its project first. [prompt] is the user's first implementation message.
  */
 public data class PlanImplementation(
     val revision: Long,
     val settings: StudioSessionSettings,
     val prompt: String,
     val isFreshContext: Boolean = false,
+    val mode: PlanImplementationMode = PlanImplementationMode.Chat,
 ) {
-    override fun toString(): String = "PlanImplementation(revision=$revision, fresh=$isFreshContext)"
+    override fun toString(): String = "PlanImplementation(revision=$revision, fresh=$isFreshContext, mode=$mode)"
+}
+
+/** Where a plan is implemented. */
+public enum class PlanImplementationMode {
+    /** In the chat as it is: its project folder or isolated checkout. */
+    Chat,
+
+    /** In a new git worktree of the chat's project; the chat continues in a new native session there. */
+    Worktree,
+
+    /** In a new source-only sandbox of the chat's project, built in warm build slots. */
+    Sandbox,
 }

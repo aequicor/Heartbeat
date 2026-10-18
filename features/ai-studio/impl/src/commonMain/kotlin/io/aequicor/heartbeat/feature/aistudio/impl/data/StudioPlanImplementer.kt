@@ -6,7 +6,9 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.PlanImplementation
+import io.aequicor.heartbeat.feature.aistudio.api.PlanImplementationMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -14,8 +16,15 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.planningmode.api.PlanMode
 import kotlinx.coroutines.flow.first
+
+/** Moves an existing chat into an isolated checkout prepared for it. */
+internal interface StudioChatIsolation {
+    /** Records [workspace] of the checkout task named after chat [id] as the chat's execution workspace. */
+    suspend fun isolate(id: String, workspace: WorkspaceRef, isSandbox: Boolean)
+}
 
 /** The parts of the studio repository that implementing a plan uses. */
 internal interface StudioPlanHost {
@@ -33,6 +42,12 @@ internal interface StudioPlanHost {
 
     /** Makes [settings] the chat's configuration, so its next native session opens with them. */
     suspend fun adoptPlanSettings(id: String, settings: StudioSessionSettings)
+
+    /** Prepares an isolated checkout of [project] for chat [id] and returns its workspace. */
+    suspend fun prepareWorktree(id: String, project: String, isSandbox: Boolean): WorkspaceRef
+
+    /** Moves chat [id], detached from its native session, into its prepared checkout [workspace]. */
+    suspend fun isolate(id: String, workspace: WorkspaceRef, isSandbox: Boolean)
 
     /** Runs [prompt] as the user's turn of the chat. */
     suspend fun runPlanTurn(id: String, prompt: String, settings: RunSettings): RunOutcome
@@ -61,18 +76,23 @@ internal class StudioPlanImplementer(private val planning: StudioPlanning, priva
         val plan = planning.plans.first()[id]
         val chat = host.planChat(id)
         val target = studioModelTarget(implementation.settings.modelId)
-        val isImplementable = plan?.mode == PlanMode.Planning && plan.revision == implementation.revision &&
-            chat.organismId == null && chat.helper == null && target != null
+        // A chat already in an isolated checkout implements there.
+        val isolation = implementation.mode.takeIf { it != PlanImplementationMode.Chat && chat.worktreeTaskId == null }
+        val isImplementable = plan.isImplementable(implementation) && chat.isImplementable(isolation) && target != null
         if (!isImplementable || target == null) {
             log.w { "Plan cannot be implemented: planning=${plan?.mode ?: "none"} target=${target != null}" }
             return RunOutcome.Failed
         }
         host.validatePlanTarget(id, target)
+        val isSandbox = isolation == PlanImplementationMode.Sandbox
+        val workspace = isolation?.let { host.prepareWorktree(id, checkNotNull(chat.projectId), isSandbox) }
         val settings = defaults.copy(
             modelId = implementation.settings.modelId,
             approval = implementation.settings.approval,
         )
-        val isPrepared = prepare(chat, target, implementation, settings)
+        val isPrepared = prepare(chat, target, implementation, settings) {
+            workspace?.let { host.isolate(id, it, isSandbox) }
+        }
         log.i { "Implement the plan: prepared=$isPrepared route changed=${chat.target?.isSameRoute(target) == false}" }
         if (!isPrepared || !planning.startImplementation(id, implementation.revision)) return RunOutcome.Failed
         return host.runPlanTurn(id, implementation.prompt.ifBlank { DEFAULT_PROMPT }, settings)
@@ -83,19 +103,33 @@ internal class StudioPlanImplementer(private val planning: StudioPlanning, priva
         target: EngineTarget,
         implementation: PlanImplementation,
         settings: RunSettings,
+        detached: suspend () -> Unit,
     ): Boolean {
         val current = chat.target
-        val isNewContext = (current != null && !current.isSameRoute(target)) || implementation.isFreshContext
+        val isRouteChanged = current != null && !current.isSameRoute(target)
+        val isMoved = implementation.mode != PlanImplementationMode.Chat && chat.worktreeTaskId == null
+        val isNewContext = isRouteChanged || implementation.isFreshContext || isMoved
         return when {
-            chat.ref == null -> true.also { host.adoptPlanSettings(chat.id, implementation.settings) }
+            chat.ref != null && !isNewContext ->
+                changes(chat.configuration, implementation.settings).all { host.configure(chat.id, it) }
 
-            isNewContext -> (host.rolloverForPlan(chat.id, settings) == RunOutcome.Completed).also { isCarried ->
-                if (isCarried) host.adoptPlanSettings(chat.id, implementation.settings)
+            chat.ref != null && host.rolloverForPlan(chat.id, settings) != RunOutcome.Completed -> false
+
+            else -> {
+                // Detached from its native session, the chat moves into its checkout before its next session opens.
+                detached()
+                host.adoptPlanSettings(chat.id, implementation.settings)
+                true
             }
-
-            else -> changes(chat.configuration, implementation.settings).all { host.configure(chat.id, it) }
         }
     }
+
+    private fun Plan?.isImplementable(implementation: PlanImplementation): Boolean =
+        this?.mode == PlanMode.Planning && revision == implementation.revision
+
+    /** Helpers and organisms keep their turns to their owners; moving into a checkout needs a project. */
+    private fun StudioChatRecord.isImplementable(isolation: PlanImplementationMode?): Boolean =
+        organismId == null && helper == null && (isolation == null || projectId != null)
 
     private fun changes(current: StudioSessionSettings?, chosen: StudioSessionSettings): List<StudioSettingChange> =
         listOfNotNull(

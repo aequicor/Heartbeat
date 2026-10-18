@@ -7,12 +7,14 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlin.uuid.Uuid
 
@@ -28,6 +30,8 @@ internal class EngineStudioPlanHost(
     private val runHost: Lazy<StudioRunHost>,
     private val runs: StudioRunCoordinator,
     private val facade: EngineFacade,
+    private val worktrees: StudioWorktrees,
+    private val isolation: Lazy<StudioChatIsolation>,
 ) : StudioPlanHost {
     private val log = Log.tag("StudioPlanHost")
 
@@ -66,6 +70,16 @@ internal class EngineStudioPlanHost(
         access.value.configurationState(id, StudioSessionConfiguration(settings))
         access.value.saveConfiguration(id, settings)
     }
+
+    override suspend fun prepareWorktree(id: String, project: String, isSandbox: Boolean): WorkspaceRef {
+        log.i { "Prepare an isolated checkout for the implementation sandbox=$isSandbox" }
+        worktrees.send(WorktreeIntent.Public.Prepare(id, WorkspaceRef(project), isSandbox))
+        val task = worktrees.await(id) { it.executionWorkspace != null }
+        return checkNotNull(task.executionWorkspace)
+    }
+
+    override suspend fun isolate(id: String, workspace: WorkspaceRef, isSandbox: Boolean) =
+        isolation.value.isolate(id, workspace, isSandbox)
 
     override suspend fun runPlanTurn(id: String, prompt: String, settings: RunSettings): RunOutcome =
         runtime.value.run(id, prompt, settings)
