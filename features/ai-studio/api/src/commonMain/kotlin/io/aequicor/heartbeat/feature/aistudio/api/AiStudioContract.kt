@@ -127,6 +127,9 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Selects planning mode before the first message of a new-session pane. */
         public data class SelectPlanning(val paneId: Int, val isEnabled: Boolean) : Public
 
+        /** Leaves planning in [sessionId] and implements its plan in the same chat. */
+        public data class ImplementPlan(val sessionId: String, val implementation: PlanImplementation) : Public
+
         /** Opens the local folder picker for a new-session pane; paths never enter machine state. */
         public data class AddProject(val paneId: Int) : Public
 
@@ -334,9 +337,15 @@ public sealed interface AiStudioEffect : MachineEffect {
         val environment: StudioChatEnvironment? = null,
     ) : AiStudioEffect
 
+    /** A turn of [sessionId] that the machine marks running until its `RunFinished`. */
+    public sealed interface Turn : AiStudioEffect {
+        /** The chat that runs. */
+        public val sessionId: String
+    }
+
     /** Records [prompt] and streams the agent reply into [sessionId] until it completes or is stopped. */
     public data class Run(
-        val sessionId: String,
+        override val sessionId: String,
         val prompt: String,
         val settings: RunSettings,
         val attachments: List<ResourceRef> = emptyList(),
@@ -344,7 +353,14 @@ public sealed interface AiStudioEffect : MachineEffect {
         val submissionId: String = "",
         /** Trusted host context captured with this input; never decoded from screen JSON. */
         val environment: StudioChatEnvironment? = null,
-    ) : AiStudioEffect
+    ) : Turn
+
+    /** Applies [implementation] to the plan of [sessionId] and runs its first implementation turn. */
+    public data class ImplementPlan(
+        override val sessionId: String,
+        val implementation: PlanImplementation,
+        val settings: RunSettings,
+    ) : Turn
 
     /** Signals the run of [sessionId] to stop; the run itself reports its end. */
     public data class Cancel(val sessionId: String) : AiStudioEffect

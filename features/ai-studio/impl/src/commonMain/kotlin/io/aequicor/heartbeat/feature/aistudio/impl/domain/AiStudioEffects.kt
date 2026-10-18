@@ -97,11 +97,21 @@ class AiStudioEffects(
                 )
             }
 
-            is AiStudioEffect.Run -> runEffect(effect, machine)
+            is AiStudioEffect.Turn -> turn(effect, machine)
 
             is AiStudioEffect.Cancel -> cancel(effect.sessionId)
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+        }
+    }
+
+    private suspend fun turn(effect: AiStudioEffect.Turn, machine: EffectScope<AiStudioIntent>) {
+        when (effect) {
+            is AiStudioEffect.Run -> runEffect(effect, machine)
+
+            // The demo workspace has no plans to implement.
+            is AiStudioEffect.ImplementPlan ->
+                machine.send(AiStudioIntent.Internal.RunFinished(effect.sessionId, RunOutcome.Failed))
         }
     }
 

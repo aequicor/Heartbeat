@@ -25,6 +25,7 @@ class EngineStudioEffects(
     private val availability: StudioAvailability,
     private val projects: StudioProjects? = null,
     private val planning: StudioPlanning = StudioPlanning.None,
+    private val plans: StudioPlanRuntime = StudioPlanRuntime.None,
 ) : EffectHandler<AiStudioEffect, AiStudioIntent> {
     private val log = Log.tag("EngineStudioEffects")
 
@@ -65,7 +66,7 @@ class EngineStudioEffects(
 
             is AiStudioEffect.CreateSession -> createSession(effect, machine)
 
-            is AiStudioEffect.Run -> runEffect(effect, machine)
+            is AiStudioEffect.Turn -> turn(effect, machine)
 
             is AiStudioEffect.Cancel -> {
                 log.i { "User requested stop" }
@@ -104,6 +105,17 @@ class EngineStudioEffects(
                 effect.environment,
             ),
         )
+    }
+
+    private suspend fun turn(effect: AiStudioEffect.Turn, machine: EffectScope<AiStudioIntent>) {
+        when (effect) {
+            is AiStudioEffect.Run -> runEffect(effect, machine)
+
+            is AiStudioEffect.ImplementPlan -> {
+                val outcome = plans.implementPlan(effect.sessionId, effect.implementation, effect.settings)
+                machine.send(AiStudioIntent.Internal.RunFinished(effect.sessionId, outcome))
+            }
+        }
     }
 
     private suspend fun runEffect(effect: AiStudioEffect.Run, machine: EffectScope<AiStudioIntent>) {

@@ -1,6 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aistudio.api.PlanImplementation
+import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -29,6 +32,9 @@ interface StudioPlanning {
      */
     suspend fun bind(chatId: String, session: SessionRef)
 
+    /** Lifts planning in [chatId] for implementing [revision]; false when the plan is no longer at that revision. */
+    suspend fun startImplementation(chatId: String, revision: Long): Boolean
+
     /** No planning mode: the feature is not part of the graph. */
     object None : StudioPlanning {
         override val availability: Flow<Boolean> = flowOf(false)
@@ -39,5 +45,25 @@ interface StudioPlanning {
         override suspend fun leave(chatId: String): Boolean = false
 
         override suspend fun bind(chatId: String, session: SessionRef) = Unit
+
+        override suspend fun startImplementation(chatId: String, revision: Long): Boolean = false
+    }
+}
+
+/** Implementation of the plans of planning chats in the same chat. */
+fun interface StudioPlanRuntime {
+    /**
+     * Applies [implementation] to planning chat [sessionId] and runs its first implementation turn; [settings] are the
+     * screen's start-page settings for what the implementation does not choose.
+     */
+    suspend fun implementPlan(sessionId: String, implementation: PlanImplementation, settings: RunSettings): RunOutcome
+
+    /** No planning mode. */
+    object None : StudioPlanRuntime {
+        override suspend fun implementPlan(
+            sessionId: String,
+            implementation: PlanImplementation,
+            settings: RunSettings,
+        ): RunOutcome = RunOutcome.Failed
     }
 }

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.AiStudioEffects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.EngineStudioEffects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAvailability
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
@@ -40,6 +41,7 @@ internal class ToggleStudioBackend(
     private val views: Lazy<StudioSessionViews>,
     private val projects: Lazy<StudioProjects>? = null,
     private val planning: Lazy<StudioPlanning>? = null,
+    private val plans: Lazy<StudioPlanRuntime>? = null,
 ) : StudioBackend {
     private val log = Log.tag("StudioBackend")
     private val lock = Mutex()
@@ -67,6 +69,7 @@ internal class ToggleStudioBackend(
                 availability,
                 projects?.value,
                 planning?.value ?: StudioPlanning.None,
+                plans?.value ?: StudioPlanRuntime.None,
             ),
         )
     } else {

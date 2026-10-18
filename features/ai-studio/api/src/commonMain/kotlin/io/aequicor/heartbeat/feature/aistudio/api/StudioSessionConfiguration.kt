@@ -24,3 +24,18 @@ public sealed interface StudioSettingChange {
     /** Chooses the policy for subsequent tool calls. */
     public data class Approval(val approval: ApprovalMode) : StudioSettingChange
 }
+
+/**
+ * Implementation of the plan of a planning chat in the same chat: [settings] choose the engine route, effort and
+ * approval of the implementation. A route of another engine or connection, or [isFreshContext], continues the chat
+ * in a new native session; otherwise the current session switches its settings. [prompt] is the user's first
+ * implementation message.
+ */
+public data class PlanImplementation(
+    val revision: Long,
+    val settings: StudioSessionSettings,
+    val prompt: String,
+    val isFreshContext: Boolean = false,
+) {
+    override fun toString(): String = "PlanImplementation(revision=$revision, fresh=$isFreshContext)"
+}

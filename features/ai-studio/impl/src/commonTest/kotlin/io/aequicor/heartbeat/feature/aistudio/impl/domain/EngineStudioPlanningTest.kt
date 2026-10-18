@@ -84,6 +84,8 @@ class EngineStudioPlanningTest {
         override suspend fun leave(chatId: String): Boolean = false
 
         override suspend fun bind(chatId: String, session: SessionRef) = Unit
+
+        override suspend fun startImplementation(chatId: String, revision: Long) = false
     }
 }
 

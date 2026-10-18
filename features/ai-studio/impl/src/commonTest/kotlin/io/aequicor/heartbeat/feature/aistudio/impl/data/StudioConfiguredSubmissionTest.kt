@@ -282,6 +282,8 @@ class StudioConfiguredSubmissionTest {
             override suspend fun bind(chatId: String, session: SessionRef) {
                 bound += Triple(chatId, session, fixture.session.requests.size)
             }
+
+            override suspend fun startImplementation(chatId: String, revision: Long) = false
         }
         fixture = SubmissionFixture(this, planning = planning)
 

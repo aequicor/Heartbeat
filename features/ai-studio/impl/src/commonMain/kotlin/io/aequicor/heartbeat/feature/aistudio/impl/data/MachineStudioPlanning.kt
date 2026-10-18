@@ -70,6 +70,13 @@ internal class MachineStudioPlanning(
         log.d { "Plan bound to the chat's session: $result" }
     }
 
+    override suspend fun startImplementation(chatId: String, revision: Long): Boolean {
+        val chat = chatId.takeIf(::isValidPlanChat)?.let(::PlanChat) ?: return false
+        val result = machines.send(PlanningMachineKey, PlanningIntent.Public.StartImplementation(chat, revision))
+        log.i { "User started implementing the plan: $result" }
+        return result == SendResult.Accepted
+    }
+
     /** Loaded plans, waiting briefly while they load; null while the feature is off or its plans are unreadable. */
     private suspend fun ready(): PlanningState.Ready? {
         if (!toggles.get(PlanningModeEnabled)) return null

@@ -67,4 +67,29 @@ class AiStudioPlanningTest {
         val selected = ready.copy(panes = listOf(ready.panes[0].copy(isPlanning = true), ready.panes[1]))
         AiStudioMachineSpec.assertTransition(selected, AiStudioIntent.Public.NewSession(null, 0), ready)
     }
+
+    @Test
+    fun `implementing a plan runs the shown idle chat`() {
+        val shown = ready.copy(panes = listOf(StudioPane(0, sessionId = "chat")))
+        val implementation = PlanImplementation(3, StudioSessionSettings("model", "high"), "Go")
+        AiStudioMachineSpec.assertTransition(
+            shown,
+            AiStudioIntent.Public.ImplementPlan("chat", implementation),
+            shown.copy(running = setOf("chat")),
+            effects = listOf(AiStudioEffect.ImplementPlan("chat", implementation, settings)),
+        )
+        AiStudioMachineSpec.assertIgnored(
+            shown.copy(running = setOf("chat")),
+            AiStudioIntent.Public.ImplementPlan("chat", implementation),
+        )
+        AiStudioMachineSpec.assertIgnored(ready, AiStudioIntent.Public.ImplementPlan("chat", implementation))
+        AiStudioMachineSpec.assertIgnored(
+            shown.copy(
+                configurations = mapOf(
+                    "chat" to StudioSessionConfiguration(StudioSessionSettings("model"), pendingOperation = "op"),
+                ),
+            ),
+            AiStudioIntent.Public.ImplementPlan("chat", implementation),
+        )
+    }
 }

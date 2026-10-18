@@ -38,6 +38,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | Submit | prompt or attachments, new-session page, idle | Ready (pane creating) | CreateSession |
  * | Ready | Submit | prompt, session idle | Ready (session running) | Run |
  * | Ready | FollowUp | prompt, session idle | Ready (session running) | Run |
+ * | Ready | ImplementPlan | session shown and idle, no change pending | Ready (session running) | ImplementPlan |
  * | Ready | SessionCreated | matching pending request | Ready (pane shows session, running) | Run |
  * | Ready | CreateFailed | matching pending request | Ready (pane not creating) | output SubmitFailed(request) |
  * | Ready | Stop | running, not stopping | Ready (stopping) | Cancel |
@@ -65,7 +66,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * needs a native session of the chat, excludes organism mode but keeps the isolation;
  * ProjectAvailabilityChanged (for idle new panes) and CreateFailed drop an isolation that is no longer offered,
  * leaving a plain worktree when only sandboxes went away.
- * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run → RunFinished(Failed),
+ * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run and ImplementPlan → RunFinished(Failed),
  * Cancel → CancelFailed, ObserveRuntime → RuntimeLost, RespondPermission → PermissionAnswerFailed,
  * SaveSettings → SettingsSaveFailed; failed Apply,
  * ObserveModels and
@@ -140,6 +141,13 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 }
             }
             on<AiStudioIntent.Internal.SettingsSaveFailed>()
+            on<AiStudioIntent.Public.ImplementPlan>(guard = {
+                state.panes.any { it.sessionId == intent.sessionId } && state.isIdle(intent.sessionId) &&
+                    state.configurations[intent.sessionId]?.pendingOperation == null
+            }) {
+                stay { state.copy(running = state.running + intent.sessionId) }
+                effect { AiStudioEffect.ImplementPlan(intent.sessionId, intent.implementation, state.settings) }
+            }
             on<AiStudioIntent.Public.ChangeSessionSetting>(guard = {
                 state.panes.any { it.sessionId == intent.sessionId } &&
                     state.configurations[intent.sessionId]?.pendingOperation == null &&
@@ -171,6 +179,9 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 } else {
                     AiStudioIntent.Internal.RunRejected(effect.paneId, effect.submissionId, effect.sessionId)
                 }
+
+                is AiStudioEffect.ImplementPlan ->
+                    AiStudioIntent.Internal.RunFinished(effect.sessionId, RunOutcome.Failed)
 
                 is AiStudioEffect.Cancel -> AiStudioIntent.Internal.CancelFailed(effect.sessionId)
 
