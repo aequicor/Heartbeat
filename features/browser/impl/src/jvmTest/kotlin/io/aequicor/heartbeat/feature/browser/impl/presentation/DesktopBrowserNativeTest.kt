@@ -30,6 +30,7 @@ import java.awt.BorderLayout
 import java.net.CookieHandler
 import java.net.InetSocketAddress
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -56,6 +57,8 @@ class DesktopBrowserNativeTest {
 
     private val contexts = mutableListOf<CefRequestContext>()
     private val loopRequests = AtomicInteger()
+    private lateinit var storageRoot: Path
+    private lateinit var profiles: DesktopBrowserProfiles
 
     @Test
     fun `native surfaces isolate cookies and storage and reopen after close`() {
@@ -143,6 +146,15 @@ class DesktopBrowserNativeTest {
             stage = deadline::stage,
         ).verify("http://127.0.0.1:${server.address.port}")
         verifyAgentGuard(app, server)
+        DesktopBrowserStorageNativeProbe(
+            app = app,
+            profiles = profiles,
+            storageRoot = storageRoot,
+            createEngine = { states, createContext -> testEngine(app, states, createContext = createContext) },
+            createFrame = ::nativeFrame,
+            awaitTitle = ::awaitTitle,
+            stage = deadline::stage,
+        ).verify("http://127.0.0.1:${server.address.port}")
         val zoomContext = temporaryContextFactory()
         DesktopBrowserZoomNativeProbe(
             createEngine = { states, shortcut ->
@@ -434,10 +446,12 @@ class DesktopBrowserNativeTest {
 
     private fun nativeResources(handle: BrowserTestScope): DesktopDefaultBrowserResources {
         val cache = Files.createTempDirectory("heartbeat-jcef-native-test")
+        storageRoot = cache
+        profiles = DesktopBrowserProfiles(handle, nativeDispatchers(), lazy { BrowserNativeTestStores(cache) })
         return DesktopDefaultBrowserResources(
             bundledBrowserRuntimeInstaller(cache, nativeDispatchers()),
             nativeDispatchers(),
-            DesktopBrowserProfiles(handle, nativeDispatchers(), lazy { BrowserNativeTestStores(cache) }),
+            profiles,
             handle,
         )
     }
@@ -481,6 +495,7 @@ class DesktopBrowserNativeTest {
         }
         recoveryEndpoints(server)
         redirectEndpoints(server)
+        registerStorageEndpoints(server)
         server.createContext("/") { exchange ->
             val page = if (exchange.requestURI.path == "/start") {
                 exchange.responseHeaders.add(

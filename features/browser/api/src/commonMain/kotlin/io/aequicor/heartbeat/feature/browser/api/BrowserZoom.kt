@@ -9,7 +9,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 public val BrowserPageZoom: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "browser.page_zoom",
     description = "Масштаб страниц во встроенном браузере",
-    default = false,
+    default = true,
 )
 
 /** Zoom commands of Chrome's keys and zoom badge. */

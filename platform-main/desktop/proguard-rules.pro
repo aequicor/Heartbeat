@@ -37,6 +37,15 @@
 -keep class io.aequicor.heartbeat.feature.scheduler.api.** { *; }
 -keepattributes Signature,Exceptions
 
+# Sealed hierarchies with a nested sealed interface lose that interface from the PermittedSubclasses of their root
+# while the interface itself survives, so the first load of it fails with IncompatibleClassChangeError:
+# Koog's StreamFrame (DeltaFrame) breaks every streamed turn, kotlinx-schema's PropertyDefinition (ValuePropertyDefinition)
+# breaks tool schemas. Keep them whole.
+-keep class ai.koog.prompt.streaming.StreamFrame { *; }
+-keep class ai.koog.prompt.streaming.StreamFrame$* { *; }
+-keep class kotlinx.schema.json.PropertyDefinition { *; }
+-keep class kotlinx.schema.json.*PropertyDefinition { *; }
+
 # Optional integrations missing from the desktop runtime. Rules name the missing classes, not the libraries,
 # so new unresolved references from the same libraries still fail the build.
 

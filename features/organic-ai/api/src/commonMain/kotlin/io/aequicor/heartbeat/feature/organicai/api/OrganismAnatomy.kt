@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.organicai.api
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 
 /** The progenitor of every other cell: the one cell without a parent. */
 public val Organism.zygote: Cell get() = cells.first(Cell::isZygote)
@@ -66,17 +67,43 @@ public fun Organism.isWaiting(id: CellId): Boolean = children(id).any(Cell::isAl
 /** The model [cell] runs on: its own configuration's, else the organism's. */
 public fun Organism.targetOf(cell: Cell): EngineTarget? = cell.configuration?.target ?: target
 
+/** The checkout [cell] works in: its own sandbox once worktree mode prepared it, else the organism's project. */
+public fun Organism.workspaceOf(cell: Cell): WorkspaceRef? = cell.workspace ?: workspace
+
+/**
+ * Whether [cell] still waits for its own sandbox: the organism isolates its cells, has a project to cut them from,
+ * and the cell has none bound yet. Such a cell must never open a session in the project itself.
+ */
+public fun Organism.needsSandbox(cell: Cell): Boolean =
+    isolation == OrganismIsolation.Sandbox && workspace != null && cell.workspace == null
+
+/** Whether the organism cuts a sandbox for each of its cells. */
+public val Organism.isSandboxed: Boolean get() = isolation == OrganismIsolation.Sandbox
+
+/**
+ * Key of the worktree-mode task that owns the sandbox of [cell] (its checkout, branch, native run and builds). It is
+ * derived rather than stored, so a restart finds the task again; ids never contain `.`, so keys never collide.
+ */
+public fun Organism.sandboxTask(cell: CellId): String = "organism.${id.value}.${cell.value}"
+
 /**
  * The session of the sub-session [key] (a cell id, or a case id for its last judge) and how to reopen it as the
- * organism opened it: a cell on its model ([targetOf]) and the organism's project with the detached hosted tools, a
- * judge on the immune model with neither. Reopening it so never changes what a cell may do. Null while it has no
- * session.
+ * organism opened it: a cell on its model ([targetOf]) and the organism's project with the detached hosted tools and,
+ * when the organism carries harnesses, the session hooks that deliver them (the first holder of an engine session
+ * decides this), a judge on the immune model with neither. Reopening it so never changes what a cell may do. Null
+ * while it has no session.
  */
 public fun Organism.sessionOf(key: String): OrganismSession? {
     cells.firstOrNull { it.id.value == key }?.let { cell ->
         val ref = cell.session ?: return null
         val target = targetOf(cell) ?: return null
-        return OrganismSession(ref, ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true))
+        val request = ResumeSessionRequest(
+            target,
+            workspaceOf(cell),
+            areDetachedToolsEnabled = true,
+            areSessionHooksEnabled = harnesses.isNotEmpty(),
+        )
+        return OrganismSession(ref, request)
     }
     val judge = trials.firstOrNull { it.case.id.value == key }?.judge ?: return null
     val target = immunityTarget ?: target ?: return null

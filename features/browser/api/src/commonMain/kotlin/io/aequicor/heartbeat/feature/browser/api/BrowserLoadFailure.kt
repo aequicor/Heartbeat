@@ -2,11 +2,11 @@ package io.aequicor.heartbeat.feature.browser.api
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 
-/** Desktop error pages, certificate decisions and address-bar security; opt-in. */
+/** Desktop error pages, certificate decisions and address-bar security. */
 public val BrowserErrorPages: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "browser.error_pages",
     description = "Страницы ошибок и безопасность встроенного браузера",
-    default = false,
+    default = true,
 )
 
 /**

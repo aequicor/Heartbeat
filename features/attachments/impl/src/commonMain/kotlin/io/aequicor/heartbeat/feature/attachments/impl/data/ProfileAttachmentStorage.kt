@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentFailure
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentInput
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.attachments.api.attachmentMediaTypeFor
 import io.aequicor.heartbeat.feature.attachments.impl.domain.AttachmentMetadata
 import io.aequicor.heartbeat.feature.attachments.impl.domain.AttachmentStorage
 import kotlinx.coroutines.NonCancellable
@@ -237,17 +238,11 @@ private fun AttachmentEntity.descriptor(): AttachmentDescriptor = AttachmentDesc
     sizeBytes,
 )
 
-/** Extension-based picker hint; imported bytes still pass model support and bounded size checks. */
-internal fun attachmentMediaType(name: String): String = when (name.substringAfterLast('.').lowercase()) {
-    "txt" -> "text/plain"
-    "md", "markdown" -> "text/markdown"
-    "pdf" -> "application/pdf"
-    "png" -> "image/png"
-    "jpg", "jpeg" -> "image/jpeg"
-    "gif" -> "image/gif"
-    "webp" -> "image/webp"
-    else -> "application/octet-stream"
-}
+/**
+ * Extension-based picker hint, the same table the composer uses for suggestions so a file offered there is also
+ * importable; imported bytes still pass model support and bounded size checks.
+ */
+internal fun attachmentMediaType(name: String): String = attachmentMediaTypeFor(name) ?: "application/octet-stream"
 
 /** Safe filename suffix needed by native applications; never derived from an external path. */
 internal fun attachmentExtension(mime: String): String = when (mime) {

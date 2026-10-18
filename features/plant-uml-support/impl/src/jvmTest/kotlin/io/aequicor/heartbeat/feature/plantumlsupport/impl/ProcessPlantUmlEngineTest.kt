@@ -205,7 +205,7 @@ class ProcessPlantUmlEngineTest {
         }
         val replies = ByteArrayOutputStream()
         val diagnostics = DiagnosticsSink()
-        // The worker's process-wide logging, as in its main; nothing else in this module configures logging.
+        // The worker's process-wide logging, as in its main; other tests restore the default configuration themselves.
         Log.init(isDebug = false, sinks = listOf(diagnostics))
         try {
             runPlantUmlWorker(

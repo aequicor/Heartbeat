@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * | Living | Divide | parent working, limits, next cell id | + child Working(Genesis) | Persist; Drive(child) | — |
  * | Living | Complain / Dispute | filer working, no refusal, next case id | + case, + trial | Persist; Judge | — |
  * | Living | JudgeConvened | trial without ruling | trial judge session | Persist | — |
+ * | Living | WorkspaceBound | turn of request, sandbox cell without workspace | cell workspace | Persist | — |
  * | Living | SessionBound | turn of request, no session yet | session | Persist | — |
  * | Living | TurnAccepted / PermissionsChanged | turn of request | observed turn / awaiting | — | — |
  * | Living | ReceiveLetters | current request, valid cursor | advance read cursor, disarm wait | Persist | — |
@@ -58,6 +59,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * Unconfirmed when it could not tell, which another abort retries. The release state is not journaled. A fresh
  * profile holds no sessions of restored ended organisms, so they read as Released; after Sleep/Awaken within the
  * same profile the host restores Unconfirmed while any handle or opener of the organism remains owned.
+ * A conception's harness choice becomes the organism's and no intent changes it.
+ *
+ * A [OrganismIsolation.Sandbox] organism gives every cell, the zygote included, a checkout of its own: before the
+ * session of a cell is created the host prepares the cell's sandbox through worktree mode under
+ * [Organism.sandboxTask] and reports it with WorkspaceBound; the session is then opened in that checkout, never in the
+ * organism's project. Checkout, branch, native run and builds of a cell live in the worktree journal, the organism
+ * keeps only the checkout reference, so both survive a restart independently.
  *
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →

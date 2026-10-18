@@ -62,6 +62,8 @@ internal fun Conception.conceive(): Step {
         id, goal, target, immunityTarget, workspace, trust, limits, listOf(zygote),
         version = 1,
         attachments = attachments,
+        isolation = isolation,
+        harnesses = harnesses,
     )
     val started = organism.updated(CellId.ZYGOTE) { organism.begin(it, Work.Genesis) }
     return if (target == null) {
@@ -109,6 +111,12 @@ private fun Organism.immunity(intent: CaseIntent): Step? = when (intent) {
 private fun Organism.follow(cell: Cell, intent: TurnIntent): Step? {
     val phase = cell.phase as CellPhase.Working
     return when (intent) {
+        is OrganicAiIntent.Internal.WorkspaceBound -> if (needsSandbox(cell)) {
+            Step(updated(cell.id) { it.copy(workspace = intent.workspace) })
+        } else {
+            null
+        }
+
         is OrganicAiIntent.Internal.SessionBound -> if (cell.session == null) {
             Step(updated(cell.id) { it.copy(session = intent.session) })
         } else {

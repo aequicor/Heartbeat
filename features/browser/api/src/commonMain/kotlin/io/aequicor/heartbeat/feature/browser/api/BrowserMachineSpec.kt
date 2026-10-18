@@ -12,7 +12,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * [Reload]; Stop (loading guard) -> stay stopped [Stop]. Enabled + PageChanged (HTTP/S or empty) ->
  * stay with the current native page. Enabled + Display/SelectTab -> retain the profile runtime,
  * change presentation/selection only; a disabled browser accepts only Display(Hidden).
- * Enabled + Perform -> reveal panel [Perform]; results are emitted with their request identity.
+ * Enabled + Perform -> reveal panel [Perform]; results are emitted with their request identity. An observation-only
+ * [BrowserOperation.Inspect] and a request carrying [BrowserRequest.review] are ordinary Perform requests: the
+ * machine neither reads the evidence nor decides the review, the session compares it right before the operation.
  * Running + CancelOperation -> [CancelOperation]; OperationCancelled emits a correlated
  * acknowledgement, also when cancellation itself failed. Running + TabsChanged -> project tabs and
  * active tab, independent of surface attachment. Running + Completed -> emit Completed; no page

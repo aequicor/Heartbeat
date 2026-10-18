@@ -13,7 +13,7 @@ import kotlinx.serialization.Serializable
 public val WorktreeModeEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "worktree_mode.enabled",
     "Изолированные Git worktree, общий кеш сборки и завершение задач",
-    default = false,
+    default = true,
 )
 
 /**
@@ -25,7 +25,7 @@ public val WorktreeModeEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val WorktreeSandboxEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "worktree_mode.sandbox",
     "Песочницы: задачи без сборочных выходов, сборки в общих слотах проекта",
-    default = false,
+    default = true,
 )
 
 /**
@@ -36,7 +36,7 @@ public val WorktreeSandboxEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val WorktreeBuildQueueEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "worktree_mode.build_queue",
     "Очередь сборок по ёмкости машины: веса типов сборок, лимит и справедливость между проектами",
-    default = false,
+    default = true,
 )
 
 /** Lifecycle of one chat's checkout; native turn completion alone never completes a task. */
@@ -184,4 +184,12 @@ public data class WorktreeTask(
     val verifiedPullRequestUrl: String? = null,
     val expectedAction: WorktreeExpectedAction? = null,
     @SerialName("sandbox") val isSandbox: Boolean = false,
+    val seal: WorktreeSeal? = null,
 )
+
+/**
+ * The latest [WorktreeIntent.Public.Seal] of a task: the captured [commit], an immutable commit that holds all the
+ * checkout's files on top of the task branch, or why it could not be taken ([failure], a safe code without paths).
+ */
+@Serializable
+public data class WorktreeSeal(val operation: String, val commit: String? = null, val failure: String? = null)

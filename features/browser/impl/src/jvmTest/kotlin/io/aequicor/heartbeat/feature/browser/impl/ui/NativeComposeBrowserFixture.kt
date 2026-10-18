@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.browser.impl.data.DesktopBrowserProfiles
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopDefaultBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.data.bundledBrowserRuntimeInstaller
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserStorage
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserNativeTestStores
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
@@ -124,6 +125,7 @@ internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false, isA
             guard: DesktopBrowserAgentGuard,
             openTab: ((BrowserCommand.Load) -> Unit)?,
             onShortcut: ((BrowserShortcut) -> Unit)?,
+            storage: BrowserStorage,
         ) = panel
         override fun close(surface: BrowserSurface) = panel.release()
         override suspend fun clearData() = error("Not part of the Compose embedding test")

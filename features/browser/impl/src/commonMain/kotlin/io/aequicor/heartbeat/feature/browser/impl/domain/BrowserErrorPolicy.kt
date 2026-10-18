@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 
-/** Opt-in policy for browser-owned failure pages and recovery. */
+/** Policy for browser-owned failure pages and recovery. */
 internal interface BrowserErrorPolicy {
     fun observe(): Flow<Boolean>
 }

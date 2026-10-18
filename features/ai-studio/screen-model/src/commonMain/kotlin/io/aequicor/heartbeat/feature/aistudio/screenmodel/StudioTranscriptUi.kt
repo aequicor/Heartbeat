@@ -137,6 +137,15 @@ sealed interface MessageUi {
         val collapseMemo: CollapseMemo = CollapseMemo()
     }
 
+    /** The host's immutable capture of the completed organism, separate from the model's answer. */
+    @Serializable
+    @SerialName("MessageUi.OrganismResult")
+    data class OrganismResult(override val id: String, val branch: String, val base: String, val commit: String) :
+        MessageUi {
+        override val createdAt: Instant get() = Instant.fromEpochSeconds(0)
+        override val isTimestampKnown: Boolean get() = false
+    }
+
     /** The user stopped the run after [elapsed]. */
     @Serializable
     @SerialName("MessageUi.Stopped")

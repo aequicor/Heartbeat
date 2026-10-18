@@ -47,6 +47,38 @@ class KeyValueOrganismJournalTest {
     }
 
     @Test
+    fun `the harness choice survives the journal and an empty one is not written`() = runTest {
+        val chosen = organism().copy(harnesses = setOf("compose", "verify"))
+        journal.save(chosen)
+        assertTrue("\"harnesses\"" in stores.store.values["organism.o1"].toString())
+        assertEquals(listOf(chosen), KeyValueOrganismJournal(stores, TestDispatchers).load())
+
+        val plain = MemoryStores()
+        KeyValueOrganismJournal(plain, TestDispatchers).save(organism())
+        assertFalse("harnesses" in plain.store.values["organism.o1"].toString())
+    }
+
+    @Test
+    fun `a record written before harnesses existed reads as an empty choice`() = runTest {
+        journal.save(organism().copy(harnesses = setOf("compose")))
+        val record = stores.store.values["organism.o1"].toString()
+        stores.store.values["organism.o1"] = record.replace(Regex(",?\"harnesses\":\\[[^\\]]*\\]"), "")
+        assertFalse("harnesses" in stores.store.values["organism.o1"].toString())
+        val loaded = KeyValueOrganismJournal(stores, TestDispatchers).load().single()
+        assertEquals(emptySet(), loaded.harnesses)
+    }
+
+    @Test
+    fun `a record with a harness choice no organism could hold is kept unread`() = runTest {
+        journal.save(organism().copy(harnesses = setOf("compose")))
+        val record = stores.store.values["organism.o1"].toString()
+        stores.store.values["organism.o1"] = record.replace("\"compose\"", "\" \"")
+        assertTrue(KeyValueOrganismJournal(stores, TestDispatchers).load().isEmpty())
+        assertTrue("organism.o1" in stores.store.values)
+        assertEquals(setOf("o1"), stores.store.values["index"])
+    }
+
+    @Test
     fun `a pending follow-up survives reopening the journal with its inputs`() = runTest {
         val initial = organism()
         val work = Work.FollowUp("Check the revised design", listOf(ResourceRef("attachment:new", "image/png")))

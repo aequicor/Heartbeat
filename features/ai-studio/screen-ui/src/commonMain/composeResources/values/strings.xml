@@ -166,7 +166,7 @@
     <string name="usage_title">Usage and limits</string>
     <string name="usage_limits">Limits</string>
     <string name="usage_context">Context window</string>
-    <string name="usage_percent">%1$d%% used</string>
+    <string name="usage_percent">%1$d% used</string>
     <string name="usage_tokens">%1$s / %2$s tokens</string>
     <string name="usage_resets">Resets %1$s</string>
     <string name="usage_credits">Credits</string>
@@ -314,7 +314,7 @@
     <string name="safety_reviews_queued">Waiting in queue: %1$d</string>
     <string name="safety_reviews_finishing">Stopped, awaiting session end: %1$d</string>
     <string name="safety_reviews_abandoned">Released without a confirmed stop since the profile opened: %1$d</string>
-    <string name="app_update_percent">%1$d%%</string>
+    <string name="app_update_percent">%1$d%</string>
     <string name="app_update_manual_reason">Heartbeat %1$s is available. This installation cannot replace itself: download and install the release.</string>
     <string name="app_update_downloading_status">Downloading Heartbeat %1$s</string>
     <string name="app_update_preparing_status">Preparing Heartbeat %1$s for installation</string>
@@ -342,4 +342,5 @@
     <string name="project_trust_trusted">Trust the project</string>
     <string name="harness_defaults_loading">Loading harnesses…</string>
     <string name="harness_defaults_retry">Harnesses unavailable · Retry</string>
+    <string name="organism_result">**Organism result captured by Studio**\n\nBranch: `%1$s`\n\nBase: `%2$s`\n\nResult commit: `%3$s`\n\nThis commit includes committed and uncommitted files. The branch may not contain all of them. To integrate the result, first commit or stash your pending changes in the target checkout, then run `git merge --no-ff %3$s`, resolve any conflicts and verify the result.</string>
 </resources>

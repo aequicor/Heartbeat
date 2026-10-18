@@ -81,6 +81,7 @@ class StudioScreenSerializationTest {
                 MessageUi.Stopped("m3", at, 42.seconds),
                 MessageUi.ContextNotice("m4", at, isRollover = true),
                 MessageUi.Failed("m5", at),
+                MessageUi.OrganismResult("result", "branch", "base", "snapshot"),
             ),
         ),
         drafts = persistentMapOf("s1" to "черновик"),

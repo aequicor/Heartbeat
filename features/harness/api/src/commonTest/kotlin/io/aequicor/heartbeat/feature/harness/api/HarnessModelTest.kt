@@ -95,7 +95,7 @@ class HarnessModelTest {
             applicableHarnesses(crowded, crowdedConnections, Session).map { it.name.value },
         )
         assertEquals(emptyList(), applicableHarnesses(crowded, emptyMap(), Session, isSuspended = true))
-        assertFalse(HarnessEnabled.default)
+        assertTrue(HarnessEnabled.default)
     }
 
     @Test
