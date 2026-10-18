@@ -25,7 +25,7 @@ internal class HarnessLibraryUiComponent(
 internal class HarnessDetailUiComponent(private val component: HarnessDetailComponent) : ComposableComponent {
     @Composable
     override fun Content(modifier: Modifier) {
-        HarnessDetailScreen(component.model, component.navigation, modifier)
+        HarnessDetailScreen(component.model, component.navigation, modifier, component.decisionsModel)
     }
 }
 

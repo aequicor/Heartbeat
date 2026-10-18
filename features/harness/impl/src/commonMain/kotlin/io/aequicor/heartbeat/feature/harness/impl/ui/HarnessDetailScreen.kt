@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessDetailInte
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessDetailModel
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessDetailNavigation
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessDetailState
+import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessProcessDecisionsModel
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ItemKindUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ItemRowUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ItemStatusUi
@@ -98,6 +99,7 @@ internal fun HarnessDetailScreen(
     model: HarnessDetailModel,
     navigation: HarnessDetailNavigation,
     modifier: Modifier = Modifier,
+    decisions: HarnessProcessDecisionsModel? = null,
 ) {
     val current by rememberUpdatedState(navigation)
     val state by produceState(HarnessDetailState(), model) {
@@ -115,7 +117,9 @@ internal fun HarnessDetailScreen(
         }
     }
     val onBack = navigation.close
-    HarnessDetailContent(state, model.store::intent, onBack, modifier)
+    HarnessDetailContent(state, model.store::intent, onBack, modifier) {
+        if (decisions != null) HarnessProcessDecisionsPanel(decisions)
+    }
 }
 
 /** Stateless detail screen; edit and delete dialogs open above the list. */
@@ -125,6 +129,7 @@ internal fun HarnessDetailContent(
     onIntent: (HarnessDetailIntent) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    decisions: @Composable () -> Unit = {},
 ) {
     val groups = remember(state.items) { state.items.groupBy { it.kind }.mapValues { it.value.toImmutableList() } }
     HarnessPane(state.title.ifEmpty { state.name }, "harness-detail", onBack, modifier) {
@@ -133,6 +138,7 @@ internal fun HarnessDetailContent(
         }
         if (!phaseItems(state.phase)) return@HarnessPane
         item(key = "header") { HeaderSection(state, onIntent) }
+        item(key = "process-decisions") { decisions() }
         if (state.attachments.isNotEmpty()) {
             item(key = "attachments") { AttachmentsSection(state.attachments, onIntent) }
         }

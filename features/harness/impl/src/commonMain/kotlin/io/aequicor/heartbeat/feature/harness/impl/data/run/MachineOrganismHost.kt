@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
@@ -31,7 +32,9 @@ import io.aequicor.heartbeat.feature.organicai.api.zygote
  * The organic AI machine as the workflow owner uses it, through public intents only. The machine exists only while
  * organic AI is on in the profile, so a missing or sleeping machine is [OrganismView.Unavailable], never absence:
  * a sleeping machine still owns its developing organisms and revives them on awakening. An aborted organism is
- * ended only once the machine confirms the release of its sessions. Texts are never logged.
+ * ended only once the machine confirms the release of its sessions. Conception fixes AutomaticSafety for every
+ * working cell turn and caps trust at Ask; a process decision never expands native tool permissions. Texts are
+ * never logged.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -56,6 +59,7 @@ internal class MachineOrganismHost(private val machines: MachineRegistry) : Orga
             immunityTarget = options.immunityTarget,
             workspace = workspace,
             trust = TrustLevel.Ask,
+            decisionMode = AgentToolDecisionMode.AutomaticSafety,
         )
         // The registry logs every send; a refusal reaches the workflow as a typed outcome.
         return when (machines.send(OrganicAiMachineKey, OrganicAiIntent.Public.Conceive(conception))) {
