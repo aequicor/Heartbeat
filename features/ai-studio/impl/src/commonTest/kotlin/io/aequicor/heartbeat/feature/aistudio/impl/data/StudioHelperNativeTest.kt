@@ -57,6 +57,18 @@ import kotlin.time.Instant
 
 class StudioHelperNativeTest {
     @Test
+    fun `unconfirmed terminal polling never publishes turn cleanup that wakes its own observer`() = runTest {
+        val fixture = NativeHelperFixture()
+        repeat(3) {
+            assertNull(fixture.native.result(fixture.record, fixture.turn.request!!) { fixture })
+        }
+        assertEquals(0, fixture.finished.size)
+        fixture.stop = OwnedTurnStop.Confirmed(fixture.turn)
+        assertEquals(fixture.turn.id, fixture.native.result(fixture.record, fixture.turn.request!!) { fixture }?.turn)
+        assertEquals(listOf(fixture.turn.id to fixture.turn.request), fixture.finished)
+    }
+
+    @Test
     fun `adapter completion with a different turn id saves the facade receipt and exact answer`() = runTest {
         val fixture = NativeHelperFixture()
         fixture.prepare()

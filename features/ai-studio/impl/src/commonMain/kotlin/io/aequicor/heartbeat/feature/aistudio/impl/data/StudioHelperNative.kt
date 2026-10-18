@@ -73,8 +73,9 @@ internal class StudioHelperNative(
         val receipt = attempts.receipt(HelperId(record.id), request)
         check(receipt?.session == null || receipt.session == active.ref) { "Helper receipt session changed" }
         val localTurn = receipt?.turn ?: turn.id
-        tools.finishTurn(active.ref, localTurn, request)
         val settled = confirmed(record, turn) ?: return@evidence null
+        // Cleanup publishes turn_finished. An unconfirmed poll must not wake its own result observer.
+        tools.finishTurn(active.ref, localTurn, request)
         terminal(active.ref, localTurn, settled, read(active.features.requireFeature(SessionHistory)))
     }
 
