@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
@@ -13,8 +15,10 @@ internal sealed interface OrganismView {
     /** Organic AI is awake and has no such organism. */
     data object Absent : OrganismView
 
-    /** The organism develops. */
-    data object Developing : OrganismView
+    /** The organism develops; its cells ask the user for the [requests]. */
+    data class Developing(val requests: List<OrganismCellRequest> = emptyList()) : OrganismView {
+        override fun toString(): String = "Developing(requests=${requests.size})"
+    }
 
     /** The zygote broke and waits for a resume or an abort; the organism still holds its sessions. */
     data class Stalled(val end: OrganismEnd) : OrganismView
@@ -38,6 +42,14 @@ internal sealed interface OrganismView {
 }
 
 /**
+ * A permission request of one cell, as the owner of the step reads it. [cell] only lets the owner address the cell
+ * that asked and [name] is what the user reads; the organism is never named. Texts are never rendered by [toString].
+ */
+internal data class OrganismCellRequest(val cell: String, val name: String, val request: PermissionRequest) {
+    override fun toString(): String = "OrganismCellRequest(***)"
+}
+
+/**
  * Whether no cell of the organism can take another turn and none of its native work is known to run: it never
  * existed, answered, or was aborted and organic AI confirmed the release of its sessions. This is the proof the
  * owner needs before it returns the organism's quota; nothing else settles it, and an organism that is merely marked
@@ -49,7 +61,7 @@ internal val OrganismView.isEnded: Boolean
 
 /** Whether another abort moves the organism forward: it develops, is stalled or its release was not confirmed. */
 internal val OrganismView.isAbortable: Boolean
-    get() = this == OrganismView.Developing || this is OrganismView.Stalled || isReleaseUnconfirmed
+    get() = this is OrganismView.Developing || this is OrganismView.Stalled || isReleaseUnconfirmed
 
 /** Whether an ended organism needs another attempt to release its cells. */
 internal val OrganismView.isReleaseUnconfirmed: Boolean
@@ -95,4 +107,11 @@ internal interface OrganismHost {
      * Whether its work ended is read from [view], never from this call.
      */
     suspend fun abort(organism: WorkflowOrganism)
+
+    /**
+     * Submits the user's [decision] for [cell] of [organism]. True means the machine accepted the intent, not that
+     * its asynchronous delivery succeeded. A still-live request must remain retryable. False means the machine is
+     * asleep or no longer waits for it. Answers are never logged.
+     */
+    suspend fun decide(organism: WorkflowOrganism, cell: String, decision: PermissionDecision): Boolean
 }

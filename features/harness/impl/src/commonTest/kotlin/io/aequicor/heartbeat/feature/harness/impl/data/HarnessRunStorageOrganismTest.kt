@@ -1,8 +1,14 @@
 package io.aequicor.heartbeat.feature.harness.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismPermission
 import io.aequicor.heartbeat.feature.harness.api.workflow.PinnedWorkflow
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
@@ -43,6 +49,22 @@ class HarnessRunStorageOrganismTest {
             assertTrue(storage.save(run.copy(steps = listOf(step)), 0))
         }
         assertEquals(listOf(completed), storage.find(run.id)?.steps)
+    }
+
+    @Test
+    fun `live organism requests are never stored`() = runTest {
+        val request = PermissionRequest(
+            PermissionRequestId("req"),
+            TurnId("turn"),
+            "Run a command?",
+            listOf(PermissionOption(PermissionOptionId("allow"), "Allow")),
+        )
+        val live = run.copy(organismRequests = listOf(OrganismPermission(StepKey("s0"), "c1", "Builder", request)))
+        assertTrue(storage.save(live, null))
+        assertEquals(emptyList(), storage.find(run.id)?.organismRequests)
+        assertTrue(storage.save(run, 0))
+        assertTrue(storage.discard(live))
+        assertEquals(emptyList(), storage.load())
     }
 
     @Test

@@ -30,7 +30,7 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 | Постоянные данные мини-приложения (`data.read/write/update`) | `api/script/ScriptData.kt`; `impl/domain/services/HarnessScriptData`, `impl/data/services/ProtectedHarnessData` |
 | Хуки сессий, политика, гейт нативных вызовов | `ai-engine/facade:{api,impl}` (`SessionHooks`, `ToolPolicy`, `authorizeNative`) |
 | Адаптивные помощники (`AgentOptions.adaptive`, `sessions.spawn(..., adaptive)`) | `api/workflow/AdaptiveAgent.kt`; порт `impl/domain/services/HarnessHelperModels.kt`, адаптер над `AdaptiveModels` (`adaptive-subagents:api`) — `impl/data/services/AdaptiveHarnessHelperModels.kt` |
-| Организм как этап workflow (`WorkflowScope.organism`) | `api/workflow/WorkflowOrganism.kt` (`OrganismOptions`, `OrganismOutcome`, `WorkflowOrganism`), `HarnessLimits.ORGANISM*`; `impl/domain/workflow/WorkflowOrganism{Driver,Resources,Journal,Host,Outcomes}.kt`; мост `impl/data/run/MachineOrganismHost.kt`, журнал выдачи слотов `impl/data/run/StoredWorkflowOrganismJournal.kt` |
+| Организм как этап workflow (`WorkflowScope.organism`) | `api/workflow/WorkflowOrganism.kt` (`OrganismOptions`, `OrganismOutcome`, `WorkflowOrganism`), `HarnessLimits.ORGANISM*`; `impl/domain/workflow/WorkflowOrganism{Driver,Resources,Journal,Host,Outcomes,Requests}.kt`; мост `impl/data/run/MachineOrganismHost.kt`, журнал выдачи слотов `impl/data/run/StoredWorkflowOrganismJournal.kt`; запросы клеток пользователю — `api/workflow/OrganismPermission.kt`, `WorkflowOrganismTransitions.kt`, `impl/presentation/HarnessRunRequests.kt`, `impl/ui/HarnessRunRequestCard.kt` |
 
 ## Правила
 
@@ -80,6 +80,16 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   Завершение или отмена запуска останавливают организмы (`WorkflowRunExecution.releaseOrganisms`),
   пауза — нет. Организм адресует только владелец шага через `OrganismHost`; его идентификатор не раскрывается автору,
   инструментам и другим сессиям. `harness:api` не зависит от `organic-ai:api`.
+- Запросы разрешений клеток организма (у него нет чата) идут пользователю через запуск: `OrganismView.Developing.requests`
+  → `WorkflowOrganismRequests.show` → `HarnessRunsIntent.Internal.OrganismPermissionsChanged` → `WorkflowRun.organismRequests`
+  (живое поле поколения, не хранится; все сбросы — `withoutLiveRequests`). Ответ — только `DecideOrganismPermission`
+  от `WorkflowViewer.User` на показанный запрос → эффект `AnswerOrganism` → `WorkflowRunExecution.answerOrganism` кладёт его
+  в очередь шага → владелец (`WorkflowOrganismDriver.relay`) сам шлёт `OrganismHost.decide` клетке, которая всё ещё
+  спрашивает именно это. Принятый интент скрывает запрос на 5 секунд наблюдения, затем всё ещё живой запрос возвращается
+  для явного повтора; непринятый остаётся. Автоматической повторной отправки нет. В библиотеке харнессов видны счётчики
+  запросов, кнопка в шапке нативной студии открывает библиотеку; счётчики скрыты для приостановленных, отменяемых
+  и завершённых запусков. Агенту доступно только
+  число ждущих клеток в статусе workflow. Тексты запросов и ответов не логируются и не попадают в `toString`.
 - UI-методы (`ui.method`) вызывает нажатие пользователя в интерфейсах service-as-ui, без хода агента; одобрение кода
   их покрывает. Допуск в чате — подключение включённого харнесса к этому чату (`connectedAdmission`, сессию передаёт
   доверенный хост), без чата — работающая активация. `ScriptUiResult.Error` и слишком большой результат не считаются

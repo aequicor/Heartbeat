@@ -37,6 +37,9 @@ public object HarnessLimits {
     public const val ORGANISMS_PER_RUN: Int = 1
     public const val ORGANISMS_PER_PROFILE: Int = 2
     public const val ORGANISM_GOAL_CHARS: Int = 20_000
+
+    /** Cell requests of an organism the runs view shows at once; the rest stay unseen until some are answered. */
+    public const val ORGANISM_REQUESTS: Int = 32
     public const val STEPS: Int = 64
     public val RUN_TIME: Duration = 6.hours
     public const val FAILURES: Int = 5

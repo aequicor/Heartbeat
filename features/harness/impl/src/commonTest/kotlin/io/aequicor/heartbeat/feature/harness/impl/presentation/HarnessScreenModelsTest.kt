@@ -58,7 +58,7 @@ class HarnessScreenModelsTest {
     @Test
     fun `library mirrors the harnesses and sends switches with the shown revisions`() = runTest {
         val library = RecordingLibrary(ready)
-        val model = HarnessLibraryModel(library, storeFactory(), backgroundScope)
+        val model = HarnessLibraryModel(library, IdleRuns(), storeFactory(), backgroundScope)
         val screen = subscribe(model.store)
         assertEquals(listOf(harness.id.value), screen.states.value.harnesses.map { it.id })
 
@@ -326,7 +326,7 @@ class HarnessScreenModelsTest {
     @Test
     fun `library retries a failed load through the public reload`() = runTest {
         val library = RecordingLibrary(HarnessState.Failed())
-        val model = HarnessLibraryModel(library, storeFactory(), backgroundScope)
+        val model = HarnessLibraryModel(library, IdleRuns(), storeFactory(), backgroundScope)
         val screen = subscribe(model.store)
         assertEquals(PhaseUi.Failed, screen.states.value.phase)
 

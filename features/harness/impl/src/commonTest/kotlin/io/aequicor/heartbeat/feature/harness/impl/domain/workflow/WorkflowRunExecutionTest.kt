@@ -327,7 +327,7 @@ private class ExecutionFixture(private val dispatcher: CoroutineDispatcher) {
         val run = workflow.initial.copy(steps = listOf(step), cancellation = cancellation)
         check(workflow.storage.save(run, null))
         organisms.grants.acquire(WorkflowOrganismGrant(run.id, run.harness, step.key, DIGEST, null, ORGANISM))
-        organisms.host.views[ORGANISM] = OrganismView.Developing
+        organisms.host.views[ORGANISM] = OrganismView.Developing()
         return run
     }
 

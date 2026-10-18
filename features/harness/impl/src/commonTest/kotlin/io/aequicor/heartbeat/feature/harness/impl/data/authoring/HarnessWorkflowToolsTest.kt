@@ -9,6 +9,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -17,8 +21,10 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismPermission
 import io.aequicor.heartbeat.feature.harness.api.workflow.PinnedWorkflow
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
+import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrigin
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
@@ -78,6 +84,23 @@ class HarnessWorkflowToolsTest {
         assertTrue(foreign.isError)
         assertTrue(!foreign.text.contains("done"))
         assertTrue(tools.execute(context(dispatchSession), HarnessTools.WORKFLOW_STATUS, runArgument("../x")).isError)
+    }
+
+    @Test
+    fun `status tells a running run waits for the user without revealing what organism cells ask`() = runTest {
+        val request = PermissionRequest(
+            PermissionRequestId("req"),
+            TurnId("turn"),
+            "private command?",
+            listOf(PermissionOption(PermissionOptionId("allow"), "Allow")),
+        )
+        val asking = OrganismPermission(StepKey("s0"), "c1", "Builder", request)
+        runs.state.value = HarnessRunsState.Ready(
+            listOf(run.copy(status = WorkflowStatus.Running, finishedAt = null, organismRequests = listOf(asking))),
+        )
+        val status = tools.execute(context(dispatchSession), HarnessTools.WORKFLOW_STATUS, runArgument("wf_1"))
+        assertTrue("Organism cells await 1 permission decisions" in status.text, status.text)
+        assertTrue(listOf("private", "Builder", "c1", "req", "turn").none { it in status.text }, status.text)
     }
 
     @Test

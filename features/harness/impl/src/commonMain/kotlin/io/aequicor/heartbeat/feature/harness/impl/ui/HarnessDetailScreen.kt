@@ -326,6 +326,7 @@ private fun RunsSection(
                         }
                     }
                 }
+                run.requests.forEach { request -> key(request.key) { RunRequestCard(request, onIntent) } }
             }
         }
     }

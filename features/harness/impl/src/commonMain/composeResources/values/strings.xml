@@ -56,6 +56,7 @@
     <string name="harness_run_steps">Steps done: %1$d</string>
     <string name="harness_run_waiting">Decisions pending: %1$d</string>
     <string name="harness_run_cancel">Cancel</string>
+    <string name="harness_run_request_cell">Organism cell “%1$s” asks</string>
     <string name="harness_run_status_running">Running</string>
     <string name="harness_run_status_cancelling">Cancelling</string>
     <string name="harness_run_status_completed">Completed</string>
@@ -91,4 +92,6 @@
     <string name="harness_hosted_section">Heartbeat tools</string>
     <string name="harness_hosted_hint">A harness can only turn these tools off.</string>
     <string name="harness_tool_available">Allow %1$s</string>
+    <string name="harness_pending_requests">Waiting: %1$d</string>
+    <string name="harness_run_request_choices">Select %1$d–%2$d options. Selected: %3$d.</string>
 </resources>

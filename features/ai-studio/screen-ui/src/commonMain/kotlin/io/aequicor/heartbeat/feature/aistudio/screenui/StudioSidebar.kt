@@ -77,6 +77,7 @@ internal fun StudioSidebar(
     isDrawer: Boolean = false,
     appUpdate: AppUpdateUi? = null,
     safetyReviews: SafetyReviewsUi? = null,
+    harnessAwaitingPermissions: Int = 0,
 ) {
     val sidebar = input.sidebar
     val content = remember(input.projects, input.sessions, input.running, input.awaitingPermission, sidebar) {
@@ -96,6 +97,8 @@ internal fun StudioSidebar(
         SidebarHeader(
             appUpdate = appUpdate,
             safetyReviews = safetyReviews,
+            harnessAwaitingPermissions = harnessAwaitingPermissions,
+            onOpenHarnessRequests = exits.onOpenHarnessRequests,
             isAgentRunning = isAgentRunning,
             onUpdate = { onIntent(StudioIntent.InstallAppUpdate) },
             onNew = { onIntent(StudioIntent.NewSession(input.newSessionProjectId)) },
@@ -135,6 +138,8 @@ internal fun StudioSidebar(
 private fun SidebarHeader(
     appUpdate: AppUpdateUi?,
     safetyReviews: SafetyReviewsUi?,
+    harnessAwaitingPermissions: Int,
+    onOpenHarnessRequests: (() -> Unit)?,
     isAgentRunning: Boolean,
     onUpdate: () -> Unit,
     onNew: () -> Unit,
@@ -162,6 +167,9 @@ private fun SidebarHeader(
                     },
                     maxLines = 1,
                 )
+                if (harnessAwaitingPermissions > 0 && onOpenHarnessRequests != null) {
+                    HarnessRequestsIndicator(harnessAwaitingPermissions, onOpenHarnessRequests)
+                }
                 safetyReviews?.let { SafetyReviewsIndicator(it) }
                 appUpdate?.let { update -> AppUpdateButton(update, isAgentRunning, onUpdate) }
             }

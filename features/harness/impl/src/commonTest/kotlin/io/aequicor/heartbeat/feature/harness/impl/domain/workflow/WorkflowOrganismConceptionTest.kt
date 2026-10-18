@@ -87,7 +87,7 @@ class WorkflowOrganismConceptionTest {
             WorkflowStep(StepKey("s0"), fixture.digest, organism = organismOf("s0")),
         )
         val host = fixture.organisms.host
-        host.views[organismOf("s0")] = OrganismView.Developing
+        host.views[organismOf("s0")] = OrganismView.Developing()
         host.isAwake = false
         val restored = async { fixture.execute() }
         advanceTimeBy(ORGANISM_POLL_INTERVAL * (ORGANISM_UNAVAILABLE_POLLS + 2))

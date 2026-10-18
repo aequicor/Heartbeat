@@ -234,6 +234,13 @@ class AiStudioModel(
                     }
                 }
                 launch { harnessSelection.observe(pipeline) }
+                if (host == StudioScreenHost.Window) {
+                    launch {
+                        harnesses.awaitingPermissions.collect { count ->
+                            updateState { copy(harnessAwaitingPermissions = count) }
+                        }
+                    }
+                }
                 launch {
                     surfaceBinding.observe(pipeline) { paneId, isCurrent ->
                         submitStudioDraft(pipeline, machine, harnesses, paneId, isCurrent = isCurrent)

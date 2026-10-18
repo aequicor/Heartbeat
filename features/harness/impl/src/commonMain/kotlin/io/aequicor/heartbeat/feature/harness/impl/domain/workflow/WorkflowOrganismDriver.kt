@@ -1,10 +1,14 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOutcome
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismPermission
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismRefusal
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
@@ -31,6 +35,10 @@ import kotlinx.coroutines.withContext
  * returned only after organic AI shows the organism's work ended, which for an abort means its sessions were
  * released; a revoked driver leaves the organism running for the next owner, which reconciles it. The business
  * meaning of an answer is the workflow's to judge.
+ *
+ * An organism has no chat, so its cells ask the user through the runs view: this lane shows what they ask and, being
+ * the only one that addresses the organism, sends each of the user's answers to the cell that asked. Neither the
+ * organism nor the requests' texts ever reach the workflow's author, the log or another session.
  */
 internal class WorkflowOrganismDriver(
     private val run: WorkflowRun,
@@ -39,6 +47,7 @@ internal class WorkflowOrganismDriver(
     private val workspace: WorkspaceRef?,
     private val isAdmitted: suspend () -> Boolean,
     private val driver: Job? = null,
+    private val requests: WorkflowOrganismRequests = WorkflowOrganismRequests {},
 ) : WorkflowOrganismSteps {
     private val log = Log.tag("HarnessWorkflow")
     private val resources = ports.resources
@@ -63,7 +72,10 @@ internal class WorkflowOrganismDriver(
         try {
             conclude(current, organism, goal, options, canRefuseUnavailable = step == null)
         } finally {
-            withContext(NonCancellable) { settle(grant, owner) }
+            withContext(NonCancellable) {
+                hide(key)
+                settle(grant, owner)
+            }
         }
     }
 
@@ -91,9 +103,15 @@ internal class WorkflowOrganismDriver(
         var step = first
         var unavailablePolls = 0
         var answerPolls = 0
+        val answered = mutableMapOf<AskedRequest, Int>()
         while (true) {
             admitted()
-            val outcome = when (val view = host.view(organism)) {
+            val view = host.view(organism)
+            if (view !is OrganismView.Developing) {
+                answered.clear()
+                requests.show(step.key, emptyList())
+            }
+            val outcome = when (view) {
                 OrganismView.Unavailable -> if (canRefuseUnavailable) refusalAfter(step, ++unavailablePolls) else null
 
                 OrganismView.Absent -> if (step.phase == StepPhase.Prepared) {
@@ -104,8 +122,9 @@ internal class WorkflowOrganismDriver(
                     OrganismOutcome.Ended(OrganismEnd.Failed)
                 }
 
-                OrganismView.Developing -> {
+                is OrganismView.Developing -> {
                     step = running(step)
+                    relay(organism, step.key, view.requests, answered)
                     null
                 }
 
@@ -151,6 +170,48 @@ internal class WorkflowOrganismDriver(
                 host.abort(organism)
             }
             null
+        }
+    }
+
+    /**
+     * Gives the user's queued answers to the cells that asked and shows the rest. An answer reaches only a cell that
+     * still asks for exactly that. An accepted intent is not a delivery receipt: its asynchronous Respond may fail.
+     * Hide the request briefly against double clicks, then offer a still-live request again for an explicit user
+     * retry. Never resend automatically. Unaccepted answers stay shown; disappeared requests lose suppression.
+     */
+    private suspend fun relay(
+        organism: WorkflowOrganism,
+        key: StepKey,
+        asking: List<OrganismCellRequest>,
+        answered: MutableMap<AskedRequest, Int>,
+    ) {
+        val live = asking.mapTo(mutableSetOf()) { it.asked() }
+        val pending = answered.iterator()
+        while (pending.hasNext()) {
+            val entry = pending.next()
+            if (entry.key !in live || entry.value <= 1) pending.remove() else entry.setValue(entry.value - 1)
+        }
+        for (answer in requests.take(key)) {
+            val target = asking.firstOrNull { it.cell == answer.cell && it.request.accepts(answer.decision) }
+            if (target == null || target.asked() in answered) continue
+            admitted()
+            if (host.decide(organism, answer.cell, answer.decision)) {
+                answered[target.asked()] = ORGANISM_ANSWER_RETRY_POLLS
+                log.i { "Workflow organism cell answer submitted" }
+            }
+        }
+        val open = asking.filter { it.asked() !in answered }
+        requests.show(key, open.map { OrganismPermission(key, it.cell, it.name, it.request) })
+    }
+
+    /** The user's view of the step is cleared with the lane; a failure to publish never hides the real outcome. */
+    private suspend fun hide(key: StepKey) {
+        try {
+            requests.show(key, emptyList())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(harnessScriptFailure(error)) { "Workflow organism requests could not be cleared" }
         }
     }
 
@@ -219,3 +280,11 @@ internal class WorkflowOrganismDriver(
         throw WorkflowExecutionUnavailable()
     }
 }
+
+/** Five seconds of observed development; only suppresses clicks and never authorizes another response. */
+internal const val ORGANISM_ANSWER_RETRY_POLLS = 20
+
+/** A request as the lane tells it apart from others: the cell that asked and the turn's own request. */
+private data class AskedRequest(val cell: String, val request: PermissionRequestId, val turn: TurnId)
+
+private fun OrganismCellRequest.asked() = AskedRequest(cell, request.id, request.turn)

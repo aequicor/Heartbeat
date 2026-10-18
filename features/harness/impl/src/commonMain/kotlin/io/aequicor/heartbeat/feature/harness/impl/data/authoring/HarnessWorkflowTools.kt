@@ -272,6 +272,9 @@ internal class HarnessWorkflowTools(
             append(run.steps.size - done - failed).append(" in progress")
             val waiting = run.awaiting.values.sumOf { it.size }
             if (waiting > 0) append("\nHelpers await ").append(waiting).append(" permission decisions of the user")
+            // Only the count: the requests belong to the user, and the organism is never named to the workflow.
+            val asking = run.organismRequests.size
+            if (asking > 0) append("\nOrganism cells await ").append(asking).append(" permission decisions of the user")
             (run.status as? WorkflowStatus.Completed)?.let { append("\nResult: ").append(it.result.toString()) }
         }
         return AgentToolResult(text)

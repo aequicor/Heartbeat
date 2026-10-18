@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.presentation
 
 import androidx.compose.runtime.Immutable
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 /** Loading progress shared by the harness screens; NotFound means the addressed harness or item is gone. */
 internal enum class PhaseUi { Loading, Failed, NotFound, Ready }
@@ -21,6 +22,7 @@ internal data class HarnessRowUi(
     val itemCount: Int,
     val isEnabled: Boolean,
     val hasFailures: Boolean,
+    val awaitingPermissions: Int = 0,
 )
 
 /** One item row of a harness. */
@@ -49,6 +51,7 @@ internal data class RunUi(
     val status: RunStatusUi,
     val steps: Int,
     val awaitingPermissions: Int,
+    val requests: ImmutableList<RunRequestUi> = persistentListOf(),
 )
 
 /** One compiler message of the item editor; never logged. */

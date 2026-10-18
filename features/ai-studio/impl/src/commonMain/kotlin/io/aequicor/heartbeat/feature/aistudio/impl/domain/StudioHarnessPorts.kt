@@ -35,6 +35,9 @@ data class StudioHarnessChoices(
 interface StudioHarnesses {
     val choices: Flow<StudioHarnessChoices>
 
+    /** Live organism requests across the profile, without texts or identities; zero when unavailable. */
+    val awaitingPermissions: Flow<Int> get() = flowOf(0)
+
     /** Retries the initial library load without changing the draft. */
     suspend fun reload(): Boolean = false
 

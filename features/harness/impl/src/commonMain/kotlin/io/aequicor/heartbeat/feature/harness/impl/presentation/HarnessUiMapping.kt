@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.serialization.json.Json
 
 internal fun HarnessState.phase(): PhaseUi = when (this) {
@@ -85,7 +86,8 @@ internal fun WorkflowRun.toUi(workflowName: String): RunUi = RunUi(
             if (current.reason == WorkflowFailure.Cancelled) RunStatusUi.Cancelled else RunStatusUi.Failed
     },
     steps = steps.count { it.phase == StepPhase.Completed },
-    awaitingPermissions = awaiting.values.sumOf { it.size },
+    awaitingPermissions = awaiting.values.sumOf { it.size } + organismRequests.size,
+    requests = organismRequests.map { it.toUi(id) }.toImmutableList(),
 )
 
 private const val SESSION_SUFFIX = 8

@@ -27,12 +27,15 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
+import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsMachineKey
+import io.aequicor.heartbeat.feature.harness.api.workflow.organismPermissionCounts
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -83,6 +86,16 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
             flowOf(StudioHarnessChoices())
         }
     }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override val awaitingPermissions: Flow<Int> = toggles.observe(HarnessEnabled).flatMapLatest { isEnabled ->
+        if (isEnabled) {
+            machines.observe(HarnessRunsMachineKey).flatMapLatest { it?.state ?: flowOf(null) }
+                .map { it?.organismPermissionCounts()?.values?.sum() ?: 0 }
+        } else {
+            flowOf(0)
+        }
+    }.distinctUntilChanged()
 
     private fun studioChoices(state: HarnessState?): StudioHarnessChoices {
         val ready = (state as? HarnessState.Ready)?.takeUnless { it.isSuspended }

@@ -48,8 +48,7 @@ internal fun RunsTransitions.workflowProgress() {
                 checkNotNull(state.current(intent.run, intent.generation - 1)).copy(
                     attempt = intent.attempt,
                     driverGeneration = intent.generation,
-                    awaiting = emptyMap(),
-                ),
+                ).withoutLiveRequests(),
             )
         }
         effect {
@@ -58,8 +57,7 @@ internal fun RunsTransitions.workflowProgress() {
                     checkNotNull(state.current(intent.run, intent.generation - 1)).copy(
                         attempt = intent.attempt,
                         driverGeneration = intent.generation,
-                        awaiting = emptyMap(),
-                    ),
+                    ).withoutLiveRequests(),
                 ),
             )
         }
@@ -74,7 +72,7 @@ internal fun RunsTransitions.workflowCompletion() {
         stay {
             state.copy(
                 runs = state.runs.map {
-                    if (it.id == intent.run.id) intent.run.copy(awaiting = emptyMap()) else it
+                    if (it.id == intent.run.id) intent.run.withoutLiveRequests() else it
                 }.retained(checkNotNull(intent.run.finishedAt)),
             )
         }

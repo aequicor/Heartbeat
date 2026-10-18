@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
+import io.aequicor.heartbeat.feature.harness.api.workflow.withoutLiveRequests
 import io.aequicor.heartbeat.feature.harness.impl.data.HarnessKeyValueJournal
 import io.aequicor.heartbeat.feature.harness.impl.data.HarnessRawValue
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
@@ -84,7 +85,7 @@ internal class KeyValueHarnessRunStorage(
         log.v { "save harness storage" }
         journal.recover()
         val index = readIndex()
-        val durable = run.copy(awaiting = emptyMap())
+        val durable = run.withoutLiveRequests()
         val header = index.value.entries.singleOrNull { it.id == durable.id }
         val existingText = header?.let { readRun(it) }
         val existing = if (header != null && existingText != null) decodeRun(existingText, header) else null
@@ -123,7 +124,7 @@ internal class KeyValueHarnessRunStorage(
         val index = readIndex()
         val header = index.value.entries.singleOrNull { it.id == run.id } ?: return@access true
         val text = readRun(header) ?: return@access false
-        if (decodeRun(text, header) != run.copy(awaiting = emptyMap())) return@access false
+        if (decodeRun(text, header) != run.withoutLiveRequests()) return@access false
         commit(index, index.value.entries.filterNot { it.id == run.id }, mapOf(run.id to text), emptyMap())
         true
     }

@@ -1,11 +1,13 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrganism
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageConflict
+import kotlinx.coroutines.flow.MutableStateFlow
 import okio.ByteString.Companion.encodeUtf8
 
 /** Organic AI as a script: awake or asleep, with the views and conceptions the test sets. */
@@ -22,6 +24,13 @@ internal class FakeOrganismHost : OrganismHost {
     val conceived = mutableListOf<Pair<WorkflowOrganism, String>>()
     val aborted = mutableListOf<WorkflowOrganism>()
 
+    /** Whether organic AI takes an answer to a cell; false models a machine that no longer waits for it. */
+    var isDecisionAccepted = true
+    val decided = mutableListOf<Triple<WorkflowOrganism, String, PermissionDecision>>()
+
+    /** How many answers organic AI was offered, for tests that wait on a lane running in real time. */
+    val decisions = MutableStateFlow(0)
+
     override suspend fun view(organism: WorkflowOrganism): OrganismView =
         if (isAwake) views[organism] ?: OrganismView.Absent else OrganismView.Unavailable
 
@@ -33,8 +42,14 @@ internal class FakeOrganismHost : OrganismHost {
     ): OrganismConception {
         if (!isAwake) return OrganismConception.Unavailable
         conceived += organism to goal
-        if (conception == OrganismConception.Accepted && organism !in views) views[organism] = OrganismView.Developing
+        if (conception == OrganismConception.Accepted && organism !in views) views[organism] = OrganismView.Developing()
         return conception
+    }
+
+    override suspend fun decide(organism: WorkflowOrganism, cell: String, decision: PermissionDecision): Boolean {
+        decided += Triple(organism, cell, decision)
+        decisions.value = decided.size
+        return isAwake && isDecisionAccepted
     }
 
     override suspend fun abort(organism: WorkflowOrganism) {

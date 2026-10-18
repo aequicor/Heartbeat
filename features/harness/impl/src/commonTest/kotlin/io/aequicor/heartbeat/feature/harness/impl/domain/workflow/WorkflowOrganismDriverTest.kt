@@ -76,7 +76,7 @@ class WorkflowOrganismDriverTest {
     @Test
     fun `a restored step whose conception was accepted is not conceived again`() = runTest {
         val fixture = OrganismFixture()
-        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Developing
+        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Developing()
         val digest = TestDigest(Json.encodeToString(listOf<String?>("organism", "Ship it", "Stage", null, null)))
         fixture.workflow.journal().record(WorkflowStep(StepKey("s0"), digest, organism = organismOf("s0")))
         val running = async { fixture.engine().execute(definition) }
