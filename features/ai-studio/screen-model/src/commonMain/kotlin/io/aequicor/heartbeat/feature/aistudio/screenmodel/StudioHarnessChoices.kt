@@ -38,7 +38,8 @@ fun AiStudioScreenState.availableHarnesses(pane: PaneUi): List<HarnessOptionUi> 
 /**
  * Existing chats use only committed connections. Untouched new panes follow available defaults, including a library
  * loaded after the pane opened. The first manual edit freezes the complete selection, including no harnesses.
- * Organisms create their sessions outside the studio turn host and therefore do not receive these defaults.
+ * Organisms create their sessions outside the studio turn host and therefore do not receive these defaults; they
+ * carry only a selection made by hand, which reaches every working cell of the organism.
  */
 fun AiStudioScreenState.selectedHarnesses(pane: PaneUi): Set<String> {
     if (pane.sessionId != null) return harnessChoices.chats[pane.sessionId].orEmpty()
