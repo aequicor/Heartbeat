@@ -69,8 +69,9 @@ internal class StudioHelperNative(
         val turn = active.state.value.lastCompletedTurn()?.takeIf {
             it.request == request && active.state.value.isTerminalFor(it.id) && it.outcome != null
         } ?: return@evidence null
-        tools.finishTurn(active.ref, turn.id)
         val settled = confirmed(record, request, turn.id, checkNotNull(turn.outcome)) ?: return@evidence null
+        // Cleanup publishes turn_finished. An unconfirmed poll must not wake its own result observer.
+        tools.finishTurn(active.ref, turn.id)
         terminal(active.ref, turn.id, settled, read(active.features.requireFeature(SessionHistory)))
     }
 

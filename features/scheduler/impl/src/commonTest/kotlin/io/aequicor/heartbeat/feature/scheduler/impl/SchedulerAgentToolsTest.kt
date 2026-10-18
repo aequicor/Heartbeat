@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
+import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
@@ -23,6 +24,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEvents
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
@@ -38,6 +40,7 @@ import io.aequicor.heartbeat.feature.scheduler.impl.data.WakeScheduler
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -57,7 +60,7 @@ import kotlin.time.Duration.Companion.seconds
 class SchedulerAgentToolsTest {
     private val context = AgentToolContext(SESSION, null, TurnId("t1"), RequestId("request"), target = TARGET)
 
-    private class Fixture(val machine: SpecMachine, val bus: InMemorySchedulerBus, val tools: SchedulerAgentTools)
+    private class Fixture(val machine: SpecMachine, val bus: SchedulerBus, val tools: SchedulerAgentTools)
 
     private fun TestScope.fixture(
         state: SchedulerState = SchedulerState.Ready(),
@@ -65,23 +68,24 @@ class SchedulerAgentToolsTest {
         network: FakeNetwork = FakeNetwork(),
         hosts: Set<ScheduledSessionHost> = setOf(FakeHost(priority = 1, owned = setOf(SESSION))),
         helpers: Set<SessionRef> = emptySet(),
+        bus: SchedulerBus? = null,
     ): Fixture {
         val clock = VirtualClock(testScheduler)
         val machine = SpecMachine(state)
         val persistence = SchedulerPersistence(MemoryWakeStorage((state as? SchedulerState.Ready)?.wakes.orEmpty()))
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { persistence.load() }
         persistEffects(machine, persistence)
-        val bus = InMemorySchedulerBus(clock)
+        val eventBus = bus ?: InMemorySchedulerBus(clock)
         val tools = SchedulerAgentTools(
             machine,
             WakeScheduler(machine, lazyOf(hosts), persistence),
-            bus,
+            eventBus,
             toggles,
             clock,
             network,
             lazyOf(MarkedHelpers(helpers)),
         )
-        return Fixture(machine, bus, tools)
+        return Fixture(machine, eventBus, tools)
     }
 
     private suspend fun Fixture.call(name: String, vararg arguments: Pair<String, Any>): AgentToolResult =
@@ -250,6 +254,47 @@ class SchedulerAgentToolsTest {
         val request = RequestId("accepted")
         fixture.tools.finishTurn(SESSION, TurnId("turn"), request)
         assertEquals(EventOrigin.Session(SESSION, request), event.await().origin)
+    }
+
+    @Test
+    fun `reconciliation cleanup of an already finished turn cannot wake observers repeatedly`() = runTest {
+        val fixture = fixture()
+        val events = mutableListOf<BusEvent>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
+        val request = RequestId("first")
+        fixture.tools.finishTurn(SESSION, TurnId("first"), request)
+        fixture.tools.finishTurn(SESSION, TurnId("second"), RequestId("second"))
+        repeat(3) { fixture.tools.finishTurn(SESSION, TurnId("first"), request) }
+        fixture.tools.finishTurn(OTHER, TurnId("first"), request)
+        runCurrent()
+        assertEquals(
+            listOf(
+                EventOrigin.Session(SESSION, request),
+                EventOrigin.Session(SESSION, RequestId("second")),
+                EventOrigin.Session(OTHER, request),
+            ),
+            events.map { it.origin },
+        )
+    }
+
+    @Test
+    fun `timed out turn notification remains retryable without duplicating a successful publication`() = runTest {
+        val delegate = InMemorySchedulerBus(VirtualClock(testScheduler))
+        var calls = 0
+        val bus = object : SchedulerBus by delegate {
+            override suspend fun publish(key: EventKey, origin: EventOrigin, payload: String?): BusEvent {
+                calls++
+                if (calls == 1) awaitCancellation()
+                return delegate.publish(key, origin, payload)
+            }
+        }
+        val fixture = fixture(bus = bus)
+        val events = mutableListOf<BusEvent>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { bus.events.toList(events) }
+        repeat(3) { fixture.tools.finishTurn(SESSION, TurnId("turn"), context.request) }
+        runCurrent()
+        assertEquals(2, calls)
+        assertEquals(listOf(EventOrigin.Session(SESSION, context.request)), events.map { it.origin })
     }
 }
 

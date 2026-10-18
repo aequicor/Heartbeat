@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
@@ -55,6 +56,18 @@ import kotlin.test.assertNull
 import kotlin.time.Instant
 
 class StudioHelperNativeTest {
+    @Test
+    fun `unconfirmed terminal polling never publishes turn cleanup that wakes its own observer`() = runTest {
+        val fixture = NativeHelperFixture()
+        repeat(3) {
+            assertNull(fixture.native.result(fixture.record, fixture.turn.request!!) { fixture })
+        }
+        assertEquals(0, fixture.finished)
+        fixture.stop = OwnedTurnStop.Confirmed(fixture.turn)
+        assertEquals(fixture.turn.id, fixture.native.result(fixture.record, fixture.turn.request!!) { fixture }?.turn)
+        assertEquals(1, fixture.finished)
+    }
+
     @Test
     fun `restored terminal extracts only its marked answer and ignores a later unrelated message`() = runTest {
         val fixture = NativeHelperFixture()
@@ -186,6 +199,7 @@ internal class NativeHelperFixture :
     var supportsStop = true
     var stop: OwnedTurnStop = OwnedTurnStop.Unconfirmed
     var stopped: List<Any?>? = null
+    var finished = 0
     val record = StudioChatRecord(
         "helper",
         "Helper",
@@ -213,7 +227,17 @@ internal class NativeHelperFixture :
         override val models: ModelCatalog get() = error("No model discovery")
         override val providerUsage: ProviderUsageCatalog get() = error("No usage discovery")
     }
-    val native = StudioHelperNative(facade, NoAgentTools, attempts)
+    val native = StudioHelperNative(
+        facade,
+        object : ProfileAgentTools by NoAgentTools {
+            override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
+                assertEquals(ref, session)
+                assertEquals(this@NativeHelperFixture.turn.id, turn)
+                finished++
+            }
+        },
+        attempts,
+    )
 
     suspend fun prepare() {
         val helper = HelperId(record.id)

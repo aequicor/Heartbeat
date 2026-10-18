@@ -34,6 +34,8 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -45,7 +47,8 @@ import kotlin.time.Instant
 
 /**
  * The agent's side of the scheduler: sleep until an event or a deadline, publish a named signal, cancel and list own
- * wakes. Every finished turn publishes the session's `turn_finished` key, so other sessions can wait for it. All tools
+ * wakes. Each finished turn publishes the session's `turn_finished` key once per profile lifetime, even when
+ * reconciliation repeats hosted cleanup. Failed publications remain retryable. All tools
  * address only the calling session, never decoded from arguments. A helper never sleeps: its host owns waiting,
  * cancellation and recovery. Notes and payloads are never logged.
  */
@@ -71,6 +74,8 @@ internal class SchedulerAgentTools(
     ).toolCatalog()
 
     private val log = Log.tag("SchedulerAgentTools")
+    private val publication = Mutex()
+    private val publishedTurns = mutableSetOf<Pair<SessionRef, TurnId>>()
 
     override val isDetachedSupported: Boolean get() = true
 
@@ -100,10 +105,20 @@ internal class SchedulerAgentTools(
 
     override suspend fun finishTurn(session: SessionRef, turn: TurnId, request: RequestId?) {
         if (!toggles.get(SchedulerEnabled)) return
-        // Bounded: the bus only buffers, but a stuck collector must not hold the finished turn.
-        withTimeoutOrNull(PUBLISH_TIMEOUT) {
-            bus.publish(EventKeys.turnFinished(session), EventOrigin.Session(session, request))
-        } ?: log.w { "turn_finished of a session was not published in time" }
+        // Bound both the publication and its lock wait: a stuck collector must not hold other finished turns.
+        val isPublished = withTimeoutOrNull(PUBLISH_TIMEOUT) {
+            publication.withLock {
+                val key = session to turn
+                if (key !in publishedTurns) {
+                    bus.publish(EventKeys.turnFinished(session), EventOrigin.Session(session, request))
+                    publishedTurns.add(key)
+                }
+            }
+            true
+        } ?: false
+        if (!isPublished) {
+            log.w { "turn_finished of a session was not published in time" }
+        }
     }
 
     private suspend fun sleep(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
