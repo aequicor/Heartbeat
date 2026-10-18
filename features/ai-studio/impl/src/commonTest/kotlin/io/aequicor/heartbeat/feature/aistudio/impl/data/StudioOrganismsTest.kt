@@ -127,7 +127,7 @@ class StudioOrganismsTest {
         val machine = OrganicMachine(OrganicAiState.Living())
         var accepted = 0
         val organisms = StudioOrganisms(Registry(machine), selections, claims)
-        val outcome = organisms.submit(chat, "Build it", settings, emptyList()) { accepted++ }
+        val outcome = organisms.submit(chat, "Build it", settings, emptyList(), "") { accepted++ }
         assertEquals(RunOutcome.Completed, outcome)
         assertEquals(1, accepted)
         val expected = Conception(
@@ -141,11 +141,16 @@ class StudioOrganismsTest {
     }
 
     @Test
-    fun `the harnesses claimed by the first submission are recorded in the conception and released`() = runTest {
+    fun `the harnesses claimed at creation stay with the chat and are recorded in the conception`() = runTest {
         claims.claimed["send-1"] = setOf("compose", "verify")
         val machine = OrganicMachine(OrganicAiState.Living())
         val organisms = StudioOrganisms(Registry(machine), selections, claims)
-        organisms.submit(chat, "Build it", settings, emptyList(), "send-1") {}
+        val admission = organisms.admit("chat-1", OrganismRequest("Build it", settings, "send-1"), isWorktree = false)
+        assertEquals(OrganismAdmission("chat-1", setOf("compose", "verify")), admission)
+        assertEquals(setOf("send-1"), claims.claimed.keys)
+
+        val created = chat.copy(organismHarnesses = admission.harnesses)
+        organisms.submit(created, "Build it", settings, emptyList(), "send-1") {}
         val conception = (machine.sent.single() as OrganicAiIntent.Public.Conceive).conception
         assertEquals(setOf("compose", "verify"), conception.harnesses)
         assertEquals(listOf("send-1"), claims.released)
@@ -153,17 +158,46 @@ class StudioOrganismsTest {
     }
 
     @Test
+    fun `a conception the machine did not take keeps the choice for the next submission`() = runTest {
+        val chosen = setOf("compose", "verify")
+        val created = chat.copy(organismHarnesses = chosen)
+        val refusing = OrganicMachine(OrganicAiState.Living()).apply { result = SendResult.Ignored }
+        val organisms = StudioOrganisms(Registry(refusing), selections, claims)
+        assertFailsWith<IllegalStateException> {
+            organisms.submit(created, "Build", settings, emptyList(), "send-1") {}
+        }
+
+        val taking = OrganicMachine(OrganicAiState.Living())
+        StudioOrganisms(Registry(taking), selections, claims).submit(created, "Build", settings, emptyList(), "") {}
+        assertEquals(chosen, (taking.sent.single() as OrganicAiIntent.Public.Conceive).conception.harnesses)
+    }
+
+    @Test
     fun `a claim made for another submission or none reaches no organism`() = runTest {
         claims.claimed["other"] = setOf("compose")
+        val organisms = StudioOrganisms(Registry(OrganicMachine(OrganicAiState.Living())), selections, claims)
+        val other = OrganismRequest("Build", settings, "send-1")
+        assertEquals(emptySet(), organisms.admit("chat-1", other, isWorktree = false).harnesses)
+        val unnamed = OrganismRequest("Build", settings)
+        assertEquals(emptySet(), organisms.admit("chat-1", unnamed, isWorktree = false).harnesses)
         val machine = OrganicMachine(OrganicAiState.Living())
-        val organisms = StudioOrganisms(Registry(machine), selections, claims)
-        organisms.submit(chat, "Build it", settings, emptyList(), "send-1") {}
+        val conceiving = StudioOrganisms(Registry(machine), selections, claims)
+        conceiving.submit(chat, "Build it", settings, emptyList(), "send-1") {}
         assertEquals(emptySet(), (machine.sent.single() as OrganicAiIntent.Public.Conceive).conception.harnesses)
         assertEquals(listOf("send-1"), claims.released)
-        val unnamed = OrganicMachine(OrganicAiState.Living())
-        StudioOrganisms(Registry(unnamed), selections, claims).submit(chat, "Build it", settings, emptyList()) {}
-        assertEquals(emptySet(), (unnamed.sent.single() as OrganicAiIntent.Public.Conceive).conception.harnesses)
-        assertEquals(listOf("send-1"), claims.released)
+    }
+
+    @Test
+    fun `a choice larger than an organism holds is refused before the chat exists`() = runTest {
+        val many = (1..MAX_HARNESSES + 1).mapTo(mutableSetOf()) { "h$it" }
+        claims.claimed["send-1"] = many
+        val organisms = StudioOrganisms(Registry(OrganicMachine(OrganicAiState.Living())), selections, claims)
+        assertFailsWith<IllegalArgumentException> {
+            organisms.admit("chat-1", OrganismRequest("Build", settings, "send-1"), isWorktree = false)
+        }
+        claims.claimed["send-2"] = many.take(MAX_HARNESSES).toSet()
+        val admission = organisms.admit("chat-1", OrganismRequest("Build", settings, "send-2"), isWorktree = false)
+        assertEquals(MAX_HARNESSES, admission.harnesses.size)
     }
 
     @Test
@@ -197,9 +231,9 @@ class StudioOrganismsTest {
     fun `an ordinary chat is not an organism and an organism retains its goal inputs`() = runTest {
         val machine = OrganicMachine(OrganicAiState.Living())
         val organisms = StudioOrganisms(Registry(machine), selections, claims)
-        assertNull(organisms.submit(chat.copy(organismId = null), "Hi", settings, emptyList()) {})
+        assertNull(organisms.submit(chat.copy(organismId = null), "Hi", settings, emptyList(), "") {})
         val files = listOf(ResourceRef("attachment:image", "image/png"))
-        assertEquals(RunOutcome.Completed, organisms.submit(chat, "", settings, files) {})
+        assertEquals(RunOutcome.Completed, organisms.submit(chat, "", settings, files, "") {})
         val conception = (machine.sent.single() as OrganicAiIntent.Public.Conceive).conception
         assertEquals(files, conception.attachments)
         assertEquals("", conception.goal)
@@ -210,7 +244,7 @@ class StudioOrganismsTest {
         val organisms = { machine: OrganicMachine? -> StudioOrganisms(Registry(machine), selections, claims) }
         val living = organisms(OrganicMachine(OrganicAiState.Living()))
         val request = OrganismRequest("Build", settings)
-        assertEquals("chat-2", living.admit("chat-2", request, isWorktree = false))
+        assertEquals(OrganismAdmission("chat-2", emptySet()), living.admit("chat-2", request, isWorktree = false))
         val long = request.copy(goal = "x".repeat(MAX_GOAL + 1))
         assertFailsWith<IllegalArgumentException> { living.admit("chat-2", long, isWorktree = false) }
         assertFailsWith<IllegalArgumentException> { living.admit("chat-2", request, isWorktree = true) }
@@ -226,7 +260,7 @@ class StudioOrganismsTest {
         val organisms = StudioOrganisms(Registry(machine), selections, claims)
         var accepted = false
         assertFailsWith<IllegalStateException> {
-            organisms.submit(chat, "More", settings, emptyList()) { accepted = true }
+            organisms.submit(chat, "More", settings, emptyList(), "") { accepted = true }
         }
         assertEquals(false, accepted)
         assertEquals(
@@ -242,7 +276,7 @@ class StudioOrganismsTest {
         val organisms = StudioOrganisms(Registry(machine), selections, claims)
         val inputs = listOf(ResourceRef("attachment:next", "image/png"))
         var accepted = 0
-        assertEquals(RunOutcome.Completed, organisms.submit(chat, "More", settings, inputs) { accepted++ })
+        assertEquals(RunOutcome.Completed, organisms.submit(chat, "More", settings, inputs, "") { accepted++ })
         assertEquals(1, accepted)
         assertEquals(
             listOf<OrganicAiIntent.Public>(OrganicAiIntent.Public.FollowUp(completed.id, "More", inputs)),
@@ -253,12 +287,14 @@ class StudioOrganismsTest {
     @Test
     fun `conception fails while organic AI is off broken or refuses`() = runTest {
         val organisms = { machine: OrganicMachine? -> StudioOrganisms(Registry(machine), selections, claims) }
-        assertFailsWith<IllegalStateException> { organisms(null).submit(chat, "Build", settings, emptyList()) {} }
+        assertFailsWith<IllegalStateException> { organisms(null).submit(chat, "Build", settings, emptyList(), "") {} }
         assertFailsWith<IllegalStateException> {
-            organisms(OrganicMachine(OrganicAiState.Broken)).submit(chat, "Build", settings, emptyList()) {}
+            organisms(OrganicMachine(OrganicAiState.Broken)).submit(chat, "Build", settings, emptyList(), "") {}
         }
         val refusing = OrganicMachine(OrganicAiState.Living()).apply { result = SendResult.Ignored }
-        assertFailsWith<IllegalStateException> { organisms(refusing).submit(chat, "Build", settings, emptyList()) {} }
+        assertFailsWith<IllegalStateException> {
+            organisms(refusing).submit(chat, "Build", settings, emptyList(), "") {}
+        }
     }
 
     @Test
@@ -598,6 +634,7 @@ private class ViewedFacade(
 }
 
 private val MAX_GOAL = OrganismBounds.MAX_GOAL
+private val MAX_HARNESSES = OrganismBounds.MAX_HARNESSES
 
 /** The smallest organism: a zygote alone. */
 private fun organism(id: String) = Organism(

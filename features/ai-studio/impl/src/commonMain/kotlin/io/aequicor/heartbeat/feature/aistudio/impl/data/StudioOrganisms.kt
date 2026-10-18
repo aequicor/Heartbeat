@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiOutput
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
+import io.aequicor.heartbeat.feature.organicai.api.isValidHarnessChoice
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -31,8 +32,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * organism never need a separate link. The chat is saved first and its organism conceived by its first prompt, so an
  * organism never lives without a chat to show and stop it; a chat whose organism is not in view takes its goal again.
  * The machine runs only while organic AI is on in the profile. The harnesses the user picked in the composer of a new
- * organism chat travel with its first submission as a claim; conception copies them into the organism, which gives
- * them to every working cell, and the claim is released whatever the outcome.
+ * organism chat travel with its creation as a claim and stay with the chat; conception copies them into the organism,
+ * which gives them to every working cell, and the claim is released with the first submission whatever its outcome.
  */
 @Inject
 internal class StudioOrganisms(
@@ -43,24 +44,29 @@ internal class StudioOrganisms(
     private val log = Log.tag("StudioOrganisms")
 
     /**
-     * The organism id of the new chat [chat] created for [request]: the chat's own id. Fails when its organism could
-     * not be conceived now: the goal is too long, no model is chosen, organic AI is off or asleep, or the chat runs
-     * in an isolated checkout, which organism turns bypass. Asked before the chat is saved.
+     * The organism id of the new chat [chat] created for [request]: the chat's own id, with the harness choice the
+     * user made for it, which the chat keeps so that a conception the machine did not take can be tried again
+     * without losing it. Fails when its organism could not be conceived now: the goal is too long, the choice is
+     * more than an organism holds, no model is chosen, organic AI is off or asleep, or the chat runs in an isolated
+     * checkout, which organism turns bypass. Asked before the chat is saved.
      */
-    suspend fun admit(chat: String, request: OrganismRequest, isWorktree: Boolean): String {
+    suspend fun admit(chat: String, request: OrganismRequest, isWorktree: Boolean): OrganismAdmission {
         require(!isWorktree) { "An organism does not run in an isolated checkout" }
         require(request.goal.length <= OrganismBounds.MAX_GOAL) { "The goal is too long for an organism" }
+        // The user's own pick for this submission, never text of the prompt: only the claim proves its origin.
+        val chosen = harnesses.preselected(request.submissionId)[HarnessTools.GROUP].orEmpty()
+        require(isValidHarnessChoice(chosen)) { "The harness choice is more than an organism can hold" }
         target(request.settings.modelId, stored = null)
         living()
-        return chat
+        return OrganismAdmission(chat, chosen)
     }
 
     /**
      * Conceives the organism of [chat] from its first message, or submits a follow-up to its completed zygote.
      * The chat never gets a native session of its own. Null for an ordinary chat. The machine owns acceptance;
      * rejected messages keep the caller's draft. Each turn retains its own [attachments] through recovery.
-     * The composer's harness choice claimed under [submissionId] reaches only a new organism; a follow-up changes
-     * nothing. The claim of an organism chat is released here, whether or not the organism was conceived.
+     * A new organism takes the harness choice its chat was created with; a follow-up changes nothing. The claim of
+     * [submissionId] is released here, whether or not the organism was conceived.
      * Fails when organic AI is off/asleep, the organism is busy/aborted, or input is invalid.
      */
     suspend fun submit(
@@ -68,12 +74,12 @@ internal class StudioOrganisms(
         goal: String,
         settings: RunSettings,
         attachments: List<ResourceRef>,
-        submissionId: String = "",
+        submissionId: String,
         onAccepted: suspend () -> Unit,
     ): RunOutcome? {
         if (chat.organismId == null) return null
         try {
-            return conceiveOrContinue(chat, goal, settings, attachments, submissionId, onAccepted)
+            return conceiveOrContinue(chat, goal, settings, attachments, onAccepted)
         } finally {
             if (submissionId.isNotEmpty()) harnesses.release(submissionId)
         }
@@ -84,7 +90,6 @@ internal class StudioOrganisms(
         goal: String,
         settings: RunSettings,
         attachments: List<ResourceRef>,
-        submissionId: String,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         val machine = living()
@@ -104,8 +109,7 @@ internal class StudioOrganisms(
             workspace = chat.executionWorkspace ?: chat.projectId?.let(::WorkspaceRef),
             trust = settings.approval.toTrust(),
             attachments = attachments,
-            // The user's own pick for this submission, never text of the prompt: only the claim proves its origin.
-            harnesses = harnesses.preselected(submissionId)[HarnessTools.GROUP].orEmpty(),
+            harnesses = chat.organismHarnesses,
         )
         val result = machine.send(OrganicAiIntent.Public.Conceive(conception))
         log.i { "organism ${conception.id.value} conception: $result harnesses=${conception.harnesses.size}" }
@@ -138,6 +142,12 @@ internal class StudioOrganisms(
     private companion object {
         const val WAIT_MILLIS = 30_000L
     }
+}
+
+/** The new organism chat [id] with the harnesses its user chose for it. */
+internal data class OrganismAdmission(val id: String, val harnesses: Set<String>) {
+    /** [chat] as the chat of this organism, keeping the choice for every attempt to conceive it. */
+    fun on(chat: StudioChatRecord): StudioChatRecord = chat.copy(organismId = id, organismHarnesses = harnesses)
 }
 
 private typealias OrganicMachineRef = MachineRef<OrganicAiState, OrganicAiIntent.Public, OrganicAiOutput>
