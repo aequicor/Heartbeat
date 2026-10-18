@@ -212,6 +212,18 @@ private val API = """
       deadline passed, then Resume(wait.number) or keep waiting). A kept attempt or wait stays listed, so never
       loop until the list is empty. Ended processes are removed with remove(id). Never log ids, results or journal
       entries.
+    - workflows.start(process.workflowKey(StageName("verify")), ItemName("verify"), input) reserves the process
+      attempt atomically before dispatch and returns the same RunId on an exact retry. Keep this key; a fresh
+      next-attempt key means new work. The key includes a process lifetime, so remove/open cannot reuse old keys.
+      Changed input, harness revision, script or project conflicts. After a crash before journalling, retry with
+      the original snapshot; unavailable state never proves the old executor is absent. workflows.get(key) returns
+      ScriptWorkflowState.Missing / Unavailable / Found(run, status, isCancellationRequested). Only the owning
+      approved script can read or cancel its run. workflows.cancel(key) returns Requested / Finished / Missing /
+      Unavailable: Requested still requires observation until native helpers and organisms have released resources.
+      Running and unclosed process attempts protect their journals from result retention; after Finish the normal
+      retention applies and a retired attempt cannot start again. Workflow completion is evidence, not business
+      success: the harness decides the matching ProcessCommand.Finish outcome. The old start(name, input) remains
+      available and intentionally starts a fresh run on each call. Keyed operations are forbidden from hooks.
     - sessions.list(), sessions.history(session) — only chats where this harness is active.
     - sessions.send(session, text) — a visible message to that chat (quota ${HarnessLimits.SENDS_PER_MINUTE}/min).
     - sessions.spawn(parent, title, prompt, adaptive = null) — a helper chat with Ask trust; adaptive picks its

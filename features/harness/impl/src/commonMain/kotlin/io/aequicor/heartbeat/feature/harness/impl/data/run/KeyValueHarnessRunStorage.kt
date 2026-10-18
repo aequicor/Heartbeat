@@ -128,6 +128,31 @@ internal class KeyValueHarnessRunStorage(
         true
     }
 
+    override suspend fun releaseProcess(id: RunId): Boolean = access {
+        log.v { "release process workflow retention" }
+        journal.recover()
+        val index = readIndex()
+        val header = index.value.entries.singleOrNull { it.id == id } ?: return@access true
+        if (!header.isProcessOwned) return@access true
+        val text = readRun(header) ?: return@access false
+        val run = decodeRun(text, header)
+        if (run.status == WorkflowStatus.Running) return@access false
+        val released = run.copy(isProcessReleased = true)
+        val headers = index.value.entries.map {
+            if (it.id == id) {
+                released.header().copy(
+                    isPublished = it.isPublished,
+                )
+            } else {
+                it
+            }
+        }
+        val retained = retainedHeaders(headers, clock.now())
+        val raw = readDropped(index, retained) + (id to text)
+        commit(index, retained, raw, mapOf(id to encode(released)))
+        true
+    }
+
     override suspend fun isPublished(id: RunId): Boolean = access {
         log.v { "read harness run outbox mark" }
         journal.recover()

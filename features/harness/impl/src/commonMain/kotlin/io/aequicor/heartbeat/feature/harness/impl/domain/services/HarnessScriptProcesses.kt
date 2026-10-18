@@ -16,6 +16,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlin.time.Clock
+import kotlin.uuid.Uuid
 
 /**
  * Durable processes over the harness's [ScriptData]: every process of the harness lives in one versioned envelope
@@ -50,7 +51,12 @@ internal class HarnessScriptProcesses(private val data: ScriptData, private val 
                 current
             } else {
                 require(records.size < ProcessLimits.PROCESSES) { "Too many processes" }
-                val record = ProcessRecord(id, clock.now(), inputRevision = inputRevision)
+                val record = ProcessRecord(
+                    id,
+                    clock.now(),
+                    inputRevision = inputRevision,
+                    incarnation = Uuid.random().toHexString(),
+                )
                 opened = record
                 encode(records + record, record)
             }
