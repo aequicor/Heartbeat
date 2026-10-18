@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsMachineSpec
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
+import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessProcessWorkflows
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessExecutionLane
@@ -80,6 +81,7 @@ public object HarnessWorkflowBindings {
         organisms: OrganismHost,
         access: WorkflowRunAccess,
         clock: Clock,
+        processWorkflows: Lazy<HarnessProcessWorkflows>,
         machine: Lazy<HarnessRunsMachine>,
     ): WorkflowRunExecution = WorkflowRunExecution(
         storage,
@@ -90,6 +92,7 @@ public object HarnessWorkflowBindings {
         ),
         access,
         clock,
+        onTerminal = { run -> if (run.process != null) processWorkflows.value.releaseSettled(run.harness) },
     ) { machine.value.send(it) }
 
     @Provides

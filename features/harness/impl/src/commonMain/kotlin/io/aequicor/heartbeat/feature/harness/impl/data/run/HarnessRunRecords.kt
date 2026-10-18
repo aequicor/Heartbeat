@@ -20,8 +20,9 @@ internal data class HarnessRunHeader(
     val harness: HarnessId,
     val finishedAt: Instant?,
     val isPublished: Boolean = false,
+    val isProcessOwned: Boolean = false,
 ) {
-    val expiresAt: Instant? get() = finishedAt?.plus(RUN_RETENTION)
+    val expiresAt: Instant? get() = finishedAt?.takeUnless { isProcessOwned }?.plus(RUN_RETENTION)
 
     /** The part of the header derived from the run value itself. */
     fun identity(): HarnessRunHeader = copy(isPublished = false)
@@ -34,11 +35,16 @@ internal data class HarnessRunIndex(val entries: List<HarnessRunHeader> = emptyL
     }
 }
 
-internal fun WorkflowRun.header(): HarnessRunHeader = HarnessRunHeader(id, harness, finishedAt)
+internal fun WorkflowRun.header(): HarnessRunHeader = HarnessRunHeader(
+    id,
+    harness,
+    finishedAt,
+    isProcessOwned = process != null && !isProcessReleased,
+)
 
 /** Retention decided from headers alone, so a single-run write never decodes the other journals. */
 internal fun retainedHeaders(headers: List<HarnessRunHeader>, now: Instant): List<HarnessRunHeader> {
-    val running = headers.filter { it.finishedAt == null }
+    val running = headers.filter { it.finishedAt == null || it.isProcessOwned }
     val terminal = headers.filter { it.expiresAt?.let { expiry -> expiry > now } == true }
         .groupBy { it.harness }.values.flatMap { values ->
             values.sortedWith(compareByDescending<HarnessRunHeader> { it.finishedAt }.thenBy { it.id.value })
@@ -59,7 +65,8 @@ internal inline fun <reified T> decodeRunRecord(raw: String): T = try {
 internal fun WorkflowRun.hasSameIdentity(other: WorkflowRun): Boolean =
     id == other.id && harness == other.harness && workflow == other.workflow && pinned == other.pinned &&
         input == other.input && caller == other.caller && origin == other.origin && startedAt == other.startedAt &&
-        deadline == other.deadline && wake == other.wake && routing == other.routing
+        deadline == other.deadline && wake == other.wake && routing == other.routing && process == other.process &&
+        isProcessReleased == other.isProcessReleased
 
 internal val RUN_RETENTION = 30.days
 private const val TERMINAL_RUNS_PER_HARNESS = 20

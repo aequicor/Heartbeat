@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Idle/Loading/Failed | Suspended/Resumed | any | stay, update suspension | none |
  * | Ready | StartRun | disabled/duplicate/full/invalid | stay | Rejected |
  * | Ready | StartRun | admitted | stay, append | Drive / Started |
+ * | Ready | CancelStoredRun | suspended | stay | Rejected(Unavailable) |
+ * | Ready | CancelStoredRun | owned committed running journal | stay, cancel atomically | StopRun / receipt |
  * | Ready | CancelRun | missing/foreign/terminal | stay | Rejected |
  * | Ready | CancelRun | owned running | stay, cancellation + generation fence | StopRun / CancellationRequested |
  * | Ready | StepStarted | current driver, valid preparation/progress/recovery | stay, replace step | none |
@@ -33,7 +35,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Any | stale/duplicate internal feedback or duplicate suspension | unmatched | ignored | none |
  *
  * Journal loading rejects duplicate ids instead of accepting an ambiguous owner. Retention keeps all Running
- * records, and the newest 20 terminal records per harness within 30 days. UI and tools apply [isVisibleTo].
+ * records and the newest 20 terminal projections per harness within 30 days. Protected process results remain
+ * readable from durable storage independently of this bounded projection. UI and tools apply [isVisibleTo].
  * Starting and cancelling are Internal: the machine trusts the pinned source and the declared viewer, so no other
  * feature may send them through [HarnessRunsMachineKey], whose public intents are empty.
  */
@@ -100,6 +103,27 @@ public val HarnessRunsMachineSpec: MachineSpec<
         }
     }
     state<HarnessRunsState.Ready> {
+        on<HarnessRunsIntent.Internal.CancelStoredRun> {
+            stay {
+                if (state.storedCancellationRejection(intent) == null) {
+                    val candidate = state.withStoredRun(intent)
+                    candidate.replace(candidate.cancelling(intent.run.id))
+                } else {
+                    state
+                }
+            }
+            effect {
+                if (state.storedCancellationRejection(intent) == null) {
+                    HarnessRunsEffect.StopRun(state.storedCancellation(intent))
+                } else {
+                    null
+                }
+            }
+            output {
+                state.storedCancellationRejection(intent)?.let { HarnessRunsOutput.Rejected(intent.requestId, it) }
+                    ?: HarnessRunsOutput.CancellationRequested(intent.requestId, intent.run.id)
+            }
+        }
         on<HarnessRunsIntent.Internal.StartRun> {
             stay { if (state.startRejection(intent) == null) state.copy(runs = state.runs + intent.run) else state }
             effect { if (state.startRejection(intent) == null) HarnessRunsEffect.Drive(listOf(intent.run)) else null }
