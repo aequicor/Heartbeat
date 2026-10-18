@@ -183,6 +183,9 @@ internal class RuntimeOwnershipTransferLocal(
         ownedRuns: List<WorkflowRun>,
         isExporting: Boolean,
     ): Boolean {
+        // Join the current local generation before touching attempts or external receipts.
+        val localFence = runtime.journal.binding(context.binding.local())?.fence
+        if (localFence != context.snapshot.fence) return false
         val isStopped = snapshot(
             context,
         ) != null && settleRuns(context, ownedRuns, isExporting) && settleUnstarted(context)
