@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.restoreSlot
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermission
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -194,6 +195,14 @@ class VirtualSandboxTest {
         try {
             Files.write(f.project.resolve("binary"), byteArrayOf(0, 1, -1))
             Files.writeString(f.project.resolve("tool"), "#!/bin/sh\n")
+            // On POSIX the checkout mode must match the executable bit staged below; otherwise the source is dirty.
+            if ("posix" in f.project.fileSystem.supportedFileAttributeViews()) {
+                val tool = f.project.resolve("tool")
+                Files.setPosixFilePermissions(
+                    tool,
+                    Files.getPosixFilePermissions(tool) + PosixFilePermission.OWNER_EXECUTE,
+                )
+            }
             f.cmd("add", ".")
             f.cmd("update-index", "--chmod=+x", "tool")
             f.cmd("commit", "-m", "modes")
