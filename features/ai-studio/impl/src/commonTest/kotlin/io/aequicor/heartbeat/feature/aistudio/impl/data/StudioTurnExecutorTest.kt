@@ -1578,7 +1578,8 @@ private class ExecutorMachine(private val events: MutableList<String>) :
             is WorktreeIntent.Public.ChooseAction, is WorktreeIntent.Public.ActionDelivered,
             is WorktreeIntent.Public.ActionDeliveryFailed, is WorktreeIntent.Public.Recheck,
             is WorktreeIntent.Public.ProposeBuildPlan, is WorktreeIntent.Public.ApproveBuildPlan,
-            is WorktreeIntent.Public.RunBuild,
+            is WorktreeIntent.Public.RunBuild, is WorktreeIntent.Public.RunAdopted,
+            is WorktreeIntent.Public.Seal,
             -> error(
                 "Unexpected intent $intent",
             )

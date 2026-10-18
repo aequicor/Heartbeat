@@ -22,6 +22,7 @@ kotlin {
             implementation(projects.designSystem.theme)
             implementation(projects.designSystem.layouts)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.okio)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
         }

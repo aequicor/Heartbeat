@@ -32,11 +32,11 @@ public data class ConnectEngineRoute(val engine: EngineId? = null) : Route
 /** Binding created by a completed [ConnectEngineRoute]; closing the wizard otherwise gives no result. */
 public object ConnectEngineResult : ResultContract<EngineBindingId>("ai_engine.connect", EngineBindingId.serializer())
 
-/** Connection setup screens; disabled until engine runtimes are bundled. */
+/** Connection setup screens: the engine, authorization and models wizard. */
 public val EngineConnectionsEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "ai.engine_connections",
     "Настройка подключений ИИ-движков",
-    default = false,
+    default = true,
 )
 
 /** Whether users can add a connection to this engine: it runs on this platform and declares a method. */

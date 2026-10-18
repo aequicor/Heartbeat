@@ -36,7 +36,6 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ProjectConfigIntegrationTest {
@@ -57,10 +56,10 @@ class ProjectConfigIntegrationTest {
     }
 
     @Test
-    fun `project configuration is a registered toggle off by default with harness, interface and learning sections`() =
+    fun `project configuration is a registered toggle on by default with harness, interface and learning sections`() =
         runTest {
             assertTrue(ProjectConfigEnabled in toggles.toggleControl.registered)
-            assertFalse(ProjectConfigEnabled.default)
+            assertTrue(ProjectConfigEnabled.default)
             val profile = app.profileSessions.open(ProfileId("config-off"))
             val sections = (profile.graph as TestProjectConfigAccessors).configSections.map { it.id }.toSet()
             assertEquals(

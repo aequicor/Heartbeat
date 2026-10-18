@@ -69,7 +69,7 @@ object ResearchChatBindings {
 @ContributesTo(AppScope::class)
 @BindingContainer
 object ResearchChatToggleBindings {
-    /** Off by default; the panel is the only configuration writer. */
+    /** The panel is the only configuration writer. */
     @Provides
     @IntoSet
     fun research(): FeatureToggle<*> = ResearchChatEnabled

@@ -5,18 +5,24 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserStorage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** Retained native tab state shared by the session coordinator and its load observers. */
+/**
+ * Retained native tab state shared by the session coordinator and its load observers. [storage] is fixed when the tab
+ * is created, as is the Chromium context behind it: handing the tab to another owner or taking control of it never
+ * moves its cookies and sites.
+ */
 internal class DesktopBrowserEntry(
     var tab: BrowserTab,
     val surface: BrowserSurfaceAdapter,
     val guard: DesktopBrowserAgentGuard,
     private val panel: DesktopBrowserPanel,
     private val zooms: DesktopBrowserZooms,
+    val storage: BrowserStorage,
     newFavicon: (DesktopBrowserEntry) -> DesktopBrowserTabFavicon,
 ) {
     val driver = DesktopBrowserAutomation(panel::devTools, panel::captureResource)

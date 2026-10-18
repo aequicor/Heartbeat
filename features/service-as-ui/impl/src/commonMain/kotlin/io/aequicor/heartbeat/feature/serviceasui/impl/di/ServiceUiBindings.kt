@@ -50,7 +50,7 @@ object ServiceUiToggleBindings {
     @IntoSet
     fun enabled(): FeatureToggle<*> = ServiceUiEnabled
 
-    /** Web documents in surfaces (desktop), off by default. */
+    /** Web documents in surfaces (desktop). */
     @Provides
     @IntoSet
     fun web(): FeatureToggle<*> = ServiceUiWeb

@@ -57,8 +57,12 @@ fun main(arguments: Array<String>) {
     launchHeartbeat(isDevelopment = false)
 }
 
-/** Shared desktop host; its entry point determines credential storage, never a runtime environment override. */
-internal fun launchHeartbeat(isDevelopment: Boolean) {
+/**
+ * Shared desktop host; its entry point determines credential storage, never a runtime environment override.
+ * [hasLocalSecrets] keeps credentials in the local development files instead of Keychain/DPAPI/Secret Service:
+ * development runs always do, the testing flavor does while staying a release launch otherwise.
+ */
+internal fun launchHeartbeat(isDevelopment: Boolean, hasLocalSecrets: Boolean = isDevelopment) {
     configureDesktopRendering()
     val classes = checkoutClasses()
     // Launches from the checkout's compiled classes log from DEBUG up; any jar, installed or not, logs as release.
@@ -74,7 +78,7 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
         if (claim == DesktopInstanceClaim.Forwarded) return
         val instance = (claim as? DesktopInstanceClaim.Owner)?.instance
         try {
-            launchLoggedHeartbeat(isDevelopment, classes, instance)
+            launchLoggedHeartbeat(isDevelopment, hasLocalSecrets, classes, instance)
         } finally {
             instance?.close()
         }
@@ -83,13 +87,18 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
     }
 }
 
-private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>, instance: DesktopInstance?) {
+private fun launchLoggedHeartbeat(
+    isDevelopment: Boolean,
+    hasLocalSecrets: Boolean,
+    classes: Result<Path?>,
+    instance: DesktopInstance?,
+) {
     val log = Log.tag("Desktop")
     classes.onFailure { log.w(it) { "Entry point location is unknown; treating the launch as packaged" } }
     classes.getOrNull()?.let(::attachLocalPiRuntime)
     val applicationIcons = runOnUiThread { loadDesktopIcons().also(::configureDockIcon) }
     val lifecycle = LifecycleRegistry()
-    val graph = runOnUiThread { createHeartbeatGraph(isDevelopment) }
+    val graph = runOnUiThread { createHeartbeatGraph(isDevelopment, hasLocalSecrets) }
     val root = createDesktopRoot(lifecycle, graph)
     val dimensions = HbDimensions()
     application {

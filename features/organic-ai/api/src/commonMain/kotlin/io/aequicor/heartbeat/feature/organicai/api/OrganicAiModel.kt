@@ -24,6 +24,7 @@ import kotlinx.serialization.Transient
 public val OrganicAiEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "organic_ai.enabled",
     "Органический ИИ: зигота, деление клеток-сессий и иммунитет",
+    default = true,
 )
 
 /**

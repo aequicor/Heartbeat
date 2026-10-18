@@ -20,6 +20,7 @@ class ServiceUiWebConfigurationTest {
     @Test
     fun `default Safe Mode and all availability gates apply to live and preview settings`() = runTest {
         val toggles = Toggles()
+        toggles.values.value = mapOf(ServiceUiEnabled.key to false, ServiceUiWeb.key to false)
         assertTrue(ServiceUiWebSafeMode.default)
         assertTrue(toggles.uiWebPolicyInstruction().contains("Web documents are disabled"))
         assertFalse(toggles.uiWebConfiguration(isDesktop = true).first().isEnabled)
@@ -42,7 +43,11 @@ class ServiceUiWebConfigurationTest {
     @Test
     fun `disabled web guidance does not promise external assets when Safe Mode is off`() = runTest {
         val toggles = Toggles()
-        toggles.values.value = mapOf(ServiceUiWebSafeMode.key to false)
+        toggles.values.value = mapOf(
+            ServiceUiEnabled.key to false,
+            ServiceUiWeb.key to false,
+            ServiceUiWebSafeMode.key to false,
+        )
         val instruction = toggles.uiWebPolicyInstruction()
         assertTrue(instruction.contains("Web documents are disabled"))
         assertTrue(instruction.contains("native nodes"))

@@ -13,7 +13,7 @@ import kotlinx.serialization.Serializable
 public val WorktreeModeEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "worktree_mode.enabled",
     "Изолированные Git worktree, общий кеш сборки и завершение задач",
-    default = false,
+    default = true,
 )
 
 /**
@@ -25,7 +25,7 @@ public val WorktreeModeEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val WorktreeSandboxEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "worktree_mode.sandbox",
     "Песочницы: задачи без сборочных выходов, сборки в общих слотах проекта",
-    default = false,
+    default = true,
 )
 
 /**
@@ -36,7 +36,7 @@ public val WorktreeSandboxEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val WorktreeBuildQueueEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "worktree_mode.build_queue",
     "Очередь сборок по ёмкости машины: веса типов сборок, лимит и справедливость между проектами",
-    default = false,
+    default = true,
 )
 
 /** Lifecycle of one chat's checkout; native turn completion alone never completes a task. */

@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 public val AgentLearningEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "agent_learning.enabled",
     "Самообучение агента: реестр выученных инструкций, инструмент remember и команда /remember",
+    default = true,
 )
 
 /** Names of the hosted tools; transcripts match them to show learning cards. */
