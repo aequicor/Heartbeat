@@ -15,10 +15,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import io.aequicor.heartbeat.ds.components.HbBanner
+import io.aequicor.heartbeat.ds.components.HbButton
+import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbChoiceRow
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbPaneHeader
+import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbColumn
@@ -32,8 +35,14 @@ import io.aequicor.heartbeat.feature.worktreemode.impl.resources.Res
 import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_auto
 import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_auto_hint
 import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_back
+import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_decrease
+import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_increase
 import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_parallel
+import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_pause_timeout
+import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_pool_clear
+import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_pool_size
 import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_sandbox_hint
+import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_sandbox_section
 import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_save_failed
 import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_section_capacity
 import io.aequicor.heartbeat.feature.worktreemode.impl.resources.builds_section_capacity_hint
@@ -70,11 +79,53 @@ internal fun BuildCapacityContent(
                 contentPadding = PaddingValues(HbTheme.spacing.xl),
             ) {
                 item(key = "capacity") { CapacitySection(state, onIntent) }
+                item(key = "sandboxes") { SandboxSettings(state, onIntent) }
                 if (state.isSaveFailed) {
                     item(key = "error") {
                         HbBanner(stringResource(Res.string.builds_save_failed), Modifier.testTag("builds-error"))
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SandboxSettings(state: BuildCapacityScreenState, onIntent: (BuildCapacityScreenIntent) -> Unit) {
+    HbSettingsSection(stringResource(Res.string.builds_sandbox_section)) {
+        HbSettingsRow(stringResource(Res.string.builds_pause_timeout, state.pauseMinutes)) {
+            HbButton(
+                stringResource(Res.string.builds_decrease),
+                { onIntent(BuildCapacityScreenIntent.SetPauseMinutes(state.pauseMinutes - 1)) },
+                enabled = state.isSandboxLoaded && state.pauseMinutes > 1,
+                style = HbButtonStyle.Ghost,
+            )
+            HbButton(
+                stringResource(Res.string.builds_increase),
+                { onIntent(BuildCapacityScreenIntent.SetPauseMinutes(state.pauseMinutes + 1)) },
+                enabled = state.isSandboxLoaded,
+                style = HbButtonStyle.Ghost,
+            )
+        }
+        state.projects.forEach { project ->
+            HbSettingsRow(project.name, description = stringResource(Res.string.builds_pool_size, project.size)) {
+                HbButton(
+                    stringResource(Res.string.builds_decrease),
+                    { onIntent(BuildCapacityScreenIntent.SetPool(project.id, project.size - 1)) },
+                    enabled = project.size > 1,
+                    style = HbButtonStyle.Ghost,
+                )
+                HbButton(
+                    stringResource(Res.string.builds_increase),
+                    { onIntent(BuildCapacityScreenIntent.SetPool(project.id, project.size + 1)) },
+                    enabled = project.size < 16,
+                    style = HbButtonStyle.Ghost,
+                )
+                HbButton(
+                    stringResource(Res.string.builds_pool_clear),
+                    { onIntent(BuildCapacityScreenIntent.ClearPool(project.id)) },
+                    style = HbButtonStyle.Secondary,
+                )
             }
         }
     }
