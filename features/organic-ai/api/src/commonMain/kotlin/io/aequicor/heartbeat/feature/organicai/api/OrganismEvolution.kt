@@ -200,21 +200,21 @@ private fun Organism.resume(): Step? {
 private fun Organism.abort(): Step? {
     if (status == OrganismStatus.Aborted) return retryRelease()
     if (!isDeveloping) return null
-    val ended = cells.filter(Cell::isAlive).map(Cell::id)
+    val ended = cells.map(Cell::id)
     val aborted = copy(
         cells = cells.map { if (it.isAlive) it.copy(phase = CellPhase.Dead(DeathCause.Aborted)) else it },
         cases = emptyList(),
         status = OrganismStatus.Aborted,
-        // Nothing alive means no session was held for the abort: there is nothing to wait for.
-        sessions = if (ended.isEmpty()) SessionRelease.Released else SessionRelease.Releasing,
+        // Earlier lysis may still hold a running turn, even for a cell already marked dead.
+        sessions = SessionRelease.Releasing,
     )
     return Step(aborted, release = ended, releaseMode = ReleaseMode.Lyse, isFinished = true)
 }
 
-/** Another abort lets the sessions of the cells it killed go again, but only after a release could not confirm. */
+/** Another abort retries every cell, including earlier lysis, only after a release could not confirm. */
 private fun Organism.retryRelease(): Step? {
     if (sessions != SessionRelease.Unconfirmed) return null
-    val killed = cells.filter { it.phase == CellPhase.Dead(DeathCause.Aborted) }.map(Cell::id)
+    val killed = cells.map(Cell::id)
     return Step(
         copy(sessions = SessionRelease.Releasing),
         isDurable = false,

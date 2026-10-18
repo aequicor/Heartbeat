@@ -33,7 +33,7 @@ class OrganismReleaseTest {
             living(marked),
             effects = listOf(
                 OrganicAiEffect.Persist(marked),
-                OrganicAiEffect.Release(marked, listOf(ZYGOTE, C1), ReleaseMode.Lyse),
+                OrganicAiEffect.Release(marked, listOf(ZYGOTE, C1, C2), ReleaseMode.Lyse),
             ),
             outputs = listOf(OrganicAiOutput.Finished(ORGANISM, OrganismStatus.Aborted)),
         )
@@ -42,21 +42,30 @@ class OrganismReleaseTest {
     }
 
     @Test
-    fun `an abort with no living cell has nothing to wait for`() {
-        val ended = organism(zygote = zygoteCell(CellPhase.Completed("done")))
-        val marked = ended.copy(
-            cells = ended.cells.map { it.copy(phase = CellPhase.Completed("done")) },
-            status = OrganismStatus.Aborted,
-            version = 2,
+    fun `an abort checks sessions even for cells already killed by immunity`() {
+        val ended = organism(
+            cell(C1, phase = CellPhase.Dead(DeathCause.Lysed(CaseId("k1"), "killed"))),
+            zygote = zygoteCell(CellPhase.Completed("done")),
         )
+        val marked = ended.copy(status = OrganismStatus.Aborted, sessions = SessionRelease.Releasing, version = 2)
         spec.assertTransition(
             living(ended),
             OrganicAiIntent.Public.Abort(ORGANISM),
             living(marked),
-            effects = listOf(OrganicAiEffect.Persist(marked)),
+            effects = listOf(
+                OrganicAiEffect.Persist(marked),
+                OrganicAiEffect.Release(marked, listOf(ZYGOTE, C1), ReleaseMode.Lyse),
+            ),
             outputs = listOf(OrganicAiOutput.Finished(ORGANISM, OrganismStatus.Aborted)),
         )
-        assertTrue(marked.isStopped)
+        val retry = marked.copy(sessions = SessionRelease.Unconfirmed)
+        spec.assertTransition(
+            living(retry),
+            OrganicAiIntent.Public.Abort(ORGANISM),
+            living(marked),
+            effects = listOf(OrganicAiEffect.Release(marked, listOf(ZYGOTE, C1), ReleaseMode.Lyse)),
+        )
+        assertFalse(marked.isStopped)
     }
 
     @Test
@@ -88,7 +97,7 @@ class OrganismReleaseTest {
             living(unconfirmed),
             OrganicAiIntent.Public.Abort(ORGANISM),
             living(retried),
-            effects = listOf(OrganicAiEffect.Release(retried, listOf(ZYGOTE, C1), ReleaseMode.Lyse)),
+            effects = listOf(OrganicAiEffect.Release(retried, listOf(ZYGOTE, C1, C2), ReleaseMode.Lyse)),
         )
         spec.assertTransition(
             living(retried),

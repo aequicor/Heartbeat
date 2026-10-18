@@ -320,7 +320,7 @@ class FacadeAdaptersTest {
     }
 
     @Test
-    fun `a cancelled sleep still stops and closes every handle`() = runTest {
+    fun `a cancelled sleep retains a handle when its turn does not stop`() = runTest {
         val native = FakeSession(session("new")).apply {
             finish = null
             ignoresCancel = true
@@ -332,6 +332,10 @@ class FacadeAdaptersTest {
         sleeping.cancel()
         advanceUntilIdle()
         assertEquals(1, native.cancelled.size)
+        assertEquals(0, native.closes)
+        assertTrue(cells.hasPendingRelease(ORGANISM))
+        native.ignoresCancel = false
+        cells.releaseAll()
         assertEquals(1, native.closes)
     }
 
@@ -459,24 +463,12 @@ class FacadeAdaptersTest {
         facade.onResume = { cells.release(key, stored.ref, ReleaseMode.Lyse) }
         assertFailsWith<EngineException> { cells.open(key, route, stored.ref) }
         assertEquals(0, stored.closes)
+        assertFalse(stored.isArchived)
 
         stored.ignoresCancel = false
         assertEquals(ReleaseOutcome.Stopped, cells.release(key, stored.ref, ReleaseMode.Lyse))
         assertEquals(1, stored.closes)
         assertTrue(stored.isArchived)
-    }
-
-    @Test
-    fun `sleep also stops the handles of lysed cells whose turn did not stop`() = runTest {
-        val native = FakeSession(session("new")).apply {
-            finish = null
-            ignoresCancel = true
-        }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
-        cells.open(key, route, null).submit(RequestId("r1"), "work", null)
-        assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, native.ref, ReleaseMode.Lyse))
-        cells.releaseAll()
-        assertEquals(1, native.closes)
     }
 
     @Test

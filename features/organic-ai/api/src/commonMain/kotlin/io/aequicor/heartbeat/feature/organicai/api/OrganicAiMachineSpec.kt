@@ -53,9 +53,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * Follow-up messages start a fresh zygote turn in the same session; their text and inputs survive recovery.
  * A completed organism never restarts automatically, and an aborted organism cannot be resumed.
  * An abort marks the organism at once; its native turns stop only when the host lets the sessions go, and
- * [Organism.sessions] tells the two apart: Releasing while the host works, Released once every turn was seen to stop,
- * Unconfirmed when it could not tell, which another abort retries. The release state is not journaled: a restored
- * organism is held by no session of this process and nothing drives an ended one, so it reads as Released.
+ * [Organism.sessions] tells the two apart: Releasing while the host works,
+ * Released once every cell turn (including earlier lysis) was seen to stop,
+ * Unconfirmed when it could not tell, which another abort retries. The release state is not journaled. A fresh
+ * profile holds no sessions of restored ended organisms, so they read as Released; after Sleep/Awaken within the
+ * same profile the host restores Unconfirmed while any handle or opener of the organism remains owned.
  *
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →

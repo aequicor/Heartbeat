@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.organicai.api.Letter
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.Organism
+import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.api.Ruling
@@ -403,6 +404,8 @@ class OrganicAiEffectsTest {
             released += Triple(key, session, mode)
             return if (key.cell in unstoppable) ReleaseOutcome.Unconfirmed else ReleaseOutcome.Stopped
         }
+
+        override suspend fun hasPendingRelease(organism: OrganismId) = false
 
         override suspend fun releaseAll() {
             releasedAll++

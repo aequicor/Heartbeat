@@ -242,7 +242,7 @@ class OrganicAiMachineTest {
     }
 
     @Test
-    fun `aborting lyses every living cell and finishes the organism`() {
+    fun `aborting checks every cell and finishes the organism`() {
         val before = organism(cell(C1), cell(C2, phase = CellPhase.Completed("ok")))
         val after = organism(
             cell(C1, phase = CellPhase.Dead(DeathCause.Aborted)),
@@ -257,7 +257,7 @@ class OrganicAiMachineTest {
             living(after),
             effects = listOf(
                 OrganicAiEffect.Persist(after),
-                OrganicAiEffect.Release(after, listOf(ZYGOTE, C1), ReleaseMode.Lyse),
+                OrganicAiEffect.Release(after, listOf(ZYGOTE, C1, C2), ReleaseMode.Lyse),
             ),
             outputs = listOf(OrganicAiOutput.Finished(ORGANISM, OrganismStatus.Aborted)),
         )

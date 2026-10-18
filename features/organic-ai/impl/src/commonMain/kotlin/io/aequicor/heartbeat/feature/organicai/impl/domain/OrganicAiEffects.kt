@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineSpec
 import io.aequicor.heartbeat.feature.organicai.api.Organism
+import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.SessionRelease
 import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.isDeveloping
@@ -80,7 +81,13 @@ internal class OrganicAiEffects(
     }
 
     private suspend fun restore(machine: EffectScope<OrganicAiIntent>) {
-        val organisms = journal.load()
+        val organisms = journal.load().map { organism ->
+            if (organism.status == OrganismStatus.Aborted && cells.hasPendingRelease(organism.id)) {
+                organism.copy(sessions = SessionRelease.Unconfirmed)
+            } else {
+                organism
+            }
+        }
         log.i { "restored ${organisms.size} organisms, ${organisms.count { it.isDeveloping }} developing" }
         machine.send(OrganicAiIntent.Internal.Restored(organisms))
     }

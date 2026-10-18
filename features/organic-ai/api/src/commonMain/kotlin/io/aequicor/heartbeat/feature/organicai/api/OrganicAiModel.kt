@@ -166,8 +166,8 @@ public data class Organism(
     val attachments: List<ResourceRef> = emptyList(),
     /**
      * Whether the native work of an [OrganismStatus.Aborted] organism is known to have stopped; every other
-     * organism keeps the default. Observed from the host and not saved: a restored organism is held by no session
-     * of this process and nothing drives an ended one, so it reads as released.
+     * organism keeps the default. Observed from the host and not saved: a fresh profile restores Released;
+     * awakening in the same profile restores Unconfirmed if the host still holds a handle or opener.
      */
     @Transient val sessions: SessionRelease = SessionRelease.Released,
 ) {
@@ -203,7 +203,8 @@ public sealed interface OrganismStatus {
 }
 
 /**
- * Whether the host let go of the sessions of the cells an abort killed. The abort itself only marks the organism,
+ * Whether the host let go of all cell sessions of an aborted organism, including earlier lysis.
+ * The abort itself only marks the organism,
  * so their native turns may still run until the host reports otherwise.
  */
 public enum class SessionRelease {

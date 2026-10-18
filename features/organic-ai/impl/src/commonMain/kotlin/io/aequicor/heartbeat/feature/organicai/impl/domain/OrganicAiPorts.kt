@@ -79,7 +79,10 @@ internal interface CellSessions {
      */
     suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int = 0): ReleaseOutcome
 
-    /** Cancels every running turn and closes every handle without archiving, before sleep. */
+    /** Whether this profile still holds a handle or an unfinished opener for [organism], even across sleep. */
+    suspend fun hasPendingRelease(organism: OrganismId): Boolean
+
+    /** Stops all turns before sleep, retaining unconfirmed handles for recovery or a later lysis. */
     suspend fun releaseAll()
 }
 
