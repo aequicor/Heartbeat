@@ -73,9 +73,10 @@ class GitHubWritesTest {
         env.processes.open(PROCESS)
         env.processes.apply(PROCESS, ProcessCommand.Grant(ProcessAuthority.Write))
         var failsSettlement = false
-        val data = object : ScriptData by env.data {
+        val hostData = env.data.processData()
+        val data = object : ScriptData by hostData {
             override suspend fun update(key: String, transform: (JsonElement?) -> JsonElement?) =
-                if (key == "hb_github" && failsSettlement) error("simulated crash") else env.data.update(key, transform)
+                if (key == "hb_github" && failsSettlement) error("simulated crash") else hostData.update(key, transform)
         }
         val remote = IssueGitHub().apply { afterPost = { failsSettlement = true } }
         assertFailsWith<IllegalStateException> {

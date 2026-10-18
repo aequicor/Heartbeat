@@ -74,7 +74,7 @@ class StagedHarnessContextsTest {
             githubTestFactory(origins),
             Clock.System,
             CommandToggles(),
-            { request, owner -> unusedScriptSessions(HarnessInstanceTarget(request, owner), origins) },
+            sessions = { request, owner -> unusedScriptSessions(HarnessInstanceTarget(request, owner), origins) },
         ).create(HarnessActivationRequest(harness, code, 1), access)
         val script = assertIs<HarnessEvaluationContext.Script>(context.evaluation).scope
         assertSame(backgroundScope, script.scope)

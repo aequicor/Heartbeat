@@ -26,11 +26,12 @@ internal class ProcessesTestEnv(
     definition: ProcessDefinition? = null,
     isVersioningEnabled: suspend () -> Boolean = { true },
     isArchiveEnabled: Boolean = false,
+    ownership: io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.HarnessOwnershipRuntime? = null,
 ) {
     val clock = ProcessesTestClock(PROCESS_TEST_START + restartedAt)
     val access = ProcessesTestAccess(scope)
     val archives = ProtectedProcessArchives(secrets, clock, CommandToggles(isArchiveEnabled))
-    val storage = ProtectedHarnessData(secrets, archives)
+    val storage = ProtectedHarnessData(secrets, archives, ownership)
     val data = HarnessScriptData(owner, access, storage)
     val processGate = storage.processMutex
     val processes = HarnessScriptProcesses(

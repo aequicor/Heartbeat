@@ -18,7 +18,10 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
  * they share its quotas and its access rules: every call requires a live, published approved activation, and a process
  * outlives source replacement, detach, disable and restart. Do not use that key with [ScriptData] directly. A
  * harness keeps at most [ProcessLimits.PROCESSES] processes. Stage graphs, GitHub rules and texts stay in the
- * harness; the platform only guarantees that a record is consistent and a change is atomic.
+ * harness; the platform only guarantees that a record is consistent and a change is atomic within this profile.
+ * Two machines may independently store the same id. These calls do not acquire shared ownership; neither copying
+ * a record nor moving a PR description transfers a workflow or stops a native executor. The host-only ownership
+ * contract lives in `process.ProcessOwnership` and requires a shared coordinator before execution is connected.
  *
  * Every change goes through a [ProcessCommand], which the host reduces against the freshly stored record and writes
  * with a compare-and-set; a concurrent writer makes the host re-read and reduce again, never overwrite. Read before

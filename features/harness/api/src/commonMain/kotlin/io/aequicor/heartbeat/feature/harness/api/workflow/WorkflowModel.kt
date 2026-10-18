@@ -118,7 +118,13 @@ public data class WorkflowRun(
 
 /** Host-captured script ownership; no identity is accepted from workflow JSON. */
 @Serializable
-public data class WorkflowProcessOwner(val script: ItemId, val key: ProcessWorkflowKey, val digest: String) {
+public data class WorkflowProcessOwner(
+    val script: ItemId,
+    val key: ProcessWorkflowKey,
+    val digest: String,
+    /** Host-only lifetime admission, retained until confirmed native cleanup. */
+    val ownership: io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermit? = null,
+) {
     override fun toString(): String = "WorkflowProcessOwner(***)"
 }
 

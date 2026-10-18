@@ -29,14 +29,19 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** A paused run can outlive its helpers' ownership proofs; resume and cancellation must still end it. */
@@ -101,6 +106,88 @@ internal class WorkflowHelperProofExpiryTest {
         assertEquals(listOf(run.id.action), finished)
         assertTrue(base.acquisitions.isEmpty())
         owner.cancel()
+    }
+
+    @Test
+    fun `coordinated cancelled run with expired helper proof retains running state and terminal permit`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val ownership = OwnedWorkflowTestEnv(this, workflow.initial, DIGEST)
+        val run = ownership.reserve().copy(cancellation = WorkflowFailure.Cancelled, steps = listOf(expired))
+        assertTrue(workflow.storage.save(run, null))
+        var terminalReceipts = 0
+        val execution = WorkflowRunExecution(
+            workflow.storage,
+            WorkflowCodeExecutor(NoCode, HarnessExecutionLane(dispatcher), Neutral, workflow.clock) { it },
+            WorkflowAgentPorts(ports, OrganismTestPorts().ports),
+            Admitted,
+            workflow.clock,
+            onTerminal = {
+                ownership.terminal(it)
+                terminalReceipts++
+            },
+        ) {}
+        assertFailsWith<WorkflowExecutionUnavailable> { execution.execute(run) { true } }
+        val retained = workflow.storage.load().single()
+        assertEquals(WorkflowStatus.Running, retained.status)
+        assertFalse(retained.steps.single().isNativeReleased)
+        assertEquals(run.process?.ownership, retained.process?.ownership)
+        assertEquals(listOf(checkNotNull(run.process?.ownership)), ownership.permits())
+        assertEquals(0, terminalReceipts)
+        assertTrue(finished.isEmpty())
+        assertTrue(base.acquisitions.isEmpty())
+    }
+
+    @Test
+    fun `coordinated helper release persists positive receipt before deleting native grant`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val ownership = OwnedWorkflowTestEnv(this, workflow.initial, DIGEST)
+        val run = ownership.reserve().copy(cancellation = WorkflowFailure.Cancelled, steps = listOf(expired))
+        assertTrue(workflow.storage.save(run, null))
+        val released = CompletableDeferred<HelperReleaseResult>()
+        base.release = { released.await() }
+        var proofDeletions = 0
+        val observedJournal = object : WorkflowHelperJournal by grants {
+            override suspend fun settled(grant: WorkflowHelperGrant) {
+                assertTrue(workflow.storage.load().single().steps.single().isNativeReleased)
+                assertEquals(WorkflowStatus.Running, workflow.storage.load().single().status)
+                proofDeletions++
+                grants.settled(grant)
+            }
+        }
+        val grant = WorkflowHelperGrant(
+            ActionId("slot"), run.id, run.harness, KEY, DIGEST,
+            run.caller, checkNotNull(expired.request), RequestId("attach"), expired.helper,
+        )
+        grants.granted(grant.copy(helper = null))
+        grants.bind(grant.reservation, checkNotNull(expired.helper))
+        val ownedResources = WorkflowHelperResources(helpers, observedJournal)
+        val ownedPorts = WorkflowHelperPorts(observedJournal, ownedResources, helpers, bindings)
+        var terminalReceipts = 0
+        val execution = WorkflowRunExecution(
+            workflow.storage,
+            WorkflowCodeExecutor(NoCode, HarnessExecutionLane(dispatcher), Neutral, workflow.clock) { it },
+            WorkflowAgentPorts(ownedPorts, OrganismTestPorts().ports),
+            Admitted,
+            workflow.clock,
+            onTerminal = {
+                ownership.terminal(it)
+                terminalReceipts++
+            },
+        ) {}
+        val running = async { execution.execute(run) { true } }
+        runCurrent()
+        assertTrue(running.isActive)
+        assertEquals(0, terminalReceipts)
+        assertFalse(workflow.storage.load().single().steps.single().isNativeReleased)
+        assertEquals(1, grants.pending().size)
+        assertEquals(listOf(checkNotNull(run.process?.ownership)), ownership.permits())
+        released.complete(HelperReleaseResult.Released)
+        assertTrue(running.await())
+        assertEquals(1, proofDeletions)
+        assertEquals(1, terminalReceipts)
+        assertTrue(ownership.permits().isEmpty())
+        assertTrue(grants.pending().isEmpty())
+        assertEquals(WorkflowStatus.Failed(WorkflowFailure.Cancelled), workflow.storage.load().single().status)
     }
 }
 

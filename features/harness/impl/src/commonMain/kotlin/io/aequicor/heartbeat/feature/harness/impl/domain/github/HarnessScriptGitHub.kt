@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.github
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessActionBinding
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubActionContext
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubChange
@@ -11,6 +12,7 @@ import io.aequicor.heartbeat.feature.harness.api.github.GitHubRepository
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubWriteRefusal
 import io.aequicor.heartbeat.feature.harness.api.github.GitHubWriteResult
 import io.aequicor.heartbeat.feature.harness.api.github.ScriptGitHub
+import io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermitKind
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessAuthority
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
@@ -19,6 +21,8 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessRecord
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
 import io.aequicor.heartbeat.feature.harness.api.process.ResultRef
 import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.NativeOwnershipAdmission
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.OwnershipLocalProcess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
@@ -61,6 +65,8 @@ internal class HarnessScriptGitHub(
     private val registry: GitHubRegistry,
     private val host: GitHubHost,
     private val processGate: Mutex,
+    private val portable: PortableGitHubAccess? = null,
+    private val localOwner: HarnessId? = null,
 ) : ScriptGitHub {
     private val api get() = host.api
     private val authority get() = host.authority
@@ -101,10 +107,27 @@ internal class HarnessScriptGitHub(
             repository,
             snapshot,
             context = context,
+            hasSendStarted = false,
         )
+        check(portable != null || record.ownershipKey == null) { "Portable GitHub registry is unavailable" }
+        importedReplay(record, candidate)?.let { return@activated it }
         val existing = registry.find(process, record.incarnation, key)
         if (existing != null) return@activated existing(existing, candidate)
         fresh(record, candidate)
+    }
+
+    private suspend fun importedReplay(record: ProcessRecord, candidate: GitHubOperation): GitHubWriteResult? {
+        val local = localOwner?.let { OwnershipLocalProcess(it, record.id, record.incarnation) }
+        return if (portable != null && local != null) importedResult(portable.checkImported(local, candidate)) else null
+    }
+
+    private fun importedResult(check: ImportedGitHubCheck): GitHubWriteResult? = when (check) {
+        ImportedGitHubCheck.Absent -> null
+        is ImportedGitHubCheck.Confirmed -> GitHubWriteResult.Confirmed(check.result)
+        is ImportedGitHubCheck.Refused -> refused(check.reason)
+        ImportedGitHubCheck.Conflict -> refused(GitHubWriteRefusal.KeyConflict)
+        ImportedGitHubCheck.Quota -> refused(GitHubWriteRefusal.Quota)
+        ImportedGitHubCheck.Unknown, is ImportedGitHubCheck.Unavailable -> GitHubWriteResult.Unknown
     }
 
     private suspend fun existing(operation: GitHubOperation, candidate: GitHubOperation): GitHubWriteResult =
@@ -130,7 +153,8 @@ internal class HarnessScriptGitHub(
         val admitted = candidate.copy(decisionId = allowed.decisionId, decisionBinding = allowed.binding)
         // A pre-existing local key belongs to an operation outside this registry. Never infer it is ours.
         if (record.writes.any { it.key == candidate.key }) return refused(GitHubWriteRefusal.KeyConflict)
-        return when (val reservation = registry.reserve(admitted)) {
+        val reserved = reserveNative(record, admitted)
+        return when (val reservation = reserved) {
             GitHubReservation.Full -> refused(GitHubWriteRefusal.Quota)
 
             is GitHubReservation.Existing -> if (reservation.operation.sameRequest(candidate)) {
@@ -143,11 +167,30 @@ internal class HarnessScriptGitHub(
         }
     }
 
+    private suspend fun reserveNative(record: ProcessRecord, admitted: GitHubOperation): GitHubReservation {
+        val local = localOwner?.let { OwnershipLocalProcess(it, record.id, record.incarnation) }
+        return if (portable != null && local != null) {
+            portable.reserveNative(
+                local,
+                admitted,
+            )
+        } else {
+            registry.reserve(admitted)
+        }
+    }
+
     override suspend fun reconcile(process: ProcessId, key: WriteKey): GitHubWriteResult = activated {
         if (!isEnabled() || !api.isAvailable) return@activated refused(GitHubWriteRefusal.Unavailable)
         val record = processes.get(process) ?: return@activated refused(GitHubWriteRefusal.StaleProcess)
         val operation = registry.find(process, record.incarnation, key)
-            ?: return@activated refused(GitHubWriteRefusal.KeyConflict)
+        if (operation == null) {
+            val imported = if (portable != null && localOwner != null) {
+                portable.reconcileImportedKey(OwnershipLocalProcess(localOwner, process, record.incarnation), key)
+            } else {
+                ImportedGitHubCheck.Absent
+            }
+            return@activated importedResult(imported) ?: refused(GitHubWriteRefusal.KeyConflict)
+        }
         replay(operation)
     }
 
@@ -159,28 +202,43 @@ internal class HarnessScriptGitHub(
             return reject(operation, GitHubWriteRefusal.StaleProcess)
         }
         if (!hasGrant(record, operation)) return reject(operation, GitHubWriteRefusal.NotAuthorized)
-        val begun = processes.apply(
+        val begun = processes.beginHostWrite(
             operation.process,
             ProcessCommand.BeginWrite(
                 operation.key,
                 operation.change.authority(),
                 ResultRef("github_operation", operation.marker),
             ),
-        )
+        ) { isUnsentReservation(operation) }
         if (begun !is ProcessReduction.Changed) return reject(operation, GitHubWriteRefusal.KeyConflict)
         val write = begun.record.writes.single { it.key == operation.key }
         processes.apply(operation.process, ProcessCommand.MarkWriteUnknown(operation.key, write.tries))
         // Any failure from this point retains the permanent reservation. Cancellation is never proof of no effect.
         if (!reconciliation.preflight(operation)) return GitHubWriteResult.Unknown
-        val response = processGate.withLock {
-            val latest = processes.get(operation.process)
-            if (latest == null || !latest.isCurrent(operation)) return@withLock GitHubResponse(0)
-            api.call(operation.change.request(operation.repository, operation.marker)) {
-                admit(latest, operation)
-            }
-        }
+        val response = dispatch(operation)
         val result = guardedEvidence { reconciliation.response(operation, response) }
         return if (result == null) GitHubWriteResult.Unknown else confirm(operation, result)
+    }
+
+    private suspend fun dispatch(operation: GitHubOperation): GitHubResponse = processGate.withLock {
+        val latest = processes.get(operation.process)
+        if (latest == null || !latest.isCurrent(operation) || !isUnsentReservation(operation)) {
+            return@withLock GitHubResponse(0)
+        }
+        val admission = processes.admitEffect(latest, OwnershipPermitKind.GitHub, operation.marker)
+        if (admission !is NativeOwnershipAdmission.Fresh && admission != NativeOwnershipAdmission.Legacy) {
+            return@withLock GitHubResponse(0)
+        }
+        api.call(operation.change.request(operation.repository, operation.marker)) {
+            admit(latest, operation) && registry.markSendStarted(operation)
+        }
+    }
+
+    private suspend fun isUnsentReservation(operation: GitHubOperation): Boolean {
+        val current = registry.find(operation.process, operation.incarnation, operation.key)
+        val isMatching = current?.marker == operation.marker
+        val isOpen = current?.refusal == null && current?.result == null
+        return isMatching && isOpen && current.hasSendStarted == false
     }
 
     private suspend fun admit(record: ProcessRecord, operation: GitHubOperation): Boolean {
@@ -216,6 +274,12 @@ internal class HarnessScriptGitHub(
             ),
         )
         check(confirmed !is ProcessReduction.Rejected) { "GitHub local confirmation was refused" }
+        processes.findEffect(
+            operation.process,
+            operation.incarnation,
+            OwnershipPermitKind.GitHub,
+            operation.marker,
+        )?.let { processes.completeEffect(it) }
         return GitHubWriteResult.Confirmed(result)
     }
 

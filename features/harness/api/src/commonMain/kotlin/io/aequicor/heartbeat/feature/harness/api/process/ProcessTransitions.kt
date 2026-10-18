@@ -137,6 +137,9 @@ public sealed interface ProcessCommand {
 
 /** Why a command was refused: by [reduce], or by the store before a record could be reduced. Nothing changed. */
 public enum class ProcessRejection {
+    /** Shared ownership is unavailable or this operation bypasses its native execution boundary. */
+    OwnershipUnavailable,
+
     /** No such process is stored. Only the store produces this; [reduce] always has a record. */
     UnknownProcess,
 

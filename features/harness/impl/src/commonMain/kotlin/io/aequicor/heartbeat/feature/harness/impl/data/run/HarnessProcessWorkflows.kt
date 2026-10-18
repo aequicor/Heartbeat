@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
+import io.aequicor.heartbeat.feature.harness.api.process.OwnershipPermitKind
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
@@ -35,6 +36,8 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowViewer
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessSessionAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.NativeOwnershipAdmission
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.ownershipIntent
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
@@ -117,22 +120,22 @@ internal class HarnessProcessWorkflows(
             is ProcessReduction.Rejected -> error("Workflow reservation conflicts with the process")
         }
         val claim = checkNotNull(claim(reserved, key, owner)) { "Workflow reservation is unavailable" }
-        val binding = WorkflowProcessOwner(owner.request.item.id, key, digest)
+        val existingRun = storage.find(claim.run)
+        val admission = workflowAdmission(owner, processes, reserved, claim, existingRun)
+        check(admission != NativeOwnershipAdmission.Unavailable) { "Workflow ownership is unavailable" }
+        check(existingRun != null || admission !is NativeOwnershipAdmission.Recover) {
+            "Uncertain workflow admission requires reconciliation"
+        }
+        val permit = when (admission) {
+            is NativeOwnershipAdmission.Fresh -> admission.intent.permit
+            is NativeOwnershipAdmission.Recover -> admission.intent.permit
+            NativeOwnershipAdmission.Legacy -> null
+            NativeOwnershipAdmission.Unavailable -> error("Workflow admission is unavailable")
+        }
+        val binding = WorkflowProcessOwner(owner.request.item.id, key, digest, permit)
         try {
             releaseSettled(owner.request.harness.id)
-            val stored = storage.find(claim.run)
-            if (stored == null) {
-                check(!claim.isDispatchClosed) { "Archived workflow requires reconciliation" }
-                // A closed or pruned attempt must never create an executor, even after retention removed its result.
-                check(reserved.inFlight?.number == key.attempt) { "Workflow attempt is already closed" }
-                val count = storage.load().count {
-                    it.harness == launch.harness.id && it.process != null &&
-                        !it.isProcessReleased
-                }
-                check(count < ProcessLimits.PROCESSES * (ProcessLimits.HISTORY + 1)) {
-                    "Workflow journal capacity reached"
-                }
-            }
+            validateStart(claim, reserved, key, launch.harness.id)
             launches.value.startReserved(launch, binding, claim.run) { sessions.isCurrent(owner) }.run
         } catch (error: CancellationException) {
             // No journal record means no native workflow: close the reservation so no later dispatch can use it.
@@ -171,6 +174,43 @@ internal class HarnessProcessWorkflows(
     }
 
     /** Closes [claim] only while its run was never journaled; a journaled run is driven by restore instead. */
+    private suspend fun validateStart(
+        claim: ProcessWorkflow,
+        reserved: ProcessRecord,
+        key: ProcessWorkflowKey,
+        harness: HarnessId,
+    ) {
+        if (storage.find(claim.run) == null) {
+            check(!claim.isDispatchClosed) { "Archived workflow requires reconciliation" }
+            check(reserved.inFlight?.number == key.attempt) { "Workflow attempt is already closed" }
+            val count = storage.load().count { it.harness == harness && it.process != null && !it.isProcessReleased }
+            check(count < ProcessLimits.PROCESSES * (ProcessLimits.HISTORY + 1)) { "Workflow journal capacity reached" }
+        }
+    }
+
+    private suspend fun workflowAdmission(
+        owner: HarnessInstanceTarget,
+        processes: HarnessScriptProcesses,
+        reserved: ProcessRecord,
+        claim: ProcessWorkflow,
+        existingRun: WorkflowRun?,
+    ): NativeOwnershipAdmission = if (existingRun == null) {
+        processes.admitEffect(reserved, OwnershipPermitKind.Workflow, claim.run.value)
+    } else {
+        val intent = existingRun.ownershipIntent()
+        if (intent != null) {
+            check(data.ownership?.isCurrent(intent) == true) { "Workflow ownership was revoked" }
+            NativeOwnershipAdmission.Recover(intent)
+        } else {
+            check(
+                reserved.ownershipKey == null && data.ownership?.binding(owner.request.harness.id, reserved) == null,
+            ) {
+                "Owned workflow has no durable admission"
+            }
+            NativeOwnershipAdmission.Legacy
+        }
+    }
+
     private suspend fun releaseUnstartedReservation(
         processes: HarnessScriptProcesses,
         key: ProcessWorkflowKey,
@@ -178,7 +218,14 @@ internal class HarnessProcessWorkflows(
     ) {
         if (claim.isDispatchClosed || storage.find(claim.run) != null) return
         try {
-            processes.applyHost(key.process, ProcessCommand.CancelWorkflow(key, claim))
+            val cancelled = processes.applyHost(key.process, ProcessCommand.CancelWorkflow(key, claim))
+            if (cancelled !is ProcessReduction.Rejected && storage.find(claim.run) == null) {
+                val settled = processes.applyHost(key.process, ProcessCommand.SettleWorkflow(key, claim))
+                if (settled is ProcessReduction.Rejected) return
+                // This producer joined before the closed reservation receipt; no future dispatch can use it.
+                processes.findEffect(key.process, key.incarnation, OwnershipPermitKind.Workflow, claim.run.value)
+                    ?.let { processes.completeEffect(it) }
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -358,7 +405,7 @@ internal class HarnessProcessWorkflows(
         key: ProcessWorkflowKey,
         claim: ProcessWorkflow,
     ): Boolean = run.harness == owner.request.harness.id &&
-        run.process == WorkflowProcessOwner(owner.request.item.id, key, claim.digest)
+        run.process?.copy(ownership = null) == WorkflowProcessOwner(owner.request.item.id, key, claim.digest)
 
     /** Process highwater and lifetime are checked before releasing any journal protection. */
     suspend fun releaseSettled(harness: HarnessId) {

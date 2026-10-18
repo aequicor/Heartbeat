@@ -29,10 +29,17 @@ internal class HarnessScriptData(
     internal fun processData(): HarnessScriptData = HarnessScriptData(owner, access, storage, isProcessOwner = true)
 
     internal val processMutex get() = storage.processMutex
+    internal val ownership get() = storage.ownership
+    internal val harnessOwner get() = owner
 
     override suspend fun write(key: String, value: JsonElement?, expectedRevision: Long): ScriptDataWriteResult =
-        if (key == HarnessScriptProcesses.STORAGE_KEY && !isProcessOwner) {
-            storage.processMutex.withLock { writeStored(key, value, expectedRevision) }
+        if (key in setOf(HarnessScriptProcesses.STORAGE_KEY, "hb_github") && !isProcessOwner) {
+            storage.processMutex.withLock {
+                check(
+                    storage.ownership?.hasBindings(owner) != true,
+                ) { "Owned process data requires the process service" }
+                writeStored(key, value, expectedRevision)
+            }
         } else {
             writeStored(key, value, expectedRevision)
         }

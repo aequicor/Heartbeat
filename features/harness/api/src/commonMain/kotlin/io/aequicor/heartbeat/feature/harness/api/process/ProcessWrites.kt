@@ -32,6 +32,10 @@ public enum class ProcessAuthority {
     /** Tagging, releasing or deploying. */
     @SerialName("release")
     Release,
+
+    /** Explicit host decision for distributed ownership; ordinary process grants cannot approve it. */
+    @SerialName("transfer")
+    Transfer,
 }
 
 /** How far one external write got. */

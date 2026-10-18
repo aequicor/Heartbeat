@@ -39,6 +39,8 @@ public data class WorkflowStep(
     @Serializable(with = WorkflowStepResultSerializer::class) val result: JsonElement? = null,
     val failure: WorkflowFailure? = null,
     val organism: WorkflowOrganism? = null,
+    /** Positive helper lease-release receipt; terminal status or expired ownership proof is insufficient. */
+    val isNativeReleased: Boolean = false,
 ) {
     init {
         require(isWorkflowDigest(promptSha) && attempt >= 0)

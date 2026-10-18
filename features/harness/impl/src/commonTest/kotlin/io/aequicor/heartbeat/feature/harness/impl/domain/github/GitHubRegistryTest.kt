@@ -19,9 +19,39 @@ import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class GitHubRegistryTest {
+    @Test
+    fun `only explicit never started receipts may be closed and closed producers cannot dispatch`() = runTest {
+        val env = ProcessesTestEnv(this)
+        val registry = GitHubRegistry(env.data)
+        val candidate = GitHubOperation(
+            ProcessId("work"),
+            "incarnation",
+            0,
+            WriteKey("comment"),
+            GitHubRepository("owner", "repo"),
+            GitHubChange.Comment(1, "body"),
+        )
+        registry.reserve(candidate)
+        assertNull(registry.closeUnsent(candidate))
+        val pending = candidate.copy(key = WriteKey("pending"), marker = "pending", hasSendStarted = false)
+        registry.reserve(pending)
+        val closed = checkNotNull(registry.closeUnsent(pending))
+        assertTrue(closed.refusal != null)
+        assertFalse(registry.markSendStarted(pending))
+        val sending = pending.copy(key = WriteKey("sending"), marker = "sending")
+        registry.reserve(sending)
+        assertTrue(registry.markSendStarted(sending))
+        assertFalse(registry.markSendStarted(sending))
+        assertNull(registry.closeUnsent(sending))
+        assertEquals(true, registry.find(sending.process, sending.incarnation, sending.key)?.hasSendStarted)
+    }
+
     @Test
     fun `concurrent reservations retain one permanent identity across profile restart`() = runTest {
         val secrets = HarnessDataTestSecrets()

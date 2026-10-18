@@ -34,9 +34,12 @@ public data class ProcessCommandDecision(
     val decision: ProcessDecision,
     val command: ProcessCommandSnapshot? = null,
     val github: ProcessGitHubSnapshot? = null,
+    val ownership: ProcessOwnershipSnapshot? = null,
 ) {
     init {
-        require((command == null) != (github == null)) { "Exactly one decision payload is required" }
+        require(
+            listOf(command, github, ownership).count { it != null } == 1,
+        ) { "Exactly one decision payload is required" }
     }
     override fun toString(): String = "ProcessCommandDecision(phase=${decision.phase}, ***)"
 }
@@ -99,10 +102,17 @@ private fun ProcessDecisionLedger.request(entry: ProcessCommandDecision, now: In
     val decision = entry.decision
     val previous = find(decision.binding)
     return when {
-        previous != null -> takeIf { previous.command == entry.command && previous.github == entry.github }
+        previous != null -> takeIf {
+            previous.command == entry.command && previous.github == entry.github &&
+                previous.ownership == entry.ownership
+        }
+
         find(decision.id) != null || entries.size >= ProcessDecisionLedger.MAX_ENTRIES -> null
+
         decision.phase != ProcessDecisionPhase.Pending || decision.revision != 0L -> null
+
         decision.createdAt > now || decision.expiresAt <= now || decision.updatedAt != decision.createdAt -> null
+
         else -> copy(revision = revision + 1, entries = entries + entry)
     }
 }

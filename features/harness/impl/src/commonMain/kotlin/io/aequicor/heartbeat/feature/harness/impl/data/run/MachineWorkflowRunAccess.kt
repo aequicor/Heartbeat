@@ -10,6 +10,9 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessOwnedContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.HarnessOwnershipRuntime
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.OwnershipLocalProcess
+import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.ownershipIntent
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HARNESS_WAKE_OWNER
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowRunAccess
@@ -20,11 +23,21 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowRunAcc
 internal class MachineWorkflowRunAccess(
     private val library: Lazy<HarnessMachine>,
     private val toggles: FeatureToggles,
+    private val ownershipRuntime: HarnessOwnershipRuntime,
 ) : WorkflowRunAccess {
     private val ownership = HarnessOwnedContext()
 
     override suspend fun isAdmitted(run: WorkflowRun): Boolean {
         if (!toggles.get(HarnessEnabled)) return false
+        val intent = run.ownershipIntent()
+        if (intent != null && ownershipRuntime.isCurrent(intent) != true) return false
+        val key = run.process?.key
+        if (intent == null && key != null && ownershipRuntime.isBound(
+                OwnershipLocalProcess(run.harness, key.process, key.incarnation),
+            ) == true
+        ) {
+            return false
+        }
         val state = library.value.state.value as? HarnessState.Ready ?: return false
         if (state.isSuspended || !state.isRuntimeAvailable) return false
         val entry = state.harnesses.singleOrNull { it.harness.id == run.harness } ?: return false

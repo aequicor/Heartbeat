@@ -19,10 +19,12 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import io.aequicor.heartbeat.feature.harness.api.github.GitHubRepository
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptFailure
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
 import io.aequicor.heartbeat.feature.harness.api.process.ExecutorKind
 import io.aequicor.heartbeat.feature.harness.api.process.ExecutorRef
+import io.aequicor.heartbeat.feature.harness.api.process.GitHubTaskKind
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessEnd
@@ -30,6 +32,7 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
 import io.aequicor.heartbeat.feature.harness.api.process.ResultRef
+import io.aequicor.heartbeat.feature.harness.api.process.ScriptOwnershipResult
 import io.aequicor.heartbeat.feature.harness.api.process.StageName
 import io.aequicor.heartbeat.feature.harness.api.process.workflowKey
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflowCancellation
@@ -45,6 +48,8 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryClock
 import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryTestStore
+import io.aequicor.heartbeat.feature.harness.impl.data.ownership.GitHubOwnershipBackendTest
+import io.aequicor.heartbeat.feature.harness.impl.data.ownership.OwnershipRuntimeTestEnv
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessDataTestSecrets
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessSessionAccess
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessSessionRoute
@@ -371,6 +376,49 @@ private val HARNESS = Harness(
 )
 
 class ProcessWorkflowLaunchesTest {
+    @Test
+    fun `coordinated ownership metadata preserves exact workflow lookup and cancellation`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val source = OwnershipRuntimeTestEnv(
+            this,
+            GitHubOwnershipBackendTest.Server(),
+            request = HarnessActivationRequest(HARNESS, SCRIPT, 0),
+        )
+        val data = source.data
+        val owner = HarnessInstanceTarget(source.request, source.access)
+        val processes = source.processes
+        val process = ProcessId("task")
+        val key = processes.open(process).workflowKey(StageName("verify"))
+        val repository = GitHubRepository("owner", "repo")
+        source.approve(source.ownership.enroll(process, repository, GitHubTaskKind.Issue, 1, source.workspace))
+        assertIs<ScriptOwnershipResult.Current>(
+            source.ownership.enroll(
+                process,
+                repository,
+                GitHubTaskKind.Issue,
+                1,
+                source.workspace,
+            ),
+        )
+        val host = HarnessProcessWorkflows(
+            ScriptSessions(),
+            data,
+            fixture.storage,
+            lazy { fixture.launches },
+            lazy { fixture.runs },
+            fixture.clock,
+            LaunchToggles,
+        )
+        val id = host.start(owner, key, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        val run = checkNotNull(fixture.storage.find(id))
+        val permit = checkNotNull(run.process?.ownership)
+        assertIs<ScriptWorkflowState.Found>(host.get(owner, key))
+        assertEquals(ScriptWorkflowCancellation.Requested, host.cancel(owner, key))
+        val request = fixture.runs.sent.filterIsInstance<HarnessRunsIntent.Internal.CancelStoredRun>().single()
+        assertEquals(permit, request.run.process?.ownership)
+        assertEquals(key, request.run.process?.key)
+    }
+
     @Test
     fun `restored running archive never dispatches again after native journal expires`() = runTest {
         val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
