@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserFaviconPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrerPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserWorkspaceStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserZoomStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserTab
@@ -684,6 +685,9 @@ class DesktopBrowserSessionTest {
         val closed = mutableListOf<BrowserSurface>()
         val surfaces = mutableListOf<BrowserSurface>()
         val guards = mutableListOf<DesktopBrowserAgentGuard>()
+
+        /** The storage each created tab was given, in creation order. */
+        val storages = mutableListOf<BrowserStorage>()
         val links = mutableListOf<(BrowserCommand.Load) -> Unit>()
         val shortcuts = mutableListOf<(BrowserShortcut) -> Unit>()
         private val panels = mutableListOf<DesktopBrowserPanel>()
@@ -726,12 +730,14 @@ class DesktopBrowserSessionTest {
                 guard: DesktopBrowserAgentGuard,
                 openTab: ((BrowserCommand.Load) -> Unit)?,
                 onShortcut: ((BrowserShortcut) -> Unit)?,
+                storage: BrowserStorage,
             ): DesktopBrowserPanel {
                 shortcuts += requireNotNull(onShortcut)
                 check(surfaces.size != failCreateAt) { "Panel creation failed" }
                 links += requireNotNull(openTab)
                 surfaces += surface
                 guards += guard
+                storages += storage
                 return panel(surface)
             }
 
