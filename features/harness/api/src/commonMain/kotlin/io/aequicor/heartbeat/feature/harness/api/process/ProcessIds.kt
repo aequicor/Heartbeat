@@ -77,9 +77,10 @@ public value class StageName(public val value: String) {
  * Idempotency key of one logical external write, `[a-z][a-z0-9_]{0,47}`, chosen by the harness. The same key always
  * means the same write: put whatever makes the operation different (a revision, a head) into it, because the journal
  * refuses to repeat a key whose outcome is unresolved and recognizes a confirmed one as done. It does so only while
- * it still holds the key: the journal keeps [ProcessLimits.WRITES] keys and forgets the oldest settled one to make
- * room, after which the same key begins a new write. A key that names its operation is replayed shortly after it was
- * used, which is well within that window; a key reused for the same operation much later is not protected.
+ * it still holds the key: the journal keeps [ProcessLimits.WRITES] keys and forgets a settled one to make room (one
+ * known not to have happened first, then the one settled longest ago), after which the same key begins a new write.
+ * A key that names its operation is replayed shortly after it was used, which is well within that window; a key
+ * reused for the same operation much later is not protected.
  */
 @Serializable
 @JvmInline

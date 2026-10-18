@@ -60,7 +60,7 @@ class ProcessRecoveryTest {
             .change(ProcessCommand.BeginWrite(WriteKey("alpha"), ProcessAuthority.Write, target), seconds = 6)
             .change(ProcessCommand.BeginWrite(WriteKey("mid"), ProcessAuthority.Write, target), seconds = 7)
             .change(ProcessCommand.ConfirmWrite(WriteKey("alpha"), ResultRef("comment", "c-1")), seconds = 8)
-            .change(ProcessCommand.MarkWriteUnknown(WriteKey("mid"), 1), seconds = 9)
+            .change(ProcessCommand.MarkWriteUnknown(WriteKey("mid"), 3), seconds = 9)
 
         val open = process.recovery(processAt(100)).map { assertIs<ProcessRecovery.WriteOpen>(it).write.key.value }
         assertEquals(listOf("zeta", "mid"), open)

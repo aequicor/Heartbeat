@@ -125,7 +125,7 @@ public enum class ProcessRejection {
     /** The write key is already used for another authority or target. */
     WriteKeyConflict,
 
-    /** The try number of the write was never issued. */
+    /** The try number of the write was never issued (tries start at 1). */
     UnknownTry,
 
     /** No write with that key is journaled. */
@@ -140,7 +140,11 @@ public sealed interface ProcessReduction {
     /** The command changed the record; persist [record]. */
     public data class Changed(val record: ProcessRecord) : ProcessReduction
 
-    /** The command was already reflected in [record]; there is nothing to persist. */
+    /**
+     * The command was already reflected in [record], or it spoke about something that is already over (a wait that
+     * has ended, an older try of a write): there is nothing to persist. It does not say that [record] holds what the
+     * command asked for; a caller that must act on the current state reads it from [record].
+     */
     public data class Unchanged(val record: ProcessRecord) : ProcessReduction
 
     /** The command does not fit the current state. */

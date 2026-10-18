@@ -157,8 +157,8 @@ class HarnessDevelopmentProcessScenarioTest {
         // Doing the same thing again is recognized as done: the harness only calls the hosting after a Changed.
         val replay = second.send(ProcessCommand.BeginWrite(draftKey, ProcessAuthority.Write, REPOSITORY))
         if (replay is ProcessReduction.Changed) hosting.createDraft(draftKey.value)
-        assertIs<ProcessReduction.Unchanged>(replay)
         assertEquals(1, hosting.pullRequests.size)
+        assertIs<ProcessReduction.Unchanged>(replay)
         assertEquals(1, checkNotNull(second.processes.get(issue)).write(draftKey)?.tries)
         assertTrue(checkNotNull(second.processes.get(issue)).recovery(second.clock.now()).isEmpty())
     }

@@ -58,9 +58,10 @@ public sealed interface WritePhase {
 }
 
 /**
- * One logical write to an external system. [key] identifies the operation, [target] what it touches. [tries] counts
- * how often the operation was begun: it grows only after a [WritePhase.NotApplied] outcome, and a mark or settlement
- * that names an older try never changes a newer one. [at] is the time of the last change of [phase].
+ * One logical write to an external system. [key] identifies the operation, [target] what it touches. [tries] numbers
+ * the try among all tries of the process ([ProcessRecord.nextWriteTry]): a new try is begun for a new key or after a
+ * [WritePhase.NotApplied] outcome, gets a number nobody had before, and a mark or settlement that names an older
+ * try never changes a newer one. [at] is the time of the last change of [phase].
  */
 @Serializable
 public data class ExternalWrite(

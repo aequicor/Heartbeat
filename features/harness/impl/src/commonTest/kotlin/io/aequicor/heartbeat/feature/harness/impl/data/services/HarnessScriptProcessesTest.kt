@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.services
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.process.AttemptOutcome
 import io.aequicor.heartbeat.feature.harness.api.process.ExecutorKind
 import io.aequicor.heartbeat.feature.harness.api.process.ExecutorRef
@@ -18,6 +19,7 @@ import io.aequicor.heartbeat.feature.harness.api.process.StageName
 import io.aequicor.heartbeat.feature.harness.api.process.SubjectSha
 import io.aequicor.heartbeat.feature.harness.api.process.WaitReason
 import io.aequicor.heartbeat.feature.harness.api.process.WriteKey
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptDataWriteResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses.Companion.STORAGE_KEY
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
@@ -26,6 +28,12 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -159,19 +167,80 @@ class HarnessScriptProcessesTest {
     }
 
     @Test
-    fun `an open cut short by the activation leaves no trace and takes no slot`() = runTest {
+    fun `an activation revoked right after the write does not strand the process`() = runTest {
         val secrets = HarnessDataTestSecrets()
         val env = ProcessesTestEnv(this, secrets)
-        secrets.beforeRead = { env.access.isActive = false }
-        repeat(ProcessLimits.PROCESSES + 1) { n ->
-            assertFailsWith<IllegalStateException> { env.processes.open(ProcessId("p$n")) }
-            env.access.isActive = true
-        }
-        secrets.beforeRead = {}
-        assertTrue(env.processes.list().isEmpty())
+        // The revocation lands after the one admitted write: nothing may be left half done by it.
+        secrets.beforeWrite = { env.access.isActive = false }
+        val opened = env.processes.open(issue)
+        secrets.beforeWrite = {}
+        env.access.isActive = true
 
-        repeat(ProcessLimits.PROCESSES) { env.processes.open(ProcessId("q$it")) }
+        assertEquals(listOf(opened), env.processes.list())
+        repeat(ProcessLimits.PROCESSES - 1) { env.processes.open(ProcessId("q$it")) }
         assertEquals(ProcessLimits.PROCESSES, env.processes.list().size)
+    }
+
+    @Test
+    fun `a removal racing an open of the same process leaves one consistent answer`() = runTest {
+        val secrets = HarnessDataTestSecrets().apply {
+            beforeRead = { yield() }
+            beforeWrite = { yield() }
+        }
+        val env = ProcessesTestEnv(this, secrets)
+        env.processes.open(issue)
+        env.processes.apply(issue, ProcessCommand.Close(ProcessEnd.Completed))
+
+        val removal = async { env.processes.remove(issue) }
+        val reopening = async { env.processes.open(issue) }
+        removal.await()
+        reopening.await()
+
+        val listed = env.processes.list()
+        assertEquals(env.processes.get(issue) != null, listed.any { it.id == issue })
+        assertTrue(listed.size <= 1)
+    }
+
+    @Test
+    fun `a stored set of another version with duplicates or too many processes is refused`() = runTest {
+        val env = ProcessesTestEnv(this)
+        env.processes.open(issue)
+        val stored = checkNotNull(env.data.read(STORAGE_KEY).value)
+        val record = stored.jsonObject.getValue("records").jsonArray.single()
+        fun withIds(vararg ids: String) = ids.map { Json.parseToJsonElement(record.toString().replace("issue_7", it)) }
+        fun set(version: Int, records: List<JsonElement>) = JsonObject(
+            mapOf("v" to JsonPrimitive(version), "records" to JsonArray(records)),
+        )
+
+        val refused = listOf(
+            set(version = 2, records = listOf(record)),
+            set(version = 1, records = listOf(record, record)),
+            set(version = 1, records = withIds(*Array(ProcessLimits.PROCESSES + 1) { "p$it" })),
+        )
+        for (broken in refused) {
+            env.data.write(STORAGE_KEY, broken, env.data.read(STORAGE_KEY).revision)
+            val failure = assertFailsWith<IllegalStateException> { env.processes.list() }
+            assertEquals("Stored process is unreadable", failure.message)
+            assertNull(failure.cause)
+            assertEquals(broken, env.data.read(STORAGE_KEY).value)
+        }
+    }
+
+    @Test
+    fun `a change that does not fit the namespace throws and leaves the stored set untouched`() = runTest {
+        val env = ProcessesTestEnv(this)
+        // Fill the namespace of this harness (a revision-one envelope with a single "filler" entry) so that exactly
+        // FREE_BYTES remain: enough for the first process, not for a second one or a longer record.
+        val overhead = """{"revision":1,"entries":{"filler":""}}""".length
+        val filler = JsonPrimitive("x".repeat(HarnessLimits.DATA_BYTES - overhead - FREE_BYTES))
+        assertIs<ScriptDataWriteResult.Written>(env.data.write("filler", filler, env.data.read("filler").revision))
+        env.processes.open(issue)
+        val before = env.data.read(STORAGE_KEY).value
+
+        assertFailsWith<IllegalArgumentException> { env.processes.open(ProcessId("q1")) }
+        assertFailsWith<IllegalArgumentException> { env.processes.apply(issue, ProcessCommand.Start(planning, helper)) }
+        assertEquals(before, env.data.read(STORAGE_KEY).value)
+        assertEquals(listOf(issue), env.processes.list().map { it.id })
     }
 
     @Test
@@ -256,5 +325,6 @@ class HarnessScriptProcessesTest {
 
     private companion object {
         const val CONCURRENT = 6
+        const val FREE_BYTES = 105
     }
 }

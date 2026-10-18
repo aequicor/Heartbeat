@@ -26,7 +26,7 @@ import kotlin.time.Clock
  *
  * Every mutation is a [ScriptData.update]: the pure reduction runs against the freshly read envelope and is retried
  * on a concurrent write. Nothing that was stored is ever logged; unreadable content surfaces as a generic failure
- * and, being one envelope, makes the whole set unreadable until the stored data is cleared.
+ * and, being one envelope, makes the whole set unreadable until the [STORAGE_KEY] entry is deleted.
  */
 internal class HarnessScriptProcesses(private val data: ScriptData, private val clock: Clock) : ScriptProcesses {
     private val log = Log.tag("HarnessScriptProcesses")
@@ -99,7 +99,7 @@ internal class HarnessScriptProcesses(private val data: ScriptData, private val 
         }
         when {
             isRemoved && isStored -> log.i { "process removed" }
-            !isRemoved -> log.i { "process removal refused" }
+            !isRemoved -> log.v { "process removal refused" }
             else -> log.v { "process to remove is not stored" }
         }
         return isRemoved

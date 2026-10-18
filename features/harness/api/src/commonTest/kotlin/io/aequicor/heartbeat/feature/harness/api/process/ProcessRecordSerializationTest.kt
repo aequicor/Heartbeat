@@ -127,6 +127,8 @@ class ProcessRecordSerializationTest {
         assertFailsWith<IllegalArgumentException> { wait.copy(number = 0) }
         assertFailsWith<IllegalArgumentException> { journal.copy(writes = journal.writes + entry) }
         assertFailsWith<IllegalArgumentException> { entry.copy(tries = 0) }
+        assertFailsWith<IllegalArgumentException> { journal.copy(nextWriteTry = 0) }
+        assertFailsWith<IllegalArgumentException> { journal.copy(nextWriteTry = entry.tries) }
         assertFailsWith<IllegalArgumentException> {
             journal.copy(writes = (0..ProcessLimits.WRITES).map { entry.copy(key = WriteKey("w$it")) })
         }
@@ -218,10 +220,10 @@ class ProcessRecordSerializationTest {
             .change(begin("confirmed_one", ProcessAuthority.Write))
             .change(ProcessCommand.ConfirmWrite(WriteKey("confirmed_one"), ResultRef("comment", "c-1")))
             .change(begin("unknown_one", ProcessAuthority.Merge))
-            .change(ProcessCommand.MarkWriteUnknown(WriteKey("unknown_one"), 1))
+            .change(ProcessCommand.MarkWriteUnknown(WriteKey("unknown_one"), 2))
             .change(begin("intended_one", ProcessAuthority.Write))
             .change(begin("failed_one", ProcessAuthority.Merge))
-            .change(ProcessCommand.WriteNotApplied(WriteKey("failed_one"), 1))
+            .change(ProcessCommand.WriteNotApplied(WriteKey("failed_one"), 4))
     }
 
     private fun stage(index: Int): StageName =

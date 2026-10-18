@@ -34,27 +34,42 @@ internal fun ProcessRecord.beginWrite(command: ProcessCommand.BeginWrite, now: I
 
         command.authority !in grants -> rejected(ProcessRejection.NotAuthorized)
 
-        else -> replaceWrite(existing.copy(phase = WritePhase.Intended, tries = existing.tries + 1, at = now), now)
+        else -> changed(
+            copy(
+                writes = writes.map {
+                    if (it.key == existing.key) {
+                        existing.copy(phase = WritePhase.Intended, tries = nextWriteTry, at = now)
+                    } else {
+                        it
+                    }
+                },
+                nextWriteTry = nextWriteTry + 1,
+                updatedAt = now,
+            ),
+        )
     }
 }
 
 private fun ProcessRecord.addWrite(command: ProcessCommand.BeginWrite, now: Instant): ProcessReduction {
-    val entry = ExternalWrite(command.key, command.authority, command.target, WritePhase.Intended, at = now)
-    val room = if (writes.size < ProcessLimits.WRITES) writes else writes.dropOldestSettled()
+    val entry = ExternalWrite(command.key, command.authority, command.target, WritePhase.Intended, nextWriteTry, now)
+    val room = if (writes.size < ProcessLimits.WRITES) writes else writes.dropOneSettled()
     return when {
         command.authority !in grants -> rejected(ProcessRejection.NotAuthorized)
         room == null -> rejected(ProcessRejection.TooManyWrites)
-        else -> changed(copy(writes = room + entry, updatedAt = now))
+        else -> changed(copy(writes = room + entry, nextWriteTry = nextWriteTry + 1, updatedAt = now))
     }
 }
 
 /**
  * The journal without a settled write, or null when every write is still open and none may be forgotten. A write
- * known not to have happened goes first, because forgetting it cannot repeat anything; then the oldest confirmed one.
+ * known not to have happened goes first, because forgetting it cannot repeat anything; then the confirmed one that
+ * was settled longest ago. Both are picked by the time of their last change, not by their place in the journal.
  * Beginning a forgotten key afterwards is a new write: the journal recognizes only the keys it still holds.
  */
-private fun List<ExternalWrite>.dropOldestSettled(): List<ExternalWrite>? {
-    val oldest = firstOrNull { it.phase == WritePhase.NotApplied } ?: firstOrNull { it.isSettled } ?: return null
+private fun List<ExternalWrite>.dropOneSettled(): List<ExternalWrite>? {
+    val oldest = filter { it.phase == WritePhase.NotApplied }.minByOrNull { it.at }
+        ?: filter { it.isSettled }.minByOrNull { it.at }
+        ?: return null
     return this - oldest
 }
 
@@ -77,7 +92,7 @@ internal fun ProcessRecord.markWriteUnknown(key: WriteKey, tries: Int, now: Inst
     val existing = write(key)
     return when {
         existing == null -> rejected(ProcessRejection.UnknownWrite)
-        tries > existing.tries -> rejected(ProcessRejection.UnknownTry)
+        tries < 1 || tries > existing.tries -> rejected(ProcessRejection.UnknownTry)
         tries < existing.tries -> ProcessReduction.Unchanged(this)
         existing.phase == WritePhase.Unknown -> ProcessReduction.Unchanged(this)
         existing.isSettled -> rejected(ProcessRejection.OutcomeConflict)
@@ -89,7 +104,7 @@ internal fun ProcessRecord.writeNotApplied(key: WriteKey, tries: Int, now: Insta
     val existing = write(key)
     return when {
         existing == null -> rejected(ProcessRejection.UnknownWrite)
-        tries > existing.tries -> rejected(ProcessRejection.UnknownTry)
+        tries < 1 || tries > existing.tries -> rejected(ProcessRejection.UnknownTry)
         tries < existing.tries -> ProcessReduction.Unchanged(this)
         existing.phase == WritePhase.NotApplied -> ProcessReduction.Unchanged(this)
         existing.phase is WritePhase.Confirmed -> rejected(ProcessRejection.OutcomeConflict)

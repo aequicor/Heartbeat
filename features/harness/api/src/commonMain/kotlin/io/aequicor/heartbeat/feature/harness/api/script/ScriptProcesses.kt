@@ -22,9 +22,12 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
  * you decide, but never rely on a record you read earlier: send the command that expresses your decision and handle
  * the reduction. Identifiers, results and journal entries must never be logged. Stored processes that cannot be
  * read (written by a newer version, damaged) are reported as `IllegalStateException` without their content; they
- * are never silently skipped or overwritten, and because they share one key the whole set is unreadable then.
- * Because the namespace quota is shared with the script's own data, a change that would exceed it throws
- * `IllegalArgumentException` instead of returning a [ProcessReduction].
+ * are never silently skipped or overwritten, and because they share one key the whole set is unreadable then; the
+ * only way out is `data.write("hb_processes", null, revision)`, which deletes every process of the harness (settle
+ * the external systems by hand first). The key is reserved by convention only: a script that writes it can bypass the
+ * journal, so it is a convention of one harness, not a security boundary. Because the namespace quota is shared with
+ * the script's own data, a change that would exceed it throws `IllegalArgumentException` instead of returning a
+ * [ProcessReduction].
  */
 public interface ScriptProcesses {
     /** The stored record, or null if the process was never opened or has been removed. */
@@ -43,7 +46,8 @@ public interface ScriptProcesses {
     /**
      * Reduces [command] against the stored record of [id] and, when it changes the record, persists the result before
      * returning. [ProcessReduction.Changed] is durable; [ProcessReduction.Unchanged] means the record already
-     * reflected the command (an exact replay); [ProcessReduction.Rejected] leaves the record as it was, including
+     * reflected the command (an exact replay) or the command spoke about something that is already over, such as an
+     * older try of a write; [ProcessReduction.Rejected] leaves the record as it was, including
      * [io.aequicor.heartbeat.feature.harness.api.process.ProcessRejection.UnknownProcess] for a process that is not
      * stored.
      */

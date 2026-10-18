@@ -197,7 +197,7 @@ class ProcessWriteTransitionsTest {
         process.expectRejected(begin(WriteKey("extra")), ProcessRejection.TooManyWrites)
         assertEquals(ProcessLimits.WRITES, process.unresolvedWrites().size)
 
-        val room = process.change(ProcessCommand.WriteNotApplied(WriteKey("w3"), 1))
+        val room = process.change(ProcessCommand.WriteNotApplied(WriteKey("w3"), 4))
         val next = room.change(begin(WriteKey("extra")))
         assertNull(next.write(WriteKey("w3")))
         assertEquals(ProcessLimits.WRITES, next.writes.size)
@@ -267,7 +267,7 @@ class ProcessWriteTransitionsTest {
             val key = WriteKey("w$n")
             process = process.change(begin(key))
             process = if (n == 1) {
-                process.change(ProcessCommand.WriteNotApplied(key, 1))
+                process.change(ProcessCommand.WriteNotApplied(key, n + 1))
             } else {
                 process.change(ProcessCommand.ConfirmWrite(key, commentDone))
             }
@@ -290,6 +290,72 @@ class ProcessWriteTransitionsTest {
 
         val again = process.change(begin(WriteKey("w0")))
         assertEquals(WritePhase.Intended, again.write(WriteKey("w0"))?.phase)
-        assertEquals(1, again.write(WriteKey("w0"))?.tries)
+        assertEquals(ProcessLimits.WRITES + 2, again.write(WriteKey("w0"))?.tries)
+    }
+
+    @Test
+    fun `a try number below one was never issued`() {
+        val begun = granted(ProcessAuthority.Write).change(begin())
+        for (tries in listOf(0, -1)) {
+            begun.expectRejected(ProcessCommand.MarkWriteUnknown(comment, tries), ProcessRejection.UnknownTry)
+            begun.expectRejected(ProcessCommand.WriteNotApplied(comment, tries), ProcessRejection.UnknownTry)
+        }
+    }
+
+    @Test
+    fun `a late decision about an older try is ignored once the newer try is settled`() {
+        val retried = granted(ProcessAuthority.Write)
+            .change(begin())
+            .change(ProcessCommand.WriteNotApplied(comment, 1))
+            .change(begin())
+
+        val confirmed = retried.change(ProcessCommand.ConfirmWrite(comment, commentDone))
+        confirmed.expectUnchanged(ProcessCommand.WriteNotApplied(comment, 1))
+        confirmed.expectUnchanged(ProcessCommand.MarkWriteUnknown(comment, 1))
+
+        val absent = retried.change(ProcessCommand.WriteNotApplied(comment, 2))
+        absent.expectUnchanged(ProcessCommand.WriteNotApplied(comment, 1))
+        absent.expectUnchanged(ProcessCommand.MarkWriteUnknown(comment, 1))
+    }
+
+    @Test
+    fun `the journal forgets by the time of the last change and not by its place`() {
+        var process = granted(ProcessAuthority.Write)
+        val again = WriteKey("again")
+        process = process.change(begin(again), seconds = 1)
+            .change(ProcessCommand.WriteNotApplied(again, 1), seconds = 2)
+        (1 until ProcessLimits.WRITES - 1).forEach { n ->
+            val key = WriteKey("w$n")
+            process = process.change(begin(key), seconds = 2L + n)
+                .change(ProcessCommand.ConfirmWrite(key, commentDone), seconds = 2L + n)
+        }
+        process = process.change(begin(again), seconds = 20).change(ProcessCommand.ConfirmWrite(again, commentDone), 21)
+        val last = WriteKey("last")
+        process = process.change(begin(last), seconds = 22).change(ProcessCommand.ConfirmWrite(last, commentDone), 22)
+        assertEquals(ProcessLimits.WRITES, process.writes.size)
+
+        val next = process.change(begin(WriteKey("extra")), seconds = 30)
+        assertEquals(WritePhase.Confirmed(commentDone), next.write(again)?.phase)
+        assertNull(next.write(WriteKey("w1")))
+    }
+
+    @Test
+    fun `a decision about a forgotten try cannot touch the key begun anew`() {
+        val key = WriteKey("again")
+        var process = granted(ProcessAuthority.Write)
+            .change(begin(key))
+            .change(ProcessCommand.WriteNotApplied(key, 1))
+        repeat(ProcessLimits.WRITES - 1) { n -> process = process.change(begin(WriteKey("w$n"))) }
+        process = process.change(ProcessCommand.ConfirmWrite(WriteKey("w0"), commentDone))
+        // The journal is full and `again` is its only write known not to have happened, so it goes first.
+        process = process.change(begin(WriteKey("extra")))
+        assertNull(process.write(key))
+
+        process = process.change(ProcessCommand.ConfirmWrite(WriteKey("extra"), commentDone))
+        val renewed = process.change(begin(key))
+        assertTrue(checkNotNull(renewed.write(key)).tries > 1)
+        renewed.expectUnchanged(ProcessCommand.WriteNotApplied(key, 1))
+        renewed.expectUnchanged(ProcessCommand.MarkWriteUnknown(key, 1))
+        assertEquals(WritePhase.Intended, renewed.write(key)?.phase)
     }
 }

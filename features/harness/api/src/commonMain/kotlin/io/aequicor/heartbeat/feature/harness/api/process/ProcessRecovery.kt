@@ -7,10 +7,13 @@ import kotlin.time.Instant
  * before it moves on: nothing is restarted or repeated on a guess, because the record alone cannot tell what the
  * outside world did in the meantime.
  *
- * The list cannot tell an item left behind by an earlier run from one a live caller is working on right now, so ask
- * for it only when no live code or executor of the harness can still change the record: once, in the one script item
- * that owns the process, when its activation starts and before it begins new work. An activation also happens
- * without a restart (a source replacement, another item of the harness), and then attempts and calls are alive.
+ * The list cannot tell an item left behind by an earlier run from one a live caller is working on right now, so judge
+ * that by time: everything the current run of the application did is stamped after the start of that run. An item
+ * whose own time (the attempt's `startedAt`, the write's `at`, the wait's `since`) is before the start of the run was
+ * left by an earlier run and has no live caller; a newer one is live work and must not be touched. A script learns
+ * the start of the run from `SystemEvent.Started.at`, which every newly published instance receives with the same
+ * time while the scheduler is enabled. An activation alone is no evidence of a restart: it also happens when a
+ * source is replaced or another item changes, and then calls of the earlier activation are still running.
  */
 public sealed interface ProcessRecovery {
     /**
@@ -27,9 +30,9 @@ public sealed interface ProcessRecovery {
     /**
      * [write] was journaled and its outcome is still open, so the external system may or may not have changed. Mark
      * it [ProcessCommand.MarkWriteUnknown], look at the external system (what is there, not what was meant to be
-     * written) and settle it with [ProcessCommand.ConfirmWrite] or [ProcessCommand.WriteNotApplied]; both of the
-     * latter name the try ([ExternalWrite.tries]) that was looked at. Repeating [ProcessCommand.BeginWrite] before
-     * that is refused.
+     * written) and settle it with [ProcessCommand.ConfirmWrite] or [ProcessCommand.WriteNotApplied]. The mark and
+     * "not applied" name the try ([ExternalWrite.tries]) that was looked at; a confirmation does not need to,
+     * because it states what the external system holds. Repeating [ProcessCommand.BeginWrite] before that is refused.
      */
     public data class WriteOpen(val write: ExternalWrite) : ProcessRecovery
 
