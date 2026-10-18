@@ -34,6 +34,7 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.DismissNotice, is AiStudioScreenIntent.DecideProjectTrust,
     is AiStudioScreenIntent.SelectSubSession,
     is AiStudioScreenIntent.DecideOrganism,
+    is AiStudioScreenIntent.Plan,
     is AiStudioScreenIntent.Retry,
     is AiStudioScreenIntent.NewSession,
     is AiStudioScreenIntent.SelectProject,

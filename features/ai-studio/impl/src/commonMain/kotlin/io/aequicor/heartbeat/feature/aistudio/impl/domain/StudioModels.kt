@@ -72,6 +72,8 @@ data class StudioToolRun(
     val diff: String? = null,
     val feedback: FeedbackRecord? = null,
     val learning: StudioLearningCall? = null,
+    /** The agent's request to review a revision of the chat's plan. */
+    val plan: StudioPlanProposal? = null,
     /** Stable attachment identity decoded only from a successful hosted checklist creation result. */
     val createdChecklistId: String? = null,
     /** Card the agent showed in its reply, decoded only from a successful hosted `ui_show` result. */
@@ -226,3 +228,8 @@ internal fun studioModelTarget(id: String): EngineTarget? {
 }
 
 private val log = Log.tag("StudioModels")
+
+/** A `plan_propose` call: the [revision] to review, when readable, and the agent's [summary]; user data. */
+data class StudioPlanProposal(val revision: Long?, val summary: String) {
+    override fun toString(): String = "StudioPlanProposal(revision=${revision ?: "unknown"}, length=${summary.length})"
+}

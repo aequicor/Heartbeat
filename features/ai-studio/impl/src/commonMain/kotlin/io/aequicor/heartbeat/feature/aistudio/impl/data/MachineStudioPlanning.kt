@@ -11,7 +11,9 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
+import io.aequicor.heartbeat.feature.planningmode.api.PlanAuthor
 import io.aequicor.heartbeat.feature.planningmode.api.PlanChat
+import io.aequicor.heartbeat.feature.planningmode.api.PlanEdit
 import io.aequicor.heartbeat.feature.planningmode.api.PlanMode
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningIntent
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningMachineKey
@@ -74,6 +76,21 @@ internal class MachineStudioPlanning(
         val chat = chatId.takeIf(::isValidPlanChat)?.let(::PlanChat) ?: return false
         val result = machines.send(PlanningMachineKey, PlanningIntent.Public.StartImplementation(chat, revision))
         log.i { "User started implementing the plan: $result" }
+        return result == SendResult.Accepted
+    }
+
+    override suspend fun approve(chatId: String, revision: Long): Boolean {
+        val chat = chatId.takeIf(::isValidPlanChat)?.let(::PlanChat) ?: return false
+        val result = machines.send(PlanningMachineKey, PlanningIntent.Public.Approve(chat, revision))
+        log.i { "User approved the plan: $result" }
+        return result == SendResult.Accepted
+    }
+
+    override suspend fun write(chatId: String, text: String, base: Long): Boolean {
+        val chat = chatId.takeIf(::isValidPlanChat)?.let(::PlanChat) ?: return false
+        val edit = PlanningIntent.Public.Write(chat, PlanEdit.Replace(text), base, PlanAuthor.User, clock.now())
+        val result = machines.send(PlanningMachineKey, edit)
+        log.i { "User edited the plan: $result" }
         return result == SendResult.Accepted
     }
 

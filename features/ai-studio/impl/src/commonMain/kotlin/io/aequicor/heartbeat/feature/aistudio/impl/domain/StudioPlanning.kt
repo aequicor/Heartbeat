@@ -35,6 +35,12 @@ interface StudioPlanning {
     /** Lifts planning in [chatId] for implementing [revision]; false when the plan is no longer at that revision. */
     suspend fun startImplementation(chatId: String, revision: Long): Boolean
 
+    /** Approves [revision] of the plan of [chatId]; false when it is no longer current. */
+    suspend fun approve(chatId: String, revision: Long): Boolean = false
+
+    /** Saves the user's [text] of the plan of [chatId] edited from [base]; false when the plan changed meanwhile. */
+    suspend fun write(chatId: String, text: String, base: Long): Boolean = false
+
     /** No planning mode: the feature is not part of the graph. */
     object None : StudioPlanning {
         override val availability: Flow<Boolean> = flowOf(false)
