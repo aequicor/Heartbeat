@@ -169,6 +169,9 @@ public sealed interface ProcessPhase {
  * [incarnation] distinguishes a removed and reopened process. Legacy records use their creation instant.
  * New stores generate an opaque lifetime identity; workflow keys from an older lifetime are always rejected.
  *
+ * [schemaVersion] identifies the stored structure: unsupported versions fail closed without being overwritten.
+ * [definition] pins the approved script and harness revision. Legacy records remain readable with null; before
+ * continuing them under version-aware execution, explicitly accept a definition with [ProcessCommand.MigrateDefinition].
  * Fields added later must have defaults so that stored records stay readable.
  */
 @Serializable
@@ -185,8 +188,11 @@ public data class ProcessRecord(
     val grants: Set<ProcessAuthority> = emptySet(),
     val writes: List<ExternalWrite> = emptyList(),
     val incarnation: String = createdAt.toString(),
+    val schemaVersion: Int = 1,
+    val definition: ProcessDefinition? = null,
 ) {
     init {
+        require(schemaVersion == 1) { "Unsupported process schema" }
         require(isPlainToken(incarnation))
         require(inputRevision >= 0) { "Invalid input revision" }
         require(nextAttempt >= 1) { "Invalid next attempt" }

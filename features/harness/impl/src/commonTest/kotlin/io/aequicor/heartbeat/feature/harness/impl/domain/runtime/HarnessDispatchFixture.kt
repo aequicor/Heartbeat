@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.script.HarnessScriptScope
 import io.aequicor.heartbeat.feature.harness.impl.data.events.EmptyHarnessEventRuns
 import io.aequicor.heartbeat.feature.harness.impl.data.runtime.StagedHarnessContexts
+import io.aequicor.heartbeat.feature.harness.impl.data.services.CommandToggles
 import io.aequicor.heartbeat.feature.harness.impl.data.services.commandsTestFactory
 import io.aequicor.heartbeat.feature.harness.impl.data.services.githubTestFactory
 import io.aequicor.heartbeat.feature.harness.impl.data.services.harnessTestData
@@ -93,6 +94,7 @@ internal class HarnessDispatchFixture(
                 commandsTestFactory(),
                 githubTestFactory(origins),
                 Clock.System,
+                CommandToggles(),
             ) { request, access ->
                 unusedScriptSessions(HarnessInstanceTarget(request, access), origins)
             },

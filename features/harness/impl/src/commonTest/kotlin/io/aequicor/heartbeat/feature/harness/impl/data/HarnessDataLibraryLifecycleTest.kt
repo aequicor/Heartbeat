@@ -2,7 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessDataTestSecrets
-import io.aequicor.heartbeat.feature.harness.impl.data.services.ProtectedHarnessData
+import io.aequicor.heartbeat.feature.harness.impl.data.services.protectedHarnessData
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
@@ -31,7 +31,7 @@ class HarnessDataLibraryLifecycleTest {
     fun `load retries data cleanup if deletion committed before storage failure`() = runTest {
         val stores = HarnessTestStores()
         val secrets = HarnessDataTestSecrets()
-        val data = ProtectedHarnessData(secrets)
+        val data = protectedHarnessData(secrets)
         val library = KeyValueHarnessLibrary(stores, storageClock, data)
         library.save(storageHarness, storageReceipt)
         data.write(storageHarness.id, "progress", JsonPrimitive(3), 0) {}

@@ -29,9 +29,9 @@ class ProtectedHarnessDataTest {
     @Test
     fun `recreated repository reads values and revisions from protected storage`() = runTest {
         val secrets = HarnessDataTestSecrets()
-        val first = ProtectedHarnessData(secrets)
+        val first = protectedHarnessData(secrets)
         first.write(owner, "state", JsonPrimitive("private progress"), 0) {}
-        val restored = ProtectedHarnessData(secrets).read(owner, "state") {}
+        val restored = protectedHarnessData(secrets).read(owner, "state") {}
         assertEquals(JsonPrimitive("private progress"), restored.value)
         assertEquals(1L, restored.revision)
         assertFalse("private progress" in restored.toString())
@@ -53,7 +53,7 @@ class ProtectedHarnessDataTest {
     @Test
     fun `deletion keeps a namespace revision without per-key tombstones`() = runTest {
         val secrets = HarnessDataTestSecrets()
-        val storage = ProtectedHarnessData(secrets)
+        val storage = protectedHarnessData(secrets)
         storage.write(owner, "state", JsonNull, 0) {}
         assertEquals(JsonNull, storage.read(owner, "state") {}.value)
         storage.write(owner, "state", null, 1) {}
@@ -98,7 +98,7 @@ class ProtectedHarnessDataTest {
     @Test
     fun `storage failure neither publishes a revision nor looks like missing data`() = runTest {
         val secrets = HarnessDataTestSecrets()
-        val storage = ProtectedHarnessData(secrets)
+        val storage = protectedHarnessData(secrets)
         secrets.beforeWrite = { error("private backend payload") }
         val failure = assertFailsWith<IllegalStateException> { storage.write(owner, "state", JsonNull, 0) {} }
         assertFalse("private backend payload" in failure.toString())
@@ -119,7 +119,7 @@ class ProtectedHarnessDataTest {
     @Test
     fun `publication is required and revocation during IO prevents a later commit`() = runTest {
         val secrets = HarnessDataTestSecrets()
-        val storage = ProtectedHarnessData(secrets)
+        val storage = protectedHarnessData(secrets)
         val access = access()
         val script = HarnessScriptData(owner, access, storage)
         access.isActive = false
@@ -135,7 +135,7 @@ class ProtectedHarnessDataTest {
     @Test
     fun `concurrent script items update shared data without dropping changes`() = runTest {
         val secrets = HarnessDataTestSecrets().apply { beforeRead = { yield() } }
-        val storage = ProtectedHarnessData(secrets)
+        val storage = protectedHarnessData(secrets)
         val scripts = List(2) { HarnessScriptData(owner, access(), storage) }
         List(40) { index ->
             async {
@@ -151,7 +151,7 @@ class ProtectedHarnessDataTest {
     @Test
     fun `an admitted commit publishes after persistence even when caller is cancelled`() = runTest {
         val secrets = HarnessDataTestSecrets()
-        val storage = ProtectedHarnessData(secrets)
+        val storage = protectedHarnessData(secrets)
         val writing = CompletableDeferred<Unit>()
         val finish = CompletableDeferred<Unit>()
         secrets.beforeWrite = {
@@ -171,7 +171,7 @@ class ProtectedHarnessDataTest {
     @Test
     fun `deletion waits for an admitted write then prevents retired script from recreating its data`() = runTest {
         val secrets = HarnessDataTestSecrets()
-        val storage = ProtectedHarnessData(secrets)
+        val storage = protectedHarnessData(secrets)
         val access = access()
         val script = HarnessScriptData(owner, access, storage)
         val writing = CompletableDeferred<Unit>()
@@ -197,7 +197,7 @@ class ProtectedHarnessDataTest {
     @Test
     fun `library recovery deletes orphan data while preserving existing owners and unrelated secrets`() = runTest {
         val secrets = HarnessDataTestSecrets()
-        val storage = ProtectedHarnessData(secrets)
+        val storage = protectedHarnessData(secrets)
         val kept = HarnessId("kept")
         storage.write(owner, "state", JsonNull, 0) {}
         storage.write(kept, "state", JsonPrimitive(1), 0) {}

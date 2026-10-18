@@ -272,8 +272,29 @@ private val API = """
       AttemptOutcome.Failed(AttemptFailure.Interrupted))), ProcessRecovery.WriteOpen (MarkWriteUnknown(key,
       write.tries), look at the external system itself, then ConfirmWrite or WriteNotApplied(key, write.tries)) and
       ProcessRecovery.WaitOpen (check the state the wait was about, an event may have been missed, isDue says a
-      deadline passed, then Resume(wait.number) or keep waiting). A kept attempt or wait stays listed, so never
-      loop until the list is empty. Ended processes are removed with remove(id). Never log ids, results or journal
+      deadline passed, then resume or keep waiting). Prefer processes.reconcileWait(id) { record, wait ->
+      /* query actual external state */ false } from Activated and event/timer handlers. It reads the durable wait
+      once, checks the condition outside the transaction, and applies ResumeChecked with that snapshot only when
+      satisfied. A concurrent input revision or SHA update gives Rejected(StaleRevision); reconcile again. A late
+      answer cannot resume a newer wait or reopened process. Persist observed revision/SHA before reconciliation;
+      the local comparison cannot discover remote edits by itself. Waiting uses no workflow or live agent; each
+      resumed stage starts a new keyed workflow with its own deadline. A kept attempt or wait stays listed, so never
+      loop until the list is empty. With harness.durable_processes enabled (default false), new records pin
+      ProcessDefinition(item, revision) from the approved activation. Existing pins remain enforced when it is off.
+      After source replacement, reads and cleanup remain available, but starting/resuming a stage returns
+      DefinitionMismatch until processes.apply(id, ProcessCommand.MigrateDefinition(record.definition,
+      ProcessDefinition(item, revision))) explicitly accepts the current code. Migrate only between stages with no
+      unresolved external writes. Legacy records have definition=null and require explicit acceptance too. Migration
+      keeps attempts, waits and workflow structural keys; unknown schemaVersion fails closed without overwriting.
+      In durable mode (or for existing pins), remove(id) archives a settled ended process before deleting its active
+      record. archive(id) confirms a snapshot without removing it; archived(after, limit, process) searches this
+      harness's archive, readArchive(ref) resolves it, restore(ref) returns the same logical process without rewinding
+      newer active state or changing workflow keys. A different active lifetime conflicts. Restore never starts
+      execution; reconcile open work and migrate changed logic explicitly. Native cleanup receipts survive workflow
+      retention. A full active quota reclaims only eligible completed records after confirmed archival; a full archive
+      fails without deleting originals. Deleting a harness preserves its processes before removing the namespace;
+      the profile ProcessArchiveReader still resolves their refs. Public results stay with their external provider,
+      private record snapshots stay protected in this profile. Never log ids, results or journal
       entries.
     - workflows.start(process.workflowKey(StageName("verify")), ItemName("verify"), input) reserves the process
       attempt atomically before dispatch and returns the same RunId on an exact retry. Keep this key; a fresh

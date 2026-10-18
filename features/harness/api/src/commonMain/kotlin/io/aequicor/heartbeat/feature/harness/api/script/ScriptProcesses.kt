@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.harness.api.script
 
+import io.aequicor.heartbeat.feature.harness.api.process.ArchivedProcess
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchivePage
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessArchiveRef
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessCommand
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessId
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessLimits
@@ -28,6 +31,11 @@ import io.aequicor.heartbeat.feature.harness.api.process.ProcessReduction
  * journal, so it is a convention of one harness, not a security boundary. Because the namespace quota is shared with
  * the script's own data, a change that would exceed it throws `IllegalArgumentException` instead of returning a
  * [ProcessReduction].
+ *
+ * New records pin their owning script and approved harness revision in [ProcessRecord.definition]. Updated code
+ * can read old records and settle old work, but cannot start or resume stages until explicitly accepting its own
+ * current revision with [ProcessCommand.MigrateDefinition]. Migration requires no live attempt or unresolved write;
+ * it preserves workflow journals and evidence. Unknown [ProcessRecord.schemaVersion] fails closed on read.
  */
 public interface ScriptProcesses {
     /** The stored record, or null if the process was never opened or has been removed. */
@@ -39,7 +47,8 @@ public interface ScriptProcesses {
     /**
      * Opens [id] at [inputRevision] unless it already exists, and returns the stored record either way. An existing
      * process is returned as it is: use [ProcessCommand.ReviseInput] to move its input. Throws
-     * IllegalArgumentException when [ProcessLimits.PROCESSES] processes are already stored.
+     * IllegalArgumentException when [ProcessLimits.PROCESSES] processes are already stored and no eligible ended
+     * record can be archived to free a slot in durable mode. Archive failure preserves the active original.
      */
     public suspend fun open(id: ProcessId, inputRevision: Long = 0): ProcessRecord
 
@@ -58,7 +67,37 @@ public interface ScriptProcesses {
 
     /**
      * Forgets an ended process whose external writes are all settled, and returns true; also true when [id] is not
-     * stored. False means the process was kept because it is still running or a write is unresolved.
+     * stored. False means the process was kept because it is still running or a write is unresolved. With durable
+     * mode enabled, or for a pinned record, removal first confirms an immutable protected archive. Archive failure
+     * leaves the active original; a concurrent raw namespace edit also prevents removing a different snapshot.
      */
     public suspend fun remove(id: ProcessId): Boolean
+
+    /**
+     * Confirms an immutable snapshot of an ended process with settled external writes and completed workflow
+     * cleanup. The active record stays until remove; null means missing or not yet eligible. Requires durable mode
+     * or an already pinned process. Failure never removes the active original.
+     */
+    public suspend fun archive(id: ProcessId): ArchivedProcess? = error("Process archives are unavailable")
+
+    /** Archived snapshots of this harness, with stable reference pagination and optional exact process search. */
+    public suspend fun archived(
+        after: ProcessArchiveRef? = null,
+        limit: Int = 20,
+        process: ProcessId? = null,
+    ): ProcessArchivePage = error("Process archives are unavailable")
+
+    /** Resolves a snapshot of this harness; other owners and other profiles are inaccessible here. */
+    public suspend fun readArchive(ref: ProcessArchiveRef): ArchivedProcess? = error("Process archives are unavailable")
+
+    /**
+     * Restores this harness's immutable snapshot into active storage without removing the archive. Preserves its
+     * lifetime, counters, waits and workflow keys, so native execution is never silently redispatched. Existing
+     * state of that same lifetime is returned without rewinding; a different active lifetime conflicts. No executor
+     * is started. A restored native reservation cannot recreate a missing workflow journal: keyed start refuses
+     * and observation/cancellation remain unavailable until the native result is reconciled. Reconcile open
+     * attempts/writes and explicitly migrate changed logic before continuing. Capacity
+     * or namespace quota failure preserves the snapshot. Null means no owned snapshot with this reference.
+     */
+    public suspend fun restore(ref: ProcessArchiveRef): ProcessRecord? = error("Process archives are unavailable")
 }

@@ -4,9 +4,11 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
+import io.aequicor.heartbeat.feature.harness.api.process.ProcessDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessScriptCommandsFactory
@@ -20,6 +22,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessScriptCo
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessScriptServices
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDurableProcessesEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptProcesses
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSchedulerFactory
@@ -41,6 +44,7 @@ internal class StagedHarnessContexts(
     private val commands: HarnessScriptCommandsFactory,
     private val github: HarnessScriptGitHubFactory,
     private val clock: Clock,
+    private val toggles: FeatureToggles,
     private val sessions: HarnessScriptSessionsFactory,
 ) : HarnessRuntimeContextFactory {
     override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessRuntimeContext =
@@ -55,7 +59,16 @@ internal class StagedHarnessContexts(
 
     private fun scriptContext(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessScriptContext {
         val scriptData = HarnessScriptData(request.harness.id, access, data)
-        val processes = HarnessScriptProcesses(scriptData, clock, data.processMutex, request.harness.id, runStorage)
+        val processes = HarnessScriptProcesses(
+            scriptData,
+            clock,
+            data.processMutex,
+            request.harness.id,
+            runStorage,
+            ProcessDefinition(request.item.id, request.harness.revision),
+            { toggles.get(HarnessDurableProcessesEnabled) },
+            data.archives,
+        )
         return HarnessScriptContext(
             request,
             access,
