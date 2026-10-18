@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.flow.first
 
@@ -84,7 +85,8 @@ internal class EngineStudioHelperRuns(
         val task = worktrees.tasks().first()[helper.value] ?: return request
         if (request !in task.virtualInterruptedRequests) return request
         val continuation = task.virtualContinuations[request.value] ?: return null
-        val available = task.virtualSandbox?.isReady == true && !task.pendingVirtualContinuation &&
+        val available = task.virtualSandbox?.let { it.isReady || it.phase == VirtualSandboxPhase.HandedOff } == true &&
+            !task.pendingVirtualContinuation &&
             task.actionRequest == null && task.run?.outcome != null
         return RequestId(continuation).takeIf { available }
     }

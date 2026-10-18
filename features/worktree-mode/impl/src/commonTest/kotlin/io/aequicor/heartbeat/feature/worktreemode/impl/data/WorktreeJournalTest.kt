@@ -21,6 +21,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxPhase
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeAction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCommand
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
@@ -51,6 +53,42 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WorktreeJournalTest {
+    @Test
+    fun `completed virtual children keep reusable workspaces and immutable result snapshots`() = runTest {
+        val fixture = Fixture()
+        fixture.git.isVirtualSupported = true
+        fixture.toggles.isSandbox = true
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, true, WorkspaceRef("parent")))
+        fixture.send(WorktreeIntent.Public.RunStarted(CHAT, REQUEST))
+        fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN))
+        fixture.send(WorktreeIntent.Public.TaskCompleteSignaled(CHAT, SESSION, TURN, "Done"))
+        fixture.send(WorktreeIntent.Public.RunSettled(CHAT, REQUEST, SESSION, TURN, TurnOutcome.Completed))
+        val result = fixture.task()
+        assertEquals(0, fixture.git.handoffCount)
+        assertEquals(VirtualSandboxPhase.Ready, result.virtualSandbox?.phase)
+        assertEquals(result.seal?.commit, result.virtualResultSnapshots[REQUEST.value])
+        assertEquals(1, fixture.git.sealed.size)
+        fixture.send(WorktreeIntent.Public.RunStarted(CHAT, RequestId("follow-up")))
+        assertEquals(WorktreePhase.Working, fixture.task().phase)
+        assertEquals(result.virtualResultSnapshots, fixture.task().virtualResultSnapshots)
+    }
+
+    @Test
+    fun `completed virtual root hands its branch to the user`() = runTest {
+        val fixture = Fixture()
+        fixture.git.isVirtualSupported = true
+        fixture.toggles.isSandbox = true
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, true))
+        fixture.send(WorktreeIntent.Public.RunStarted(CHAT, REQUEST))
+        fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN))
+        fixture.send(WorktreeIntent.Public.TaskCompleteSignaled(CHAT, SESSION, TURN, "Done"))
+        fixture.send(WorktreeIntent.Public.RunSettled(CHAT, REQUEST, SESSION, TURN, TurnOutcome.Completed))
+        assertEquals(1, fixture.git.handoffCount)
+        assertEquals(VirtualSandboxPhase.HandedOff, fixture.task().virtualSandbox?.phase)
+    }
+
     @Test
     fun `failure before Git planning is durable and retry recreates the checkout`() = runTest {
         val fixture = Fixture()
@@ -657,6 +695,18 @@ class WorktreeJournalTest {
 
     private class FakeGit : WorktreeGit {
         override val isAvailable = true
+        override var isVirtualSupported = false
+        var handoffCount = 0
+        private var virtualState = VirtualSandboxState(baseCommit = "sha", snapshot = "snapshot")
+        override suspend fun virtualWorkspace(record: WorktreeRecord): WorkspaceRef? =
+            CHECKOUT.takeIf { record.task.virtualSandbox != null }
+        override suspend fun inspectVirtual(record: WorktreeRecord): VirtualSandboxState? =
+            virtualState.takeIf { record.task.virtualSandbox != null }
+        override suspend fun handoffVirtual(record: WorktreeRecord): VirtualSandboxState {
+            handoffCount++
+            virtualState = virtualState.copy(phase = VirtualSandboxPhase.HandedOff, resultCommit = "snapshot")
+            return virtualState
+        }
         var hasPlanFailure = false
         var promptCount = 0
         var preflightCount = 0
@@ -720,6 +770,7 @@ class WorktreeJournalTest {
         }
         val sealed = mutableListOf<String>()
         override suspend fun seal(record: WorktreeRecord, id: String): String {
+            check(!isVirtualSupported || virtualState.isReady) { "SandboxPaused" }
             sealed += id
             return "seal-$id"
         }

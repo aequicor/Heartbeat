@@ -24,6 +24,60 @@ import kotlin.time.Instant
 
 class VirtualSandboxTest {
     @Test
+    fun `writes and moves refuse implicit removal of ancestor files and directory contents`() = runTest {
+        val f = VirtualFixture()
+        try {
+            val ref = f.create("path-collisions")
+            val files = assertNotNull(f.backend.find(ref))
+            files.change(
+                0,
+                listOf(
+                    VirtualFileChange("folder/valuable.txt", "preserved"),
+                    VirtualFileChange("source.txt-backup", "also preserved"),
+                ),
+            )
+            for (path in listOf("folder", "source.txt/nested")) {
+                assertFailsWith<IllegalStateException> {
+                    files.change(1, listOf(VirtualFileChange(path, "replacement")))
+                }
+            }
+            for (destination in listOf("folder", "source.txt/nested")) {
+                assertFailsWith<IllegalStateException> { files.move(1, ".gitignore", destination) }
+            }
+            assertEquals(1L, files.revision())
+            assertEquals("preserved", files.read("folder/valuable.txt"))
+            assertEquals("base\n", files.read("source.txt"))
+            assertEquals("also preserved", files.read("source.txt-backup"))
+            assertEquals("build/\n", files.read(".gitignore"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
+    fun `explicit batch deletions allow replacing files with directories and directories with files`() = runTest {
+        val f = VirtualFixture()
+        try {
+            val ref = f.create("explicit-replacements")
+            val files = assertNotNull(f.backend.find(ref))
+            files.change(
+                0,
+                listOf(VirtualFileChange("source.txt/nested", "nested"), VirtualFileChange("source.txt", null)),
+            )
+            assertEquals("nested", files.read("source.txt/nested"))
+            assertNull(files.read("source.txt"))
+            files.change(
+                1,
+                listOf(VirtualFileChange("source.txt", "replacement"), VirtualFileChange("source.txt/nested", null)),
+            )
+            assertEquals("replacement", files.read("source.txt"))
+            assertNull(files.read("source.txt/nested"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
     fun `old child results remain integrable after rebasing both workspaces`() = runTest {
         val f = VirtualFixture()
         try {

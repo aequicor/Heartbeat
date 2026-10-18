@@ -160,6 +160,7 @@ internal class WorktreeCellWorkspaces(
         true
     } catch (error: IllegalStateException) {
         if (error.message !in setOf("SandboxPaused", "SandboxSourceDirty", "SandboxSourceChanged")) throw error
+        log.w(error) { "Cell workspace source is unavailable" }
         false
     }
 

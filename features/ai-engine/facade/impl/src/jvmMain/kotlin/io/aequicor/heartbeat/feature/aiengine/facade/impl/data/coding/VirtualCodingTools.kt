@@ -106,7 +106,7 @@ private suspend fun virtualExecute(
 ): String {
     val revision = expectedRevision ?: workspace.revision()
     check(workspace.revision() == revision) { "SandboxRevisionChanged" }
-    val path = args.argText("path").trimEnd('/')
+    val path = args.argText("path").trimEnd('/').let { if (it == ".") "" else it }
     return when (name) {
         "read_file" -> virtualRead(workspace, path, args)
         "list_dir" -> virtualList(workspace, path)
@@ -186,7 +186,9 @@ private suspend fun virtualChange(
 private fun virtualReplacement(content: String, args: JsonObject): String {
     val old = args.argText("old_string")
     require(old.isNotEmpty()) { "EmptyOldString" }
-    val count = content.windowed(old.length).count { it == old }
-    require(count > 0 && (count == 1 || args.argFlag("replace_all") == true)) { "AmbiguousReplacement" }
+    val first = content.indexOf(old)
+    require(first >= 0 && (args.argFlag("replace_all") == true || content.indexOf(old, first + 1) < 0)) {
+        "AmbiguousReplacement"
+    }
     return content.replace(old, args.argText("new_string"))
 }

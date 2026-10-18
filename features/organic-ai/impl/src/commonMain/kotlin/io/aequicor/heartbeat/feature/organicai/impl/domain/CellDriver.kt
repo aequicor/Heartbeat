@@ -63,6 +63,7 @@ internal class CellDriver(
             throw error
         } catch (error: Exception) {
             if (!organism.isSandboxed || !workspaces.isPaused(organism, id)) throw error
+            log.w(error) { "Cell turn failed while its workspace was paused" }
             workspaces.awaitAvailable(organism, id)
             machine.send(OrganicAiIntent.Internal.WorkspaceContinued(organism.id, id, request))
         }

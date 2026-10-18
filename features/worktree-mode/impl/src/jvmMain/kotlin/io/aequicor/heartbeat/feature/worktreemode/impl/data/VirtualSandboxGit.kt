@@ -103,14 +103,17 @@ internal class VirtualSandboxGit(private val dispatchers: DispatcherProvider) : 
         }
 
     override suspend fun edit(source: String, commit: String, edits: Map<String, String?>): String {
+        val previous = entries(source, commit)
+        val deleted = edits.filterValues { it == null }.keys
+        val written = edits.filterValues { it != null }.keys
+        validateFilePaths(previous.keys - deleted + written)
         val index = Files.createTempFile("sandbox-index-", ".index")
         Files.delete(index)
         val environment = mapOf("GIT_INDEX_FILE" to index.toString())
         try {
             call(source, "read-tree", commit, environment = environment)
-            val previous = entries(source, commit)
             val updates = buildString {
-                edits.forEach { (path, content) ->
+                edits.entries.sortedBy { it.value != null }.forEach { (path, content) ->
                     if (content == null) {
                         append("0 ${"0".repeat(commit.length)}\t$path\u0000")
                     } else {
@@ -144,6 +147,7 @@ internal class VirtualSandboxGit(private val dispatchers: DispatcherProvider) : 
         val previous = entries(source, commit)
         val entry = requireNotNull(previous[path]) { "FileNotFound" }
         check(destination !in previous) { "DestinationExists" }
+        validateFilePaths(previous.keys - path + destination)
         val index = Files.createTempFile("sandbox-index-", ".index")
         Files.delete(index)
         val environment = mapOf("GIT_INDEX_FILE" to index.toString())
@@ -212,6 +216,17 @@ internal class VirtualSandboxGit(private val dispatchers: DispatcherProvider) : 
     override suspend fun pin(source: String, id: String, commit: String) {
         require(id.matches(Regex("[a-zA-Z0-9-]+")))
         call(source, "update-ref", "refs/heartbeat/virtual/$id/$commit", commit)
+    }
+
+    /** update-index otherwise silently removes existing files at directory/file collisions. */
+    private fun validateFilePaths(paths: Set<String>) {
+        paths.forEach { path ->
+            var separator = path.indexOf('/')
+            while (separator >= 0) {
+                check(path.substring(0, separator) !in paths) { "SandboxPathConflict" }
+                separator = path.indexOf('/', separator + 1)
+            }
+        }
     }
 
     private suspend fun textWithEnvironment(source: String, env: Map<String, String>, vararg args: String): String =

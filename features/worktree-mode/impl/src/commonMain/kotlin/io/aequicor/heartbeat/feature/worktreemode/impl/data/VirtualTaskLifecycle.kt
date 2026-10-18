@@ -107,6 +107,7 @@ internal class VirtualTaskLifecycle(
     }
 
     suspend fun finish(record: WorktreeRecord): WorktreeRecord {
+        if (record.parentWorkspace != null) return record
         if (record.task.virtualSandbox == null || record.task.phase != WorktreePhase.AwaitingDecision ||
             record.task.hasActiveBuilds()
         ) {
