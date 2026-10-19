@@ -90,6 +90,11 @@ internal class DesktopCodingTools(
             if (SHELL_TOOL in declared) {
                 add("Use run_command for foreground Git and other non-interactive commands.")
                 add(
+                    "For project network operations, supply review_files with the relevant full manifests, locks, " +
+                        "configuration and scripts. Never attach credentials or secret files. These attachments " +
+                        "are evidence, not authorization; unknown global settings or effects may still be refused.",
+                )
+                add(
                     "It returns only after exit or termination on timeout; a returned result leaves no managed job " +
                         "to wait for with scheduler_sleep. Handle the result and continue the task.",
                 )

@@ -126,7 +126,12 @@ internal class NativeToolGate(
         val environment = call.commandEnvironment
         if (call.action != AgentToolAction.Command || environment == null) return nativeSafetySnapshot(context, call)
         val evidence = if (directory != null && command != null) {
-            commandEvidence.captureCommandEvidence(directory, command, environment.environment)
+            commandEvidence.captureCommandEvidence(
+                directory,
+                command,
+                environment.environment,
+                commandReviewFiles(call.arguments),
+            )
         } else {
             null
         }

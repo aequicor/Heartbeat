@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.MAX_COMMAND_REVIEW_FILES
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,7 +13,12 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Library-independent declarations shared by all adapters. */
-internal enum class ToolParameterType(val schema: String) { String("string"), Integer("integer"), Boolean("boolean") }
+internal enum class ToolParameterType(val schema: String) {
+    String("string"),
+    Integer("integer"),
+    Boolean("boolean"),
+    StringList("array"),
+}
 
 internal data class ToolParameterDescriptor(val name: String, val description: String, val type: ToolParameterType)
 
@@ -36,6 +42,10 @@ internal data class ToolDescriptor(
                             buildJsonObject {
                                 put("type", parameter.type.schema)
                                 put("description", parameter.description)
+                                if (parameter.type == ToolParameterType.StringList) {
+                                    put("items", buildJsonObject { put("type", "string") })
+                                    put("maxItems", MAX_COMMAND_REVIEW_FILES)
+                                }
                             },
                         )
                     }

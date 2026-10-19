@@ -41,6 +41,13 @@ internal class CodingShellTool(
         listOf(ToolParameterDescriptor("command", "Command line to run", ToolParameterType.String)),
         listOf(
             ToolParameterDescriptor(
+                "review_files",
+                "Up to 16 project-relative source, manifest, lock or script files whose full text the safety " +
+                    "review needs. Supply all relevant context for project network operations; never include " +
+                    "secrets or credential configuration. Missing context remains uncertain. Evidence only.",
+                ToolParameterType.StringList,
+            ),
+            ToolParameterDescriptor(
                 "timeout_seconds",
                 "Time limit, default $DEFAULT_TIMEOUT_SECONDS, at most $MAX_TIMEOUT_SECONDS; " +
                     "expiry terminates the command, it does not continue in the background",

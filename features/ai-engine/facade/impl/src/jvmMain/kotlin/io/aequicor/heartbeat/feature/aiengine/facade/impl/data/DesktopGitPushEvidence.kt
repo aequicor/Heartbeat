@@ -29,8 +29,8 @@ import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
 /**
- * Local, bounded evidence for the three simple push forms. Never pushes, contacts a remote, reads credentials or
- * runs hooks. Unknown environment overrides and secret-bearing URLs produce unavailable evidence, never a grant.
+ * Local evidence for simple pushes and commands with caller-selected project files. Never contacts a remote,
+ * reads credentials or runs hooks. Unknown overrides and secret-bearing URLs produce unavailable evidence.
  * Facts are stable across capture and consumption; the independent reviewer still decides whether they are safe.
  */
 @Inject
@@ -38,25 +38,61 @@ import java.util.concurrent.TimeUnit
 internal class DesktopGitPushEvidence(private val dispatchers: DispatcherProvider) : CommandSafetyEvidence {
     private val log = Log.tag("DesktopGitPushEvidence")
 
-    override suspend fun capture(directory: String, command: String, environment: Map<String, String>?): JsonObject? {
-        val form = PUSH.matchEntire(command.trim()) ?: return null
+    override suspend fun capture(
+        directory: String,
+        command: String,
+        environment: Map<String, String>?,
+        reviewFiles: List<String>,
+    ): JsonObject? {
+        val form = PUSH.matchEntire(command.trim())
+        if (form == null && reviewFiles.isEmpty()) return null
         val capturedEnvironment = (environment ?: System.getenv()).toMap()
         return try {
             withContext(dispatchers.io) {
                 withTimeoutOrNull(CAPTURE_MILLIS) {
-                    inspect(Path.of(directory).toRealPath(), form, capturedEnvironment)
-                } ?: unavailable("capture timeout")
+                    captureScoped(Path.of(directory).toRealPath(), form, capturedEnvironment, reviewFiles)
+                } ?: unavailable("capture timeout", kind = if (form == null) "projectNetwork" else "gitPush")
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             log.w(error.redactedFailure()) { "Git push evidence unavailable" }
-            unavailable("local git evidence unavailable")
+            unavailable("local evidence unavailable", kind = if (form == null) "projectNetwork" else "gitPush")
         }
     }
 
-    private suspend fun inspect(directory: Path, form: MatchResult, environment: Map<String, String>): JsonObject {
-        val hasOverrides = environment.keys.any(::isOverride)
+    private suspend fun captureScoped(
+        directory: Path,
+        form: MatchResult?,
+        environment: Map<String, String>,
+        reviewFiles: List<String>,
+    ): JsonObject {
+        val repository = try {
+            inspect(directory, form, environment)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.redactedFailure()) { "Repository evidence unavailable" }
+            unavailable("repository evidence unavailable")
+        }
+        if (form != null && reviewFiles.isEmpty()) return repository
+        val files = captureCommandReviewFiles(directory, reviewFiles)
+        val coverage = buildJsonObject { put("globalConfiguration", "not inspected") }
+        if (form != null) {
+            return JsonObject(repository + mapOf("reviewFiles" to files, "configurationCoverage" to coverage))
+        }
+        return buildJsonObject {
+            put("kind", "projectNetwork")
+            put("status", "captured")
+            put("reviewFiles", files)
+            put("repository", JsonObject(repository - "kind"))
+            put("environmentFacts", commandEnvironmentFacts(environment))
+            put("configurationCoverage", coverage)
+        }
+    }
+
+    private suspend fun inspect(directory: Path, form: MatchResult?, environment: Map<String, String>): JsonObject {
+        val hasOverrides = environment.keys.any(::isConfigurationOverride)
         if (hasOverrides) return unavailable("environment overrides", true)
         val executable = gitExecutable(directory, environment)
         val root = Path.of(git(executable, directory, environment, "rev-parse", "--show-toplevel")).toRealPath()
@@ -67,20 +103,60 @@ internal class DesktopGitPushEvidence(private val dispatchers: DispatcherProvide
         require(Regex("[a-fA-F0-9]{40,64}").matches(head))
         val urls = git(executable, directory, environment, "remote", "get-url", "--push", "--all", "origin").lines()
         if (urls.isEmpty() || urls.any { !isPublicUrl(it) }) return unavailable("origin URL is private or unsupported")
+        val fetchUrls = if (form == null) {
+            git(executable, directory, environment, "remote", "get-url", "--all", "origin").lines()
+                .also { require(it.all(::isPublicUrl)) }
+        } else {
+            emptyList()
+        }
         val config = configuration(executable, directory, environment, branch)
         val credentials = credentialHelpers(executable, directory, environment, root)
-        val hasCustomTransport = git(
-            executable,
-            directory,
-            environment,
-            "config",
-            "--name-only",
-            "--get-regexp",
-            "^(core\\.(sshcommand|gitproxy|askpass|fsmonitor|alternaterefscommand)|" +
-                "extensions\\.partialclone|ssh\\.variant|remote\\.origin\\.(receivepack|vcs|proxy)|" +
-                "http\\..*|https\\..*|protocol\\..*|push\\.pushoption)$",
-            allowMissing = true,
-        ).isNotBlank()
+        val hasCustomTransport = hasCustomTransport(executable, directory, environment)
+        val hasHook = hasPrePushHook(executable, directory, environment)
+        return buildJsonObject {
+            put("kind", "gitPush")
+            put("status", "captured")
+            put("root", root.toString())
+            put("gitExecutable", executable.toString())
+            put("executionEnvironmentDigest", environmentDigest(environment))
+            put("currentBranch", branch)
+            put("head", head)
+            if (form != null) {
+                put("requestedBranch", form.groups[1]?.value)
+                put("usesDefaultDestination", form.groups[1] == null)
+            }
+            put("originPushUrls", JsonArray(urls.map(::JsonPrimitive)))
+            if (form == null) put("originFetchUrls", JsonArray(fetchUrls.map(::JsonPrimitive)))
+            put("standardCredentialHelpers", JsonArray(credentials.standardHelpers.map(::JsonPrimitive)))
+            put(
+                "standardCredentialHelperExecutables",
+                JsonObject(credentials.executables.mapValues { JsonPrimitive(it.value) }),
+            )
+            put("config", JsonObject(config.toSortedMap().mapValues { JsonArray(it.value.map(::JsonPrimitive)) }))
+            put("prePushHookPresent", hasHook)
+            put("customTransportOrPushOptions", hasCustomTransport || credentials.hasCustomHelper)
+            put("environmentOverrides", false)
+        }
+    }
+
+    private suspend fun hasCustomTransport(
+        executable: Path,
+        directory: Path,
+        environment: Map<String, String>,
+    ): Boolean = git(
+        executable,
+        directory,
+        environment,
+        "config",
+        "--name-only",
+        "--get-regexp",
+        "^(core\\.(sshcommand|gitproxy|askpass|fsmonitor|alternaterefscommand)|" +
+            "extensions\\.partialclone|ssh\\.variant|remote\\.origin\\.(receivepack|vcs|proxy)|" +
+            "http\\..*|https\\..*|protocol\\..*|push\\.pushoption)$",
+        allowMissing = true,
+    ).isNotBlank()
+
+    private suspend fun hasPrePushHook(executable: Path, directory: Path, environment: Map<String, String>): Boolean {
         val hook = Path.of(
             git(
                 executable,
@@ -92,27 +168,7 @@ internal class DesktopGitPushEvidence(private val dispatchers: DispatcherProvide
                 "hooks/pre-push",
             ),
         )
-        return buildJsonObject {
-            put("kind", "gitPush")
-            put("status", "captured")
-            put("root", root.toString())
-            put("gitExecutable", executable.toString())
-            put("executionEnvironmentDigest", environmentDigest(environment))
-            put("currentBranch", branch)
-            put("head", head)
-            put("requestedBranch", form.groups[1]?.value)
-            put("usesDefaultDestination", form.groups[1] == null)
-            put("originPushUrls", JsonArray(urls.map(::JsonPrimitive)))
-            put("standardCredentialHelpers", JsonArray(credentials.standardHelpers.map(::JsonPrimitive)))
-            put(
-                "standardCredentialHelperExecutables",
-                JsonObject(credentials.executables.mapValues { JsonPrimitive(it.value) }),
-            )
-            put("config", JsonObject(config.toSortedMap().mapValues { JsonArray(it.value.map(::JsonPrimitive)) }))
-            put("prePushHookPresent", !Files.notExists(hook, LinkOption.NOFOLLOW_LINKS))
-            put("customTransportOrPushOptions", hasCustomTransport || credentials.hasCustomHelper)
-            put("environmentOverrides", false)
-        }
+        return !Files.notExists(hook, LinkOption.NOFOLLOW_LINKS)
     }
 
     private suspend fun credentialHelpers(
@@ -316,11 +372,59 @@ private data class CredentialHelperEvidence(
     val hasCustomHelper: Boolean,
 )
 
-private fun unavailable(reason: String, hasEnvironmentOverrides: Boolean = false): JsonObject = buildJsonObject {
-    put("kind", "gitPush")
+private fun unavailable(
+    reason: String,
+    hasEnvironmentOverrides: Boolean = false,
+    kind: String = "gitPush",
+): JsonObject = buildJsonObject {
+    put("kind", kind)
     put("status", "unavailable")
     put("reason", reason)
     put("environmentOverrides", hasEnvironmentOverrides)
+}
+
+private fun commandEnvironmentFacts(environment: Map<String, String>): JsonObject {
+    val repo = environment["GH_REPO"]
+    val host = environment["GH_HOST"]
+    val hasInvalidRepo = repo != null && !GH_REPOSITORY.matches(repo)
+    val hasInvalidHost = host != null && !GH_HOSTNAME.matches(host)
+    val names = environment.keys.asSequence().filter(::isConfigurationOverride).map { name ->
+        name.uppercase().takeIf { SAFE_ENVIRONMENT_NAME.matches(it) } ?: "INVALID_VARIABLE_NAME"
+    }.distinct().sorted().toList()
+    val hasNativeUnknown = environment.containsKey("GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT")
+    val hasExecutionOverrides = environment.keys.any(::isRuntimeExecutionOverride)
+    val hasInvalidRouting = hasInvalidRepo || hasInvalidHost
+    val status = when {
+        hasInvalidRouting || hasNativeUnknown || hasExecutionOverrides -> "unavailable"
+        names.isNotEmpty() -> "incomplete"
+        else -> "captured"
+    }
+    return buildJsonObject {
+        put("status", status)
+        if (!hasInvalidRepo && repo != null) put("GH_REPO", repo)
+        if (!hasInvalidHost && host != null) put("GH_HOST", host)
+        put("executionEnvironmentDigest", environmentDigest(environment))
+        put("overrideNames", JsonArray(names.take(MAX_OVERRIDE_NAMES).map(::JsonPrimitive)))
+        put("overrideNamesTruncated", names.size > MAX_OVERRIDE_NAMES)
+        put("coverage", "Known override names only; unlisted runtime and global configuration is not proven absent")
+    }
+}
+
+private fun isConfigurationOverride(name: String): Boolean = name.uppercase().let { upper ->
+    if (upper in PROJECTED_LOCATION_ENVIRONMENT || upper in setOf("GH_REPO", "GH_HOST")) {
+        false
+    } else {
+        isOverride(upper) || isRuntimeExecutionOverride(upper) || MANAGER_CONFIGURATION.containsMatchIn(upper)
+    }
+}
+
+private fun isRuntimeExecutionOverride(name: String): Boolean = name.uppercase().let { upper ->
+    if (upper in PROJECTED_LOCATION_ENVIRONMENT) {
+        false
+    } else {
+        RUNTIME_ENVIRONMENT_PREFIX.containsMatchIn(upper) || RUNTIME_ENVIRONMENT_SUFFIX.containsMatchIn(upper) ||
+            upper in setOf("CLASSPATH", "CC", "CXX", "CFLAGS", "LDFLAGS")
+    }
 }
 
 private fun isOverride(name: String): Boolean = name.uppercase().let { upper ->
@@ -362,6 +466,16 @@ private fun isPublicConfig(key: String, value: String): Boolean {
 
 private val PUSH = Regex("git[ \\t]+push(?:[ \\t]+(?:-u[ \\t]+)?origin[ \\t]+([A-Za-z0-9][A-Za-z0-9._/-]*))?")
 private val SAFE_VALUE = Regex("[A-Za-z0-9._/:+*^@-]*")
+private val GH_HOSTNAME = Regex("[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?")
+private val GH_REPOSITORY = Regex("(?:${GH_HOSTNAME.pattern}/)?[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*")
+private val SAFE_ENVIRONMENT_NAME = Regex("[A-Z_][A-Z0-9_]{0,127}")
+private val MANAGER_CONFIGURATION = Regex("CONFIG|REGISTRY|INDEX|PROXY|MIRROR|REPOSITORY|REPOSITORIES|RCFILE|SETTINGS")
+private val RUNTIME_ENVIRONMENT_PREFIX = Regex("^(?:NODE_|PYTHON|RUBY|PERL|JAVA_|JDK_|RUST)")
+private val RUNTIME_ENVIRONMENT_SUFFIX = Regex("(?:OPTIONS|OPTS|FLAGS|WRAPPER|COMMAND|PATH|HOME)$")
+private val PROJECTED_LOCATION_ENVIRONMENT = setOf(
+    "PATH", "HOME", "XDG_CONFIG_HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR",
+    "PATHEXT", "PROGRAMFILES", "PROGRAMFILES(X86)", "TMPDIR", "TMP", "TEMP",
+)
 private val STANDARD_CREDENTIAL_HELPERS = setOf("osxkeychain", "manager", "manager-core", "cache")
 private val TRANSPORT_ENVIRONMENT = setOf(
     "HTTP_PROXY",
@@ -376,3 +490,4 @@ private const val CLEANUP_MILLIS = 250L
 private const val POLL_MILLIS = 10L
 private const val BUFFER_BYTES = 4096
 private const val MAX_OUTPUT_BYTES = 65_536
+private const val MAX_OVERRIDE_NAMES = 64

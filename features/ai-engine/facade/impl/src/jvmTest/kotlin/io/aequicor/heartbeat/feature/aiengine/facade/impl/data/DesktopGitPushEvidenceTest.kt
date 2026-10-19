@@ -22,6 +22,7 @@ import kotlin.test.assertTrue
 
 class DesktopGitPushEvidenceTest {
     private val directory = Files.createTempDirectory("git-push-evidence").toRealPath()
+    private val homeDirectory = Files.createDirectory(directory.resolve("test-home"))
     private val helperDirectory = Files.createTempDirectory("installed-git-helpers").toRealPath()
     private val dispatcher = Executors.newCachedThreadPool().asCoroutineDispatcher()
     private val dispatchers = object : DispatcherProvider {
@@ -125,28 +126,28 @@ class DesktopGitPushEvidenceTest {
             val path = Files.writeString(helperDirectory.resolve("git-credential-$helper$suffix"), "never execute")
             assertTrue(path.toFile().setExecutable(true) || Files.isExecutable(path))
         }
-        val environment = System.getenv().toMutableMap().apply {
+        val environment = testEnvironment().toMutableMap().apply {
             put("HOME", home.toString())
             put("PATH", helperDirectory.toString() + File.pathSeparator + get("PATH"))
         }
         git("config", "--add", "credential.helper", "")
         git("config", "--add", "credential.helper", "osxkeychain")
-        val standard = assertNotNull(evidence.capture(directory.toString(), "git push", environment))
+        val standard = capture(environment = environment)
         assertEquals("false", standard.text("customTransportOrPushOptions"))
         assertEquals("osxkeychain", standard["standardCredentialHelpers"]?.jsonArray?.single()?.jsonPrimitive?.content)
         assertNotNull(standard["standardCredentialHelperExecutables"]?.jsonObject?.get("osxkeychain"))
         val secret = "credential-helper-secret"
         git("config", "--add", "credential.helper", "!touch $secret")
-        val custom = assertNotNull(evidence.capture(directory.toString(), "git push", environment))
+        val custom = capture(environment = environment)
         assertEquals("true", custom.text("customTransportOrPushOptions"))
         assertFalse(secret in custom.toString())
         assertFalse(Files.exists(directory.resolve(secret)))
         git("config", "--add", "credential.helper", "")
         git("config", "--add", "credential.helper", "cache")
-        val reset = assertNotNull(evidence.capture(directory.toString(), "git push", environment))
+        val reset = capture(environment = environment)
         assertEquals("false", reset.text("customTransportOrPushOptions"))
         git("config", "credential.https://github.com.helper", "!echo $secret")
-        val scoped = assertNotNull(evidence.capture(directory.toString(), "git push", environment))
+        val scoped = capture(environment = environment)
         assertEquals("true", scoped.text("customTransportOrPushOptions"))
         assertFalse(secret in scoped.toString())
     }
@@ -164,10 +165,10 @@ class DesktopGitPushEvidenceTest {
             assertTrue(path.toFile().setExecutable(true) || Files.isExecutable(path))
             git("config", "--add", "credential.helper", "")
             git("config", "--add", "credential.helper", helper)
-            val environment = System.getenv().toMutableMap().apply {
+            val environment = testEnvironment().toMutableMap().apply {
                 put("PATH", directory.toString() + File.pathSeparator + get("PATH"))
             }
-            val captured = assertNotNull(evidence.capture(directory.toString(), "git push", environment))
+            val captured = capture(environment = environment)
             assertEquals("true", captured.text("customTransportOrPushOptions"))
             assertNull(captured["standardCredentialHelperExecutables"]?.jsonObject?.get(helper))
         }
@@ -203,7 +204,7 @@ class DesktopGitPushEvidenceTest {
             "git push --tags", "git push --mirror", "git push other feature", "git push https://example.com/a feature",
             "git push origin feature; true", "git push origin feature && true", "git -C elsewhere push",
         )) {
-            assertNull(evidence.capture(directory.toString(), command, null), command)
+            assertNull(evidence.capture(directory.toString(), command, null, emptyList()), command)
         }
         assertEquals("unavailable", capture().text("status"))
     }
@@ -213,27 +214,102 @@ class DesktopGitPushEvidenceTest {
         repository()
         val home = Files.createDirectory(directory.resolve("child-home"))
         git("config", "--file", home.resolve(".gitconfig").toString(), "push.followTags", "true")
-        val environment = System.getenv().toMutableMap().apply { put("HOME", home.toString()) }
-        val child = assertNotNull(evidence.capture(directory.toString(), "git push", environment))
+        val environment = testEnvironment().toMutableMap().apply { put("HOME", home.toString()) }
+        val child = capture(environment = environment)
         assertEquals("captured", child.text("status"))
         assertEquals(
             "true",
             child["config"]?.jsonObject?.get("push.followtags")?.jsonArray?.last()?.jsonPrimitive?.content,
         )
-        assertEquals(child, evidence.capture(directory.toString(), "git push", environment))
+        assertEquals(child, capture(environment = environment))
         environment["HEARTBEAT_PRIVATE_TEST"] = "child-value-never-disclose"
-        val changed = assertNotNull(evidence.capture(directory.toString(), "git push", environment))
+        val changed = capture(environment = environment)
         assertNotEquals(child["executionEnvironmentDigest"], changed["executionEnvironmentDigest"])
         assertFalse("child-value-never-disclose" in changed.toString())
         environment["GIT_CONFIG_COUNT"] = "override-value-never-disclose"
-        val refused = assertNotNull(evidence.capture(directory.toString(), "git push", environment))
+        val refused = capture(environment = environment)
         assertEquals("unavailable", refused.text("status"))
         assertEquals("true", refused.text("environmentOverrides"))
         assertFalse("override-value-never-disclose" in refused.toString())
     }
 
-    private suspend fun capture(command: String = "git push"): JsonObject =
-        assertNotNull(evidence.capture(directory.toString(), command, null))
+    @Test
+    fun `generic project evidence binds manifest scripts repository and safe GitHub routing`() = runTest {
+        repository()
+        val manifest = directory.resolve("package.json")
+        Files.writeString(manifest, "{\"dependencies\":{\"declared\":\"1.0\"},\"scripts\":{\"postinstall\":\"true\"}}")
+        val environment = testEnvironment().toMutableMap().apply {
+            put("GH_REPO", "example/project")
+            put("GH_HOST", "github.com")
+        }
+        val first = captureProject(environment)
+        assertEquals("projectNetwork", first.text("kind"))
+        assertEquals("example/project", first["environmentFacts"]?.jsonObject?.text("GH_REPO"))
+        assertEquals("captured", first["repository"]?.jsonObject?.text("status"))
+        assertNull(first["repository"]?.jsonObject?.get("requestedBranch"))
+        assertEquals("not inspected", first["configurationCoverage"]?.jsonObject?.text("globalConfiguration"))
+        Files.writeString(manifest, "{\"scripts\":{\"postinstall\":\"changed command\"}}")
+        val changed = captureProject(environment)
+        assertNotEquals(first["reviewFiles"], changed["reviewFiles"])
+        environment["GH_REPO"] = "other/project"
+        val other = captureProject(environment, "gh pr create")
+        assertEquals("other/project", other["environmentFacts"]?.jsonObject?.text("GH_REPO"))
+        environment["GH_REPO"] = "https://user:private-value@github.com/example/project"
+        val redacted = captureProject(environment, "gh pr create")
+        assertEquals("unavailable", redacted["environmentFacts"]?.jsonObject?.text("status"))
+        assertFalse("private-value" in redacted.toString())
+        environment["GH_REPO"] = "example/project"
+        environment["GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT"] = "1"
+        val unknown = captureProject(environment)
+        assertEquals("unavailable", unknown["environmentFacts"]?.jsonObject?.text("status"))
+    }
+
+    @Test
+    fun `XDG config discovery stays supported and effective Git settings are captured`() = runTest {
+        repository()
+        val configHome = Files.createDirectory(directory.resolve("xdg-config"))
+        val config = Files.createDirectory(configHome.resolve("git")).resolve("config")
+        git("config", "--file", config.toString(), "push.followTags", "true")
+        val environment = testEnvironment() + ("XDG_CONFIG_HOME" to configHome.toString())
+        val captured = capture(environment = environment)
+        assertEquals("captured", captured.text("status"))
+        assertEquals(
+            "true",
+            captured["config"]?.jsonObject?.get("push.followtags")?.jsonArray?.last()?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
+    fun `runtime execution environment overrides are unavailable and disclose names only`() = runTest {
+        repository()
+        Files.writeString(directory.resolve("package.json"), "{\"dependencies\":{\"declared\":\"1.0\"}}")
+        val names = listOf(
+            "NODE_OPTIONS", "PYTHONPATH", "RUBYOPT", "JAVA_TOOL_OPTIONS", "CLASSPATH", "CUSTOM_WRAPPER",
+            "CPATH", "RUST_LOG", "XPC_FLAGS",
+        )
+        for (name in names) {
+            val environment = testEnvironment().toMutableMap().apply { put(name, "private-runtime-override-value") }
+            val captured = captureProject(environment)
+            val facts = captured["environmentFacts"]!!.jsonObject
+            assertEquals("unavailable", facts.text("status"), name)
+            assertTrue(facts["overrideNames"]!!.jsonArray.any { it.jsonPrimitive.content == name })
+            assertFalse("private-runtime-override-value" in captured.toString())
+            assertTrue(facts.text("coverage").orEmpty().contains("not proven absent"))
+            assertEquals("unavailable", capture(environment = environment).text("status"), name)
+        }
+    }
+
+    private suspend fun capture(
+        command: String = "git push",
+        environment: Map<String, String> = testEnvironment(),
+    ): JsonObject = assertNotNull(evidence.capture(directory.toString(), command, environment, emptyList()))
+
+    private suspend fun captureProject(environment: Map<String, String>, command: String = "tool install"): JsonObject =
+        assertNotNull(evidence.capture(directory.toString(), command, environment, listOf("package.json")))
+
+    private fun testEnvironment(): Map<String, String> = System.getenv().filterKeys {
+        it.uppercase() in setOf("PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TMPDIR", "TMP", "TEMP")
+    } + mapOf("HOME" to homeDirectory.toString(), "USERPROFILE" to homeDirectory.toString())
 
     private fun repository() {
         git("init", "--initial-branch=feature")
@@ -248,7 +324,10 @@ class DesktopGitPushEvidenceTest {
 
     private fun git(vararg arguments: String): String {
         val child = ProcessBuilder(listOf("git", "--no-pager") + arguments).directory(directory.toFile())
-            .redirectErrorStream(true).start()
+            .redirectErrorStream(true).apply {
+                environment().clear()
+                environment().putAll(testEnvironment())
+            }.start()
         try {
             child.outputStream.close()
             assertTrue(child.waitFor(5, TimeUnit.SECONDS), "Local git setup timed out")

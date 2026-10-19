@@ -38,6 +38,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToJsonElement
@@ -66,7 +67,11 @@ class AutomaticNativeSafetyTest {
         val call = Call.copy(command = "git push -u origin fix/branch")
         assertIs<NativeVerdict.Deny>(f.tools.authorizeNative(Context, call))
         assertEquals(1, f.reviews.size)
-        assertTrue("ordinary push of the current branch to its existing configured origin" in f.policies.single())
+        val policy = f.policies.single()
+        assertTrue(
+            "ordinary push of already committed work to the project's existing configured origin" in policy,
+        )
+        assertTrue("read-only `gh` commands" in f.policies.single())
         for (limit in listOf(
             "force push",
             "deletion",
@@ -109,6 +114,29 @@ class AutomaticNativeSafetyTest {
         assertIs<NativeVerdict.Deny>(f.tools.authorizeNative(Context, Call.copy(command = "git push")))
         assertEquals(0, f.captures)
         assertTrue("gitPushEvidence" !in Json.parseToJsonElement(f.reviews.single()).jsonObject)
+    }
+
+    @Test
+    fun `native resource context is bound to the reviewed invocation and recaptured`() = runTest {
+        val f = NativeSafetyFixture()
+        val before = JsonObject(mapOf("kind" to JsonPrimitive("projectNetwork"), "file" to JsonPrimitive("before")))
+        f.commandSnapshot = before
+        val call = Call.copy(
+            command = "package-manager restore",
+            arguments = JsonObject(mapOf("review_files" to JsonArray(listOf(JsonPrimitive("manifest"))))),
+            commandEnvironment = NativeCommandEnvironment(mapOf("HOME" to "/actual")),
+        )
+        assertEquals(NativeVerdict.Allow, f.tools.authorizeNative(Context, call))
+        assertEquals(before, Json.parseToJsonElement(f.reviews.single()).jsonObject["projectNetworkEvidence"])
+        f.assess = {
+            f.commandSnapshot = JsonObject(
+                mapOf("kind" to JsonPrimitive("projectNetwork"), "file" to JsonPrimitive("after")),
+            )
+            Safe
+        }
+        assertIs<NativeVerdict.Deny>(f.tools.authorizeNative(Context, call))
+        val malformed = call.copy(arguments = JsonObject(mapOf("review_files" to JsonPrimitive("not-an-array"))))
+        assertIs<NativeVerdict.Deny>(f.tools.authorizeNative(Context, malformed))
     }
 
     @Test
@@ -306,7 +334,7 @@ private class NativeSafetyFixture : SessionHooks {
             },
         ),
         commandEvidence = setOf(
-            CommandSafetyEvidence { directory, _, _ ->
+            CommandSafetyEvidence { directory, _, _, _ ->
                 assertEquals("/project", directory)
                 captures++
                 commandSnapshot

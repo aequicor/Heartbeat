@@ -31,7 +31,7 @@ try {
       this.setExport("createBashToolDefinition", cwd => factory(cwd));
     }, { context: sandbox });
     function factory(cwd, options) {
-      return { name: "bash", parameters: {}, async execute(id, input, signal, onUpdate, ctx) {
+      return { name: "bash", description: "Native bash", parameters: { properties: { command: { type: "string" } } }, async execute(id, input, signal, onUpdate, ctx) {
         const initial = { command: input.command, cwd: ctx.cwd || cwd, env: { ...env, PATH: "/pi/bin:" + env.PATH } };
         const actual = options?.spawnHook ? options.spawnHook(initial) : initial;
         if (input.command === "true") return { content: [{ type: "text", text: "ordinary-command" }] };
@@ -47,10 +47,17 @@ try {
     await sdk.link(() => { throw new Error("Unexpected SDK import"); });
     await sdk.evaluate();
     sdk.setExport("createBashToolDefinition", (cwd, options) => factory(cwd, options));
+    const typebox = new vm.SyntheticModule(["Type"], function() {
+      this.setExport("Type", { Object: properties => ({ type: "object", properties }), Optional: value => value,
+        Array: (items, options) => ({ type: "array", items, ...options }), String: options => ({ type: "string", ...options }) });
+    }, { context: sandbox });
+    await typebox.link(() => { throw new Error("Unexpected TypeBox import"); });
+    await typebox.evaluate();
     const pathModule = new vm.SyntheticModule(["resolve"], function() { this.setExport("resolve", path.resolve); }, { context: sandbox });
     const fsModule = new vm.SyntheticModule(["existsSync"], function() { this.setExport("existsSync", fs.existsSync); }, { context: sandbox });
     const extension = new vm.SourceTextModule(source, { context: sandbox,
       importModuleDynamically: async specifier => {
+        if (specifier === "typebox") return typebox;
         assert.equal(specifier, "@earendil-works/pi-coding-agent");
         return sdk;
       } });
@@ -81,6 +88,9 @@ try {
   const f = await load();
   assert.equal(f.registered.length, 1);
   const tool = f.registered[0];
+  assert.equal(tool.parameters.properties.review_files.type, "array");
+  assert.equal(tool.parameters.properties.review_files.maxItems, 16);
+  assert.ok(tool.description.includes("never select credentials"));
   const ordinary = await f.call("ordinary", "true");
   assert.equal(f.requests.at(-1).nativeCommandEnvironment, undefined);
   assert.equal((await tool.execute("ordinary", ordinary.input, undefined, undefined, f.ctx)).content[0].text, "ordinary-command");
@@ -108,13 +118,57 @@ try {
   f.handlers.get("agent_end")();
   await assert.rejects(tool.execute("stale", stale.input, undefined, undefined, f.ctx), /no live/);
 
-  for (const key of ["GIT_CONFIG_COUNT", "SSH_COMMAND", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "BASH_ENV", "CURL_HOME", "SSL_CERT_FILE", "SSL_CERT_DIR", "GCM_PROVIDER"]) {
+  const reviewed = await load();
+  reviewed.env.GH_HOST = "github.com";
+  reviewed.env.GH_REPO = "aequicor/Heartbeat";
+  reviewed.env.GH_TOKEN = "private-auth-token";
+  reviewed.env.GITHUB_TOKEN = "private-auth-token";
+  reviewed.onRequest(() => { reviewed.env.PATH = "/changed"; reviewed.env.ORIGINAL_MARKER = "after"; });
+  const withFiles = await reviewed.call("files", "git status", { review_files: ["package.json", "pnpm-lock.yaml"], timeout: 2 });
+  const reviewedProof = reviewed.requests.at(-1).nativeCommandEnvironment;
+  assert.equal(reviewedProof.values.GH_HOST, "github.com");
+  assert.equal(reviewedProof.values.GH_REPO, "aequicor/Heartbeat");
+  assert.equal(reviewedProof.values.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT, undefined);
+  assert.ok(!JSON.stringify(reviewed.requests).includes("private-auth-token"));
+  assert.equal((await reviewed.registered[0].execute("files", withFiles.input, undefined, undefined, reviewed.ctx)).content[0].text, "before");
+  for (const change of [input => { input.timeout = 3; }, input => { input.review_files.push("changed.kt"); }]) {
+    const g = await load();
+    const proposal = await g.call("mutation", "git status", { review_files: ["source.kt"], timeout: 2 });
+    change(proposal.input);
+    await assert.rejects(g.registered[0].execute("mutation", proposal.input, undefined, undefined, g.ctx), /changed/);
+  }
+  const tooMany = await load();
+  await tooMany.call("limit", "git status", { review_files: Array(17).fill("source.kt") });
+  assert.equal(tooMany.requests.at(-1).nativeCommandEnvironment, undefined);
+  const empty = await load();
+  await empty.call("empty", "git status", { review_files: [] });
+  assert.equal(empty.requests.at(-1).nativeCommandEnvironment, undefined);
+
+  for (const [key, value] of [["GH_HOST", "localhost"], ["GH_HOST", "127.0.0.1"], ["GH_HOST", "git.internal"],
+    ["GH_REPO", "https://private:token@github.com/owner/repo"], ["GH_REPO", "private.internal/owner/repo"]]) {
+    const g = await load();
+    g.env[key] = value;
+    await g.call("invalid-github", "git status", { review_files: ["source.kt"] });
+    assert.equal(g.requests.at(-1).nativeCommandEnvironment.values.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT, "1");
+    assert.equal(g.requests.at(-1).nativeCommandEnvironment.values[key], undefined);
+    assert.ok(!JSON.stringify(g.requests).includes(value));
+  }
+
+  for (const key of ["GIT_CONFIG_COUNT", "SSH_COMMAND", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "BASH_ENV", "CURL_HOME", "SSL_CERT_FILE", "SSL_CERT_DIR", "GCM_PROVIDER",
+    "GH_CONFIG_DIR", "GH_ENTERPRISE_TOKEN", "GITHUB_API_URL", "CUSTOM_CONFIG_FILE", "CUSTOM_REGISTRY", "CUSTOM_INDEX_URL", "CUSTOM_PROXY", "NPM_CONFIG_USERCONFIG", "PIP_INDEX_URL", "CARGO_HOME", "UV_INDEX_URL", "GOPRIVATE",
+    "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH", "PYTHONSTARTUP", "RUBYOPT", "PERL5OPT", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "RUSTC_WRAPPER", "CLASSPATH", "CC", "CXX", "CFLAGS", "CXXFLAGS", "LDFLAGS",
+    "CUSTOM_OPTIONS", "CUSTOM_OPTS", "CUSTOM_FLAGS", "CUSTOM_WRAPPER", "CUSTOM_COMMAND", "CUSTOMPATH", "CUSTOM_HOME"]) {
     const g = await load();
     g.env[key] = "private-override";
     await g.call("override");
     assert.equal(g.requests.at(-1).nativeCommandEnvironment.values.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT, "1");
     assert.ok(!JSON.stringify(g.requests).includes("private-override"));
   }
+  const preload = await load();
+  preload.env.NODE_OPTIONS = "--require /private-preload.js";
+  await preload.call("npm-preload", "npm ci", { review_files: ["package.json", "package-lock.json"] });
+  assert.equal(preload.requests.at(-1).nativeCommandEnvironment.values.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT, "1");
+  assert.ok(!JSON.stringify(preload.requests).includes("private-preload"));
   for (const args of [["false", "darwin"], ["true", "win32"]]) {
     const g = await load(...args);
     assert.equal(g.registered.length, 0);

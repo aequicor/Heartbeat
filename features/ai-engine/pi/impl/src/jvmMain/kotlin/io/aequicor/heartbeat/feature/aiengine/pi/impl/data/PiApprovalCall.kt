@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -96,7 +97,11 @@ internal fun approvalCall(message: String?, isResult: Boolean = false): PiApprov
 
 /** Model-facing arguments never supply this adapter-owned top-level protocol field. */
 private fun commandEnvironment(fields: JsonObject): PiCommandEnvironment? {
-    if (!SimplePush.matches(fields.string("target").orEmpty().trim())) return null
+    val files = (fields["arguments"] as? JsonObject)?.get("review_files") as? JsonArray
+    val hasReviewFiles = files != null && files.size in 1..MAX_REVIEW_FILES && files.all {
+        (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content?.isNotBlank() == true
+    }
+    if (!SimplePush.matches(fields.string("target").orEmpty().trim()) && !hasReviewFiles) return null
     val proof = fields["nativeCommandEnvironment"] as? JsonObject ?: return null
     if (proof.keys != setOf("version", "cwd", "values") ||
         (proof["version"] as? JsonPrimitive)?.intOrNull != 1
@@ -115,11 +120,13 @@ private fun commandEnvironment(fields: JsonObject): PiCommandEnvironment? {
 }
 
 private const val MAX_ENVIRONMENT_CHARS = 32_768
+private const val MAX_REVIEW_FILES = 16
 private val SimplePush = Regex("git[ \\t]+push(?:[ \\t]+(?:-u[ \\t]+)?origin[ \\t]+[A-Za-z0-9][A-Za-z0-9._/-]*)?")
 private val EnvironmentKeys = setOf(
     "PATH", "HOME", "XDG_CONFIG_HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR",
     "PATHEXT", "PROGRAMFILES", "PROGRAMFILES(X86)", "TMPDIR", "TMP", "TEMP",
     "GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT",
+    "GH_HOST", "GH_REPO",
 )
 
 /** The user-facing request; null blocks a call whose target is too long to show in full. */

@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.CommandSafetyEvidence
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DesktopGitPushEvidence
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ToolPolicyResolver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -34,7 +35,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -87,7 +90,7 @@ class DesktopCodingSafetyTest {
             verdict
         },
         commandEvidence = setOf(
-            CommandSafetyEvidence { root, _, _ ->
+            CommandSafetyEvidence { root, _, _, _ ->
                 assertEquals(directory.toString(), root)
                 commandSnapshot
             },
@@ -171,7 +174,10 @@ class DesktopCodingSafetyTest {
         assertTrue(DefaultAgentTools(setOf(contribution)).execute(context, "run_command", arguments).isError)
         assertEquals(1, reviews)
         assertEquals(0, prompts)
-        assertTrue("ordinary push of the current branch to its existing configured origin" in policy)
+        assertTrue("ordinary push of already committed work to the project's existing configured origin" in policy)
+        assertTrue("read-only `gh` commands" in policy)
+        assertTrue("own package or build manager" in policy)
+        assertTrue("npm publish" in policy)
         for (limit in listOf(
             "force push",
             "deletion",
@@ -200,6 +206,38 @@ class DesktopCodingSafetyTest {
         assertTrue(result.isError)
         assertTrue("changed" in result.text)
         assertEquals(1, reviews)
+    }
+
+    @Test
+    fun `declared dependency context is recaptured before any command can execute`() = runTest {
+        val manifest = directory.resolve("package.json")
+        Files.writeString(manifest, "{\"dependencies\":{\"library\":\"1.0.0\"}}")
+        Files.writeString(directory.resolve("package-lock.json"), "{\"lockfileVersion\":3}")
+        var captured = ""
+        var assessments = 0
+        val owner = DesktopCodingTools(
+            projects,
+            dispatchers,
+            AgentSafetyReviewer { _, _, snapshot ->
+                captured = snapshot
+                assessments++
+                Files.writeString(manifest, "{\"scripts\":{\"postinstall\":\"opaque-script\"}}")
+                AgentSafetyReview("safe", "Mock approval before the manifest changes")
+            },
+            commandEvidence = setOf(DesktopGitPushEvidence(dispatchers)),
+        )
+        val args = buildJsonObject {
+            put("command", "npm ci --ignore-scripts")
+            put("review_files", JsonArray(listOf("package.json", "package-lock.json").map(::JsonPrimitive)))
+        }
+        val result = DefaultAgentTools(setOf(owner)).execute(context, "run_command", args)
+        assertTrue(result.isError)
+        assertTrue("changed" in result.text)
+        assertEquals(1, assessments)
+        assertTrue("projectNetworkEvidence" in captured)
+        assertTrue("library" in captured)
+        assertFalse("opaque-script" in captured)
+        assertEquals(0, prompts)
     }
 
     @Test
