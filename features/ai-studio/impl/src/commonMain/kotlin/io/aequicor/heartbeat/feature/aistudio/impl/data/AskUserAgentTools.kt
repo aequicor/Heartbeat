@@ -52,6 +52,8 @@ import kotlin.uuid.Uuid
  * question bridge does not follow them up. An ended turn cancels the waiting call and withdraws the
  * questions whose withdrawal has not completed. Each invocation owns a distinct id namespace, so concurrent
  * batches (including retries with the same key) cannot replace or withdraw one another's cards.
+ * Confirm questions use «Да»/«Нет» when a label is absent or blank; custom labels are preserved.
+ * Invalid specifications return the validation reason before any cards are published.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -86,7 +88,7 @@ internal class AskUserAgentTools(
             ask(context, arguments)
         } catch (e: IllegalArgumentException) {
             log.w(e) { "Ask-user specification rejected" }
-            AgentToolResult("Invalid questionnaire_ask specification", true)
+            AgentToolResult("Invalid questionnaire_ask specification: ${e.message ?: "Invalid arguments"}", true)
         }
     }
 
@@ -177,7 +179,10 @@ private data class PreparedQuestion(val args: QuestionArgs) {
     )
 
     private fun question(): Question = when (args.kind) {
-        QuestionKind.Confirm -> Question.Confirm(label(args.yes, "yes"), label(args.no, "no"))
+        QuestionKind.Confirm -> Question.Confirm(
+            args.yes?.takeIf(String::isNotBlank) ?: "Да",
+            args.no?.takeIf(String::isNotBlank) ?: "Нет",
+        )
 
         QuestionKind.SingleChoice -> Question.SingleChoice(choices())
 
@@ -191,9 +196,6 @@ private data class PreparedQuestion(val args: QuestionArgs) {
 
         QuestionKind.FreeText -> Question.FreeText(args.placeholder, args.isMultiline)
     }
-
-    private fun label(value: String?, name: String): String =
-        requireNotNull(value?.takeIf(String::isNotBlank)) { "Confirm needs a $name label" }
 
     private fun choices(): List<Choice> {
         require(args.choices.isNotEmpty()) { "${args.kind.name} needs choices" }
@@ -333,11 +335,11 @@ private const val SCHEMA = """
           },
           "yes": {
             "type": "string",
-            "description": "Confirm: the yes label"
+            "description": "Confirm: optional yes label; defaults to Да when omitted or blank"
           },
           "no": {
             "type": "string",
-            "description": "Confirm: the no label"
+            "description": "Confirm: optional no label; defaults to Нет when omitted or blank"
           },
           "choices": {
             "type": "array",
