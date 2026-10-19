@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnaps
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NoSessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -58,6 +59,18 @@ class ActiveSessionRegistry {
                 states.filter { (_, state) -> state != ActiveSessionState.Closed }
                     .groupBy({ it.first }, { it.second })
                     .mapValues { (_, live) -> SessionCounts(live.size, live.count { it.activeTurn() != null }) }
+            }
+        }
+    }.distinctUntilChanged()
+
+    /** Aggregate native interaction demand for a host without a permission surface; includes service sessions. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val awaitingInteraction: Flow<Boolean> = handles.flatMapLatest { open ->
+        if (open.isEmpty()) {
+            flowOf(false)
+        } else {
+            combine(open.map { it.state }) { states ->
+                states.any { it is ActiveSessionState.AwaitingUserAction || it.authenticationFailure() != null }
             }
         }
     }.distinctUntilChanged()
@@ -192,6 +205,14 @@ class SessionPolicy(
     val hooks: SessionHooks = NoSessionHooks,
     private val workspaces: io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces? = null,
 ) {
+    /** Observes authoritative adapter outcomes even for service sessions without lifecycle hooks. */
+    fun observeNative(state: ActiveSessionState) {
+        state.authenticationFailure()?.let(context::observeFailure)
+    }
+
+    /** Observes synchronous native command failures without changing their execution result. */
+    fun observeFailure(failure: EngineFailure) = context.observeFailure(failure)
+
     /** Registers the canonical identity before the native adapter can call hosted tools. */
     suspend fun bindTurn(session: SessionRef, request: RequestId, turn: Turn) {
         tools.bindTurn(session, request, turn.id, turn.target, turn.decisionMode, turn.reviewTarget)
@@ -213,7 +234,7 @@ class SessionPolicy(
     }
 
     /** Rechecks toggles, binding, ownership and source revision before a turn or model change. */
-    suspend fun beforeTurn(route: ExecutionRoute, model: ModelId) {
+    suspend fun beforeTurn(route: ExecutionRoute, model: ModelId): Unit = context.observeAuthentication {
         routes.recheck(route, model)
         route.workspace?.let { workspaces?.virtual(it)?.revision() }
     }
@@ -230,4 +251,21 @@ class SessionPolicy(
 
     /** A fresh local turn id. */
     fun newTurnId(): TurnId = TurnId(context.token("turn_"))
+}
+
+/** Authentication can be reported after a successful send as a terminal outcome, not only as an exception. */
+internal fun ActiveSessionState.authenticationFailure(): EngineFailure.Authentication? {
+    val failure = when (this) {
+        is ActiveSessionState.Unavailable -> (failure as? EngineFailure.Authentication)
+            ?: (lastTurn?.outcome as? TurnOutcome.Failed)?.failure
+
+        is ActiveSessionState.Closing -> failure
+
+        is ActiveSessionState.Ready -> (lastTurn?.outcome as? TurnOutcome.Failed)?.failure
+
+        is ActiveSessionState.Submitting, is ActiveSessionState.Running,
+        is ActiveSessionState.AwaitingUserAction, is ActiveSessionState.Interrupting, ActiveSessionState.Closed,
+        -> null
+    }
+    return failure as? EngineFailure.Authentication
 }

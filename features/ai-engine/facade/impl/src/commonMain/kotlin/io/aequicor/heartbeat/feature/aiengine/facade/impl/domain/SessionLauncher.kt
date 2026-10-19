@@ -60,13 +60,13 @@ class SessionLauncher(
     private val log = Log.tag("SessionLauncher")
 
     /** Creates an idle session on [request]'s exact target. */
-    suspend fun create(request: CreateSessionRequest): ActiveSession {
+    suspend fun create(request: CreateSessionRequest): ActiveSession = context.observeAuthentication {
         val target = request.target
         log.i { "create session engine=${target.engine.value} binding=${target.binding.value}" }
         val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
         val creator = pool.runtime(resolved).features.resolve(CreatesSessions).orFail()
         val native = adapterCall(log, "create") { creator.create(request) }
-        return open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
+        open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
             if (native.ref.engine != target.engine) fail(EngineFailure.Unknown())
             val now = context.clock.now()
             record(
@@ -82,14 +82,14 @@ class SessionLauncher(
     }
 
     /** Attaches the stored session [ref] on [request]'s exact target; never switches credentials implicitly. */
-    suspend fun resume(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
+    suspend fun resume(ref: SessionRef, request: ResumeSessionRequest): ActiveSession = context.observeAuthentication {
         val target = request.target
         log.i { "resume session engine=${ref.engine.value} binding=${target.binding.value}" }
         if (target.engine != ref.engine) fail(InvalidRequest)
         val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
         val attacher = pool.runtime(resolved).features.resolve(AttachesSessions).orFail()
         val native = adapterCall(log, "attach") { attacher.attach(ref, request) }
-        return open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
+        open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
             if (native.ref != ref) fail(EngineFailure.Unknown())
             val known = sessions.indexed(ref) ?: SessionSummary(ref)
             record(known.copy(workspace = request.workspace ?: known.workspace, lastRoute = resolved.route))

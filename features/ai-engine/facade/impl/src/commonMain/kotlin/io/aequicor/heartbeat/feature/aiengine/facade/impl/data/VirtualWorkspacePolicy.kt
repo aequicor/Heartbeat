@@ -26,7 +26,9 @@ internal class VirtualWorkspacePolicy(
         val native = engines.value.engines.state.value.firstOrNull { it.descriptor.id == engine }
             ?.descriptor?.nativeTools.orEmpty().associate { it.name to ToolSwitch.Off }
         return ToolPolicy(
-            hostedOff = tools.value.flatMap { it.catalog }.map { it.name }.filterNot(::virtualToolAllowed).toSet(),
+            hostedOff = tools.value.asSequence().flatMap { it.catalog }.map { it.name }.filterNot(
+                ::virtualToolAllowed,
+            ).toSet(),
             native = native,
         )
     }

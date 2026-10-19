@@ -186,6 +186,7 @@ class ManagedActiveSession(
         var lastNative: ActiveSessionState? = null
         // The machine state only triggers a pass; each pass reads the latest state, not the triggering snapshot.
         combine(parts.native.state, machine.state) { native, _ -> native }.collect { native ->
+            policy.observeNative(native)
             val isNativeChanged = native != lastNative
             lastNative = native
             val current = machine.state.value

@@ -266,10 +266,10 @@ internal class DesktopCodingTools(
         val description = "Virtual revision=$revision\nBefore:\n${before.orEmpty()}\nOperation:\n$args"
         require(description.length <= MAX_VIRTUAL_APPROVAL_CHARS) { "VirtualEditTooLargeToReview" }
         val identity = "${virtual.ref.value}:${kotlinx.serialization.json.Json.encodeToString(context.session)}:" +
-            "${context.turn.value}:${context.callId}:$revision:$args"
+            "${context.turn.value}:${context.callId ?: "null"}:$revision:$args"
         val binding = java.security.MessageDigest.getInstance(
             "SHA-256",
-        ).digest(identity.toByteArray()).joinToString("") { "%02x".format(it) }
+        ).digest(identity.toByteArray()).joinToString("") { "%02x".format(java.util.Locale.ROOT, it) }
         return AgentToolApproval(spec.name, "Изменить виртуальный файл", description, binding)
     }
 }
