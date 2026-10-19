@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessActionBinding
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessCommandDecision
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessCommandReceipt
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecision
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionCommand
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionEdit
@@ -77,6 +78,29 @@ internal class ProcessCommandExecutor(
         ScriptProcessCommandResult.Unavailable
     }
 
+    override suspend fun read(invocation: ProcessCommandInvocation, decisionId: String): ScriptProcessCommandResult =
+        readSaved(invocation, decisionId)
+
+    private suspend fun readSaved(
+        invocation: ProcessCommandInvocation,
+        decisionId: String,
+    ): ScriptProcessCommandResult = try {
+        check(invocation.access.isActive) { "Command decision activation expired" }
+        val entry = if (isEnabled()) host.ready()?.find(decisionId) else null
+        val isMatching = entry != null && entry.matches(invocation)
+        if (isMatching && isEnabled() && invocation.access.isActive) {
+            entry.status()
+        } else {
+            ScriptProcessCommandResult.Unavailable
+        }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        val safe = IllegalStateException("Command decision is unavailable")
+        log.w(safe) { "Command decision read failed (${error::class.simpleName.orEmpty()})" }
+        ScriptProcessCommandResult.Unavailable
+    }
+
     private suspend fun admitted(call: ProcessCommandInvocation): ScriptProcessCommandResult {
         if (!isEnabled()) return ScriptProcessCommandResult.Unavailable
         val binding = binding(call) ?: return ScriptProcessCommandResult.Unavailable
@@ -128,7 +152,8 @@ internal class ProcessCommandExecutor(
         // Timeout/cancellation may have partial external effects: preserve the consumed claim for reconciliation.
         if (result !is ScriptCommandResult.TimedOut) {
             // Persist the positive native receipt before releasing the shared permit; restart can repair release.
-            check(host.edit(ProcessDecisionEdit.Change(id, ProcessDecisionCommand.Complete)))
+            val receipt = checkNotNull(result.receipt())
+            check(host.edit(ProcessDecisionEdit.CompleteCommand(id, entry.decision.binding, receipt)))
             if (ownership is NativeOwnershipAdmission.Fresh) data.ownership?.complete(ownership.intent)
         }
         return ScriptProcessCommandResult.Finished(result)
@@ -199,7 +224,23 @@ internal class ProcessCommandExecutor(
 }
 
 private fun ProcessCommandDecision.status(): ScriptProcessCommandResult =
-    ScriptProcessCommandResult.Decision(decision.id, decision.phase)
+    receipt?.let { ScriptProcessCommandResult.Recorded(it) }
+        ?: ScriptProcessCommandResult.Decision(decision.id, decision.phase)
+
+private fun ScriptCommandResult.receipt(): ProcessCommandReceipt? = when (this) {
+    is ScriptCommandResult.Exited -> ProcessCommandReceipt.Exited(exitCode)
+    is ScriptCommandResult.Refused -> ProcessCommandReceipt.Refused(reason)
+    is ScriptCommandResult.TimedOut -> null
+}
+
+/** Observing a past result needs its original source and call identity, never fresh authority for a new HEAD. */
+private fun ProcessCommandDecision.matches(call: ProcessCommandInvocation): Boolean = decision.binding.let {
+    command == call.command && github == null && ownership == null &&
+        it.harness == call.activation.harness.id && it.item == call.activation.item.id &&
+        it.harnessRevision == call.activation.harness.revision && it.process == call.process &&
+        it.workspace == call.workspace && it.operation == call.authority &&
+        it.actionDigest == Json.encodeToString(call.command).encodeUtf8().sha256().hex()
+}
 
 /** Canonical GitHub repository only; reject credentials and arbitrary display text from git configuration. */
 private fun String.repository(): String? {

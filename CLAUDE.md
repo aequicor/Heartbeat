@@ -359,6 +359,9 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > требуют отдельного решения в нативных деталях харнесса по точному process/attempt/input/SHA/project/repo/argv/timeout.
 > Зашифрованный host-owned журнал не доступен через ScriptData; `Grant`, `ui_call` и callback согласия не дают.
 > До Claim решение отзывается; после одноразового допуска неопределённое исполнение только сверяется, не повторяется.
+> `commands.resultForProcess` читает сохранённый исход по decision id без запуска команд, включая Git: `Recorded`
+> содержит только exit code или отказ, атомарно сохранённый с Completed, без stdout/stderr. Старый Completed без квитанции
+> не доказывает успех; timeout/cancellation остаётся Executing. Exit code 0 не заменяет проверку внешнего результата.
 > Клетки организма харнесса сохраняют `AutomaticSafety` через restart/division; `TrustLevel.Ask` и ограничения ревью остаются.
 > `features:app-logs:{api,impl}` — раздел «Логи приложения» в настройках Desktop (macOS/Windows/Linux),
 > доступный без профиля, тогл `app_logs.enabled` (по умолчанию true): копирование и сохранение последних 10 минут,

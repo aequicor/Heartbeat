@@ -9,11 +9,13 @@ import io.aequicor.heartbeat.core.secrets.SecretUsage
 internal class HarnessDataTestSecrets : SecretStore {
     val values = mutableMapOf<SecretKey, String>()
     var beforeWrite: suspend () -> Unit = {}
+    var afterWrite: suspend () -> Unit = {}
     var beforeRead: suspend () -> Unit = {}
     var beforeRemove: suspend () -> Unit = {}
     override suspend fun write(key: SecretKey, value: Secret) {
         beforeWrite()
         values[key] = value.reveal { it.concatToString() }
+        afterWrite()
     }
     override suspend fun read(key: SecretKey): Secret? {
         beforeRead()

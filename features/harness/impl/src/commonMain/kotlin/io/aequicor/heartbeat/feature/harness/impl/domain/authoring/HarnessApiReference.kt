@@ -154,7 +154,15 @@ private val API = """
       ProcessBuilder or Runtime.exec: undeclared processes are arbitrary execution and fail the review.
     - Guarded process commands: ScriptCommand(..., requiresDecision = ProcessAuthority.Merge | Release | Publish | Write).
       commands.run refuses these declarations. commands.runForProcess(name, workspace, process.workflowKey(stage), parameters)
-      returns ScriptProcessCommandResult.Decision(id, phase), Finished(ScriptCommandResult) or Unavailable.
+      returns ScriptProcessCommandResult.Decision(id, phase), Finished(ScriptCommandResult), Recorded(receipt) or Unavailable.
+      Save Decision.id before executing. commands.resultForProcess(name, workspace, key, decisionId, parameters)
+      reads its saved status without executing commands or Git, even after HEAD changes. The declaration, source revision,
+      workspace and exact process key must match. Recorded contains ProcessCommandReceipt.Exited(exitCode) or
+      Refused(reason), never stdout/stderr. A zero exit code still needs external evidence for business success.
+      API v13 adds Recorded: existing exhaustive when expressions over ScriptProcessCommandResult must handle it
+      when their source is recompiled; old ledger entries remain readable with no inferred receipt.
+      Legacy Completed without a receipt means unknown details. Timeout/cancellation stays Executing: reconcile,
+      never replay it as a new command. Receipts and Completed are persisted together before returning Finished.
       Pending is a durable wait for the native host screen: Settings → Harnesses → this harness → Process actions.
       ui_call, WebView callbacks, timers and GitHub comments can only request/observe; none can approve. Return from
       the callback, persist the decision id and park the process; retry from an owned timer after the user answers.
