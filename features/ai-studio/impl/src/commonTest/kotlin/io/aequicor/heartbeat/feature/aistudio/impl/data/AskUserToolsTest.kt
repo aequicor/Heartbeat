@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
+import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
@@ -87,6 +88,91 @@ class AskUserToolsTest {
         assertEquals(
             asked.map { QuestionnaireIntent.Public.Withdraw(it.questionnaire.id) },
             fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Withdraw>(),
+        )
+    }
+
+    @Test
+    fun `a mixed batch accepts Confirm without labels and returns all answers`() = runTest {
+        val fixture = Fixture(this)
+        val mixed = Json.parseToJsonElement(
+            """{"key":"scope","questions":[
+                {"id":"depth","title":"Depth","kind":"SingleChoice",
+                 "choices":[{"id":"guide","title":"Guide"}]},
+                {"id":"release","title":"Release only by user?","kind":"Confirm"},
+                {"id":"feedback","title":"Feedback","kind":"MultiChoice",
+                 "choices":[{"id":"chat","title":"Chat"},{"id":"issues","title":"Issues"}]},
+                {"id":"name","title":"Name","kind":"FreeText"}
+            ]}""",
+        ).jsonObject
+        val call = launch { fixture.execute(mixed) }
+        runCurrent()
+        val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
+        assertEquals(4, asked.size)
+        assertEquals(Question.Confirm("Да", "Нет"), asked[1].questionnaire.question)
+        val replies = listOf(
+            Answer.Selected(listOf("guide")),
+            Answer.Confirmed(true),
+            Answer.Selected(listOf("chat", "issues")),
+            Answer.Text("product_dev"),
+        )
+        asked.zip(replies).forEach { (intent, answer) ->
+            fixture.queue.outputs.emit(QuestionnaireOutput.Answered(intent.questionnaire, answer))
+        }
+        runCurrent()
+        call.join()
+
+        val answers = fixture.answers()
+        assertEquals(setOf("depth", "release", "feedback", "name"), answers.keys)
+        assertTrue(answers.getValue("release").jsonObject.getValue("isConfirmed").jsonPrimitive.boolean)
+        assertEquals(
+            listOf("chat", "issues"),
+            answers.getValue("feedback").jsonObject.getValue("selected").jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals("product_dev", answers.getValue("name").jsonObject.getValue("text").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `Confirm defaults each absent or blank label and preserves custom labels`() = runTest {
+        val variants = listOf(
+            "" to Question.Confirm("Да", "Нет"),
+            "\"yes\":\"Proceed\"," to Question.Confirm("Proceed", "Нет"),
+            "\"no\":\"Later\"," to Question.Confirm("Да", "Later"),
+            "\"yes\":\"\",\"no\":\"   \"," to Question.Confirm("Да", "Нет"),
+            "\"yes\":\"Proceed\",\"no\":\"Later\"," to Question.Confirm("Proceed", "Later"),
+        )
+        variants.forEach { (labels, expected) ->
+            val fixture = Fixture(this)
+            val args = Json.parseToJsonElement(
+                """{"key":"confirm","questions":[{$labels"id":"q","title":"Continue?","kind":"Confirm"}]}""",
+            ).jsonObject
+            val call = launch { fixture.execute(args) }
+            runCurrent()
+            val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>().single()
+            assertEquals(expected, asked.questionnaire.question)
+            fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked.questionnaire, Answer.Confirmed(false)))
+            runCurrent()
+            call.join()
+            assertFalse(fixture.answers().getValue("q").jsonObject.getValue("isConfirmed").jsonPrimitive.boolean)
+        }
+    }
+
+    @Test
+    fun `invalid later question returns its reason without publishing a partial batch`() = runTest {
+        val fixture = Fixture(this)
+        fixture.execute(
+            Json.parseToJsonElement(
+                """{"key":"plan","questions":[
+                    {"id":"confirm","title":"Continue?","kind":"Confirm"},
+                    {"id":"choices","title":"Select","kind":"MultiChoice","min":2,
+                     "choices":[{"id":"one","title":"One"}]}
+                ]}""",
+            ).jsonObject,
+        )
+
+        assertTrue(fixture.queue.sent.isEmpty())
+        assertEquals(
+            "Invalid questionnaire_ask specification: MultiChoice bounds do not fit its choices",
+            fixture.errorText(),
         )
     }
 
