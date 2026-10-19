@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+import org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType
 
 plugins {
     alias(libs.plugins.heartbeat.kmp.compose)
@@ -14,6 +15,11 @@ kotlin {
         binaries.framework {
             baseName = "Shared"
             isStatic = true
+            if (buildType == NativeBuildType.RELEASE) {
+                // Kotlin 2.4.20 exhausts an 8 GiB heap building this phase's whole-program call graph.
+                // Keep initializer checks instead; other release optimizations remain enabled.
+                freeCompilerArgs += "-Xdisable-phases=RemoveRedundantCallsToStaticInitializersPhase"
+            }
         }
     }
     sourceSets {
