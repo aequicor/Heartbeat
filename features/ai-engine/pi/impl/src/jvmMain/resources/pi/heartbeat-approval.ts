@@ -48,6 +48,9 @@ const { hosted: HOSTED_TOOLS, all: GATE_ALL } = gateConfig();
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/;
 const WINDOWS_SHELL_PATH = /^\/(?:mnt\/|cygdrive\/)?[a-z](?:\/|$)/i;
 const SIMPLE_PUSH = /^git[ \t]+push(?:[ \t]+(?:-u[ \t]+)?origin[ \t]+[A-Za-z0-9][A-Za-z0-9._/-]*)?$/;
+// Selection of evidence only; neither this expression nor pinning authorizes a command.
+const LOCAL_GIT = /(?:^|[\s;&|()])git[ \t]+(?:status|diff|show|log|rev-parse|ls-files|ls-tree|branch|add|commit|merge|restore|checkout|switch|stash|rebase|cherry-pick|reset)(?:[\s;&|()]|$)/;
+const EXECUTION_ENVIRONMENT_KEYS = new Set(["EDITOR", "VISUAL", "PAGER", "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_PAGER"]);
 const ENVIRONMENT_KEYS = new Set([
     "PATH", "HOME", "XDG_CONFIG_HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR",
     "PATHEXT", "PROGRAMFILES", "PROGRAMFILES(X86)", "TMPDIR", "TMP", "TEMP",
@@ -72,14 +75,14 @@ function hasReviewFiles(input: any): boolean {
 }
 
 function needsPinnedEnvironment(input: any): boolean {
-    return typeof input.command === "string" && (SIMPLE_PUSH.test(input.command.trim()) || hasReviewFiles(input));
+    return typeof input.command === "string" && (SIMPLE_PUSH.test(input.command.trim()) || LOCAL_GIT.test(input.command) || hasReviewFiles(input));
 }
 
 /**
  * Only paths/config discovery inputs cross RPC. Override values and credentials stay in this closure.
  * This projection cannot establish arbitrary manager/script environment effects; unresolved effects stay uncertain.
  */
-function gitEnvironment(env: Record<string, string | undefined>): Record<string, string> {
+function gitEnvironment(env: Record<string, string | undefined>, local = false): Record<string, string> {
     const result: Record<string, string> = {};
     let unsafe = false;
     for (const [key, value] of Object.entries(env)) {
@@ -88,7 +91,16 @@ function gitEnvironment(env: Record<string, string | undefined>): Record<string,
         if (ENVIRONMENT_KEYS.has(upper)) { result[key] = value; continue; }
         if (upper === "GH_HOST" || upper === "GH_REPO") {
             if (upper === "GH_HOST" ? publicHost(value) : publicRepository(value)) result[key] = value;
-            else unsafe = true;
+            else if (!local) unsafe = true;
+            continue;
+        }
+        if (local) {
+            if (EXECUTION_ENVIRONMENT_KEYS.has(upper)) {
+                if (/(?:\bsk-[A-Za-z0-9_.-]{8,}|\b(?:Bearer|Basic)\s+|(?:token|password|secret|api[_-]?key)\s*[:=])/i.test(value)) unsafe = true;
+                else result[key] = value;
+            } else if (/^(GIT_|BASH_FUNC_|LD_|DYLD_)/.test(upper) ||
+                ["BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH",
+                    "PYTHONSTARTUP", "RUBYOPT", "PERL5OPT", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS"].includes(upper)) unsafe = true;
             continue;
         }
         if ((/^(GH_|GITHUB_)/.test(upper) && !["GH_TOKEN", "GITHUB_TOKEN"].includes(upper)) ||
@@ -110,7 +122,7 @@ type PushPlan = { command: string; input: string; cwd: string; env: Record<strin
 
 /**
  * Only the hermetic bundled Unix runtime installs this override. Commands without review metadata retain Pi's
- * default tool. Pushes and commands with review_files consume a private plan, pinning input/cwd/env at spawn.
+ * default tool. Local Git, pushes and commands with review_files consume a private plan, pinning input/cwd/env at spawn.
  */
 async function pinNativePush(pi: any, plans: Map<string, PushPlan>): Promise<boolean> {
     if (process.env.HEARTBEAT_PIN_NATIVE_PUSH !== "true" || process.platform === "win32" || !existsSync("/bin/bash")) return false;
@@ -132,12 +144,12 @@ async function pinNativePush(pi: any, plans: Map<string, PushPlan>): Promise<boo
             plans.delete(id);
             if (!plan) {
                 if (needsPinnedEnvironment(input)) {
-                    throw new Error("Native push has no live host-approved execution plan");
+                    throw new Error("Native command has no live host-approved execution plan");
                 }
                 return createBashToolDefinition(ctx.cwd).execute(id, input, signal, onUpdate, ctx);
             }
             if (!plan.approved || JSON.stringify(input) !== plan.input || resolve(ctx.cwd) !== plan.cwd || signal?.aborted) {
-                throw new Error("Native push changed after its host approval");
+                throw new Error("Native command changed after its host approval");
             }
             const pinned = createBashToolDefinition(plan.cwd, {
                 shellPath: "/bin/bash",
@@ -203,7 +215,7 @@ export default async function (pi: any) {
             plan = { command: target, input: JSON.stringify(input), cwd: resolve(ctx.cwd), env: { ...process.env }, approved: false };
             pushes.set(event.toolCallId, plan);
         }
-        const nativeCommandEnvironment = plan ? { version: 1, cwd: plan.cwd, values: gitEnvironment(plan.env) } : undefined;
+        const nativeCommandEnvironment = plan ? { version: 1, cwd: plan.cwd, values: gitEnvironment(plan.env, LOCAL_GIT.test(plan.command)) } : undefined;
 		const request = JSON.stringify({ toolCallId: event.toolCallId, toolName: event.toolName, target, path, arguments: input, nativeCommandEnvironment });
         let decision: { allowed: boolean; reason?: string };
         try {

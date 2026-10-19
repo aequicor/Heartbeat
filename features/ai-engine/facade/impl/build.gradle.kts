@@ -28,3 +28,17 @@ kotlin {
         }
     }
 }
+
+// Opt-in provider regression; credentials are read from an operator-owned file, never Gradle properties.
+val regularJvmTest = tasks.named<Test>("jvmTest")
+tasks.register<Test>("safetyLiveTest") {
+    group = "verification"
+    description = "Exercises automatic tool safety and a real Git merge against an OpenAI-compatible reviewer."
+    testClassesDirs = regularJvmTest.get().testClassesDirs
+    classpath = regularJvmTest.get().classpath
+    filter { includeTestsMatching("*.LocalGitSafetyE2eTest") }
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf("Live checks must reach the configured provider") { true }
+    systemProperty("heartbeat.safety.liveTest", "true")
+    testLogging { events("passed", "failed", "skipped") }
+}

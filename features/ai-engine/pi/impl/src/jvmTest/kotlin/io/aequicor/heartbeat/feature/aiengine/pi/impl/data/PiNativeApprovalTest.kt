@@ -178,12 +178,15 @@ class PiNativeApprovalTest {
     }
 
     @Test
-    fun `native push environment requires process capability and matching execution directory`() = runTest {
-        for ((isPinned, directory) in listOf(
+    fun `native Git environment requires process capability and matching execution directory`() = runTest {
+        for ((isPinned, directory, command) in listOf(
             true to TestWorkspace.toString(),
             false to TestWorkspace.toString(),
             true to "/other/workspace",
-        )) {
+        ).flatMap { (isPinned, directory) ->
+            listOf("git push origin branch", "git commit --no-edit", "git diff --cached --name-only; git status")
+                .map { Triple(isPinned, directory, it) }
+        }) {
             var calls = 0
             val tools = object : ProfileAgentTools by NoAgentTools {
                 override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
@@ -199,7 +202,7 @@ class PiNativeApprovalTest {
             val fixture = fixture(this, tools = tools)
             fixture.connection.hasPinnedNativePush = isPinned
             fixture.runningTurn(TrustLevel.Full)
-            val request = approval("push", "git push origin branch")
+            val request = approval("git", command)
             val proof = JsonObject(
                 mapOf(
                     "version" to JsonPrimitive(1),
@@ -227,7 +230,7 @@ class PiNativeApprovalTest {
         val noFiles = approvalCall(
             """{"toolName":"bash","target":"git status","arguments":{"command":"git status"},$proof}""",
         )
-        assertNull(noFiles?.commandEnvironment)
+        assertEquals("owner/repo", noFiles?.commandEnvironment?.captured?.environment?.get("GH_REPO"))
         val forged = approvalCall(
             """{"toolName":"bash","target":"git status","arguments":""" +
                 """{"command":"git status","review_files":["source.kt"],$proof}}""",

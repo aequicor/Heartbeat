@@ -38,7 +38,7 @@ internal interface PiConnection {
     /** Working directory of the process: the only place where trusted file edits are applied. */
     val workingDirectory: Path?
 
-    /** This exact bundled process owns the controlled, default Unix shell push wrapper. */
+    /** This bundled process owns the controlled Unix shell wrapper for local Git, pushes and review_files commands. */
     val hasPinnedNativePush: Boolean get() = false
 
     /** Explicit limits from this process's models.json; excludes Pi's synthetic fallback windows. */

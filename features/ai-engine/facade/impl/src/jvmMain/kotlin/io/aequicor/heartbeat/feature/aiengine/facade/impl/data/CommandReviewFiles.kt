@@ -79,7 +79,7 @@ private fun isSensitivePath(path: Path): Boolean = path.any { component ->
     name.startsWith(".env") || name in SENSITIVE_NAMES || SENSITIVE_EXTENSIONS.any(name::endsWith)
 }
 
-private fun hasCredentialText(text: String): Boolean = CREDENTIAL_TEXT.any { it.containsMatchIn(text) }
+internal fun hasCredentialText(text: String): Boolean = CREDENTIAL_TEXT.any { it.containsMatchIn(text) }
 
 private val reviewFilesLog = Log.tag("CommandReviewFiles")
 private val SENSITIVE_NAMES = setOf(
@@ -89,8 +89,9 @@ private val SENSITIVE_NAMES = setOf(
 )
 private val SENSITIVE_EXTENSIONS = setOf(".pem", ".key", ".p12", ".pfx", ".keystore")
 private val CREDENTIAL_TEXT = listOf(
+    Regex("""\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+""", RegexOption.IGNORE_CASE),
     Regex("-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"),
-    Regex("(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,})"),
+    Regex("(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_.-]{8,})"),
     Regex("(?:xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})"),
     Regex("[A-Za-z][A-Za-z0-9+.-]*://[^\\s/<>\"']+@"),
     Regex("[?&](?:token|access_token|api_key|password|secret)=[^\\s\"']+", RegexOption.IGNORE_CASE),

@@ -301,6 +301,114 @@ class DesktopGitPushEvidenceTest {
         }
     }
 
+    @Test
+    fun `local Git captures hooks and index without requiring any remote or inspecting credentials`() = runTest {
+        repository()
+        git("remote", "remove", "origin")
+        git("config", "credential.helper", "!echo private-credential-helper")
+        val hook = directory.resolve("hooks/pre-commit")
+        Files.writeString(hook, "#!/bin/sh\nprintf checked >> hook-events\n")
+        assertTrue(hook.toFile().setExecutable(true) || Files.isExecutable(hook))
+        val first = capture("git commit --no-edit")
+        assertEquals("localGit", first.text("kind"))
+        assertEquals("captured", first.text("status"))
+        assertFalse("private-credential-helper" in first.toString())
+        assertTrue("printf checked" in first.toString())
+        assertFalse(Files.exists(directory.resolve("hook-events")))
+        assertEquals(first, capture("git commit --no-edit"))
+        Files.writeString(directory.resolve("change.txt"), "staged")
+        git("add", "change.txt")
+        assertNotEquals(first["metadata"], capture("git commit --no-edit")["metadata"])
+        Files.writeString(hook, "#!/bin/sh\nprintf changed >> hook-events\n")
+        assertNotEquals(first["hooks"], capture("git commit --no-edit")["hooks"])
+    }
+
+    @Test
+    fun `compound local inspection does not inherit project network requirements`() = runTest {
+        repository()
+        git("remote", "remove", "origin")
+        val command = "printf 'staged files\\n'; git diff --cached --name-only | sort; " +
+            "git rev-parse --git-path MERGE_HEAD"
+        val result = assertNotNull(
+            evidence.capture(directory.toString(), command, testEnvironment(), listOf("package.json")),
+        )
+        assertEquals("localGit", result.text("kind"))
+        assertEquals("captured", result.text("status"))
+        assertEquals("incomplete", result["reviewFiles"]?.jsonObject?.text("status"))
+    }
+
+    @Test
+    fun `local context supports an unborn branch and linked worktree Git directories`() = runTest {
+        git("init", "--initial-branch=feature")
+        assertEquals("captured", capture("git status").text("status"))
+        assertEquals("", capture("git status").text("head"))
+        git("config", "user.name", "Git evidence test")
+        git("config", "user.email", "test@example.invalid")
+        git("-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "base")
+        val linked = directory.resolve("linked")
+        git("worktree", "add", "-b", "linked", linked.toString())
+        val result = assertNotNull(evidence.capture(linked.toString(), "git status", testEnvironment(), emptyList()))
+        assertEquals("captured", result.text("status"))
+        assertEquals(linked.toString(), result.text("root"))
+    }
+
+    @Test
+    fun `sensitive oversized or symlink hook contents are never disclosed`() = runTest {
+        repository()
+        val hook = directory.resolve("hooks/pre-commit")
+        for (text in listOf(
+            "#!/bin/sh\napi_key=never-disclose-this-value",
+            "#!/bin/sh\nprintf 'sk-sp-H.artificial.segment-for-screening'",
+            "#!/bin/sh\ncurl -H 'Authorization: Bearer artificial-review-secret' https://example.invalid",
+            "#!/bin/sh\ncurl -H 'Authorization: Basic YXJ0aWZpY2lhbDpjcmVkZW50aWFs' https://example.invalid",
+            "x".repeat(40_000),
+        )) {
+            Files.writeString(hook, text)
+            assertTrue(hook.toFile().setExecutable(true) || Files.isExecutable(hook))
+            val result = capture("git commit -m checked")
+            assertEquals("unavailable", result.text("status"), result.toString())
+            assertFalse("never-disclose-this-value" in result.toString())
+            assertFalse("artificial" in result.toString())
+            assertFalse("YXJ0aWZpY2lhbDpjcmVkZW50aWFs" in result.toString())
+        }
+        if (!System.getProperty("os.name").orEmpty().startsWith("Windows")) {
+            Files.delete(hook)
+            val target = Files.writeString(helperDirectory.resolve("sensitive-hook"), "never-disclose-this-value")
+            assertTrue(target.toFile().setExecutable(true))
+            Files.createSymbolicLink(hook, target)
+            val result = capture("git commit -m checked")
+            assertEquals("unavailable", result.text("status"), result.toString())
+            assertFalse("never-disclose-this-value" in result.toString())
+            assertFalse("artificial" in result.toString())
+            assertFalse("YXJ0aWZpY2lhbDpjcmVkZW50aWFs" in result.toString())
+        }
+    }
+
+    @Test
+    fun `local Git ignores transport proxies but refuses inherited execution overrides`() = runTest {
+        repository()
+        assertEquals(
+            "captured",
+            capture("git status", testEnvironment() + ("HTTPS_PROXY" to "http://proxy.invalid")).text("status"),
+        )
+        for (name in listOf("GIT_CONFIG_COUNT", "GIT_DIR", "GIT_INDEX_FILE", "BASH_ENV", "LD_PRELOAD")) {
+            val result = capture("git status", testEnvironment() + (name to "untrusted"))
+            assertEquals("unavailable", result.text("status"), name)
+        }
+    }
+
+    @Test
+    fun `large staged merges have bounded evidence without listing every staged file`() = runTest {
+        repository()
+        val bulk = Files.createDirectory(directory.resolve("bulk"))
+        repeat(6_367) { index -> Files.writeString(bulk.resolve("file-$index.txt"), "content") }
+        git("-c", "core.autocrlf=false", "add", "bulk", timeoutSeconds = 30)
+        val captured = capture("git commit --no-edit")
+        assertEquals("captured", captured.text("status"))
+        assertTrue(captured.toString().length < 16_384)
+        assertFalse("file-6366.txt" in captured.toString())
+    }
+
     private suspend fun capture(
         command: String = "git push",
         environment: Map<String, String> = testEnvironment(),
@@ -324,7 +432,7 @@ class DesktopGitPushEvidenceTest {
         git("remote", "add", "origin", "https://github.com/example/project.git")
     }
 
-    private fun git(vararg arguments: String): String {
+    private fun git(vararg arguments: String, timeoutSeconds: Long = 5): String {
         val child = ProcessBuilder(listOf("git", "--no-pager") + arguments).directory(directory.toFile())
             .redirectErrorStream(true).apply {
                 environment().clear()
@@ -332,7 +440,7 @@ class DesktopGitPushEvidenceTest {
             }.start()
         try {
             child.outputStream.close()
-            assertTrue(child.waitFor(5, TimeUnit.SECONDS), "Local git setup timed out")
+            assertTrue(child.waitFor(timeoutSeconds, TimeUnit.SECONDS), "Local git setup timed out")
             val output = child.inputStream.bufferedReader().readText().trim()
             assertEquals(0, child.exitValue(), output)
             return output
