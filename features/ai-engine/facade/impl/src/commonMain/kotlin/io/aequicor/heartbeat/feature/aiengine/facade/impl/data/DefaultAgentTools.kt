@@ -1,16 +1,12 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data
 
-import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.ContributesTo
-import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.Multibinds
-import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
@@ -70,9 +66,6 @@ public interface AgentToolBindings {
  * (`CreateSessionRequest.areDetachedToolsEnabled` tells which one decides per adapter): adapters check it before
  * attaching tools, this dispatcher never sees it and answers any request without a workspace.
  */
-@Inject
-@SingleIn(ProfileScope::class)
-@ContributesBinding(ProfileScope::class)
 internal class DefaultAgentTools(
     private val contributions: Set<AgentToolContribution>,
     private val hooks: SessionHooks = NoSessionHooks,
@@ -357,7 +350,7 @@ internal class DefaultAgentTools(
                 )
             }
             val approval = owner.approval(context, spec, arguments)
-            val refusal = authorizationRefusal(context, owner, spec, arguments, approval, verdict)
+            val refusal = authorizationRefusal(context, HostedApproval(owner, spec, arguments, approval), verdict)
             if (refusal != null) {
                 refusal
             } else if (isAdapterOperated) {
@@ -392,14 +385,11 @@ internal class DefaultAgentTools(
 
     private suspend fun authorizationRefusal(
         context: AgentToolContext,
-        owner: AgentToolContribution,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-        approval: AgentToolApproval,
+        operation: HostedApproval,
         verdict: ToolHookVerdict,
     ): AgentToolResult? {
+        val (owner, spec, arguments) = operation
         val automatic = owner.automaticAuthorization(context, spec, arguments)
-        val operation = HostedApproval(owner, spec, arguments, approval)
         return when {
             automatic != null -> automaticRefusal(context, operation, automatic, verdict)
 
