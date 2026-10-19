@@ -295,9 +295,12 @@ public sealed interface ProjectConfigEffect : MachineEffect {
     /** Reads the stored bindings. */
     public data object Load : ProjectConfigEffect
 
-    /** Stores current bindings and the new settings after previous project operations are cancelled. */
-    public data class SaveStorage(val settings: ConfigStorageSettings, val bindings: List<ConfigBinding>) :
-        ProjectConfigEffect
+    /** Releases the dropped [bundleId], then stores bindings and settings after prior reads are cancelled. */
+    public data class SaveStorage(
+        val settings: ConfigStorageSettings,
+        val bindings: List<ConfigBinding>,
+        val bundleId: String? = null,
+    ) : ProjectConfigEffect
 
     /** Stores [bindings]; ignored when a newer [revision] was already stored. */
     public data class SaveBindings(val bindings: List<ConfigBinding>, val revision: Long) : ProjectConfigEffect

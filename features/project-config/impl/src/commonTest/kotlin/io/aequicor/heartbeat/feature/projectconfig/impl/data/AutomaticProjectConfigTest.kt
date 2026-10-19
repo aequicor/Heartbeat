@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigStorageSettings
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Public
+import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigTree
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.FakeEntity
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.FakeSection
 import kotlinx.coroutines.CompletableDeferred
@@ -127,5 +128,46 @@ class AutomaticProjectConfigTest {
         write.await()
         save.await()
         assertNull(fixture.policy.access(PROJECT) { error("Project IO after App was saved") })
+    }
+
+    @Test
+    fun `a renamed binding reserves its old file name for a newly created entity`() = runTest {
+        val lessons = FakeSection(ConfigSectionId.Learning, isProjectScoped = true)
+        val fixture = EffectsFixture(lessons)
+        lessons.state.value = listOf(FakeEntity("a", "foo", "first", project = PROJECT))
+        fixture.run(Internal.Enabled(setOf(PROJECT)))
+        lessons.state.value = listOf(
+            FakeEntity("a", "bar", "renamed", project = PROJECT),
+            FakeEntity("b", "foo", "second", project = PROJECT),
+            FakeEntity("c", "foo-2", "third", project = PROJECT),
+        )
+        fixture.run(Internal.Changed(PROJECT))
+        assertEquals("renamed\n", fixture.files["learning/foo.md"])
+        assertEquals("second\n", fixture.files["learning/foo-3.md"])
+        assertEquals("third\n", fixture.files["learning/foo-2.md"])
+        assertEquals(3, fixture.storage.bindings.size)
+        fixture.run(Internal.Changed(PROJECT))
+        assertEquals(3, fixture.files.size)
+        assertTrue(fixture.ready.proposals.isEmpty())
+    }
+
+    @Test
+    fun `changing either storage selection releases each previously opened bundle`() = runTest {
+        fixture.run(Internal.Enabled(setOf(PROJECT)))
+        fixture.bundles.written["source.hbai"] = ConfigTree.of(harnesses.unit("incoming", "rules").files)
+        val changes = listOf(
+            Internal.SetDefaultStorage(ConfigStorage.App),
+            Internal.SetProjectStorage(PROJECT, ConfigStorage.Project),
+            Internal.SetDefaultStorage(ConfigStorage.Project),
+            Internal.SetProjectStorage(PROJECT, ConfigStorage.App),
+        )
+        changes.forEachIndexed { index, change ->
+            fixture.run(Public.OpenBundle("bundle-$index", "source.hbai"))
+            val proposal = fixture.ready.proposals.single()
+            assertTrue(fixture.access.unit(proposal) != null)
+            fixture.run(change)
+            assertNull(fixture.ready.bundle)
+            assertNull(fixture.access.unit(proposal))
+        }
     }
 }

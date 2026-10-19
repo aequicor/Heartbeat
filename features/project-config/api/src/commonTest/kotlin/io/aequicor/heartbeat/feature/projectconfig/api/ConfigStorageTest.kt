@@ -101,4 +101,53 @@ class ConfigStorageTest {
             ProjectConfigIntent.Internal.Synced(ProjectSnapshot(project, 1, emptyList(), emptyList())),
         )
     }
+
+    @Test
+    fun `storage changes wait for task write and apply results`() {
+        val idle = ProjectConfigState.Ready(projects = mapOf(project to ProjectSync()))
+        val applying = ConfigProposal(
+            ConfigSource.Project(project),
+            unit,
+            ProposalKind.Update,
+            key,
+            digest,
+            isApplying = true,
+        )
+        val busy = listOf(
+            idle.copy(task = ConfigTask("export", ConfigTaskKind.Export)),
+            idle.copy(writing = setOf(ConfigWriteBack(project, unit, null, digest, isUnbinding = true))),
+            idle.copy(proposals = listOf(applying)),
+        )
+        for (state in busy) {
+            ProjectConfigMachineSpec.assertIgnored(
+                state,
+                ProjectConfigIntent.Internal.SetDefaultStorage(ConfigStorage.App),
+            )
+            ProjectConfigMachineSpec.assertIgnored(
+                state,
+                ProjectConfigIntent.Internal.SetProjectStorage(project, ConfigStorage.App),
+            )
+        }
+    }
+
+    @Test
+    fun `both storage changes carry the dropped bundle to cleanup`() {
+        val bundle = ConfigBundle("bundle", "source.hbai")
+        val ready = ProjectConfigState.Ready(projects = mapOf(project to ProjectSync()), bundle = bundle)
+        ProjectConfigMachineSpec.assertTransition(
+            ready,
+            ProjectConfigIntent.Internal.SetDefaultStorage(ConfigStorage.App),
+            ProjectConfigState.Configuring(setOf(project)),
+            effects = listOf(
+                ProjectConfigEffect.SaveStorage(ConfigStorageSettings(ConfigStorage.App), emptyList(), bundle.id),
+            ),
+        )
+        val settings = ConfigStorageSettings(projects = mapOf(project.value to ConfigStorage.App))
+        ProjectConfigMachineSpec.assertTransition(
+            ready,
+            ProjectConfigIntent.Internal.SetProjectStorage(project, ConfigStorage.App),
+            ProjectConfigState.Configuring(setOf(project)),
+            effects = listOf(ProjectConfigEffect.SaveStorage(settings, emptyList(), bundle.id)),
+        )
+    }
 }

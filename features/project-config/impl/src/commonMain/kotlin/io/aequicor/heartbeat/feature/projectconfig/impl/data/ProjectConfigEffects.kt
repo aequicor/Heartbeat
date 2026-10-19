@@ -68,13 +68,7 @@ internal class ProjectConfigEffects(
                 machine.send(Internal.Loaded(bindings, policy.load()))
             }
 
-            is ProjectConfigEffect.SaveStorage -> {
-                saving.withLock {
-                    storage.save(effect.bindings)
-                    policy.save(effect.settings)
-                }
-                machine.send(Internal.StorageSaved)
-            }
+            is ProjectConfigEffect.SaveStorage -> configureStorage(effect, machine)
 
             is ProjectConfigEffect.SaveBindings -> save(effect)
 
@@ -90,6 +84,18 @@ internal class ProjectConfigEffects(
             is ProjectConfigEffect.ImportToProject, is ProjectConfigEffect.CloseBundle,
             -> tasks.handle(effect)?.let { machine.send(it) }
         }
+    }
+
+    private suspend fun configureStorage(
+        effect: ProjectConfigEffect.SaveStorage,
+        machine: EffectScope<ProjectConfigIntent>,
+    ) {
+        effect.bundleId?.let { access.forget(it) }
+        saving.withLock {
+            storage.save(effect.bindings)
+            policy.save(effect.settings)
+        }
+        machine.send(Internal.StorageSaved)
     }
 
     private suspend fun save(effect: ProjectConfigEffect.SaveBindings) = saving.withLock {

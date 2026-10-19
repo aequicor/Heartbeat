@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigStorageSettings
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSummary
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigWriteBack
 import io.aequicor.heartbeat.feature.projectconfig.api.ExistingUnits
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
@@ -45,6 +46,7 @@ import pro.respawn.flowmvi.api.Provider
 import pro.respawn.flowmvi.dsl.collect
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -243,6 +245,18 @@ class ProjectConfigModelTest {
         runCurrent()
         assertEquals(StorageUi.Project, screen.states.value.projects.single().storage)
         assertEquals(StorageUi.Project, screen.states.value.projects.single().storageOverride)
+    }
+
+    @Test
+    fun `storage busy follows write back completion in the machine`() = runTest {
+        val unit = ConfigUnitRef(ConfigSectionId.Harnesses, "review")
+        val write = ConfigWriteBack(PROJECT, unit, null, null)
+        val fixture = Fixture(this, ready.copy(writing = setOf(write)))
+        val screen = fixture.subscribe()
+        assertTrue(screen.states.value.isStorageBusy)
+        fixture.machine.state.value = ready
+        runCurrent()
+        assertFalse(screen.states.value.isStorageBusy)
     }
 
     private class Fixture(private val scope: TestScope, initial: ProjectConfigState) {

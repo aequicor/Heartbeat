@@ -107,11 +107,7 @@ internal class ConfigReader(private val provider: () -> Collection<ConfigSection
     ): EntityDigests {
         val unreadable = mutableSetOf<ConfigSectionId>()
         val digests = snapshot.sections.flatMap { section ->
-            val related = snapshot.entities[section.id].orEmpty().mapNotNull { entity ->
-                val bound = bindings.firstOrNull { it.unit.section == section.id && it.key == entity.key }
-                val isCandidate = !section.isProjectScoped || entity.project == project
-                (bound?.unit?.name ?: entity.name.takeIf { isCandidate })?.let { entity to it }
-            }
+            val related = snapshot.namedEntities(section, project, bindings)
             val encoded = related.map { (entity, name) ->
                 digest(section, entity, name)?.let { digest ->
                     EntityDigest(
@@ -173,4 +169,30 @@ private fun SectionsSnapshot.owns(section: ConfigSection, entity: ConfigEntity, 
     val parentSection = section.parent ?: return false
     val parent = entities[parentSection].orEmpty().firstOrNull { it.key == entity.parent } ?: return false
     return parent.project == project || project in parent.projects
+}
+
+/** Bound paths remain stable after a title edit; new project-owned entities reserve a different free name. */
+private fun SectionsSnapshot.namedEntities(
+    section: ConfigSection,
+    project: WorkspaceRef?,
+    bindings: List<ConfigBinding>,
+): List<Pair<ConfigEntity, String>> {
+    val sectionEntities = entities[section.id].orEmpty()
+    val bound = bindings.filter { it.unit.section == section.id }
+    val names = (sectionEntities.map { it.name } + bound.map { it.unit.name }).toMutableSet()
+    return sectionEntities.mapNotNull { entity ->
+        val binding = bound.firstOrNull { it.key == entity.key }
+        when {
+            binding != null -> entity to binding.unit.name
+
+            section.isProjectScoped && entity.project != project -> null
+
+            project != null && owns(section, entity, project) && bound.any { it.unit.name == entity.name } -> {
+                val name = generateSequence(2) { it + 1 }.map { "${entity.name}-$it" }.first(names::add)
+                entity to name
+            }
+
+            else -> entity to entity.name
+        }
+    }
 }

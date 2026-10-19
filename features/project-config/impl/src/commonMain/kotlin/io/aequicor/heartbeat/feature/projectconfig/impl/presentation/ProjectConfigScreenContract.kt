@@ -179,6 +179,7 @@ internal data class ProjectConfigScreenState(
     val entities: ImmutableList<EntityUi> = persistentListOf(),
     val bundle: String? = null,
     val isBusy: Boolean = false,
+    val isStorageBusy: Boolean = false,
     val notice: NoticeUi? = null,
     val confirming: ProposalVersionUi? = null,
     val picker: PickerUi? = null,

@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigState
 import io.aequicor.heartbeat.feature.projectconfig.api.ProposalKind
 import io.aequicor.heartbeat.feature.projectconfig.api.ProposalReview
 import io.aequicor.heartbeat.feature.projectconfig.api.ReviewVerdict
+import io.aequicor.heartbeat.feature.projectconfig.api.canChangeStorage
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 
@@ -33,6 +34,7 @@ internal fun ProjectConfigScreenState.reflecting(state: ProjectConfigState, isSu
         copy(
             phase = PhaseUi.Ready,
             defaultStorage = state.storage.default.toUi(),
+            isStorageBusy = !state.canChangeStorage(),
             proposals = proposals,
             projects = state.projects.map { (ref, sync) ->
                 ProjectUi(

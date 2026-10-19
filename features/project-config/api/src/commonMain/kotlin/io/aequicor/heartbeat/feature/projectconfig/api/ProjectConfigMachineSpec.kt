@@ -23,7 +23,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Publi
  * |---|---|---|---|---|
  * | Off | Enabled | | Loading(projects) | Load |
  * | Loading | Loaded | | Ready(bindings, storage) | Sync(project storage only) |
- * | Ready | SetDefaultStorage / SetProjectStorage | known project | Configuring | SaveStorage |
+ * | Ready | SetDefaultStorage / SetProjectStorage | no task or mutations | Configuring | SaveStorage |
  * | Configuring | StorageSaved / StorageSaveFailed | | Loading | Load; StorageFailed on failure |
  * | Configuring | ProjectsChanged | | same with projects | |
  * | Loading | LoadFailed | | Failed | StorageFailed |
@@ -99,16 +99,26 @@ public val ProjectConfigMachineSpec: MachineSpec<
         on<Internal.ProjectsChanged> { stay { ProjectConfigState.Failed(intent.projects) } }
     }
     state<ProjectConfigState.Ready> {
-        on<Internal.SetDefaultStorage> {
+        on<Internal.SetDefaultStorage>(guard = { state.canChangeStorage() }) {
             goto<ProjectConfigState.Configuring> { ProjectConfigState.Configuring(state.projects.keys) }
-            effect { ProjectConfigEffect.SaveStorage(state.storage.copy(default = intent.location), state.bindings) }
+            effect {
+                ProjectConfigEffect.SaveStorage(
+                    state.storage.copy(default = intent.location),
+                    state.bindings,
+                    state.bundle?.id,
+                )
+            }
         }
-        on<Internal.SetProjectStorage>(guard = { intent.project in state.projects }) {
+        on<Internal.SetProjectStorage>(guard = { intent.project in state.projects && state.canChangeStorage() }) {
             goto<ProjectConfigState.Configuring> { ProjectConfigState.Configuring(state.projects.keys) }
             effect {
                 val projects = intent.location?.let { state.storage.projects + (intent.project.value to it) }
                     ?: (state.storage.projects - intent.project.value)
-                ProjectConfigEffect.SaveStorage(state.storage.copy(projects = projects), state.bindings)
+                ProjectConfigEffect.SaveStorage(
+                    state.storage.copy(projects = projects),
+                    state.bindings,
+                    state.bundle?.id,
+                )
             }
         }
         syncs()

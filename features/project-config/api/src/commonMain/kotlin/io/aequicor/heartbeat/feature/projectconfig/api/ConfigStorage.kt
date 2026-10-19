@@ -13,6 +13,10 @@ public enum class ConfigStorage {
     App,
 }
 
+/** Location changes must wait for mutations to commit their result before leaving Ready. */
+public fun ProjectConfigState.Ready.canChangeStorage(): Boolean =
+    task == null && writing.isEmpty() && proposals.none { it.isApplying }
+
 /** Profile default and explicit project overrides, stored in Heartbeat independently of project files. */
 @Serializable
 public data class ConfigStorageSettings(

@@ -33,6 +33,7 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 internal fun StorageSection(
     default: StorageUi,
+    isBusy: Boolean,
     onIntent: (ProjectConfigScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -46,7 +47,7 @@ internal fun StorageSection(
                 default,
                 isInherited = false,
                 canInherit = false,
-                isEnabled = true,
+                isEnabled = !isBusy,
                 onChange = { selected ->
                     selected?.let { onIntent(ProjectConfigScreenIntent.SetDefaultStorage(it)) }
                 },

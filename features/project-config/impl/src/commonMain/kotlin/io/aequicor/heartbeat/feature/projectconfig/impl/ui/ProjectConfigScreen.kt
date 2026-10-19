@@ -152,9 +152,9 @@ private fun LazyListScope.screenItems(state: ProjectConfigScreenState, onIntent:
         }
 
         PhaseUi.Ready -> {
-            item(key = "storage") { StorageSection(state.defaultStorage, onIntent) }
+            item(key = "storage") { StorageSection(state.defaultStorage, state.isStorageBusy, onIntent) }
             item(key = "proposals") { ProposalsSection(state.proposals, onIntent) }
-            item(key = "projects") { ProjectsSection(state.projects, state.isBusy, onIntent) }
+            item(key = "projects") { ProjectsSection(state.projects, state.isBusy, state.isStorageBusy, onIntent) }
             item(key = "transfer") { TransferSection(state.bundle, state.isBusy, onIntent) }
         }
     }

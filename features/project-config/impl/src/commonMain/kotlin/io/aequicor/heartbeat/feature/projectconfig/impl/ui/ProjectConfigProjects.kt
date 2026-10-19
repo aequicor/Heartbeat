@@ -87,6 +87,7 @@ import org.jetbrains.compose.resources.stringResource
 internal fun ProjectsSection(
     projects: ImmutableList<ProjectUi>,
     isBusy: Boolean,
+    isStorageBusy: Boolean,
     onIntent: (ProjectConfigScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -102,7 +103,7 @@ internal fun ProjectsSection(
             key(project.key) {
                 if (index > 0) HbDivider()
                 ProjectRow(project, isBusy, onIntent)
-                ProjectStorageRow(project, isBusy, onIntent)
+                ProjectStorageRow(project, isStorageBusy, onIntent)
                 project.units.forEach { unit ->
                     val section = stringResource(unit.section.title())
                     val title = stringResource(Res.string.pc_content_line, section, unit.name)

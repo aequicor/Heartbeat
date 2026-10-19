@@ -3,6 +3,10 @@ package io.aequicor.heartbeat.feature.projectconfig.impl.ui
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -53,6 +57,30 @@ class ProjectConfigStorageUiTest {
                     check(ImageIO.write(image, "png", preview))
                 }
             }
+        }
+    }
+
+    @Test
+    fun `both storage controls are disabled until mutations finish`() = runSkikoComposeUiTest(
+        size = Size(1280f, 900f),
+    ) {
+        setContent {
+            HbTheme {
+                ProjectConfigContent(
+                    ProjectConfigScreenState(
+                        phase = PhaseUi.Ready,
+                        isStorageBusy = true,
+                        projects = persistentListOf(
+                            ProjectUi("project", "Heartbeat", true, false, false, persistentListOf()),
+                        ),
+                    ),
+                    onIntent = { error("Busy storage controls must not emit changes") },
+                    onBack = null,
+                )
+            }
+        }
+        for (tag in listOf("project-config-default-storage", "project-config-storage-project")) {
+            onNode(hasAnyAncestor(hasTestTag(tag)) and hasClickAction()).assertIsNotEnabled()
         }
     }
 }
