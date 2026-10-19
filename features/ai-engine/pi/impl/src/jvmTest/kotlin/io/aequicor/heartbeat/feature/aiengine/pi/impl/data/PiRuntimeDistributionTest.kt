@@ -42,15 +42,34 @@ class PiRuntimeDistributionTest {
     }
 
     @Test
+    fun `repeated launches verify the installed runtime without publishing preparation progress`() = runTest {
+        piTemporary { root ->
+            val cache = PiArtifactFixture(piArchive(root))
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, piDispatchers())
+            val installed = distribution.prepare {}
+            val progress = mutableListOf<EnginePreparation>()
+
+            repeat(3) {
+                assertEquals(installed, distribution.prepare { progress += it })
+            }
+
+            assertEquals(emptyList(), progress)
+            assertEquals(1, cache.calls)
+        }
+    }
+
+    @Test
     fun `a new process reuses verified runtime offline and rebuilds a changed file`() = runTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(piArchive(root))
             val storage = root.resolve("cache")
             val first = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
             cache.before = { error("offline cache reuse must not download") }
-            val offline = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare {}
+            val progress = mutableListOf<EnginePreparation>()
+            val offline = PiRuntimeDistribution(storage, piRelease(), cache, piDispatchers()).prepare { progress += it }
             assertEquals(first, offline)
             assertEquals(1, cache.calls)
+            assertEquals(emptyList(), progress)
 
             Files.writeString(first, "changed")
             cache.before = {}
@@ -101,6 +120,31 @@ class PiRuntimeDistributionTest {
     }
 
     @Test
+    fun `a concurrent caller reuses the completed installation without publishing progress`() = runTest {
+        piTemporary { root ->
+            val cache = PiArtifactFixture(piArchive(root))
+            val gate = CompletableDeferred<Unit>()
+            cache.before = { gate.await() }
+            val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, piDispatchers())
+            val installingProgress = mutableListOf<EnginePreparation>()
+            val waitingProgress = mutableListOf<EnginePreparation>()
+            val installing = async { distribution.prepare { installingProgress += it } }
+            runCurrent()
+            val waiting = async { distribution.prepare { waitingProgress += it } }
+            runCurrent()
+            assertFalse(waiting.isCompleted)
+
+            gate.complete(Unit)
+
+            assertEquals(installing.await(), waiting.await())
+            assertTrue(EnginePreparation.Downloading(1, 2) in installingProgress)
+            assertEquals(EnginePreparation.Installing, installingProgress.last())
+            assertEquals(emptyList(), waitingProgress)
+            assertEquals(1, cache.calls)
+        }
+    }
+
+    @Test
     fun `unexpected cache links cannot become executable runtime files`() = runTest {
         piTemporary { root ->
             val cache = PiArtifactFixture(piArchive(root))
@@ -125,11 +169,17 @@ class PiRuntimeDistributionTest {
             val distribution = PiRuntimeDistribution(root.resolve("cache"), piRelease(), cache, piDispatchers())
             val first = distribution.prepare {}
             Files.writeString(first, "changed")
-            val repaired = distribution.prepare {}
+            val progress = mutableListOf<EnginePreparation>()
+            val repaired = distribution.prepare { progress += it }
             assertEquals("executable", Files.readString(repaired))
             assertTrue(first != repaired)
+            assertTrue(EnginePreparation.Downloading(1, 2) in progress)
+            assertEquals(EnginePreparation.Installing, progress.last())
             Files.delete(repaired)
-            assertEquals("executable", Files.readString(distribution.prepare {}))
+            progress.clear()
+            assertEquals("executable", Files.readString(distribution.prepare { progress += it }))
+            assertTrue(EnginePreparation.Downloading(1, 2) in progress)
+            assertEquals(EnginePreparation.Installing, progress.last())
             assertEquals(3, cache.calls)
         }
     }

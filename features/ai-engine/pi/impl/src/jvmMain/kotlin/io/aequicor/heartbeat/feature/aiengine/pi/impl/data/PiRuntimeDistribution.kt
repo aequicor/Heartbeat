@@ -74,15 +74,18 @@ internal class PiRuntimeDistribution(
         return directory.resolve(pin.executable).takeIf { Files.isRegularFile(it, NOFOLLOW_LINKS) }
     }
 
-    /** Calls [progress] on the requesting context, preserving cancellation before native startup. */
+    /**
+     * Calls [progress] on the requesting context only when installation or repair is needed. Reusing an intact
+     * runtime still verifies its inventory before every launch without publishing transient preparation states.
+     */
     suspend fun prepare(progress: suspend (EnginePreparation) -> Unit): Path = mutex.withLock {
         val pin = checkNotNull(release) { "Pi runtime pin is unavailable" }
-        progress(EnginePreparation.Installing)
         val cached = withContext(dispatchers.io) { existing(pin) }
         if (cached != null) {
             validated = cached
             return@withLock cached.resolve(pin.executable)
         }
+        progress(EnginePreparation.Installing)
         log.i { "Preparing pinned Pi runtime version=${pin.version}" }
         val archive = artifacts.prepare(
             pin.artifact,
