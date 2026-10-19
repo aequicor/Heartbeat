@@ -101,6 +101,25 @@ class CommandReviewFilesTest {
     }
 
     @Test
+    fun `maximum sized plain tokens remain complete and long credential URLs stay private`() = runTest {
+        val path = directory.resolve("source.txt")
+        for (text in listOf("x".repeat(65_536), "1+x-".repeat(16_384))) {
+            Files.writeString(path, text)
+            val captured = captureCommandReviewFiles(directory, listOf("source.txt"))
+            assertEquals("captured", captured["status"]?.jsonPrimitive?.content)
+            assertEquals(text, captured["files"]!!.jsonArray.single().jsonObject["content"]?.jsonPrimitive?.content)
+        }
+        for (scheme in listOf("x".repeat(65_000), "1+x-".repeat(16_250))) {
+            val text = "$scheme://user:private-value@example.com"
+            Files.writeString(path, text)
+            val captured = captureCommandReviewFiles(directory, listOf("source.txt"))
+            assertEquals("incomplete", captured["status"]?.jsonPrimitive?.content)
+            assertTrue(captured["files"]!!.jsonArray.isEmpty())
+            assertFalse("private-value" in captured.toString())
+        }
+    }
+
+    @Test
     fun `binary oversized total budget and file count failures are never truncated evidence`() = runTest {
         Files.write(directory.resolve("binary"), byteArrayOf(1, 0, 2))
         Files.write(directory.resolve("invalid-utf8"), byteArrayOf(-128))
