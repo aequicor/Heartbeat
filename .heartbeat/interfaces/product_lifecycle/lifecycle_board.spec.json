@@ -1,0 +1,377 @@
+{
+    "body": {
+        "children": [
+            {
+                "then": {
+                    "label": "Загрузка доски…",
+                    "type": "progress"
+                },
+                "type": "if",
+                "when": "{{status.snapshot.loading}}"
+            },
+            {
+                "then": {
+                    "children": [
+                        {
+                            "style": "caption",
+                            "text": "{{status.snapshot.error}}",
+                            "tone": "danger",
+                            "type": "text"
+                        },
+                        {
+                            "action": {
+                                "source": "snapshot",
+                                "type": "reload"
+                            },
+                            "label": "Повторить",
+                            "style": "secondary",
+                            "type": "button"
+                        }
+                    ],
+                    "gap": "small",
+                    "type": "column"
+                },
+                "type": "if",
+                "when": "{{status.snapshot.failed}}"
+            },
+            {
+                "children": [
+                    {
+                        "text": "{{data.snapshot.repo}}",
+                        "tone": "brand",
+                        "type": "badge"
+                    },
+                    {
+                        "else": {
+                            "style": "caption",
+                            "text": "Синхронизации ещё не было — нажмите «Синхронизация»",
+                            "type": "text"
+                        },
+                        "then": {
+                            "style": "caption",
+                            "text": "Синхронизация: {{data.snapshot.sync_note}}",
+                            "type": "text"
+                        },
+                        "type": "if",
+                        "when": "{{data.snapshot.sync_note}}"
+                    }
+                ],
+                "gap": "small",
+                "type": "row",
+                "wrap": true
+            },
+            {
+                "then": {
+                    "children": [
+                        {
+                            "style": "caption",
+                            "text": "Текущая:",
+                            "type": "text"
+                        },
+                        {
+                            "text": "[**{{data.snapshot.current_title}}** · #{{data.snapshot.current}}](https://github.com/{{data.snapshot.repo}}/issues/{{data.snapshot.current}})",
+                            "type": "markdown"
+                        },
+                        {
+                            "text": "{{data.snapshot.current_stage_no}}/{{data.snapshot.of_stages}} · {{data.snapshot.current_stage_title}}",
+                            "tone": "brand",
+                            "type": "badge"
+                        }
+                    ],
+                    "gap": "small",
+                    "type": "row",
+                    "wrap": true
+                },
+                "type": "if",
+                "when": "{{data.snapshot.current}}"
+            },
+            {
+                "children": [
+                    {
+                        "empty": {
+                            "description": "«Новая фича» заведёт эпик на GitHub и первый артефакт требований; «Синхронизация» подтянет существующие эпики",
+                            "title": "Фич пока нет",
+                            "type": "empty"
+                        },
+                        "item": {
+                            "children": [
+                                {
+                                    "children": [
+                                        {
+                                            "text": "{{item.stage_no}}/{{item.of_stages}} · {{item.stage_title}}",
+                                            "tone": "neutral",
+                                            "type": "badge"
+                                        },
+                                        {
+                                            "text": "[{{item.title}}]({{item.url}})",
+                                            "type": "markdown"
+                                        }
+                                    ],
+                                    "gap": "small",
+                                    "type": "row",
+                                    "wrap": true
+                                },
+                                {
+                                    "children": [
+                                        {
+                                            "then": {
+                                                "text": "PR #{{item.pr}}",
+                                                "tone": "brand",
+                                                "type": "badge"
+                                            },
+                                            "type": "if",
+                                            "when": "{{item.pr}}"
+                                        },
+                                        {
+                                            "then": {
+                                                "style": "caption",
+                                                "text": "артефактов: {{item.artifact_count}}",
+                                                "type": "text"
+                                            },
+                                            "type": "if",
+                                            "when": "{{item.artifact_count}}"
+                                        },
+                                        {
+                                            "action": {
+                                                "args": {
+                                                    "epic": "{{item.epic}}"
+                                                },
+                                                "method": "set_current",
+                                                "type": "call"
+                                            },
+                                            "enabledWhen": "{{item.can_pick}}",
+                                            "icon": "pin",
+                                            "label": "Текущая",
+                                            "style": "ghost",
+                                            "type": "button"
+                                        },
+                                        {
+                                            "action": {
+                                                "args": {
+                                                    "epic": "{{item.epic}}"
+                                                },
+                                                "method": "advance_stage",
+                                                "type": "call"
+                                            },
+                                            "enabledWhen": "{{item.can_advance}}",
+                                            "icon": "play",
+                                            "label": "Этап →",
+                                            "style": "secondary",
+                                            "type": "button"
+                                        }
+                                    ],
+                                    "gap": "small",
+                                    "type": "row",
+                                    "wrap": true
+                                }
+                            ],
+                            "gap": "small",
+                            "type": "column"
+                        },
+                        "items": "{{data.snapshot.features}}",
+                        "key": "epic",
+                        "type": "list"
+                    },
+                    {
+                        "children": [
+                            {
+                                "bind": "new_title",
+                                "placeholder": "Название фичи",
+                                "type": "textField"
+                            },
+                            {
+                                "bind": "new_epic",
+                                "placeholder": "№ эпика",
+                                "type": "textField"
+                            },
+                            {
+                                "action": {
+                                    "actions": [
+                                        {
+                                            "args": {
+                                                "epic": "{{state.new_epic}}",
+                                                "title": "{{state.new_title}}"
+                                            },
+                                            "method": "add_feature",
+                                            "type": "call"
+                                        },
+                                        {
+                                            "key": "new_title",
+                                            "type": "set",
+                                            "value": ""
+                                        },
+                                        {
+                                            "key": "new_epic",
+                                            "type": "set",
+                                            "value": ""
+                                        }
+                                    ],
+                                    "type": "sequence"
+                                },
+                                "icon": "plus",
+                                "label": "Добавить",
+                                "style": "secondary",
+                                "type": "button"
+                            }
+                        ],
+                        "gap": "small",
+                        "type": "row",
+                        "wrap": true
+                    }
+                ],
+                "title": "Фичи ({{data.snapshot.features_count}})",
+                "type": "section"
+            },
+            {
+                "children": [
+                    {
+                        "empty": {
+                            "description": "Нажмите «Синхронизация»: открытые issues без маркера эпика попадут в очередь",
+                            "title": "Очередь пуста",
+                            "type": "empty"
+                        },
+                        "item": {
+                            "children": [
+                                {
+                                    "text": "#{{item.number}}",
+                                    "tone": "neutral",
+                                    "type": "badge"
+                                },
+                                {
+                                    "text": "{{item.kind_title}}",
+                                    "tone": "warning",
+                                    "type": "badge"
+                                },
+                                {
+                                    "text": "[{{item.title}}]({{item.url}})",
+                                    "type": "markdown"
+                                },
+                                {
+                                    "action": {
+                                        "args": {
+                                            "number": "{{item.number}}"
+                                        },
+                                        "method": "triage_feedback",
+                                        "type": "call"
+                                    },
+                                    "icon": "filter",
+                                    "label": "Триаж",
+                                    "style": "secondary",
+                                    "type": "button"
+                                }
+                            ],
+                            "gap": "small",
+                            "type": "row",
+                            "wrap": true
+                        },
+                        "items": "{{data.snapshot.feedback}}",
+                        "key": "number",
+                        "type": "list"
+                    }
+                ],
+                "title": "Фидбек ({{data.snapshot.feedback_open}})",
+                "type": "section"
+            },
+            {
+                "children": [
+                    {
+                        "action": {
+                            "method": "sync_from_github",
+                            "type": "call"
+                        },
+                        "icon": "refresh",
+                        "label": "Синхронизация",
+                        "style": "secondary",
+                        "type": "button"
+                    },
+                    {
+                        "action": {
+                            "method": "prepare_release",
+                            "type": "call"
+                        },
+                        "icon": "tag",
+                        "label": "Релиз: подготовка",
+                        "style": "ghost",
+                        "type": "button"
+                    }
+                ],
+                "gap": "small",
+                "type": "row"
+            }
+        ],
+        "gap": "medium",
+        "type": "column"
+    },
+    "data": {
+        "snapshot": {
+            "load": "auto",
+            "method": "snapshot"
+        }
+    },
+    "quickActions": [
+        {
+            "action": {
+                "method": "advance_stage",
+                "type": "call"
+            },
+            "enabledWhen": "{{data.snapshot.can_advance}}",
+            "icon": "play",
+            "id": "next_stage",
+            "label": "Следующий этап",
+            "style": "primary"
+        },
+        {
+            "action": {
+                "method": "kickoff_feature",
+                "type": "call"
+            },
+            "icon": "plus",
+            "id": "kickoff",
+            "label": "Новая фича"
+        },
+        {
+            "action": {
+                "method": "triage_feedback",
+                "type": "call"
+            },
+            "enabledWhen": "{{data.snapshot.feedback_pending}}",
+            "icon": "filter",
+            "id": "triage_fb",
+            "label": "Триаж фидбека"
+        },
+        {
+            "action": {
+                "method": "request_acceptance",
+                "type": "call"
+            },
+            "enabledWhen": "{{data.snapshot.in_acceptance}}",
+            "icon": "check",
+            "id": "accept",
+            "label": "Приёмка"
+        },
+        {
+            "action": {
+                "method": "prepare_release",
+                "type": "call"
+            },
+            "icon": "tag",
+            "id": "release",
+            "label": "Релиз: подготовка"
+        },
+        {
+            "action": {
+                "method": "sync_from_github",
+                "type": "call"
+            },
+            "icon": "refresh",
+            "id": "sync",
+            "label": "Синхронизация"
+        }
+    ],
+    "state": {
+        "new_epic": "",
+        "new_title": ""
+    },
+    "title": "Продуктовый цикл Heartbeat",
+    "version": 1
+}

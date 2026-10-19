@@ -1,0 +1,4 @@
+{
+    "kind": "general",
+    "title": "Windows command runner quirks: no &&, no double quotes, use py -3"
+}
