@@ -28,6 +28,7 @@ val SEGMENT = Regex("^[A-Za-z0-9_.-]{1,100}$")
 
 val MAX_FEATURES = 12
 val MAX_FEEDBACK = 32
+val MAX_PAGES = 4
 val DEFAULT_OWNER = "aequicor"
 val DEFAULT_NAME = "Heartbeat"
 
@@ -114,7 +115,7 @@ fun view(snapshot: io.aequicor.heartbeat.feature.harness.api.script.ScriptDataSn
         put("of_stages", STAGES.size)
         put("can_advance", if (cur != null && STAGES.indexOf(curStage) < STAGES.size - 1) 1 else 0)
         put("in_acceptance", features.count { fStr(it, "stage") == "acceptance" })
-        put("feedback_open", openFeedback.size)
+        put("feedback_pending", openFeedback.count { fStr(it, "status").ifEmpty { "new" } == "new" }); put("feedback_open", openFeedback.size)
         put("feedback", JsonArray(openFeedback.take(10).map { fb ->
             val kind = fStr(fb, "kind").ifEmpty { "unknown" }
             buildJsonObject {
@@ -144,73 +145,62 @@ fun ghMessage(reason: GitHubFailure): String = when (reason) {
 
 fun noChat(): ScriptUiResult.Error = ScriptUiResult.Error("Кнопка отправляет шаг в чат — откройте карточку в чате с харнессом")
 
-fun sendFailed(e: Exception): ScriptUiResult.Error =
-    if (e is IllegalStateException) ScriptUiResult.Error("Чат временно не принимает сообщения харнесса (лимит): напишите в чат и повторите")
-    else ScriptUiResult.Error("Не удалось отправить шаг в чат")
+fun saved(result: ScriptDataWriteResult): ScriptUiResult = when (result) {
+    is ScriptDataWriteResult.Written -> ScriptUiResult.Value(view(result.snapshot))
+    is ScriptDataWriteResult.Conflict -> ScriptUiResult.Error("Доска изменилась — повторите действие")
+}
 
 ui.method(ItemName("snapshot"), "Board snapshot: features, current feature, feedback queue, sync info") {
     ScriptUiResult.Value(view(data.read(KEY)))
 }
 
-ui.method(ItemName("add_feature"), "Register feature {title, epic, stage?} on the board; also clears it from the feedback queue") { call ->
+ui.method(ItemName("add_feature"), "Register feature {title, epic, stage?}; also clears it from feedback") { call ->
     val title = argStr(call, "title")
     val epic = argLong(call, "epic")
     val stage = argStr(call, "stage")
     if (title.isEmpty() || title.length > 120) return@method ScriptUiResult.Error("Название фичи: 1–120 символов")
     if (epic == null || epic <= 0) return@method ScriptUiResult.Error("Укажите номер эпик-issue (положительное число)")
     if (stage.isNotEmpty() && !validStage(stage)) return@method ScriptUiResult.Error("Этап должен быть одним из: ${STAGES.joinToString()}")
-    var problem: String? = null
-    val saved = data.update(KEY) { previous ->
-        val root = rootOf(previous)
-        val features = objs(root, "features")
-        val feedback = objs(root, "feedback")
-        val current = fLong(root, "current") ?: 0L
-        when {
-            features.any { fLong(it, "epic") == epic } -> { problem = "Фича #$epic уже на доске"; store(features, feedback, current, root) }
-            features.size >= MAX_FEATURES -> { problem = "На доске максимум $MAX_FEATURES фич"; store(features, feedback, current, root) }
-            else -> store(
-                features + featureJson(epic, title, stage.ifEmpty { "requirements" }, "open", 0L, nowStamp(), JsonArray(emptyList())),
-                feedback.filter { fLong(it, "number") != epic },
-                if (current == 0L) epic else current, root
-            )
-        }
-    }
-    problem?.let { return@method ScriptUiResult.Error(it) }
-    ScriptUiResult.Value(view(saved))
+    val snapshot = data.read(KEY)
+    val root = rootOf(snapshot.value)
+    val features = objs(root, "features")
+    if (features.any { fLong(it, "epic") == epic }) return@method ScriptUiResult.Error("Фича #$epic уже на доске")
+    if (features.size >= MAX_FEATURES) return@method ScriptUiResult.Error("На доске максимум $MAX_FEATURES фич")
+    val current = fLong(root, "current") ?: 0L
+    val next = store(
+        features + featureJson(epic, title, stage.ifEmpty { "requirements" }, "open", 0L, nowStamp(), JsonArray(emptyList())),
+        objs(root, "feedback").filter { fLong(it, "number") != epic },
+        if (current == 0L) epic else current, root
+    )
+    saved(data.write(KEY, next, snapshot.revision))
 }
 
-ui.method(ItemName("remove_feature"), "Drop feature {epic} from the board (GitHub issue stays untouched)") { call ->
+ui.method(ItemName("remove_feature"), "Drop feature {epic} from the board (GitHub stays untouched)") { call ->
     val epic = argLong(call, "epic")
     if (epic == null || epic <= 0) return@method ScriptUiResult.Error("Укажите номер эпика")
-    var problem: String? = null
-    val saved = data.update(KEY) { previous ->
-        val root = rootOf(previous)
-        val features = objs(root, "features")
-        if (features.none { fLong(it, "epic") == epic }) { problem = "Фича #$epic не на доске"; store(features, objs(root, "feedback"), fLong(root, "current") ?: 0L, root) }
-        else {
-            val rest = features.filter { fLong(it, "epic") != epic }
-            val current = fLong(root, "current") ?: 0L
-            store(rest, objs(root, "feedback"), if (current == epic) (rest.firstOrNull()?.let { fLongOr(it, "epic", 0) } ?: 0L) else current, root)
-        }
-    }
-    problem?.let { return@method ScriptUiResult.Error(it) }
-    ScriptUiResult.Value(view(saved))
+    val snapshot = data.read(KEY)
+    val root = rootOf(snapshot.value)
+    val features = objs(root, "features")
+    if (features.none { fLong(it, "epic") == epic }) return@method ScriptUiResult.Error("Фича #$epic не на доске")
+    val rest = features.filter { fLong(it, "epic") != epic }
+    val current = fLong(root, "current") ?: 0L
+    val next = store(rest, objs(root, "feedback"),
+        if (current == epic) (rest.firstOrNull()?.let { fLongOr(it, "epic", 0) } ?: 0L) else current, root)
+    saved(data.write(KEY, next, snapshot.revision))
 }
 
-ui.method(ItemName("set_stage"), "Move feature {epic} to {stage}; proof stays in the epic comments on GitHub") { call ->
+ui.method(ItemName("set_stage"), "Move feature {epic} to {stage}; proof stays on GitHub") { call ->
     val epic = argLong(call, "epic")
     val stage = argStr(call, "stage")
     if (epic == null || epic <= 0) return@method ScriptUiResult.Error("Укажите номер эпика")
     if (!validStage(stage)) return@method ScriptUiResult.Error("Этап должен быть одним из: ${STAGES.joinToString()}")
-    var problem: String? = null
-    val saved = data.update(KEY) { previous ->
-        val root = rootOf(previous)
-        val features = objs(root, "features")
-        if (features.none { fLong(it, "epic") == epic }) { problem = "Фича #$epic не на доске"; store(features, objs(root, "feedback"), fLong(root, "current") ?: 0L, root) }
-        else store(features.map { if (fLong(it, "epic") == epic) withField(it, stage = stage) else it }, objs(root, "feedback"), fLong(root, "current") ?: 0L, root)
-    }
-    problem?.let { return@method ScriptUiResult.Error(it) }
-    ScriptUiResult.Value(view(saved))
+    val snapshot = data.read(KEY)
+    val root = rootOf(snapshot.value)
+    val features = objs(root, "features")
+    if (features.none { fLong(it, "epic") == epic }) return@method ScriptUiResult.Error("Фича #$epic не на доске")
+    val next = store(features.map { if (fLong(it, "epic") == epic) withField(it, stage = stage) else it },
+        objs(root, "feedback"), fLong(root, "current") ?: 0L, root)
+    saved(data.write(KEY, next, snapshot.revision))
 }
 
 ui.method(ItemName("link_pr"), "Attach pull request {pr} to feature {epic}") { call ->
@@ -218,45 +208,53 @@ ui.method(ItemName("link_pr"), "Attach pull request {pr} to feature {epic}") { c
     val pr = argLong(call, "pr")
     if (epic == null || epic <= 0) return@method ScriptUiResult.Error("Укажите номер эпика")
     if (pr == null || pr <= 0) return@method ScriptUiResult.Error("Укажите номер PR")
-    var problem: String? = null
-    val saved = data.update(KEY) { previous ->
-        val root = rootOf(previous)
-        val features = objs(root, "features")
-        if (features.none { fLong(it, "epic") == epic }) { problem = "Фича #$epic не на доске"; store(features, objs(root, "feedback"), fLong(root, "current") ?: 0L, root) }
-        else store(features.map { if (fLong(it, "epic") == epic) withField(it, pr = pr) else it }, objs(root, "feedback"), fLong(root, "current") ?: 0L, root)
-    }
-    problem?.let { return@method ScriptUiResult.Error(it) }
-    ScriptUiResult.Value(view(saved))
+    val snapshot = data.read(KEY)
+    val root = rootOf(snapshot.value)
+    val features = objs(root, "features")
+    if (features.none { fLong(it, "epic") == epic }) return@method ScriptUiResult.Error("Фича #$epic не на доске")
+    val next = store(features.map { if (fLong(it, "epic") == epic) withField(it, pr = pr) else it },
+        objs(root, "feedback"), fLong(root, "current") ?: 0L, root)
+    saved(data.write(KEY, next, snapshot.revision))
 }
 
-ui.method(ItemName("set_current"), "Make feature {epic} the current one for quick actions") { call ->
+ui.method(ItemName("set_current"), "Pick current feature {epic} for quick actions") { call ->
     val epic = argLong(call, "epic")
     if (epic == null || epic <= 0) return@method ScriptUiResult.Error("Укажите номер эпика")
-    var problem: String? = null
-    val saved = data.update(KEY) { previous ->
-        val root = rootOf(previous)
-        val features = objs(root, "features")
-        if (features.none { fLong(it, "epic") == epic }) { problem = "Фича #$epic не на доске"; store(features, objs(root, "feedback"), fLong(root, "current") ?: 0L, root) }
-        else store(features, objs(root, "feedback"), epic, root)
-    }
-    problem?.let { return@method ScriptUiResult.Error(it) }
-    ScriptUiResult.Value(view(saved))
+    val snapshot = data.read(KEY)
+    val root = rootOf(snapshot.value)
+    val features = objs(root, "features")
+    if (features.none { fLong(it, "epic") == epic }) return@method ScriptUiResult.Error("Фича #$epic не на доске")
+    saved(data.write(KEY, store(features, objs(root, "feedback"), epic, root), snapshot.revision))
 }
 
-ui.method(ItemName("set_repo"), "Set GitHub repository {owner, name} the board syncs with") { call ->
+ui.method(ItemName("set_repo"), "Set GitHub repository {owner, name}; changing it clears the local board") { call ->
     val owner = argStr(call, "owner")
     val name = argStr(call, "name")
-    if (!SEGMENT.matches(owner) || !SEGMENT.matches(name)) return@method ScriptUiResult.Error("owner/name: 1–100 символов (буквы, цифры, . _ -)")
-    val saved = data.update(KEY) { previous ->
-        val root = rootOf(previous)
-        buildJsonObject {
-            put("features", arrOf(root, "features")); put("feedback", arrOf(root, "feedback"))
-            put("current", fLong(root, "current") ?: 0L)
-            put("repo", buildJsonObject { put("owner", owner); put("name", name) })
-            put("sync", syncOf(root))
-        }
+    if (!SEGMENT.matches(owner) || !SEGMENT.matches(name) || owner in listOf(".", "..") || name in listOf(".", ".."))
+        return@method ScriptUiResult.Error("owner/name: 1–100 символов (буквы, цифры, . _ -)")
+    val snapshot = data.read(KEY)
+    val root = rootOf(snapshot.value)
+    val same = repoLine(root).equals("$owner/$name", ignoreCase = true)
+    val next = buildJsonObject {
+        put("features", if (same) arrOf(root, "features") else JsonArray(emptyList()))
+        put("feedback", if (same) arrOf(root, "feedback") else JsonArray(emptyList()))
+        put("current", if (same) fLong(root, "current") ?: 0L else 0L)
+        put("repo", buildJsonObject { put("owner", owner); put("name", name) })
+        put("sync", if (same) syncOf(root) else JsonObject(emptyMap()))
     }
-    ScriptUiResult.Value(view(saved))
+    saved(data.write(KEY, next, snapshot.revision))
+}
+
+ui.method(ItemName("mark_feedback"), "Mark completed triage for feedback {number}; remote issue is untouched") { call ->
+    val number = argLong(call, "number")
+    val snapshot = data.read(KEY)
+    val root = rootOf(snapshot.value)
+    val feedback = objs(root, "feedback")
+    if (number == null || feedback.none { fLong(it, "number") == number }) return@method ScriptUiResult.Error("Issue не в очереди")
+    val next = store(objs(root, "features"), feedback.map {
+        if (fLong(it, "number") == number) JsonObject(it + ("status" to JsonPrimitive("triaged"))) else it
+    }, fLong(root, "current") ?: 0L, root)
+    saved(data.write(KEY, next, snapshot.revision))
 }
 
 ui.method(ItemName("feedback_queue"), "Open feedback queue with kind markers") {
@@ -274,81 +272,120 @@ ui.method(ItemName("feedback_queue"), "Open feedback queue with kind markers") {
     })
 }
 
-ui.method(ItemName("sync_from_github"), "Refresh board from GitHub (read-only): issues page 1 + sub-issues of tracked epics; needs harness.github toggle and gh login") { _ ->
-    val root = rootOf(data.read(KEY).value)
+ui.method(ItemName("sync_from_github"), "Refresh board from GitHub (read-only, bounded pages); needs harness.github and gh login") { _ ->
+    val snapshot = data.read(KEY)
+    val root = rootOf(snapshot.value)
     val repo = repoOf(root)
-    val ghRepo = try { GitHubRepository(fStr(repo, "owner"), fStr(repo, "name")) } catch (e: Exception) { null }
-        ?: return@method ScriptUiResult.Error("Неверный репозиторий на доске — задайте set_repo")
-    val page = try { github.read(ghRepo, GitHubQuery.Issues(1)) } catch (e: Exception) { null }
-    val issues: List<GitHubEntity.Issue> = when (val r = page) {
-        is GitHubReadResult.Read -> r.snapshot.entries.filterIsInstance<GitHubEntity.Issue>()
-        is GitHubReadResult.Failed -> return@method ScriptUiResult.Error(ghMessage(r.reason))
-        null -> return@method ScriptUiResult.Error("GitHub-порт недоступен")
+    val ghRepo = GitHubRepository(fStr(repo, "owner"), fStr(repo, "name"))
+    val issues = mutableListOf<GitHubEntity.Issue>()
+    var pageNumber: Int? = 1
+    var incomplete = false
+    repeat(MAX_PAGES) {
+        val number = pageNumber ?: return@repeat
+        when (val result = github.read(ghRepo, GitHubQuery.Issues(number))) {
+            is GitHubReadResult.Read -> {
+                issues.addAll(result.snapshot.entries.filterIsInstance<GitHubEntity.Issue>())
+                pageNumber = result.snapshot.nextPage
+            }
+            is GitHubReadResult.Failed -> return@method ScriptUiResult.Error(ghMessage(result.reason))
+        }
     }
-    val trackedEpics = objs(root, "features").mapNotNull { fLong(it, "epic") }
+    if (pageNumber != null) incomplete = true
+    // An old tracked issue may be outside the bounded discovery window. Refresh it explicitly.
+    val tracked = (objs(root, "features").mapNotNull { fLong(it, "epic") } +
+        objs(root, "feedback").mapNotNull { fLong(it, "number") }).distinct()
+    for (number in tracked.filter { n -> issues.none { it.number == n } }) {
+        when (val result = github.read(ghRepo, GitHubQuery.Issue(number))) {
+            is GitHubReadResult.Read -> issues.addAll(result.snapshot.entries.filterIsInstance<GitHubEntity.Issue>())
+            is GitHubReadResult.Failed -> incomplete = true
+        }
+    }
+    val trackedEpics = (objs(root, "features").mapNotNull { fLong(it, "epic") } +
+        issues.filter { it.body.contains(MARKER) }.map { it.number }).distinct().take(MAX_FEATURES)
     val artifactsByEpic = mutableMapOf<Long, List<GitHubEntity.Issue>>()
     for (epic in trackedEpics) {
-        val sub = try {
-            when (val sr = github.read(ghRepo, GitHubQuery.SubIssues(epic))) {
-                is GitHubReadResult.Read -> sr.snapshot.entries.filterIsInstance<GitHubEntity.Issue>()
-                is GitHubReadResult.Failed -> null
+        val artifacts = mutableListOf<GitHubEntity.Issue>()
+        var subPage: Int? = 1
+        var failed = false
+        repeat(MAX_PAGES) {
+            val number = subPage ?: return@repeat
+            when (val result = github.read(ghRepo, GitHubQuery.SubIssues(epic, number))) {
+                is GitHubReadResult.Read -> {
+                    artifacts.addAll(result.snapshot.entries.filterIsInstance<GitHubEntity.Issue>())
+                    subPage = result.snapshot.nextPage
+                }
+                is GitHubReadResult.Failed -> { failed = true; subPage = null }
             }
-        } catch (e: Exception) { null }
-        if (sub != null) artifactsByEpic[epic] = sub
+        }
+        if (failed || subPage != null) incomplete = true
+        else artifactsByEpic[epic] = artifacts.distinctBy { it.number }
     }
     fun artifactsOf(epic: Long): JsonArray = artifactsByEpic[epic]?.map { a ->
         buildJsonObject { put("number", a.number); put("title", a.title); put("state", a.state) }
     }?.let { JsonArray(it) } ?: JsonArray(emptyList())
-    val saved = data.update(KEY) { previous ->
-        val prev = rootOf(previous)
-        val features = objs(prev, "features").toMutableList()
-        val feedback = objs(prev, "feedback").toMutableList()
-        val moves = mutableListOf<String>()
-        for (issue in issues) {
-            val tracked = features.firstOrNull { fLong(it, "epic") == issue.number }
-            if (tracked != null) {
-                val oldStage = fStr(tracked, "stage").ifEmpty { "requirements" }
-                val newStage = stageFromBody(issue.body) ?: oldStage
-                if (newStage != oldStage) moves.add("#${issue.number}: ${stageTitle(oldStage)}→${stageTitle(newStage)}")
-                val i = features.indexOf(tracked)
-                features[i] = buildJsonObject {
-                    put("epic", issue.number)
-                    put("title", issue.title.ifEmpty { fStr(tracked, "title") })
-                    put("stage", newStage); put("state", issue.state)
-                    put("pr", fLongOr(tracked, "pr", 0)); put("updatedAt", nowStamp())
-                    put("artifacts", if (artifactsByEpic.containsKey(issue.number)) artifactsOf(issue.number) else arrOf(tracked, "artifacts"))
-                }
-            } else if (issue.body.contains(MARKER) && features.size < MAX_FEATURES) {
-                features.add(featureJson(issue.number, issue.title, stageFromBody(issue.body) ?: "requirements", issue.state, 0L, nowStamp(), artifactsOf(issue.number)))
-            }
-        }
-        for (issue in issues) {
-            if (features.any { fLong(it, "epic") == issue.number } || issue.body.contains(MARKER)) continue
-            if (issue.state == "closed") continue
-            val existing = feedback.firstOrNull { fLong(it, "number") == issue.number }
-            val kind = kindFromBody(issue.body)
-            if (existing == null) {
-                if (feedback.size < MAX_FEEDBACK) feedback.add(feedbackJson(issue.number, issue.title, issue.state, kind ?: "unknown", "new"))
-            } else {
-                val i = feedback.indexOf(existing)
-                feedback[i] = feedbackJson(issue.number, issue.title, issue.state, kind ?: fStr(existing, "kind").ifEmpty { "unknown" }, fStr(existing, "status").ifEmpty { "new" })
-            }
-        }
-        val current = fLong(prev, "current") ?: 0L
-        val stillThere = features.any { fLong(it, "epic") == current }
-        val note = "issues: ${issues.size}, фич: ${features.size}, фидбек: ${feedback.size}" +
-            if (moves.isNotEmpty()) "; этапы: ${moves.joinToString(", ")}" else ""
-        val newSync = buildJsonObject { put("at", nowStamp()); put("result", "ok"); put("note", note) }
-        buildJsonObject {
-            put("features", JsonArray(features)); put("feedback", JsonArray(feedback))
-            put("current", if (stillThere || current == 0L) current else 0L)
-            put("repo", repoOf(prev)); put("sync", newSync)
+    val features = objs(root, "features").toMutableList()
+    val feedback = objs(root, "feedback").toMutableList()
+    val moves = mutableListOf<String>()
+    for (issue in issues.distinctBy { it.number }) {
+        val existing = features.firstOrNull { fLong(it, "epic") == issue.number }
+        if (existing != null) {
+            val oldStage = fStr(existing, "stage").ifEmpty { "requirements" }
+            val newStage = stageFromBody(issue.body) ?: oldStage
+            if (newStage != oldStage) moves.add("#${issue.number}: ${stageTitle(oldStage)}→${stageTitle(newStage)}")
+            features[features.indexOf(existing)] = featureJson(
+                issue.number, issue.title.ifEmpty { fStr(existing, "title") }, newStage, issue.state,
+                fLongOr(existing, "pr", 0), nowStamp(),
+                if (artifactsByEpic.containsKey(issue.number)) artifactsOf(issue.number) else arrOf(existing, "artifacts")
+            )
+        } else if (issue.body.contains(MARKER)) {
+            if (features.size < MAX_FEATURES) features.add(featureJson(
+                issue.number, issue.title, stageFromBody(issue.body) ?: "requirements", issue.state, 0L, nowStamp(), artifactsOf(issue.number)
+            )) else incomplete = true
         }
     }
-    ScriptUiResult.Value(view(saved))
+    // Also refresh artifacts when the epic itself could not be read.
+    for (i in features.indices) {
+        val feature = features[i]
+        val epic = fLongOr(feature, "epic", 0)
+        if (artifactsByEpic.containsKey(epic)) features[i] = JsonObject(feature + ("artifacts" to artifactsOf(epic)))
+    }
+    val artifactNumbers = features.flatMap { objs(it, "artifacts") }.mapNotNull { fLong(it, "number") }.toSet()
+    feedback.removeAll { fb ->
+        val number = fLong(fb, "number")
+        features.any { fLong(it, "epic") == number } || number in artifactNumbers ||
+            issues.any { it.number == number && (it.state == "closed" || it.body.contains(MARKER)) }
+    }
+    for (issue in issues.distinctBy { it.number }) {
+        if (features.any { fLong(it, "epic") == issue.number } || issue.body.contains(MARKER) ||
+            issue.number in artifactNumbers || issue.state == "closed") continue
+        val existing = feedback.firstOrNull { fLong(it, "number") == issue.number }
+        val kind = kindFromBody(issue.body)
+        if (existing == null) {
+            if (feedback.size < MAX_FEEDBACK) feedback.add(feedbackJson(issue.number, issue.title, issue.state, kind ?: "unknown", "new"))
+            else incomplete = true
+        } else feedback[feedback.indexOf(existing)] = feedbackJson(
+            issue.number, issue.title, issue.state, kind ?: fStr(existing, "kind").ifEmpty { "unknown" }, fStr(existing, "status").ifEmpty { "new" }
+        )
+    }
+    val current = fLong(root, "current") ?: 0L
+    val note = (if (incomplete) "Неполная синхронизация; " else "") +
+        "issues: ${issues.size}, фич: ${features.size}, фидбек: ${feedback.size}" +
+        if (moves.isNotEmpty()) "; этапы: ${moves.joinToString(", ")}" else ""
+    val next = buildJsonObject {
+        put("features", JsonArray(features)); put("feedback", JsonArray(feedback))
+        put("current", if (features.any { fLong(it, "epic") == current }) current else 0L)
+        put("repo", repo)
+        put("sync", buildJsonObject { put("at", nowStamp()); put("result", if (incomplete) "partial" else "ok"); put("note", note) })
+    }
+    // A concurrent edit (including switching repositories) invalidates the entire remote observation.
+    when (val written = data.write(KEY, next, snapshot.revision)) {
+        is ScriptDataWriteResult.Written -> ScriptUiResult.Value(view(written.snapshot))
+        is ScriptDataWriteResult.Conflict -> ScriptUiResult.Error("Доска изменилась во время синхронизации — повторите")
+    }
 }
 
 ui.method(ItemName("advance_stage"), "Send the stage_advance step to chat for {epic} or the current feature") { call ->
+    val session = call.session ?: return@method noChat()
     val root = rootOf(data.read(KEY).value)
     val epic = argLong(call, "epic") ?: fLong(root, "current")
     if (epic == null || epic <= 0) return@method ScriptUiResult.Error("Выберите текущую фичу на доске (кнопка «Текущая»)")
@@ -358,36 +395,33 @@ ui.method(ItemName("advance_stage"), "Send the stage_advance step to chat for {e
     val idx = STAGES.indexOf(from)
     if (idx < 0 || idx >= STAGES.size - 1) return@method ScriptUiResult.Error("Фича #$epic уже на финальной стадии «${stageTitle(from)}»")
     val to = STAGES[idx + 1]
-    val prompt = try { prompts.render(ItemName("stage_advance"), mapOf("issue" to epic.toString(), "from_stage" to from, "to_stage" to to, "evidence" to argStr(call, "evidence"))) }
-        catch (e: Exception) { null } ?: return@method ScriptUiResult.Error("Шаблон stage_advance недоступен")
-    val session = call.session ?: return@method noChat()
-    try { sessions.send(session, prompt) } catch (e: Exception) { return@method sendFailed(e) }
+    val prompt = prompts.render(ItemName("stage_advance"), mapOf("issue" to epic.toString(), "from_stage" to from, "to_stage" to to, "evidence" to argStr(call, "evidence"), "repository" to repoLine(root)))
+    sessions.send(session, prompt)
     ScriptUiResult.Value(view(data.read(KEY)))
 }
 
 ui.method(ItemName("kickoff_feature"), "Send the feature_kickoff step to chat; {topic?} is clarified in chat when empty") { call ->
-    val prompt = try { prompts.render(ItemName("feature_kickoff"), mapOf("topic" to argStr(call, "topic"))) }
-        catch (e: Exception) { null } ?: return@method ScriptUiResult.Error("Шаблон feature_kickoff недоступен")
     val session = call.session ?: return@method noChat()
-    try { sessions.send(session, prompt) } catch (e: Exception) { return@method sendFailed(e) }
+    val prompt = prompts.render(ItemName("feature_kickoff"), mapOf("topic" to argStr(call, "topic"), "repository" to repoLine(rootOf(data.read(KEY).value))))
+    sessions.send(session, prompt)
     ScriptUiResult.Value(view(data.read(KEY)))
 }
 
 ui.method(ItemName("triage_feedback"), "Send the triage_issue step for the oldest open feedback item or {number}") { call ->
+    val session = call.session ?: return@method noChat()
     val root = rootOf(data.read(KEY).value)
     val asked = argLong(call, "number")
     val queue = objs(root, "feedback").filter { fStr(it, "state") != "closed" }
     val target = if (asked != null && asked > 0) queue.firstOrNull { fLong(it, "number") == asked }
-    else queue.firstOrNull { fStr(it, "status") == "new" } ?: queue.firstOrNull()
-    if (target == null) return@method ScriptUiResult.Error("Очередь фидбека пуста — нажмите «Синхронизация»")
-    val prompt = try { prompts.render(ItemName("triage_issue"), mapOf("issue_number" to fLongOr(target, "number", 0).toString())) }
-        catch (e: Exception) { null } ?: return@method ScriptUiResult.Error("Шаблон triage_issue недоступен")
-    val session = call.session ?: return@method noChat()
-    try { sessions.send(session, prompt) } catch (e: Exception) { return@method sendFailed(e) }
+    else queue.filter { fStr(it, "status") == "new" }.minByOrNull { fLongOr(it, "number", Long.MAX_VALUE) }
+    if (target == null) return@method ScriptUiResult.Error("Нет необработанного фидбека — синхронизируйте или выберите issue в списке")
+    val prompt = prompts.render(ItemName("triage_issue"), mapOf("issue_number" to fLongOr(target, "number", 0).toString(), "repository" to repoLine(root)))
+    sessions.send(session, prompt)
     ScriptUiResult.Value(view(data.read(KEY)))
 }
 
 ui.method(ItemName("request_acceptance"), "Send the acceptance_report step for the current feature or a feature in acceptance; {epic?, pr?}") { call ->
+    val session = call.session ?: return@method noChat()
     val root = rootOf(data.read(KEY).value)
     val features = objs(root, "features")
     val asked = argLong(call, "epic")
@@ -399,18 +433,15 @@ ui.method(ItemName("request_acceptance"), "Send the acceptance_report step for t
     val epic = fLongOr(feat, "epic", 0)
     val pr = argLong(call, "pr") ?: fLong(feat, "pr") ?: 0L
     if (pr <= 0) return@method ScriptUiResult.Error("У фичи #$epic не указан PR — привяжите его (link_pr)")
-    val prompt = try { prompts.render(ItemName("acceptance_report"), mapOf("pr" to pr.toString(), "issue" to epic.toString())) }
-        catch (e: Exception) { null } ?: return@method ScriptUiResult.Error("Шаблон acceptance_report недоступен")
-    val session = call.session ?: return@method noChat()
-    try { sessions.send(session, prompt) } catch (e: Exception) { return@method sendFailed(e) }
+    val prompt = prompts.render(ItemName("acceptance_report"), mapOf("pr" to pr.toString(), "issue" to epic.toString(), "repository" to repoLine(root)))
+    sessions.send(session, prompt)
     ScriptUiResult.Value(view(data.read(KEY)))
 }
 
 ui.method(ItemName("prepare_release"), "Send the release_checklist step to chat; nothing is started automatically") { call ->
-    val prompt = try { prompts.render(ItemName("release_checklist"), emptyMap()) }
-        catch (e: Exception) { null } ?: return@method ScriptUiResult.Error("Шаблон release_checklist недоступен")
     val session = call.session ?: return@method noChat()
-    try { sessions.send(session, prompt) } catch (e: Exception) { return@method sendFailed(e) }
+    val prompt = prompts.render(ItemName("release_checklist"), mapOf("repository" to repoLine(rootOf(data.read(KEY).value))))
+    sessions.send(session, prompt)
     ScriptUiResult.Value(view(data.read(KEY)))
 }
 
@@ -446,14 +477,13 @@ agent.tool(
         ScriptToolResult("#$epic «${fStr(feat, "title")}»: ${stageTitle(st)} (${STAGES.indexOf(st) + 1}/${STAGES.size}), PR ${fLongOr(feat, "pr", 0)}, артефактов ${objs(feat, "artifacts").size}.")
     } else {
         if (!validStage(stage)) return@tool ScriptToolResult("Этап должен быть одним из: ${STAGES.joinToString()}", true)
-        var missing = false
-        val saved = data.update(KEY) { previous ->
-            val root = rootOf(previous)
-            val features = objs(root, "features")
-            if (features.none { fLong(it, "epic") == epic }) { missing = true; previous }
-            else store(features.map { if (fLong(it, "epic") == epic) withField(it, stage = stage) else it }, objs(root, "feedback"), epic, root)
-        }
-        if (missing) return@tool ScriptToolResult("Фича #$epic не на доске. Добавьте: ui_call add_feature {title, epic}.", true)
+        val snapshot = data.read(KEY)
+        val root = rootOf(snapshot.value)
+        val features = objs(root, "features")
+        if (features.none { fLong(it, "epic") == epic }) return@tool ScriptToolResult("Фича #$epic не на доске. Добавьте: ui_call add_feature {title, epic}.", true)
+        val next = store(features.map { if (fLong(it, "epic") == epic) withField(it, stage = stage) else it }, objs(root, "feedback"), epic, root)
+        if (data.write(KEY, next, snapshot.revision) is ScriptDataWriteResult.Conflict)
+            return@tool ScriptToolResult("Доска изменилась — перечитайте и повторите", true)
         ScriptToolResult("Фича #${epic} → ${stageTitle(stage)} (${STAGES.indexOf(stage) + 1}/${STAGES.size}), сделана текущей. Не забудь: доказательство в эпике и метка stage на GitHub (gh issue edit).")
     }
 }

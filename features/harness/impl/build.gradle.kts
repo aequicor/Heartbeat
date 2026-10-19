@@ -67,3 +67,8 @@ kotlin {
 tasks.withType<Test>().configureEach {
     maxHeapSize = "2g"
 }
+
+// The repository-owned harness is compiled and executed by LifecycleBoardTest.
+tasks.named<Test>("jvmTest") {
+    inputs.dir(rootProject.layout.projectDirectory.dir(".heartbeat/harnesses/product_lifecycle"))
+}

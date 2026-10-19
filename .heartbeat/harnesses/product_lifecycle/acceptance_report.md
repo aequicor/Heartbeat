@@ -1,3 +1,5 @@
+Репозиторий шага: `{{repository}}`. Все операции GitHub выполняй явно в нём: для gh issue/pr/workflow/release добавляй `--repo {{repository}}`, для gh api — путь `repos/{{repository}}/...` или соответствующие owner/name в GraphQL. Это правило действует и для загруженных навыков. Перед локальной разработкой, verify и git log сверь origin рабочего каталога с этим репозиторием; при несовпадении подготовь правильный checkout.
+
 Проведи приёмку фичи #{{issue}} (PR: {{pr}}) в продуктовом цикле Heartbeat. Если PR не указан — возьми его из доски/эпика; если PR нет, приёмку не начинай.
 
 1. Загрузи навык testing_acceptance (harness_skill_load product_lifecycle/testing_acceptance).

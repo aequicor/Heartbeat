@@ -40,3 +40,9 @@ kotlin {
 }
 
 compose.resources { packageOfResClass = "io.aequicor.heartbeat.feature.serviceasui.impl.resources" }
+
+// Validate the repository-owned card with the same parser and rules as imported surfaces.
+tasks.named<Test>("jvmTest") {
+    inputs.dir(rootProject.layout.projectDirectory.dir(".heartbeat/interfaces/product_lifecycle"))
+    inputs.file(rootProject.layout.projectDirectory.file(".heartbeat/harnesses/product_lifecycle/board.kts"))
+}

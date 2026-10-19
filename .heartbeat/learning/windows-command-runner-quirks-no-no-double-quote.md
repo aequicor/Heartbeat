@@ -1,1 +1,3 @@
+Host-specific observation from a previous Windows runner; verify these conditions before applying them elsewhere.
+
 In run_command on this Windows host (PowerShell 5.1): `&&` is a parser error — use `;`. Double-quote characters (") are stripped from commands before PowerShell sees them, even inside single-quoted PS strings; `python`/`python3` on PATH are Microsoft Store stubs that print "Python" and exit 1 — the real interpreter is `py -3` (3.14.7). To pass quoted code to native tools, wrap the argument in single quotes and write inner string literals as doubled single quotes (''); never rely on embedded double quotes. Encoding of tool output is OEM (mojibake for Cyrillic) — parse only ASCII parts or use exit codes.

@@ -51,6 +51,7 @@
             "kind": "template",
             "description": "Шаг заведения фичи: эпик-issue с метками и маркером, под-issue требований, регистрация на доске.",
             "arguments": [
+                "repository",
                 "topic"
             ]
         },
@@ -62,6 +63,7 @@
                 "evidence",
                 "from_stage",
                 "issue",
+                "repository",
                 "to_stage"
             ]
         },
@@ -70,7 +72,8 @@
             "kind": "template",
             "description": "Шаг триажа входящего issue (фидбек/дефект) с маркерами source/type.",
             "arguments": [
-                "issue_number"
+                "issue_number",
+                "repository"
             ]
         },
         {
@@ -79,13 +82,17 @@
             "description": "Шаг приёмки фичи: чек-лист по acceptance criteria, регресс, отчёт в под-issue, подтверждение пользователем.",
             "arguments": [
                 "issue",
-                "pr"
+                "pr",
+                "repository"
             ]
         },
         {
             "name": "release_checklist",
             "kind": "template",
-            "description": "Шаг подготовки релиза: состав, версия, чек-лист и готовые команды release.yml для админа (без запуска)."
+            "description": "Шаг подготовки релиза: состав, версия, чек-лист и готовые команды release.yml для админа (без запуска).",
+            "arguments": [
+                "repository"
+            ]
         },
         {
             "name": "board",

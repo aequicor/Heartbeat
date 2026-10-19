@@ -334,7 +334,7 @@
                 "method": "triage_feedback",
                 "type": "call"
             },
-            "enabledWhen": "{{data.snapshot.feedback_open}}",
+            "enabledWhen": "{{data.snapshot.feedback_pending}}",
             "icon": "filter",
             "id": "triage_fb",
             "label": "Триаж фидбека"
