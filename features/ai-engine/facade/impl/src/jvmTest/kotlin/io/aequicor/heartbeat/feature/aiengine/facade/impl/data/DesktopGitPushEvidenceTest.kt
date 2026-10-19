@@ -391,7 +391,14 @@ class DesktopGitPushEvidenceTest {
             "captured",
             capture("git status", testEnvironment() + ("HTTPS_PROXY" to "http://proxy.invalid")).text("status"),
         )
-        for (name in listOf("GIT_CONFIG_COUNT", "GIT_DIR", "GIT_INDEX_FILE", "BASH_ENV", "LD_PRELOAD")) {
+        for (name in listOf(
+            "GIT_CONFIG_COUNT",
+            "GIT_DIR",
+            "GIT_INDEX_FILE",
+            "BASH_ENV",
+            "LD_PRELOAD",
+            "LD_LIBRARY_PATH",
+        )) {
             val result = capture("git status", testEnvironment() + (name to "untrusted"))
             assertEquals("unavailable", result.text("status"), name)
         }
