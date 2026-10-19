@@ -139,7 +139,9 @@ class PiNativeApprovalTest {
 
     @Test
     fun `automatic native ingress retains full arguments call identity directory and accepted mode`() = runTest {
-        val arguments = record("""{"command":"true","timeout":30,"extra":"complete-input"}""")
+        val arguments = record(
+            """{"command":"true","timeout":30,"extra":"complete-input","commandEnvironment":{"PATH":"/fake"}}""",
+        )
         var calls = 0
         val tools = object : ProfileAgentTools by NoAgentTools {
             override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
@@ -149,6 +151,7 @@ class PiNativeApprovalTest {
                 assertEquals(arguments, call.arguments)
                 assertEquals("true", call.command)
                 assertEquals(TestWorkspace.toString(), call.workingDirectory)
+                assertNull(call.commandEnvironment)
                 assertEquals("anthropic/test", context.target?.model?.value)
                 return NativeVerdict.Allow
             }
@@ -172,6 +175,44 @@ class PiNativeApprovalTest {
             assertIs<ActiveSessionState.Running>(fixture.session.state.value).turn.decisionMode,
         )
         fixture.session.shutdown()
+    }
+
+    @Test
+    fun `native push environment requires process capability and matching execution directory`() = runTest {
+        for ((isPinned, directory) in listOf(
+            true to TestWorkspace.toString(),
+            false to TestWorkspace.toString(),
+            true to "/other/workspace",
+        )) {
+            var calls = 0
+            val tools = object : ProfileAgentTools by NoAgentTools {
+                override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
+                    calls++
+                    if (isPinned && directory == TestWorkspace.toString()) {
+                        assertEquals(mapOf("PATH" to "/trusted/bin"), call.commandEnvironment?.environment)
+                    } else {
+                        assertNull(call.commandEnvironment)
+                    }
+                    return NativeVerdict.Allow
+                }
+            }
+            val fixture = fixture(this, tools = tools)
+            fixture.connection.hasPinnedNativePush = isPinned
+            fixture.runningTurn(TrustLevel.Full)
+            val request = approval("push", "git push origin branch")
+            val proof = JsonObject(
+                mapOf(
+                    "version" to JsonPrimitive(1),
+                    "cwd" to JsonPrimitive(directory),
+                    "values" to record("""{"PATH":"/trusted/bin"}"""),
+                ),
+            )
+            val payload = JsonObject(record(request.string("message")!!) + ("nativeCommandEnvironment" to proof))
+            fixture.connection.event(JsonObject(request + ("message" to JsonPrimitive(payload.toString()))))
+            runCurrent()
+            assertEquals(1, calls)
+            fixture.session.shutdown()
+        }
     }
 
     @Test

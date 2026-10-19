@@ -38,6 +38,9 @@ internal interface PiConnection {
     /** Working directory of the process: the only place where trusted file edits are applied. */
     val workingDirectory: Path?
 
+    /** This exact bundled process owns the controlled, default Unix shell push wrapper. */
+    val hasPinnedNativePush: Boolean get() = false
+
     /** Explicit limits from this process's models.json; excludes Pi's synthetic fallback windows. */
     val contextWindows: Map<String, Long>
 
@@ -71,6 +74,7 @@ internal class PiRpc(
     private val commandTimeoutMillis: Long = COMMAND_TIMEOUT,
     override val workingDirectory: Path? = null,
     override val contextWindows: Map<String, Long> = emptyMap(),
+    override val hasPinnedNativePush: Boolean = false,
 ) : PiConnection {
     private val log = Log.tag("PiRpc")
     private val termination = PiProcessStop(process, dispatchers)

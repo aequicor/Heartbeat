@@ -153,6 +153,11 @@ internal class PiNativeApproval(
             command = call.target.takeIf { action == AgentToolAction.Command },
             arguments = call.arguments,
             workingDirectory = workspace,
+            // Only the trusted extension's controlled push wrapper pins its final environment. A launcher's
+            // environment or model-facing argument cannot attest to Pi's ordinary shell runtime.
+            commandEnvironment = call.commandEnvironment?.takeIf {
+                connection.hasPinnedNativePush && action == AgentToolAction.Command && it.directory == workspace
+            }?.captured,
             automaticDenial = automaticDenial(action, isHostTermination, isWorkspaceAttached && isEdit),
             covered = { trust -> isCovered(trust, action, isHostTermination, isEdit) },
         )
@@ -171,6 +176,8 @@ internal class PiNativeApproval(
             command = listOf(call.tool, call.target).filter { it.isNotBlank() }.joinToString(" "),
             arguments = call.arguments,
             workingDirectory = connection.workingDirectory?.toString(),
+            // Extension tools own their execution backend; its environment is not a pinned native shell.
+            commandEnvironment = null,
             automaticDenial = "Automatic execution cannot terminate Heartbeat".takeIf { isHostTermination },
             covered = { false },
         )

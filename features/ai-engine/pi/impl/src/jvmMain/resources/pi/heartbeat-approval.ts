@@ -26,6 +26,7 @@
  * and host approval policy before shipping the new runtime. JVM approval fixtures do not execute this script.
  */
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 
 const APPROVAL_TITLE = "heartbeat.tool-approval";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch"]);
@@ -46,6 +47,61 @@ const { hosted: HOSTED_TOOLS, all: GATE_ALL } = gateConfig();
 // Pi's path normalization replaces these spaces and rewrites `@`, `~`, `file:` and, on Windows, `/c/` shell paths.
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/;
 const WINDOWS_SHELL_PATH = /^\/(?:mnt\/|cygdrive\/)?[a-z](?:\/|$)/i;
+const SIMPLE_PUSH = /^git[ \t]+push(?:[ \t]+(?:-u[ \t]+)?origin[ \t]+[A-Za-z0-9][A-Za-z0-9._/-]*)?$/;
+const ENVIRONMENT_KEYS = new Set([
+    "PATH", "HOME", "XDG_CONFIG_HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR",
+    "PATHEXT", "PROGRAMFILES", "PROGRAMFILES(X86)", "TMPDIR", "TMP", "TEMP",
+]);
+
+/** Only paths/config discovery inputs cross RPC. Override values and credentials stay in this closure. */
+function gitEnvironment(env: Record<string, string | undefined>): Record<string, string> {
+    const result: Record<string, string> = {};
+    let unsafe = false;
+    for (const [key, value] of Object.entries(env)) {
+        if (value === undefined) continue;
+        const upper = key.toUpperCase();
+        if (ENVIRONMENT_KEYS.has(upper)) result[key] = value;
+        if (/^(GIT_|SSH_|BASH_FUNC_|LD_|DYLD_|CURL_|GCM_)/.test(upper) &&
+            !["SSH_AUTH_SOCK", "SSH_AGENT_PID", "GIT_PAGER"].includes(upper)) unsafe = true;
+        if (["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "SSL_CERT_FILE", "SSL_CERT_DIR"].includes(upper)) unsafe = true;
+    }
+    if (unsafe) result.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT = "1";
+    return result;
+}
+
+type PushPlan = { command: string; cwd: string; env: Record<string, string | undefined>; approved: boolean };
+
+/**
+ * Only the hermetic bundled Unix runtime installs this override. Ordinary commands retain Pi's default tool.
+ * A push consumes a private plan from tool_call and forces the very same command/cwd/environment at spawn.
+ */
+async function pinNativePush(pi: any, plans: Map<string, PushPlan>): Promise<boolean> {
+    if (process.env.HEARTBEAT_PIN_NATIVE_PUSH !== "true" || process.platform === "win32" || !existsSync("/bin/bash")) return false;
+    const { createBashToolDefinition } = await import("@earendil-works/pi-coding-agent");
+    const original = createBashToolDefinition(process.cwd());
+    pi.registerTool({
+        ...original,
+        async execute(id: string, input: any, signal: any, onUpdate: any, ctx: any) {
+            const plan = plans.get(id);
+            plans.delete(id);
+            if (!plan) {
+                if (typeof input.command === "string" && SIMPLE_PUSH.test(input.command.trim())) {
+                    throw new Error("Native push has no live host-approved execution plan");
+                }
+                return createBashToolDefinition(ctx.cwd).execute(id, input, signal, onUpdate, ctx);
+            }
+            if (!plan.approved || input.command !== plan.command || resolve(ctx.cwd) !== plan.cwd || signal?.aborted) {
+                throw new Error("Native push changed after its host approval");
+            }
+            const pinned = createBashToolDefinition(plan.cwd, {
+                shellPath: "/bin/bash",
+                spawnHook: () => ({ command: plan.command, cwd: plan.cwd, env: { ...plan.env } }),
+            });
+            return pinned.execute(id, input, signal, onUpdate, ctx);
+        },
+    });
+    return true;
+}
 
 function isRewrittenByPi(path: string): boolean {
 	return path.startsWith("@") || path.startsWith("~") || /^file:/i.test(path) || UNICODE_SPACES.test(path) ||
@@ -76,9 +132,11 @@ function decisionReply(value: unknown): { allowed: boolean; reason?: string } {
     return refused;
 }
 
-export default function (pi: any) {
+export default async function (pi: any) {
     const completed = new Set<string>();
-    pi.on("agent_end", () => { completed.clear(); });
+    const pushes = new Map<string, PushPlan>();
+    const isPushPinned = await pinNativePush(pi, pushes);
+    pi.on("agent_end", () => { completed.clear(); pushes.clear(); });
 	pi.on("tool_call", async (event: any, ctx: any) => {
 		if (HOSTED_TOOLS.has(event.toolName)) return undefined;
 		if (!GATE_ALL && READ_ONLY_TOOLS.has(event.toolName)) return undefined;
@@ -93,8 +151,25 @@ export default function (pi: any) {
         } else {
 			target = typeof input.command === "string" ? input.command : typeof input.path === "string" ? input.path : "";
 		}
-		const request = JSON.stringify({ toolCallId: event.toolCallId, toolName: event.toolName, target, path, arguments: input });
-		const decision = decisionReply(ctx.hasUI ? await ctx.ui.input(APPROVAL_TITLE, request) : undefined);
+        let plan: PushPlan | undefined;
+        if (isPushPinned && event.toolName === "bash" && SIMPLE_PUSH.test(target.trim()) &&
+            typeof event.toolCallId === "string" && pushes.size < 16) {
+            plan = { command: target, cwd: resolve(ctx.cwd), env: { ...process.env }, approved: false };
+            pushes.set(event.toolCallId, plan);
+        }
+        const nativeCommandEnvironment = plan ? { version: 1, cwd: plan.cwd, values: gitEnvironment(plan.env) } : undefined;
+		const request = JSON.stringify({ toolCallId: event.toolCallId, toolName: event.toolName, target, path, arguments: input, nativeCommandEnvironment });
+        let decision: { allowed: boolean; reason?: string };
+        try {
+            decision = decisionReply(ctx.hasUI ? await ctx.ui.input(APPROVAL_TITLE, request) : undefined);
+        } catch (error) {
+            pushes.delete(event.toolCallId);
+            throw error;
+        }
+        if (plan) {
+            plan.approved = decision.allowed;
+            if (!decision.allowed) pushes.delete(event.toolCallId);
+        }
         if (decision.allowed && (event.toolName === "web_search" || event.toolName === "web_fetch")) {
             completed.add(event.toolCallId);
         }
