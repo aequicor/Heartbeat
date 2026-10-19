@@ -18,6 +18,7 @@ class WorkflowOrganismOutcomesTest {
             OrganismOutcome.Answered(""),
             OrganismOutcome.Refused(OrganismRefusal.Unavailable),
             OrganismOutcome.Ended(OrganismEnd.NoModel),
+            OrganismOutcome.Ended(OrganismEnd.InteractionRequired),
         )
         for (outcome in outcomes) assertEquals(outcome, outcome.toJournal()?.toOrganismOutcome())
     }

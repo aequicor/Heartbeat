@@ -215,6 +215,29 @@ class WorkflowOrganismDriverTest {
     }
 
     @Test
+    fun `interactive outcome waits for cleanup and replays without replacement`() = runTest {
+        val fixture = OrganismFixture()
+        fixture.organisms.host.abortLeaves = OrganismView.Aborting
+        val running = async { fixture.engine().execute(definition) }
+        advanceBy(poll * 3)
+        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Stalled(OrganismEnd.InteractionRequired)
+        advanceBy(poll * 40)
+        val expected = OrganismOutcome.Ended(OrganismEnd.InteractionRequired)
+        assertEquals(expected, fixture.step("s0").result?.toOrganismOutcome())
+        assertTrue(running.isActive)
+        assertTrue(seen.isEmpty())
+        assertEquals(listOf(organismOf("s0")), fixture.organisms.host.aborted)
+        assertEquals(1, fixture.organisms.grants.pending().size)
+        fixture.organisms.host.views[organismOf("s0")] = OrganismView.Aborted
+        advanceBy(poll * 2)
+        running.await()
+        fixture.engine().execute(definition)
+        assertEquals(listOf<OrganismOutcome>(expected, expected), seen)
+        assertEquals(1, fixture.organisms.host.conceived.size)
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+    }
+
+    @Test
     fun `a stalled organism ends the step and is aborted before its slot returns`() = runTest {
         val fixture = OrganismFixture()
         val running = async { fixture.engine().execute(definition) }

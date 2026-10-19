@@ -364,9 +364,14 @@ private val API = """
       executor of a large stage. Handle the outcome with when: Answered(text) — the zygote answered after every
       cell ended; that is not proof the stage reached its goal, so check the goal yourself in a following step;
       Refused(Unavailable | Rejected) — nothing was started (organic AI is off or asleep, or it did not accept the
-      goal); Ended(NoModel | Failed | Aborted) — the organism never answered. target pins the model of the cells
+      goal); Ended(NoModel | Failed | InteractionRequired | Aborted) — the organism never answered. target pins the model of the cells
       (null — the user's default), immunityTarget the judges (null — target); trust is capped at Ask and cell
-      permission requests are not shown to the user yet. The organism is conceived once per step: replay and
+      permission/input requests have no dialog: an observed request in any working cell ends the stage as
+      InteractionRequired (API v14: add this branch to exhaustive when expressions over OrganismEnd).
+      The driver saves this outcome and aborts the organism, waiting for confirmed native cleanup
+      before returning; it never answers the request or increases trust. Park the durable process for human handling,
+      do not retry by spawning replacement organisms. A background worker may stop first with its own durable
+      interaction reason; return to the UI through the existing worker stop/handoff procedure. The organism is conceived once per step: replay and
       restarts return the recorded outcome or reconcile with the same organism and never start another;
       changing the goal or options of a recorded step fails the run as Diverged. A run owns at most
       ${HarnessLimits.ORGANISMS_PER_RUN} organism at a time and the profile ${HarnessLimits.ORGANISMS_PER_PROFILE};

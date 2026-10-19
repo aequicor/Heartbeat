@@ -18,7 +18,7 @@ internal sealed interface OrganismView {
     /** The organism develops. */
     data object Developing : OrganismView
 
-    /** The zygote broke and waits for a resume or an abort; the organism still holds its sessions. */
+    /** The zygote broke or a working cell needs interactive input; the organism still holds its sessions. */
     data class Stalled(val end: OrganismEnd) : OrganismView
 
     /** The zygote answered after every descendant ended. */

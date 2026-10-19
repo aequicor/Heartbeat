@@ -8,11 +8,13 @@ import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsEffect
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismEnd
+import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.OrganismOutcome
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRouting
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStep
@@ -25,6 +27,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrig
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessExecutionLane
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.RuntimeTestCode
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationResult
@@ -36,6 +39,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.SpawnTestBindi
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.SpawnTestHelpers
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
+import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
 import kotlinx.coroutines.CoroutineDispatcher
@@ -51,6 +55,8 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -291,6 +297,63 @@ internal class WorkflowRunExecutionTest {
     }
 
     @Test
+    fun `restored interaction result waits for cleanup before any author code resumes`() = runTest {
+        val seen = mutableListOf<OrganismOutcome>()
+        var isBodyStarted = false
+        val host = object : HarnessScriptHost by UnusedHost {
+            override suspend fun compile(request: HarnessCompilationRequest): HarnessCompilationResult =
+                HarnessCompilationResult.Success(RuntimeTestCode(), emptyList())
+
+            override suspend fun evaluate(
+                code: CompiledHarnessCode,
+                context: HarnessEvaluationContext,
+            ): HarnessEvaluationResult {
+                (context as HarnessEvaluationContext.Workflow).registration.register {
+                    isBodyStarted = true
+                    seen += organism("Stage", OrganismOptions("Stage"))
+                    JsonNull
+                }
+                return HarnessEvaluationResult.Success
+            }
+        }
+        val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler), host, TestDigest)
+        val expected = OrganismOutcome.Ended(OrganismEnd.InteractionRequired)
+        val digest = TestDigest(Json.encodeToString(listOf<String?>("organism", "Stage", "Stage", null, null)))
+        val step = WorkflowStep(
+            StepKey("s0"),
+            digest,
+            phase = StepPhase.Completed,
+            result = expected.toJournal(),
+            organism = ORGANISM,
+        )
+        val run = fixture.workflow.initial.copy(
+            pinned = fixture.workflow.initial.pinned.let { it.copy(sourceSha = TestDigest(it.source)) },
+            routing = WorkflowRouting(null, HelperHandoff()),
+            steps = listOf(step),
+        )
+        assertTrue(fixture.workflow.storage.save(run, null))
+        fixture.organisms.grants.acquire(
+            WorkflowOrganismGrant(run.id, run.harness, step.key, digest, null, ORGANISM),
+        )
+        fixture.organisms.host.views[ORGANISM] = OrganismView.Developing
+        fixture.organisms.host.abortLeaves = OrganismView.Aborting
+        val running = async { fixture.execution.execute(run) { true } }
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertFalse(isBodyStarted)
+        assertTrue(running.isActive)
+        assertEquals(1, fixture.organisms.grants.pending().size)
+        assertEquals(listOf(ORGANISM), fixture.organisms.host.aborted)
+        fixture.organisms.host.views[ORGANISM] = OrganismView.Aborted
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(running.await())
+        assertEquals(listOf<OrganismOutcome>(expected), seen)
+        assertTrue(fixture.organisms.host.conceived.isEmpty())
+        assertTrue(fixture.organisms.grants.pending().isEmpty())
+    }
+
+    @Test
     fun `pausing an unfinished run leaves its organism running and its slot held`() = runTest {
         val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
         val run = fixture.runWithOrganism(null)
@@ -302,7 +365,11 @@ internal class WorkflowRunExecutionTest {
 
 private val ORGANISM = organismOf("s0")
 
-private class ExecutionFixture(private val dispatcher: CoroutineDispatcher) {
+private class ExecutionFixture(
+    private val dispatcher: CoroutineDispatcher,
+    private val host: HarnessScriptHost = UnusedHost,
+    private val digest: (String) -> String = { it },
+) {
     val workflow = WorkflowFixture()
     val grants = StoredWorkflowHelperJournal(RunDeliveryTestStore(workflow.clock), workflow.clock)
     val base = SpawnTestHelpers(mutableListOf())
@@ -336,7 +403,7 @@ private class ExecutionFixture(private val dispatcher: CoroutineDispatcher) {
         feedback: suspend (HarnessRunsIntent.Internal) -> Unit = {},
     ) = WorkflowRunExecution(
         storage,
-        WorkflowCodeExecutor(UnusedHost, HarnessExecutionLane(dispatcher), NeutralOrigins, workflow.clock) { it },
+        WorkflowCodeExecutor(host, HarnessExecutionLane(dispatcher), NeutralOrigins, workflow.clock, digest),
         WorkflowAgentPorts(WorkflowHelperPorts(grants, resources, helpers, bindings), organisms.ports),
         AdmittedRuns,
         workflow.clock,

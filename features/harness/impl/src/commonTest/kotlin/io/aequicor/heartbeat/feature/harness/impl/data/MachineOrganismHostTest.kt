@@ -13,10 +13,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
@@ -223,6 +228,33 @@ class MachineOrganismHostTest {
             assertEquals(expected, view)
             assertEquals(expected is OrganismView.Answered || expected == OrganismView.Aborted, view.isEnded)
         }
+    }
+
+    @Test
+    fun `interactive input in a zygote or child is observed without granting permission or ending cleanup`() = runTest {
+        val request = PermissionRequest(
+            PermissionRequestId("permission"),
+            TurnId("turn"),
+            "private request",
+            listOf(PermissionOption(PermissionOptionId("allow"), "Allow")),
+        )
+        val working = CellPhase.Working(RequestId("request"), Work.Genesis, awaiting = listOf(request))
+        val parent = organism(phase = CellPhase.Resting)
+        val child = Cell(CellId("child"), "child", CellId.ZYGOTE, "task", working)
+        val scenarios = listOf(organism(phase = working), parent.copy(cells = parent.cells + child))
+        for (found in scenarios) {
+            val machine = FakeOrganicMachine(OrganicAiState.Living(mapOf(id to found)))
+            val view = host(machine).view(bound)
+            assertEquals(OrganismView.Stalled(OrganismEnd.InteractionRequired), view)
+            assertFalse(view.isEnded)
+            assertTrue(view.isAbortable)
+            assertTrue(machine.sent.isEmpty())
+        }
+        val cleared = parent.copy(cells = parent.cells + child.copy(phase = working.copy(awaiting = emptyList())))
+        assertEquals(
+            OrganismView.Developing,
+            host(FakeOrganicMachine(OrganicAiState.Living(mapOf(id to cleared)))).view(bound),
+        )
     }
 
     @Test
