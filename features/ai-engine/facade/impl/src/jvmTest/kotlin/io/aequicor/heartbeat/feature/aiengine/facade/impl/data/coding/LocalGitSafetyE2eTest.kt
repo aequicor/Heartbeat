@@ -173,6 +173,11 @@ class LocalGitSafetyE2eTest {
             codingCommandEnvironment(),
             emptyList(),
         )
+        assertEquals(
+            "captured",
+            evidence?.get("status")?.jsonPrimitive?.content,
+            evidence?.get("reason")?.jsonPrimitive?.content,
+        )
         val executable = requireNotNull(evidence?.get("gitExecutable")?.jsonPrimitive?.content)
         for (gitCommand in listOf(
             "git commit --allow-empty -m checked",

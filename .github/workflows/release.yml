@@ -92,8 +92,10 @@ jobs:
       - name: Test all JVM modules
         env:
           VERSION: ${{ needs.version.outputs.version }}
+        # setup-python adds a loader path for Python; it is not part of the JVM/Git execution environment.
+        # Keep the evidence and actual shell environment identical without this unrelated loader override.
         run: >-
-          xvfb-run --auto-servernum ./gradlew -Pheartbeat.version="$VERSION"
+          env -u LD_LIBRARY_PATH xvfb-run --auto-servernum ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           jvmTest :platform-main:desktop:test :lint:detekt-rules:test
