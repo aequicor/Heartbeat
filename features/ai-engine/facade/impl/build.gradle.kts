@@ -31,6 +31,12 @@ kotlin {
 
 // Opt-in provider regression; credentials are read from an operator-owned file, never Gradle properties.
 val regularJvmTest = tasks.named<Test>("jvmTest")
+regularJvmTest.configure {
+    // Preserve child-process exit codes and assertion messages in remote test logs; stdout stays opt-in.
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
 tasks.register<Test>("safetyLiveTest") {
     group = "verification"
     description = "Exercises automatic tool safety and a real Git merge against an OpenAI-compatible reviewer."
