@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
+import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
@@ -114,6 +115,9 @@ class LifecycleBoardTest {
                 verifyCancellationAndConcurrentEdit(board)
                 verifyRepositorySwitchAndDiscovery(board)
                 verifyPromptsAndTriage(board)
+                verifyFullBoardQuota(board)
+                verifyProcessedQueueRotation(board)
+                verifyCompletedFeatureRemoval(board)
             } finally {
                 success.code.close()
             }
@@ -258,6 +262,73 @@ private suspend fun verifyPromptsAndTriage(board: LifecycleBoardScope) {
     assertEquals(before, board.snapshot)
 }
 
+private suspend fun verifyFullBoardQuota(board: LifecycleBoardScope) {
+    board.value("set_repo", "owner" to JsonPrimitive("quota"), "name" to JsonPrimitive("test"))
+    board.read = { query -> fullBoardPage(query) }
+    val view = board.value("sync_from_github")
+    assertEquals(JsonPrimitive(12), view["features_count"])
+    assertEquals(JsonPrimitive(32), view["feedback_pending"])
+    view.getValue("features").jsonArray.forEach { feature ->
+        assertEquals(JsonPrimitive(200), feature.jsonObject["artifact_count"])
+    }
+    // Leave ample space for namespace metadata rather than merely fitting the raw board value.
+    assertTrue(board.snapshot.value.toString().encodeToByteArray().size < HarnessLimits.DATA_BYTES / 2)
+    assertTrue(view.toString().encodeToByteArray().size < HarnessLimits.UI_RESULT_BYTES)
+}
+
+private suspend fun verifyProcessedQueueRotation(board: LifecycleBoardScope) {
+    for (number in 400..431) board.value("mark_feedback", "number" to JsonPrimitive(number))
+    board.read = { query -> fullBoardPage(query, hasNewFeedback = true) }
+    repeat(2) {
+        val view = board.value("sync_from_github")
+        assertEquals(JsonPrimitive(1), view["feedback_pending"])
+        assertEquals(JsonPrimitive(32), view["feedback_open"])
+        assertEquals(JsonPrimitive(999), view.getValue("feedback").jsonArray.first().jsonObject["number"])
+        val stored = board.snapshot.value!!.jsonObject.getValue("feedback").jsonArray
+        assertTrue(stored.any { row -> row.jsonObject["number"] == JsonPrimitive(999) })
+    }
+    // Rotating a processed row must not turn it back into pending work on the next refresh.
+    board.value("mark_feedback", "number" to JsonPrimitive(999))
+    assertEquals(JsonPrimitive(0), board.value("sync_from_github")["feedback_pending"])
+}
+
+private fun fullBoardPage(query: GitHubQuery, hasNewFeedback: Boolean = false): GitHubSnapshot = when (query) {
+    is GitHubQuery.Issues -> {
+        val epics = (1L..12).map { number -> issue(number, "<!-- heartbeat:lifecycle v1 -->") }
+        val feedback = (400L..431).map { number -> issue(number, "<!-- type:feedback -->") }
+        val newFeedback = if (hasNewFeedback) listOf(issue(999, "<!-- type:feedback -->")) else emptyList()
+        GitHubSnapshot((epics + feedback + newFeedback).map { it.copy(title = "Ж".repeat(256)) })
+    }
+
+    is GitHubQuery.SubIssues -> {
+        val first = 1_000_000 + query.number * 1000 + query.page * 50
+        val artifacts = (first until first + 50).map { issue(it, "").copy(title = "Ж".repeat(256)) }
+        GitHubSnapshot(artifacts, nextPage = (query.page + 1).takeIf { it <= 4 })
+    }
+
+    else -> error("Unexpected full board query")
+}
+
+private suspend fun verifyCompletedFeatureRemoval(board: LifecycleBoardScope) {
+    board.value("set_repo", "owner" to JsonPrimitive("completed"), "name" to JsonPrimitive("test"))
+    var completed = false
+    board.read = { query ->
+        if (query is GitHubQuery.Issues) {
+            val closed = (1L..12).map { issue(it, "<!-- heartbeat:lifecycle v1 -->", "closed") }
+            val state = if (completed) "released" else "requirements"
+            val active = issue(13, "<!-- heartbeat:lifecycle v1 -->\nСтадия: $state")
+            GitHubSnapshot(closed + active)
+        } else {
+            GitHubSnapshot()
+        }
+    }
+    assertEquals(JsonPrimitive(1), board.value("sync_from_github")["features_count"])
+    completed = true
+    board.value("sync_from_github")
+    board.value("remove_feature", "epic" to JsonPrimitive(13))
+    assertEquals(JsonPrimitive(0), board.value("sync_from_github")["features_count"])
+}
+
 private class LifecycleBoardScope(override val scope: CoroutineScope, val templates: List<HarnessItem.Template>) :
     HarnessScriptScope {
     override val harness = HarnessId("lifecycle")
@@ -282,6 +353,7 @@ private class LifecycleBoardScope(override val scope: CoroutineScope, val templa
                 return ScriptDataWriteResult.Conflict(snapshot)
             }
             if (snapshot.revision != expectedRevision) return ScriptDataWriteResult.Conflict(snapshot)
+            require(value.toString().encodeToByteArray().size <= HarnessLimits.DATA_BYTES) { "Namespace quota" }
             if (value != snapshot.value) snapshot = ScriptDataSnapshot(value, snapshot.revision + 1)
             return ScriptDataWriteResult.Written(snapshot)
         }

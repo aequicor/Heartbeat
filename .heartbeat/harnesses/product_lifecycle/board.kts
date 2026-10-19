@@ -50,6 +50,22 @@ fun validStage(s: String): Boolean = s in STAGES
 fun stageFromBody(body: String): String? = STAGE_LINE.find(body)?.groupValues?.get(1)?.takeIf { validStage(it) }
 fun kindFromBody(body: String): String? = TYPE_LINE.find(body)?.groupValues?.get(1)
 
+fun activeEpic(issue: GitHubEntity.Issue): Boolean = issue.body.contains(MARKER) &&
+    issue.state != "closed" && stageFromBody(issue.body) != "released"
+
+// Only identities are consumed by the card and feedback classifier; remote titles stay on GitHub.
+fun artifactRefs(artifacts: JsonArray): JsonArray = JsonArray(artifacts.mapNotNull { value ->
+    val number = (value as? JsonObject)?.let { fLong(it, "number") }
+    number?.let { buildJsonObject { put("number", it) } }
+})
+
+fun triagedIds(root: JsonObject): Set<Long> = arrOf(root, "triaged").mapNotNull {
+    (it as? JsonPrimitive)?.longOrNull
+}.toSet() + objs(root, "feedback").filter { fStr(it, "status") == "triaged" }.mapNotNull { fLong(it, "number") }
+
+fun feedbackRows(root: JsonObject): List<JsonObject> = objs(root, "feedback").filter { fStr(it, "state") != "closed" }
+    .sortedWith(compareBy<JsonObject> { if (fStr(it, "status") == "triaged") 1 else 0 }.thenBy { fLongOr(it, "number", Long.MAX_VALUE) })
+
 fun repoOf(root: JsonObject): JsonObject = root["repo"] as? JsonObject
     ?: buildJsonObject { put("owner", DEFAULT_OWNER); put("name", DEFAULT_NAME) }
 
@@ -62,7 +78,7 @@ fun syncOf(root: JsonObject): JsonObject = root["sync"] as? JsonObject ?: JsonOb
 
 fun featureJson(epic: Long, title: String, stage: String, state: String, pr: Long, updatedAt: String, artifacts: JsonArray): JsonObject = buildJsonObject {
     put("epic", epic); put("title", title); put("stage", stage); put("state", state)
-    put("pr", pr); put("updatedAt", updatedAt); put("artifacts", artifacts)
+    put("pr", pr); put("updatedAt", updatedAt); put("artifacts", artifactRefs(artifacts))
 }
 
 fun withField(f: JsonObject, stage: String? = null, pr: Long? = null): JsonObject = buildJsonObject {
@@ -70,7 +86,7 @@ fun withField(f: JsonObject, stage: String? = null, pr: Long? = null): JsonObjec
     put("stage", stage ?: fStr(f, "stage").ifEmpty { "requirements" })
     put("state", fStr(f, "state").ifEmpty { "open" })
     put("pr", pr ?: fLongOr(f, "pr", 0)); put("updatedAt", nowStamp())
-    put("artifacts", arrOf(f, "artifacts"))
+    put("artifacts", artifactRefs(arrOf(f, "artifacts")))
 }
 
 fun feedbackJson(number: Long, title: String, state: String, kind: String, status: String): JsonObject = buildJsonObject {
@@ -79,7 +95,7 @@ fun feedbackJson(number: Long, title: String, state: String, kind: String, statu
 
 fun store(features: List<JsonObject>, feedback: List<JsonObject>, current: Long, root: JsonObject): JsonObject = buildJsonObject {
     put("features", JsonArray(features)); put("feedback", JsonArray(feedback))
-    put("current", current); put("repo", repoOf(root)); put("sync", syncOf(root))
+    put("current", current); put("repo", repoOf(root)); put("sync", syncOf(root)); put("triaged", arrOf(root, "triaged"))
 }
 
 fun view(snapshot: io.aequicor.heartbeat.feature.harness.api.script.ScriptDataSnapshot): JsonObject {
@@ -88,7 +104,7 @@ fun view(snapshot: io.aequicor.heartbeat.feature.harness.api.script.ScriptDataSn
     val current = fLong(root, "current") ?: 0L
     val cur = features.firstOrNull { fLong(it, "epic") == current }
     val curStage = cur?.let { fStr(it, "stage").ifEmpty { "requirements" } } ?: ""
-    val openFeedback = objs(root, "feedback").filter { fStr(it, "state") != "closed" }
+    val openFeedback = feedbackRows(root)
     val line = repoLine(root)
     val sync = syncOf(root)
     return buildJsonObject {
@@ -175,7 +191,7 @@ ui.method(ItemName("add_feature"), "Register feature {title, epic, stage?}; also
     saved(data.write(KEY, next, snapshot.revision))
 }
 
-ui.method(ItemName("remove_feature"), "Drop feature {epic} from the board (GitHub stays untouched)") { call ->
+ui.method(ItemName("remove_feature"), "Drop completed feature {epic}; active GitHub epics return on sync") { call ->
     val epic = argLong(call, "epic")
     if (epic == null || epic <= 0) return@method ScriptUiResult.Error("Укажите номер эпика")
     val snapshot = data.read(KEY)
@@ -241,6 +257,7 @@ ui.method(ItemName("set_repo"), "Set GitHub repository {owner, name}; changing i
         put("current", if (same) fLong(root, "current") ?: 0L else 0L)
         put("repo", buildJsonObject { put("owner", owner); put("name", name) })
         put("sync", if (same) syncOf(root) else JsonObject(emptyMap()))
+        put("triaged", if (same) arrOf(root, "triaged") else JsonArray(emptyList()))
     }
     saved(data.write(KEY, next, snapshot.revision))
 }
@@ -251,15 +268,16 @@ ui.method(ItemName("mark_feedback"), "Mark completed triage for feedback {number
     val root = rootOf(snapshot.value)
     val feedback = objs(root, "feedback")
     if (number == null || feedback.none { fLong(it, "number") == number }) return@method ScriptUiResult.Error("Issue не в очереди")
+    val marked = JsonObject(root + ("triaged" to JsonArray((triagedIds(root) + number).sorted().map { JsonPrimitive(it) })))
     val next = store(objs(root, "features"), feedback.map {
         if (fLong(it, "number") == number) JsonObject(it + ("status" to JsonPrimitive("triaged"))) else it
-    }, fLong(root, "current") ?: 0L, root)
+    }, fLong(root, "current") ?: 0L, marked)
     saved(data.write(KEY, next, snapshot.revision))
 }
 
 ui.method(ItemName("feedback_queue"), "Open feedback queue with kind markers") {
     val root = rootOf(data.read(KEY).value)
-    val items = objs(root, "feedback").filter { fStr(it, "state") != "closed" }
+    val items = feedbackRows(root)
     ScriptUiResult.Value(buildJsonObject {
         put("count", items.size)
         put("items", JsonArray(items.take(20).map { fb ->
@@ -301,7 +319,7 @@ ui.method(ItemName("sync_from_github"), "Refresh board from GitHub (read-only, b
         }
     }
     val trackedEpics = (objs(root, "features").mapNotNull { fLong(it, "epic") } +
-        issues.filter { it.body.contains(MARKER) }.map { it.number }).distinct().take(MAX_FEATURES)
+        issues.filter { activeEpic(it) }.map { it.number }).distinct().take(MAX_FEATURES)
     val artifactsByEpic = mutableMapOf<Long, List<GitHubEntity.Issue>>()
     for (epic in trackedEpics) {
         val artifacts = mutableListOf<GitHubEntity.Issue>()
@@ -321,7 +339,7 @@ ui.method(ItemName("sync_from_github"), "Refresh board from GitHub (read-only, b
         else artifactsByEpic[epic] = artifacts.distinctBy { it.number }
     }
     fun artifactsOf(epic: Long): JsonArray = artifactsByEpic[epic]?.map { a ->
-        buildJsonObject { put("number", a.number); put("title", a.title); put("state", a.state) }
+        buildJsonObject { put("number", a.number) }
     }?.let { JsonArray(it) } ?: JsonArray(emptyList())
     val features = objs(root, "features").toMutableList()
     val feedback = objs(root, "feedback").toMutableList()
@@ -337,7 +355,7 @@ ui.method(ItemName("sync_from_github"), "Refresh board from GitHub (read-only, b
                 fLongOr(existing, "pr", 0), nowStamp(),
                 if (artifactsByEpic.containsKey(issue.number)) artifactsOf(issue.number) else arrOf(existing, "artifacts")
             )
-        } else if (issue.body.contains(MARKER)) {
+        } else if (activeEpic(issue)) {
             if (features.size < MAX_FEATURES) features.add(featureJson(
                 issue.number, issue.title, stageFromBody(issue.body) ?: "requirements", issue.state, 0L, nowStamp(), artifactsOf(issue.number)
             )) else incomplete = true
@@ -347,7 +365,8 @@ ui.method(ItemName("sync_from_github"), "Refresh board from GitHub (read-only, b
     for (i in features.indices) {
         val feature = features[i]
         val epic = fLongOr(feature, "epic", 0)
-        if (artifactsByEpic.containsKey(epic)) features[i] = JsonObject(feature + ("artifacts" to artifactsOf(epic)))
+        val refs = if (artifactsByEpic.containsKey(epic)) artifactsOf(epic) else artifactRefs(arrOf(feature, "artifacts"))
+        features[i] = JsonObject(feature + ("artifacts" to refs))
     }
     val artifactNumbers = features.flatMap { objs(it, "artifacts") }.mapNotNull { fLong(it, "number") }.toSet()
     feedback.removeAll { fb ->
@@ -355,12 +374,21 @@ ui.method(ItemName("sync_from_github"), "Refresh board from GitHub (read-only, b
         features.any { fLong(it, "epic") == number } || number in artifactNumbers ||
             issues.any { it.number == number && (it.state == "closed" || it.body.contains(MARKER)) }
     }
+    // Remember processed ids while they are in the bounded observation window, including evicted rows.
+    val observedOpen = issues.filter { it.state != "closed" && !it.body.contains(MARKER) && it.number !in artifactNumbers }
+        .map { it.number }.toSet()
+    val triaged = triagedIds(root).intersect(observedOpen)
     for (issue in issues.distinctBy { it.number }) {
         if (features.any { fLong(it, "epic") == issue.number } || issue.body.contains(MARKER) ||
             issue.number in artifactNumbers || issue.state == "closed") continue
         val existing = feedback.firstOrNull { fLong(it, "number") == issue.number }
         val kind = kindFromBody(issue.body)
         if (existing == null) {
+            if (issue.number in triaged) continue
+            if (feedback.size >= MAX_FEEDBACK) {
+                val processed = feedback.indexOfFirst { fStr(it, "status") == "triaged" }
+                if (processed >= 0) feedback.removeAt(processed)
+            }
             if (feedback.size < MAX_FEEDBACK) feedback.add(feedbackJson(issue.number, issue.title, issue.state, kind ?: "unknown", "new"))
             else incomplete = true
         } else feedback[feedback.indexOf(existing)] = feedbackJson(
@@ -375,6 +403,7 @@ ui.method(ItemName("sync_from_github"), "Refresh board from GitHub (read-only, b
         put("features", JsonArray(features)); put("feedback", JsonArray(feedback))
         put("current", if (features.any { fLong(it, "epic") == current }) current else 0L)
         put("repo", repo)
+        put("triaged", JsonArray(triaged.sorted().map { JsonPrimitive(it) }))
         put("sync", buildJsonObject { put("at", nowStamp()); put("result", if (incomplete) "partial" else "ok"); put("note", note) })
     }
     // A concurrent edit (including switching repositories) invalidates the entire remote observation.
@@ -411,7 +440,7 @@ ui.method(ItemName("triage_feedback"), "Send the triage_issue step for the oldes
     val session = call.session ?: return@method noChat()
     val root = rootOf(data.read(KEY).value)
     val asked = argLong(call, "number")
-    val queue = objs(root, "feedback").filter { fStr(it, "state") != "closed" }
+    val queue = feedbackRows(root)
     val target = if (asked != null && asked > 0) queue.firstOrNull { fLong(it, "number") == asked }
     else queue.filter { fStr(it, "status") == "new" }.minByOrNull { fLongOr(it, "number", Long.MAX_VALUE) }
     if (target == null) return@method ScriptUiResult.Error("Нет необработанного фидбека — синхронизируйте или выберите issue в списке")
