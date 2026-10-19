@@ -1,0 +1,96 @@
+{
+    "title": "Продуктовый цикл Heartbeat",
+    "description": "Ведёт фичу полного цикла: требования → дизайн → функц. спека → разработка → тестирование/приёмка → релиз; дефекты и фидбек. GitHub — источник правды, доска стадий — мини-апп харнесса.",
+    "items": [
+        {
+            "name": "lifecycle_policy",
+            "kind": "instruction"
+        },
+        {
+            "name": "biz_requirements",
+            "kind": "skill",
+            "description": "Этап бизнес-требований (stage:requirements): ценность, пользователи, метрики успеха; артефакт — под-issue. Загружай при старте фичи."
+        },
+        {
+            "name": "design_phase",
+            "kind": "skill",
+            "description": "Этап дизайна (stage:design): UX/UI-предложение на базе скилла design-system, состояния экранов; артефакт — под-issue."
+        },
+        {
+            "name": "func_requirements",
+            "kind": "skill",
+            "description": "Этап функциональных требований (stage:spec): сценарии, состояния, контракты api-модулей, acceptance criteria, план работ."
+        },
+        {
+            "name": "development_bridge",
+            "kind": "skill",
+            "description": "Этап разработки (stage:development): open-pr/continue-pr, branch_pr_flow, связь PR↔эпик, перевод в testing. Загружай перед созданием ветки/PR фичи."
+        },
+        {
+            "name": "testing_acceptance",
+            "kind": "skill",
+            "description": "Этапы тестирования и приёмки (stage:testing, stage:acceptance): verify, module-build.yml для чужих ОС, чек-лист приёмки, отчёт в под-issue."
+        },
+        {
+            "name": "release_prep",
+            "kind": "skill",
+            "description": "Подготовка релиза: чек-лист, версия/теги, готовая команда release.yml для админа. Запуск — только человеком."
+        },
+        {
+            "name": "defect_flow",
+            "kind": "skill",
+            "description": "Дефекты: триаж (severity, воспроизводимость), фикс через pr-fix, связь issue↔PR (Closes/Refs), проверка в релизе."
+        },
+        {
+            "name": "feedback_triage",
+            "kind": "skill",
+            "description": "Триаж обратной связи: чтение source:user issues, классификация дефект/пожелание, конвертация в эпик, ответ автору."
+        },
+        {
+            "name": "feature_kickoff",
+            "kind": "template",
+            "description": "Шаг заведения фичи: эпик-issue с метками и маркером, под-issue требований, регистрация на доске.",
+            "arguments": [
+                "topic"
+            ]
+        },
+        {
+            "name": "stage_advance",
+            "kind": "template",
+            "description": "Шаг перевода этапа фичи с доказательством: комментарий, метка stage, строка «Стадия:», доска.",
+            "arguments": [
+                "evidence",
+                "from_stage",
+                "issue",
+                "to_stage"
+            ]
+        },
+        {
+            "name": "triage_issue",
+            "kind": "template",
+            "description": "Шаг триажа входящего issue (фидбек/дефект) с маркерами source/type.",
+            "arguments": [
+                "issue_number"
+            ]
+        },
+        {
+            "name": "acceptance_report",
+            "kind": "template",
+            "description": "Шаг приёмки фичи: чек-лист по acceptance criteria, регресс, отчёт в под-issue, подтверждение пользователем.",
+            "arguments": [
+                "issue",
+                "pr"
+            ]
+        },
+        {
+            "name": "release_checklist",
+            "kind": "template",
+            "description": "Шаг подготовки релиза: состав, версия, чек-лист и готовые команды release.yml для админа (без запуска)."
+        },
+        {
+            "name": "board",
+            "kind": "script",
+            "description": "Мини-апп-доска: ScriptData board_state, ui.method (данные + кнопки quickActions, отправка шаблонов в чат), agent.tool lifecycle_stage, синхронизация с GitHub только чтением."
+        }
+    ]
+}
