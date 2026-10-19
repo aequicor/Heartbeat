@@ -157,14 +157,17 @@ class DesktopCodingSafetyTest {
     }
 
     @Test
-    fun `command policy allows an ordinary origin push and rejects other network writes`() = runTest {
+    fun `command policy allows bounded own-project network operations and rejects the rest`() = runTest {
         verdict = AgentSafetyReview("risk", "Refused by the test")
         val arguments = buildJsonObject { put("command", "git push -u origin fix/branch") }
         assertTrue(DefaultAgentTools(setOf(contribution)).execute(context, "run_command", arguments).isError)
         assertEquals(1, reviews)
         assertEquals(0, prompts)
-        assertTrue("ordinary push of the current branch to its existing configured origin" in policy)
+        assertTrue("ordinary push of already committed work to the project's existing configured origin" in policy)
+        assertTrue("read-only `gh` commands" in policy)
+        assertTrue("own package or build manager" in policy)
         assertTrue("force push" in policy)
+        assertTrue("npm publish" in policy)
     }
 
     @Test

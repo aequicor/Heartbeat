@@ -58,14 +58,16 @@ class AutomaticNativeSafetyTest {
     }
 
     @Test
-    fun `native policy allows an ordinary origin push and rejects other network writes`() = runTest {
+    fun `native policy allows bounded own-project network operations and rejects the rest`() = runTest {
         val f = NativeSafetyFixture()
         f.assess = { AgentSafetyReview("uncertain", "Refused by the test") }
         val call = Call.copy(command = "git push -u origin fix/branch")
         assertIs<NativeVerdict.Deny>(f.tools.authorizeNative(Context, call))
         assertEquals(1, f.reviews.size)
-        assertTrue("ordinary push of the current branch to its existing configured origin" in f.policies.single())
-        assertTrue("force push" in f.policies.single())
+        val policy = f.policies.single()
+        assertTrue("ordinary push of already committed work to the project's existing configured origin" in policy)
+        assertTrue("read-only `gh` commands" in policy)
+        assertTrue("force push" in policy)
     }
 
     @Test
