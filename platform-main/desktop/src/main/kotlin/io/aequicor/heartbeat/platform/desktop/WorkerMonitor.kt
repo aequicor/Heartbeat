@@ -14,6 +14,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import io.aequicor.heartbeat.core.common.DispatcherProvider
@@ -108,11 +111,18 @@ private fun rememberWorkerObservation(
 @Composable
 private fun WorkerMonitorStatus(observation: WorkerObservation, labels: ResourceBundle) {
     val current = observation.snapshot
-    if (observation.isUnavailable || current == null) {
-        HbText(labels.getString("unavailable"))
-    } else {
-        HbText(labels.getString("phase.${current.phase.name}"))
-        if (current.problem != WorkerProblem.None) HbText(labels.getString("problem.${current.problem.name}"))
+    Column(
+        Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        verticalArrangement = Arrangement.spacedBy(HbTheme.spacing.m),
+    ) {
+        if (observation.isUnavailable || current == null) {
+            HbText(labels.getString("unavailable"))
+        } else {
+            HbText(labels.getString("phase.${current.phase.name}"))
+            if (current.problem != WorkerProblem.None) HbText(labels.getString("problem.${current.problem.name}"))
+        }
+    }
+    if (!observation.isUnavailable && current != null) {
         HbText("${labels.getString("workflows")}: ${current.workflows}")
         HbText("${labels.getString("decisions")}: ${current.decisions}")
     }

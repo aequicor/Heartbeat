@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.platform.desktop
 import io.aequicor.heartbeat.core.logging.Log
 import kotlinx.coroutines.CancellationException
 import java.io.IOException
+import java.lang.ref.Reference
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
@@ -16,6 +17,8 @@ import java.nio.file.attribute.AclEntryType
 import java.nio.file.attribute.AclFileAttributeView
 import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermissions
+import java.util.concurrent.CompletableFuture
+import kotlin.concurrent.thread
 
 /** Exclusive owner of all app/profile stores. Metadata is never evidence of ownership; only the OS lock is. */
 internal class DesktopStorageOwner private constructor(
@@ -82,5 +85,20 @@ internal fun privateRuntimePath(path: Path) {
             AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(acl.owner)
                 .setPermissions(AclEntryPermission.entries.toSet()).build(),
         )
+    }
+}
+
+/**
+ * Pins a failed host's lease until the OS tears down this JVM. A shutdown hook could release it while other
+ * hooks/native producers still run. The passive daemon neither delays JVM exit nor polls; the reachability
+ * fence also prevents FileChannel's cleaner from releasing the lock after the throwing stack unwinds.
+ */
+internal fun retainDesktopStorageOwnerUntilExit(owner: DesktopStorageOwner) {
+    thread(name = "Heartbeat-failed-launch-lease", isDaemon = true) {
+        try {
+            CompletableFuture<Unit>().join()
+        } finally {
+            Reference.reachabilityFence(owner)
+        }
     }
 }

@@ -5,6 +5,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 
 class ProcessWorkerCommandTest {
     @Test
@@ -52,6 +55,90 @@ class ProcessWorkerCommandTest {
             DesktopStorageOwner.claim(root)!!.use { writeWorkerWait(it.directory, WorkerProblem.InteractionRequired) }
             withDesktopStorageOwner(root, { error("Unexpected monitor") }) {
                 assertFalse(Files.exists(root.resolve("execution-owner/waiting")))
+            }
+        }
+
+    @Test
+    fun `failed UI launch retains the OS lease after its stack unwinds`() = temporaryRoot { root ->
+        val failure = IllegalStateException("Root failed after starting profile services")
+        var retained: DesktopStorageOwner? = null
+        try {
+            val thrown = assertFailsWith<IllegalStateException> {
+                withDesktopStorageOwner(
+                    root,
+                    monitor = { error("Unexpected monitor") },
+                    retainUntilExit = { retained = it },
+                ) {
+                    assertNull(DesktopStorageOwner.claim(root))
+                    throw failure
+                }
+            }
+            assertSame(failure, thrown)
+            assertNotNull(retained)
+            assertNull(DesktopStorageOwner.claim(root))
+        } finally {
+            retained?.close()
+        }
+        assertNotNull(DesktopStorageOwner.claim(root)).close()
+    }
+
+    @Test
+    fun `normally completed UI launch releases storage without retaining a failed lease`() = temporaryRoot { root ->
+        withDesktopStorageOwner(
+            root,
+            monitor = { error("Unexpected monitor") },
+            retainUntilExit = { error("Successful launch must release normally") },
+        ) {
+            withFailedDesktopLaunchCleanup(cleanup = { error("Successful launch needs no failure cleanup") }) {
+                assertNull(DesktopStorageOwner.claim(root))
+            }
+        }
+        assertNotNull(DesktopStorageOwner.claim(root)).close()
+    }
+
+    @Test
+    fun `failed cleanup preserves the launch error and never opens an ownership gap`() = temporaryRoot { root ->
+        val events = mutableListOf<String>()
+        val failure = IllegalStateException("Window initialization failed")
+        var retained: DesktopStorageOwner? = null
+        try {
+            val thrown = assertFailsWith<IllegalStateException> {
+                withDesktopStorageOwner(root, retainUntilExit = {
+                    events += "retain"
+                    retained = it
+                }) {
+                    withFailedDesktopLaunchCleanup(cleanup = {
+                        assertNull(DesktopStorageOwner.claim(root))
+                        events += "cleanup"
+                        throw java.io.IOException("Native shutdown failed")
+                    }) {
+                        events += "launch"
+                        throw failure
+                    }
+                }
+            }
+            assertSame(failure, thrown)
+            assertEquals(listOf("launch", "cleanup", "retain"), events)
+            assertNull(DesktopStorageOwner.claim(root))
+        } finally {
+            retained?.close()
+        }
+    }
+
+    @Test
+    fun `fatal launch errors retain exclusion even when they bypass ordinary exception handlers`() =
+        temporaryRoot { root ->
+            var retained: DesktopStorageOwner? = null
+            try {
+                assertFailsWith<LinkageError> {
+                    withDesktopStorageOwner(root, retainUntilExit = { retained = it }) {
+                        throw LinkageError("Native renderer unavailable")
+                    }
+                }
+                assertNotNull(retained)
+                assertNull(DesktopStorageOwner.claim(root))
+            } finally {
+                retained?.close()
             }
         }
 }

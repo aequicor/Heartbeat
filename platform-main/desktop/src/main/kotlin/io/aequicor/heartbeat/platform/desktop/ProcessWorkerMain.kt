@@ -166,7 +166,7 @@ private class ForegroundWorkerLifetime(
         } finally {
             scope.cancel()
             // Failed cleanup retains the lock until JVM exit, never opening a premature handoff window.
-            if (!mayHoldResources.get()) owner.close()
+            if (mayHoldResources.get()) retainDesktopStorageOwnerUntilExit(owner) else owner.close()
         }
     }
 }
