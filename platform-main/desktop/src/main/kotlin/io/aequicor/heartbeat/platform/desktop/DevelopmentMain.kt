@@ -12,5 +12,7 @@ fun main(arguments: Array<String>) {
     if (handleWindowRuntimeProbe(arguments)) return
     if (handleComputerUseIndicatorProbe(arguments)) return
     if (handleHarnessCompilerProbe(arguments)) return
+    val workerExit = handleProcessWorker(arguments, isDevelopment = true)
+    if (workerExit != null) kotlin.system.exitProcess(workerExit)
     launchHeartbeat(isDevelopment = true)
 }

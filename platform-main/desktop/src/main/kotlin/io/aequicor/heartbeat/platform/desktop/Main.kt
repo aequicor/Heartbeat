@@ -32,7 +32,9 @@ import io.aequicor.heartbeat.platform.dibundle.AppShutdownAccessors
 import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.PlantUmlAccessors
 import io.aequicor.heartbeat.platform.dibundle.closeScopes
+import io.aequicor.heartbeat.platform.dibundle.createDesktopHostDispatchers
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
+import io.aequicor.heartbeat.platform.dibundle.desktopStorageRoot
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.shared.App
 import io.aequicor.heartbeat.platform.shared.createAppRoot
@@ -54,6 +56,8 @@ fun main(arguments: Array<String>) {
     if (handleWindowRuntimeProbe(arguments)) return
     if (handleComputerUseIndicatorProbe(arguments)) return
     if (handleHarnessCompilerProbe(arguments)) return
+    val workerExit = handleProcessWorker(arguments)
+    if (workerExit != null) kotlin.system.exitProcess(workerExit)
     launchHeartbeat(isDevelopment = false)
 }
 
@@ -69,7 +73,7 @@ internal fun launchHeartbeat(isDevelopment: Boolean, hasLocalSecrets: Boolean = 
     // `heartbeat.trace` (system property or HEARTBEAT_TRACE) adds the VERBOSE level for deep debugging.
     val sink = initializeDesktopLogging(isDevelopment || classes.getOrNull() != null, isTraceRequested())
     try {
-        // Development runs (IDE, Gradle, several worktrees) stay independent; release launches share one process.
+        // Release launches forward window activation; every host separately claims storage before creating a graph.
         val claim = if (isDevelopment) {
             DesktopInstanceClaim.Unguarded
         } else {
@@ -78,12 +82,31 @@ internal fun launchHeartbeat(isDevelopment: Boolean, hasLocalSecrets: Boolean = 
         if (claim == DesktopInstanceClaim.Forwarded) return
         val instance = (claim as? DesktopInstanceClaim.Owner)?.instance
         try {
-            launchLoggedHeartbeat(isDevelopment, hasLocalSecrets, classes, instance)
+            withDesktopStorageOwner(monitor = { showWorkerMonitor(it, createDesktopHostDispatchers(), instance) }) {
+                launchLoggedHeartbeat(isDevelopment, hasLocalSecrets, classes, instance)
+            }
         } finally {
             instance?.close()
         }
     } finally {
         sink?.close()
+    }
+}
+
+/** Every entry point, including development, excludes a second graph on the same storage root. */
+internal fun withDesktopStorageOwner(
+    root: Path = Path.of(desktopStorageRoot()),
+    monitor: (Path) -> Unit = { showWorkerMonitor(it, createDesktopHostDispatchers()) },
+    launch: () -> Unit,
+) {
+    val owner = DesktopStorageOwner.claim(root)
+    if (owner == null) {
+        monitor(root)
+        return
+    }
+    owner.use {
+        Files.deleteIfExists(it.directory.resolve(WORKER_WAIT_FILE))
+        WorkerControl(it, false, { WorkerSnapshot(WorkerPhase.Running) }, {}).use { launch() }
     }
 }
 

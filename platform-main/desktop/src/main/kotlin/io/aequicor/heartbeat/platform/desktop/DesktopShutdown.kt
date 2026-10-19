@@ -90,10 +90,12 @@ internal suspend fun shutdownDesktop(
     timeoutMillis: Long = DESKTOP_SHUTDOWN_TIMEOUT_MILLIS,
     stopScopes: suspend () -> Unit = {},
     processes: DesktopProcessCleanup? = null,
+    stopAdmission: suspend () -> Unit = {},
 ): Throwable? {
     val failures = mutableListOf<Throwable>()
     try {
         shutdownStage(failures) { processes?.capture() }
+        shutdownStage(failures) { stopAdmission() }
         shutdownStage(failures) {
             failures += boundedShutdown(timeoutMillis) { awaitParticipants(participants) }
                 ?: listOf(IllegalStateException("Native shutdown did not finish within $timeoutMillis ms"))
