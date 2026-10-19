@@ -87,6 +87,8 @@ public fun HbChatTranscript(
     focusRequest: HbTranscriptFocus? = null,
     onFocus: (Long) -> Unit = {},
 ) {
+    val latestOnToolAction by rememberUpdatedState(onToolAction)
+    val handleToolAction: (HbToolCall, HbToolAction) -> Unit = { call, action -> latestOnToolAction(call, action) }
     val expandedKeys = toolExpansionState.expandedKeys
     val sections = remember(timeline, expandedKeys) { expandedTranscriptSections(timeline, expandedKeys) }
     val displayedItemCount = sections.sumOf {
@@ -136,6 +138,12 @@ public fun HbChatTranscript(
         onFocus,
     )
 
+    // Read follow/scroll state only when the event runs, so each history row keeps the same callback.
+    val onToolExpandedChange: (HbTranscriptChunk, Boolean) -> Unit = { chunk, isExpanded ->
+        followStateHolder.value = followStateHolder.value.onUserScroll(isAtLatest = !isExpanded && atLatestHolder.value)
+        toolExpansionState.updateTool(chunk, isExpanded)
+    }
+
     Box(modifier = modifier) {
         HbStickyHeaderHost(
             state = state,
@@ -171,11 +179,8 @@ public fun HbChatTranscript(
                             appearance = messageAppearance?.invoke(message),
                             isLatestMessage = message.id == timeline.latestMessage?.id,
                             isToolExpanded = chunk.key in expandedKeys,
-                            onToolExpandedChange = { isExpanded ->
-                                followState = followState.onUserScroll(isAtLatest = !isExpanded && isAtLatest)
-                                toolExpansionState.updateTool(chunk, isExpanded)
-                            },
-                            onToolAction = onToolAction,
+                            onToolExpandedChange = onToolExpandedChange,
+                            onToolAction = handleToolAction,
                         )
                     }
                 }
@@ -243,7 +248,7 @@ private fun TimelineMessageChunk(
     appearance: HbMessageAppearance? = null,
     isLatestMessage: Boolean = false,
     isToolExpanded: Boolean = false,
-    onToolExpandedChange: (Boolean) -> Unit = {},
+    onToolExpandedChange: (HbTranscriptChunk, Boolean) -> Unit = { _, _ -> },
     onToolAction: (HbToolCall, HbToolAction) -> Unit = { _, _ -> },
 ) {
     // Keep per-row snapshots cheap: only the footer needs the complete copyable prose.
@@ -265,7 +270,12 @@ private fun TimelineMessageChunk(
     ) {
         HbTranscriptChunkContent(
             chunk = chunk,
-            embeddedContent = if (chunk.isLast) embeddedContent?.let { render -> { render(message) } } else null,
+            // A host slot change must not invalidate the prose/tool renderer of every message.
+            embeddedContent = if (chunk.body == HbTranscriptBody.Embedded) {
+                embeddedContent?.let { render -> { render(message) } }
+            } else {
+                null
+            },
             message = message.copy(
                 text = copyText,
                 parts = persistentListOf(),
@@ -276,7 +286,7 @@ private fun TimelineMessageChunk(
             toolLabels = toolLabels,
             onLinkClick = onLinkClick,
             isToolExpanded = isToolExpanded,
-            onToolExpandedChange = onToolExpandedChange,
+            onToolExpandedChange = { onToolExpandedChange(chunk, it) },
             onToolAction = onToolAction,
         )
         if (chunk.isLast) footerContent?.invoke(message)
