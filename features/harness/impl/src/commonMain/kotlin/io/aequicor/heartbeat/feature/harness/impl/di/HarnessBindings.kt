@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.feature.harness.api.HarnessBackgroundWorker
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineSpec
 import io.aequicor.heartbeat.feature.harness.impl.data.decision.HarnessProcessCommandsEnabled
@@ -91,6 +92,11 @@ public object HarnessToggleBindings {
     @Provides
     @IntoSet
     public fun enabled(): FeatureToggle<*> = HarnessEnabled
+
+    /** Explicit no-window host; does not change any permission or execution toggle. */
+    @Provides
+    @IntoSet
+    public fun backgroundWorker(): FeatureToggle<*> = HarnessBackgroundWorker
 
     /** Trusted sandbox context for workflow organism stages. */
     @Provides

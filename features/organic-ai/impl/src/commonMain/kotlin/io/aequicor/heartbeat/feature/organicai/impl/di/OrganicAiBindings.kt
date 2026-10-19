@@ -81,6 +81,12 @@ internal class OrganicAiStartup(
 ) : ProfileStartup {
     private val log = Log.tag("OrganicAiStartup")
 
+    override suspend fun awaitReady() {
+        if (!toggles.get(OrganicAiEnabled)) return
+        val state = machine.value.state.first { it is OrganicAiState.Living || it is OrganicAiState.Broken }
+        check(state is OrganicAiState.Living) { "Organism recovery failed" }
+    }
+
     override fun start() {
         profile.coroutineScope.launch {
             toggles.observe(OrganicAiEnabled).distinctUntilChanged().collectLatest { isEnabled ->

@@ -8,9 +8,11 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
+import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEnabledWork
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.followHarnessToggle
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Only the observer starts with the profile; the library and its storage are lazy until first enable. */
@@ -22,6 +24,12 @@ internal class HarnessStartup(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val work: Lazy<HarnessEnabledWork>,
 ) : ProfileStartup {
+    override suspend fun awaitReady() {
+        if (!toggles.get(HarnessEnabled)) return
+        val state = machine.value.state.first { it is HarnessState.Ready || it is HarnessState.Failed }
+        check(state is HarnessState.Ready) { "Harness recovery failed" }
+    }
+
     override fun start() {
         profile.coroutineScope.launch { followHarnessToggle(machine, toggles.observe(HarnessEnabled), work) }
     }

@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.WorktreeEffects
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Profile ownership keeps worktree operations independent of screen lifetime. */
@@ -46,6 +47,11 @@ internal class WorktreeStartup(
     private val machine: Lazy<Machine<WorktreeState, WorktreeIntent, WorktreeOutput>>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : ProfileStartup {
+    override suspend fun awaitReady() {
+        val state = machine.value.state.first { it is WorktreeState.Ready || it is WorktreeState.LoadError }
+        check(state is WorktreeState.Ready) { "Worktree recovery failed" }
+    }
+
     override fun start() {
         profile.coroutineScope.launch {
             val result = machine.value.send(WorktreeIntent.Public.Start)

@@ -41,6 +41,9 @@ import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeDriver
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeStorage
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
@@ -130,15 +133,38 @@ internal class SchedulerStartup(
     private val driver: Lazy<WakeDriver>,
     private val actions: Lazy<BackgroundActions>,
     private val graphs: Lazy<TaskGraphDriver>,
+    private val persistence: Lazy<SchedulerPersistence>,
     @ForScope(ProfileScope::class) private val scope: ScopeHandle,
 ) : ProfileStartup {
+    private val actionsReady = CompletableDeferred<Unit>()
+
+    override suspend fun awaitReady() {
+        persistence.value.revision.first { it >= 0 }
+        actionsReady.await()
+        graphs.value.awaitReady()
+    }
+
     override fun start() {
         val scheduler = machine.value
         scope.coroutineScope.launch { scheduler.send(SchedulerIntent.Internal.Start) }
         driver.value.start(scope.coroutineScope)
         graphs.value.start()
         // Cleanup and quota recovery are required even while wake delivery is disabled.
-        scope.coroutineScope.launch { actions.value.start() }
+        scope.coroutineScope.launch {
+            try {
+                actions.value.start()
+                actionsReady.complete(Unit)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                actionsReady.completeExceptionally(error)
+                throw error
+            } finally {
+                if (!actionsReady.isCompleted) {
+                    actionsReady.completeExceptionally(IllegalStateException("Action recovery was interrupted"))
+                }
+            }
+        }
     }
 }
 
