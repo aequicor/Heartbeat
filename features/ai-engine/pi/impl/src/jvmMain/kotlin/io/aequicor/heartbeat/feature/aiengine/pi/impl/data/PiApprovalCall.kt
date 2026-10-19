@@ -101,7 +101,8 @@ private fun commandEnvironment(fields: JsonObject): PiCommandEnvironment? {
     val hasReviewFiles = files != null && files.size in 1..MAX_REVIEW_FILES && files.all {
         (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content?.isNotBlank() == true
     }
-    if (!SimplePush.matches(fields.string("target").orEmpty().trim()) && !hasReviewFiles) return null
+    val command = fields.string("target").orEmpty()
+    if (!SimplePush.matches(command.trim()) && !LocalGit.containsMatchIn(command) && !hasReviewFiles) return null
     val proof = fields["nativeCommandEnvironment"] as? JsonObject ?: return null
     if (proof.keys != setOf("version", "cwd", "values") ||
         (proof["version"] as? JsonPrimitive)?.intOrNull != 1
@@ -122,11 +123,16 @@ private fun commandEnvironment(fields: JsonObject): PiCommandEnvironment? {
 private const val MAX_ENVIRONMENT_CHARS = 32_768
 private const val MAX_REVIEW_FILES = 16
 private val SimplePush = Regex("git[ \\t]+push(?:[ \\t]+(?:-u[ \\t]+)?origin[ \\t]+[A-Za-z0-9][A-Za-z0-9._/-]*)?")
+
+// Mirrors the extension's evidence selection; this is not an authorization classifier.
+private val LocalGit = Regex("\\bgit(?:\\.exe)?\\b", RegexOption.IGNORE_CASE)
 private val EnvironmentKeys = setOf(
     "PATH", "HOME", "XDG_CONFIG_HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR",
     "PATHEXT", "PROGRAMFILES", "PROGRAMFILES(X86)", "TMPDIR", "TMP", "TEMP",
     "GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT",
+    "HEARTBEAT_LOCAL_GIT_EXECUTION_OVERRIDE",
     "GH_HOST", "GH_REPO",
+    "EDITOR", "VISUAL", "PAGER", "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_PAGER",
 )
 
 /** The user-facing request; null blocks a call whose target is too long to show in full. */

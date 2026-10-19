@@ -1,4 +1,4 @@
-"""Exercise the trusted Pi push wrapper, including the final Unix child environment."""
+"""Exercise the trusted Pi Git command wrapper, including the final Unix child environment."""
 
 import pathlib
 import shutil
@@ -138,23 +138,63 @@ try {
     await assert.rejects(g.registered[0].execute("mutation", proposal.input, undefined, undefined, g.ctx), /changed/);
   }
   const tooMany = await load();
-  await tooMany.call("limit", "git status", { review_files: Array(17).fill("source.kt") });
+  await tooMany.call("limit", "npm ci", { review_files: Array(17).fill("source.kt") });
   assert.equal(tooMany.requests.at(-1).nativeCommandEnvironment, undefined);
   const empty = await load();
-  await empty.call("empty", "git status", { review_files: [] });
+  await empty.call("empty", "npm ci", { review_files: [] });
   assert.equal(empty.requests.at(-1).nativeCommandEnvironment, undefined);
+
+  // Local Git receives pinned facts without requiring review_files or inheriting network-only uncertainty.
+  for (const command of ["git commit --no-edit", "git merge incoming", "git diff --cached --name-only; git status",
+    "git --no-pager commit --no-edit", `"${path.join(root, "git")}" --no-pager commit --no-edit`, "git -C . status"]) {
+    const local = await load();
+    local.env.EDITOR = "vim";
+    local.env.GIT_PAGER = "less";
+    local.env.JAVA_HOME = "/installed/jdk";
+    local.env.HTTPS_PROXY = "http://private:credential@proxy.invalid";
+    local.onRequest(() => { local.env.PATH = "/changed"; local.env.EDITOR = "changed"; local.env.ORIGINAL_MARKER = "after"; });
+    const approved = await local.call("local", command);
+    const facts = local.requests.at(-1).nativeCommandEnvironment;
+    assert.equal(facts.values.EDITOR, "vim");
+    assert.equal(facts.values.GIT_PAGER, "less");
+    assert.equal(facts.values.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT, "1");
+    assert.equal(facts.values.HEARTBEAT_LOCAL_GIT_EXECUTION_OVERRIDE, "0");
+    assert.equal(facts.values.HTTPS_PROXY, undefined);
+    assert.ok(!JSON.stringify(local.requests).includes("private:credential"));
+    const output = (await local.registered[0].execute("local", approved.input, undefined, undefined, local.ctx)).content[0].text;
+    assert.equal(output, command.includes(";") ? "beforebefore" : "before");
+    await assert.rejects(local.registered[0].execute("local", approved.input, undefined, undefined, local.ctx), /no live/);
+  }
+  for (const command of ["npm ci && printf git", "npm ci --prefix git-app"]) {
+    const network = await load();
+    network.env.NPM_CONFIG_REGISTRY = "https://private-registry.invalid";
+    network.env.HTTPS_PROXY = "http://private-proxy.invalid";
+    await network.call("git-mention", command, { review_files: ["package.json"] });
+    const values = network.requests.at(-1).nativeCommandEnvironment.values;
+    assert.equal(values.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT, "1");
+    assert.equal(values.HEARTBEAT_LOCAL_GIT_EXECUTION_OVERRIDE, "0");
+    assert.ok(!JSON.stringify(network.requests).includes("private-registry"));
+    assert.ok(!JSON.stringify(network.requests).includes("private-proxy"));
+  }
+  const sensitiveEditor = await load();
+  sensitiveEditor.env.EDITOR = "tool sk-sp-H.artificial.segment-for-screening";
+  await sensitiveEditor.call("secret-editor", "git commit --no-edit");
+  assert.equal(sensitiveEditor.requests.at(-1).nativeCommandEnvironment.values.EDITOR, undefined);
+  assert.equal(sensitiveEditor.requests.at(-1).nativeCommandEnvironment.values.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT, "1");
+  assert.equal(sensitiveEditor.requests.at(-1).nativeCommandEnvironment.values.HEARTBEAT_LOCAL_GIT_EXECUTION_OVERRIDE, "1");
+  assert.ok(!JSON.stringify(sensitiveEditor.requests).includes("artificial"));
 
   for (const [key, value] of [["GH_HOST", "localhost"], ["GH_HOST", "127.0.0.1"], ["GH_HOST", "git.internal"],
     ["GH_REPO", "https://private:token@github.com/owner/repo"], ["GH_REPO", "private.internal/owner/repo"]]) {
     const g = await load();
     g.env[key] = value;
-    await g.call("invalid-github", "git status", { review_files: ["source.kt"] });
+    await g.call("invalid-github", "git push", { review_files: ["source.kt"] });
     assert.equal(g.requests.at(-1).nativeCommandEnvironment.values.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT, "1");
     assert.equal(g.requests.at(-1).nativeCommandEnvironment.values[key], undefined);
     assert.ok(!JSON.stringify(g.requests).includes(value));
   }
 
-  for (const key of ["GIT_CONFIG_COUNT", "SSH_COMMAND", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "BASH_ENV", "CURL_HOME", "SSL_CERT_FILE", "SSL_CERT_DIR", "GCM_PROVIDER",
+  for (const key of ["HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "GIT_CONFIG_COUNT", "SSH_COMMAND", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "BASH_ENV", "CURL_HOME", "SSL_CERT_FILE", "SSL_CERT_DIR", "GCM_PROVIDER",
     "GH_CONFIG_DIR", "GH_ENTERPRISE_TOKEN", "GITHUB_API_URL", "CUSTOM_CONFIG_FILE", "CUSTOM_REGISTRY", "CUSTOM_INDEX_URL", "CUSTOM_PROXY", "NPM_CONFIG_USERCONFIG", "PIP_INDEX_URL", "CARGO_HOME", "UV_INDEX_URL", "GOPRIVATE",
     "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH", "PYTHONSTARTUP", "RUBYOPT", "PERL5OPT", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "RUSTC_WRAPPER", "CLASSPATH", "CC", "CXX", "CFLAGS", "CXXFLAGS", "LDFLAGS",
     "CUSTOM_OPTIONS", "CUSTOM_OPTS", "CUSTOM_FLAGS", "CUSTOM_WRAPPER", "CUSTOM_COMMAND", "CUSTOMPATH", "CUSTOM_HOME"]) {

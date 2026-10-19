@@ -47,10 +47,10 @@ internal fun commandReviewFiles(arguments: JsonObject?): List<String> {
 /** Names the host-owned evidence without allowing caller-controlled JSON keys to replace snapshot identity. */
 internal fun JsonObjectBuilder.putCommandSafetyEvidence(evidence: JsonObject?) {
     evidence ?: return
-    val key = if ((evidence["kind"] as? JsonPrimitive)?.content == "projectNetwork") {
-        "projectNetworkEvidence"
-    } else {
-        "gitPushEvidence"
+    val key = when ((evidence["kind"] as? JsonPrimitive)?.content) {
+        "projectNetwork" -> "projectNetworkEvidence"
+        "localGit" -> "localGitEvidence"
+        else -> "gitPushEvidence"
     }
     put(key, evidence)
 }

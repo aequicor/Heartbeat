@@ -153,7 +153,7 @@ internal class PiNativeApproval(
             command = call.target.takeIf { action == AgentToolAction.Command },
             arguments = call.arguments,
             workingDirectory = workspace,
-            // Only the trusted extension's controlled push wrapper pins its final environment. A launcher's
+            // Only the trusted extension's controlled command wrapper pins its final environment. A launcher's
             // environment or model-facing argument cannot attest to Pi's ordinary shell runtime.
             commandEnvironment = call.commandEnvironment?.takeIf {
                 connection.hasPinnedNativePush && action == AgentToolAction.Command && it.directory == workspace

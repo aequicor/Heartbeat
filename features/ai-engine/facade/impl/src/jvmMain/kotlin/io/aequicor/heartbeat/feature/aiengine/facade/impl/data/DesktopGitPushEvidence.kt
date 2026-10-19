@@ -29,7 +29,7 @@ import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
 /**
- * Local evidence for simple pushes and commands with caller-selected project files. Never contacts a remote,
+ * Local evidence for Git operations and commands with caller-selected project files. Never contacts a remote,
  * reads credentials or runs hooks. Unknown overrides and secret-bearing URLs produce unavailable evidence.
  * Facts are stable across capture and consumption; the independent reviewer still decides whether they are safe.
  */
@@ -45,19 +45,76 @@ internal class DesktopGitPushEvidence(private val dispatchers: DispatcherProvide
         reviewFiles: List<String>,
     ): JsonObject? {
         val form = PUSH.matchEntire(command.trim())
-        if (form == null && reviewFiles.isEmpty()) return null
+        val isLocal = form == null && LOCAL_GIT.containsMatchIn(command)
+        if (!isLocal && form == null && reviewFiles.isEmpty()) return null
+        val kind = when {
+            isLocal -> "localGit"
+            form == null -> "projectNetwork"
+            else -> "gitPush"
+        }
         val capturedEnvironment = (environment ?: System.getenv()).toMap()
-        return try {
+        val snapshot = try {
             withContext(dispatchers.io) {
                 withTimeoutOrNull(CAPTURE_MILLIS) {
-                    captureScoped(Path.of(directory).toRealPath(), form, capturedEnvironment, reviewFiles)
-                } ?: unavailable("capture timeout", kind = if (form == null) "projectNetwork" else "gitPush")
+                    val root = Path.of(directory).toRealPath()
+                    if (isLocal) {
+                        captureLocal(root, capturedEnvironment, reviewFiles)
+                    } else {
+                        captureScoped(root, form, capturedEnvironment, reviewFiles)
+                    }
+                } ?: unavailable("capture timeout", kind = kind)
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(error.redactedFailure()) { "Git push evidence unavailable" }
-            unavailable("local evidence unavailable", kind = if (form == null) "projectNetwork" else "gitPush")
+            log.w(error.redactedFailure()) { "Command Git evidence unavailable" }
+            unavailable("local evidence unavailable", kind = kind)
+        }
+        return if (isLocal) {
+            JsonObject(snapshot + ("environmentFacts" to commandEnvironmentFacts(capturedEnvironment)))
+        } else {
+            snapshot
+        }
+    }
+
+    private suspend fun captureLocal(
+        directory: Path,
+        environment: Map<String, String>,
+        reviewFiles: List<String>,
+    ): JsonObject {
+        // Unlike a push, local Git neither needs an origin nor uses proxy/credential transport settings.
+        val localProjection = environment["HEARTBEAT_LOCAL_GIT_EXECUTION_OVERRIDE"]
+        val isUnsafeProjection = localProjection != null && localProjection != "0"
+        val hasLocalOverrides = isUnsafeProjection || environment.keys.any {
+            isLocalGitOverride(it) &&
+                !(localProjection == "0" && it == "GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT")
+        }
+        val repository = if (hasLocalOverrides) {
+            unavailable("execution overrides", kind = "localGit")
+        } else {
+            try {
+                val executable = gitExecutable(directory, environment)
+                captureLocalGitEvidence(
+                    directory,
+                    executable,
+                    environmentDigest(environment),
+                    environment,
+                ) { arguments ->
+                    git(executable, directory, environment, arguments = arguments, allowMissing = true)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.w(error.redactedFailure()) { "Local Git evidence unavailable" }
+                unavailable("local Git context unavailable", kind = "localGit")
+            }
+        }
+        return if (reviewFiles.isEmpty()) {
+            repository
+        } else {
+            val network = captureScoped(directory, null, environment, reviewFiles)
+            val files = checkNotNull(network["reviewFiles"])
+            JsonObject(repository + mapOf("projectNetwork" to network, "reviewFiles" to files))
         }
     }
 
@@ -312,6 +369,14 @@ internal class DesktopGitPushEvidence(private val dispatchers: DispatcherProvide
         capturedEnvironment: Map<String, String>,
         vararg arguments: String,
         allowMissing: Boolean = false,
+    ): String = git(executable, directory, capturedEnvironment, arguments.toList(), allowMissing)
+
+    private suspend fun git(
+        executable: Path,
+        directory: Path,
+        capturedEnvironment: Map<String, String>,
+        arguments: List<String>,
+        allowMissing: Boolean,
     ): String {
         currentCoroutineContext().ensureActive()
         val child = ProcessBuilder(listOf(executable.toString(), "--no-pager") + arguments)
@@ -491,3 +556,38 @@ private const val POLL_MILLIS = 10L
 private const val BUFFER_BYTES = 4096
 private const val MAX_OUTPUT_BYTES = 65_536
 private const val MAX_OVERRIDE_NAMES = 64
+
+/** Selection only; the reviewer still inspects every shell prefix, argument and suffix. */
+private val LOCAL_GIT = Regex("\\bgit(?:\\.exe)?\\b", RegexOption.IGNORE_CASE)
+
+private fun isLocalGitOverride(name: String): Boolean = name.uppercase().let { upper ->
+    val isGitOverride = upper.startsWith("GIT_") && upper !in LOCAL_GIT_ENVIRONMENT_EXCEPTIONS
+    isGitOverride || upper.startsWith("BASH_FUNC_") || upper.startsWith("DYLD_") ||
+        upper in LOCAL_GIT_EXECUTION_OVERRIDES
+}
+
+private val LOCAL_GIT_ENVIRONMENT_EXCEPTIONS = setOf(
+    "SSH_AUTH_SOCK",
+    "SSH_AGENT_PID",
+    "GIT_PAGER",
+    "GIT_EDITOR",
+    "GIT_SEQUENCE_EDITOR",
+)
+
+private val LOCAL_GIT_EXECUTION_OVERRIDES = setOf(
+    "BASH_ENV",
+    "ENV",
+    "ZDOTDIR",
+    "SHELLOPTS",
+    "BASHOPTS",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    "PYTHONPATH",
+    "PYTHONSTARTUP",
+    "RUBYOPT",
+    "PERL5OPT",
+    "JAVA_TOOL_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+)

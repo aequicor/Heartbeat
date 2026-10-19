@@ -48,6 +48,9 @@ const { hosted: HOSTED_TOOLS, all: GATE_ALL } = gateConfig();
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/;
 const WINDOWS_SHELL_PATH = /^\/(?:mnt\/|cygdrive\/)?[a-z](?:\/|$)/i;
 const SIMPLE_PUSH = /^git[ \t]+push(?:[ \t]+(?:-u[ \t]+)?origin[ \t]+[A-Za-z0-9][A-Za-z0-9._/-]*)?$/;
+// Selection of evidence only; neither this expression nor pinning authorizes a command.
+const LOCAL_GIT = /\bgit(?:\.exe)?\b/i;
+const EXECUTION_ENVIRONMENT_KEYS = new Set(["EDITOR", "VISUAL", "PAGER", "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_PAGER"]);
 const ENVIRONMENT_KEYS = new Set([
     "PATH", "HOME", "XDG_CONFIG_HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR",
     "PATHEXT", "PROGRAMFILES", "PROGRAMFILES(X86)", "TMPDIR", "TMP", "TEMP",
@@ -72,16 +75,17 @@ function hasReviewFiles(input: any): boolean {
 }
 
 function needsPinnedEnvironment(input: any): boolean {
-    return typeof input.command === "string" && (SIMPLE_PUSH.test(input.command.trim()) || hasReviewFiles(input));
+    return typeof input.command === "string" && (SIMPLE_PUSH.test(input.command.trim()) || LOCAL_GIT.test(input.command) || hasReviewFiles(input));
 }
 
 /**
- * Only paths/config discovery inputs cross RPC. Override values and credentials stay in this closure.
+ * Paths, routing and screened editor/pager values cross RPC. Other override values and credentials stay in this closure.
  * This projection cannot establish arbitrary manager/script environment effects; unresolved effects stay uncertain.
  */
 function gitEnvironment(env: Record<string, string | undefined>): Record<string, string> {
     const result: Record<string, string> = {};
     let unsafe = false;
+    let localUnsafe = false;
     for (const [key, value] of Object.entries(env)) {
         if (value === undefined) continue;
         const upper = key.toUpperCase();
@@ -91,6 +95,15 @@ function gitEnvironment(env: Record<string, string | undefined>): Record<string,
             else unsafe = true;
             continue;
         }
+        if (EXECUTION_ENVIRONMENT_KEYS.has(upper)) {
+            if (/(?:\bsk-[A-Za-z0-9_.-]{8,}|\b(?:Bearer|Basic)\s+|(?:token|password|secret|api[_-]?key)\s*[:=])/i.test(value)) {
+                unsafe = true;
+                localUnsafe = true;
+            } else result[key] = value;
+        } else if (/^(GIT_|BASH_FUNC_|LD_|DYLD_)/.test(upper) &&
+            !["SSH_AUTH_SOCK", "SSH_AGENT_PID"].includes(upper)) localUnsafe = true;
+        if (["BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH",
+            "PYTHONSTARTUP", "RUBYOPT", "PERL5OPT", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS"].includes(upper)) localUnsafe = true;
         if ((/^(GH_|GITHUB_)/.test(upper) && !["GH_TOKEN", "GITHUB_TOKEN"].includes(upper)) ||
             /(?:_CONFIG|_REGISTRY|_INDEX|_PROXY)(?:_|$)/.test(upper) ||
             /^(NPM_CONFIG_|YARN_|PNPM_|PIP_|CARGO_|UV_|POETRY_|PDM_|BUNDLE_|GEM_|NUGET_|DOTNET_|COMPOSER_|GRADLE_|MAVEN_)/.test(upper) ||
@@ -103,6 +116,8 @@ function gitEnvironment(env: Record<string, string | undefined>): Record<string,
         if (["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "SSL_CERT_FILE", "SSL_CERT_DIR"].includes(upper)) unsafe = true;
     }
     if (unsafe) result.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT = "1";
+    // Independent of network routing: a proxy must not block local Git, nor disappear from a network review.
+    result.HEARTBEAT_LOCAL_GIT_EXECUTION_OVERRIDE = localUnsafe ? "1" : "0";
     return result;
 }
 
@@ -110,7 +125,7 @@ type PushPlan = { command: string; input: string; cwd: string; env: Record<strin
 
 /**
  * Only the hermetic bundled Unix runtime installs this override. Commands without review metadata retain Pi's
- * default tool. Pushes and commands with review_files consume a private plan, pinning input/cwd/env at spawn.
+ * default tool. Local Git, pushes and commands with review_files consume a private plan, pinning input/cwd/env at spawn.
  */
 async function pinNativePush(pi: any, plans: Map<string, PushPlan>): Promise<boolean> {
     if (process.env.HEARTBEAT_PIN_NATIVE_PUSH !== "true" || process.platform === "win32" || !existsSync("/bin/bash")) return false;
@@ -122,7 +137,7 @@ async function pinNativePush(pi: any, plans: Map<string, PushPlan>): Promise<boo
         description: original.description + " Optional review_files selects up to 16 project source, manifest, lock or script files " +
             "for complete safety evidence. List only relevant project files; never select credentials, secrets or private configuration. " +
             "Evidence is for review and does not itself authorize a command or package manager. " +
-            "The environment projection cannot establish unknown manager/script environment effects; those remain uncertain.",
+            "Known execution and network configuration overrides are reported without secrets; review evaluates concrete effects.",
         parameters: Type.Object({
             ...original.parameters.properties,
             review_files: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 16 })),
@@ -132,12 +147,12 @@ async function pinNativePush(pi: any, plans: Map<string, PushPlan>): Promise<boo
             plans.delete(id);
             if (!plan) {
                 if (needsPinnedEnvironment(input)) {
-                    throw new Error("Native push has no live host-approved execution plan");
+                    throw new Error("Native command has no live host-approved execution plan");
                 }
                 return createBashToolDefinition(ctx.cwd).execute(id, input, signal, onUpdate, ctx);
             }
             if (!plan.approved || JSON.stringify(input) !== plan.input || resolve(ctx.cwd) !== plan.cwd || signal?.aborted) {
-                throw new Error("Native push changed after its host approval");
+                throw new Error("Native command changed after its host approval");
             }
             const pinned = createBashToolDefinition(plan.cwd, {
                 shellPath: "/bin/bash",
