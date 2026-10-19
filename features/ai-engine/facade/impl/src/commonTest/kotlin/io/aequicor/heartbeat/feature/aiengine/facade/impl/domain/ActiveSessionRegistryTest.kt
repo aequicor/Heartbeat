@@ -24,6 +24,23 @@ import kotlin.test.assertFailsWith
 
 class ActiveSessionRegistryTest {
     @Test
+    fun `headless host observes requests from sessions without hooks and never receives approval authority`() =
+        runTest {
+            val registry = ActiveSessionRegistry()
+            assertEquals(false, registry.awaitingInteraction.first())
+            val native = CountedHandle(
+                TestEngine,
+                ActiveSessionState.AwaitingUserAction(CountedTurn, listOf(permission("p", CountedTurn.id))),
+            )
+            registry.add(native)
+            assertEquals(true, registry.awaitingInteraction.first())
+            native.state.value = ActiveSessionState.Ready()
+            assertEquals(false, registry.awaitingInteraction.first())
+            registry.remove(native)
+            assertEquals(false, registry.awaitingInteraction.first())
+        }
+
+    @Test
     fun `lock is dropped after exclusive block`() = runTest {
         val registry = ActiveSessionRegistry()
         repeat(3) { index -> registry.exclusive(sessionRef("s$index")) { } }

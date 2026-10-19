@@ -26,6 +26,7 @@ dependencies {
     implementation(projects.designSystem.tokens)
     implementation(projects.designSystem.theme)
     implementation(projects.designSystem.components)
+    implementation(projects.designSystem.layouts)
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutinesSwing)
     implementation(libs.compose.uiToolingPreview)

@@ -32,8 +32,11 @@ import kotlin.coroutines.cancellation.CancellationException
  * profile-owned [commands] scope and only awaited here: leaving a state cancels the effect, never an accepted
  * native operation. Acknowledgements are sent only after the handoff returned.
  */
-class ActiveSessionEffects(private val native: ActiveSession, commands: CoroutineScope) :
-    EffectHandler<ActiveSessionEffect, ActiveSessionIntent> {
+class ActiveSessionEffects(
+    private val native: ActiveSession,
+    commands: CoroutineScope,
+    private val onFailure: (EngineFailure) -> Unit = {},
+) : EffectHandler<ActiveSessionEffect, ActiveSessionIntent> {
     private val log = Log.tag("ActiveSessionEffects")
 
     /** A failed command is reported to its awaiting effect only, never to the profile scope. */
@@ -131,6 +134,7 @@ class ActiveSessionEffects(private val native: ActiveSession, commands: Coroutin
     } catch (e: CancellationException) {
         throw e
     } catch (e: EngineException) {
+        onFailure(e.failure)
         log.w(e) { "native $operation failed failure=${e.failure.code}" }
         throw e
     } catch (e: Exception) {

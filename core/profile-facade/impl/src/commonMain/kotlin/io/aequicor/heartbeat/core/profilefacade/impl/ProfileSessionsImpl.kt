@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
+import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,8 +86,10 @@ internal class ProfileSessionsImpl(
 
     private fun createSession(id: ProfileId): Pair<ProfileSession, OwnedScope> {
         val scope = scopes.child(appScope, PROFILE_SCOPE_NAME)
-        val graph = try {
-            graphs.create(id, scope)
+        return try {
+            val graph = graphs.create(id, scope)
+            val startups = (graph as? ProfileStartupAccess)?.profileStartups.orEmpty()
+            ProfileSession(id, graph, startServices(startups), startups) to scope
         } catch (e: CancellationException) {
             scope.close()
             throw e
@@ -95,12 +98,10 @@ internal class ProfileSessionsImpl(
             scope.close()
             throw e
         }
-        startServices(graph)
-        return ProfileSession(id, graph) to scope
     }
 
-    private fun startServices(graph: ProfileGraph) {
-        val startups = (graph as? ProfileStartupAccess)?.profileStartups.orEmpty()
+    private fun startServices(startups: Set<ProfileStartup>): Int {
+        var failures = 0
         log.i { "starting profile services count=${startups.size}" }
         // A failing feature service must not keep the profile closed; its failure is logged with the cause.
         startups.forEach { startup ->
@@ -109,9 +110,11 @@ internal class ProfileSessionsImpl(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                failures += 1
                 log.e(e) { "failed to start a profile service" }
             }
         }
+        return failures
     }
 
     private companion object {

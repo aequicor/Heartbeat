@@ -22,10 +22,12 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMac
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.ProfileWorkflowDrivers
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelperJournal
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
@@ -43,6 +45,10 @@ internal class HarnessWorkflowStartup(
 ) : ProfileStartup {
     private val log = Log.tag("HarnessWorkflow")
 
+    private val initialReady = CompletableDeferred<Unit>()
+
+    override suspend fun awaitReady() = initialReady.await()
+
     override fun start() {
         profile.coroutineScope.launch {
             toggles.observe(HarnessEnabled).distinctUntilChanged().collectLatest { enabled ->
@@ -59,6 +65,7 @@ internal class HarnessWorkflowStartup(
             if (runs.state.value is HarnessRunsState.Idle || runs.state.value is HarnessRunsState.Failed) {
                 runs.send(HarnessRunsIntent.Internal.Start)
             }
+            initialSnapshot(runs)
             combine(runs.state, library.value.state) { current, content -> orphaned(current, content) }
                 .collect { orphans ->
                     orphans.forEach { run ->
@@ -76,12 +83,16 @@ internal class HarnessWorkflowStartup(
      * grant journal is treated as possibly holding slots; it must not end the toggle observation for the profile.
      */
     private suspend fun followSuspended() {
-        if (!machine.isInitialized() && !hasPendingGrants()) return
+        if (!machine.isInitialized() && !hasPendingGrants()) {
+            initialReady.complete(Unit)
+            return
+        }
         val runs = machine.value
         runs.send(HarnessRunsIntent.Internal.Suspended)
         if (runs.state.value is HarnessRunsState.Idle || runs.state.value is HarnessRunsState.Failed) {
             runs.send(HarnessRunsIntent.Internal.Start)
         }
+        initialSnapshot(runs)
         runs.state.collect { state ->
             val ready = state as? HarnessRunsState.Ready ?: return@collect
             if (ready.isSuspended) {
@@ -92,12 +103,22 @@ internal class HarnessWorkflowStartup(
         }
     }
 
+    private suspend fun initialSnapshot(runs: HarnessRunsMachine) {
+        val state = runs.state.first { it is HarnessRunsState.Ready || it is HarnessRunsState.Failed }
+        if (state is HarnessRunsState.Ready) {
+            initialReady.complete(Unit)
+        } else {
+            initialReady.completeExceptionally(IllegalStateException("Workflow recovery failed"))
+        }
+    }
+
     private suspend fun hasPendingGrants(): Boolean = try {
         grants.value.pending().isNotEmpty()
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
         log.w(error) { "Workflow helper grants are unreadable; draining the journal conservatively" }
+        initialReady.completeExceptionally(error)
         true
     }
 }

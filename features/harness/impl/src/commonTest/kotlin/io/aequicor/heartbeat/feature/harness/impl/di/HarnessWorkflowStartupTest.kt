@@ -20,7 +20,10 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelper
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelperJournal
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,8 +32,34 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 
 class HarnessWorkflowStartupTest {
+    @Test
+    fun `disabled harness readiness waits for the initial grant journal read`() = runTest {
+        val pending = CompletableDeferred<List<WorkflowHelperGrant>>()
+        val runs = StartupRuns()
+        val journal = object : WorkflowHelperJournal by CorruptGrants {
+            override suspend fun pending(): List<WorkflowHelperGrant> = pending.await()
+        }
+        val startup = HarnessWorkflowStartup(
+            lazy { runs },
+            lazy { StartupLibrary() },
+            StartupToggles(),
+            lazyOf(journal),
+            lazy<ProfileWorkflowDrivers> { error("No work to drain") },
+            startupProfile(backgroundScope),
+        )
+        startup.start()
+        val ready = async { startup.awaitReady() }
+        runCurrent()
+        assertFalse(ready.isCompleted)
+        pending.complete(emptyList())
+        ready.await()
+        assertEquals(emptyList(), runs.sent)
+    }
+
     @Test
     fun `unreadable grant journal drains conservatively and keeps observing the toggle`() = runTest {
         val runs = StartupRuns()
@@ -42,15 +71,17 @@ class HarnessWorkflowStartupTest {
             override val savedState: ScopeSavedState get() = error("Not used")
             override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle {}
         }
-        HarnessWorkflowStartup(
+        val startup = HarnessWorkflowStartup(
             lazy { runs },
             lazy { StartupLibrary() },
             toggles,
             lazy { CorruptGrants },
             lazy<ProfileWorkflowDrivers> { error("No running record is restored") },
             profile,
-        ).start()
+        )
+        startup.start()
         runCurrent()
+        assertFailsWith<HarnessStorageCorrupt> { startup.awaitReady() }
         assertEquals(
             listOf<HarnessRunsIntent>(HarnessRunsIntent.Internal.Suspended, HarnessRunsIntent.Internal.Start),
             runs.sent,
@@ -98,4 +129,12 @@ private class StartupLibrary : HarnessMachine {
     override val outputs = MutableSharedFlow<HarnessOutput>()
 
     override suspend fun send(intent: HarnessIntent): SendResult = SendResult.Ignored
+}
+
+private fun startupProfile(scope: CoroutineScope): ScopeHandle = object : ScopeHandle {
+    override val name = "startup-test"
+    override val coroutineScope = scope
+    override val isClosed = false
+    override val savedState: ScopeSavedState get() = error("Not used")
+    override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle {}
 }

@@ -14,5 +14,14 @@ fun main(arguments: Array<String>) {
     if (handleWindowRuntimeProbe(arguments)) return
     if (handleComputerUseIndicatorProbe(arguments)) return
     if (handleHarnessCompilerProbe(arguments)) return
-    launchHeartbeat(isDevelopment = false, hasLocalSecrets = true)
+    val workerExit = handleProcessWorker(arguments, hasLocalSecrets = true)
+    if (workerExit != null) kotlin.system.exitProcess(workerExit)
+    var hasCompletedLaunch = false
+    try {
+        launchHeartbeat(isDevelopment = false, hasLocalSecrets = true)
+        hasCompletedLaunch = true
+    } finally {
+        // AWT/native threads can outlive a failed launch; the storage lease remains held until actual JVM exit.
+        if (!hasCompletedLaunch) kotlin.system.exitProcess(1)
+    }
 }

@@ -114,6 +114,16 @@ class SessionLauncherTest {
     }
 
     @Test
+    fun `missing credentials report host intervention while preserving the original engine failure`() = runTest {
+        val (fixture, launcher) = launcher()
+        fixture.sources.remove(fixture.source.info.id)
+        val error = assertFailsWith<EngineException> { launcher.create(CreateSessionRequest(fixture.target)) }
+        assertIs<EngineFailure.Authentication>(error.failure)
+        assertTrue(fixture.context.authenticationRequired.value)
+        assertTrue(runtimes.isEmpty())
+    }
+
+    @Test
     fun `created sessions record Heartbeat provenance and share the pooled runtime`() = runTest {
         val (fixture, launcher, capabilities) = launcher()
         val creator = capabilities.engine(fixture.registry.require(TestEngine)).resolve(CreatesSessions)

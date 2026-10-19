@@ -104,6 +104,32 @@ class ManagedActiveSessionTest {
     }
 
     @Test
+    fun `terminal native authentication failure is sticky even after the handle becomes ready`() = runTest {
+        val fixture = RouteFixture(this)
+        val native = FakeNativeSession()
+        val (session) = open(fixture, native)
+        session.sender().send(prompt("r1"))
+        native.finish(TurnOutcome.Failed(authFailure(AuthFailureReason.SourceUnavailable, fixture.source.info.id)))
+        runCurrent()
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+        assertTrue(fixture.context.authenticationRequired.value)
+        native.native.value = ActiveSessionState.Ready()
+        runCurrent()
+        assertTrue(fixture.context.authenticationRequired.value)
+    }
+
+    @Test
+    fun `synchronous native send authentication failure signals intervention and keeps its typed refusal`() = runTest {
+        val fixture = RouteFixture(this)
+        val native = FakeNativeSession()
+        val (session) = open(fixture, native)
+        val failure = authFailure(AuthFailureReason.SourceUnavailable, fixture.source.info.id)
+        native.sendFailure = EngineException(failure)
+        assertEquals(failure, assertFailsWith<EngineException> { session.sender().send(prompt("r1")) }.failure)
+        assertTrue(fixture.context.authenticationRequired.value)
+    }
+
+    @Test
     fun `live configuration preserves an accepted turn and pending permission`() = runTest {
         val configuration = Configuration()
         val native = FakeNativeSession(configuration = configuration)

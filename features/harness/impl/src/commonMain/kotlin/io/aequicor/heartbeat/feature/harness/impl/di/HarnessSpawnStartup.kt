@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnOperations
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -21,6 +22,10 @@ internal class HarnessSpawnStartup(
     private val operations: Lazy<HarnessSpawnOperations>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : ProfileStartup {
+    private val ready = CompletableDeferred<Unit>()
+
+    override suspend fun awaitReady() = ready.await()
+
     private val log = Log.tag("HarnessSpawns")
 
     override fun start() {
@@ -28,6 +33,7 @@ internal class HarnessSpawnStartup(
             while (isActive) {
                 try {
                     operations.value.initialize()
+                    ready.complete(Unit)
                     return@launch
                 } catch (error: CancellationException) {
                     throw error

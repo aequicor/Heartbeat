@@ -22,6 +22,28 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class DesktopShutdownTest {
     @Test
+    fun `worker closes admission after capturing child identities and before native cleanup`() = runTest {
+        val events = mutableListOf<String>()
+        val result = shutdownDesktop(
+            setOf(AppShutdownParticipant { events += "native" }),
+            destroy = {},
+            exit = {},
+            stopAdmission = { events += "admission" },
+            stopScopes = { events += "scopes" },
+            processes = object : DesktopProcessCleanup {
+                override suspend fun capture() {
+                    events += "capture"
+                }
+                override suspend fun stop() {
+                    events += "processes"
+                }
+            },
+        )
+        assertNull(result)
+        assertEquals(listOf("capture", "admission", "native", "scopes", "processes"), events)
+    }
+
+    @Test
     fun `cancelled scope closure still stops children before propagating cancellation`() = runTest {
         val events = mutableListOf<String>()
         assertFailsWith<CancellationException> {

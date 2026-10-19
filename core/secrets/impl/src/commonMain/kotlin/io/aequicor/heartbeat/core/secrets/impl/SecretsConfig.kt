@@ -12,4 +12,6 @@ public data class SecretsConfig(
     public val service: String = "io.aequicor.heartbeat.secrets.v1",
     public val directory: String? = null,
     public val isDevelopment: Boolean = false,
+    /** Headless hosts fail instead of asking the OS to unlock or authorize access. No backend fallback. */
+    public val isInteractionAllowed: Boolean = true,
 )

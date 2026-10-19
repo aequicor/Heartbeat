@@ -39,6 +39,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredExce
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -75,6 +76,7 @@ internal class TaskGraphDriver(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) {
     private val log = Log.tag("TaskGraphDriver")
+    private val initialRecovery = CompletableDeferred<Unit>()
     private val pokes = Channel<Unit>(Channel.CONFLATED)
     private val resolutionLock = Mutex()
     private val jobs = mutableMapOf<String, Job>()
@@ -86,6 +88,12 @@ internal class TaskGraphDriver(
         toggles.observe(SchedulerTaskGraphs),
     ) { scheduler, actions, graphs -> scheduler && actions && graphs }
     val areCommandsAvailable: Boolean get() = commands.isAvailable && commands.isStartTracked && workspaces.isAvailable
+
+    suspend fun awaitReady() {
+        val state = machine.state.first { it is TaskGraphState.Ready || it is TaskGraphState.Unavailable }
+        check(state is TaskGraphState.Ready) { "Task graph recovery failed" }
+        initialRecovery.await()
+    }
 
     fun start() {
         if (driver != null) return
@@ -169,6 +177,7 @@ internal class TaskGraphDriver(
     private suspend fun pumpGraphs(graphs: List<TaskGraph>) {
         restoreSlots(graphs)
         slots.finishRestore()
+        initialRecovery.complete(Unit)
         val isAdmitted = isEnabled()
         for (graph in graphs) {
             for (task in graph.definition.tasks) {

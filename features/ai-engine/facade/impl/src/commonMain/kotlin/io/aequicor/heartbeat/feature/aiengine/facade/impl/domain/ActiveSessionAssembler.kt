@@ -55,7 +55,7 @@ class ActiveSessionAssembler(private val policy: SessionPolicy, private val comm
         handle: SessionHandleScope,
         areSessionHooksEnabled: Boolean = false,
     ): ActiveSession {
-        val effects = ActiveSessionEffects(native, commands)
+        val effects = ActiveSessionEffects(native, commands, policy::observeFailure)
         val spec = activeSessionMachineSpec(ActiveSessionMachineKey(handle.id), native.state.value.asInitial())
         val session = ManagedActiveSession(
             native.ref,

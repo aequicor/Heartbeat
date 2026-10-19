@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
@@ -120,6 +121,26 @@ class FacadeContext(
     val io: CoroutineDispatcher,
     private val newToken: () -> String,
 ) {
+    /** Sticky profile signal; headless hosts preserve an intervention marker before releasing native work. */
+    val authenticationRequired = MutableStateFlow(false)
+
+    /** Observes a typed failure without changing its classification, retry policy or authorization. */
+    suspend fun <T> observeAuthentication(block: suspend () -> T): T = try {
+        block()
+    } catch (error: EngineException) {
+        observeFailure(error.failure)
+        throw error
+    }
+
+    /** Typed native and route failures share this sticky signal; raw diagnostics are never retained. */
+    @HighFrequency
+    fun observeFailure(failure: EngineFailure) {
+        if (failure is EngineFailure.Authentication && !authenticationRequired.value) {
+            Log.tag("FacadeHost").v { "Host authentication intervention is required" }
+            authenticationRequired.value = true
+        }
+    }
+
     /** A fresh identifier: [prefix] followed by a random token. */
     fun token(prefix: String): String = prefix + newToken()
 }

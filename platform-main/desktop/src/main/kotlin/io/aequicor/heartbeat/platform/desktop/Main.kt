@@ -32,10 +32,13 @@ import io.aequicor.heartbeat.platform.dibundle.AppShutdownAccessors
 import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.PlantUmlAccessors
 import io.aequicor.heartbeat.platform.dibundle.closeScopes
+import io.aequicor.heartbeat.platform.dibundle.createDesktopHostDispatchers
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
+import io.aequicor.heartbeat.platform.dibundle.desktopStorageRoot
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.shared.App
 import io.aequicor.heartbeat.platform.shared.createAppRoot
+import kotlinx.coroutines.CancellationException
 import java.awt.Taskbar
 import java.awt.image.BufferedImage
 import java.net.URISyntaxException
@@ -54,7 +57,16 @@ fun main(arguments: Array<String>) {
     if (handleWindowRuntimeProbe(arguments)) return
     if (handleComputerUseIndicatorProbe(arguments)) return
     if (handleHarnessCompilerProbe(arguments)) return
-    launchHeartbeat(isDevelopment = false)
+    val workerExit = handleProcessWorker(arguments)
+    if (workerExit != null) kotlin.system.exitProcess(workerExit)
+    var hasCompletedLaunch = false
+    try {
+        launchHeartbeat(isDevelopment = false)
+        hasCompletedLaunch = true
+    } finally {
+        // AWT/native threads can outlive a failed launch; the storage lease remains held until actual JVM exit.
+        if (!hasCompletedLaunch) kotlin.system.exitProcess(1)
+    }
 }
 
 /**
@@ -69,7 +81,7 @@ internal fun launchHeartbeat(isDevelopment: Boolean, hasLocalSecrets: Boolean = 
     // `heartbeat.trace` (system property or HEARTBEAT_TRACE) adds the VERBOSE level for deep debugging.
     val sink = initializeDesktopLogging(isDevelopment || classes.getOrNull() != null, isTraceRequested())
     try {
-        // Development runs (IDE, Gradle, several worktrees) stay independent; release launches share one process.
+        // Release launches forward window activation; every host separately claims storage before creating a graph.
         val claim = if (isDevelopment) {
             DesktopInstanceClaim.Unguarded
         } else {
@@ -78,13 +90,44 @@ internal fun launchHeartbeat(isDevelopment: Boolean, hasLocalSecrets: Boolean = 
         if (claim == DesktopInstanceClaim.Forwarded) return
         val instance = (claim as? DesktopInstanceClaim.Owner)?.instance
         try {
-            launchLoggedHeartbeat(isDevelopment, hasLocalSecrets, classes, instance)
+            withDesktopStorageOwner(monitor = { showWorkerMonitor(it, createDesktopHostDispatchers(), instance) }) {
+                launchLoggedHeartbeat(isDevelopment, hasLocalSecrets, classes, instance)
+            }
         } finally {
             instance?.close()
         }
     } finally {
         sink?.close()
     }
+}
+
+/** Every entry point, including development, excludes a second graph on the same storage root. */
+internal fun withDesktopStorageOwner(
+    root: Path = Path.of(desktopStorageRoot()),
+    monitor: (Path) -> Unit = { showWorkerMonitor(it, createDesktopHostDispatchers()) },
+    retainUntilExit: (DesktopStorageOwner) -> Unit = ::retainDesktopStorageOwnerUntilExit,
+    launch: () -> Unit,
+) {
+    val owner = DesktopStorageOwner.claim(root)
+    if (owner == null) {
+        monitor(root)
+        return
+    }
+    var hasCompletedLaunch = false
+    try {
+        Files.deleteIfExists(owner.directory.resolve(WORKER_WAIT_FILE))
+        WorkerControl(owner, false, { WorkerSnapshot(WorkerPhase.Running) }, {}).use { launch() }
+        hasCompletedLaunch = true
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Log.tag("Desktop").e(error) { "Desktop launch failed; retaining storage ownership until JVM exit" }
+        throw error
+    } finally {
+        // Covers cancellation and fatal VM/linkage errors as well as ordinary exceptions.
+        if (!hasCompletedLaunch) retainUntilExit(owner)
+    }
+    owner.close()
 }
 
 private fun launchLoggedHeartbeat(
@@ -99,6 +142,17 @@ private fun launchLoggedHeartbeat(
     val applicationIcons = runOnUiThread { loadDesktopIcons().also(::configureDockIcon) }
     val lifecycle = LifecycleRegistry()
     val graph = runOnUiThread { createHeartbeatGraph(isDevelopment, hasLocalSecrets) }
+    withFailedDesktopLaunchCleanup(cleanup = { shutdownFailedDesktopLaunch(graph, lifecycle::destroy) }) {
+        launchDesktopApplication(lifecycle, graph, applicationIcons, instance)
+    }
+}
+
+private fun launchDesktopApplication(
+    lifecycle: LifecycleRegistry,
+    graph: HeartbeatGraph,
+    applicationIcons: List<BufferedImage>,
+    instance: DesktopInstance?,
+) {
     val root = createDesktopRoot(lifecycle, graph)
     val dimensions = HbDimensions()
     application {

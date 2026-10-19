@@ -120,13 +120,13 @@ private suspend fun virtualRead(workspace: VirtualWorkspace, path: String, args:
     val text = requireNotNull(workspace.read(path)) { "FileNotFound" }
     val offset = (args.argInt("offset") ?: 1).coerceAtLeast(1)
     val limit = (args.argInt("limit") ?: VIRTUAL_DEFAULT_LINES).coerceIn(1, VIRTUAL_MAX_LINES)
-    return text.lines().drop(offset - 1).take(limit).mapIndexed { index, line ->
+    return text.lineSequence().drop(offset - 1).take(limit).mapIndexed { index, line ->
         "${offset + index}\t${line.take(VIRTUAL_MAX_LINE_CHARS)}"
     }.joinToString("\n")
 }
 
 private suspend fun virtualList(workspace: VirtualWorkspace, path: String): String =
-    workspace.paths().filter { path.isEmpty() || it.startsWith("$path/") }.map { file ->
+    workspace.paths().asSequence().filter { path.isEmpty() || it.startsWith("$path/") }.map { file ->
         val relative = if (path.isEmpty()) file else file.removePrefix("$path/")
         if ('/' in relative) relative.substringBefore('/') + "/" else relative
     }.distinct().sorted().take(VIRTUAL_MAX_LINES).joinToString("\n")
@@ -144,8 +144,8 @@ private suspend fun virtualGrep(workspace: VirtualWorkspace, path: String, args:
         "glob",
     ).takeIf { it.isNotEmpty() }?.let { FileSystems.getDefault().getPathMatcher("glob:$it") }
     val selected = workspace.paths().filter { file ->
-        val inDirectory = path.isEmpty() || file == path || file.startsWith("$path/")
-        inDirectory && (glob == null || glob.matches(Path.of(file)))
+        val isInDirectory = path.isEmpty() || file == path || file.startsWith("$path/")
+        isInDirectory && (glob == null || glob.matches(Path.of(file)))
     }
     val found = mutableListOf<String>()
     workspace.scanTextFiles(selected) { file, text ->

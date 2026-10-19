@@ -10,7 +10,14 @@ import kotlin.jvm.JvmInline
 public value class ProfileId(public val value: String)
 
 /** An open profile: its id and its [ProfileGraph]. */
-public data class ProfileSession(public val id: ProfileId, public val graph: ProfileGraph)
+public data class ProfileSession(
+    public val id: ProfileId,
+    public val graph: ProfileGraph,
+    /** Number of synchronous startup failures; strict hosts must not report this session as ready. */
+    public val startupFailures: Int = 0,
+    /** Exact instances started by this session; graph contribution getters may create fresh unscoped instances. */
+    public val startups: Set<ProfileStartup> = emptySet(),
+)
 
 /**
  * Sessions of user profiles; at most one profile is active at a time.

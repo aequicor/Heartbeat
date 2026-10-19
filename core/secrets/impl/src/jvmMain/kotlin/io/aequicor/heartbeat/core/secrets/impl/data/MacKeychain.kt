@@ -12,7 +12,7 @@ import com.sun.jna.Pointer
 import com.sun.jna.ptr.PointerByReference
 
 /** Login Keychain SecItem APIs; access follows the system keychain ACL, without secrets in shell arguments. */
-internal class MacKeychain(private val serviceName: String) {
+internal class MacKeychain(private val serviceName: String, private val isInteractionAllowed: Boolean = true) {
     private val cf = Native.load("CoreFoundation", CoreFoundationApi::class.java)
     private val security = Native.load("Security", SecurityApi::class.java)
     private val symbols = NativeLibrary.getInstance("Security")
@@ -23,6 +23,7 @@ internal class MacKeychain(private val serviceName: String) {
         val service = string(serviceName)
         val account = string(profile)
         try {
+            if (!isInteractionAllowed) set(query, "kSecUseAuthenticationUI", constant("kSecUseAuthenticationUIFail"))
             set(query, "kSecClass", constant("kSecClassGenericPassword"))
             set(query, "kSecAttrService", service)
             set(query, "kSecAttrAccount", account)
