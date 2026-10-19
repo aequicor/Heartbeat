@@ -45,6 +45,7 @@ internal class ProjectConfigEffects(
     private val access: ConfigFolderAccess,
     private val tasks: ConfigTasks,
     private val storage: ConfigBindingStorage,
+    private val policy: ConfigStoragePolicy,
     private val reviewer: Lazy<AgentSafetyReviewer>,
     private val selections: ModelSelections,
     private val dispatchers: DispatcherProvider,
@@ -64,8 +65,10 @@ internal class ProjectConfigEffects(
                     storage.load().also { savedRevision = -1L }
                 }
                 log.d { "Configuration bindings loaded: ${bindings.size}" }
-                machine.send(Internal.Loaded(bindings))
+                machine.send(Internal.Loaded(bindings, policy.load()))
             }
+
+            is ProjectConfigEffect.SaveStorage -> configureStorage(effect, machine)
 
             is ProjectConfigEffect.SaveBindings -> save(effect)
 
@@ -81,6 +84,18 @@ internal class ProjectConfigEffects(
             is ProjectConfigEffect.ImportToProject, is ProjectConfigEffect.CloseBundle,
             -> tasks.handle(effect)?.let { machine.send(it) }
         }
+    }
+
+    private suspend fun configureStorage(
+        effect: ProjectConfigEffect.SaveStorage,
+        machine: EffectScope<ProjectConfigIntent>,
+    ) {
+        effect.bundleId?.let { access.forget(it) }
+        saving.withLock {
+            storage.save(effect.bindings)
+            policy.save(effect.settings)
+        }
+        machine.send(Internal.StorageSaved)
     }
 
     private suspend fun save(effect: ProjectConfigEffect.SaveBindings) = saving.withLock {

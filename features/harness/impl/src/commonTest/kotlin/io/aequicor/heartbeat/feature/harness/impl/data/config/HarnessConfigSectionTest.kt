@@ -194,6 +194,15 @@ class HarnessConfigSectionTest {
     }
 
     @Test
+    fun `automatic configuration storage includes every owning project and no shared harnesses`() = runTest {
+        assertTrue(section.entities.first().orEmpty().single().projects.isEmpty())
+        val projects = setOf(WorkspaceRef("first"), WorkspaceRef("second"))
+        val scoped = review.copy(scope = HarnessScope.Projects(projects))
+        library.state.value = library.ready.copy(harnesses = listOf(HarnessEntry(scoped)))
+        assertEquals(projects, section.entities.first().orEmpty().single().projects)
+    }
+
+    @Test
     fun `replacing a bound harness preserves its stored project scope`() = runTest {
         val scoped = review.copy(scope = HarnessScope.Projects(setOf(WorkspaceRef("original"))))
         library.state.value = library.ready.copy(harnesses = listOf(HarnessEntry(scoped)))

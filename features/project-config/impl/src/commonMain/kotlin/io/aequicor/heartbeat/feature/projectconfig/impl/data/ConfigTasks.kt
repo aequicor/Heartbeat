@@ -65,8 +65,9 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
 
         is ProjectConfigEffect.CloseBundle -> null.also { close(effect.id) }
 
-        ProjectConfigEffect.Load, is ProjectConfigEffect.SaveBindings, is ProjectConfigEffect.Sync,
-        is ProjectConfigEffect.Review, is ProjectConfigEffect.Apply, is ProjectConfigEffect.WriteBack,
+        ProjectConfigEffect.Load, is ProjectConfigEffect.SaveStorage, is ProjectConfigEffect.SaveBindings,
+        is ProjectConfigEffect.Sync, is ProjectConfigEffect.Review, is ProjectConfigEffect.Apply,
+        is ProjectConfigEffect.WriteBack,
         -> error("Not a task effect")
     }
 

@@ -172,7 +172,8 @@ class ProjectConfigEffectsTest {
         assertTrue(fixture.ready.proposals.isEmpty())
 
         fixture.run(Internal.ImportToProject("i", "/tmp/out.hbai", PROJECT))
-        assertEquals(ProjectConfigOutput.TaskFinished("i", ConfigTaskResult.Imported(2)), fixture.outputs.last())
+        // The project lesson was already saved automatically before the bundle was imported.
+        assertEquals(ProjectConfigOutput.TaskFinished("i", ConfigTaskResult.Imported(1, 1)), fixture.outputs.last())
         assertEquals("rules\n", fixture.files["harnesses/review.md"])
     }
 

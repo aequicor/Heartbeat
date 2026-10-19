@@ -45,6 +45,7 @@ internal class FakeSection(
                 "${it.revision}:${it.text.hashCode()}",
                 project = it.project,
                 parent = it.parent?.let(::ConfigEntityKey),
+                projects = it.projects,
             )
         }
     }
@@ -98,4 +99,5 @@ internal data class FakeEntity(
     val project: WorkspaceRef? = null,
     val revision: Int = 0,
     val parent: String? = null,
+    val projects: Set<WorkspaceRef> = emptySet(),
 )

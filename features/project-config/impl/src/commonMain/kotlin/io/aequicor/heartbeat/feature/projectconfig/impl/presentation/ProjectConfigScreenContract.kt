@@ -14,6 +14,9 @@ import pro.respawn.flowmvi.api.MVIState
 /** Whether the feature can be used and its data is known. */
 internal enum class PhaseUi { Unsupported, Off, Loading, Failed, Ready }
 
+/** Location offered by the configuration settings. */
+internal enum class StorageUi { Project, App }
+
 /** Section of a unit or entity as the screen names it. */
 internal enum class SectionUi { Harness, Interface, Learning, Other }
 
@@ -120,6 +123,8 @@ internal data class ProjectUi(
     val isSyncing: Boolean,
     val isUnreadable: Boolean,
     val units: ImmutableList<BoundUnitUi>,
+    val storage: StorageUi = StorageUi.Project,
+    val storageOverride: StorageUi? = null,
 )
 
 /**
@@ -168,11 +173,13 @@ internal enum class TaskFailureUi { Busy, Unavailable, Unreadable, Format, Versi
 @Immutable
 internal data class ProjectConfigScreenState(
     val phase: PhaseUi = PhaseUi.Loading,
+    val defaultStorage: StorageUi = StorageUi.Project,
     val proposals: ImmutableList<ProposalUi> = persistentListOf(),
     val projects: ImmutableList<ProjectUi> = persistentListOf(),
     val entities: ImmutableList<EntityUi> = persistentListOf(),
     val bundle: String? = null,
     val isBusy: Boolean = false,
+    val isStorageBusy: Boolean = false,
     val notice: NoticeUi? = null,
     val confirming: ProposalVersionUi? = null,
     val picker: PickerUi? = null,
@@ -209,6 +216,15 @@ internal sealed interface ProjectConfigScreenIntent : MVIIntent {
 
     /** Sets a proposal in the shown [version] aside until its files change. */
     data class Dismiss(val version: ProposalVersionUi) : Decision
+
+    /** Changes to storage location preferences. */
+    sealed interface Storage : ProjectConfigScreenIntent
+
+    /** Sets the profile default location. */
+    data class SetDefaultStorage(val storage: StorageUi) : Storage
+
+    /** Sets an override or restores inheritance when null. */
+    data class SetProjectStorage(val projectKey: String, val storage: StorageUi?) : Storage
 
     /** Reads a project folder again. */
     data class Sync(val projectKey: String) : Decision

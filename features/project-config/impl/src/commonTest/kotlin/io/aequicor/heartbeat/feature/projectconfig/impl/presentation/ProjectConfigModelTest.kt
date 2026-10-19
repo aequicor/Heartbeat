@@ -11,9 +11,12 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigEntityRef
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigProposal
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSectionId
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSource
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigStorage
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigStorageSettings
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSummary
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigWriteBack
 import io.aequicor.heartbeat.feature.projectconfig.api.ExistingUnits
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
@@ -43,6 +46,7 @@ import pro.respawn.flowmvi.api.Provider
 import pro.respawn.flowmvi.dsl.collect
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -214,6 +218,45 @@ class ProjectConfigModelTest {
         runCurrent()
         assertEquals(listOf<ProjectConfigIntent>(Internal.RemoveFromProject(PROJECT, review)), fixture.machine.sent)
         assertNull(screen.states.value.removing)
+    }
+
+    @Test
+    fun `storage controls forward the default override and inheritance to the machine`() = runTest {
+        val fixture = Fixture(this, ready.copy(storage = ConfigStorageSettings(ConfigStorage.App)))
+        val screen = fixture.subscribe()
+        assertEquals(StorageUi.App, screen.states.value.defaultStorage)
+        assertEquals(StorageUi.App, screen.states.value.projects.single().storage)
+        assertNull(screen.states.value.projects.single().storageOverride)
+        screen.intent(ProjectConfigScreenIntent.SetDefaultStorage(StorageUi.Project))
+        screen.intent(ProjectConfigScreenIntent.SetProjectStorage(PROJECT.value, StorageUi.App))
+        screen.intent(ProjectConfigScreenIntent.SetProjectStorage(PROJECT.value, null))
+        runCurrent()
+        assertEquals(
+            listOf<ProjectConfigIntent>(
+                Internal.SetDefaultStorage(ConfigStorage.Project),
+                Internal.SetProjectStorage(PROJECT, ConfigStorage.App),
+                Internal.SetProjectStorage(PROJECT, null),
+            ),
+            fixture.machine.sent,
+        )
+        fixture.machine.state.value = ready.copy(
+            storage = ConfigStorageSettings(ConfigStorage.App, mapOf(PROJECT.value to ConfigStorage.Project)),
+        )
+        runCurrent()
+        assertEquals(StorageUi.Project, screen.states.value.projects.single().storage)
+        assertEquals(StorageUi.Project, screen.states.value.projects.single().storageOverride)
+    }
+
+    @Test
+    fun `storage busy follows write back completion in the machine`() = runTest {
+        val unit = ConfigUnitRef(ConfigSectionId.Harnesses, "review")
+        val write = ConfigWriteBack(PROJECT, unit, null, null)
+        val fixture = Fixture(this, ready.copy(writing = setOf(write)))
+        val screen = fixture.subscribe()
+        assertTrue(screen.states.value.isStorageBusy)
+        fixture.machine.state.value = ready
+        runCurrent()
+        assertFalse(screen.states.value.isStorageBusy)
     }
 
     private class Fixture(private val scope: TestScope, initial: ProjectConfigState) {

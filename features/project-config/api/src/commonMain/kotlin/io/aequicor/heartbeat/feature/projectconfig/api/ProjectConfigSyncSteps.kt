@@ -3,8 +3,11 @@ package io.aequicor.heartbeat.feature.projectconfig.api
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 
 /** The first Ready state after the bindings were read, syncing every project. */
-internal fun loaded(bindings: List<ConfigBinding>, projects: Set<WorkspaceRef>): ConfigStep =
-    Ready(bindings = bindings).withProjects(projects)
+internal fun loaded(
+    bindings: List<ConfigBinding>,
+    projects: Set<WorkspaceRef>,
+    storage: ConfigStorageSettings = ConfigStorageSettings(),
+): ConfigStep = Ready(bindings = bindings, storage = storage).withProjects(projects)
 
 /** Starts syncing added projects and forgets the proposals of removed ones; their bindings stay. */
 internal fun Ready.withProjects(projects: Set<WorkspaceRef>): ConfigStep {
@@ -12,17 +15,19 @@ internal fun Ready.withProjects(projects: Set<WorkspaceRef>): ConfigStep {
     val removed = this.projects.keys - projects
     val next = copy(
         projects = this.projects.filterKeys { it in projects } + added.associateWith {
-            ProjectSync(generation = 1, isSyncing = true)
+            ProjectSync(generation = 1, isSyncing = storage.location(it) == ConfigStorage.Project)
         },
         proposals = proposals.filterNot { it.projectOrNull in removed },
     )
-    val requests = added.map { SyncRequest(it, 1, bindingsOf(it)) }
+    val requests = added.filter { storage.location(it) == ConfigStorage.Project }
+        .map { SyncRequest(it, 1, bindingsOf(it)) }
     return ConfigStep(next, listOfNotNull(ProjectConfigEffect.Sync(requests).takeIf { requests.isNotEmpty() }))
 }
 
 /** Syncs [project] again, or marks it dirty while a sync is running. */
 internal fun Ready.changed(project: WorkspaceRef): ConfigStep {
     val sync = projects[project] ?: return ConfigStep(this)
+    if (storage.location(project) != ConfigStorage.Project) return ConfigStep(this)
     if (sync.isSyncing) return ConfigStep(copy(projects = projects + (project to sync.copy(isDirty = true))))
     val generation = sync.generation + 1
     val next = copy(projects = projects + (project to sync.copy(generation = generation, isSyncing = true)))
@@ -97,9 +102,11 @@ internal fun Ready.writing(writeBack: ConfigWriteBack): ConfigStep {
 /** Commits a write-back: the new binding, or none after its files were deleted. */
 internal fun Ready.writtenBack(intent: ProjectConfigIntent.Internal.WrittenBack): ConfigStep {
     val writeBack = intent.writeBack
+    val previous = bindings.firstOrNull { it.project == writeBack.project && it.unit == writeBack.unit }
     val others = bindings.filterNot { it.project == writeBack.project && it.unit == writeBack.unit }
+    val binding = if (writeBack.isUnbinding) previous?.copy(isExcluded = true) else intent.binding
     val next = copy(writing = writing - writeBack, proposals = proposals.filterNot { it.isFor(writeBack) })
     return ConfigStep(next)
-        .then { it.withBindings(others + listOfNotNull(intent.binding)) }
+        .then { it.withBindings(others + listOfNotNull(binding)) }
         .then { it.changed(writeBack.project) }
 }

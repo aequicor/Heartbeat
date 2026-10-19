@@ -119,6 +119,9 @@ public sealed interface ProjectConfigState : MachineState {
     /** Reading the stored bindings for [projects]. */
     public data class Loading(val projects: Set<WorkspaceRef>) : ProjectConfigState
 
+    /** Cancels project operations before saving a location change; completion reloads bindings and settings. */
+    public data class Configuring(val projects: Set<WorkspaceRef>) : ProjectConfigState
+
     /** The stored bindings are unreadable: nothing is synced or written until a reload succeeds. */
     public data class Failed(val projects: Set<WorkspaceRef>) : ProjectConfigState
 
@@ -136,6 +139,7 @@ public sealed interface ProjectConfigState : MachineState {
         val bundle: ConfigBundle? = null,
         val task: ConfigTask? = null,
         val revision: Long = 0,
+        val storage: ConfigStorageSettings = ConfigStorageSettings(),
     ) : ProjectConfigState
 }
 
@@ -219,7 +223,22 @@ public sealed interface ProjectConfigIntent : MachineIntent {
         public data class Changed(val project: WorkspaceRef) : Internal
 
         /** The stored bindings. */
-        public data class Loaded(val bindings: List<ConfigBinding>) : Internal
+        public data class Loaded(
+            val bindings: List<ConfigBinding>,
+            val storage: ConfigStorageSettings = ConfigStorageSettings(),
+        ) : Internal
+
+        /** Changes the profile default, preserving all project overrides. */
+        public data class SetDefaultStorage(val location: ConfigStorage) : Internal
+
+        /** Overrides one project's location; null restores the profile default. */
+        public data class SetProjectStorage(val project: WorkspaceRef, val location: ConfigStorage?) : Internal
+
+        /** The new location is durable and previous project IO has finished. */
+        public data object StorageSaved : Internal
+
+        /** Saving failed; reload the durable settings before resuming any project IO. */
+        public data object StorageSaveFailed : Internal
 
         /** The stored bindings are unreadable. */
         public data object LoadFailed : Internal
@@ -275,6 +294,13 @@ public sealed interface ProjectConfigIntent : MachineIntent {
 public sealed interface ProjectConfigEffect : MachineEffect {
     /** Reads the stored bindings. */
     public data object Load : ProjectConfigEffect
+
+    /** Releases the dropped [bundleId], then stores bindings and settings after prior reads are cancelled. */
+    public data class SaveStorage(
+        val settings: ConfigStorageSettings,
+        val bindings: List<ConfigBinding>,
+        val bundleId: String? = null,
+    ) : ProjectConfigEffect
 
     /** Stores [bindings]; ignored when a newer [revision] was already stored. */
     public data class SaveBindings(val bindings: List<ConfigBinding>, val revision: Long) : ProjectConfigEffect

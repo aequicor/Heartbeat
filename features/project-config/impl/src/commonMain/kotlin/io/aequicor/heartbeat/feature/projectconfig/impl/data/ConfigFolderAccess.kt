@@ -44,6 +44,7 @@ internal class ConfigFolderAccess(
     private val workspaces: LocalWorkspaces,
     private val folders: ProjectFolders,
     private val sections: Lazy<Set<ConfigSection>>,
+    private val policy: ConfigStoragePolicy,
 ) {
     /** Reader over the profile's sections. */
     val reader: ConfigReader = ConfigReader { sections.value }
@@ -53,7 +54,15 @@ internal class ConfigFolderAccess(
     private val reads = mutableMapOf<WorkspaceRef, KeptRead>()
 
     /** The folder of [project]. */
-    suspend fun folder(project: WorkspaceRef): FolderRead {
+    suspend fun folder(project: WorkspaceRef): FolderRead = policy.access(project) { readFolder(project) }
+        ?: FolderRead.Failed(ConfigReadFailure.Unsupported)
+
+    /** Polling is fenced by the same policy as reads and writes. */
+    suspend fun fingerprint(project: WorkspaceRef): String? = policy.access(project) {
+        workspaces.resolve(project)?.let { folders.fingerprint(it) }
+    }
+
+    private suspend fun readFolder(project: WorkspaceRef): FolderRead {
         val root = workspaces.resolve(project) ?: return FolderRead.Failed(ConfigReadFailure.Unavailable)
         // Taken before the read: a change during the read leaves an older marker, so the next access reads again.
         val marker = folders.fingerprint(root)
@@ -74,8 +83,11 @@ internal class ConfigFolderAccess(
      * @throws ConfigWriteException when the project is unknown or the folder cannot be written.
      */
     suspend fun write(project: WorkspaceRef, put: List<ConfigFile>, delete: List<ConfigPath>) {
-        val root = workspaces.resolve(project) ?: throw ConfigWriteException(ConfigWriteFailure.Unavailable)
-        folders.write(root, put, delete)
+        policy.access(project) {
+            val root = workspaces.resolve(project) ?: throw ConfigWriteException(ConfigWriteFailure.Unavailable)
+            folders.write(root, put, delete)
+            true
+        } ?: throw ConfigWriteException(ConfigWriteFailure.Unsupported)
     }
 
     /** The unit of [proposal] as its source holds it now, or null when it is gone or no longer the reviewed one. */
@@ -88,11 +100,13 @@ internal class ConfigFolderAccess(
     }
 
     /** Units of [project]'s folder: the kept read while the folder's fingerprint is unchanged, else a new read. */
-    private suspend fun current(project: WorkspaceRef): GroupedTree? {
+    private suspend fun current(project: WorkspaceRef): GroupedTree? = policy.access(project) { keptCurrent(project) }
+
+    private suspend fun keptCurrent(project: WorkspaceRef): GroupedTree? {
         val root = workspaces.resolve(project) ?: return null
         val marker = folders.fingerprint(root)
         val kept = lock.withLock { reads[project] }?.takeIf { marker != null && it.marker == marker }
-        return kept?.tree ?: (folder(project) as? FolderRead.Read)?.tree
+        return kept?.tree ?: (readFolder(project) as? FolderRead.Read)?.tree
     }
 
     /** Groups [tree] into the units of the profile's sections. */

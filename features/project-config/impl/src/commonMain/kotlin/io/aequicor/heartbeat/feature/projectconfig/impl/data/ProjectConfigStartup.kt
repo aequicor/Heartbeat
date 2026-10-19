@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigStorage
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEnabled
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigState
@@ -43,6 +44,7 @@ internal class ProjectConfigStartup(
     // Lazy: profile storages may refuse to open (a wipe in progress) while the set of startups is created.
     private val workspaces: Lazy<LocalWorkspaces>,
     private val folders: ProjectFolders,
+    private val access: Lazy<ConfigFolderAccess>,
     private val sections: Lazy<Set<ConfigSection>>,
 ) : ProfileStartup {
     private val log = Log.tag("ProjectConfigStartup")
@@ -88,10 +90,13 @@ internal class ProjectConfigStartup(
         val prints = mutableMapOf<WorkspaceRef, String?>()
         while (currentCoroutineContext().isActive) {
             delay(POLL_MILLIS)
-            val projects = (machine.state.value as? ProjectConfigState.Ready)?.projects?.keys.orEmpty()
+            val ready = machine.state.value as? ProjectConfigState.Ready
+            val projects = ready?.projects?.keys.orEmpty().filter {
+                ready?.storage?.location(it) == ConfigStorage.Project
+            }.toSet()
             prints.keys.retainAll(projects)
             for (project in projects) {
-                val print = workspaces.value.resolve(project)?.let { folders.fingerprint(it) }
+                val print = access.value.fingerprint(project)
                 if (prints.containsKey(project) && prints[project] != print) {
                     log.v { "A project configuration folder changed" }
                     machine.send(Internal.Changed(project))
@@ -111,7 +116,10 @@ internal class ProjectConfigStartup(
             .collectLatest { _ ->
                 // Bursts of library writes settle before the projects are synced again.
                 delay(SETTLE_MILLIS)
-                val projects = (machine.state.value as? ProjectConfigState.Ready)?.projects?.keys.orEmpty()
+                val ready = machine.state.value as? ProjectConfigState.Ready
+                val projects = ready?.projects?.keys.orEmpty().filter {
+                    ready?.storage?.location(it) == ConfigStorage.Project
+                }.toSet()
                 log.v { "Configuration entities changed, syncing ${projects.size} projects" }
                 projects.forEach { project -> machine.send(Internal.Changed(project)) }
             }

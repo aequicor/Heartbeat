@@ -10,7 +10,10 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Publi
 /**
  * Live project configuration of the profile. The profile libraries stay where entities run: a unit from a project
  * folder or a bundle reaches them only after its automatic review and the user's trust, so they always hold a version
- * the user trusted; changes made in the app are written back into bound folders. The machine never reads files or
+ * the user trusted. Project-owned entities are automatically written into their project's tree by default;
+ * changes made in the app are written back into bound folders. App storage suspends all access to that project's
+ * tree while keeping the runtime libraries and bindings. Location changes leave Ready to cancel its effects before
+ * persisting the new policy and reloading. The machine never reads files or
  * calls the owners of entities: effects read folders, review, apply through the sections and write. Other features
  * send only Public intents (Reload, Sync, Dismiss, OpenBundle, CloseBundle); trusting proposals and writing folders or
  * bundles (Trust, KeepApp, RemoveFromProject, SaveToProject, Export, ImportToProject) are Internal commands of the
@@ -19,7 +22,10 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Publi
  * | From | Intent | Guard | To | Effect / output |
  * |---|---|---|---|---|
  * | Off | Enabled | | Loading(projects) | Load |
- * | Loading | Loaded | | Ready(bindings) | Sync(all projects) |
+ * | Loading | Loaded | | Ready(bindings, storage) | Sync(project storage only) |
+ * | Ready | SetDefaultStorage / SetProjectStorage | no task or mutations | Configuring | SaveStorage |
+ * | Configuring | StorageSaved / StorageSaveFailed | | Loading | Load; StorageFailed on failure |
+ * | Configuring | ProjectsChanged | | same with projects | |
  * | Loading | LoadFailed | | Failed | StorageFailed |
  * | Loading / Failed | ProjectsChanged | | same with projects | |
  * | Failed | Reload | | Loading | Load |
@@ -64,14 +70,26 @@ public val ProjectConfigMachineSpec: MachineSpec<
     }
     state<ProjectConfigState.Loading> {
         on<Internal.Loaded> {
-            goto<ProjectConfigState.Ready> { loaded(intent.bindings, state.projects).state }
-            effect { loaded(intent.bindings, state.projects).effects.firstOrNull() }
+            goto<ProjectConfigState.Ready> { loaded(intent.bindings, state.projects, intent.storage).state }
+            effect { loaded(intent.bindings, state.projects, intent.storage).effects.firstOrNull() }
         }
         on<Internal.LoadFailed> {
             goto<ProjectConfigState.Failed> { ProjectConfigState.Failed(state.projects) }
             output { ProjectConfigOutput.StorageFailed }
         }
         on<Internal.ProjectsChanged> { stay { ProjectConfigState.Loading(intent.projects) } }
+    }
+    state<ProjectConfigState.Configuring> {
+        on<Internal.StorageSaved> {
+            goto<ProjectConfigState.Loading> { ProjectConfigState.Loading(state.projects) }
+            effect { ProjectConfigEffect.Load }
+        }
+        on<Internal.StorageSaveFailed> {
+            goto<ProjectConfigState.Loading> { ProjectConfigState.Loading(state.projects) }
+            effect { ProjectConfigEffect.Load }
+            output { ProjectConfigOutput.StorageFailed }
+        }
+        on<Internal.ProjectsChanged> { stay { state.copy(projects = intent.projects) } }
     }
     state<ProjectConfigState.Failed> {
         on<Public.Reload> {
@@ -81,6 +99,28 @@ public val ProjectConfigMachineSpec: MachineSpec<
         on<Internal.ProjectsChanged> { stay { ProjectConfigState.Failed(intent.projects) } }
     }
     state<ProjectConfigState.Ready> {
+        on<Internal.SetDefaultStorage>(guard = { state.canChangeStorage() }) {
+            goto<ProjectConfigState.Configuring> { ProjectConfigState.Configuring(state.projects.keys) }
+            effect {
+                ProjectConfigEffect.SaveStorage(
+                    state.storage.copy(default = intent.location),
+                    state.bindings,
+                    state.bundle?.id,
+                )
+            }
+        }
+        on<Internal.SetProjectStorage>(guard = { intent.project in state.projects && state.canChangeStorage() }) {
+            goto<ProjectConfigState.Configuring> { ProjectConfigState.Configuring(state.projects.keys) }
+            effect {
+                val projects = intent.location?.let { state.storage.projects + (intent.project.value to it) }
+                    ?: (state.storage.projects - intent.project.value)
+                ProjectConfigEffect.SaveStorage(
+                    state.storage.copy(projects = projects),
+                    state.bindings,
+                    state.bundle?.id,
+                )
+            }
+        }
         syncs()
         decisions()
         tasks()
@@ -161,19 +201,28 @@ private fun ReadyBuilder.decisions() {
         }
     }
     on<Internal.RemoveFromProject>(
-        guard = { state.bindings.any { it.project == intent.project && it.unit == intent.unit } },
+        guard = {
+            state.storage.location(intent.project) == ConfigStorage.Project && state.bindings.any {
+                !it.isExcluded && it.project == intent.project && it.unit == intent.unit
+            }
+        },
     ) {
         step {
             val binding = state.bindings.first { it.project == intent.project && it.unit == intent.unit }
             val proposal = state.proposals.firstOrNull { it.projectOrNull == intent.project && it.unit == intent.unit }
             val digest = if (proposal != null) proposal.digest else binding.fileDigest
-            state.writing(ConfigWriteBack(intent.project, intent.unit, null, digest))
+            state.writing(ConfigWriteBack(intent.project, intent.unit, null, digest, isUnbinding = true))
         }
     }
 }
 
 private fun ReadyBuilder.tasks() {
-    on<Internal.SaveToProject>(guard = { intent.project in state.projects && intent.entities.isNotEmpty() }) {
+    on<Internal.SaveToProject>(
+        guard = {
+            intent.project in state.projects && state.storage.location(intent.project) == ConfigStorage.Project &&
+                intent.entities.isNotEmpty()
+        },
+    ) {
         step {
             state.started(
                 ConfigTask(intent.requestId, ConfigTaskKind.SaveToProject, intent.project),
@@ -197,7 +246,9 @@ private fun ReadyBuilder.tasks() {
             )
         }
     }
-    on<Internal.ImportToProject>(guard = { intent.project in state.projects }) {
+    on<Internal.ImportToProject>(
+        guard = { intent.project in state.projects && state.storage.location(intent.project) == ConfigStorage.Project },
+    ) {
         step {
             state.started(
                 ConfigTask(intent.requestId, ConfigTaskKind.ImportToProject, intent.project),
@@ -253,6 +304,7 @@ private fun ProjectConfigState.Ready.keptWriteBack(id: String, digest: ConfigDig
 private fun ProjectConfigEffect.failure(): ProjectConfigIntent? = when (this) {
     ProjectConfigEffect.Load -> Internal.LoadFailed
     is ProjectConfigEffect.SaveBindings -> Internal.BindingsSaveFailed
+    is ProjectConfigEffect.SaveStorage -> Internal.StorageSaveFailed
     is ProjectConfigEffect.Sync -> Internal.SyncFailed(requests, ConfigReadFailure.Io)
     is ProjectConfigEffect.Review -> Internal.ReviewsFailed(proposals)
     is ProjectConfigEffect.Apply -> Internal.ApplyFailed(proposal.id, ConfigRejection.Failed)

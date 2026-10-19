@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigProblem
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigProblemCode
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSectionId
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnit
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
 import io.aequicor.heartbeat.feature.projectconfig.api.EntityDigest
 import io.aequicor.heartbeat.feature.projectconfig.api.ScannedUnit
 import io.aequicor.heartbeat.feature.projectconfig.api.UnitCheck
@@ -88,7 +89,7 @@ internal class ConfigReader(private val provider: () -> Collection<ConfigSection
                 null
             }
 
-            bindings.any { it.unit == unit.ref && it.fileDigest == digest } ->
+            bindings.any { !it.isExcluded && it.unit == unit.ref && it.fileDigest == digest } ->
                 ScannedUnit(unit.ref, digest, UnitCheck.Unchanged)
 
             else -> ScannedUnit(unit.ref, digest, check(section, unit))
@@ -106,13 +107,19 @@ internal class ConfigReader(private val provider: () -> Collection<ConfigSection
     ): EntityDigests {
         val unreadable = mutableSetOf<ConfigSectionId>()
         val digests = snapshot.sections.flatMap { section ->
-            val related = snapshot.entities[section.id].orEmpty().mapNotNull { entity ->
-                val bound = bindings.firstOrNull { it.unit.section == section.id && it.key == entity.key }
-                val isCandidate = !section.isProjectScoped || entity.project == project
-                (bound?.unit?.name ?: entity.name.takeIf { isCandidate })?.let { entity to it }
-            }
+            val related = snapshot.namedEntities(section, project, bindings)
             val encoded = related.map { (entity, name) ->
-                digest(section, entity, name)?.let { EntityDigest(section.id, entity.key, entity.identity, it) }
+                digest(section, entity, name)?.let { digest ->
+                    EntityDigest(
+                        section.id,
+                        entity.key,
+                        entity.identity,
+                        digest,
+                        ConfigUnitRef(section.id, name).takeIf {
+                            project != null && snapshot.owns(section, entity, project)
+                        },
+                    )
+                }
             }
             if (null in encoded) {
                 unreadable += section.id
@@ -153,5 +160,39 @@ internal class ConfigReader(private val provider: () -> Collection<ConfigSection
 
     private companion object {
         const val CACHE_ENTRIES = 1024
+    }
+}
+
+/** Children follow their section's parent; shared library entities are never copied into every project. */
+private fun SectionsSnapshot.owns(section: ConfigSection, entity: ConfigEntity, project: WorkspaceRef): Boolean {
+    if (entity.project == project || project in entity.projects) return true
+    val parentSection = section.parent ?: return false
+    val parent = entities[parentSection].orEmpty().firstOrNull { it.key == entity.parent } ?: return false
+    return parent.project == project || project in parent.projects
+}
+
+/** Bound paths remain stable after a title edit; new project-owned entities reserve a different free name. */
+private fun SectionsSnapshot.namedEntities(
+    section: ConfigSection,
+    project: WorkspaceRef?,
+    bindings: List<ConfigBinding>,
+): List<Pair<ConfigEntity, String>> {
+    val sectionEntities = entities[section.id].orEmpty()
+    val bound = bindings.filter { it.unit.section == section.id }
+    val names = (sectionEntities.map { it.name } + bound.map { it.unit.name }).toMutableSet()
+    return sectionEntities.mapNotNull { entity ->
+        val binding = bound.firstOrNull { it.key == entity.key }
+        when {
+            binding != null -> entity to binding.unit.name
+
+            section.isProjectScoped && entity.project != project -> null
+
+            project != null && owns(section, entity, project) && bound.any { it.unit.name == entity.name } -> {
+                val name = generateSequence(2) { it + 1 }.map { "${entity.name}-$it" }.first(names::add)
+                entity to name
+            }
+
+            else -> entity to entity.name
+        }
     }
 }
