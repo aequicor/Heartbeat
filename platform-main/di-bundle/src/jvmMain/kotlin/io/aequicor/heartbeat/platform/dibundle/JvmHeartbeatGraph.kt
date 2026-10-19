@@ -23,5 +23,10 @@ internal interface JvmHeartbeatGraph : HeartbeatGraph {
  * Creates the application graph. Only the development and testing desktop entry points opt into local credential
  * storage ([hasLocalSecrets]); production keeps the system protection.
  */
-fun createHeartbeatGraph(isDevelopment: Boolean = false, hasLocalSecrets: Boolean = isDevelopment): HeartbeatGraph =
-    createGraphFactory<JvmHeartbeatGraph.Factory>().create(SecretsConfig(isDevelopment = hasLocalSecrets))
+fun createHeartbeatGraph(
+    isDevelopment: Boolean = false,
+    hasLocalSecrets: Boolean = isDevelopment,
+    allowSecretInteraction: Boolean = true,
+): HeartbeatGraph = createGraphFactory<JvmHeartbeatGraph.Factory>().create(
+    SecretsConfig(isDevelopment = hasLocalSecrets, isInteractionAllowed = allowSecretInteraction),
+)

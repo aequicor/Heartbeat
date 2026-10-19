@@ -27,7 +27,10 @@ internal class JvmProtectedVault(
                 return when (platform.host) {
                     HostPlatform.Windows -> windows(root.resolve("$profile.vault"), profile, erase, action)
 
-                    HostPlatform.MacOs -> MacKeychain(config.service).transaction(profile, erase, action)
+                    HostPlatform.MacOs -> MacKeychain(
+                        config.service,
+                        config.isInteractionAllowed,
+                    ).transaction(profile, erase, action)
 
                     HostPlatform.Linux -> LinuxKeyring(config.service).transaction(profile, erase, action)
 

@@ -5,27 +5,28 @@ import androidx.room.RoomDatabase
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
-import io.aequicor.heartbeat.core.common.HostPlatform
-import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import java.io.File
 
 /** Per-user application data: `%APPDATA%` (Windows), `Application Support` (macOS), `$XDG_DATA_HOME` (Linux). */
 @ContributesBinding(AppScope::class)
 @Inject
-internal class JvmStorageRoot(private val platform: PlatformInfo) : StorageRoot {
-    override fun path(): String {
-        val home = System.getProperty("user.home").orEmpty()
-        val dir = when (platform.host) {
-            HostPlatform.Windows -> File(System.getenv("APPDATA") ?: "$home/AppData/Roaming", "Aequicor/Heartbeat")
+internal class JvmStorageRoot : StorageRoot {
+    override fun path(): String = jvmStorageRootPath()
+}
 
-            HostPlatform.MacOs -> File(home, "Library/Application Support/Heartbeat")
+/** Resolves the same root before graph creation, so desktop hosts can exclude concurrent storage owners. */
+public fun jvmStorageRootPath(): String {
+    val home = System.getProperty("user.home").orEmpty()
+    val os = System.getProperty("os.name").orEmpty()
+    return when {
+        os.startsWith("Windows", ignoreCase = true) ->
+            File(System.getenv("APPDATA") ?: "$home/AppData/Roaming", "Aequicor/Heartbeat")
 
-            HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios ->
-                linuxStorageDirectory(home, System.getenv("XDG_DATA_HOME"))
-        }
-        return dir.absolutePath
-    }
+        os.startsWith("Mac", ignoreCase = true) -> File(home, "Library/Application Support/Heartbeat")
+
+        else -> linuxStorageDirectory(home, System.getenv("XDG_DATA_HOME"))
+    }.absolutePath
 }
 
 /** XDG requires an absolute data home; empty or relative values use the user's standard data directory. */

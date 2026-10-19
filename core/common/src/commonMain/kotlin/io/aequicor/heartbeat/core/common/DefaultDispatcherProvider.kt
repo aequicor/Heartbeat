@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 /** The only place that references `Dispatchers.*` directly — everything else injects [DispatcherProvider]. */
 @Suppress("InjectDispatcher") // this class *is* the injected dispatcher source
 @ContributesBinding(AppScope::class)
+@ContributesBinding(HostBootstrapScope::class)
 @Inject
 internal class DefaultDispatcherProvider : DispatcherProvider {
     override val main: CoroutineDispatcher get() = Dispatchers.Main
