@@ -92,6 +92,8 @@ public data class ConfigEntity(
     val description: String = "",
     val project: WorkspaceRef? = null,
     val parent: ConfigEntityKey? = null,
+    /** Projects that own this entity and receive it automatically; children inherit their parent's projects. */
+    val projects: Set<WorkspaceRef> = emptySet(),
 ) {
     override fun toString(): String = "ConfigEntity($key, name=$name, revision=$revision)"
 }

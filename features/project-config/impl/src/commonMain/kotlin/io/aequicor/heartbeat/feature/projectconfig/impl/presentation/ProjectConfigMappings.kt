@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigProposal
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigRejection
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSectionId
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSource
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigStorage
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigState
@@ -21,6 +22,8 @@ import kotlinx.collections.immutable.toImmutableList
 internal fun ProjectConfigScreenState.reflecting(state: ProjectConfigState, isSupported: Boolean) = when (state) {
     ProjectConfigState.Off -> copy(phase = if (isSupported) PhaseUi.Off else PhaseUi.Unsupported)
 
+    is ProjectConfigState.Configuring -> copy(phase = PhaseUi.Loading)
+
     is ProjectConfigState.Loading -> copy(phase = PhaseUi.Loading)
 
     is ProjectConfigState.Failed -> copy(phase = PhaseUi.Failed)
@@ -29,15 +32,20 @@ internal fun ProjectConfigScreenState.reflecting(state: ProjectConfigState, isSu
         val proposals = state.proposals.map { it.toUi(state, projectNames) }.toImmutableList()
         copy(
             phase = PhaseUi.Ready,
+            defaultStorage = state.storage.default.toUi(),
             proposals = proposals,
             projects = state.projects.map { (ref, sync) ->
                 ProjectUi(
                     key = ref.value,
+                    storage = state.storage.location(ref).toUi(),
+                    storageOverride = state.storage.projects[ref.value]?.toUi(),
                     name = projectNames[ref.value] ?: ref.value,
                     hasFolder = sync.hasFolder,
                     isSyncing = sync.isSyncing,
                     isUnreadable = sync.failure != null,
-                    units = state.bindings.asSequence().filter { it.project == ref }
+                    units = state.bindings.asSequence().filter {
+                        it.project == ref && !it.isExcluded && state.storage.location(ref) == ConfigStorage.Project
+                    }
                         .map { binding ->
                             BoundUnitUi(
                                 binding.unit.section.toUi(),
@@ -176,4 +184,15 @@ private fun ConfigSectionId.toUi(): SectionUi = when (this) {
     ConfigSectionId.Interfaces -> SectionUi.Interface
     ConfigSectionId.Learning -> SectionUi.Learning
     else -> SectionUi.Other
+}
+
+/** Domain selection of the screen value. */
+internal fun StorageUi.toDomain(): ConfigStorage = when (this) {
+    StorageUi.Project -> ConfigStorage.Project
+    StorageUi.App -> ConfigStorage.App
+}
+
+private fun ConfigStorage.toUi(): StorageUi = when (this) {
+    ConfigStorage.Project -> StorageUi.Project
+    ConfigStorage.App -> StorageUi.App
 }

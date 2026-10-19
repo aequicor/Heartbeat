@@ -198,13 +198,12 @@ class ProjectConfigMachineTest {
         )
         assertTrue(hidden.proposals.isEmpty())
         spec.assertIgnored(idle, Internal.KeepApp("missing", null))
+        val removal = ConfigWriteBack(project, review, null, binding.fileDigest, isUnbinding = true)
         spec.assertTransition(
             idle,
             Internal.RemoveFromProject(project, review),
-            idle.copy(writing = setOf(ConfigWriteBack(project, review, null, binding.fileDigest))),
-            effects = listOf(
-                ProjectConfigEffect.WriteBack(listOf(ConfigWriteBack(project, review, null, binding.fileDigest))),
-            ),
+            idle.copy(writing = setOf(removal)),
+            effects = listOf(ProjectConfigEffect.WriteBack(listOf(removal))),
         )
     }
 

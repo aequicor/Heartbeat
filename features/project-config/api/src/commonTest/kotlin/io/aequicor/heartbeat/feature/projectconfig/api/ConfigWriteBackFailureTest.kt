@@ -62,7 +62,7 @@ class ConfigWriteBackFailureTest {
     @Test
     fun `a failed explicit removal reports the failure and keeps the binding for retry`() {
         val idle = ready.copy(proposals = emptyList())
-        val deletion = ConfigWriteBack(project, unit, null, binding.fileDigest)
+        val deletion = ConfigWriteBack(project, unit, null, binding.fileDigest, isUnbinding = true)
         val deleting = idle.copy(writing = setOf(deletion))
         spec.assertTransition(
             idle,

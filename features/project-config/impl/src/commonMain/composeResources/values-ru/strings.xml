@@ -120,4 +120,10 @@
     <string name="pc_project_actions_named">Действия с проектом %1$s</string>
     <string name="pc_remove_named">Убрать %1$s из проекта</string>
     <string name="pc_busy">Выполняется…</string>
+    <string name="pc_storage_title">Хранение конфигурации</string>
+    <string name="pc_storage_hint">Конфигурация проекта автоматически сохраняется в .heartbeat. Выберите Heartbeat, чтобы хранить её в приложении без чтения и изменения файлов конфигурации проекта. Существующие файлы остаются на месте.</string>
+    <string name="pc_storage_default">По умолчанию для проектов</string>
+    <string name="pc_storage_project">В проекте (.heartbeat)</string>
+    <string name="pc_storage_app">В Heartbeat</string>
+    <string name="pc_storage_inherit">По умолчанию</string>
 </resources>

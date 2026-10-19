@@ -48,11 +48,13 @@ internal class EffectsFixture(vararg sections: ConfigSection) {
     val storage = MemoryStorage()
     val reviewer = Reviewer()
     val selections = Selections(TARGET)
-    val access = ConfigFolderAccess(workspaces, folders, lazyOf(sections.toSet()))
+    val policy = ConfigStoragePolicy(storage)
+    val access = ConfigFolderAccess(workspaces, folders, lazyOf(sections.toSet()), policy)
     val effects = ProjectConfigEffects(
         access,
         ConfigTasks(access, bundles),
         storage,
+        policy,
         lazyOf(reviewer),
         selections,
         object : DispatcherProvider {
@@ -97,6 +99,7 @@ internal class EffectsFixture(vararg sections: ConfigSection) {
 internal class MemoryFolders : ProjectFolders {
     val trees = mutableMapOf<String, MutableMap<String, String>>()
     var reads = 0
+    var fingerprints = 0
     var readProblems: List<ConfigProblem> = emptyList()
     var writeFailure: ConfigWriteFailure? = null
     var afterWrite: (() -> Unit)? = null
@@ -106,8 +109,10 @@ internal class MemoryFolders : ProjectFolders {
         ConfigRead.Read(ConfigTree.of(files.map { (path, text) -> ConfigFile(ConfigPath(path), text) }, readProblems))
     } ?: ConfigRead.Absent
 
-    override suspend fun fingerprint(root: String): String? =
-        trees[root]?.toList()?.sortedBy { it.first }?.toMap()?.toString()
+    override suspend fun fingerprint(root: String): String? {
+        fingerprints++
+        return trees[root]?.toList()?.sortedBy { it.first }?.toMap()?.toString()
+    }
 
     override suspend fun write(root: String, put: List<ConfigFile>, delete: List<ConfigPath>) {
         writeFailure?.let { throw ConfigWriteException(it) }
@@ -145,6 +150,11 @@ internal class Workspaces(private val roots: Map<WorkspaceRef, String>) : LocalW
 /** Bindings in memory. */
 internal class MemoryStorage : ConfigBindingStorage {
     var bindings: List<ConfigBinding> = emptyList()
+    var settings = io.aequicor.heartbeat.feature.projectconfig.api.ConfigStorageSettings()
+    override suspend fun loadSettings() = settings
+    override suspend fun saveSettings(settings: io.aequicor.heartbeat.feature.projectconfig.api.ConfigStorageSettings) {
+        this.settings = settings
+    }
     override suspend fun load(): List<ConfigBinding> = bindings
     override suspend fun save(bindings: List<ConfigBinding>) {
         this.bindings = bindings

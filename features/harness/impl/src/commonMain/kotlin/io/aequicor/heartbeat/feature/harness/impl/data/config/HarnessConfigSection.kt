@@ -95,6 +95,7 @@ internal class HarnessConfigSection(
                     title = harness.title,
                     revision = harness.revision.toString(),
                     description = harness.description,
+                    projects = (harness.scope as? HarnessScope.Projects)?.projects.orEmpty(),
                 )
             }
         }.distinctUntilChanged()

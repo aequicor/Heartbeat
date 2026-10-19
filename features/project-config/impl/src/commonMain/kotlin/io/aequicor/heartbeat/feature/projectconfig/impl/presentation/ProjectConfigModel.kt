@@ -104,6 +104,7 @@ internal class ProjectConfigModel(
         when (intent) {
             is ProjectConfigScreenIntent.Decision -> decide(intent)
             is ProjectConfigScreenIntent.Task -> run(intent)
+            is ProjectConfigScreenIntent.Storage -> configureStorage(intent)
         }
     }
 
@@ -133,6 +134,18 @@ internal class ProjectConfigModel(
             ProjectConfigScreenIntent.CancelRemove -> updateState { copy(removing = null) }
 
             ProjectConfigScreenIntent.Reload -> sendTo(machine, Public.Reload)
+        }
+    }
+
+    // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun ConfigPipeline.configureStorage(intent: ProjectConfigScreenIntent.Storage) {
+        when (intent) {
+            is ProjectConfigScreenIntent.SetDefaultStorage ->
+                sendTo(machine, Internal.SetDefaultStorage(intent.storage.toDomain()))
+
+            is ProjectConfigScreenIntent.SetProjectStorage ->
+                sendTo(machine, Internal.SetProjectStorage(WorkspaceRef(intent.projectKey), intent.storage?.toDomain()))
         }
     }
 

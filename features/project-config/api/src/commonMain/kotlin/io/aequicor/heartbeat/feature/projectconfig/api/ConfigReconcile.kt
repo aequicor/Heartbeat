@@ -18,6 +18,8 @@ package io.aequicor.heartbeat.feature.projectconfig.api
  * | unbound, no such entity | | Create proposal |
  * | missing | entity exists | Remove proposal |
  * | missing | entity removed | binding dropped |
+ * | absent and unbound | project-owned entity | automatic write-back with an absent-source precondition |
+ * | explicitly excluded | entity exists | exclusion retained without writing |
  *
  * Invalid units become proposals with their problems: they are shown and never trusted. Units and bindings of
  * [ProjectSnapshot.unavailable] sections are left untouched. Pure: digests and checks were computed by the effect
@@ -31,10 +33,28 @@ public fun reconcile(
     val reconciliation = Reconciliation(snapshot)
     val (paused, own) = bindings.filter { it.project == snapshot.project }
         .partition { it.unit.section in snapshot.unavailable }
-    own.forEach(reconciliation::bound)
-    snapshot.units.filter { unit -> unit.ref.section !in snapshot.unavailable && own.none { it.unit == unit.ref } }
+    own.filterNot { it.isExcluded }.forEach(reconciliation::bound)
+    reconciliation.bindings += own.filter { binding ->
+        binding.isExcluded && snapshot.units.none { it.ref == binding.unit } && snapshot.entities.any { entity ->
+            entity.section == binding.unit.section && entity.key == binding.key
+        }
+    }
+    snapshot.units.filter { unit ->
+        unit.ref.section !in snapshot.unavailable && own.none { !it.isExcluded && it.unit == unit.ref }
+    }
         .forEach(reconciliation::unbound)
     reconciliation.released.forEach(reconciliation::unbound)
+    snapshot.entities.filter { it.section !in snapshot.unavailable }.forEach { entity ->
+        val unit = entity.automaticUnit
+        val isBound = (paused + reconciliation.bindings).any {
+            it.unit == unit || (it.unit.section == entity.section && it.key == entity.key)
+        }
+        val hasProposal = reconciliation.proposals.any { it.unit.section == entity.section && it.target == entity.key }
+        val isMissing = unit != null && snapshot.units.none { it.ref == unit }
+        if (isMissing && !isBound && !hasProposal) {
+            reconciliation.writeBacks += ConfigWriteBack(snapshot.project, unit, entity.key, null)
+        }
+    }
     return Reconciled(
         paused + reconciliation.bindings,
         reconciliation.proposals.map { it.keeping(previous) },

@@ -31,6 +31,8 @@ public data class ConfigBinding(
     val key: ConfigEntityKey,
     val fileDigest: ConfigDigest,
     val entityDigest: ConfigDigest,
+    /** Explicitly removed from the project by the user; prevents automatic recreation until manually saved. */
+    val isExcluded: Boolean = false,
 )
 
 /** Result of checking a unit found in a folder or a bundle. */
@@ -58,6 +60,8 @@ public data class EntityDigest(
     val key: ConfigEntityKey,
     val identity: String,
     val digest: ConfigDigest,
+    /** Unit to create when this project owns the entity and has no files or binding for it. */
+    val automaticUnit: ConfigUnitRef? = null,
 )
 
 /**
@@ -167,6 +171,8 @@ public data class ConfigWriteBack(
     val unit: ConfigUnitRef,
     val key: ConfigEntityKey?,
     val expectedDigest: ConfigDigest?,
+    /** User requested removal from the project while keeping the entity in Heartbeat. */
+    val isUnbinding: Boolean = false,
 )
 
 /** Outcome of [reconcile] for one project. */

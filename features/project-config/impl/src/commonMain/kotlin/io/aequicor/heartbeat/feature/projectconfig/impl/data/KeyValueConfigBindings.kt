@@ -3,12 +3,15 @@ package io.aequicor.heartbeat.feature.projectconfig.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigBinding
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigStorageSettings
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigBindingStorage
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -24,6 +27,13 @@ internal class KeyValueConfigBindings(
 ) : ConfigBindingStorage {
     private val log = Log.tag("ConfigBindings")
     private val store by lazy { stores.keyValue(SPEC) }
+    private val settingsStore by lazy { stores.keyValue(SETTINGS_SPEC) }
+
+    override suspend fun loadSettings(): ConfigStorageSettings = settingsStore.get(SETTINGS) ?: ConfigStorageSettings()
+
+    override suspend fun saveSettings(settings: ConfigStorageSettings) {
+        settingsStore.set(SETTINGS, settings)
+    }
 
     override suspend fun load(): List<ConfigBinding> {
         val bindings = store.get(BINDINGS)?.let(::decode).orEmpty()
@@ -43,6 +53,8 @@ internal class KeyValueConfigBindings(
     }
 
     private companion object {
+        val SETTINGS_SPEC = KeyValueSpec("project_config_storage", readPolicy = KeyValueReadPolicy.Strict)
+        val SETTINGS = jsonKey("settings", ConfigStorageSettings.serializer())
         val SPEC = KeyValueSpec("project_config")
         val BINDINGS = stringKey("bindings")
         val LIST = ListSerializer(ConfigBinding.serializer())

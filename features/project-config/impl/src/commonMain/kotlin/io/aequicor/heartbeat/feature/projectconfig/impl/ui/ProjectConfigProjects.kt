@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProjectConf
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProjectUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.RemovalUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.SectionUi
+import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.StorageUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.Res
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_bundle_close
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_bundle_open
@@ -73,6 +74,7 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_section_pro
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_section_transfer
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_section_transfer_hint
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_selected
+import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_storage_app
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_sync
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_sync_named
 import kotlinx.collections.immutable.ImmutableList
@@ -100,6 +102,7 @@ internal fun ProjectsSection(
             key(project.key) {
                 if (index > 0) HbDivider()
                 ProjectRow(project, isBusy, onIntent)
+                ProjectStorageRow(project, isBusy, onIntent)
                 project.units.forEach { unit ->
                     val section = stringResource(unit.section.title())
                     val title = stringResource(Res.string.pc_content_line, section, unit.name)
@@ -122,6 +125,7 @@ internal fun ProjectsSection(
 private fun ProjectRow(project: ProjectUi, isBusy: Boolean, onIntent: (ProjectConfigScreenIntent) -> Unit) {
     var isMenuOpen by remember { mutableStateOf(false) }
     val status = when {
+        project.storage == StorageUi.App -> stringResource(Res.string.pc_storage_app)
         project.isSyncing -> stringResource(Res.string.pc_project_syncing)
         project.isUnreadable -> stringResource(Res.string.pc_project_unreadable)
         !project.hasFolder -> stringResource(Res.string.pc_project_no_folder)
@@ -141,7 +145,7 @@ private fun ProjectRow(project: ProjectUi, isBusy: Boolean, onIntent: (ProjectCo
             HbIcons.Refresh,
             stringResource(Res.string.pc_sync_named, project.name),
             { onIntent(ProjectConfigScreenIntent.Sync(project.key)) },
-            enabled = !project.isSyncing,
+            enabled = !project.isSyncing && project.storage == StorageUi.Project,
             tooltipText = stringResource(Res.string.pc_sync),
         )
         Box {
@@ -149,7 +153,7 @@ private fun ProjectRow(project: ProjectUi, isBusy: Boolean, onIntent: (ProjectCo
                 HbIcons.More,
                 actions,
                 { isMenuOpen = true },
-                enabled = !isBusy,
+                enabled = !isBusy && project.storage == StorageUi.Project,
                 tooltipText = stringResource(Res.string.pc_project_actions),
             )
             HbMenu(
