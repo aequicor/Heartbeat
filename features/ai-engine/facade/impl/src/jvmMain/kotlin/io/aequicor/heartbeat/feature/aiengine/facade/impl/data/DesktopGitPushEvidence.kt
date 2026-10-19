@@ -53,7 +53,7 @@ internal class DesktopGitPushEvidence(private val dispatchers: DispatcherProvide
             else -> "gitPush"
         }
         val capturedEnvironment = (environment ?: System.getenv()).toMap()
-        return try {
+        val snapshot = try {
             withContext(dispatchers.io) {
                 withTimeoutOrNull(CAPTURE_MILLIS) {
                     val root = Path.of(directory).toRealPath()
@@ -70,6 +70,11 @@ internal class DesktopGitPushEvidence(private val dispatchers: DispatcherProvide
             log.w(error.redactedFailure()) { "Command Git evidence unavailable" }
             unavailable("local evidence unavailable", kind = kind)
         }
+        return if (isLocal) {
+            JsonObject(snapshot + ("environmentFacts" to commandEnvironmentFacts(capturedEnvironment)))
+        } else {
+            snapshot
+        }
     }
 
     private suspend fun captureLocal(
@@ -78,20 +83,38 @@ internal class DesktopGitPushEvidence(private val dispatchers: DispatcherProvide
         reviewFiles: List<String>,
     ): JsonObject {
         // Unlike a push, local Git neither needs an origin nor uses proxy/credential transport settings.
-        if (environment.keys.any(::isLocalGitOverride)) return unavailable("execution overrides", kind = "localGit")
-        val executable = gitExecutable(directory, environment)
-        val repository = captureLocalGitEvidence(
-            directory,
-            executable,
-            environmentDigest(environment),
-            environment,
-        ) { arguments ->
-            git(executable, directory, environment, arguments = arguments, allowMissing = true)
+        val localProjection = environment["HEARTBEAT_LOCAL_GIT_EXECUTION_OVERRIDE"]
+        val isUnsafeProjection = localProjection != null && localProjection != "0"
+        val hasLocalOverrides = isUnsafeProjection || environment.keys.any {
+            isLocalGitOverride(it) &&
+                !(localProjection == "0" && it == "GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT")
+        }
+        val repository = if (hasLocalOverrides) {
+            unavailable("execution overrides", kind = "localGit")
+        } else {
+            try {
+                val executable = gitExecutable(directory, environment)
+                captureLocalGitEvidence(
+                    directory,
+                    executable,
+                    environmentDigest(environment),
+                    environment,
+                ) { arguments ->
+                    git(executable, directory, environment, arguments = arguments, allowMissing = true)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.w(error.redactedFailure()) { "Local Git evidence unavailable" }
+                unavailable("local Git context unavailable", kind = "localGit")
+            }
         }
         return if (reviewFiles.isEmpty()) {
             repository
         } else {
-            JsonObject(repository + ("reviewFiles" to captureCommandReviewFiles(directory, reviewFiles)))
+            val network = captureScoped(directory, null, environment, reviewFiles)
+            val files = checkNotNull(network["reviewFiles"])
+            JsonObject(repository + mapOf("projectNetwork" to network, "reviewFiles" to files))
         }
     }
 
@@ -535,15 +558,12 @@ private const val MAX_OUTPUT_BYTES = 65_536
 private const val MAX_OVERRIDE_NAMES = 64
 
 /** Selection only; the reviewer still inspects every shell prefix, argument and suffix. */
-private val LOCAL_GIT = Regex(
-    "(?:^|[\\s;&|()])git[ \\t]+(?:status|diff|show|log|rev-parse|ls-files|ls-tree|" +
-        "branch|add|commit|merge|restore|checkout|switch|stash|rebase|cherry-pick|reset)(?:[\\s;&|()]|$)",
-)
+private val LOCAL_GIT = Regex("\\bgit(?:\\.exe)?\\b", RegexOption.IGNORE_CASE)
 
 private fun isLocalGitOverride(name: String): Boolean = name.uppercase().let { upper ->
-    val isGitOverride = isGitOrSshName(upper) && upper !in LOCAL_GIT_ENVIRONMENT_EXCEPTIONS
+    val isGitOverride = upper.startsWith("GIT_") && upper !in LOCAL_GIT_ENVIRONMENT_EXCEPTIONS
     isGitOverride || upper.startsWith("BASH_FUNC_") || upper.startsWith("DYLD_") ||
-        upper in setOf("BASH_ENV", "ENV", "ZDOTDIR", "LD_PRELOAD", "LD_LIBRARY_PATH")
+        upper in LOCAL_GIT_EXECUTION_OVERRIDES
 }
 
 private val LOCAL_GIT_ENVIRONMENT_EXCEPTIONS = setOf(
@@ -552,4 +572,22 @@ private val LOCAL_GIT_ENVIRONMENT_EXCEPTIONS = setOf(
     "GIT_PAGER",
     "GIT_EDITOR",
     "GIT_SEQUENCE_EDITOR",
+)
+
+private val LOCAL_GIT_EXECUTION_OVERRIDES = setOf(
+    "BASH_ENV",
+    "ENV",
+    "ZDOTDIR",
+    "SHELLOPTS",
+    "BASHOPTS",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    "PYTHONPATH",
+    "PYTHONSTARTUP",
+    "RUBYOPT",
+    "PERL5OPT",
+    "JAVA_TOOL_OPTIONS",
+    "JDK_JAVA_OPTIONS",
 )

@@ -80,6 +80,7 @@ internal suspend fun captureLocalGitEvidence(
         put("metadata", JsonObject(metadata))
         put("hooks", hooks)
         put("scope", "Local Git only; no origin, transport or network authorization is implied")
+        put("scopeCoverage", LOCAL_SCOPE_COVERAGE)
     }
 }
 
@@ -139,3 +140,7 @@ private val LOCAL_HOOKS = listOf(
 )
 private const val MAX_HOOK_BYTES = 32_768
 private const val MAX_INDEX_BYTES = 16 * 1024 * 1024
+
+private const val LOCAL_SCOPE_COVERAGE =
+    "Facts cover the shown workingDirectory, root and resolved gitExecutable only. " +
+        "Command-line directory, repository, executable, config overrides and shell prefixes require separate evaluation."

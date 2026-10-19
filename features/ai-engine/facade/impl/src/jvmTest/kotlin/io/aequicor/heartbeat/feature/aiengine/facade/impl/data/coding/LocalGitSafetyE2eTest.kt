@@ -167,21 +167,36 @@ class LocalGitSafetyE2eTest {
 
     @Test
     fun `hook index and editor changes during review invalidate the grant before shell execution`() = runBlocking {
-        for (change in listOf("hook", "index", "editor")) {
-            afterReview = {
-                if (change == "hook") {
-                    hook("pre-commit", "printf changed >> hook-events")
-                } else if (change == "index") {
-                    Files.writeString(directory.resolve("extra.txt"), "extra")
-                    git("add", "extra.txt")
-                } else {
-                    git("config", "core.editor", "unexpected-editor")
+        val evidence = DesktopGitPushEvidence(dispatchers).capture(
+            directory.toString(),
+            "git status",
+            codingCommandEnvironment(),
+            emptyList(),
+        )
+        val executable = requireNotNull(evidence?.get("gitExecutable")?.jsonPrimitive?.content)
+        for (gitCommand in listOf(
+            "git commit --allow-empty -m checked",
+            "git --no-pager commit --allow-empty -m checked",
+            "\"$executable\" --no-pager commit --allow-empty -m checked",
+        )) {
+            for (change in listOf("hook", "index", "editor")) {
+                afterReview = {
+                    when (change) {
+                        "hook" -> hook("pre-commit", "printf changed-$calls >> hook-events")
+
+                        "index" -> {
+                            Files.writeString(directory.resolve("extra.txt"), "extra-$calls")
+                            git("add", "extra.txt")
+                        }
+
+                        else -> git("config", "core.editor", "unexpected-editor-$calls")
+                    }
                 }
+                val result = command(gitCommand)
+                assertTrue(result.isError)
+                assertTrue("changed" in result.text, result.text)
+                assertFalse(Files.exists(directory.resolve("hook-events")))
             }
-            val result = command("git commit --allow-empty -m checked")
-            assertTrue(result.isError)
-            assertTrue("changed" in result.text, result.text)
-            assertFalse(Files.exists(directory.resolve("hook-events")))
         }
         assertEquals(0, prompts)
     }

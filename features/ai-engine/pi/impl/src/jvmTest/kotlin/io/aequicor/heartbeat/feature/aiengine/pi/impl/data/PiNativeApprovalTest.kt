@@ -184,7 +184,13 @@ class PiNativeApprovalTest {
             false to TestWorkspace.toString(),
             true to "/other/workspace",
         ).flatMap { (isPinned, directory) ->
-            listOf("git push origin branch", "git commit --no-edit", "git diff --cached --name-only; git status")
+            listOf(
+                "git push origin branch",
+                "git commit --no-edit",
+                "git diff --cached --name-only; git status",
+                "git --no-pager commit --no-edit",
+                "/usr/bin/git commit --no-edit",
+            )
                 .map { Triple(isPinned, directory, it) }
         }) {
             var calls = 0

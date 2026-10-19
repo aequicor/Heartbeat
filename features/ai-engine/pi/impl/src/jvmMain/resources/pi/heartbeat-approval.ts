@@ -49,7 +49,7 @@ const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/;
 const WINDOWS_SHELL_PATH = /^\/(?:mnt\/|cygdrive\/)?[a-z](?:\/|$)/i;
 const SIMPLE_PUSH = /^git[ \t]+push(?:[ \t]+(?:-u[ \t]+)?origin[ \t]+[A-Za-z0-9][A-Za-z0-9._/-]*)?$/;
 // Selection of evidence only; neither this expression nor pinning authorizes a command.
-const LOCAL_GIT = /(?:^|[\s;&|()])git[ \t]+(?:status|diff|show|log|rev-parse|ls-files|ls-tree|branch|add|commit|merge|restore|checkout|switch|stash|rebase|cherry-pick|reset)(?:[\s;&|()]|$)/;
+const LOCAL_GIT = /\bgit(?:\.exe)?\b/i;
 const EXECUTION_ENVIRONMENT_KEYS = new Set(["EDITOR", "VISUAL", "PAGER", "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_PAGER"]);
 const ENVIRONMENT_KEYS = new Set([
     "PATH", "HOME", "XDG_CONFIG_HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR",
@@ -79,30 +79,31 @@ function needsPinnedEnvironment(input: any): boolean {
 }
 
 /**
- * Only paths/config discovery inputs cross RPC. Override values and credentials stay in this closure.
+ * Paths, routing and screened editor/pager values cross RPC. Other override values and credentials stay in this closure.
  * This projection cannot establish arbitrary manager/script environment effects; unresolved effects stay uncertain.
  */
-function gitEnvironment(env: Record<string, string | undefined>, local = false): Record<string, string> {
+function gitEnvironment(env: Record<string, string | undefined>): Record<string, string> {
     const result: Record<string, string> = {};
     let unsafe = false;
+    let localUnsafe = false;
     for (const [key, value] of Object.entries(env)) {
         if (value === undefined) continue;
         const upper = key.toUpperCase();
         if (ENVIRONMENT_KEYS.has(upper)) { result[key] = value; continue; }
         if (upper === "GH_HOST" || upper === "GH_REPO") {
             if (upper === "GH_HOST" ? publicHost(value) : publicRepository(value)) result[key] = value;
-            else if (!local) unsafe = true;
+            else unsafe = true;
             continue;
         }
-        if (local) {
-            if (EXECUTION_ENVIRONMENT_KEYS.has(upper)) {
-                if (/(?:\bsk-[A-Za-z0-9_.-]{8,}|\b(?:Bearer|Basic)\s+|(?:token|password|secret|api[_-]?key)\s*[:=])/i.test(value)) unsafe = true;
-                else result[key] = value;
-            } else if (/^(GIT_|BASH_FUNC_|LD_|DYLD_)/.test(upper) ||
-                ["BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH",
-                    "PYTHONSTARTUP", "RUBYOPT", "PERL5OPT", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS"].includes(upper)) unsafe = true;
-            continue;
-        }
+        if (EXECUTION_ENVIRONMENT_KEYS.has(upper)) {
+            if (/(?:\bsk-[A-Za-z0-9_.-]{8,}|\b(?:Bearer|Basic)\s+|(?:token|password|secret|api[_-]?key)\s*[:=])/i.test(value)) {
+                unsafe = true;
+                localUnsafe = true;
+            } else result[key] = value;
+        } else if (/^(GIT_|BASH_FUNC_|LD_|DYLD_)/.test(upper) &&
+            !["SSH_AUTH_SOCK", "SSH_AGENT_PID"].includes(upper)) localUnsafe = true;
+        if (["BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH",
+            "PYTHONSTARTUP", "RUBYOPT", "PERL5OPT", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS"].includes(upper)) localUnsafe = true;
         if ((/^(GH_|GITHUB_)/.test(upper) && !["GH_TOKEN", "GITHUB_TOKEN"].includes(upper)) ||
             /(?:_CONFIG|_REGISTRY|_INDEX|_PROXY)(?:_|$)/.test(upper) ||
             /^(NPM_CONFIG_|YARN_|PNPM_|PIP_|CARGO_|UV_|POETRY_|PDM_|BUNDLE_|GEM_|NUGET_|DOTNET_|COMPOSER_|GRADLE_|MAVEN_)/.test(upper) ||
@@ -115,6 +116,8 @@ function gitEnvironment(env: Record<string, string | undefined>, local = false):
         if (["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "SSL_CERT_FILE", "SSL_CERT_DIR"].includes(upper)) unsafe = true;
     }
     if (unsafe) result.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT = "1";
+    // Independent of network routing: a proxy must not block local Git, nor disappear from a network review.
+    result.HEARTBEAT_LOCAL_GIT_EXECUTION_OVERRIDE = localUnsafe ? "1" : "0";
     return result;
 }
 
@@ -134,7 +137,7 @@ async function pinNativePush(pi: any, plans: Map<string, PushPlan>): Promise<boo
         description: original.description + " Optional review_files selects up to 16 project source, manifest, lock or script files " +
             "for complete safety evidence. List only relevant project files; never select credentials, secrets or private configuration. " +
             "Evidence is for review and does not itself authorize a command or package manager. " +
-            "The environment projection cannot establish unknown manager/script environment effects; those remain uncertain.",
+            "Known execution and network configuration overrides are reported without secrets; review evaluates concrete effects.",
         parameters: Type.Object({
             ...original.parameters.properties,
             review_files: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 16 })),
@@ -215,7 +218,7 @@ export default async function (pi: any) {
             plan = { command: target, input: JSON.stringify(input), cwd: resolve(ctx.cwd), env: { ...process.env }, approved: false };
             pushes.set(event.toolCallId, plan);
         }
-        const nativeCommandEnvironment = plan ? { version: 1, cwd: plan.cwd, values: gitEnvironment(plan.env, LOCAL_GIT.test(plan.command)) } : undefined;
+        const nativeCommandEnvironment = plan ? { version: 1, cwd: plan.cwd, values: gitEnvironment(plan.env) } : undefined;
 		const request = JSON.stringify({ toolCallId: event.toolCallId, toolName: event.toolName, target, path, arguments: input, nativeCommandEnvironment });
         let decision: { allowed: boolean; reason?: string };
         try {

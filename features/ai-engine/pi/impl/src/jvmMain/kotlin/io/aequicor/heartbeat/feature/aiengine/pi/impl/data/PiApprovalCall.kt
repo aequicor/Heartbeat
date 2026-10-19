@@ -125,14 +125,12 @@ private const val MAX_REVIEW_FILES = 16
 private val SimplePush = Regex("git[ \\t]+push(?:[ \\t]+(?:-u[ \\t]+)?origin[ \\t]+[A-Za-z0-9][A-Za-z0-9._/-]*)?")
 
 // Mirrors the extension's evidence selection; this is not an authorization classifier.
-private val LocalGit = Regex(
-    "(?:^|[\\s;&|()])git[ \\t]+(?:status|diff|show|log|rev-parse|ls-files|ls-tree|" +
-        "branch|add|commit|merge|restore|checkout|switch|stash|rebase|cherry-pick|reset)(?:[\\s;&|()]|$)",
-)
+private val LocalGit = Regex("\\bgit(?:\\.exe)?\\b", RegexOption.IGNORE_CASE)
 private val EnvironmentKeys = setOf(
     "PATH", "HOME", "XDG_CONFIG_HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR",
     "PATHEXT", "PROGRAMFILES", "PROGRAMFILES(X86)", "TMPDIR", "TMP", "TEMP",
     "GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT",
+    "HEARTBEAT_LOCAL_GIT_EXECUTION_OVERRIDE",
     "GH_HOST", "GH_REPO",
     "EDITOR", "VISUAL", "PAGER", "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_PAGER",
 )

@@ -21,8 +21,17 @@ internal val PROJECT_OPERATION_SAFETY_POLICY = """
     An explicit localGitEvidence capture failure is not clean evidence. For a mutation that can execute hooks,
     filters or signing programs, a failed capture is a material gap and must be uncertain until inspected.
     Explicit execution overrides are also a material gap; do not silently assume their effects are harmless.
+    localGitEvidence also retains environmentFacts and, when files were selected, projectNetwork context.
+    These network facts are additive: a word git in a path, argument or suffix cannot erase known proxy, registry
+    or execution overrides. Apply them to every network effect in the command, including a package manager.
+    They do not by themselves make a purely local Git operation risky.
     Local Git does not require an origin, network evidence or proof about push credentials. Unavailable or absent
     network evidence is irrelevant to a purely local operation. localGitEvidence never authorizes a network effect.
+    Git evidence describes the captured workingDirectory, root and gitExecutable, not any different effective scope.
+    A harmless global flag such as --no-pager does not invalidate those facts. An absolute Git path may use them
+    only when it matches gitExecutable. Evaluate -C, --git-dir, --work-tree, -c, cd and environment prefixes:
+    never use default-directory facts to approve another repository, index, executable or overridden hook program.
+    Equivalent scope such as -C . is fine; an unestablished effective scope that affects the operation is uncertain.
     Review the entire shell command: a benign Git prefix cannot justify a dangerous suffix, substitution or redirect.
     Preserve unrelated work: broad resets, clean, forced checkouts, deletion or overwriting uncommitted files can
     lose user changes. Prefer bounded edits and explicit paths. Missing context is uncertain only when it prevents

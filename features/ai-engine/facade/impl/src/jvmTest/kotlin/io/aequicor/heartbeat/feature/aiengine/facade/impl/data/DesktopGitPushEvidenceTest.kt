@@ -200,13 +200,13 @@ class DesktopGitPushEvidenceTest {
     }
 
     @Test
-    fun `commands outside the simple forms receive no evidence`() = runTest {
+    fun `unsupported pushes never receive evidence for the push exception`() = runTest {
         for (command in listOf(
             "git push --force origin feature", "git push --delete origin feature", "git push origin :feature",
             "git push --tags", "git push --mirror", "git push other feature", "git push https://example.com/a feature",
             "git push origin feature; true", "git push origin feature && true", "git -C elsewhere push",
         )) {
-            assertNull(evidence.capture(directory.toString(), command, null, emptyList()), command)
+            assertEquals("localGit", capture(command).text("kind"), command)
         }
         assertEquals("unavailable", capture().text("status"))
     }
@@ -407,6 +407,75 @@ class DesktopGitPushEvidenceTest {
         assertEquals("captured", captured.text("status"))
         assertTrue(captured.toString().length < 16_384)
         assertFalse("file-6366.txt" in captured.toString())
+    }
+
+    @Test
+    fun `global flags and absolute Git keep local context with explicit scope limits`() = runTest {
+        repository()
+        val original = capture("git status")
+        val executable = original.text("gitExecutable")
+        for (command in listOf(
+            "git --no-pager commit -m checkpoint",
+            "\"$executable\" --no-pager commit -m checkpoint",
+            "git -C . commit -m checkpoint",
+            "git --git-dir=other.git status",
+        )) {
+            val result = capture(command)
+            assertEquals("localGit", result.text("kind"), command)
+            assertEquals("captured", result.text("status"), command)
+            assertEquals(original["metadata"], result["metadata"], command)
+            assertEquals(original["hooks"], result["hooks"], command)
+            assertTrue("separate evaluation" in result.text("scopeCoverage").orEmpty())
+        }
+    }
+
+    @Test
+    fun `local context adds network facts without hiding overrides for push or package managers`() = runTest {
+        repository()
+        Files.writeString(directory.resolve("package.json"), "{}")
+        val projection = testEnvironment() + mapOf(
+            "GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT" to "1",
+            "HEARTBEAT_LOCAL_GIT_EXECUTION_OVERRIDE" to "0",
+        )
+        val local = capture("git status", projection)
+        assertEquals("captured", local.text("status"))
+        assertEquals("unavailable", local["environmentFacts"]?.jsonObject?.text("status"))
+        assertEquals("unavailable", capture("git push", projection).text("status"))
+        for (command in listOf("npm ci && printf git", "npm ci --prefix git-app")) {
+            val bundle = evidence.capture(
+                directory.toString(),
+                command,
+                projection,
+                listOf("package.json"),
+            )
+            val result = assertNotNull(bundle)
+            assertEquals("captured", result.text("status"))
+            assertEquals("unavailable", result["environmentFacts"]?.jsonObject?.text("status"))
+            val network = assertNotNull(result["projectNetwork"]).jsonObject
+            assertEquals("unavailable", network["repository"]?.jsonObject?.text("status"))
+            assertEquals("captured", network["reviewFiles"]?.jsonObject?.text("status"))
+        }
+        // A marker cannot hide an execution override still present in a full hosted environment.
+        assertEquals("unavailable", capture("git status", projection + ("GIT_DIR" to "other")).text("status"))
+        for (key in listOf("NODE_OPTIONS", "PYTHONPATH", "JAVA_TOOL_OPTIONS")) {
+            assertEquals("unavailable", capture("git status", testEnvironment() + (key to "override")).text("status"))
+        }
+    }
+
+    @Test
+    fun `an unrelated git word outside a repository preserves selected package context`() = runTest {
+        Files.writeString(directory.resolve("package.json"), "{}")
+        val bundle = evidence.capture(
+            directory.toString(),
+            "npm ci && printf git",
+            testEnvironment(),
+            listOf("package.json"),
+        )
+        val result = assertNotNull(bundle)
+        assertEquals("unavailable", result.text("status"))
+        val network = assertNotNull(result["projectNetwork"]).jsonObject
+        assertEquals("captured", network["reviewFiles"]?.jsonObject?.text("status"))
+        assertEquals("captured", result["environmentFacts"]?.jsonObject?.text("status"))
     }
 
     private suspend fun capture(
