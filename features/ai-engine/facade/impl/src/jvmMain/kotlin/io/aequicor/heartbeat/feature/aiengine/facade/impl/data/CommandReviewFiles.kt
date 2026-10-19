@@ -93,7 +93,9 @@ private val CREDENTIAL_TEXT = listOf(
     Regex("-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"),
     Regex("(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_.-]{8,})"),
     Regex("(?:xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})"),
-    Regex("[A-Za-z][A-Za-z0-9+.-]*://[^\\s/<>\"']+@"),
+    // Try each scheme token once, including a nonletter prefix before a valid scheme suffix.
+    // Without the boundary, a long plain token is rescanned from every letter (quadratic work).
+    Regex("(?<![A-Za-z0-9+.-])[0-9+.-]*[A-Za-z][A-Za-z0-9+.-]*://[^\\s/<>\"']+@"),
     Regex("[?&](?:token|access_token|api_key|password|secret)=[^\\s\"']+", RegexOption.IGNORE_CASE),
     Regex(
         "(?:^|[^A-Za-z0-9])(?:token|password|passwd|api[_-]?key|secret|cleartextpassword|signing[._-]password)" +
