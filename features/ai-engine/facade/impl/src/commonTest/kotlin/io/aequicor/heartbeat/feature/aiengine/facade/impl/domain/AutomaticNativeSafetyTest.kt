@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeCommandEnvironment
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
@@ -27,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.CommandSafetyEvidence
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -58,14 +60,55 @@ class AutomaticNativeSafetyTest {
     }
 
     @Test
-    fun `native policy allows an ordinary origin push and rejects other network writes`() = runTest {
+    fun `native policy requires evidence for the push exception and names its limits`() = runTest {
         val f = NativeSafetyFixture()
         f.assess = { AgentSafetyReview("uncertain", "Refused by the test") }
         val call = Call.copy(command = "git push -u origin fix/branch")
         assertIs<NativeVerdict.Deny>(f.tools.authorizeNative(Context, call))
         assertEquals(1, f.reviews.size)
         assertTrue("ordinary push of the current branch to its existing configured origin" in f.policies.single())
-        assertTrue("force push" in f.policies.single())
+        for (limit in listOf(
+            "force push",
+            "deletion",
+            "mirrors",
+            "tag pushes",
+            "other remotes",
+            "explicit URLs",
+            "gitPushEvidence",
+            "Missing/unavailable evidence",
+        )) {
+            assertTrue(limit in f.policies.single(), limit)
+        }
+    }
+
+    @Test
+    fun `native push review receives host evidence and rechecks it after a safe verdict`() = runTest {
+        val f = NativeSafetyFixture()
+        val before = JsonObject(mapOf("head" to JsonPrimitive("before")))
+        f.commandSnapshot = before
+        val call = Call.copy(
+            command = "git push -u origin branch",
+            commandEnvironment = NativeCommandEnvironment(mapOf("HOME" to "/actual")),
+        )
+        assertEquals(NativeVerdict.Allow, f.tools.authorizeNative(Context, call))
+        assertEquals(before, Json.parseToJsonElement(f.reviews.single()).jsonObject["gitPushEvidence"])
+        assertEquals(2, f.captures)
+        f.assess = {
+            f.commandSnapshot = JsonObject(mapOf("head" to JsonPrimitive("after")))
+            Safe
+        }
+        assertIs<NativeVerdict.Deny>(f.tools.authorizeNative(Context, call))
+        assertEquals(4, f.captures)
+    }
+
+    @Test
+    fun `native commands without pinned execution environment never borrow host evidence`() = runTest {
+        val f = NativeSafetyFixture()
+        f.commandSnapshot = JsonObject(mapOf("head" to JsonPrimitive("host")))
+        f.assess = { AgentSafetyReview("uncertain", "Execution environment is unknown") }
+        assertIs<NativeVerdict.Deny>(f.tools.authorizeNative(Context, Call.copy(command = "git push")))
+        assertEquals(0, f.captures)
+        assertTrue("gitPushEvidence" !in Json.parseToJsonElement(f.reviews.single()).jsonObject)
     }
 
     @Test
@@ -248,6 +291,8 @@ private class NativeSafetyFixture : SessionHooks {
     var target: EngineTarget? = null
     val reviews = mutableListOf<String>()
     val policies = mutableListOf<String>()
+    var commandSnapshot: JsonObject? = null
+    var captures = 0
     val tools = DefaultAgentTools(
         emptySet(),
         this,
@@ -258,6 +303,13 @@ private class NativeSafetyFixture : SessionHooks {
                 policies += policyText
                 reviews += change
                 assess()
+            },
+        ),
+        commandEvidence = setOf(
+            CommandSafetyEvidence { directory, _, _ ->
+                assertEquals("/project", directory)
+                captures++
+                commandSnapshot
             },
         ),
     )

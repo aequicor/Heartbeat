@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAutho
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.CommandSafetyEvidence
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.captureCommandEvidence
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -50,6 +52,7 @@ internal class DesktopCodingSafety(
     private val workspaces: LocalWorkspaces,
     private val dispatchers: DispatcherProvider,
     private val reviewer: AgentSafetyReviewer,
+    private val commandEvidence: Set<CommandSafetyEvidence> = emptySet(),
 ) {
     private val log = Log.tag("DesktopCodingSafety")
     private val lock = Mutex()
@@ -65,7 +68,17 @@ internal class DesktopCodingSafety(
             null
         } else {
             withContext(dispatchers.io) {
-                capture(context, original, arguments, ProjectRoot(Path.of(directory)))
+                val root = ProjectRoot(Path.of(directory))
+                val evidence = if (original.name == "run_command") {
+                    commandEvidence.captureCommandEvidence(
+                        root.path.toString(),
+                        arguments.argText("command"),
+                        codingCommandEnvironment(),
+                    )
+                } else {
+                    null
+                }
+                capture(context, original, arguments, root, evidence)
             }
         }
     } catch (error: CancellationException) {
@@ -119,6 +132,7 @@ private fun capture(
     original: AgentToolApproval,
     arguments: JsonObject,
     root: ProjectRoot,
+    commandEvidence: JsonObject?,
 ): CodingSafetySnapshot {
     require(context.request != null && context.callId != null && context.target != null) {
         "Automatic project actions require an exact hosted call identity and model"
@@ -148,6 +162,7 @@ private fun capture(
         put("root", root.path.toString())
         put("rootIdentity", fileIdentity(root.path))
         put("shell", if (System.getProperty("os.name").orEmpty().startsWith("Windows")) "PowerShell" else "/bin/sh")
+        commandEvidence?.let { put("gitPushEvidence", it) }
         if (target != null) put("previousFile", fileEvidence(target))
     }.toString()
     require(change.toByteArray(Charsets.UTF_8).size <= MAX_SNAPSHOT_BYTES) {
@@ -210,6 +225,13 @@ outside a clearly bounded project edit. One network side effect is a bounded exc
 committed work of this project with an ordinary push of the current branch to its existing configured origin —
 `git push`, `git push origin <branch>` or `git push -u origin <branch>` — can be safe, while force push, ref or
 remote deletion, mirrors, tag pushes, other remotes and explicit URLs keep the rejection.
+Using already configured standard authentication solely for that origin is part of the push exception;
+discovering, printing or directly reading credentials remains refused.
+Git push requires complete host-captured gitPushEvidence: verify the current branch, effective push remote,
+origin push destination and all push defaults. Missing/unavailable evidence, hooks, custom transports or
+execution-environment overrides are uncertain; never assume the listed command forms prove their effects.
+Refuse configured force/mirror/tag/extra-ref/submodule pushes as well as explicit ones. This evidence covers
+only the captured directory and plain command, not shell prefixes, aliases, functions or argument overrides.
 Unknown effects or insufficient context are uncertain.
 Do not request manual approval: a non-safe assessment returns a tool error to the authoring agent.
 """

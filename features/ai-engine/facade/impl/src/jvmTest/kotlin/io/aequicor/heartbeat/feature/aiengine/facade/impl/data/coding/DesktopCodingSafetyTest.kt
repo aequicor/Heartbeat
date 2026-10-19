@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.CommandSafetyEvidence
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ToolPolicyResolver
 import kotlinx.coroutines.CancellationException
@@ -68,6 +69,7 @@ class DesktopCodingSafetyTest {
     private var policy = ""
     private var verdict = AgentSafetyReview("safe", "Bounded local change")
     private var onReview: suspend () -> Unit = {}
+    private var commandSnapshot: JsonObject? = null
     private val projects = object : LocalWorkspaces {
         override val isAvailable get() = available
         override fun observe() = flowOf(listOf(LocalWorkspace(workspace, "Project")))
@@ -84,6 +86,12 @@ class DesktopCodingSafetyTest {
             onReview()
             verdict
         },
+        commandEvidence = setOf(
+            CommandSafetyEvidence { root, _, _ ->
+                assertEquals(directory.toString(), root)
+                commandSnapshot
+            },
+        ),
     )
     private val context = AgentToolContext(
         SessionRef(EngineId("test"), SessionSourceId("test"), "caller"),
@@ -157,14 +165,41 @@ class DesktopCodingSafetyTest {
     }
 
     @Test
-    fun `command policy allows an ordinary origin push and rejects other network writes`() = runTest {
+    fun `command policy requires evidence for the push exception and names its limits`() = runTest {
         verdict = AgentSafetyReview("risk", "Refused by the test")
         val arguments = buildJsonObject { put("command", "git push -u origin fix/branch") }
         assertTrue(DefaultAgentTools(setOf(contribution)).execute(context, "run_command", arguments).isError)
         assertEquals(1, reviews)
         assertEquals(0, prompts)
         assertTrue("ordinary push of the current branch to its existing configured origin" in policy)
-        assertTrue("force push" in policy)
+        for (limit in listOf(
+            "force push",
+            "deletion",
+            "mirrors",
+            "tag pushes",
+            "other remotes",
+            "explicit URLs",
+            "gitPushEvidence",
+            "Missing/unavailable evidence",
+        )) {
+            assertTrue(limit in policy, limit)
+        }
+    }
+
+    @Test
+    fun `hosted push authorization binds captured evidence without executing git`() = runTest {
+        commandSnapshot = buildJsonObject { put("head", "before") }
+        val arguments = buildJsonObject { put("command", "git push -u origin branch") }
+        val spec = contribution.specifications(workspace).single { it.name == "run_command" }
+        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            contribution.automaticAuthorization(context, spec, arguments),
+        )
+        assertEquals(commandSnapshot, Json.parseToJsonElement(evidence).jsonObject["gitPushEvidence"])
+        commandSnapshot = buildJsonObject { put("head", "after") }
+        val result = contribution.execute(context.copy(authorization = allowed.approval), "run_command", arguments)
+        assertTrue(result.isError)
+        assertTrue("changed" in result.text)
+        assertEquals(1, reviews)
     }
 
     @Test

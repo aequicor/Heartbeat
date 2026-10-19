@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.CommandSafetyEvidence
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -33,8 +34,9 @@ internal class DesktopCodingTools(
     private val workspaces: LocalWorkspaces,
     private val dispatchers: DispatcherProvider,
     private val reviewer: AgentSafetyReviewer,
+    commandEvidence: Set<CommandSafetyEvidence> = emptySet(),
 ) : AgentToolContribution {
-    private val safety = DesktopCodingSafety(workspaces, dispatchers, reviewer)
+    private val safety = DesktopCodingSafety(workspaces, dispatchers, reviewer, commandEvidence)
     private val mutations = Mutex()
     private val virtualGrants = mutableSetOf<String>()
     override val group: String = "coding"

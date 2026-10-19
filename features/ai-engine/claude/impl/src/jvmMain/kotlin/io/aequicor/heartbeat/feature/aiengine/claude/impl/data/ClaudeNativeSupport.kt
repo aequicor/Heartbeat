@@ -50,6 +50,9 @@ internal class ClaudeNativeWorkspace(private val path: String, private val class
             command = command,
             arguments = input,
             workingDirectory = path,
+            // Claude's Bash runtime may source shell state after launch. Raw tool arguments cannot attest to
+            // its final environment, so independent Git evidence must not use Heartbeat's environment instead.
+            commandEnvironment = null,
             automaticDenial = automaticDenial(spec.action, isHostTermination, isProjectEdit),
             covered = { trust ->
                 !isHostTermination && (

@@ -5,13 +5,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
 /** Full serialized input is immutable across the review suspension and is never logged or partially reviewed. */
-internal fun nativeSafetySnapshot(context: AgentToolContext, call: NativeToolCall): String? {
+internal fun nativeSafetySnapshot(
+    context: AgentToolContext,
+    call: NativeToolCall,
+    commandEvidence: JsonObject? = null,
+): String? {
     val target = context.target ?: return null
     val request = context.request ?: return null
     val callId = context.callId ?: return null
@@ -33,6 +38,7 @@ internal fun nativeSafetySnapshot(context: AgentToolContext, call: NativeToolCal
         put("paths", JsonArray(call.paths.map(::JsonPrimitive)))
         put("command", call.command)
         put("arguments", arguments)
+        commandEvidence?.let { put("gitPushEvidence", it) }
     }.toString().takeIf { it.encodeToByteArray().size <= NATIVE_SAFETY_BYTES }
 }
 
@@ -55,7 +61,15 @@ internal val NATIVE_SAFETY_POLICY = """
     side effect is a bounded exception: publishing already committed work of this project with an
     ordinary push of the current branch to its existing configured origin — `git push`,
     `git push origin <branch>` or `git push -u origin <branch>` — can be safe, while force push, ref or remote
-    deletion, mirrors, tag pushes, other remotes and explicit URLs stay refused. Treat unknown
+    deletion, mirrors, tag pushes, other remotes and explicit URLs stay refused.
+    Using already configured standard authentication solely for that origin is part of the push exception;
+    discovering, printing or directly reading credentials remains refused.
+    Git push requires complete host-captured gitPushEvidence: verify the current branch, effective push remote,
+    origin push destination and all push defaults. Missing/unavailable evidence, hooks, custom transports or
+    execution-environment overrides are uncertain; never assume the listed command forms prove their effects.
+    Refuse configured force/mirror/tag/extra-ref/submodule pushes as well as explicit ones. This evidence covers
+    only the captured directory and plain command, not shell prefixes, aliases, functions or argument overrides.
+    Treat unknown
     executables, referenced mutable scripts or hidden effects as uncertain when their behavior is not established
     by the snapshot. A harmless shell builtin such as true is safe. Trust level never substitutes for this review.
     No tools are available to investigate missing evidence; return uncertain instead of assuming it is safe.

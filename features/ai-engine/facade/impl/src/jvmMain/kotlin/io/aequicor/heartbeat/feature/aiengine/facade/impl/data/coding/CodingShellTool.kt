@@ -79,9 +79,11 @@ internal class CodingShellTool(
             .directory(root.path.toFile())
             .redirectErrorStream(true)
             .redirectInput(ProcessBuilder.Redirect.from(File(if (isWindows) "NUL" else "/dev/null")))
-        val removed = builder.environment().keys.filter(::isSecretName)
-        removed.forEach { builder.environment().remove(it) }
-        log.i { "Starting command; ${removed.size} secret-like variables withheld" }
+        val environment = codingCommandEnvironment()
+        val removedCount = builder.environment().size - environment.size
+        builder.environment().clear()
+        builder.environment().putAll(environment)
+        log.i { "Starting command; $removedCount secret-like variables withheld" }
         val process = builder.start()
         val output = OutputCollector()
         val children = mutableMapOf<Long, ProcessHandle>()
@@ -204,11 +206,15 @@ internal class CodingShellTool(
         const val TAIL_BYTES = 16_000
         const val BUFFER_BYTES = 4096
         const val POLL_MILLIS = 20L
-        val SECRET_PARTS = listOf("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH")
-
-        fun isSecretName(name: String): Boolean = name.uppercase().let { upper -> SECRET_PARTS.any { it in upper } }
     }
 }
+
+/** Evidence and execution use the same inherited environment, withholding secret-looking variables. */
+internal fun codingCommandEnvironment(): Map<String, String> = System.getenv().filterKeys { name ->
+    SECRET_PARTS.none { it in name.uppercase() }
+}
+
+private val SECRET_PARTS = listOf("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH")
 
 /** Commands must fit in the shared approval presentation without hiding an executable suffix. */
 internal const val MAX_CODING_COMMAND_CHARS = 4_000

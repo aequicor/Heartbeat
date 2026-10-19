@@ -28,6 +28,7 @@ internal class NativeToolGate(
     private val policies: ToolPolicyResolver,
     private val hooks: SessionHooks,
     private val safety: Lazy<AgentSafetyReviewer>,
+    private val commandEvidence: Set<CommandSafetyEvidence>,
     private val hostedNames: () -> Set<String>,
     private val isVirtual: suspend (AgentToolContext) -> Boolean = { false },
 ) {
@@ -88,7 +89,7 @@ internal class NativeToolGate(
             }
         if (restriction != null) return denied(restriction)
         val target = context.reviewModel ?: return denied("Native safety review has no trusted model target")
-        val snapshot = nativeSafetySnapshot(context, call)
+        val snapshot = snapshot(context, call)
             ?: return denied("Native action has no complete bounded safety snapshot")
         val review = safety.value.review(target, NATIVE_SAFETY_POLICY, snapshot)
         currentCoroutineContext().ensureActive()
@@ -111,12 +112,25 @@ internal class NativeToolGate(
         val currentPolicy = policy(context)
         currentCoroutineContext().ensureActive()
         return if (!currentPolicy.allows(call) || currentPolicy != reviewedPolicy ||
-            snapshot != nativeSafetySnapshot(context, call)
+            snapshot != snapshot(context, call)
         ) {
             denied("Native action or policy changed during safety review; request it again")
         } else {
             NativePreflight.Ready(NativeVerdict.Allow)
         }
+    }
+
+    private suspend fun snapshot(context: AgentToolContext, call: NativeToolCall): String? {
+        val directory = call.workingDirectory
+        val command = call.command
+        val environment = call.commandEnvironment
+        if (call.action != AgentToolAction.Command || environment == null) return nativeSafetySnapshot(context, call)
+        val evidence = if (directory != null && command != null) {
+            commandEvidence.captureCommandEvidence(directory, command, environment.environment)
+        } else {
+            null
+        }
+        return nativeSafetySnapshot(context, call, evidence)
     }
 
     private suspend fun beforeTool(context: AgentToolContext, call: NativeToolCall): ToolHookVerdict {
