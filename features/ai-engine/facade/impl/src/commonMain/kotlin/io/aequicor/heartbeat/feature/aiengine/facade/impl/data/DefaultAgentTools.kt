@@ -54,6 +54,10 @@ import kotlinx.serialization.json.JsonObject
 /** Empty profiles/mobile graphs still have a dispatcher, with no local tools. */
 @ContributesTo(ProfileScope::class)
 public interface AgentToolBindings {
+    /** Platform command inspectors may be absent on mobile. */
+    @Multibinds(allowEmpty = true)
+    public fun commandSafetyEvidence(): Set<CommandSafetyEvidence>
+
     /** Contributions may be absent on mobile and in profiles without local engines. */
     @Multibinds(allowEmpty = true)
     public fun agentToolContributions(): Set<AgentToolContribution>
@@ -77,6 +81,7 @@ internal class DefaultAgentTools(
         },
     ),
     private val workspaces: LocalWorkspaces? = null,
+    commandEvidence: Set<CommandSafetyEvidence> = emptySet(),
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
     private val legacyNames: Map<String, Set<String>> by lazy {
@@ -89,6 +94,7 @@ internal class DefaultAgentTools(
         policyLookup,
         hooks,
         safety,
+        commandEvidence,
         hostedNames = { catalog().flatMap { it.tools }.map { it.name }.toSet() },
         isVirtual = { context ->
             context.workspace?.value?.startsWith("sandbox-") == true ||

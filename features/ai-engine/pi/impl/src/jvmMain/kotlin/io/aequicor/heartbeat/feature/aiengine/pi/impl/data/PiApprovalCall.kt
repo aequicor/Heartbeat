@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeCommandEnvironment
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
@@ -13,9 +14,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.intOrNull
 
 /**
  * A tool call awaiting approval (`resources/pi/heartbeat-approval.ts`): its name, the command or path shown to the
@@ -29,8 +32,14 @@ internal data class PiApprovalCall(
     val result: AgentToolResult? = null,
     val toolCallId: ToolCallId? = null,
     val isStructuredReply: Boolean = false,
+    val commandEnvironment: PiCommandEnvironment? = null,
 ) {
     override fun toString(): String = "PiApprovalCall"
+}
+
+/** Projection captured by the trusted extension and pinned by its private per-call execution plan. */
+internal data class PiCommandEnvironment(val directory: String, val captured: NativeCommandEnvironment) {
+    override fun toString(): String = "PiCommandEnvironment(***)"
 }
 
 /** Option that lets Pi run an approved tool; any other answer blocks it. */
@@ -82,8 +91,43 @@ internal fun approvalCall(message: String?, isResult: Boolean = false): PiApprov
         fields.string("toolCallId")
             ?.takeIf { it.isNotBlank() && it.length <= MAX_TOOL_CALL_ID_CHARS }
             ?.let(::ToolCallId),
+        commandEnvironment = if (tool == "bash" && !isResult) commandEnvironment(fields) else null,
     )
 }
+
+/** Model-facing arguments never supply this adapter-owned top-level protocol field. */
+private fun commandEnvironment(fields: JsonObject): PiCommandEnvironment? {
+    val files = (fields["arguments"] as? JsonObject)?.get("review_files") as? JsonArray
+    val hasReviewFiles = files != null && files.size in 1..MAX_REVIEW_FILES && files.all {
+        (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content?.isNotBlank() == true
+    }
+    if (!SimplePush.matches(fields.string("target").orEmpty().trim()) && !hasReviewFiles) return null
+    val proof = fields["nativeCommandEnvironment"] as? JsonObject ?: return null
+    if (proof.keys != setOf("version", "cwd", "values") ||
+        (proof["version"] as? JsonPrimitive)?.intOrNull != 1
+    ) {
+        return null
+    }
+    val directory = proof.string("cwd")?.takeIf { it.isNotBlank() } ?: return null
+    val values = proof["values"] as? JsonObject ?: return null
+    if (values.toString().length > MAX_ENVIRONMENT_CHARS || values.keys.any { it.uppercase() !in EnvironmentKeys }) {
+        return null
+    }
+    val environment = values.mapValues { (_, value) ->
+        (value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+    }
+    return PiCommandEnvironment(directory, NativeCommandEnvironment(environment))
+}
+
+private const val MAX_ENVIRONMENT_CHARS = 32_768
+private const val MAX_REVIEW_FILES = 16
+private val SimplePush = Regex("git[ \\t]+push(?:[ \\t]+(?:-u[ \\t]+)?origin[ \\t]+[A-Za-z0-9][A-Za-z0-9._/-]*)?")
+private val EnvironmentKeys = setOf(
+    "PATH", "HOME", "XDG_CONFIG_HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR",
+    "PATHEXT", "PROGRAMFILES", "PROGRAMFILES(X86)", "TMPDIR", "TMP", "TEMP",
+    "GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT",
+    "GH_HOST", "GH_REPO",
+)
 
 /** The user-facing request; null blocks a call whose target is too long to show in full. */
 internal fun approvalRequest(

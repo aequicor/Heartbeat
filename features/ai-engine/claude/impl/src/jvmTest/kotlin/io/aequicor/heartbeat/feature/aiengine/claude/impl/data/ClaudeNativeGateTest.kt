@@ -169,6 +169,18 @@ internal class ClaudeNativeGateTest {
     }
 
     @Test
+    fun `Bash arguments cannot attest to the runtime shell environment`() = runTest {
+        val call = assertNotNull(
+            nativeWorkspace().classify(
+                "Bash",
+                frame("""{"command":"git push origin branch","commandEnvironment":{"PATH":"/fake"}}"""),
+            ),
+        )
+        assertEquals("git push origin branch", call.command)
+        assertNull(call.commandEnvironment)
+    }
+
+    @Test
     fun `unknown old and prerelease versions cannot enable native gate`() {
         for (version in listOf(null, "2.1.284", "2.0.999", "garbage", "2.1.285-beta", "99999999999.0.0")) {
             assertFalse(supportsClaudeNativeGate(version), version)

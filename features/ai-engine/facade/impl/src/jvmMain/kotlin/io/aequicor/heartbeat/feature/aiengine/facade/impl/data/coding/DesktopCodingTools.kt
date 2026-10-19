@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.CommandSafetyEvidence
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -33,8 +34,9 @@ internal class DesktopCodingTools(
     private val workspaces: LocalWorkspaces,
     private val dispatchers: DispatcherProvider,
     private val reviewer: AgentSafetyReviewer,
+    commandEvidence: Set<CommandSafetyEvidence> = emptySet(),
 ) : AgentToolContribution {
-    private val safety = DesktopCodingSafety(workspaces, dispatchers, reviewer)
+    private val safety = DesktopCodingSafety(workspaces, dispatchers, reviewer, commandEvidence)
     private val mutations = Mutex()
     private val virtualGrants = mutableSetOf<String>()
     override val group: String = "coding"
@@ -87,6 +89,11 @@ internal class DesktopCodingTools(
             }
             if (SHELL_TOOL in declared) {
                 add("Use run_command for foreground Git and other non-interactive commands.")
+                add(
+                    "For project network operations, supply review_files with the relevant full manifests, locks, " +
+                        "configuration and scripts. Never attach credentials or secret files. These attachments " +
+                        "are evidence, not authorization; unknown global settings or effects may still be refused.",
+                )
                 add(
                     "It returns only after exit or termination on timeout; a returned result leaves no managed job " +
                         "to wait for with scheduler_sleep. Handle the result and continue the task.",

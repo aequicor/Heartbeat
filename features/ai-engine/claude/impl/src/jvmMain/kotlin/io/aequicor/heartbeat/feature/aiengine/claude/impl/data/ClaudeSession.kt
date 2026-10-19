@@ -566,11 +566,11 @@ internal class ClaudeSession(
     private suspend fun reconcile(lease: Lease) = commands.withLock {
         lease.ensureAttached()
         awaitSettled()
-        val transcript = if (hasNativeSession) null else environment.transport.hasTranscript(ref.nativeId)
+        val hasTranscript = if (hasNativeSession) null else environment.transport.hasTranscript(ref.nativeId)
         synchronized(lock) {
             lease.ensureAttached()
             ensureOpen()
-            reconcileState(transcript)
+            reconcileState(hasTranscript)
         }
         persist()
     }

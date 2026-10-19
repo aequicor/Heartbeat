@@ -36,7 +36,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
 
 /**
- * Metadata-only GitHub tools use their own exact-payload gate. The generic shell/network policy is unchanged.
+ * Metadata-only GitHub tools use their own exact-payload gate; the generic command policy permits only bounded
+ * own-project network operations (push, reads, this repository's writes, declared dependency resolution).
  * A single mutation slot prevents this owner from racing its own preflight checks; external GitHub writers can
  * still race because these endpoints have no atomic expected-revision contract.
  */

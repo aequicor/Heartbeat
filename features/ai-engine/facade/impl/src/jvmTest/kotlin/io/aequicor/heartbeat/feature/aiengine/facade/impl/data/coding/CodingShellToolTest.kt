@@ -11,6 +11,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class CodingShellToolTest {
@@ -47,11 +48,17 @@ class CodingShellToolTest {
     fun commandIsKilledAfterTimeout() = runTest {
         val started = System.nanoTime()
         val command = if (isWindows) "Write-Output \"pid=\$PID\"; Start-Sleep -Seconds 30" else "echo pid=$$; sleep 30"
-        val sleep = tool.run(args(command, timeout = 1))
+        // A cold Windows runner may need several seconds to start PowerShell before it emits its PID.
+        val timeout = if (isWindows) WINDOWS_STARTUP_SECONDS else 1
+        val sleep = tool.run(args(command, timeout = timeout))
         assertTrue(sleep.isError)
         assertTrue(sleep.text.startsWith("Timed out"))
         assertTrue("terminated" in sleep.text && "no running job" in sleep.text, sleep.text)
-        val pid = sleep.text.lineSequence().first { it.startsWith("pid=") }.removePrefix("pid=").trim().toLong()
+        val pidLine = assertNotNull(
+            sleep.text.lineSequence().firstOrNull { it.startsWith("pid=") },
+            "Shell did not emit its PID within $timeout seconds: ${sleep.text}",
+        )
+        val pid = pidLine.removePrefix("pid=").trim().toLong()
         assertFalse(
             ProcessHandle.of(pid).map { it.isAlive }.orElse(false),
             "Command must exit before reporting timeout",
@@ -115,6 +122,7 @@ class CodingShellToolTest {
 
     private companion object {
         const val QUICK_SECONDS = 15
+        const val WINDOWS_STARTUP_SECONDS = 10
         const val NANOS_PER_SECOND = 1_000_000_000L
         val isWindows = System.getProperty("os.name").orEmpty().startsWith("Windows")
     }

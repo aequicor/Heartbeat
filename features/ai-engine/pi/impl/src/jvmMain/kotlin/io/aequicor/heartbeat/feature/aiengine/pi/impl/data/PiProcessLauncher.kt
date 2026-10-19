@@ -47,6 +47,7 @@ import kotlinx.serialization.json.JsonObject
 import java.io.IOException
 import java.io.UncheckedIOException
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
@@ -279,7 +280,7 @@ internal class PiProcessLauncher(
                 val command = piCommand(executable, sessionDir, extensions, plan.tools(agent), launchFlags)
                 val builder = ProcessBuilder(command).directory(workingDir.toFile())
                 val variables = builder.environment()
-                prepareEnvironment(variables, startup, agent, agentDir, plan)
+                prepareEnvironment(variables, startup, agent, agentDir, plan, workingDir)
                 extensions.forEach { installExtension(it.fileName.toString(), it) }
                 modelsJson?.let { Files.writeString(agentDir.resolve("models.json"), it) }
                 writeAgentFiles(agentDir, agent)
@@ -292,7 +293,8 @@ internal class PiProcessLauncher(
                 }
                 process = started
                 started.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
-                val rpc = connect(started, workingDir, modelsJson, event, failed)
+                val hasPinnedPush = variables["HEARTBEAT_PIN_NATIVE_PUSH"] == "true"
+                val rpc = connect(started, workingDir, modelsJson, event, failed, hasPinnedPush)
                 rpc.closeWith(profile.onClose(rpc::close))
                 isConnected = true
                 rpc
@@ -336,6 +338,7 @@ internal class PiProcessLauncher(
         agent: PiAgentConfig,
         agentDir: Path,
         plan: PiLaunchPlan,
+        workingDir: Path,
     ) {
         applyPiEnvironment(environment, startup)
         environment.putAll(agent.environment)
@@ -343,6 +346,14 @@ internal class PiProcessLauncher(
         environment["PI_SKIP_VERSION_CHECK"] = "1"
         // Harnesses may change during the process lifetime; inspection also passes live policy and hooks.
         environment["HEARTBEAT_GATE_ALL"] = "true"
+        // Only the pinned distribution with hermetic/default shell settings may replace native bash. Unknown
+        // custom runtimes, discovered extensions and project shell configuration retain their original behavior.
+        environment["HEARTBEAT_PIN_NATIVE_PUSH"] = (
+            startup.source == InstallSource.Bundled && agent.supportsPinnedNativePush() &&
+                !System.getProperty("os.name").orEmpty().startsWith("Windows") &&
+                Files.isRegularFile(Path.of("/bin/bash")) &&
+                Files.notExists(workingDir.resolve(".pi/settings.json"), LinkOption.NOFOLLOW_LINKS)
+        ).toString()
         plan.hosted?.applyEnvironment(environment)
         if (plan.search.isNotEmpty()) {
             val endpoint = searchBridge.endpoint()
@@ -397,6 +408,7 @@ internal class PiProcessLauncher(
         modelsJson: String?,
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
+        hasPinnedNativePush: Boolean,
     ): PiRpc = PiRpc(
         process,
         profile.coroutineScope,
@@ -405,6 +417,7 @@ internal class PiProcessLauncher(
         failed,
         workingDirectory = directory,
         contextWindows = piConfiguredContextWindows(modelsJson),
+        hasPinnedNativePush = hasPinnedNativePush,
     )
 
     /**

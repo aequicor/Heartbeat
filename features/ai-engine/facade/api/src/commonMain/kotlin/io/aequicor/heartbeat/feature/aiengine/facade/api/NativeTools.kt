@@ -19,8 +19,32 @@ public data class NativeToolCall(
     val workingDirectory: String? = null,
     /** An adapter restriction that independent review cannot override, such as terminating the host. */
     val automaticDenial: String? = null,
+    /**
+     * Adapter-owned environment pinned to the actual command process, including runtime overrides. Null when
+     * shell initialization, persistent state or an engine hook can change it before execution. Model input and
+     * the Heartbeat process environment never establish this evidence on their own.
+     */
+    val commandEnvironment: NativeCommandEnvironment? = null,
 ) {
     override fun toString(): String = "NativeToolCall"
+}
+
+/**
+ * Local evidence of the environment the native shell command will inherit, or a safety-equivalent projection
+ * retaining every Git discovery/executable variable and marking excluded execution overrides as unavailable.
+ * The adapter supplies it only when execution is bound to those values for the lifetime of this call, including
+ * the review suspension; arbitrary model arguments never establish this evidence.
+ * Values may contain credentials: never serialize them into approval payloads, transcripts, prompts or logs.
+ * Safety inspectors may derive bounded, redacted facts; neither [toString] nor [NativeToolCall.toString] reveals
+ * the values. A launcher environment is insufficient when the runtime later rewrites it or loads shell profiles.
+ */
+public class NativeCommandEnvironment(environment: Map<String, String>) {
+    private val captured = environment.toMap()
+
+    /** A defensive copy of the adapter-owned environment; caller mutations cannot change captured evidence. */
+    public val environment: Map<String, String> get() = captured.toMap()
+
+    override fun toString(): String = "NativeCommandEnvironment(***)"
 }
 
 /** The adapter may execute only after Allow and while its captured native turn is still active. */

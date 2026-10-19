@@ -21,7 +21,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.CommandSafetyEvidence
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DesktopGitPushEvidence
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ToolPolicyResolver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -33,7 +35,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -68,6 +72,7 @@ class DesktopCodingSafetyTest {
     private var policy = ""
     private var verdict = AgentSafetyReview("safe", "Bounded local change")
     private var onReview: suspend () -> Unit = {}
+    private var commandSnapshot: JsonObject? = null
     private val projects = object : LocalWorkspaces {
         override val isAvailable get() = available
         override fun observe() = flowOf(listOf(LocalWorkspace(workspace, "Project")))
@@ -84,6 +89,12 @@ class DesktopCodingSafetyTest {
             onReview()
             verdict
         },
+        commandEvidence = setOf(
+            CommandSafetyEvidence { root, _, _, _ ->
+                assertEquals(directory.toString(), root)
+                commandSnapshot
+            },
+        ),
     )
     private val context = AgentToolContext(
         SessionRef(EngineId("test"), SessionSourceId("test"), "caller"),
@@ -153,6 +164,79 @@ class DesktopCodingSafetyTest {
                 ?.jsonObject?.get("command")?.jsonPrimitive?.content,
         )
         assertEquals(1, reviews)
+        assertEquals(0, prompts)
+    }
+
+    @Test
+    fun `command policy requires evidence for the push exception and names its limits`() = runTest {
+        verdict = AgentSafetyReview("risk", "Refused by the test")
+        val arguments = buildJsonObject { put("command", "git push -u origin fix/branch") }
+        assertTrue(DefaultAgentTools(setOf(contribution)).execute(context, "run_command", arguments).isError)
+        assertEquals(1, reviews)
+        assertEquals(0, prompts)
+        assertTrue("ordinary push of already committed work to the project's existing configured origin" in policy)
+        assertTrue("read-only `gh` commands" in policy)
+        assertTrue("own package or build manager" in policy)
+        assertTrue("npm publish" in policy)
+        for (limit in listOf(
+            "force push",
+            "deletion",
+            "mirrors",
+            "tag pushes",
+            "other remotes",
+            "explicit URLs",
+            "gitPushEvidence",
+            "Missing/unavailable evidence",
+        )) {
+            assertTrue(limit in policy, limit)
+        }
+    }
+
+    @Test
+    fun `hosted push authorization binds captured evidence without executing git`() = runTest {
+        commandSnapshot = buildJsonObject { put("head", "before") }
+        val arguments = buildJsonObject { put("command", "git push -u origin branch") }
+        val spec = contribution.specifications(workspace).single { it.name == "run_command" }
+        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            contribution.automaticAuthorization(context, spec, arguments),
+        )
+        assertEquals(commandSnapshot, Json.parseToJsonElement(evidence).jsonObject["gitPushEvidence"])
+        commandSnapshot = buildJsonObject { put("head", "after") }
+        val result = contribution.execute(context.copy(authorization = allowed.approval), "run_command", arguments)
+        assertTrue(result.isError)
+        assertTrue("changed" in result.text)
+        assertEquals(1, reviews)
+    }
+
+    @Test
+    fun `declared dependency context is recaptured before any command can execute`() = runTest {
+        val manifest = directory.resolve("package.json")
+        Files.writeString(manifest, "{\"dependencies\":{\"library\":\"1.0.0\"}}")
+        Files.writeString(directory.resolve("package-lock.json"), "{\"lockfileVersion\":3}")
+        var captured = ""
+        var assessments = 0
+        val owner = DesktopCodingTools(
+            projects,
+            dispatchers,
+            AgentSafetyReviewer { _, _, snapshot ->
+                captured = snapshot
+                assessments++
+                Files.writeString(manifest, "{\"scripts\":{\"postinstall\":\"opaque-script\"}}")
+                AgentSafetyReview("safe", "Mock approval before the manifest changes")
+            },
+            commandEvidence = setOf(DesktopGitPushEvidence(dispatchers)),
+        )
+        val args = buildJsonObject {
+            put("command", "npm ci --ignore-scripts")
+            put("review_files", JsonArray(listOf("package.json", "package-lock.json").map(::JsonPrimitive)))
+        }
+        val result = DefaultAgentTools(setOf(owner)).execute(context, "run_command", args)
+        assertTrue(result.isError)
+        assertTrue("changed" in result.text)
+        assertEquals(1, assessments)
+        assertTrue("projectNetworkEvidence" in captured)
+        assertTrue("library" in captured)
+        assertFalse("opaque-script" in captured)
         assertEquals(0, prompts)
     }
 
