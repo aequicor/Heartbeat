@@ -41,7 +41,7 @@ internal class GitHubPullApi(private val transport: GitHubPullTransport) {
                 transport.call(configuration, "POST", "$root/pulls", operation.payload),
             )
         }
-        return existing(configuration, operation, "$root/pulls/${operation.number}")
+        return existing(configuration, operation, "$root/pulls/${requireNotNull(operation.number)}")
     }
 
     private suspend fun existing(

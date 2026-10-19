@@ -58,7 +58,7 @@ internal class HttpGitHubPullTransport(private val client: HttpClient, private v
             ) ||
                 path == "/repos/${configuration.repository}",
         )
-        require('?' !in path && '#' !in path && '%' !in path && ".." !in path)
+        require('?' !in path && '#' !in path && '%' !in path && path.split('/').none { it == "." || it == ".." })
         val text = networkResult {
             client.config { followRedirects = false }.use { bounded ->
                 bounded.prepareRequest("https://api.github.com$path") {
@@ -81,7 +81,7 @@ internal class HttpGitHubPullTransport(private val client: HttpClient, private v
             Json.parseToJsonElement(text) as? JsonObject ?: error("Invalid GitHub response")
         } catch (error: SerializationException) {
             log.w(error.redactedFailure()) { "Invalid GitHub JSON" }
-            throw IllegalStateException("Invalid GitHub JSON; reconcile before retry")
+            error("Invalid GitHub JSON; reconcile before retry")
         }
     }
 }

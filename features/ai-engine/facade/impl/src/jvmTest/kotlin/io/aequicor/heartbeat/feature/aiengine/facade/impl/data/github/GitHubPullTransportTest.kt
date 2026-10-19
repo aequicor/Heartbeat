@@ -52,6 +52,26 @@ class GitHubPullTransportTest {
     }
 
     @Test
+    fun `dots within repository names are allowed while traversal segments are refused`() = runTest {
+        val requests = mutableListOf<String>()
+        val configured = GitHubPullConfiguration("owner/foo..bar", "fixture-token", "selected-user")
+        val engine = MockEngine { request ->
+            requests += request.url.toString()
+            respond("{}", HttpStatusCode.OK)
+        }
+        HttpClient(engine) { install(HttpTimeout) }.use { client ->
+            val transport = HttpGitHubPullTransport(client, dispatchers)
+            transport.call(configured, "GET", "/repos/owner/foo..bar", null)
+            for (segment in listOf(".", "..")) {
+                assertFailsWith<IllegalArgumentException> {
+                    transport.call(configured, "GET", "/repos/owner/foo..bar/$segment/pulls/1", null)
+                }
+            }
+        }
+        assertEquals(listOf("https://api.github.com/repos/owner/foo..bar"), requests)
+    }
+
+    @Test
     fun `redirects are refused before sending credentials or body to another destination`() = runTest {
         var calls = 0
         val engine = MockEngine {

@@ -20,7 +20,7 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 import okio.ByteString.Companion.encodeUtf8
 
-internal class GitHubPullSnapshot(
+internal data class GitHubPullSnapshot(
     val configuration: GitHubPullConfiguration,
     val operation: GitHubPullOperation,
     val context: AgentToolContext,
@@ -73,7 +73,7 @@ internal class GitHubPullSafety(private val reviewer: AgentSafetyReviewer) {
                 records[key] = it
             }
         }
-        return if (record.review.isSafe && !record.consumed) {
+        return if (record.review.isSafe && !record.isConsumed) {
             AgentToolAutomaticAuthorization.Allowed(snapshot.approval)
         } else {
             AgentToolAutomaticAuthorization.Denied("GitHub operation refused: ${record.review.reason}")
@@ -85,8 +85,8 @@ internal class GitHubPullSafety(private val reviewer: AgentSafetyReviewer) {
         if (context.authorization != snapshot.approval) return@withLock false
         val key = requireNotNull(snapshot.approval.binding)
         val record = records[key] ?: interactiveRecord(context) ?: return@withLock false
-        if (record.consumed || !record.review.isSafe) return@withLock false
-        records[key] = record.copy(consumed = true)
+        if (record.isConsumed || !record.review.isSafe) return@withLock false
+        records[key] = record.copy(isConsumed = true)
         true
     }
 
@@ -117,7 +117,7 @@ internal class GitHubPullSafety(private val reviewer: AgentSafetyReviewer) {
         val session: SessionRef,
         val turn: TurnId,
         val review: AgentSafetyReview,
-        val consumed: Boolean = false,
+        val isConsumed: Boolean = false,
     )
 }
 
