@@ -95,6 +95,11 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > минуты — затем слот освобождается, а Off-политика его сессии остаётся. Нагрузку (`AgentSafetyReviewMonitor`)
 > показывает индикатор со щитом в шапке сайдбара студии (тогл `ai_studio.safety_reviews_indicator`, по умолчанию true). Другие хосты сохраняют `Interactive` по умолчанию;
 > на Android/iOS — заглушка «не поддерживается».
+> GitHub PR-инструменты (`ai.github_pull_tools`, default false, Desktop) — отдельные hosted read/create-draft/update/ready
+> с проверкой полного inline-текста и одноразовой привязкой к вызову. Репозиторий и credential задаёт оператор при запуске
+> хоста; REST напрямую через Ktor, ready — фиксированный GraphQL. Общая shell-политика не ослабляется;
+> preflight revision не является атомарным SHA-разрешением. Настройка и границы —
+> [GITHUB_PR_TOOLS.md](features/ai-engine/facade/impl/GITHUB_PR_TOOLS.md).
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).
 > `features:effort-configuration:{api,impl}` — машина выбора reasoning effort по маршруту модели (ProfileScope); ai-studio шлёт выбор
