@@ -665,21 +665,12 @@ internal class EngineStudioRepository(
 
     private suspend fun open(id: String, target: EngineTarget, chosen: ToolChoices) = conversationLocks.withLock(id) {
         val record = carry.prepareHarnesses(id, harnesses)
-        check(record.worktreeTaskId == null || record.executionWorkspace != null) {
-            "The conversation worktree is not ready"
-        }
-        val workspace = record.resolvedExecutionWorkspace()?.let { ref ->
-            check(
-                facade.engines.state.value.any {
-                    it.descriptor.id == target.engine &&
-                        it.descriptor.isLocalWorkspaceSupported
-                },
-            ) {
-                "Choose a model with local project access"
-            }
-            checkNotNull(workspaces.resolve(ref)) { "The project folder is unavailable" }
-            ref
-        }
+        val workspace = record.validatedExecutionWorkspace(
+            workspaces,
+            isLocalWorkspaceSupported = facade.engines.state.value.any {
+                it.descriptor.id == target.engine && it.descriptor.isLocalWorkspaceSupported
+            },
+        )
         val current = handlesLock.withLock { handles.live(id) }
         if (current != null) {
             check(
