@@ -157,6 +157,17 @@ class DesktopCodingSafetyTest {
     }
 
     @Test
+    fun `command policy allows an ordinary origin push and rejects other network writes`() = runTest {
+        verdict = AgentSafetyReview("risk", "Refused by the test")
+        val arguments = buildJsonObject { put("command", "git push -u origin fix/branch") }
+        assertTrue(DefaultAgentTools(setOf(contribution)).execute(context, "run_command", arguments).isError)
+        assertEquals(1, reviews)
+        assertEquals(0, prompts)
+        assertTrue("ordinary push of the current branch to its existing configured origin" in policy)
+        assertTrue("force push" in policy)
+    }
+
+    @Test
     fun `risk uncertainty missing model and unavailable reviewer fail closed for full trust`() = runTest {
         val tools = DefaultAgentTools(setOf(contribution))
         for (value in listOf("risk", "uncertain")) {

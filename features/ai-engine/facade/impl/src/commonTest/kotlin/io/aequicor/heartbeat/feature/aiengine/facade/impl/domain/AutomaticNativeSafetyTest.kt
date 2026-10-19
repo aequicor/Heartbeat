@@ -58,6 +58,17 @@ class AutomaticNativeSafetyTest {
     }
 
     @Test
+    fun `native policy allows an ordinary origin push and rejects other network writes`() = runTest {
+        val f = NativeSafetyFixture()
+        f.assess = { AgentSafetyReview("uncertain", "Refused by the test") }
+        val call = Call.copy(command = "git push -u origin fix/branch")
+        assertIs<NativeVerdict.Deny>(f.tools.authorizeNative(Context, call))
+        assertEquals(1, f.reviews.size)
+        assertTrue("ordinary push of the current branch to its existing configured origin" in f.policies.single())
+        assertTrue("force push" in f.policies.single())
+    }
+
+    @Test
     fun `host bound mode and target override adapter values before reviewing full input`() = runTest {
         val f = NativeSafetyFixture()
         f.tools.bindTurn(Session, Request, TurnId("facade"), Target, AgentToolDecisionMode.AutomaticSafety)
@@ -236,13 +247,15 @@ private class NativeSafetyFixture : SessionHooks {
     var assess: suspend () -> AgentSafetyReview = { Safe }
     var target: EngineTarget? = null
     val reviews = mutableListOf<String>()
+    val policies = mutableListOf<String>()
     val tools = DefaultAgentTools(
         emptySet(),
         this,
         ToolPolicyResolver { _, _, _ -> policy },
         safety = lazyOf(
-            AgentSafetyReviewer { reviewedTarget, _, change ->
+            AgentSafetyReviewer { reviewedTarget, policyText, change ->
                 target = reviewedTarget
+                policies += policyText
                 reviews += change
                 assess()
             },
