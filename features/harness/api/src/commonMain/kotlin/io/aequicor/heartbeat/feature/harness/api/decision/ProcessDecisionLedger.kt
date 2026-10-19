@@ -35,11 +35,16 @@ public data class ProcessCommandDecision(
     val command: ProcessCommandSnapshot? = null,
     val github: ProcessGitHubSnapshot? = null,
     val ownership: ProcessOwnershipSnapshot? = null,
+    /** Native command outcome, committed with Completed; null for legacy records and other action kinds. */
+    val receipt: ProcessCommandReceipt? = null,
 ) {
     init {
         require(
             listOf(command, github, ownership).count { it != null } == 1,
         ) { "Exactly one decision payload is required" }
+        require(receipt == null || (command != null && decision.phase == ProcessDecisionPhase.Completed)) {
+            "Command receipts require a completed command decision"
+        }
     }
     override fun toString(): String = "ProcessCommandDecision(phase=${decision.phase}, ***)"
 }
@@ -83,6 +88,13 @@ public sealed interface ProcessDecisionEdit {
 
     /** Applies a host decision or execution receipt to one known record. */
     public data class Change(val id: String, val command: ProcessDecisionCommand) : ProcessDecisionEdit
+
+    /** Atomically completes the exact admitted command and saves its native result; only its executor supplies it. */
+    public data class CompleteCommand(
+        val id: String,
+        val binding: ProcessActionBinding,
+        val receipt: ProcessCommandReceipt,
+    ) : ProcessDecisionEdit
 }
 
 /**
@@ -95,10 +107,12 @@ public fun ProcessDecisionLedger.reduce(edit: ProcessDecisionEdit, now: Instant)
     return when (edit) {
         is ProcessDecisionEdit.Request -> request(edit.entry, now)
         is ProcessDecisionEdit.Change -> change(edit, now)
+        is ProcessDecisionEdit.CompleteCommand -> completeCommand(edit, now)
     }
 }
 
 private fun ProcessDecisionLedger.request(entry: ProcessCommandDecision, now: Instant): ProcessDecisionLedger? {
+    if (entry.receipt != null) return null
     val decision = entry.decision
     val previous = find(decision.binding)
     return when {
@@ -128,6 +142,24 @@ private fun ProcessDecisionLedger.change(edit: ProcessDecisionEdit.Change, now: 
             entries = entries.map { if (it == previous) it.copy(decision = next) else it },
         )
     }
+}
+
+/**
+ * A lost save acknowledgement may replay only the same native result. Legacy Completed records have no result
+ * and cannot be retroactively certified. A script cannot call this transaction through ScriptProcesses.
+ */
+private fun ProcessDecisionLedger.completeCommand(
+    edit: ProcessDecisionEdit.CompleteCommand,
+    now: Instant,
+): ProcessDecisionLedger? {
+    val previous = find(edit.id) ?: return null
+    if (previous.command == null || previous.decision.binding != edit.binding) return null
+    if (previous.receipt != null) return takeIf { previous.receipt == edit.receipt }
+    val next = previous.decision.reduce(ProcessDecisionCommand.Complete, now) ?: return null
+    return copy(
+        revision = revision + 1,
+        entries = entries.map { if (it == previous) it.copy(decision = next, receipt = edit.receipt) else it },
+    )
 }
 
 private const val MAX_WORD_CHARS = 8192

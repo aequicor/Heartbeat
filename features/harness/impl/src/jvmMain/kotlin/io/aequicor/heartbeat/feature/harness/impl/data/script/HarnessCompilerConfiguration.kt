@@ -53,6 +53,7 @@ internal fun harnessCompilerConfiguration(kind: HarnessCodeKind, classpath: Harn
             "io.aequicor.heartbeat.feature.harness.api.script.ScriptCommandResult",
             "io.aequicor.heartbeat.feature.harness.api.script.ScriptCommandRefusal",
             "io.aequicor.heartbeat.feature.harness.api.script.ScriptProcessCommandResult",
+            "io.aequicor.heartbeat.feature.harness.api.decision.ProcessCommandReceipt",
             "io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionPhase",
             "io.aequicor.heartbeat.feature.harness.api.process.ProcessAuthority",
             "kotlinx.coroutines.launch",

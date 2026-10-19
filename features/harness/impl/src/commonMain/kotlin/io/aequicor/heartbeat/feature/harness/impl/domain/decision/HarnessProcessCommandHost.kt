@@ -23,4 +23,7 @@ internal data class ProcessCommandInvocation(
 /** Executor owns request construction, live revalidation and atomic claim, not a boolean returned to author code. */
 internal interface HarnessProcessCommandHost {
     suspend fun execute(invocation: ProcessCommandInvocation): ScriptProcessCommandResult
+
+    /** Scoped observation only: no admission, local command or mutable repository inspection. */
+    suspend fun read(invocation: ProcessCommandInvocation, decisionId: String): ScriptProcessCommandResult
 }

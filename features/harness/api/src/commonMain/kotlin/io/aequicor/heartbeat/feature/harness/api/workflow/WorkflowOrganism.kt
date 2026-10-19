@@ -69,6 +69,9 @@ public enum class OrganismEnd {
     /** The turn of the zygote broke or its end could not be confirmed. */
     Failed,
 
+    /** A working cell needs interactive input; the workflow stops it without answering or granting permission. */
+    InteractionRequired,
+
     /** It was aborted from outside before the zygote answered. */
     Aborted,
 }

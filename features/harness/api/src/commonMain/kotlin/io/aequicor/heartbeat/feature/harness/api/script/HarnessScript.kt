@@ -10,7 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
 import kotlinx.coroutines.CoroutineScope
 
 /** Script ABI revision included in compiled artifact cache keys; change it when this public contract changes. */
-public const val HARNESS_API_VERSION: Int = 12
+public const val HARNESS_API_VERSION: Int = 14
 
 /**
  * Host-issued services of one approved item revision. Its scope, subscriptions and registrations belong to that

@@ -131,6 +131,27 @@ internal class HarnessScriptCommands(
         }
     }
 
+    override suspend fun resultForProcess(
+        name: ItemName,
+        workspace: WorkspaceRef?,
+        process: ProcessWorkflowKey,
+        decisionId: String,
+        parameters: Map<String, String>,
+    ): ScriptProcessCommandResult {
+        check(!host.origins.current().isHookRestricted) { "Hooks cannot read command decisions" }
+        check(access.isActive) { "Commands require the published activation" }
+        val call = processInvocation(name, workspace, process, parameters)
+            ?: return ScriptProcessCommandResult.Unavailable
+        val executor = host.processes
+        val isAdmitted = executor != null && host.isEnabled() && scopeRefusal(call.workspace) == null
+        return if (isAdmitted) {
+            check(access.isActive) { "Command decision activation expired" }
+            executor.read(call, decisionId)
+        } else {
+            ScriptProcessCommandResult.Unavailable
+        }
+    }
+
     private fun processInvocation(
         name: ItemName,
         workspace: WorkspaceRef?,

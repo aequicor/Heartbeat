@@ -47,6 +47,9 @@ public interface WorkflowScope {
      * its quota is returned only after its work has actually ended. Only this exact step of this run can stop it:
      * the organism's identity is never exposed to workflow code, tools or other sessions. [goal] is bounded by
      * [io.aequicor.heartbeat.feature.harness.api.HarnessLimits.ORGANISM_GOAL_CHARS].
+     * Observed interactive requests of any working cell end the stage with [OrganismEnd.InteractionRequired].
+     * No request is answered automatically; the call waits for confirmed cleanup before returning that outcome.
+     * Park the durable process for human handling, rather than conceiving replacement organisms in a retry loop.
      */
     public suspend fun organism(goal: String, options: OrganismOptions): OrganismOutcome
 

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.decision
 
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessCommandReceipt
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionCommand
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionEdit
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionPhase
@@ -50,8 +51,8 @@ class ProcessCommandExecutorTest {
         assertEquals(ScriptCommandResult.Exited(0, "done"), result.result)
         assertEquals(listOf("pr", "merge", "1"), env.local.executions.single().arguments)
         env.restart()
-        val repeated = assertIs<ScriptProcessCommandResult.Decision>(env.executor().execute(env.invocation()))
-        assertEquals(ProcessDecisionPhase.Completed, repeated.phase)
+        val repeated = assertIs<ScriptProcessCommandResult.Recorded>(env.executor().execute(env.invocation()))
+        assertEquals(ProcessCommandReceipt.Exited(0), repeated.receipt)
         assertEquals(1, env.local.executions.size)
     }
 
@@ -71,8 +72,8 @@ class ProcessCommandExecutorTest {
         assertTrue(env.host.edit(ProcessDecisionEdit.Change(pending.id, ProcessDecisionCommand.Answer(0, true))))
         env.processes.apply(env.process, ProcessCommand.Resume(restored.wait.number))
         assertIs<ScriptProcessCommandResult.Finished>(env.executor().execute(call))
-        val tick = assertIs<ScriptProcessCommandResult.Decision>(env.executor().execute(call))
-        assertEquals(ProcessDecisionPhase.Completed, tick.phase)
+        val tick = assertIs<ScriptProcessCommandResult.Recorded>(env.executor().execute(call))
+        assertEquals(ProcessCommandReceipt.Exited(0), tick.receipt)
         assertEquals(1, env.local.executions.size)
         assertEquals(1, env.host.ready()?.entries?.size)
     }
@@ -268,7 +269,7 @@ class ProcessCommandExecutorTest {
     }
 }
 
-private suspend fun ProcessCommandTestEnv.approve() {
+internal suspend fun ProcessCommandTestEnv.approve() {
     val pending = assertIs<ScriptProcessCommandResult.Decision>(executor().execute(invocation()))
     assertTrue(host.edit(ProcessDecisionEdit.Change(pending.id, ProcessDecisionCommand.Answer(0, true))))
 }

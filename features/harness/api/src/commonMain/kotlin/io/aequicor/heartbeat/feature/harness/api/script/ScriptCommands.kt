@@ -2,9 +2,11 @@ package io.aequicor.heartbeat.feature.harness.api.script
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.ItemName
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessCommandReceipt
 import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionPhase
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessAuthority
 import io.aequicor.heartbeat.feature.harness.api.process.ProcessWorkflowKey
+import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
@@ -47,6 +49,7 @@ public sealed interface ScriptCommandResult {
 }
 
 /** Why [ScriptCommands.run] started nothing. */
+@Serializable
 public enum class ScriptCommandRefusal {
     /** Mini-app commands are switched off in this application. */
     Disabled,
@@ -98,6 +101,21 @@ public interface ScriptCommands {
     ): ScriptProcessCommandResult = ScriptProcessCommandResult.Unavailable
 
     /**
+     * Reads a previously issued decision without requesting approval or executing any command, including Git.
+     * Save the decision id returned by runForProcess before waiting. The current approved declaration, harness
+     * revision, physical workspace, authority and exact process key must still match the original request.
+     * Changing HEAD does not hide a saved result. Recorded contains no output and proves only the native outcome;
+     * Completed without Recorded is a legacy result whose details are unknown. Executing is never retried here.
+     */
+    public suspend fun resultForProcess(
+        name: ItemName,
+        workspace: WorkspaceRef?,
+        process: ProcessWorkflowKey,
+        decisionId: String,
+        parameters: Map<String, String> = emptyMap(),
+    ): ScriptProcessCommandResult = ScriptProcessCommandResult.Unavailable
+
+    /**
      * Declares [name] while the script is evaluated, copying its argument and parameter collections so later
      * mutations cannot change this declaration; later calls throw IllegalStateException. At most
      * HarnessLimits.COMMANDS per activation, each name once. Invalid declarations (blank or parameterized program,
@@ -124,8 +142,11 @@ public sealed interface ScriptProcessCommandResult {
     /** Observe or await this durable record; only the native host UI can answer it. */
     public data class Decision(val id: String, val phase: ProcessDecisionPhase) : ScriptProcessCommandResult
 
-    /** The one claimed execution returned. Subsequent calls observe Completed without executing again. */
+    /** The one claimed execution returned. Later calls read Recorded, or Executing after an uncertain timeout. */
     public data class Finished(val result: ScriptCommandResult) : ScriptProcessCommandResult
+
+    /** A saved native result of this exact command; no execution occurred and no stdout or stderr is retained. */
+    public data class Recorded(val receipt: ProcessCommandReceipt) : ScriptProcessCommandResult
 
     /** Admission failed or the journal could not be verified. This is never permission to run unguarded. */
     public data object Unavailable : ScriptProcessCommandResult

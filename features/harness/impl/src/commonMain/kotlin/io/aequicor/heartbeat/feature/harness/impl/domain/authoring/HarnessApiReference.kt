@@ -154,7 +154,15 @@ private val API = """
       ProcessBuilder or Runtime.exec: undeclared processes are arbitrary execution and fail the review.
     - Guarded process commands: ScriptCommand(..., requiresDecision = ProcessAuthority.Merge | Release | Publish | Write).
       commands.run refuses these declarations. commands.runForProcess(name, workspace, process.workflowKey(stage), parameters)
-      returns ScriptProcessCommandResult.Decision(id, phase), Finished(ScriptCommandResult) or Unavailable.
+      returns ScriptProcessCommandResult.Decision(id, phase), Finished(ScriptCommandResult), Recorded(receipt) or Unavailable.
+      Save Decision.id before executing. commands.resultForProcess(name, workspace, key, decisionId, parameters)
+      reads its saved status without executing commands or Git, even after HEAD changes. The declaration, source revision,
+      workspace and exact process key must match. Recorded contains ProcessCommandReceipt.Exited(exitCode) or
+      Refused(reason), never stdout/stderr. A zero exit code still needs external evidence for business success.
+      API v13 adds Recorded: existing exhaustive when expressions over ScriptProcessCommandResult must handle it
+      when their source is recompiled; old ledger entries remain readable with no inferred receipt.
+      Legacy Completed without a receipt means unknown details. Timeout/cancellation stays Executing: reconcile,
+      never replay it as a new command. Receipts and Completed are persisted together before returning Finished.
       Pending is a durable wait for the native host screen: Settings → Harnesses → this harness → Process actions.
       ui_call, WebView callbacks, timers and GitHub comments can only request/observe; none can approve. Return from
       the callback, persist the decision id and park the process; retry from an owned timer after the user answers.
@@ -356,9 +364,14 @@ private val API = """
       executor of a large stage. Handle the outcome with when: Answered(text) — the zygote answered after every
       cell ended; that is not proof the stage reached its goal, so check the goal yourself in a following step;
       Refused(Unavailable | Rejected) — nothing was started (organic AI is off or asleep, or it did not accept the
-      goal); Ended(NoModel | Failed | Aborted) — the organism never answered. target pins the model of the cells
+      goal); Ended(NoModel | Failed | InteractionRequired | Aborted) — the organism never answered. target pins the model of the cells
       (null — the user's default), immunityTarget the judges (null — target); trust is capped at Ask and cell
-      permission requests are not shown to the user yet. The organism is conceived once per step: replay and
+      permission/input requests have no dialog: an observed request in any working cell ends the stage as
+      InteractionRequired (API v14: add this branch to exhaustive when expressions over OrganismEnd).
+      The driver saves this outcome and aborts the organism, waiting for confirmed native cleanup
+      before returning; it never answers the request or increases trust. Park the durable process for human handling,
+      do not retry by spawning replacement organisms. A background worker may stop first with its own durable
+      interaction reason; return to the UI through the existing worker stop/handoff procedure. The organism is conceived once per step: replay and
       restarts return the recorded outcome or reconcile with the same organism and never start another;
       changing the goal or options of a recorded step fails the run as Diverged. A run owns at most
       ${HarnessLimits.ORGANISMS_PER_RUN} organism at a time and the profile ${HarnessLimits.ORGANISMS_PER_PROFILE};

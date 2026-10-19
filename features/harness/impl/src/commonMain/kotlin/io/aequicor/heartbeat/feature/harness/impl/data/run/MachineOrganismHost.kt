@@ -160,8 +160,18 @@ private fun Organism.toView(): OrganismView = when (val ended = status) {
         else -> OrganismView.Aborting
     }
 
-    OrganismStatus.Developing -> when (val phase = zygote.phase) {
-        is CellPhase.Stalled -> OrganismView.Stalled(phase.breakdown.toEnd())
+    OrganismStatus.Developing -> developingView()
+}
+
+/** A workflow has no permission dialog; any live cell requesting input must go through ordinary abort cleanup. */
+private fun Organism.developingView(): OrganismView {
+    val phase = zygote.phase
+    return when {
+        cells.any { (it.phase as? CellPhase.Working)?.awaiting?.isNotEmpty() == true } ->
+            OrganismView.Stalled(OrganismEnd.InteractionRequired)
+
+        phase is CellPhase.Stalled -> OrganismView.Stalled(phase.breakdown.toEnd())
+
         else -> OrganismView.Developing
     }
 }
