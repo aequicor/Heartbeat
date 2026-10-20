@@ -18,7 +18,7 @@ import kotlin.time.Duration.Companion.seconds
 class FacadeIsolatedPromptsTest {
     @Test
     fun `a prompt runs once in a fresh tool-less session and returns the final answer`() = runTest {
-        val f = ReviewFixture(backgroundScope).apply { answer = """{"choice":"c2"}""" }
+        val f = IsolatedTurnFixture().apply { answer = """{"choice":"c2"}""" }
         val answer = prompts(f).ask(IsolatedPrompt(f.target, "Pick one candidate"))
         assertEquals(IsolatedAnswer.Answered("""{"choice":"c2"}"""), answer)
         val request = f.creations.single()
@@ -36,7 +36,7 @@ class FacadeIsolatedPromptsTest {
 
     @Test
     fun `the answer is cut to the requested budget`() = runTest {
-        val f = ReviewFixture(backgroundScope).apply { answer = "a".repeat(100) }
+        val f = IsolatedTurnFixture().apply { answer = "a".repeat(100) }
         val answer = prompts(f).ask(IsolatedPrompt(f.target, "Summarise", maxAnswerChars = 50))
         val text = (answer as IsolatedAnswer.Answered).text
         assertEquals(50, text.length)
@@ -45,7 +45,7 @@ class FacadeIsolatedPromptsTest {
 
     @Test
     fun `a permission request is cancelled and never answered`() = runTest {
-        val f = ReviewFixture(backgroundScope).apply { asks = true }
+        val f = IsolatedTurnFixture().apply { asks = true }
         val answer = prompts(f).ask(IsolatedPrompt(f.target, "Pick"))
         assertEquals(IsolatedAnswer.Unavailable(IsolatedPromptFailure.Incomplete), answer)
         assertEquals(1, f.cancels)
@@ -54,7 +54,7 @@ class FacadeIsolatedPromptsTest {
 
     @Test
     fun `a provider failure is a value and frees the slot for the next prompt`() = runTest {
-        val f = ReviewFixture(backgroundScope).apply { failsOnCreate = true }
+        val f = IsolatedTurnFixture().apply { failsOnCreate = true }
         val prompts = prompts(f)
         assertEquals(
             IsolatedAnswer.Unavailable(IsolatedPromptFailure.Failed),
@@ -66,7 +66,7 @@ class FacadeIsolatedPromptsTest {
 
     @Test
     fun `a turn that never ends times out and keeps its restrictions until it settles`() = runTest {
-        val f = ReviewFixture(backgroundScope).apply {
+        val f = IsolatedTurnFixture().apply {
             outcome = null
             ignoresCancel = true
         }
@@ -75,11 +75,11 @@ class FacadeIsolatedPromptsTest {
         assertTrue(f.policy.policy(ToolPolicyScope(session = f.ref)) != null)
     }
 
-    private fun TestScope.prompts(f: ReviewFixture) = FacadeIsolatedPrompts(
+    private fun TestScope.prompts(f: IsolatedTurnFixture) = FacadeIsolatedPrompts(
         lazyOf(f.facade),
         f.policy,
         backgroundScope,
-        AgentSafetyReviewSlots(capacity = 1, queueWait = 10.seconds),
+        IsolatedTurnSlots(capacity = 1, queueWait = 10.seconds),
         1.minutes,
     )
 }

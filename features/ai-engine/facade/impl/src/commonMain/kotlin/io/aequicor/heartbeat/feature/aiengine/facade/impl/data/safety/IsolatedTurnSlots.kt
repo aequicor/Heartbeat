@@ -1,12 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety
 
-import dev.zacsweers.metro.ContributesBinding
-import dev.zacsweers.metro.Inject
-import dev.zacsweers.metro.SingleIn
-import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewLoad
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,26 +12,23 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
 /**
- * The profile's review sessions: at most [capacity] are open at once, including stopped ones still awaiting their
+ * The profile's service sessions: at most [capacity] are open at once, including stopped ones still awaiting their
  * termination; at most [queueLimit] callers wait up to [queueWait] for a slot. Every change is reflected in [load].
  * Other kinds of isolated service turns keep their own instance, named by [label] in logs.
  */
-@SingleIn(ProfileScope::class)
-internal class AgentSafetyReviewSlots(
+internal class IsolatedTurnSlots(
     capacity: Int,
-    private val queueLimit: Int = MAX_QUEUED_REVIEWS,
+    private val queueLimit: Int = MAX_QUEUED_TURNS,
     private val queueWait: Duration = QUEUE_WAIT,
-    private val label: String = "Safety review",
-    tag: String = "AgentSafetyReviewer",
+    private val label: String = "Isolated turn",
+    tag: String = "IsolatedTurns",
 ) : ServiceTurnSlots {
-    @Inject
-    constructor() : this(MAX_PARALLEL_REVIEWS)
 
     private val log = Log.tag(tag)
     private val permits = Semaphore(capacity)
-    private val state = MutableStateFlow(AgentSafetyReviewLoad(capacity))
+    private val state = MutableStateFlow(IsolatedTurnLoad(capacity))
 
-    val load: StateFlow<AgentSafetyReviewLoad> = state.asStateFlow()
+    val load: StateFlow<IsolatedTurnLoad> = state.asStateFlow()
 
     /**
      * Waits in the bounded queue; false when it is full or no slot frees up in time. Cancellation propagates. The
@@ -71,7 +62,7 @@ internal class AgentSafetyReviewSlots(
         return isAcquired
     }
 
-    /** A dismissed review keeps its slot while its session has not confirmed termination. */
+    /** A dismissed turn keeps its slot while its session has not confirmed termination. */
     override fun startFinishing() {
         state.update { it.copy(running = it.running - 1, finishing = it.finishing + 1) }
         log.i { "$label awaits its session termination: ${state.value.summary()}" }
@@ -85,28 +76,29 @@ internal class AgentSafetyReviewSlots(
         copy(finishing = finishing - 1, abandoned = if (isAbandoned) abandoned + 1 else abandoned)
     }
 
-    /** A user-facing summary for refusals; numbers only, no review content. */
+    /** A user-facing summary for refusals; numbers only, no supplied content. */
     fun describe(): String = state.value.let {
         "Выполняется ${it.running + it.finishing} из ${it.capacity}, в очереди ${it.queued}."
     }
 
-    private fun release(change: AgentSafetyReviewLoad.() -> AgentSafetyReviewLoad) {
+    private fun release(change: IsolatedTurnLoad.() -> IsolatedTurnLoad) {
         state.update(change)
         permits.release()
         log.v { "$label slot released: ${state.value.summary()}" }
     }
 }
 
-/** Exposes the profile's review load to other features. */
-@ContributesBinding(ProfileScope::class)
-@Inject
-internal class AgentSafetyReviewLoadMonitor(slots: AgentSafetyReviewSlots) : AgentSafetyReviewMonitor {
-    override val load: StateFlow<AgentSafetyReviewLoad> = slots.load
-}
-
-private fun AgentSafetyReviewLoad.summary() =
+private fun IsolatedTurnLoad.summary() =
     "running=$running queued=$queued finishing=$finishing abandoned=$abandoned capacity=$capacity"
 
-private const val MAX_PARALLEL_REVIEWS = 3
-private const val MAX_QUEUED_REVIEWS = 16
+private const val MAX_QUEUED_TURNS = 16
 private val QUEUE_WAIT = 2.minutes
+
+/** Capacity accounting includes sessions whose cleanup is still running. */
+internal data class IsolatedTurnLoad(
+    val capacity: Int,
+    val running: Int = 0,
+    val queued: Int = 0,
+    val finishing: Int = 0,
+    val abandoned: Int = 0,
+)

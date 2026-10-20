@@ -34,7 +34,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
-/** Slot accounting of one kind of isolated service turn; see [AgentSafetyReviewSlots]. */
+/** Slot accounting of one kind of isolated service turn; see [IsolatedTurnSlots]. */
 internal interface ServiceTurnSlots {
     /** Waits in the bounded queue; false when no slot is available in time. */
     suspend fun acquire(): Boolean

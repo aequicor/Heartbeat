@@ -21,8 +21,6 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.Subagent
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRun
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRunStore
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.target
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
@@ -416,14 +414,12 @@ class SubagentAgentToolsTest {
             ChoiceSource.Scoring,
             1,
         ),
-        verdict: AgentSafetyReview = AgentSafetyReview("safe", "Bounded edit"),
     ) {
         // Match ScopeHandleImpl: deferred failures belong to their awaiters, not the profile's parent job.
         private val profileScope = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
         val requests = mutableListOf<Pair<SubagentRequest, SelectionContext>>()
         val agents = Agents()
         val runs = MemoryRuns()
-        val reviewer = Reviewer(verdict)
         private val adaptive = object : AdaptiveModels {
             override suspend fun select(request: SubagentRequest, context: SelectionContext): ModelChoice {
                 requests += request to context
@@ -514,18 +510,6 @@ class SubagentAgentToolsTest {
             removeFailure?.let { throw it }
             runs.removeAll { it.id in ids }
             afterRemoveFailure?.let { throw it }
-        }
-    }
-
-    private class Reviewer(private val verdict: AgentSafetyReview) : AgentSafetyReviewer {
-        val targets = mutableListOf<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget>()
-        override suspend fun review(
-            target: io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget,
-            policy: String,
-            change: String,
-        ): AgentSafetyReview {
-            targets += target
-            return verdict
         }
     }
 }
