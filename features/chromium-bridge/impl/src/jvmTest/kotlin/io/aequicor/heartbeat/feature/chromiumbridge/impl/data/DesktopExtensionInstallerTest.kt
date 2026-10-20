@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ExtensionPreparation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import org.junit.AssumptionViolatedException
+import java.nio.file.FileSystemException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.ZipEntry
@@ -98,15 +100,21 @@ class DesktopExtensionInstallerTest {
     }
 
     @Test
-    fun `unexpected files and links invalidate the offline cache`() = runTest {
+    fun `unexpected files invalidate the offline cache`() = runTest {
         archive()
         val installer = installer()
         val folder = installer.prepare {}
         Files.writeString(folder.resolve("injected.js"), "unexpected")
         assertNull(installer.locate())
-        Files.delete(folder.resolve("injected.js"))
+    }
+
+    @Test
+    fun `symbolic links invalidate the offline cache`() = runTest {
+        archive()
+        val installer = installer()
+        val folder = installer.prepare {}
         Files.delete(folder.resolve("app/panel.js"))
-        Files.createSymbolicLink(folder.resolve("app/panel.js"), archive)
+        createTestSymbolicLink(folder.resolve("app/panel.js"), archive)
         assertNull(installer.locate())
     }
 
@@ -114,7 +122,7 @@ class DesktopExtensionInstallerTest {
     fun `a linked cache root is rejected before writing outside the cache`() = runTest {
         archive()
         val outside = Files.createDirectory(root.resolve("outside"))
-        Files.createSymbolicLink(root.resolve("cache"), outside)
+        createTestSymbolicLink(root.resolve("cache"), outside)
         assertFailsWith<Exception> { installer().prepare {} }
         assertTrue(Files.list(outside).use { it.findAny().isEmpty })
     }
@@ -176,4 +184,15 @@ class DesktopExtensionInstallerTest {
             }
         }
     }
+}
+
+/** Only Windows denial of symlink privilege skips a scenario; all other filesystem errors fail it. */
+private fun createTestSymbolicLink(link: Path, target: Path): Path = try {
+    Files.createSymbolicLink(link, target)
+} catch (error: FileSystemException) {
+    val reason = error.reason.orEmpty()
+    val missingPrivilege = reason.contains("required privilege", ignoreCase = true) ||
+        reason.contains("требуемыми правами", ignoreCase = true)
+    if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true) || !missingPrivilege) throw error
+    throw AssumptionViolatedException("Windows symlinks require Developer Mode or symlink privilege", error)
 }
