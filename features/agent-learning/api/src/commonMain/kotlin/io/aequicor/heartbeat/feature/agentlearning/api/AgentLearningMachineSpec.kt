@@ -11,7 +11,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | From | Intent | Guard | To | Effect / output |
  * |---|---|---|---|---|
  * | Idle | Start | | Loading | Load |
- * | Loading | Loaded | | Ready(instructions, approval) | |
+ * | Loading | Loaded | | Ready(instructions) | |
  * | Loading | LoadFailed | | Failed | StorageFailed |
  * | Failed | Reload | | Loading | Load |
  * | Idle / Loading / Failed | Learn / Replace | | same | Rejected(Unavailable) |
@@ -28,11 +28,10 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | Edit | known id, trimmed texts unchanged | Ready | |
  * | Ready | Edit | known id, texts differ, are valid and the title is free | Ready(updated, revision + 1) | Persist |
  * | Ready | Delete | known id | Ready(without it, revision + 1) | Persist |
- * | Ready | SetApproval | level differs | Ready(approval, approvalRevision + 1) | PersistApproval |
  * | Ready | SaveFailed | receipt of a held one | Ready(rolled back, revision + 1) | Persist, StorageFailed, Rejected |
  * | Ready | SaveFailed | otherwise | Ready | StorageFailed, Rejected for a receipt |
  *
- * Effect failures: Load → LoadFailed, Persist → SaveFailed(receipt), PersistApproval → SaveFailed. A learned
+ * Effect failures: Load → LoadFailed, Persist → SaveFailed(receipt). A learned
  * instruction is confirmed only once written; one that could not be written is rolled back and rejected as
  * NotPersisted, so it reaches no prompt and no later save; an unwritten replacement restores the instruction it
  * replaced. Texts are valid when the title and content are not
@@ -51,7 +50,7 @@ public val AgentLearningMachineSpec: LearningSpec =
         state<AgentLearningState.Loading> {
             on<AgentLearningIntent.Internal.Loaded> {
                 goto<AgentLearningState.Ready> {
-                    AgentLearningState.Ready(intent.instructions.distinctBy { it.id }, intent.approval)
+                    AgentLearningState.Ready(intent.instructions.distinctBy { it.id })
                 }
             }
             on<AgentLearningIntent.Internal.LoadFailed> {
@@ -116,10 +115,6 @@ public val AgentLearningMachineSpec: LearningSpec =
                 stay { state.removed(intent.id) }
                 effect { state.removed(intent.id).persist() }
             }
-            on<AgentLearningIntent.Public.SetApproval>(guard = { state.approval != intent.approval }) {
-                stay { state.copy(approval = intent.approval, approvalRevision = state.approvalRevision + 1) }
-                effect { AgentLearningEffect.PersistApproval(intent.approval, state.approvalRevision + 1) }
-            }
             on<AgentLearningIntent.Internal.SaveFailed> {
                 // An unwritten learned instruction is rolled back: the agent hears it was not saved.
                 stay { state.withoutUnsaved(intent.receipt) }
@@ -134,7 +129,6 @@ public val AgentLearningMachineSpec: LearningSpec =
             when (effect) {
                 AgentLearningEffect.Load -> AgentLearningIntent.Internal.LoadFailed
                 is AgentLearningEffect.Persist -> AgentLearningIntent.Internal.SaveFailed(effect.receipt)
-                is AgentLearningEffect.PersistApproval -> AgentLearningIntent.Internal.SaveFailed()
             }
         }
     }

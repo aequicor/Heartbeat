@@ -10,7 +10,6 @@ import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningState
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionId
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
-import io.aequicor.heartbeat.feature.agentlearning.api.LearningApproval
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningLimits
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.LearningMachine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
@@ -73,9 +72,6 @@ internal class AgentLearningModel(
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun LearningPipeline.handle(intent: AgentLearningScreenIntent) {
         when (intent) {
-            is AgentLearningScreenIntent.SelectApproval ->
-                sendTo(machine, AgentLearningIntent.Public.SetApproval(intent.approval.toDomain()))
-
             is AgentLearningScreenIntent.SetEnabled ->
                 sendTo(machine, AgentLearningIntent.Public.SetEnabled(InstructionId(intent.id), intent.isEnabled))
 
@@ -164,7 +160,6 @@ private fun AgentLearningScreenState.reflectRegistry(state: AgentLearningState):
             val ids = rows.map { it.id }.toSet()
             copy(
                 isLoaded = true,
-                approval = state.approval.toUi(),
                 instructions = rows,
                 expanded = expanded?.takeIf { it in ids },
                 draft = draft?.takeIf { it.id in ids },
@@ -204,16 +199,4 @@ private fun KindUi.toDomain(): InstructionKind = when (this) {
     KindUi.General -> InstructionKind.General
     KindUi.Model -> InstructionKind.Model
     KindUi.Skill -> InstructionKind.Skill
-}
-
-private fun LearningApproval.toUi(): ApprovalUi = when (this) {
-    LearningApproval.Ask -> ApprovalUi.Ask
-    LearningApproval.Automatic -> ApprovalUi.Automatic
-    LearningApproval.AcceptAll -> ApprovalUi.AcceptAll
-}
-
-private fun ApprovalUi.toDomain(): LearningApproval = when (this) {
-    ApprovalUi.Ask -> LearningApproval.Ask
-    ApprovalUi.Automatic -> LearningApproval.Automatic
-    ApprovalUi.AcceptAll -> LearningApproval.AcceptAll
 }

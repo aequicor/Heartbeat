@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningState
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionId
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
-import io.aequicor.heartbeat.feature.agentlearning.api.LearningApproval
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningTools
 import io.aequicor.heartbeat.feature.agentlearning.api.ModelScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
@@ -109,19 +108,6 @@ class LearningAgentToolsTest {
         val multiline = remember("general", "Lines", "content" to "First line\n\tSecond line")
         assertFalse(tools.authorized(context(), LearningTools.REMEMBER, multiline).isError)
         assertEquals("", tools.instructions(AgentToolScope(WorkspaceRef("unknown"), TARGET)))
-    }
-
-    @Test
-    fun `legacy learning preferences cannot change the operation authorization`() = runTest {
-        val machine = SpecMachine()
-        val tools = tools(machine)
-        val spec = tools.specifications(PROJECT).first { it.name == LearningTools.REMEMBER }
-        val args = remember("general", "Preference")
-        val expected = tools.approval(context(), spec, args)
-        for (level in LearningApproval.entries) {
-            machine.state.value = AgentLearningState.Ready(approval = level)
-            assertEquals(expected, tools.approval(context(), spec, args))
-        }
     }
 
     @Test

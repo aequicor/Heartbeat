@@ -19,7 +19,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.tooling.preview.Preview
@@ -49,7 +48,6 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.AgentLearningModel
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.AgentLearningScreenIntent
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.AgentLearningScreenState
-import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.ApprovalUi
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.DraftUi
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.InstructionUi
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.KindUi
@@ -57,12 +55,6 @@ import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.LearningErr
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.ProjectFilterUi
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.ProjectUi
 import io.aequicor.heartbeat.feature.agentlearning.impl.resources.Res
-import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_approval_all
-import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_approval_all_hint
-import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_approval_ask
-import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_approval_ask_hint
-import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_approval_automatic
-import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_approval_automatic_hint
 import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_back
 import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_cancel
 import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_collapsed
@@ -90,8 +82,6 @@ import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_proje
 import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_retry
 import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_save
 import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_save_failed
-import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_section_approval
-import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_section_approval_hint
 import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_section_general
 import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_section_model
 import io.aequicor.heartbeat.feature.agentlearning.impl.resources.learning_section_skill
@@ -164,13 +154,12 @@ internal fun AgentLearningContent(
     state.instructions.firstOrNull { it.id == state.deleting }?.let { DeleteDialog(it, onIntent) }
 }
 
-/** Approval level, a load or save problem, then the filter and the instructions grouped by kind. */
+/** A load or save problem, then the filter and the instructions grouped by kind. */
 private fun LazyListScope.registryItems(
     state: AgentLearningScreenState,
     groups: Map<KindUi, ImmutableList<InstructionUi>>,
     onIntent: (AgentLearningScreenIntent) -> Unit,
 ) {
-    item(key = "approval") { ApprovalSection(state.approval.takeIf { state.isLoaded }, onIntent) }
     state.error?.takeUnless { it == LearningErrorUi.EditRejected && state.draft != null }?.let { error ->
         item(key = "error") { ErrorBanner(error, onIntent) }
     }
@@ -188,35 +177,6 @@ private fun LazyListScope.registryItems(
         val rows = groups[kind] ?: return@forEach
         item(key = "kind-${kind.name}") {
             InstructionsSection(kind, rows, state.projects, state.expanded, onIntent)
-        }
-    }
-}
-
-@Composable
-private fun ApprovalSection(
-    approval: ApprovalUi?,
-    onIntent: (AgentLearningScreenIntent) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    HbSettingsSection(
-        stringResource(Res.string.learning_section_approval),
-        modifier.testTag("agent-learning-approval"),
-        description = stringResource(Res.string.learning_section_approval_hint),
-    ) {
-        ApprovalUi.entries.forEachIndexed { index, level ->
-            if (index > 0) HbDivider()
-            val isSelected = level == approval
-            HbSettingsRow(
-                stringResource(level.title()),
-                Modifier.fillMaxWidth().semantics { selected = isSelected }
-                    .testTag("agent-learning-approval-${level.name}"),
-                description = stringResource(level.hint()),
-                onClick = { onIntent(AgentLearningScreenIntent.SelectApproval(level)) },
-                enabled = approval != null,
-                isSelected = isSelected,
-            ) {
-                if (isSelected) HbIcon(HbIcons.Check, contentDescription = null)
-            }
         }
     }
 }
@@ -526,18 +486,6 @@ private fun DeleteDialog(
     ) {
         HbText(stringResource(Res.string.learning_delete_text, row.title))
     }
-}
-
-private fun ApprovalUi.title(): StringResource = when (this) {
-    ApprovalUi.Ask -> Res.string.learning_approval_ask
-    ApprovalUi.Automatic -> Res.string.learning_approval_automatic
-    ApprovalUi.AcceptAll -> Res.string.learning_approval_all
-}
-
-private fun ApprovalUi.hint(): StringResource = when (this) {
-    ApprovalUi.Ask -> Res.string.learning_approval_ask_hint
-    ApprovalUi.Automatic -> Res.string.learning_approval_automatic_hint
-    ApprovalUi.AcceptAll -> Res.string.learning_approval_all_hint
 }
 
 private fun KindUi.title(): StringResource = when (this) {

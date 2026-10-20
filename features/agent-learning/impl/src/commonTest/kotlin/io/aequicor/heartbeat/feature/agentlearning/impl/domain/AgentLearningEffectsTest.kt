@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningIntent
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionId
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
-import io.aequicor.heartbeat.feature.agentlearning.api.LearningApproval
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -22,11 +21,10 @@ class AgentLearningEffectsTest {
         val effects = AgentLearningEffects(storage)
 
         effects.handle(AgentLearningEffect.Persist(listOf(lesson), revision = 1), machine)
-        effects.handle(AgentLearningEffect.PersistApproval(LearningApproval.Ask), machine)
         effects.handle(AgentLearningEffect.Load, machine)
 
         assertEquals(
-            listOf<AgentLearningIntent>(AgentLearningIntent.Internal.Loaded(listOf(lesson), LearningApproval.Ask)),
+            listOf<AgentLearningIntent>(AgentLearningIntent.Internal.Loaded(listOf(lesson))),
             machine.sent,
         )
     }
@@ -47,9 +45,6 @@ class AgentLearningEffectsTest {
         override suspend fun load(): StoredLearning = stored
         override suspend fun saveInstructions(instructions: List<LearnedInstruction>) {
             stored = stored.copy(instructions = instructions)
-        }
-        override suspend fun saveApproval(approval: LearningApproval) {
-            stored = stored.copy(approval = approval)
         }
     }
 

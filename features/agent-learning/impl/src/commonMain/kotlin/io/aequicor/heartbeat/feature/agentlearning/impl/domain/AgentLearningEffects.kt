@@ -6,26 +6,19 @@ import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEffect
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningIntent
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
-import io.aequicor.heartbeat.feature.agentlearning.api.LearningApproval
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** The stored registry of one profile. */
-internal data class StoredLearning(
-    val instructions: List<LearnedInstruction> = emptyList(),
-    val approval: LearningApproval = LearningApproval.Ask,
-)
+internal data class StoredLearning(val instructions: List<LearnedInstruction> = emptyList())
 
-/** Profile storage of learned instructions and the approval level. */
+/** Profile storage of learned instructions. */
 internal interface LearningStorage {
     /** The stored registry; defaults when nothing was saved. Unreadable data fails instead of reading as empty. */
     suspend fun load(): StoredLearning
 
     /** Replaces the stored instructions. */
     suspend fun saveInstructions(instructions: List<LearnedInstruction>)
-
-    /** Replaces the stored approval level. */
-    suspend fun saveApproval(approval: LearningApproval)
 }
 
 /**
@@ -39,14 +32,13 @@ internal class AgentLearningEffects(private val storage: LearningStorage) :
     private val log = Log.tag("AgentLearningEffects")
     private val saving = Mutex()
     private var savedRevision = -1L
-    private var savedApprovalRevision = -1L
 
     override suspend fun handle(effect: AgentLearningEffect, machine: EffectScope<AgentLearningIntent>) {
         when (effect) {
             AgentLearningEffect.Load -> {
                 val stored = storage.load()
-                log.i { "learned instructions loaded: ${stored.instructions.size}, approval ${stored.approval}" }
-                machine.send(AgentLearningIntent.Internal.Loaded(stored.instructions, stored.approval))
+                log.i { "learned instructions loaded: ${stored.instructions.size}" }
+                machine.send(AgentLearningIntent.Internal.Loaded(stored.instructions))
             }
 
             is AgentLearningEffect.Persist -> {
@@ -61,16 +53,6 @@ internal class AgentLearningEffects(private val storage: LearningStorage) :
                     }
                 }
                 effect.receipt?.let { machine.send(AgentLearningIntent.Internal.Saved(it)) }
-            }
-
-            is AgentLearningEffect.PersistApproval -> saving.withLock {
-                if (effect.revision <= savedApprovalRevision) {
-                    log.d { "stale approval save skipped: ${effect.revision} <= $savedApprovalRevision" }
-                } else {
-                    storage.saveApproval(effect.approval)
-                    savedApprovalRevision = effect.revision
-                    log.i { "learning approval saved: ${effect.approval}" }
-                }
             }
         }
     }
