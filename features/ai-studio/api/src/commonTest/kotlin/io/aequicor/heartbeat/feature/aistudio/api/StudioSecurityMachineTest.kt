@@ -5,10 +5,11 @@ import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class StudioSecurityMachineTest {
     @Test
-    fun `profile starts by reading settings and missing settings use automatic review`() {
+    fun `profile starts by reading settings and missing settings use automatic mode`() {
         StudioSecurityMachineSpec.assertTransition(
             StudioSecurityState.Idle,
             StudioSecurityIntent.Public.Start,
@@ -19,12 +20,14 @@ class StudioSecurityMachineTest {
             StudioSecurityState.Loading,
             StudioSecurityIntent.Internal.Loaded(null),
             StudioSecurityState.Ready(StudioSecurityLevel.Automatic),
+            effects = listOf(StudioSecurityEffect.Observe),
         )
         StudioSecurityLevel.entries.forEach { level ->
             StudioSecurityMachineSpec.assertTransition(
                 StudioSecurityState.Loading,
                 StudioSecurityIntent.Internal.Loaded(level),
                 StudioSecurityState.Ready(level),
+                effects = listOf(StudioSecurityEffect.Observe),
             )
         }
     }
@@ -49,24 +52,26 @@ class StudioSecurityMachineTest {
     }
 
     @Test
-    fun `policy changes only after the selected level is saved`() {
+    fun `write results retain the observed policy and restart observation`() {
         val ready = StudioSecurityState.Ready(StudioSecurityLevel.Ask)
         val saving = StudioSecurityState.Saving(StudioSecurityLevel.Ask, StudioSecurityLevel.Trust)
         StudioSecurityMachineSpec.assertTransition(
             ready,
             StudioSecurityIntent.Public.SetLevel(StudioSecurityLevel.Trust),
             saving,
-            effects = listOf(StudioSecurityEffect.Save(StudioSecurityLevel.Trust)),
+            effects = listOf(StudioSecurityEffect.Observe, StudioSecurityEffect.Save(StudioSecurityLevel.Trust)),
         )
         StudioSecurityMachineSpec.assertTransition(
             saving,
             StudioSecurityIntent.Internal.Saved,
-            StudioSecurityState.Ready(StudioSecurityLevel.Trust),
+            ready,
+            effects = listOf(StudioSecurityEffect.Observe),
         )
         StudioSecurityMachineSpec.assertTransition(
             saving,
             StudioSecurityIntent.Internal.SaveFailed,
             ready.copy(isSaveFailed = true),
+            effects = listOf(StudioSecurityEffect.Observe),
         )
     }
 
@@ -91,7 +96,7 @@ class StudioSecurityMachineTest {
             StudioSecurityState.Ready(StudioSecurityLevel.Ask, isSaveFailed = true),
             StudioSecurityIntent.Public.SetLevel(StudioSecurityLevel.Trust),
             StudioSecurityState.Saving(StudioSecurityLevel.Ask, StudioSecurityLevel.Trust),
-            effects = listOf(StudioSecurityEffect.Save(StudioSecurityLevel.Trust)),
+            effects = listOf(StudioSecurityEffect.Observe, StudioSecurityEffect.Save(StudioSecurityLevel.Trust)),
         )
         val failure = IllegalStateException("storage unavailable")
         assertEquals(
@@ -101,6 +106,48 @@ class StudioSecurityMachineTest {
         assertEquals(
             StudioSecurityIntent.Internal.SaveFailed,
             StudioSecurityMachineSpec.onEffectFailure(StudioSecurityEffect.Save(StudioSecurityLevel.Trust), failure),
+        )
+    }
+
+    @Test
+    fun `external modes update ready and saving without restarting effects`() {
+        val observed = StudioSecurityIntent.Internal.Observed(StudioSecurityLevel.Automatic)
+        StudioSecurityMachineSpec.assertTransition(
+            StudioSecurityState.Ready(StudioSecurityLevel.Ask, isSaveFailed = true),
+            observed,
+            StudioSecurityState.Ready(StudioSecurityLevel.Automatic, isSaveFailed = true),
+        )
+        val saving = StudioSecurityState.Saving(StudioSecurityLevel.Ask, StudioSecurityLevel.Trust)
+        val updated = saving.copy(level = StudioSecurityLevel.Automatic)
+        assertFalse(StudioSecurityMachineSpec.assertTransition(saving, observed, updated).isStateChange)
+        StudioSecurityMachineSpec.assertTransition(
+            updated,
+            StudioSecurityIntent.Internal.Saved,
+            StudioSecurityState.Ready(StudioSecurityLevel.Automatic),
+            effects = listOf(StudioSecurityEffect.Observe),
+        )
+        StudioSecurityMachineSpec.assertTransition(
+            updated,
+            StudioSecurityIntent.Internal.SaveFailed,
+            StudioSecurityState.Ready(StudioSecurityLevel.Automatic, isSaveFailed = true),
+            effects = listOf(StudioSecurityEffect.Observe),
+        )
+    }
+
+    @Test
+    fun `observation failure retries after save without cancelling the write`() {
+        StudioSecurityMachineSpec.assertTransition(
+            StudioSecurityState.Ready(StudioSecurityLevel.Trust),
+            StudioSecurityIntent.Internal.LoadFailed,
+            StudioSecurityState.LoadError,
+        )
+        StudioSecurityMachineSpec.assertIgnored(
+            StudioSecurityState.Saving(StudioSecurityLevel.Ask, StudioSecurityLevel.Trust),
+            StudioSecurityIntent.Internal.LoadFailed,
+        )
+        assertEquals(
+            StudioSecurityIntent.Internal.LoadFailed,
+            StudioSecurityMachineSpec.onEffectFailure(StudioSecurityEffect.Observe, IllegalStateException()),
         )
     }
 

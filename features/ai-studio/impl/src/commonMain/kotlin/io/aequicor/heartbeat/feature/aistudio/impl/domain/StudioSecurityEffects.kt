@@ -19,6 +19,10 @@ internal class StudioSecurityEffects(private val settings: StudioSecurityStore) 
                 machine.send(StudioSecurityIntent.Internal.Loaded(level))
             }
 
+            StudioSecurityEffect.Observe -> settings.levels.collect { level ->
+                machine.send(StudioSecurityIntent.Internal.Observed(level))
+            }
+
             is StudioSecurityEffect.Save -> {
                 settings.save(effect.level)
                 log.i { "Studio security settings saved: level=${effect.level}" }

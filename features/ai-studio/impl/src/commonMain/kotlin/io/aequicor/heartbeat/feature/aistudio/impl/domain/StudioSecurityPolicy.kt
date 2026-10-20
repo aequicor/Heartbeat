@@ -21,6 +21,9 @@ internal interface StudioSecurityPolicy {
 
 /** Durable setting of the active profile. */
 internal interface StudioSecurityStore {
+    /** Live committed profile levels, including the facade's Ask fallback while storage recovers. */
+    val levels: Flow<StudioSecurityLevel>
+
     /** Reads the saved level; absence preserves the initial Automatic policy. */
     suspend fun load(): StudioSecurityLevel?
 
