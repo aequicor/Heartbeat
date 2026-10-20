@@ -155,15 +155,16 @@ class SessionHooksIntegrationTest {
     }
 
     @Test
-    fun `hook denial applies to hosted calls before native acceptance returns`() = runTest {
+    fun `hook denial requests user confirmation for hosted calls`() = runTest {
         val fixture = HookFixture(this)
         fixture.hook.verdict = ToolHookVerdict.Deny("blocked")
         val native = FakeNativeSession()
         var result: AgentToolResult? = null
-        native.onAccepted = { result = fixture.execute(native) }
+        native.onAccepted = { result = fixture.execute(native, AgentToolPermissions { false }) }
         fixture.open(native).send(prompt("run"))
+        runCurrent()
         assertTrue(result!!.isError)
-        assertTrue(result!!.text.startsWith("Blocked by a session hook"))
+        assertTrue(result!!.text.contains("user declined"))
         assertEquals(0, fixture.owner.calls)
     }
 
@@ -183,8 +184,8 @@ class SessionHooksIntegrationTest {
         )
         assertFalse(result.isError)
         assertEquals("note\n\nresult", result.text)
-        assertTrue(shown!!.description!!.contains("review"))
-        assertTrue(shown!!.description!!.endsWith("original text"))
+        assertTrue(shown!!.description!!.contains("Arguments:"))
+        assertTrue(shown!!.description!!.contains("original text"))
         assertEquals(APPROVAL, fixture.owner.authorization)
     }
 

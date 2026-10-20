@@ -126,14 +126,13 @@ class AdapterHostedToolsTest {
             permissions = AgentToolPermissions {
                 decisions++
                 assertTrue(it.description.orEmpty().contains("secret query"))
-                assertTrue(it.description.orEmpty().contains("Review query"))
                 true
             },
         )
         assertEquals(NativeVerdict.Allow, tools.authorizeHosted(context, "web_search", Arguments))
         verdict = ToolHookVerdict.Deny("Blocked")
-        assertIs<NativeVerdict.Deny>(tools.authorizeHosted(context, "web_search", Arguments))
-        assertEquals(1, decisions)
+        assertEquals(NativeVerdict.Allow, tools.authorizeHosted(context, "web_search", Arguments))
+        assertEquals(2, decisions)
     }
 
     @Test

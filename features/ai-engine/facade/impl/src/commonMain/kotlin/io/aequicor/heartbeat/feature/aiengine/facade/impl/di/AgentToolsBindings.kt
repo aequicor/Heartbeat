@@ -5,7 +5,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -26,7 +26,14 @@ public object AgentToolsBindings {
         hooks: SessionHooks,
         policies: ToolPolicyResolver,
         offloads: Lazy<Set<ToolOutputOffload>>,
-        safety: Lazy<AgentSafetyReviewer>,
+        settings: AgentSecuritySettings,
         workspaces: LocalWorkspaces,
-    ): ProfileAgentTools = DefaultAgentTools(contributions, hooks, policies, offloads, safety, workspaces)
+    ): ProfileAgentTools = DefaultAgentTools(
+        contributions,
+        hooks,
+        policies,
+        offloads,
+        workspaces = workspaces,
+        settings = settings,
+    )
 }
