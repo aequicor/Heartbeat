@@ -10,7 +10,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
-import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessChange
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
@@ -50,9 +49,7 @@ class HarnessScreenModelsTest {
     private val script = HarnessItem.Script(ItemId("verify"), ItemName("verify"), "Checks", "hooks.toString()")
     private val ready = HarnessState.Ready(
         harnesses = listOf(HarnessEntry(harness.copy(items = listOf(rule, script), revision = 4))),
-        approval = HarnessApproval.ByTrust,
         isRuntimeAvailable = true,
-        approvalRevision = 2,
     )
 
     @Test

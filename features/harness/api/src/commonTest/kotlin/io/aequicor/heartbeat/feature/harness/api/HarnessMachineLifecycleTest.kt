@@ -65,7 +65,7 @@ class HarnessMachineLifecycleTest {
                 session,
             ),
             HarnessIntent.Public.Detach(request, harness.id, session),
-            HarnessIntent.Internal.SetApproval(request, HarnessApproval.Ask, 0), HarnessIntent.Public.Reload(request),
+            HarnessIntent.Public.Reload(request),
         )
         val states = listOf(HarnessState.Idle(), HarnessState.Loading(HarnessLoad(1, 0)), HarnessState.Failed(true))
         states.forEach { state ->
@@ -84,7 +84,6 @@ class HarnessMachineLifecycleTest {
     fun `other features can only connect chats and reload while edits stay internal`() {
         val edits: List<HarnessIntent.Command> = listOf(
             create,
-            HarnessIntent.Internal.SetApproval(request, HarnessApproval.AcceptAll, 0),
             HarnessIntent.Internal.SetEnabled(request, harness.id, true, 0, now),
         )
         assertTrue(edits.none { it is HarnessIntent.Public })
@@ -112,7 +111,7 @@ class HarnessMachineLifecycleTest {
         )
         HarnessMachineSpec.assertTransition(
             HarnessState.Failed(false, 3),
-            HarnessIntent.Internal.SetApproval(request, HarnessApproval.Ask, 0),
+            HarnessIntent.Internal.SetEnabled(request, harness.id, true, 0, now),
             HarnessState.Failed(false, 3),
             outputs = listOf(HarnessOutput.Rejected(request, HarnessRejection.Unavailable)),
         )
@@ -227,13 +226,11 @@ class HarnessMachineLifecycleTest {
     fun `effect failures produce the same correlated repository failure as explicit feedback`() {
         val receipt = HarnessReceipt(request, harness.id, 1)
         val attachment = HarnessAttachmentWrite(request, harness.id, session, true, emptyMap())
-        val approval = HarnessApprovalWrite(request, HarnessApproval.Ask, 1)
         val cases = mapOf<HarnessEffect, HarnessIntent.Internal>(
             HarnessEffect.Load(HarnessLoad(1, 0)) to HarnessIntent.Internal.LoadFailed(HarnessLoad(1, 0)),
             HarnessEffect.Save(harness, receipt) to HarnessIntent.Internal.SaveFailed(receipt),
             HarnessEffect.Remove(harness, receipt) to HarnessIntent.Internal.RemoveFailed(receipt),
             HarnessEffect.SaveAttachments(attachment) to HarnessIntent.Internal.AttachmentsFailed(attachment),
-            HarnessEffect.SaveApproval(approval) to HarnessIntent.Internal.ApprovalFailed(approval),
         )
         cases.forEach { (effect, expected) ->
             assertEquals(

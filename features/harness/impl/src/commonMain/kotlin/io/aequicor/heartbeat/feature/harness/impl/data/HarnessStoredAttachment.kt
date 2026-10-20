@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.feature.harness.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
-import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.isHarnessLibraryWithinLimits
@@ -11,13 +10,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageCorrupt
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okio.ByteString.Companion.encodeUtf8
-
-@Serializable
-internal data class HarnessStoredApproval(val level: HarnessApproval = HarnessApproval.Ask, val revision: Long = 0) {
-    init {
-        require(revision >= 0)
-    }
-}
 
 /** JSON object keys cannot encode SessionRef safely; storage uses explicit entries and rejects duplicates. */
 @Serializable
@@ -36,7 +28,7 @@ internal inline fun <reified T> decodeHarnessRecord(raw: String): T = try {
 }
 
 internal fun HarnessLibrarySnapshot.isValid(): Boolean =
-    approvalRevision >= 0 && isHarnessLibraryWithinLimits(harnesses) && validStoredAttachments(harnesses, attachments)
+    isHarnessLibraryWithinLimits(harnesses) && validStoredAttachments(harnesses, attachments)
 
 internal fun validStoredAttachments(harnesses: List<Harness>, attachments: Map<SessionRef, Set<HarnessId>>): Boolean {
     val ids = harnesses.map { it.id }.toSet()

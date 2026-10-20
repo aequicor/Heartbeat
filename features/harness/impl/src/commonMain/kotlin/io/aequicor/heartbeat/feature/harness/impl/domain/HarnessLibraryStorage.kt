@@ -2,8 +2,6 @@ package io.aequicor.heartbeat.feature.harness.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
-import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
-import io.aequicor.heartbeat.feature.harness.api.HarnessApprovalWrite
 import io.aequicor.heartbeat.feature.harness.api.HarnessAttachmentWrite
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessReceipt
@@ -12,8 +10,6 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessReceipt
 internal data class HarnessLibrarySnapshot(
     val harnesses: List<Harness> = emptyList(),
     val attachments: Map<SessionRef, Set<HarnessId>> = emptyMap(),
-    val approval: HarnessApproval = HarnessApproval.Ask,
-    val approvalRevision: Long = 0,
 )
 
 /**
@@ -28,7 +24,6 @@ internal interface HarnessLibraryStorage {
     suspend fun save(harness: Harness, receipt: HarnessReceipt): HarnessReceipt
     suspend fun remove(harness: Harness, receipt: HarnessReceipt): HarnessReceipt
     suspend fun saveAttachments(write: HarnessAttachmentWrite): HarnessAttachmentWrite
-    suspend fun saveApproval(write: HarnessApprovalWrite): HarnessApprovalWrite
 }
 
 /** Sanitized repository failures; none retain an original user-controlled message or cause. */

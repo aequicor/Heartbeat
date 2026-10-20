@@ -1,8 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
-import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
-import io.aequicor.heartbeat.feature.harness.api.HarnessApprovalWrite
 import io.aequicor.heartbeat.feature.harness.api.HarnessAttachmentWrite
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
@@ -43,7 +41,7 @@ class HarnessLibraryStorageTest {
     }
 
     @Test
-    fun `committed library attachments approval and deletion survive new repository instances`() = runTest {
+    fun `committed library attachments and deletion survive new repository instances`() = runTest {
         val stores = HarnessTestStores()
         assertEquals(HarnessLibrarySnapshot(), stores.library().load())
         assertEquals(storageReceipt, stores.library().save(storageHarness, storageReceipt))
@@ -56,15 +54,13 @@ class HarnessLibraryStorageTest {
             2,
         )
         assertEquals(attach, stores.library().saveAttachments(attach))
-        val approval = HarnessApprovalWrite(RequestId("approve"), HarnessApproval.ByTrust, 1, 3)
-        assertEquals(approval, stores.library().saveApproval(approval))
         assertEquals(
-            HarnessLibrarySnapshot(listOf(storageHarness), attach.attachments, approval.level, 1),
+            HarnessLibrarySnapshot(listOf(storageHarness), attach.attachments),
             stores.library().load(),
         )
         assertEquals(storageReceipt, stores.library().save(storageHarness, storageReceipt))
         stores.library().remove(storageHarness, storageReceipt.copy(requestId = RequestId("delete"), generation = 4))
-        assertEquals(HarnessLibrarySnapshot(approval = approval.level, approvalRevision = 1), stores.library().load())
+        assertEquals(HarnessLibrarySnapshot(), stores.library().load())
         assertNull(stores.libraryValues.values[harnessRecordKey(storageHarness.id)])
         assertNull(stores.libraryValues.values["pending"])
         assertFalse(HarnessLibrarySpec.areValuesLogged)
@@ -103,7 +99,6 @@ class HarnessLibraryStorageTest {
         val corruptions = listOf(
             mapOf("index" to "private source code"),
             mapOf("index" to Json.encodeToString(listOf(storageHarness.id))),
-            mapOf("approval" to "private source code"),
             mapOf("attachments" to "private source code"),
             mapOf("pending" to "private source code"),
             mapOf("index" to Json.encodeToString(listOf(storageHarness.id, storageHarness.id))),
@@ -116,6 +111,13 @@ class HarnessLibraryStorageTest {
             assertNull(failure.cause)
             assertEquals(raw, stores.libraryValues.values)
         }
+    }
+
+    @Test
+    fun `obsolete approval preference cannot break loading the library`() = runTest {
+        val stores = HarnessTestStores()
+        stores.libraryValues.values["approval"] = "obsolete malformed preference"
+        assertEquals(HarnessLibrarySnapshot(), stores.library().load())
     }
 
     @Test

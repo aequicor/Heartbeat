@@ -22,9 +22,6 @@ public sealed interface HarnessOutput : MachineOutput {
     /** The explicit disconnection is committed. */
     public data class Detached(val requestId: RequestId, val id: HarnessId, val session: SessionRef) : HarnessOutput
 
-    /** The approval setting is committed. */
-    public data class ApprovalChanged(val requestId: RequestId, val level: HarnessApproval) : HarnessOutput
-
     /** A public request was refused without scheduling a write. */
     public data class Rejected(val requestId: RequestId, val reason: HarnessRejection) : HarnessOutput
 

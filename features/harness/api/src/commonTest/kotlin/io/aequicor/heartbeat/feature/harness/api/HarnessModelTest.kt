@@ -36,9 +36,6 @@ class HarnessModelTest {
                 assertFalse(item.toString().contains(secret))
             }
         }
-        for (approval in HarnessApproval.entries) {
-            assertEquals(approval, Json.decodeFromString<HarnessApproval>(Json.encodeToString(approval)))
-        }
     }
 
     @Test

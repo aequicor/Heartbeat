@@ -27,8 +27,6 @@ internal class HarnessEffects(private val storage: HarnessLibraryStorage, privat
                         effect.load,
                         stored.harnesses,
                         stored.attachments,
-                        stored.approval,
-                        stored.approvalRevision,
                         runtime.isAvailable,
                     ),
                 )
@@ -45,12 +43,6 @@ internal class HarnessEffects(private val storage: HarnessLibraryStorage, privat
             is HarnessEffect.SaveAttachments -> machine.send(
                 HarnessIntent.Internal.AttachmentsSaved(
                     durable { storage.saveAttachments(effect.write) },
-                ),
-            )
-
-            is HarnessEffect.SaveApproval -> machine.send(
-                HarnessIntent.Internal.ApprovalSaved(
-                    durable { storage.saveApproval(effect.write) },
                 ),
             )
 

@@ -34,8 +34,6 @@ internal fun HarnessState.Ready.command(intent: HarnessIntent.Command): LibraryT
         AttachmentExpectation(intent.expectedRevision, intent.expectedSessions),
     )
 
-    is HarnessIntent.Internal.SetApproval -> approve(intent)
-
     is HarnessIntent.Public.Reload -> reload(intent)
 }
 
@@ -246,28 +244,13 @@ private fun HarnessState.Ready.connectionRejection(id: HarnessId, expected: Set<
         else -> null
     }
 
-private fun HarnessState.Ready.approve(intent: HarnessIntent.Internal.SetApproval): LibraryTransition = when {
-    intent.expectedRevision != approvalRevision -> reject(intent.requestId, HarnessRejection.Conflict)
-
-    approvalWrite != null -> reject(intent.requestId, HarnessRejection.Busy)
-
-    else -> {
-        val write = HarnessApprovalWrite(intent.requestId, intent.level, approvalRevision + 1, writeGeneration + 1)
-        LibraryTransition(
-            copy(approvalWrite = write, writeGeneration = write.generation),
-            listOf(HarnessEffect.SaveApproval(write)),
-        )
-    }
-}
-
 private fun HarnessState.Ready.reload(intent: HarnessIntent.Public.Reload): LibraryTransition {
     if (reload != null) return reject(intent.requestId, HarnessRejection.Busy)
     val load = HarnessLoad(loadGeneration + 1, revision, !hasWrites())
     return LibraryTransition(copy(reload = load, loadGeneration = load.generation), listOf(HarnessEffect.Load(load)))
 }
 
-internal fun HarnessState.Ready.hasWrites(): Boolean =
-    pending.isNotEmpty() || attachmentWrite != null || approvalWrite != null
+internal fun HarnessState.Ready.hasWrites(): Boolean = pending.isNotEmpty() || attachmentWrite != null
 
 internal fun validAttachments(harnesses: List<Harness>, attachments: Map<SessionRef, Set<HarnessId>>): Boolean {
     val ids = harnesses.map { it.id }.toSet()

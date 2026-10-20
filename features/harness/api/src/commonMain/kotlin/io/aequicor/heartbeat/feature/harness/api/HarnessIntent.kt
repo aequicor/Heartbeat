@@ -7,7 +7,7 @@ import kotlin.time.Instant
 
 /**
  * Library commands and correlated repository/runtime feedback. Other features may only connect chats and refresh
- * ([Public]); content, code, enabling and the approval level change only through [Internal.Edit].
+ * ([Public]); content, code and enabling change only through [Internal.Edit].
  */
 public sealed interface HarnessIntent : MachineIntent {
     /** Commands whose host-generated request id correlates the durable outcome. */
@@ -42,7 +42,7 @@ public sealed interface HarnessIntent : MachineIntent {
     /** This feature's edits, repository receipts and runtime lifecycle feedback; stale tokens are ignored. */
     public sealed interface Internal : HarnessIntent {
         /**
-         * Edits of content, code, enabling and the approval level. Activation compiles and publishes saved code, and
+         * Edits of content, code and enabling. Activation compiles and publishes saved code, and
          * the machine never checks approval: only this feature's stores (direct user edits) and agent tools (after
          * automatic safety authorization) hold the full machine that accepts them.
          */
@@ -97,13 +97,6 @@ public sealed interface HarnessIntent : MachineIntent {
             val at: Instant,
         ) : Edit
 
-        /** [expectedRevision] refers to Ready.approvalRevision, not the library or harness revision. */
-        public data class SetApproval(
-            override val requestId: RequestId,
-            val level: HarnessApproval,
-            val expectedRevision: Long,
-        ) : Edit
-
         /** Receipts for durable library and setting IO. */
         public sealed interface Storage : Internal
 
@@ -118,8 +111,6 @@ public sealed interface HarnessIntent : MachineIntent {
             val load: HarnessLoad,
             val harnesses: List<Harness>,
             val attachments: Map<SessionRef, Set<HarnessId>> = emptyMap(),
-            val approval: HarnessApproval = HarnessApproval.Ask,
-            val approvalRevision: Long = 0,
             val isRuntimeAvailable: Boolean = false,
         ) : Storage
 
@@ -143,12 +134,6 @@ public sealed interface HarnessIntent : MachineIntent {
 
         /** The attachment write failed; retain the old map. */
         public data class AttachmentsFailed(val write: HarnessAttachmentWrite) : Storage
-
-        /** The exact approval value is durable. */
-        public data class ApprovalSaved(val write: HarnessApprovalWrite) : Storage
-
-        /** The approval write failed; retain the old value. */
-        public data class ApprovalFailed(val write: HarnessApprovalWrite) : Storage
 
         /** The exact pending item revision and runtime generation became active. */
         public data class ItemActivated(

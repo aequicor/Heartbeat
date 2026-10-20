@@ -24,7 +24,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
-import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessChange
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
@@ -351,7 +350,6 @@ private class AuthoringToggles : FeatureToggles {
 }
 
 private class FakeLibrary : HarnessLibraryClient {
-    var approval = HarnessApproval.Ask
     var attachments = emptyMap<SessionRef, Set<HarnessId>>()
     var revision = harness.revision
     var items: List<HarnessItem> = emptyList()
@@ -367,7 +365,7 @@ private class FakeLibrary : HarnessLibraryClient {
         get() {
             val default = harness.copy(revision = revision, items = items, tools = tools, scope = scope)
             val entries = (harnesses ?: listOf(default)).map(::HarnessEntry)
-            return HarnessState.Ready(harnesses = entries, approval = approval, attachments = attachments)
+            return HarnessState.Ready(harnesses = entries, attachments = attachments)
                 .takeIf { isAvailable }
         }
 

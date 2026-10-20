@@ -74,29 +74,6 @@ class HarnessMachineSideWritesTest {
     }
 
     @Test
-    fun `approval changes only on matching durable receipt and stale public revision conflicts`() {
-        val intent = HarnessIntent.Internal.SetApproval(request, HarnessApproval.AcceptAll, 0)
-        val write = HarnessApprovalWrite(request, HarnessApproval.AcceptAll, 1)
-        val pending = ready.copy(approvalWrite = write, writeGeneration = 1)
-        HarnessMachineSpec.assertTransition(ready, intent, pending, effects = listOf(HarnessEffect.SaveApproval(write)))
-        pending.refuses(intent, HarnessRejection.Busy)
-        pending.refuses(intent.copy(expectedRevision = 7), HarnessRejection.Conflict)
-        HarnessMachineSpec.assertIgnored(pending, HarnessIntent.Internal.ApprovalSaved(write.copy(revision = 2)))
-        HarnessMachineSpec.assertTransition(
-            pending,
-            HarnessIntent.Internal.ApprovalFailed(write),
-            ready.copy(writeGeneration = 1),
-            outputs = listOf(HarnessOutput.StorageFailed(request)),
-        )
-        HarnessMachineSpec.assertTransition(
-            pending,
-            HarnessIntent.Internal.ApprovalSaved(write),
-            ready.copy(approval = HarnessApproval.AcceptAll, approvalRevision = 1, revision = 1, writeGeneration = 1),
-            outputs = listOf(HarnessOutput.ApprovalChanged(request, HarnessApproval.AcceptAll)),
-        )
-    }
-
-    @Test
     fun `late side write replies cannot settle a retry with identical public fields`() {
         val attach = HarnessIntent.Public.Attach(request, harness.id, session)
         val first = ready.send(attach)
@@ -105,12 +82,5 @@ class HarnessMachineSideWritesTest {
         HarnessMachineSpec.assertIgnored(retried, HarnessIntent.Internal.AttachmentsSaved(original))
         HarnessMachineSpec.assertIgnored(retried, HarnessIntent.Internal.AttachmentsFailed(original))
         assertEquals(2, retried.attachmentWrite?.generation)
-        val approve = HarnessIntent.Internal.SetApproval(request, HarnessApproval.AcceptAll, 0)
-        val approval = ready.send(approve)
-        val previous = checkNotNull(approval.approvalWrite)
-        val retry = approval.send(HarnessIntent.Internal.ApprovalFailed(previous)).send(approve)
-        HarnessMachineSpec.assertIgnored(retry, HarnessIntent.Internal.ApprovalSaved(previous))
-        HarnessMachineSpec.assertIgnored(retry, HarnessIntent.Internal.ApprovalFailed(previous))
-        assertEquals(2, retry.approvalWrite?.generation)
     }
 }
