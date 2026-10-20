@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -23,10 +24,10 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewMetrics
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiTools
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWeb
-import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWebSafeMode
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecLimits
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -65,11 +66,11 @@ class ServiceUiPreviewToolsTest {
     )
 
     @Test
-    fun `preview is a read tool without project owner or library dependencies`() = runTest {
+    fun `preview is an executable tool without project owner or library dependencies`() = runTest {
         val declaration = tools.specifications(null).single()
         assertTrue(tools.isDetachedSupported)
         assertEquals(ServiceUiTools.PREVIEW, declaration.name)
-        assertEquals(AgentToolAction.Read, declaration.action)
+        assertEquals(AgentToolAction.Command, declaration.action)
         assertEquals(listOf(ServiceUiTools.PREVIEW), tools.catalog.map { it.name })
         assertEquals(JsonArray(listOf(JsonPrimitive("html"))), declaration.inputSchema.getValue("required").jsonArray)
         assertEquals(JsonPrimitive(false), declaration.inputSchema["additionalProperties"])
@@ -84,7 +85,10 @@ class ServiceUiPreviewToolsTest {
         val report = Json.parseToJsonElement(result.text).jsonObject
         assertEquals(JsonPrimitive("light"), report["theme"])
         assertEquals(JsonPrimitive(1f), report["fontScale"])
-        assertEquals(BrowserDocumentPreviewRequest(HTML), renderer.requests.single())
+        assertEquals(
+            BrowserDocumentPreviewRequest(HTML, resourcePolicy = BrowserDocumentResourcePolicy.ExternalAssets),
+            renderer.requests.single(),
+        )
     }
 
     @Test
@@ -143,7 +147,9 @@ class ServiceUiPreviewToolsTest {
             ),
         )
         assertFalse(result.isError)
-        assertEquals(BrowserDocumentPreviewRequest(HTML, data, 400, 500, true, 1.5f), renderer.requests.single())
+        val expected = BrowserDocumentPreviewRequest(HTML, data, 400, 500, true, 1.5f)
+            .copy(resourcePolicy = BrowserDocumentResourcePolicy.ExternalAssets)
+        assertEquals(expected, renderer.requests.single())
         assertEquals("image/png", result.images.single().mimeType)
         assertEquals("AQID", result.images.single().data)
         val report = Json.parseToJsonElement(result.text).jsonObject
@@ -224,15 +230,12 @@ class ServiceUiPreviewToolsTest {
             arguments("data" to JsonPrimitive("я".repeat(BrowserDocumentLimits.DATA_BYTES / 2 + 1))),
         )
         val spec = tools.specifications(null).single()
-        for (isSafeMode in listOf(true, false)) {
-            toggles.set(ServiceUiWebSafeMode.key, isSafeMode)
-            for (args in invalid) {
-                val approval = tools.approval(context, spec, args)
-                assertEquals("invalid", approval.binding)
-                assertEquals(ServiceUiTools.PREVIEW, approval.name)
-                assertTrue(approval.description.orEmpty().length < 200)
-                assertFalse(approval.description.orEmpty().contains("Private sample"))
-            }
+        for (args in invalid) {
+            val approval = tools.approval(context, spec, args)
+            assertEquals("invalid", approval.binding)
+            assertEquals(ServiceUiTools.PREVIEW, approval.name)
+            assertTrue(approval.description.orEmpty().length < 200)
+            assertFalse(approval.description.orEmpty().contains("Private sample"))
         }
         assertTrue(renderer.requests.isEmpty())
     }
@@ -285,28 +288,10 @@ class ServiceUiPreviewToolsTest {
 
     @Test
     fun `external previews need exact facade authorization and cannot select their own policy`() = runTest {
-        toggles.set(ServiceUiWebSafeMode.key, false)
         val spec = tools.specifications(null).single()
         val approval = tools.approval(context, spec, arguments())
         assertTrue(tools.execute(context, ServiceUiTools.PREVIEW, arguments()).isError)
         assertFalse(tools.execute(context.copy(authorization = approval), ServiceUiTools.PREVIEW, arguments()).isError)
-    }
-
-    @Test
-    fun `turning safe mode on revokes an active external preview and returns no image`() = runTest {
-        toggles.set(ServiceUiWebSafeMode.key, false)
-        val allowed = tools.approval(context, tools.specifications(null).single(), arguments())
-        renderer.isSuspended = true
-        val preview = async {
-            tools.execute(context.copy(authorization = allowed), ServiceUiTools.PREVIEW, arguments())
-        }
-        renderer.started.await()
-        toggles.set(ServiceUiWebSafeMode.key, true)
-        val result = preview.await()
-        assertTrue(result.isError)
-        assertTrue(result.text.contains("settings changed"))
-        assertTrue(result.images.isEmpty())
-        assertTrue(renderer.wasCancelled)
     }
 
     @Test
@@ -332,8 +317,11 @@ class ServiceUiPreviewToolsTest {
         },
     )
 
-    private suspend fun call(args: Map<String, JsonElement> = arguments()) =
-        tools.execute(context, ServiceUiTools.PREVIEW, JsonObject(args))
+    private suspend fun call(args: Map<String, JsonElement> = arguments()): AgentToolResult {
+        val input = JsonObject(args)
+        val approved = tools.approval(context, ServiceUiPreviewSpec, input)
+        return tools.execute(context.copy(authorization = approved), ServiceUiTools.PREVIEW, input)
+    }
 
     private class Renderer : BrowserDocumentPreviews {
         val requests = mutableListOf<BrowserDocumentPreviewRequest>()

@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWeb
-import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWebSafeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -18,35 +17,32 @@ import kotlin.test.assertTrue
 
 class ServiceUiWebConfigurationTest {
     @Test
-    fun `default Safe Mode and all availability gates apply to live and preview settings`() = runTest {
+    fun `live and preview share one resource contract and platform availability`() = runTest {
         val toggles = Toggles()
         toggles.values.value = mapOf(ServiceUiEnabled.key to false, ServiceUiWeb.key to false)
-        assertTrue(ServiceUiWebSafeMode.default)
         assertTrue(toggles.uiWebPolicyInstruction().contains("Web documents are disabled"))
         assertFalse(toggles.uiWebConfiguration(isDesktop = true).first().isEnabled)
-        assertEquals(BrowserDocumentResourcePolicy.Isolated, toggles.uiWebResourcePolicy())
+        assertEquals(BrowserDocumentResourcePolicy.ExternalAssets, uiWebResourcePolicy())
         toggles.values.value = mapOf(ServiceUiEnabled.key to true, ServiceUiWeb.key to true)
-        assertTrue(toggles.uiWebPolicyInstruction().contains("Safe Mode: on"))
+        assertTrue(toggles.uiWebPolicyInstruction().contains("profile permission setting"))
         assertTrue(toggles.uiWebConfiguration(isDesktop = true).first().isEnabled)
         assertFalse(toggles.uiWebConfiguration(isDesktop = false).first().isEnabled)
-        toggles.values.value += ServiceUiWebSafeMode.key to false
         assertEquals(
             BrowserDocumentResourcePolicy.ExternalAssets,
             toggles.uiWebConfiguration(isDesktop = true).first().resourcePolicy,
         )
-        assertEquals(BrowserDocumentResourcePolicy.ExternalAssets, toggles.uiWebResourcePolicy())
-        assertTrue(toggles.uiWebPolicyInstruction().contains("Safe Mode: off"))
+        assertEquals(BrowserDocumentResourcePolicy.ExternalAssets, uiWebResourcePolicy())
+        assertTrue(toggles.uiWebPolicyInstruction().contains("profile permission setting"))
         toggles.values.value += ServiceUiEnabled.key to false
         assertFalse(toggles.uiWebConfiguration(isDesktop = true).first().isEnabled)
     }
 
     @Test
-    fun `disabled web guidance does not promise external assets when Safe Mode is off`() = runTest {
+    fun `disabled web guidance reports the unavailable capability`() = runTest {
         val toggles = Toggles()
         toggles.values.value = mapOf(
             ServiceUiEnabled.key to false,
             ServiceUiWeb.key to false,
-            ServiceUiWebSafeMode.key to false,
         )
         val instruction = toggles.uiWebPolicyInstruction()
         assertTrue(instruction.contains("Web documents are disabled"))

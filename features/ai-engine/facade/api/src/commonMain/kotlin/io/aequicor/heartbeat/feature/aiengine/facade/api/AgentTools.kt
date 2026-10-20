@@ -225,20 +225,6 @@ public interface AgentToolContribution {
     ): Boolean = false
 
     /**
-     * Opts this exact hosted operation into independent automatic safety review. A non-null result never asks
-     * the user: only an [AgentToolAutomaticAuthorization.Allowed] matching [approval] can execute; risk, missing
-     * evidence, changed bindings and a hook requiring confirmation all refuse. Implementations must return a
-     * non-null refusal when review is unavailable, and bind the verdict to immutable operation content and trusted
-     * caller identity. The handler revalidates it immediately before mutation. Null preserves the ordinary gate.
-     * Native tools and other contributions are unaffected.
-     */
-    public suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? = null
-
-    /**
      * A previously granted, durable authorization covering this exact operation, or null. Implementations must
      * verify the trusted session owner and immutable approved work; model arguments never confer permission.
      * Only an exact match with [approval], including a nonblank host-owned binding, covers the trust gate.

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.data.tools
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewLimits
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiTools
@@ -14,10 +15,10 @@ import kotlinx.serialization.json.putJsonObject
 /** One disposable WebView render; its schema provides no owner, URL, bridge or arbitrary evaluation command. */
 internal val ServiceUiPreviewSpec = AgentToolSpec(
     name = ServiceUiTools.PREVIEW,
-    description = "Render an HTML draft with Heartbeat's renderer and current Safe Mode setting. Returns layout " +
-        "diagnostics and an optional PNG for image-capable models. No owner methods, saved interfaces, " +
-        "project or harness are required. Safe Mode blocks remote assets; disabling it permits resource loads " +
-        "subject to automatic review. WebView only; does not render native JSON nodes or test persistence.",
+    action = AgentToolAction.Command,
+    description = "Render an HTML draft with Heartbeat's renderer. Runs scripts and may load public HTTPS assets; " +
+        "uses the profile permission setting. Returns layout diagnostics and an optional PNG. " +
+        "No owner methods, saved interfaces, project or harness are required. WebView only.",
     inputSchema = buildJsonObject {
         put("type", "object")
         put("additionalProperties", false)

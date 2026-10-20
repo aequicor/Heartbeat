@@ -190,7 +190,7 @@ internal class ServiceUiAgentTools(
                 arguments,
                 snapshot,
                 libraryRevision = ready.library.revision,
-                resourcePolicy = toggles.uiWebResourcePolicy(),
+                resourcePolicy = uiWebResourcePolicy(),
             ),
         )
     }
@@ -232,7 +232,7 @@ internal class ServiceUiAgentTools(
                 unreviewedApproval(spec, arguments),
                 arguments,
                 snapshot,
-                resourcePolicy = toggles.uiWebResourcePolicy(),
+                resourcePolicy = uiWebResourcePolicy(),
             ),
             shownSurface,
         )
@@ -268,7 +268,7 @@ internal class ServiceUiAgentTools(
                 arguments,
                 snapshot,
                 review.binding,
-                resourcePolicy = toggles.uiWebResourcePolicy(),
+                resourcePolicy = uiWebResourcePolicy(),
             ),
         )
     }

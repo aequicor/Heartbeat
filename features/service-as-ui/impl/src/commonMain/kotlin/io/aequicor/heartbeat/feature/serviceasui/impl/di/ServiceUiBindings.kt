@@ -18,7 +18,6 @@ import io.aequicor.heartbeat.feature.serviceasui.api.spi.ServiceUiProvider
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.ServiceUiEffects
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiMachine
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWeb
-import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWebSafeMode
 
 /** The profile machine of agent interfaces; it survives screens and starts with the profile. */
 @ContributesTo(ProfileScope::class)
@@ -54,9 +53,4 @@ object ServiceUiToggleBindings {
     @Provides
     @IntoSet
     fun web(): FeatureToggle<*> = ServiceUiWeb
-
-    /** External resources stay blocked unless the user opts out in the persisted app-wide toggle panel. */
-    @Provides
-    @IntoSet
-    fun webSafeMode(): FeatureToggle<*> = ServiceUiWebSafeMode
 }

@@ -40,7 +40,6 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiWrite
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteResult
 import io.aequicor.heartbeat.feature.serviceasui.api.apply
 import io.aequicor.heartbeat.feature.serviceasui.impl.di.BundledUiAuthoringKnowledge
-import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWebSafeMode
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
@@ -107,6 +106,9 @@ class ServiceUiAgentToolsTest {
             tools.catalog.map { it.name },
         )
         assertEquals(7, tools.specifications(null).size)
+        assertEquals(AgentToolAction.Command, tools.catalogSpec(ServiceUiTools.SHOW).action)
+        assertEquals(AgentToolAction.Read, tools.catalogSpec(ServiceUiTools.GET).action)
+        assertEquals(AgentToolAction.Read, tools.catalogSpec(ServiceUiTools.LIST).action)
         assertTrue("ui_reference" in tools.instructions(null))
         assertTrue("Heartbeat interface spec" in call(ServiceUiTools.REFERENCE).text)
 
@@ -161,10 +163,6 @@ class ServiceUiAgentToolsTest {
         assertTrue(knowledge.isDetachedSupported)
         assertEquals(AgentToolAction.Read, declaration.action)
         assertEquals(null, context.workspace)
-        assertEquals(
-            null,
-            knowledge.automaticAuthorization(context, declaration, referenceTopic("mini-app-design")),
-        )
         ServiceUiReferenceTopics.forEach { topic ->
             assertFalse(knowledge.execute(context, ServiceUiTools.REFERENCE, referenceTopic(topic)).isError)
         }
@@ -433,17 +431,6 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
-    fun `changing Safe Mode invalidates the reviewed write snapshot`() = runTest {
-        val arguments = put(SPEC)
-        val isolated = approval(ServiceUiTools.PUT, arguments)
-        toggles.isSafeMode.value = false
-        assertTrue(execute(ServiceUiTools.PUT, arguments, isolated).isError)
-        assertEquals(0, machine.writes)
-        val external = approval(ServiceUiTools.PUT, arguments)
-        assertFalse(execute(ServiceUiTools.PUT, arguments, external).isError)
-    }
-
-    @Test
     fun `changed caller arguments source or activation cannot reuse a safe method decision`() = runTest {
         val arguments = methodArgs()
         val approved = approval(ServiceUiTools.CALL, arguments)
@@ -627,11 +614,10 @@ class ServiceUiAgentToolsTest {
 
     private class Toggles : FeatureToggles {
         val isEnabled = MutableStateFlow(true)
-        val isSafeMode = MutableStateFlow(true)
 
-        @Suppress("UNCHECKED_CAST") // Tests expose boolean feature and Safe Mode flags.
+        @Suppress("UNCHECKED_CAST") // Tests expose Boolean feature flags.
         override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> =
-            (if (toggle == ServiceUiWebSafeMode) isSafeMode else isEnabled) as Flow<T>
+            isEnabled as Flow<T>
         override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = observe(toggle).first()
     }
 

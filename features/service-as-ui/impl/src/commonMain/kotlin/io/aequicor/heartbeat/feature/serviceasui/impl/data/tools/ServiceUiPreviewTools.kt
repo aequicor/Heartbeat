@@ -72,7 +72,7 @@ internal class ServiceUiPreviewTools(
         is UiPreviewArguments.Invalid ->
             AgentToolApproval(ServiceUiTools.PREVIEW, "Preview an HTML draft", parsed.message, "invalid")
 
-        is UiPreviewArguments.Valid -> previewSafety(context, arguments, configuration.first()).approval
+        is UiPreviewArguments.Valid -> previewOperation(context, arguments, configuration.first()).approval
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
@@ -84,7 +84,7 @@ internal class ServiceUiPreviewTools(
             is UiPreviewArguments.Invalid -> return failure(parsed.message)
         }
         if (current.resourcePolicy == BrowserDocumentResourcePolicy.ExternalAssets &&
-            context.authorization != previewSafety(context, arguments, current).approval
+            context.authorization != previewOperation(context, arguments, current).approval
         ) {
             return failure("Authorization is missing or settings changed; request the preview again")
         }
@@ -101,7 +101,7 @@ internal class ServiceUiPreviewTools(
         }
     }
 
-    private fun previewSafety(
+    private fun previewOperation(
         context: AgentToolContext,
         arguments: JsonObject,
         configuration: UiWebConfiguration,
@@ -170,7 +170,7 @@ internal class ServiceUiPreviewTools(
 
     private companion object {
         const val INSTRUCTIONS = "Use ui_preview with an HTML draft to check it before ui_put. " +
-            "It uses the host renderer and current Safe Mode setting without owner methods " +
+            "It uses the host renderer and profile permission setting without owner methods " +
             "or persistence. Default text diagnostics work with text-only models and do not verify aesthetic " +
             "quality. Set includeScreenshot=true only for models supporting image tool results, then inspect " +
             "the image. Supply realistic sample data, check narrow/wide and light/dark variants, fix defects and " +

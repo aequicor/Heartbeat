@@ -109,6 +109,7 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
                 put("description", "Arguments of a library interface, readable as args.")
             }
         },
+        AgentToolAction.Command,
     ),
     AgentToolSpec(
         ServiceUiTools.CALL,
