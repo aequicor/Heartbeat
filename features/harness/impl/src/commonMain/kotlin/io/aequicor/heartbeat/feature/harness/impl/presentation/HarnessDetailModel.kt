@@ -57,8 +57,6 @@ internal data class HarnessDetailState(
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val items: ImmutableList<ItemRowUi> = persistentListOf(),
     val runs: ImmutableList<RunUi> = persistentListOf(),
-    val hostedOff: Int = 0,
-    val nativeSwitches: Int = 0,
     val meta: MetaDraftUi? = null,
     val isDeleting: Boolean = false,
     val error: DetailErrorUi? = null,
@@ -70,7 +68,6 @@ internal sealed interface HarnessDetailIntent : MVIIntent {
     data class SetDefaultForNewSessions(val isDefaultForNewSessions: Boolean) : HarnessDetailIntent
     data class SetItemEnabled(val item: String, val isEnabled: Boolean) : HarnessDetailIntent
     data class OpenItem(val item: String) : HarnessDetailIntent
-    data object OpenTools : HarnessDetailIntent
     data class Detach(val key: String) : HarnessDetailIntent
     data class CancelRun(val run: String) : HarnessDetailIntent
     data object EditMeta : HarnessDetailIntent
@@ -87,9 +84,6 @@ internal sealed interface HarnessDetailIntent : MVIIntent {
 internal sealed interface HarnessDetailAction : MVIAction {
     /** Opens the editor of an item. */
     data class OpenItem(val item: String) : HarnessDetailAction
-
-    /** Opens the tool policy. */
-    data object OpenTools : HarnessDetailAction
 
     /** The harness was deleted; the screen closes. */
     data object Close : HarnessDetailAction
@@ -147,8 +141,6 @@ internal class HarnessDetailModel(
         val harness = current()
         when (intent) {
             is HarnessDetailIntent.OpenItem -> action(HarnessDetailAction.OpenItem(intent.item))
-
-            HarnessDetailIntent.OpenTools -> action(HarnessDetailAction.OpenTools)
 
             is HarnessDetailIntent.CancelRun -> sendTo(
                 runs,
@@ -217,7 +209,6 @@ internal class HarnessDetailModel(
             }
 
             is HarnessDetailIntent.OpenItem,
-            HarnessDetailIntent.OpenTools,
             is HarnessDetailIntent.CancelRun,
             HarnessDetailIntent.DismissError,
             is HarnessDetailIntent.ChangeMeta,
@@ -267,8 +258,6 @@ internal class HarnessDetailModel(
             attachments = ready.attachments.filterValues { id in it }.keys
                 .map { AttachmentUi(it.key(), it.label()) }.sortedBy { it.label }.toImmutableList(),
             items = entry.itemRows(ready.isRuntimeAvailable).toImmutableList(),
-            hostedOff = harness.tools.hostedOff.size,
-            nativeSwitches = harness.tools.native.values.sumOf { it.size },
         )
     }
 

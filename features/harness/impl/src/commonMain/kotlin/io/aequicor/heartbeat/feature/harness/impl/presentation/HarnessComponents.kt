@@ -12,11 +12,9 @@ import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessItemRoute
-import io.aequicor.heartbeat.feature.harness.api.HarnessToolsRoute
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.decision.ProcessDecisionHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
 import kotlin.time.Clock
@@ -82,10 +80,6 @@ internal class HarnessDetailComponent(
             log.i { "Open harness item editor" }
             navigator.navigate(HarnessItemRoute(harness, item))
         },
-        openTools = {
-            log.i { "Open harness tool policy" }
-            navigator.navigate(HarnessToolsRoute(harness))
-        },
         close = navigator::close,
     )
 
@@ -105,11 +99,7 @@ internal class HarnessDetailComponent(
 }
 
 /** Navigation of the detail screen, performed by its component. */
-internal data class HarnessDetailNavigation(
-    val openItem: (String) -> Unit,
-    val openTools: () -> Unit,
-    val close: () -> Unit,
-)
+internal data class HarnessDetailNavigation(val openItem: (String) -> Unit, val close: () -> Unit)
 
 /** Editor of one item; unsaved texts stay in the profile draft cache when the screen closes. */
 @AssistedInject
@@ -152,37 +142,6 @@ internal class HarnessItemComponent(
             harness: String,
             item: String,
         ): HarnessItemComponent
-    }
-}
-
-/** Tool policy of one harness. */
-@AssistedInject
-internal class HarnessToolsComponent(
-    @Assisted context: ComponentContext,
-    @Assisted private val navigator: Navigator,
-    @Assisted screen: ScopeHandle,
-    @Assisted harness: String,
-    machine: Lazy<HarnessMachine>,
-    catalogs: HarnessToolCatalogs,
-    factory: HeartbeatStoreFactory,
-) : ComponentContext by context {
-    val model: HarnessToolsModel = instanceKeeper.getOrCreate(MODEL_KEY) {
-        Retained(HarnessToolsModel(harness, machine.value, catalogs, factory, screen.coroutineScope))
-    }.model
-
-    fun close() = navigator.close()
-
-    private class Retained(val model: HarnessToolsModel) : InstanceKeeper.Instance
-
-    /** Metro factory for a lifecycle-owned screen instance. */
-    @AssistedFactory
-    fun interface Factory {
-        fun create(
-            context: ComponentContext,
-            navigator: Navigator,
-            screen: ScopeHandle,
-            harness: String,
-        ): HarnessToolsComponent
     }
 }
 
