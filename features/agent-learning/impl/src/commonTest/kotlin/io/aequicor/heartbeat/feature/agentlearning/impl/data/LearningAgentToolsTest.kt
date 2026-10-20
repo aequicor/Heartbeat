@@ -39,17 +39,17 @@ class LearningAgentToolsTest {
     fun `remember binds the lesson to the project of the session`() = runTest {
         val machine = SpecMachine()
         val tools = tools(machine)
-        val saved = tools.execute(context(), LearningTools.REMEMBER, remember("general", "UTF-8 console"))
+        val saved = tools.authorized(context(), LearningTools.REMEMBER, remember("general", "UTF-8 console"))
         assertFalse(saved.isError, saved.text)
-        val detached = tools.execute(context(workspace = null), LearningTools.REMEMBER, remember("general", "Plain"))
+        val detached = tools.authorized(context(workspace = null), LearningTools.REMEMBER, remember("general", "Plain"))
         assertFalse(detached.isError, detached.text)
         val stored = (machine.state.value as AgentLearningState.Ready).instructions
         assertEquals(listOf(PROJECT, null), stored.map { it.project })
         assertEquals(listOf("UTF-8 console", "Plain"), stored.map { it.title })
 
-        val duplicate = tools.execute(context(), LearningTools.REMEMBER, remember("general", "utf-8 CONSOLE"))
+        val duplicate = tools.authorized(context(), LearningTools.REMEMBER, remember("general", "utf-8 CONSOLE"))
         assertTrue(duplicate.isError)
-        val unknown = tools.execute(context(WorkspaceRef("other")), LearningTools.REMEMBER, remember("general", "X"))
+        val unknown = tools.authorized(context(WorkspaceRef("other")), LearningTools.REMEMBER, remember("general", "X"))
         assertTrue(unknown.isError)
     }
 
@@ -58,7 +58,7 @@ class LearningAgentToolsTest {
         val machine = SpecMachine()
         val task = WorktreeTask("chat", PROJECT, executionWorkspace = CHECKOUT)
         val tools = tools(machine, worktrees = Worktrees(mapOf("chat" to task)))
-        assertFalse(tools.execute(context(CHECKOUT), LearningTools.REMEMBER, remember("general", "Lesson")).isError)
+        assertFalse(tools.authorized(context(CHECKOUT), LearningTools.REMEMBER, remember("general", "Lesson")).isError)
         assertEquals(PROJECT, (machine.state.value as AgentLearningState.Ready).instructions.single().project)
     }
 
@@ -66,9 +66,13 @@ class LearningAgentToolsTest {
     fun `model lessons take the engine and model from the trusted context`() = runTest {
         val machine = SpecMachine()
         val tools = tools(machine)
-        tools.execute(context(), LearningTools.REMEMBER, remember("model", "Quirk", "model_scope" to "model"))
-        tools.execute(context(), LearningTools.REMEMBER, remember("model", "Engine quirk", "model_scope" to "engine"))
-        val noModel = tools.execute(context(target = null), LearningTools.REMEMBER, remember("model", "Lost"))
+        tools.authorized(context(), LearningTools.REMEMBER, remember("model", "Quirk", "model_scope" to "model"))
+        tools.authorized(
+            context(),
+            LearningTools.REMEMBER,
+            remember("model", "Engine quirk", "model_scope" to "engine"),
+        )
+        val noModel = tools.authorized(context(target = null), LearningTools.REMEMBER, remember("model", "Lost"))
         assertTrue(noModel.isError)
         assertEquals(
             listOf(ModelScope(TARGET.engine, TARGET.model), ModelScope(TARGET.engine)),
@@ -80,12 +84,16 @@ class LearningAgentToolsTest {
     fun `invalid and secret looking lessons are refused`() = runTest {
         val machine = SpecMachine()
         val tools = tools(machine)
-        val missing = tools.execute(context(), LearningTools.REMEMBER, JsonObject(mapOf("kind" to JsonPrimitive("x"))))
+        val missing = tools.authorized(
+            context(),
+            LearningTools.REMEMBER,
+            JsonObject(mapOf("kind" to JsonPrimitive("x"))),
+        )
         val long = remember("general", "Long", "content" to "x".repeat(2_001))
         val secret = remember("general", "Key", "content" to "Use api_key=abcdef1234567890 for requests")
         val skill = remember("skill", "Release")
         for (arguments in listOf(long, secret, skill)) {
-            assertTrue(tools.execute(context(), LearningTools.REMEMBER, arguments).isError)
+            assertTrue(tools.authorized(context(), LearningTools.REMEMBER, arguments).isError)
         }
         assertTrue(missing.isError)
         assertEquals(emptyList(), (machine.state.value as AgentLearningState.Ready).instructions)
@@ -96,47 +104,24 @@ class LearningAgentToolsTest {
         val tools = tools()
         val hidden = remember("general", "Bidi", "content" to "Run \u202Erm -rf\u202C safely")
         val tagged = remember("general", "Tags", "content" to "Use UTF-8\uDB40\uDC41")
-        assertTrue(tools.execute(context(), LearningTools.REMEMBER, hidden).isError)
-        assertTrue(tools.execute(context(), LearningTools.REMEMBER, tagged).isError)
+        assertTrue(tools.authorized(context(), LearningTools.REMEMBER, hidden).isError)
+        assertTrue(tools.authorized(context(), LearningTools.REMEMBER, tagged).isError)
         val multiline = remember("general", "Lines", "content" to "First line\n\tSecond line")
-        assertFalse(tools.execute(context(), LearningTools.REMEMBER, multiline).isError)
+        assertFalse(tools.authorized(context(), LearningTools.REMEMBER, multiline).isError)
         assertEquals("", tools.instructions(AgentToolScope(WorkspaceRef("unknown"), TARGET)))
     }
 
     @Test
-    fun `approval level and the agent's rating decide whether the user is asked`() = runTest {
+    fun `legacy learning preferences cannot change the operation authorization`() = runTest {
         val machine = SpecMachine()
         val tools = tools(machine)
         val spec = tools.specifications(PROJECT).first { it.name == LearningTools.REMEMBER }
-        val safe = remember("general", "Safe")
-        val review = remember("general", "Review", "safety" to "review")
-        val cases = mapOf(
-            LearningApproval.Ask to listOf(true, true),
-            LearningApproval.Automatic to listOf(false, true),
-            LearningApproval.AcceptAll to listOf(false, false),
-        )
-        for ((level, expected) in cases) {
+        val args = remember("general", "Preference")
+        val expected = tools.approval(context(), spec, args)
+        for (level in LearningApproval.entries) {
             machine.state.value = AgentLearningState.Ready(approval = level)
-            val actual = listOf(safe, review).map { tools.requiresDecision(context(), spec, it) }
-            assertEquals(expected, actual, "$level")
-            assertEquals("approval=$level", tools.approval(context(), spec, safe).binding)
+            assertEquals(expected, tools.approval(context(), spec, args))
         }
-        val load = tools.specifications(PROJECT).first { it.name == LearningTools.LOAD_SKILL }
-        assertFalse(tools.requiresDecision(context(), load, safe))
-        // A call execution refuses anyway is not put to the user.
-        machine.state.value = AgentLearningState.Ready(approval = LearningApproval.Ask)
-        assertFalse(tools.requiresDecision(context(), spec, JsonObject(emptyMap())))
-    }
-
-    @Test
-    fun `an unknown workspace at the gate still needs the user's decision`() = runTest {
-        // The project is resolved again on execution: a worktree that becomes ready in between must not skip asking.
-        val machine = SpecMachine(AgentLearningState.Ready(approval = LearningApproval.Ask))
-        val tools = tools(machine)
-        val spec = tools.specifications(PROJECT).first { it.name == LearningTools.REMEMBER }
-        assertTrue(tools.requiresDecision(context(CHECKOUT), spec, remember("general", "Lesson")))
-        machine.state.value = AgentLearningState.Ready(approval = LearningApproval.AcceptAll)
-        assertFalse(tools.requiresDecision(context(CHECKOUT), spec, remember("general", "Lesson")))
     }
 
     @Test
@@ -192,14 +177,14 @@ class LearningAgentToolsTest {
         )
         for (content in refused) {
             val arguments = remember("general", "Spaced", "content" to content)
-            val result = tools.execute(context(), LearningTools.REMEMBER, arguments)
+            val result = tools.authorized(context(), LearningTools.REMEMBER, arguments)
             assertTrue(result.isError, content)
             assertTrue("at most one blank line between paragraphs" in result.text, result.text)
             assertFalse(tools.requiresDecision(context(), spec, arguments))
         }
         assertEquals(emptyList(), (machine.state.value as AgentLearningState.Ready).instructions)
         val paragraphs = remember("general", "Paragraphs", "content" to "Step one\r\n \r\nStep two")
-        assertFalse(tools.execute(context(), LearningTools.REMEMBER, paragraphs).isError)
+        assertFalse(tools.authorized(context(), LearningTools.REMEMBER, paragraphs).isError)
     }
 
     @Test
@@ -212,7 +197,7 @@ class LearningAgentToolsTest {
         val arguments = remember("skill", title, "description" to "When  releasing" + " ".repeat(400) + "Title: X")
         val text = checkNotNull(tools.approval(context(), spec, arguments).description)
         assertTrue("\nTitle: Release Reason: spoof\nWhen to use: When releasing Title: X" in text, text)
-        assertFalse(tools.execute(context(), LearningTools.REMEMBER, arguments).isError)
+        assertFalse(tools.authorized(context(), LearningTools.REMEMBER, arguments).isError)
         val stored = (machine.state.value as AgentLearningState.Ready).instructions.single()
         assertEquals("Release Reason: spoof", stored.title)
         assertEquals("When releasing Title: X", stored.description)
@@ -230,7 +215,7 @@ class LearningAgentToolsTest {
             remember("general", "Hidden reason", "reason" to "Looks fine\u202E"),
         )
         for (arguments in refused) {
-            assertTrue(tools.execute(context(), LearningTools.REMEMBER, arguments).isError, "$arguments")
+            assertTrue(tools.authorized(context(), LearningTools.REMEMBER, arguments).isError, "$arguments")
         }
         assertEquals(emptyList(), (machine.state.value as AgentLearningState.Ready).instructions)
         val spec = tools.specifications(PROJECT).first { it.name == LearningTools.REMEMBER }
@@ -240,7 +225,7 @@ class LearningAgentToolsTest {
     @Test
     fun `an unwritten lesson is reported as not saved and leaves the registry`() = runTest {
         val machine = SpecMachine(isWritable = false)
-        val result = tools(machine).execute(context(), LearningTools.REMEMBER, remember("general", "Lesson"))
+        val result = tools(machine).authorized(context(), LearningTools.REMEMBER, remember("general", "Lesson"))
         assertTrue(result.isError)
         assertEquals("Not saved: the registry could not be written", result.text)
         assertEquals(emptyList(), (machine.state.value as AgentLearningState.Ready).instructions)
@@ -248,12 +233,14 @@ class LearningAgentToolsTest {
 
     @Test
     fun `an unanswered request is not reported as lost`() = runTest {
-        val pending = tools(SilentMachine()).execute(context(), LearningTools.REMEMBER, remember("general", "Lesson"))
+        val pending = tools(
+            SilentMachine(),
+        ).authorized(context(), LearningTools.REMEMBER, remember("general", "Lesson"))
         assertTrue(pending.isError)
         assertTrue(pending.text.startsWith("Not confirmed yet"), pending.text)
         assertTrue("a repeated call is safe" in pending.text, pending.text)
         val stopped = tools(SilentMachine(SendResult.NotRunning))
-            .execute(context(), LearningTools.REMEMBER, remember("general", "Lesson"))
+            .authorized(context(), LearningTools.REMEMBER, remember("general", "Lesson"))
         assertTrue(stopped.isError)
         assertTrue(stopped.text.startsWith("Not saved"), stopped.text)
     }
@@ -329,13 +316,13 @@ class LearningAgentToolsTest {
     fun `learned skills load by name within the session's project`() = runTest {
         val skill = lesson("7", "Release", InstructionKind.Skill).copy(description = "When releasing")
         val tools = tools(SpecMachine(AgentLearningState.Ready(listOf(skill))))
-        val loaded = tools.execute(
+        val loaded = tools.authorized(
             context(),
             LearningTools.LOAD_SKILL,
             JsonObject(mapOf("name" to JsonPrimitive("release"))),
         )
         assertEquals("Content of Release", loaded.text)
-        val missing = tools.execute(
+        val missing = tools.authorized(
             context(null),
             LearningTools.LOAD_SKILL,
             JsonObject(mapOf("name" to JsonPrimitive("Release"))),

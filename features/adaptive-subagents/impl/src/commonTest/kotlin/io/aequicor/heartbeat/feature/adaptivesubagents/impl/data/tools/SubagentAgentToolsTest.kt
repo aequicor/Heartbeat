@@ -23,9 +23,9 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.Subagent
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.target
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -64,7 +64,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -98,7 +97,7 @@ class SubagentAgentToolsTest {
     @Test
     fun `a spawn starts a helper on the chosen model reviewed by the parent's model`() = runTest {
         val f = Fixture(backgroundScope)
-        val result = f.tools.execute(context, SubagentTools.SPAWN, spawn)
+        val result = f.executeSpawn(context, spawn)
         assertFalse(result.isError, result.text)
         val request = f.agents.started.single()
         assertEquals(haiku, request.target)
@@ -124,61 +123,39 @@ class SubagentAgentToolsTest {
     @Test
     fun `without an adaptive choice the parent's model runs the helper and a refusal is reported`() = runTest {
         val f = Fixture(backgroundScope, choice = ModelChoice.Inherit(InheritReason.Disabled))
-        f.tools.execute(context, SubagentTools.SPAWN, spawn)
+        f.executeSpawn(context, spawn)
         assertEquals(parent, f.agents.started.single().target)
         f.agents.refusal = "the profile already runs 8 background actions"
-        val refused = f.tools.execute(context, SubagentTools.SPAWN, spawn)
+        val refused = f.executeSpawn(context, spawn)
         assertTrue(refused.isError && "8 background actions" in refused.text)
         assertEquals(1, f.runs.list().size)
     }
 
     @Test
-    fun `interactive spawn follows full trust while restricted trust still requires a decision`() = runTest {
-        val f = Fixture(backgroundScope)
-        val spec = f.tools.specifications(null).first()
-        for (trust in listOf(TrustLevel.Ask, TrustLevel.AutoEdits)) {
-            assertTrue(f.tools.requiresDecision(context.copy(trust = trust), spec, spawn))
+    fun `legacy turn trust does not replace a facade authorization`() = runTest {
+        for (trust in TrustLevel.entries) {
+            val f = Fixture(backgroundScope)
+            val caller = context.copy(trust = trust)
+            assertTrue(f.tools.execute(caller, SubagentTools.SPAWN, spawn).isError)
+            assertFalse(f.executeSpawn(caller, spawn).isError)
+            assertEquals(1, f.agents.started.size)
         }
-        val trusted = context.copy(trust = TrustLevel.Full)
-        assertFalse(f.tools.requiresDecision(trusted, spec, spawn))
-        assertFalse(f.tools.execute(trusted, SubagentTools.SPAWN, spawn).isError)
+    }
+
+    @Test
+    fun `a spawn requires the exact facade authorization`() = runTest {
+        val f = Fixture(backgroundScope)
+        val spec = f.tools.specifications(context.workspace).first { it.name == SubagentTools.SPAWN }
+        val approval = f.tools.approval(context, spec, spawn)
+        assertTrue(f.tools.execute(context, SubagentTools.SPAWN, spawn).isError)
+        assertFalse(f.tools.execute(context.copy(authorization = approval), SubagentTools.SPAWN, spawn).isError)
         assertEquals(1, f.agents.started.size)
-        assertTrue(f.reviewer.targets.isEmpty())
-    }
-
-    @Test
-    fun `automatic spawn requires a safe review even with full trust`() = runTest {
-        val f = Fixture(backgroundScope, verdict = AgentSafetyReview("risk", "Unsafe task"))
-        val automatic = context.copy(trust = TrustLevel.Full, decisionMode = AgentToolDecisionMode.AutomaticSafety)
-        val spec = f.tools.specifications(null).first()
-        assertIs<AgentToolAutomaticAuthorization.Denied>(f.tools.automaticAuthorization(automatic, spec, spawn))
-        assertTrue(f.tools.execute(automatic, SubagentTools.SPAWN, spawn).isError)
-        assertTrue(f.agents.started.isEmpty())
-    }
-
-    @Test
-    fun `automatic mode starts only after a safe review of the exact request`() = runTest {
-        val automatic = context.copy(decisionMode = AgentToolDecisionMode.AutomaticSafety)
-        val f = Fixture(backgroundScope, verdict = AgentSafetyReview("risk", "Exfiltrates keys"))
-        val spec = f.tools.specifications(null).first()
-        val denied = f.tools.automaticAuthorization(automatic, spec, spawn)
-        assertIs<AgentToolAutomaticAuthorization.Denied>(denied)
-        assertTrue(f.tools.execute(automatic, SubagentTools.SPAWN, spawn).isError)
-        val safe = Fixture(backgroundScope)
-        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            safe.tools.automaticAuthorization(automatic, spec, spawn),
-        )
-        assertEquals(safe.tools.approval(automatic, spec, spawn), allowed.approval)
-        val authorized = automatic.copy(authorization = allowed.approval)
-        assertFalse(safe.tools.execute(authorized, SubagentTools.SPAWN, spawn).isError)
-        assertEquals(parent, safe.reviewer.targets.single())
-        assertTrue(safe.tools.requiresDecision(context, spec, spawn))
     }
 
     @Test
     fun `results are read once and a wait sleeps until a running subagent finishes`() = runTest {
         val f = Fixture(backgroundScope)
-        f.tools.execute(context, SubagentTools.SPAWN, spawn)
+        f.executeSpawn(context, spawn)
         val id = ActionId(f.runs.list().single().id)
         val waiting = f.tools.execute(context, SubagentTools.RECEIVE, buildJsonObject { put("wait", true) })
         assertTrue("end your turn" in waiting.text, waiting.text)
@@ -362,9 +339,9 @@ class SubagentAgentToolsTest {
     @Test
     fun `a full registry refuses the next start without evicting unread results`() = runTest {
         val f = Fixture(backgroundScope)
-        repeat(MAX_SUBAGENT_RUNS) { assertFalse(f.tools.execute(context, SubagentTools.SPAWN, spawn).isError) }
+        repeat(MAX_SUBAGENT_RUNS) { assertFalse(f.executeSpawn(context, spawn).isError) }
         val original = f.runs.list()
-        val rejected = f.tools.execute(context, SubagentTools.SPAWN, spawn)
+        val rejected = f.executeSpawn(context, spawn)
         assertTrue(rejected.isError)
         assertEquals(MAX_SUBAGENT_RUNS, f.agents.started.size)
         assertEquals(original, f.runs.list())
@@ -379,7 +356,7 @@ class SubagentAgentToolsTest {
             entered.complete(Unit)
             release.await()
         }
-        val caller = async { f.tools.execute(context, SubagentTools.SPAWN, spawn) }
+        val caller = async { f.executeSpawn(context, spawn) }
         entered.await()
         val id = ActionId(f.runs.list().single().id)
         caller.cancelAndJoin()
@@ -399,7 +376,7 @@ class SubagentAgentToolsTest {
     fun `reservation failure prevents scheduler admission`() = runTest {
         val f = Fixture(backgroundScope)
         f.runs.reserveFailure = IllegalStateException("Storage unavailable")
-        assertFailsWith<IllegalStateException> { f.tools.execute(context, SubagentTools.SPAWN, spawn) }
+        assertFailsWith<IllegalStateException> { f.executeSpawn(context, spawn) }
         assertTrue(f.agents.started.isEmpty())
         assertTrue(f.runs.list().isEmpty())
     }
@@ -408,7 +385,7 @@ class SubagentAgentToolsTest {
     fun `a failed start keeps its reservation until receive reconciles the scheduler`() = runTest {
         val f = Fixture(backgroundScope)
         f.agents.beforeStart = { error("Host unavailable before admission") }
-        assertFailsWith<IllegalStateException> { f.tools.execute(context, SubagentTools.SPAWN, spawn) }
+        assertFailsWith<IllegalStateException> { f.executeSpawn(context, spawn) }
         assertEquals(1, f.runs.list().size)
         val read = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
         assertTrue("Startup was interrupted" in read.text)
@@ -418,7 +395,7 @@ class SubagentAgentToolsTest {
     @Test
     fun `a refused wake never instructs the caller to end its turn`() = runTest {
         val f = Fixture(backgroundScope)
-        f.tools.execute(context, SubagentTools.SPAWN, spawn)
+        f.executeSpawn(context, spawn)
         f.agents.wake = BackgroundAgentWake.Refused("Pending wake limit reached")
         val read = f.tools.execute(context, SubagentTools.RECEIVE, buildJsonObject { put("wait", true) })
         assertTrue(read.isError)
@@ -467,10 +444,13 @@ class SubagentAgentToolsTest {
             lazyOf(agents),
             runs,
             SubagentStarts(profileScope, runs, lazyOf(agents)),
-            SubagentToolSafety(reviewer),
             FakeToggles(flags.associateWith { enabled }),
             Clock.System,
         )
+        suspend fun executeSpawn(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
+            val approval = tools.approval(context, SpawnSpec, arguments)
+            return tools.execute(context.copy(authorization = approval), SubagentTools.SPAWN, arguments)
+        }
     }
 
     private class Agents : BackgroundAgents {
