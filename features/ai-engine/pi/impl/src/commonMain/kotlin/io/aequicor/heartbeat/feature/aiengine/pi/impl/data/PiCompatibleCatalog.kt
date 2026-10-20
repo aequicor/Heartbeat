@@ -207,8 +207,9 @@ private val PiAdvertisedInputs = setOf("text", "image")
 
 /**
  * Pi `models.json` declaring [provider] at the API base of [scope]. The key is never written: Pi interpolates
- * [COMPATIBLE_KEY_VARIABLE] from the process environment. Fields the server published ([PiCompatibleModel]) are
- * written before the ones of Pi's own catalog: a model Pi serves at the same API base
+ * [COMPATIBLE_KEY_VARIABLE] from the process environment. Fields the server published ([PiCompatibleModel])
+ * override narrowly documented defaults ([piQwenCloudModel]) and are written before Pi's own catalog.
+ * A model Pi serves at the same API base
  * ([builtin], see [piBuiltinModelsAt]) inherits its reasoning, thinking levels, compatibility and limits: an
  * undeclared model is not a reasoning model for Pi, so it would offer no thinking levels.
  */
@@ -237,6 +238,11 @@ internal fun piModelsJson(
                                         buildJsonObject {
                                             put("id", model.id)
                                             model.name?.let { put("name", it) }
+                                            piQwenCloudModel(
+                                                protocol.piApi(),
+                                                piCompatibleBaseUrl(protocol, scope),
+                                                model.id,
+                                            )?.let(::putInherited)
                                             putAdvertised(model)
                                             builtin[model.id]?.let(::putInherited)
                                         },
