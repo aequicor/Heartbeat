@@ -85,7 +85,7 @@ class CodexPolicyTest {
     }
 
     @Test
-    fun `generation changes apply after the active turn and removal restores captured native defaults`() = runTest {
+    fun `policy changes retain the shared hosted execution route`() = runTest {
         val tools = PolicyTools().apply { current = policy(1, "shell", "web_search") }
         val fixture = Fixture(this, tools = tools)
         fixture.isSearchEnabled = false
@@ -97,9 +97,9 @@ class CodexPolicyTest {
         fixture.complete()
         runCurrent()
         session.feature(SendsPrompts).send(Prompt.copy(id = RequestId("second")))
-        assertEquals(CodexNativeOff(), fixture.wire.peers.last().off)
+        assertEquals(CodexNativeOff(isShellDisabled = true), fixture.wire.peers.last().off)
         val config = fixture.requests("thread/resume").single().obj("params").obj("config")
-        assertFalse("shell_tool" in config.obj("features"))
+        assertEquals(JsonPrimitive(false), config.obj("features")["shell_tool"])
         assertFalse("web_search" in config)
         assertTrue(fixture.wire.peers.first().isClosed)
         fixture.runtime.close()

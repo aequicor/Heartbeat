@@ -575,7 +575,8 @@ internal class OwnedStopLaunch : PreparedCodexLaunch {
     var wire: FakeWire? = null
     var stops = 0
     var onStop: suspend () -> Boolean = { true }
-    override suspend fun open(): CodexWire = checkNotNull(wire).fork().also {
+    override suspend fun open(): CodexWire = open(CodexNativeOff())
+    override suspend fun open(off: CodexNativeOff): CodexWire = checkNotNull(wire).fork(off).also {
         it.owner = CodexExecutionOwner("launch-${checkNotNull(wire).peers.size}", CodexProcessIdentity(1, START))
     }
     override suspend fun stop(
