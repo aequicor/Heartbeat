@@ -17,11 +17,11 @@ internal data class ConfigStep(
 
 internal typealias Ready = ProjectConfigState.Ready
 
-/** Key of a review: one per proposal and digest. */
-internal val ConfigProposal.reviewKey: String get() = reviewKey(id, digest)
+/** Identity of one proposal version for dismissal and consent. */
+internal val ConfigProposal.versionKey: String get() = versionKey(id, digest)
 
-/** Key of the review of proposal [id] at [digest]. */
-internal fun reviewKey(id: String, digest: ConfigDigest?): String = "$id@${digest?.value ?: REMOVED}"
+/** Identity of proposal [id] at [digest]. */
+internal fun versionKey(id: String, digest: ConfigDigest?): String = "$id@${digest?.value ?: REMOVED}"
 
 private const val REMOVED = "removed"
 
@@ -46,8 +46,6 @@ internal fun Ready.withBindings(next: List<ConfigBinding>): ConfigStep {
 }
 
 internal val ConfigProposal.projectOrNull: WorkspaceRef? get() = (source as? ConfigSource.Project)?.project
-
-internal val ConfigProposal.isReviewDue: Boolean get() = problems.isEmpty() && review == ProposalReview.Pending
 
 internal fun ConfigProposal.isFor(writeBack: ConfigWriteBack): Boolean =
     projectOrNull == writeBack.project && unit == writeBack.unit && !isApplying

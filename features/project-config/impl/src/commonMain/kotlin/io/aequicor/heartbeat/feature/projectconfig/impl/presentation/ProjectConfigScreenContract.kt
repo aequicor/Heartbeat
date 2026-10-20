@@ -26,24 +26,6 @@ internal enum class ProposalKindUi { Create, Update, Remove, Conflict }
 /** Named part of a unit, by kind. */
 internal enum class ContentKindUi { Skill, Instruction, Template, Script, Workflow, ToolPolicy, Interface, Lesson }
 
-/** Result of the automatic review shown on a proposal; [reason] is the reviewer's explanation. */
-internal sealed interface ReviewUi {
-    /** A removal is confirmed without review. */
-    data object NotNeeded : ReviewUi
-
-    /** The reviewer is working on it. */
-    data object Pending : ReviewUi
-
-    /** The reviewer could not answer (no default model or a failure). */
-    data object Unavailable : ReviewUi
-
-    /** Reviewed safe. */
-    data class Safe(val reason: String) : ReviewUi
-
-    /** Reviewed risky or uncertain: trusting it needs an explicit confirmation. */
-    data class Risky(val reason: String, val isUncertain: Boolean) : ReviewUi
-}
-
 /** A named part of a unit. */
 internal data class ContentUi(val kind: ContentKindUi, val name: String)
 
@@ -90,15 +72,14 @@ internal data class ProposalUi(
     val kind: ProposalKindUi,
     val contents: ImmutableList<ContentUi>,
     val hasCode: Boolean,
-    val review: ReviewUi,
     val problems: ImmutableList<ProblemUi>,
     val failure: FailureUi?,
     val isApplying: Boolean,
     val isKeepAppOffered: Boolean,
     val isWriting: Boolean = false,
 ) {
-    /** Whether "Trust" is offered: valid, reviewed or a removal, not being applied. */
-    val isTrustOffered: Boolean get() = problems.isEmpty() && !isApplying && !isWriting && review != ReviewUi.Pending
+    /** Whether "Trust" is offered: valid or a removal, not being applied. */
+    val isTrustOffered: Boolean get() = problems.isEmpty() && !isApplying && !isWriting
 
     /** The shown version, which decisions on this proposal name. */
     val version: ProposalVersionUi get() = ProposalVersionUi(id, digest)
@@ -181,15 +162,11 @@ internal data class ProjectConfigScreenState(
     val isBusy: Boolean = false,
     val isStorageBusy: Boolean = false,
     val notice: NoticeUi? = null,
-    val confirming: ProposalVersionUi? = null,
     val picker: PickerUi? = null,
     val removing: RemovalUi? = null,
     val importing: ImportUi? = null,
     val projectNames: ImmutableMap<String, String> = persistentMapOf(),
-) : MVIState {
-    /** The proposal awaiting confirmation of its risk, while it is in the version the user saw. */
-    val confirmed: ProposalUi? get() = proposals.firstOrNull { it.version == confirming }
-}
+) : MVIState
 
 /** Controls of the configuration screen. */
 internal sealed interface ProjectConfigScreenIntent : MVIIntent {
@@ -202,14 +179,8 @@ internal sealed interface ProjectConfigScreenIntent : MVIIntent {
     /** Copying a bundle into a project and the choice on units it already has. */
     sealed interface Import : Task
 
-    /** Trusts a proposal in the shown [version]; a risky one asks for confirmation first. */
+    /** Trusts a proposal in the shown [version]; this click is the explicit consent. */
     data class Trust(val version: ProposalVersionUi) : Decision
-
-    /** Trusts the proposal awaiting confirmation despite its risk. */
-    data object ConfirmRisk : Decision
-
-    /** Keeps the proposal unconfirmed. */
-    data object CancelRisk : Decision
 
     /** Writes the profile's version over the files of a project proposal in the shown [version]. */
     data class KeepApp(val version: ProposalVersionUi) : Decision

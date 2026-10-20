@@ -15,8 +15,6 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Inter
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Public
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigOutput
 import io.aequicor.heartbeat.feature.projectconfig.api.ProposalKind
-import io.aequicor.heartbeat.feature.projectconfig.api.ProposalReview
-import io.aequicor.heartbeat.feature.projectconfig.api.ReviewVerdict
 import io.aequicor.heartbeat.feature.projectconfig.api.SyncRequest
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.FakeEntity
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.FakeSection
@@ -35,16 +33,13 @@ class ProjectConfigEffectsTest {
     private val fixture = EffectsFixture(harnesses, interfaces, learning)
 
     @Test
-    fun `a project unit is reviewed and trusted into the profile and kept in sync both ways`() = runTest {
+    fun `a project unit is validated and explicitly trusted into the profile and kept in sync both ways`() = runTest {
         fixture.files["harnesses/review.md"] = "rules\n"
         fixture.run(Internal.Enabled(setOf(PROJECT)))
         fixture.run(Internal.ProjectsChanged(setOf(PROJECT)))
 
         val proposal = fixture.ready.proposals.single()
         assertEquals(ProposalKind.Create, proposal.kind)
-        assertEquals(ProposalReview.Done(ReviewVerdict.Safe, "because"), proposal.review)
-        val (policy, change) = fixture.reviewer.changes.single()
-        assertTrue("fake policy" in policy && "rules" in change)
 
         fixture.run(Internal.Trust(proposal.id, proposal.digest))
         assertEquals(PROJECT, harnesses.applied.single().second.project)
@@ -71,33 +66,13 @@ class ProjectConfigEffectsTest {
         fixture.files.remove("harnesses/review.md")
         fixture.run(Internal.Changed(PROJECT))
         val removal = fixture.ready.proposals.single()
-        assertEquals(ProposalReview.NotNeeded, removal.review)
         fixture.run(Internal.Trust(removal.id, removal.digest))
         assertTrue(harnesses.state.value.orEmpty().isEmpty())
         assertTrue(fixture.storage.bindings.isEmpty())
     }
 
     @Test
-    fun `risky units need accepted risk and units without a default model stay unreviewed`() = runTest {
-        fixture.reviewer.verdict = "risk"
-        fixture.files["harnesses/review.md"] = "rules\n"
-        fixture.run(Internal.Enabled(setOf(PROJECT)))
-        fixture.run(Internal.ProjectsChanged(setOf(PROJECT)))
-        val risky = fixture.ready.proposals.single()
-        assertEquals(ReviewVerdict.Risk, (risky.review as ProposalReview.Done).verdict)
-        fixture.run(Internal.Trust(risky.id, risky.digest))
-        assertTrue(harnesses.applied.isEmpty())
-        fixture.run(Internal.Trust(risky.id, risky.digest, isRiskAccepted = true))
-        assertEquals(1, harnesses.applied.size)
-
-        fixture.selections.selection.value = fixture.selections.selection.value.withDefault(null)
-        fixture.files["harnesses/audit.md"] = "audit\n"
-        fixture.run(Internal.Changed(PROJECT))
-        assertEquals(ProposalReview.Unavailable, fixture.ready.proposals.single().review)
-    }
-
-    @Test
-    fun `a unit changed after its review is not applied and a child needs its parent`() = runTest {
+    fun `a unit changed after its confirmation is not applied and a child needs its parent`() = runTest {
         fixture.files["harnesses/review.md"] = "rules\n"
         fixture.files["interfaces/review-board.md"] = "board\n"
         fixture.run(Internal.Enabled(setOf(PROJECT)))

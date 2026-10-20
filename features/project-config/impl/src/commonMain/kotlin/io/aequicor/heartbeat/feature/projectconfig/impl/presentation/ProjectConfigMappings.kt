@@ -13,8 +13,6 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigState
 import io.aequicor.heartbeat.feature.projectconfig.api.ProposalKind
-import io.aequicor.heartbeat.feature.projectconfig.api.ProposalReview
-import io.aequicor.heartbeat.feature.projectconfig.api.ReviewVerdict
 import io.aequicor.heartbeat.feature.projectconfig.api.canChangeStorage
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -62,7 +60,6 @@ internal fun ProjectConfigScreenState.reflecting(state: ProjectConfigState, isSu
             }.sortedBy { it.name.lowercase() }.toImmutableList(),
             bundle = state.bundle?.name,
             isBusy = state.task != null,
-            confirming = confirming?.takeIf { seen -> proposals.any { it.version == seen && it.isTrustOffered } },
             removing = removing?.takeIf { removal ->
                 state.bindings.any { it.project.value == removal.projectKey && it.unit.toString() == removal.unit.ref }
             },
@@ -116,27 +113,12 @@ private fun ConfigProposal.toUi(state: ProjectConfigState.Ready, names: Map<Stri
         kind = kind.toUi(),
         contents = summary?.contents.orEmpty().map { ContentUi(it.kind.toUi(), it.name) }.toImmutableList(),
         hasCode = summary?.hasCode == true,
-        review = review.toUi(),
         problems = problems.map { it.toUi() }.toImmutableList(),
         failure = failure?.toUi(),
         isApplying = isApplying,
         isKeepAppOffered = this.source is ConfigSource.Project && target != null && kind != ProposalKind.Create,
         isWriting = state.writing.any { ConfigSource.Project(it.project) == this.source && it.unit == unit },
     )
-}
-
-private fun ProposalReview.toUi(): ReviewUi = when (this) {
-    ProposalReview.NotNeeded -> ReviewUi.NotNeeded
-
-    ProposalReview.Pending -> ReviewUi.Pending
-
-    ProposalReview.Unavailable -> ReviewUi.Unavailable
-
-    is ProposalReview.Done -> when (verdict) {
-        ReviewVerdict.Safe -> ReviewUi.Safe(reason)
-        ReviewVerdict.Risk -> ReviewUi.Risky(reason, isUncertain = false)
-        ReviewVerdict.Uncertain -> ReviewUi.Risky(reason, isUncertain = true)
-    }
 }
 
 private fun ProposalKind.toUi(): ProposalKindUi = when (this) {

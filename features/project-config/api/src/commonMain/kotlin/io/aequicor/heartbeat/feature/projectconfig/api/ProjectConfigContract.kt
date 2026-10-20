@@ -126,14 +126,13 @@ public sealed interface ProjectConfigState : MachineState {
     public data class Failed(val projects: Set<WorkspaceRef>) : ProjectConfigState
 
     /**
-     * Bindings are known. [reviewing] and [writing] are reviews and write-backs in flight, [dismissed] proposals the
+     * Bindings are known. [writing] contains write-backs in flight, [dismissed] proposals the
      * user set aside (`id@digest`, until the files change); [revision] orders saves of [bindings].
      */
     public data class Ready(
         val bindings: List<ConfigBinding> = emptyList(),
         val projects: Map<WorkspaceRef, ProjectSync> = emptyMap(),
         val proposals: List<ConfigProposal> = emptyList(),
-        val reviewing: Set<String> = emptySet(),
         val writing: Set<ConfigWriteBack> = emptySet(),
         val dismissed: Set<String> = emptySet(),
         val bundle: ConfigBundle? = null,
@@ -174,12 +173,8 @@ public sealed interface ProjectConfigIntent : MachineIntent {
      * `HarnessIntent.Internal.Edit`: no other feature can trust configuration or write files through the machine.
      */
     public sealed interface Internal : ProjectConfigIntent {
-        /**
-         * Applies [proposal] the user trusts in the version with [digest] they saw; [isRiskAccepted] confirms a risky,
-         * uncertain or unreviewed one. A proposal whose files changed since is ignored.
-         */
-        public data class Trust(val proposal: String, val digest: ConfigDigest?, val isRiskAccepted: Boolean = false) :
-            Internal
+        /** Applies the exact proposal version explicitly chosen by the user; stale versions are ignored. */
+        public data class Trust(val proposal: String, val digest: ConfigDigest?) : Internal
 
         /** Rejects the files of a project [proposal] with [digest] and writes the profile's version back instead. */
         public data class KeepApp(val proposal: String, val digest: ConfigDigest?) : Internal
@@ -249,10 +244,6 @@ public sealed interface ProjectConfigIntent : MachineIntent {
         /** The syncs of [requests] could not read their folders. */
         public data class SyncFailed(val requests: List<SyncRequest>, val failure: ConfigReadFailure) : Internal
 
-        /** The review of [proposal] at [digest] ended with [review]. */
-        public data class Reviewed(val proposal: String, val digest: ConfigDigest, val review: ProposalReview) :
-            Internal
-
         /** [proposal] was applied; a project proposal binds [binding], a removal or bundle one has none. */
         public data class Applied(val proposal: String, val binding: ConfigBinding?) : Internal
 
@@ -267,9 +258,6 @@ public sealed interface ProjectConfigIntent : MachineIntent {
 
         /** [writeBack]'s files changed before writing: a new sync proposes their current version. */
         public data class WriteBackConflict(val writeBack: ConfigWriteBack) : Internal
-
-        /** The reviews of [proposals] failed as a whole; each becomes [ProposalReview.Unavailable]. */
-        public data class ReviewsFailed(val proposals: List<ConfigProposal>) : Internal
 
         /** The bundle of [requestId] was opened with [proposals]. */
         public data class BundleOpened(
@@ -307,9 +295,6 @@ public sealed interface ProjectConfigEffect : MachineEffect {
 
     /** Reads the folders of [requests]: each answers with Synced or SyncFailed. */
     public data class Sync(val requests: List<SyncRequest>) : ProjectConfigEffect
-
-    /** Reviews [proposals]: each answers with Reviewed. */
-    public data class Review(val proposals: List<ConfigProposal>) : ProjectConfigEffect
 
     /** Applies [proposal] exactly as reviewed: answers with Applied or ApplyFailed. */
     public data class Apply(val proposal: ConfigProposal) : ProjectConfigEffect

@@ -34,7 +34,6 @@ class AutomaticProjectConfigTest {
         fixture.run(Internal.Enabled(setOf(PROJECT)))
         assertEquals(setOf("harnesses/review.md", "interfaces/review-board.md"), fixture.files.keys)
         assertEquals(2, fixture.storage.bindings.size)
-        assertTrue(fixture.reviewer.changes.isEmpty())
         harnesses.state.value = listOf(FakeEntity("h", "review", "new rules", projects = setOf(PROJECT)))
         fixture.run(Internal.Changed(PROJECT))
         assertEquals("new rules\n", fixture.files["harnesses/review.md"])

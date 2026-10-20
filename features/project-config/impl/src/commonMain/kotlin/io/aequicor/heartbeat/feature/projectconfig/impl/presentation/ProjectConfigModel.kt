@@ -114,10 +114,6 @@ internal class ProjectConfigModel(
         when (intent) {
             is ProjectConfigScreenIntent.Trust -> trust(intent.version)
 
-            ProjectConfigScreenIntent.ConfirmRisk -> confirmRisk()
-
-            ProjectConfigScreenIntent.CancelRisk -> updateState { copy(confirming = null) }
-
             is ProjectConfigScreenIntent.KeepApp -> with(intent.version) { sendTo(machine, Internal.KeepApp(id, seen)) }
 
             is ProjectConfigScreenIntent.Dismiss -> with(intent.version) { sendTo(machine, Public.Dismiss(id, seen)) }
@@ -154,11 +150,7 @@ internal class ProjectConfigModel(
     private suspend fun ConfigPipeline.trust(version: ProposalVersionUi) = withState {
         // The files changed since the user saw them: the new version waits for its own decision.
         val proposal = proposals.firstOrNull { it.version == version } ?: return@withState
-        when (proposal.review) {
-            ReviewUi.NotNeeded, is ReviewUi.Safe -> sendTo(machine, Internal.Trust(version.id, version.seen))
-            ReviewUi.Unavailable, is ReviewUi.Risky -> updateState { copy(confirming = version) }
-            ReviewUi.Pending -> Unit
-        }
+        if (proposal.isTrustOffered) sendTo(machine, Internal.Trust(version.id, version.seen))
     }
 
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
@@ -168,14 +160,6 @@ internal class ProjectConfigModel(
         updateState { copy(removing = null) }
         val unit = ConfigUnitRef(ConfigSectionId(removal.unit.sectionId), removal.unit.name)
         sendTo(machine, Internal.RemoveFromProject(WorkspaceRef(removal.projectKey), unit))
-    }
-
-    // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
-    @Suppress("SuspendFunWithCoroutineScopeReceiver")
-    private suspend fun ConfigPipeline.confirmRisk() = withState {
-        val version = confirmed?.version ?: return@withState
-        updateState { copy(confirming = null) }
-        sendTo(machine, Internal.Trust(version.id, version.seen, isRiskAccepted = true))
     }
 
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.

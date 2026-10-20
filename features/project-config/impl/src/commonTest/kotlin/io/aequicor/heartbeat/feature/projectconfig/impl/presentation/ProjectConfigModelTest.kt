@@ -25,8 +25,6 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigOutput
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigState
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectSync
 import io.aequicor.heartbeat.feature.projectconfig.api.ProposalKind
-import io.aequicor.heartbeat.feature.projectconfig.api.ProposalReview
-import io.aequicor.heartbeat.feature.projectconfig.api.ReviewVerdict
 import io.aequicor.heartbeat.feature.projectconfig.impl.data.PROJECT
 import io.aequicor.heartbeat.feature.projectconfig.impl.data.Workspaces
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigDialogs
@@ -62,11 +60,9 @@ class ProjectConfigModelTest {
         null,
         ConfigDigest("d"),
         ConfigSummary("Code review"),
-        review = ProposalReview.Done(ReviewVerdict.Risk, "network"),
     )
     private val safe = risky.copy(
         unit = ConfigUnitRef(ConfigSectionId.Learning, "style"),
-        review = ProposalReview.Done(ReviewVerdict.Safe, "ok"),
     )
     private val ready = ProjectConfigState.Ready(
         proposals = listOf(risky, safe),
@@ -87,35 +83,29 @@ class ProjectConfigModelTest {
     }
 
     @Test
-    fun `a safe proposal is trusted at once and a risky one only after confirmation`() = runTest {
+    fun `explicit consent applies any valid shown proposal without a second dialog`() = runTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()
-
         screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(safe.id, "d")))
         screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(risky.id, "d")))
         runCurrent()
-        assertEquals(listOf<ProjectConfigIntent>(Internal.Trust(safe.id, ConfigDigest("d"))), fixture.machine.sent)
-        assertEquals(ProposalVersionUi(risky.id, "d"), screen.states.value.confirming)
-
-        screen.intent(ProjectConfigScreenIntent.ConfirmRisk)
-        runCurrent()
-        assertEquals(Internal.Trust(risky.id, ConfigDigest("d"), isRiskAccepted = true), fixture.machine.sent.last())
-        assertNull(screen.states.value.confirming)
+        assertEquals(
+            listOf<ProjectConfigIntent>(
+                Internal.Trust(safe.id, ConfigDigest("d")),
+                Internal.Trust(risky.id, ConfigDigest("d")),
+            ),
+            fixture.machine.sent,
+        )
     }
 
     @Test
-    fun `decisions name the version the user saw and a changed proposal closes its confirmation`() = runTest {
+    fun `a stale visible version cannot authorize newer files`() = runTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()
-
-        screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(risky.id, "d")))
-        runCurrent()
-        // The files change while the risk dialog is open: the new version waits for its own decision.
-        val changed = risky.copy(digest = ConfigDigest("d2"), review = ProposalReview.Done(ReviewVerdict.Risk, "exec"))
+        val changed = risky.copy(digest = ConfigDigest("d2"))
         fixture.machine.state.value = ready.copy(proposals = listOf(changed, safe))
         runCurrent()
-        assertNull(screen.states.value.confirming)
-        screen.intent(ProjectConfigScreenIntent.ConfirmRisk)
+        screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(risky.id, "d")))
         screen.intent(ProjectConfigScreenIntent.Trust(ProposalVersionUi(safe.id, "old")))
         screen.intent(ProjectConfigScreenIntent.Dismiss(ProposalVersionUi(changed.id, "d2")))
         runCurrent()
