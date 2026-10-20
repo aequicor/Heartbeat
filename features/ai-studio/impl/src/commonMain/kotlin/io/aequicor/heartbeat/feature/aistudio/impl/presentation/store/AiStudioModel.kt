@@ -11,7 +11,6 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
@@ -134,7 +133,6 @@ class AiStudioModel(
     private val embeddedScreens: StudioEmbeds = StudioEmbeds.None,
     private val surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend, scope),
     facade: EngineFacade,
-    safetyReviewMonitor: AgentSafetyReviewMonitor,
     configuration: EngineConfiguration = UnavailableEngineConfiguration(),
     planning: StudioPlanning = StudioPlanning.None,
 ) {
@@ -156,7 +154,6 @@ class AiStudioModel(
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
     private val plans = StudioPlanView(machine, planning)
     private val appUpdate = StudioAppUpdate(machines)
-    private val safetyReviews = StudioSafetyReviews(safetyReviewMonitor, entries.showsSafetyReviews)
     private val projectTrust = StudioProjectTrust(configuration, facade)
 
     /** Late-bound file attach of an accepted suggestion: the store itself is created below. */
@@ -246,7 +243,6 @@ class AiStudioModel(
                 launch { plans.observe(pipeline) }
                 launch { observeResearch(pipeline) }
                 if (host == StudioScreenHost.Window) launch { appUpdate.observe(pipeline) }
-                launch { safetyReviews.observe(pipeline) }
                 launch { projectTrust.observe(pipeline) }
                 launch { observeComputerUse(pipeline) }
                 launch { observeEfforts(pipeline) }

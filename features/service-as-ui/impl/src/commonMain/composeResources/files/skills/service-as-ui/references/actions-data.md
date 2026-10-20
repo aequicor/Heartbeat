@@ -118,7 +118,7 @@ Use the exact owner reference from `ui_list`, typically `harness:<id>`, or its u
 
 Creation uses omitted `expectedRevision` or `0` and fails if the surface already exists. Replacement/deletion uses the current revision. On a conflict, reread and reconcile the intended change instead of retrying with a guessed revision. `ui_put` replaces the full surface specification; retain unrelated functionality and metadata. Tool arguments do not include an enable/disable flag; the library's user interface exposes that control.
 
-Library writes, showing surfaces and agent method calls pass automatic safety review of the exact operation. A binding or revision can expire; refresh the evidence and resubmit the corrected operation. Do not weaken the safety mode or add manual authorization prompts to compensate. If review still rejects an authorized operation, report the actual reason and what remains unapplied.
+Library writes, showing surfaces and method calls use the shared profile security mode. Confirmation covers the exact operation. A binding or revision can expire; refresh the evidence and resubmit the corrected operation. Full Trust does not bypass ownership or revision checks.
 
 ## Anonymous cards and previews
 

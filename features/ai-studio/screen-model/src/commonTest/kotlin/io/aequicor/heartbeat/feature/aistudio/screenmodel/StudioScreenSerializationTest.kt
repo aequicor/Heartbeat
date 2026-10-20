@@ -92,7 +92,6 @@ class StudioScreenSerializationTest {
     private val state = AiStudioScreenState(
         phase = StudioPhase.Ready,
         appUpdate = AppUpdateUi("1.4.0", AppUpdateStageUi.Downloading, 25, AppUpdateFailureUi.Network),
-        safetyReviews = SafetyReviewsUi(capacity = 3, running = 2, queued = 1, finishing = 1, abandoned = 1),
         projects = persistentListOf(ProjectUi("p1", "Heartbeat", EnvironmentUi.Local, "main")),
         sessions = persistentListOf(SessionUi("s1", "Перенос панели ✅", "p1", at, isRunning = true)),
         panes = persistentListOf(PaneUi(1, sessionId = "s1", projectId = "p1")),

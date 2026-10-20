@@ -40,7 +40,8 @@ public data class BrowserTab(
 
 /**
  * Bounded operations on a tab; native objects never cross this API. [Inspect] only observes the page: it returns
- * the page evidence an independent safety review of the operation named by [BrowserReview.operation] is bound to, and
+ * the page evidence an exact operation authorization of the operation named by [BrowserReview.operation] is
+ * bound to, and
  * leaves the page, its element references and the last snapshot untouched. Like every operation on a tab it selects
  * the tab, as the page is read natively and only a tab on screen has a native runtime. A navigation does not depend
  * on the page it leaves, so its evidence carries no page.
@@ -69,7 +70,7 @@ public enum class BrowserOperation {
 }
 
 /**
- * Binds an agent request to its independent safety review; only the host's tool sets it, tool arguments never carry
+ * Binds an agent request to its exact operation authorization; only the host's tool sets it, tool arguments never carry
  * it. [operation] is the reviewed operation. [approved] is the page evidence the review approved, or null while
  * that evidence is still being collected by [BrowserOperation.Inspect]. A request carrying [approved] runs only
  * while the live tab still shows the same page, target and focus, checked under the tab's operation lock.

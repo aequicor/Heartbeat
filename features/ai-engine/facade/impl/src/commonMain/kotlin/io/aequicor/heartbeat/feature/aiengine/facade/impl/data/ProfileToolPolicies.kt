@@ -6,16 +6,16 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.Multibinds
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyUnavailable
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ToolPolicyResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.mergedToolPolicy
@@ -51,7 +51,6 @@ public interface ToolPolicyBindings {
 internal class ProfileToolPolicies(
     private val providers: Lazy<Set<AgentToolPolicyProvider>>,
     private val registry: EngineRegistry,
-    private val toggles: FeatureToggles,
 ) : ToolPolicyResolver {
     private val log = Log.tag("ToolPolicies")
     private val lock = Mutex()
@@ -75,9 +74,12 @@ internal class ProfileToolPolicies(
         val catalog = engine?.let { registry.find(it)?.descriptor?.nativeTools }.orEmpty()
         val effective = try {
             val inputs = withTimeoutOrNull(POLICY_MILLIS) {
-                providers.value.mapNotNull { it.policy(scope.copy(engine = engine)) } to toggles.get(HarnessNativeTools)
+                val selected = providers.value.filter { it.isIsolation }
+                val policies = selected.mapNotNull { it.policy(scope.copy(engine = engine)) }
+                val enabled = ToolPolicy(native = catalog.filter { it.isGated }.associate { it.name to ToolSwitch.On })
+                (policies + enabled) to true
             } ?: error("Policy lookup timed out")
-            mergedToolPolicy(catalog, inputs.first, hostedNames, inputs.second && scope.workspace != null)
+            mergedToolPolicy(catalog, inputs.first, hostedNames, inputs.second)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

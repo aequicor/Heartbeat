@@ -233,7 +233,6 @@ internal data class Fixture(
 internal val TestWorkspace: Path = Files.createTempDirectory("pi-workspace").also { it.toFile().deleteOnExit() }
 
 internal class FakeConnection : PiConnection {
-    override var hasPinnedNativePush: Boolean = false
     var plan: PiLaunchPlan? = null
     var event: suspend (JsonObject) -> Unit = {}
     var failed: suspend (EngineFailure) -> Unit = {}

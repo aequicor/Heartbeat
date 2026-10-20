@@ -125,7 +125,8 @@ class StudioComposerUiTest {
                 }
             }
             onNodeWithContentDescription(addLabel).assertIsDisplayed().performClick()
-            onNodeWithText(autoLabel).performClick()
+            onNodeWithText(autoLabel).assertDoesNotExist()
+            onNodeWithContentDescription(addLabel).performClick()
             onNodeWithContentDescription(effortLabel).assertIsDisplayed().performClick()
             onNodeWithText(lowLabel).performClick()
             onNodeWithContentDescription("Pulse Pro").performClick()
@@ -135,7 +136,6 @@ class StudioComposerUiTest {
             runOnIdle {
                 assertEquals(
                     listOf<StudioIntent>(
-                        StudioIntent.SelectApproval(ApprovalUi.AutoApprove, 0),
                         StudioIntent.SelectEffort(EffortUi.Low, 0),
                         StudioIntent.SelectModel("pulse-mini", 0, "pulse-pro", ""),
                         StudioIntent.Suggestions.DraftChanged(0, planPrompt),

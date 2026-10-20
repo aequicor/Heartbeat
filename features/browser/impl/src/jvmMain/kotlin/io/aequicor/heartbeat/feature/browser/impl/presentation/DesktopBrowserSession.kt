@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.browser.api.BrowserError
 import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
@@ -41,9 +43,12 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.job
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -84,8 +89,10 @@ internal class DesktopBrowserSession(
     private val storage: BrowserWorkspaceStorage,
     private val icons: DesktopBrowserFavicons,
     zoomStorage: BrowserZoomStorage,
+    settings: AgentSecuritySettings? = null,
 ) : BrowserSession,
     BrowserSurface {
+    private val security = settings?.modes?.stateIn(scope.coroutineScope, SharingStarted.Eagerly, null)
     private val log = Log.tag("BrowserWorkspace")
     private val entries = linkedMapOf<String, DesktopBrowserEntry>()
     private val operations = mutableMapOf<String, Pair<String?, Job>>()
@@ -539,11 +546,12 @@ internal class DesktopBrowserSession(
         restored: SavedBrowserTab? = null,
         storage: BrowserStorage = BrowserStorage.of(owner),
     ): DesktopBrowserEntry {
+        security?.filterNotNull()?.first()
         require(entries.size < MAX_BROWSER_TABS) { "Close a tab before opening another" }
         val id = restored?.id ?: Uuid.random().toString()
         val surface = BrowserSurfaceAdapter(scope, dispatchers, nativeResources)
         surface.setEnabled(true)
-        val guard = DesktopBrowserAgentGuard()
+        val guard = DesktopBrowserAgentGuard { security?.value == SecurityMode.Trust }
         val panel = factory.create(
             surface,
             guard,

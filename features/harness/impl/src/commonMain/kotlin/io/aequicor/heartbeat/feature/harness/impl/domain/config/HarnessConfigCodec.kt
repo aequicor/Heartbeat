@@ -60,7 +60,6 @@ internal object HarnessConfigCodec {
         val metadata = HarnessFile(
             title = harness.title,
             description = harness.description.takeIf { it.isNotEmpty() },
-            tools = harness.tools.takeIf { it != ToolPolicySpec() },
             items = harness.items.map { it.file() },
         )
         val metadataText = json.encodeToString(HarnessFile.serializer(), metadata) + "\n"
@@ -94,7 +93,7 @@ internal object HarnessConfigCodec {
             title = metadata.title.trim(),
             description = metadata.description.orEmpty().trim(),
             items = items,
-            tools = metadata.tools ?: ToolPolicySpec(),
+            tools = ToolPolicySpec(),
         )
         return HarnessDecoded.Valid(content)
     }
@@ -236,7 +235,7 @@ internal val HarnessItem.kind: ConfigContentKind
 private data class HarnessFile(
     @SerialName("title") val title: String,
     @SerialName("description") val description: String? = null,
-    @SerialName("tools") val tools: ToolPolicySpec? = null,
+    @SerialName("tools") val tools: kotlinx.serialization.json.JsonElement? = null,
     @SerialName("items") val items: List<ItemFile> = emptyList(),
 )
 

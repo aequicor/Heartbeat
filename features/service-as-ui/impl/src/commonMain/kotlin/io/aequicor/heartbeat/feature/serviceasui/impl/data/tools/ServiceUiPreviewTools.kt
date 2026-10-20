@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
@@ -46,7 +45,6 @@ internal class ServiceUiPreviewTools(
     private val previews: BrowserDocumentPreviews,
     private val toggles: FeatureToggles,
     platform: PlatformInfo,
-    private val safety: ServiceUiToolSafety,
 ) : AgentToolContribution {
     private val isDesktop = platform.host in setOf(HostPlatform.MacOs, HostPlatform.Windows, HostPlatform.Linux)
     private val configuration = toggles.uiWebConfiguration(isDesktop)
@@ -66,19 +64,6 @@ internal class ServiceUiPreviewTools(
         return if (declared == null || ServiceUiTools.PREVIEW in declared) instructions(scope.workspace) else ""
     }
 
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? {
-        val current = configuration.first()
-        if (!current.isEnabled) return AgentToolAutomaticAuthorization.Denied("WebView preview is unavailable")
-        if (current.resourcePolicy == BrowserDocumentResourcePolicy.Isolated) return null
-        val parsed = previewArguments(arguments)
-        if (parsed is UiPreviewArguments.Invalid) return AgentToolAutomaticAuthorization.Denied(parsed.message)
-        return safety.authorize(context, previewSafety(context, arguments, current))
-    }
-
     override suspend fun approval(
         context: AgentToolContext,
         spec: AgentToolSpec,
@@ -87,7 +72,7 @@ internal class ServiceUiPreviewTools(
         is UiPreviewArguments.Invalid ->
             AgentToolApproval(ServiceUiTools.PREVIEW, "Preview an HTML draft", parsed.message, "invalid")
 
-        is UiPreviewArguments.Valid -> previewSafety(context, arguments, configuration.first()).approval
+        is UiPreviewArguments.Valid -> previewOperation(context, arguments, configuration.first()).approval
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
@@ -99,9 +84,9 @@ internal class ServiceUiPreviewTools(
             is UiPreviewArguments.Invalid -> return failure(parsed.message)
         }
         if (current.resourcePolicy == BrowserDocumentResourcePolicy.ExternalAssets &&
-            !safety.isAuthorized(context, previewSafety(context, arguments, current))
+            context.authorization != previewOperation(context, arguments, current).approval
         ) {
-            return failure("Automatic safety review is missing or settings changed; request the preview again")
+            return failure("Authorization is missing or settings changed; request the preview again")
         }
         val configured = input.copy(request = input.request.copy(resourcePolicy = current.resourcePolicy))
         val result = previewWithConfiguration(configuration, current) { previews.preview(configured.request) }
@@ -116,11 +101,11 @@ internal class ServiceUiPreviewTools(
         }
     }
 
-    private fun previewSafety(
+    private fun previewOperation(
         context: AgentToolContext,
         arguments: JsonObject,
         configuration: UiWebConfiguration,
-    ): UiToolSafetyRequest = uiToolSafetyRequest(
+    ): UiToolOperation = uiToolOperation(
         context,
         AgentToolApproval(ServiceUiTools.PREVIEW, "Preview an HTML draft"),
         arguments,
@@ -185,7 +170,7 @@ internal class ServiceUiPreviewTools(
 
     private companion object {
         const val INSTRUCTIONS = "Use ui_preview with an HTML draft to check it before ui_put. " +
-            "It uses the host renderer and current Safe Mode setting without owner methods " +
+            "It uses the host renderer and profile permission setting without owner methods " +
             "or persistence. Default text diagnostics work with text-only models and do not verify aesthetic " +
             "quality. Set includeScreenshot=true only for models supporting image tool results, then inspect " +
             "the image. Supply realistic sample data, check narrow/wide and light/dark variants, fix defects and " +

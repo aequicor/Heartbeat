@@ -13,7 +13,6 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.AgentLearningScreenIntent
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.AgentLearningScreenState
-import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.ApprovalUi
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.DraftUi
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.InstructionUi
 import io.aequicor.heartbeat.feature.agentlearning.impl.presentation.KindUi
@@ -35,29 +34,25 @@ class AgentLearningUiTest {
     )
 
     @Test
-    fun `instructions are grouped by kind and forward approval, switch and expansion`() =
+    fun `instructions are grouped by kind and forward switch and expansion`() =
         runSkikoComposeUiTest(size = Size(900f, 1000f)) {
             val intents = mutableListOf<AgentLearningScreenIntent>()
             val state = mutableStateOf(loaded)
             setContent { HbTheme { AgentLearningContent(state.value, { intents += it }, onBack = null) } }
-
+            onNodeWithTag("agent-learning-approval").assertDoesNotExist()
             onNodeWithTag("agent-learning-kind-General").assertIsDisplayed()
             onNodeWithTag("agent-learning-kind-Skill").assertIsDisplayed()
             onNodeWithTag("agent-learning-enabled-1").assertIsOn()
             onNodeWithTag("agent-learning-enabled-2").assertIsOff()
-
-            onNodeWithTag("agent-learning-approval-Ask").performClick()
             onNodeWithTag("agent-learning-enabled-2").performClick()
             onNodeWithTag("agent-learning-row-1").performClick()
             assertEquals(
                 listOf(
-                    AgentLearningScreenIntent.SelectApproval(ApprovalUi.Ask),
                     AgentLearningScreenIntent.SetEnabled("2", true),
                     AgentLearningScreenIntent.ToggleExpanded("1"),
                 ),
                 intents,
             )
-
             state.value = loaded.copy(expanded = "1")
             onNodeWithTag("agent-learning-details-1").assertIsDisplayed()
             onNodeWithTag("agent-learning-delete-1").performClick()

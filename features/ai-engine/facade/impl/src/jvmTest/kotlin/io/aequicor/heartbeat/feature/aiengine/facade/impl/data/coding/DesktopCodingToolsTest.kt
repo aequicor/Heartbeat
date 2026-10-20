@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
@@ -50,7 +49,7 @@ class DesktopCodingToolsTest {
             override suspend fun register(directory: String) = error("Registration is not part of tool execution")
             override suspend fun resolve(ref: WorkspaceRef): String? = directory.toString().takeIf { ref == workspace }
         }
-        return DesktopCodingTools(projects, dispatchers, AgentSafetyReviewer { _, _, _ -> error("Unexpected review") })
+        return DesktopCodingTools(projects, dispatchers)
     }
 
     @Test
@@ -65,7 +64,7 @@ class DesktopCodingToolsTest {
     }
 
     @Test
-    fun `a command with a hidden executable suffix is refused before asking or executing`() = runTest {
+    fun `long commands are shown in full and an explicit decline prevents execution`() = runTest {
         val contribution = contribution()
         assertEquals(contribution.specifications(workspace).toolCatalog().toSet(), contribution.catalog.toSet())
         val tools = DefaultAgentTools(setOf(contribution))
@@ -74,7 +73,7 @@ class DesktopCodingToolsTest {
         } else {
             "; touch hidden-action.txt"
         }
-        val arguments = buildJsonObject { put("command", "echo safe" + " ".repeat(MAX_CODING_COMMAND_CHARS) + suffix) }
+        val arguments = buildJsonObject { put("command", "echo safe" + " ".repeat(8_000) + suffix) }
         for (trust in TrustLevel.entries) {
             var approvals = 0
             val context = AgentToolContext(
@@ -84,11 +83,12 @@ class DesktopCodingToolsTest {
                 trust = trust,
                 permissions = AgentToolPermissions {
                     approvals++
-                    true
+                    assertTrue(it.description.orEmpty().contains(suffix))
+                    false
                 },
             )
             assertTrue(tools.execute(context, "run_command", arguments).isError)
-            assertEquals(0, approvals)
+            assertEquals(1, approvals)
             assertFalse(Files.exists(directory.resolve("hidden-action.txt")))
         }
         val spec = contribution.specifications(workspace).single { it.name == "run_command" }

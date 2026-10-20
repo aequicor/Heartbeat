@@ -7,7 +7,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityOutput
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityState
 import kotlinx.coroutines.flow.Flow
 
-/** The profile machine shared by settings screens and the ordinary studio submission boundary. */
+/** The settings editor machine; execution reads the committed profile setting independently of this UI state. */
 internal typealias StudioSecurityMachine = Machine<StudioSecurityState, StudioSecurityIntent, StudioSecurityOutput>
 
 /** Read-only security settings of this profile, separate from per-chat engine configuration. */

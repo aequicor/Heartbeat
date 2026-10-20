@@ -70,7 +70,6 @@ public object CodexBindings {
             isLocalWorkspaceSupported = true,
             isVirtualWorkspaceSupported = true,
             nativeTools = listOf(
-                NativeToolSpec("shell", AgentToolAction.Command, isEnabledByDefault = true, isGated = false),
                 NativeToolSpec("web_search", AgentToolAction.Read, isEnabledByDefault = true, isGated = false),
             ),
             requirements = listOf(

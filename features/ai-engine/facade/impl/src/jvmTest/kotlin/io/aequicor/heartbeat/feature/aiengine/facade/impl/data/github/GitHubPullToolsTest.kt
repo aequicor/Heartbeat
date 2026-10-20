@@ -2,9 +2,6 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.github
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
@@ -16,7 +13,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
@@ -34,7 +30,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class GitHubPullToolsTest {
@@ -68,35 +63,18 @@ class GitHubPullToolsTest {
     }
 
     @Test
-    fun `safe update reviews full inline payload and sends it once`() = runTest {
+    fun `authorized update shows full inline payload and sends it once`() = runTest {
         val fixture = PullFixture()
         val arguments = fixture.update()
         val result = fixture.tools.execute(fixture.context, "github_pr_update", arguments)
         assertFalse(result.isError, result.text)
         assertEquals("PATCH", fixture.writes.single().first)
         assertEquals("Описание UTF-8", fixture.writes.single().second?.get("body")?.jsonPrimitive?.content)
-        assertTrue("Описание UTF-8" in fixture.evidence)
-        assertFalse("test-credential" in fixture.evidence)
-        assertEquals(0, fixture.prompts)
+        assertTrue("Описание UTF-8" in fixture.shown)
+        assertFalse("test-credential" in fixture.shown)
+        assertEquals(1, fixture.prompts)
         assertTrue(fixture.tools.execute(fixture.context, "github_pr_update", arguments).isError)
         assertEquals(1, fixture.writes.size)
-    }
-
-    @Test
-    fun `unsafe uncertain and missing model refuse before any network request even with full trust`() = runTest {
-        for (verdict in listOf("unsafe", "uncertain", "safe")) {
-            val fixture = PullFixture()
-            val args = fixture.update()
-            fixture.calls = 0
-            fixture.verdict = AgentSafetyReview(verdict, "Rejected")
-            val context = fixture.context.copy(
-                trust = TrustLevel.Full,
-                target = fixture.context.target.takeUnless { verdict == "safe" },
-            )
-            assertTrue(fixture.tools.execute(context, "github_pr_update", args).isError)
-            assertEquals(0, fixture.calls)
-            assertEquals(0, fixture.prompts)
-        }
     }
 
     @Test
@@ -104,7 +82,7 @@ class GitHubPullToolsTest {
         for (changeCredentials in listOf(true, false)) {
             val fixture = PullFixture()
             val args = fixture.update()
-            fixture.onReview = {
+            fixture.onPermission = {
                 if (changeCredentials) {
                     fixture.configuration = GitHubPullConfiguration(
                         "owner/repo",
@@ -125,10 +103,8 @@ class GitHubPullToolsTest {
         val fixture = PullFixture()
         val args = fixture.update()
         val spec = fixture.owner.specifications(fixture.context.workspace).single { it.name == "github_pr_update" }
-        val decision = assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            fixture.owner.automaticAuthorization(fixture.context, spec, args),
-        )
-        val approved = fixture.context.copy(authorization = decision.approval)
+        val approval = fixture.owner.approval(fixture.context, spec, args)
+        val approved = fixture.context.copy(authorization = approval)
         assertTrue(
             fixture.owner.execute(approved, spec.name, JsonObject(args + ("body" to JsonPrimitive("other")))).isError,
         )
@@ -140,18 +116,20 @@ class GitHubPullToolsTest {
     }
 
     @Test
-    fun `stale revision and private repository fail before write`() = runTest {
-        for (privateRepository in listOf(true, false)) {
-            val fixture = PullFixture()
-            val args = fixture.update()
-            if (privateRepository) {
-                fixture.isPrivate = true
-            } else {
-                fixture.pull = JsonObject(fixture.pull + ("title" to JsonPrimitive("Human edited")))
-            }
-            assertTrue(fixture.tools.execute(fixture.context, "github_pr_update", args).isError)
-            assertTrue(fixture.writes.isEmpty())
-        }
+    fun `private configured repository is supported`() = runTest {
+        val fixture = PullFixture()
+        fixture.isPrivate = true
+        assertFalse(fixture.tools.execute(fixture.context, "github_pr_update", fixture.update()).isError)
+        assertEquals(1, fixture.writes.size)
+    }
+
+    @Test
+    fun `stale revision fails before write`() = runTest {
+        val fixture = PullFixture()
+        val args = fixture.update()
+        fixture.pull = JsonObject(fixture.pull + ("title" to JsonPrimitive("Human edited")))
+        assertTrue(fixture.tools.execute(fixture.context, "github_pr_update", args).isError)
+        assertTrue(fixture.writes.isEmpty())
     }
 
     @Test
@@ -210,7 +188,13 @@ class GitHubPullToolsTest {
             ).isError,
         )
         assertEquals(0, fixture.calls)
-        assertFalse(fixture.tools.execute(fixture.context, "github_pr_create", args).isError)
+        assertFalse(
+            fixture.tools.execute(
+                fixture.context.copy(callId = ToolCallId("create-valid")),
+                "github_pr_create",
+                args,
+            ).isError,
+        )
         assertEquals(JsonPrimitive(true), fixture.writes.single().second?.get("draft"))
         assertEquals(JsonPrimitive(false), fixture.writes.single().second?.get("maintainer_can_modify"))
     }
@@ -268,9 +252,7 @@ private class PullFixture {
         "selected-user",
     )
     var enabled = true
-    var verdict = AgentSafetyReview("safe", "Scoped metadata")
-    var evidence = ""
-    var onReview: suspend () -> Unit = {}
+    var onPermission: suspend () -> Unit = {}
     var prompts = 0
     var allow = true
     var shown = ""
@@ -318,11 +300,6 @@ private class PullFixture {
                 else -> pull
             }
         },
-        AgentSafetyReviewer { _, _, text ->
-            evidence = text
-            onReview()
-            verdict
-        },
     )
     val tools = DefaultAgentTools(setOf(owner))
     val context = AgentToolContext(
@@ -336,6 +313,7 @@ private class PullFixture {
         permissions = AgentToolPermissions {
             prompts++
             shown = it.description.orEmpty()
+            onPermission()
             allow
         },
     )

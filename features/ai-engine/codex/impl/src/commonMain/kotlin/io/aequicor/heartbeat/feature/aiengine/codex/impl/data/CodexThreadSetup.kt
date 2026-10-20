@@ -44,8 +44,8 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         val chosen = preselected.takeIf { nativeId == null }.orEmpty()
         val session = nativeId?.let(::sessionRef)
         val policy = policy(ToolPolicyScope(identity.engine, route.workspace, session, target, chosen))
-        val virtual = route.workspace?.let { host.workspaces.virtual(it) } != null
-        return CodexThreadRequest(nativeId, target, route, areDetachedToolsEnabled, policy, chosen, virtual)
+        val isVirtual = route.workspace?.let { host.workspaces.virtual(it) } != null
+        return CodexThreadRequest(nativeId, target, route, areDetachedToolsEnabled, policy, chosen, isVirtual)
             .also { restoreForOpening(it) }
     }
 

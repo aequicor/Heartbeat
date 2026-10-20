@@ -6,7 +6,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityIntent.Internal
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityIntent.Public
 
 /**
- * Profile security settings. Writes belong to the profile and only affect subsequent turns after success.
+ * Profile security settings. Writes belong to the profile and update execution policy only after success.
  * The machine is not persisted: every new profile lifetime reads the durable setting again.
  *
  * | From | Intent | Guard | To | Effect |
@@ -19,9 +19,10 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityIntent.Public
  * | Saving | Saved | | Ready(requested) | |
  * | Saving | SaveFailed | | Ready(previous, failed) | |
  *
- * All other intents are ignored, including edits before loading and overlapping writes. Load failure uses Ask
- * at the submission boundary and forbids writes until Retry succeeds. An effect result that exits its state is
- * its last operation; profile closure cancels effects, while settings screen closure does not.
+ * All other intents are ignored, including edits before loading and overlapping writes. Load failure forbids
+ * editor writes until Retry succeeds. Execution observes committed profile policy independently of this editor.
+ * An effect result that exits its state is its last operation; profile closure cancels effects,
+ * while settings screen closure does not.
  */
 public val StudioSecurityMachineSpec: MachineSpec<
     StudioSecurityState,

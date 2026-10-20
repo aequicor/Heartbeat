@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
@@ -117,6 +118,7 @@ import kotlin.test.assertTrue
 @ContributesTo(ProfileScope::class)
 interface AiEngineTestAccessors {
     val engineFacade: EngineFacade
+    val agentSecuritySettings: AgentSecuritySettings
     val engineAuthSources: AuthSources
     val studioRepository: StudioRepository
     val studioRuntime: StudioRuntime

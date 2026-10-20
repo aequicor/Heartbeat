@@ -71,7 +71,7 @@ class HostedTurnIdentityTest {
                 decisionMode = AgentToolDecisionMode.AutomaticSafety,
             ),
         )
-        assertEquals(AgentToolDecisionMode.AutomaticSafety, owner.contexts.single().decisionMode)
+        assertEquals(AgentToolDecisionMode.Interactive, owner.contexts.single().decisionMode)
         assertEquals(
             AgentToolDecisionMode.AutomaticSafety,
             assertIs<ActiveSessionState.Running>(session.state.value).turn.decisionMode,

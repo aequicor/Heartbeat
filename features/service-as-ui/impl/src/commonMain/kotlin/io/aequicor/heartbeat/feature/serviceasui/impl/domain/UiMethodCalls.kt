@@ -22,7 +22,7 @@ internal interface UiMethodCalls {
     /** Methods [owner] publishes now; unavailable when no provider knows its kind. */
     fun methods(owner: UiOwner): Flow<UiMethods>
 
-    /** Exact live source for independent review; null refuses automatic invocation without executing code. */
+    /** Exact live source for operation authorization; null leaves invocation unavailable. */
     suspend fun review(owner: UiOwner, method: String, context: UiCallContext): UiMethodReview? = null
 
     /** Carries a reviewed binding intact; implementations without binding support must fail closed. */

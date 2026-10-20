@@ -6,7 +6,6 @@ import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningState
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionId
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
-import io.aequicor.heartbeat.feature.agentlearning.api.LearningApproval
 import io.aequicor.heartbeat.feature.agentlearning.impl.data.PROJECT
 import io.aequicor.heartbeat.feature.agentlearning.impl.data.SavedProjects
 import io.aequicor.heartbeat.feature.agentlearning.impl.data.SpecMachine
@@ -35,11 +34,10 @@ class AgentLearningModelTest {
 
     @Test
     fun `screen mirrors the registry and saved projects`() = runTest {
-        val fixture = Fixture(this, AgentLearningState.Ready(listOf(project, chat), LearningApproval.Ask))
+        val fixture = Fixture(this, AgentLearningState.Ready(listOf(project, chat)))
         val screen = fixture.subscribe()
         val state = screen.states.value
         assertEquals(true, state.isLoaded)
-        assertEquals(ApprovalUi.Ask, state.approval)
         assertEquals(listOf("1", "2"), state.instructions.map { it.id })
         assertEquals(listOf(PROJECT.value), state.projects.map { it.key })
 
@@ -49,10 +47,9 @@ class AgentLearningModelTest {
     }
 
     @Test
-    fun `approval switches and removal go to the registry`() = runTest {
+    fun `switches and removal go to the registry`() = runTest {
         val fixture = Fixture(this, AgentLearningState.Ready(listOf(project, chat)))
         val screen = fixture.subscribe()
-        screen.intent(AgentLearningScreenIntent.SelectApproval(ApprovalUi.AcceptAll))
         screen.intent(AgentLearningScreenIntent.SetEnabled("1", false))
         screen.intent(AgentLearningScreenIntent.Delete("2"))
         runCurrent()
@@ -60,9 +57,7 @@ class AgentLearningModelTest {
         screen.intent(AgentLearningScreenIntent.ConfirmDelete)
         runCurrent()
         val registry = fixture.machine.state.value as AgentLearningState.Ready
-        assertEquals(LearningApproval.AcceptAll, registry.approval)
         assertEquals(listOf(false), registry.instructions.map { it.isEnabled })
-        assertEquals(ApprovalUi.AcceptAll, screen.states.value.approval)
         assertNull(screen.states.value.deleting)
     }
 

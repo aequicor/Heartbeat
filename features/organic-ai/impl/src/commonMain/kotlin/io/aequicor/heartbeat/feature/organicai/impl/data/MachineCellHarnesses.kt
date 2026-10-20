@@ -288,7 +288,6 @@ private fun HarnessOutput.receipt(request: RequestId, change: Change): Receipt? 
     is HarnessOutput.Created,
     is HarnessOutput.Updated,
     is HarnessOutput.Deleted,
-    is HarnessOutput.ApprovalChanged,
     is HarnessOutput.ItemActivated,
     is HarnessOutput.ItemFailed,
     is HarnessOutput.RuntimeFailed,

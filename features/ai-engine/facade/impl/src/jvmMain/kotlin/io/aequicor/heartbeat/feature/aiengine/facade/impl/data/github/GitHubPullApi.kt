@@ -30,10 +30,9 @@ internal class GitHubPullApi(private val transport: GitHubPullTransport) {
         val root = "/repos/${configuration.repository}"
         val repository = transport.call(configuration, "GET", root, null)
         check(
-            repository["private"]?.jsonPrimitive?.booleanOrNull == false &&
-                repository["full_name"]?.jsonPrimitive?.content == configuration.repository,
+            repository["full_name"]?.jsonPrimitive?.content == configuration.repository,
         ) {
-            "Only the configured public repository is supported"
+            "Only the configured repository is supported"
         }
         if (operation.name == "github_pr_create") {
             return summary(

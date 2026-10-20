@@ -17,8 +17,6 @@ private fun HarnessState.Ready.storageFeedback(intent: HarnessIntent.Internal.St
         is HarnessIntent.Internal.RemoveFailed -> failedRemove(intent.receipt)
         is HarnessIntent.Internal.AttachmentsSaved -> attachmentsSaved(intent.write)
         is HarnessIntent.Internal.AttachmentsFailed -> attachmentsFailed(intent.write)
-        is HarnessIntent.Internal.ApprovalSaved -> approvalSaved(intent.write)
-        is HarnessIntent.Internal.ApprovalFailed -> approvalFailed(intent.write)
         is HarnessIntent.Internal.Loaded -> reloaded(intent)
         is HarnessIntent.Internal.LoadFailed -> reloadFailed(intent.load)
     }
@@ -114,32 +112,7 @@ private fun HarnessState.Ready.attachmentsFailed(write: HarnessAttachmentWrite):
         null
     }
 
-private fun HarnessState.Ready.approvalSaved(write: HarnessApprovalWrite): LibraryTransition? =
-    if (approvalWrite == write) {
-        LibraryTransition(
-            copy(
-                approval = write.level,
-                approvalRevision = write.revision,
-                approvalWrite = null,
-                revision = revision + 1,
-            ),
-            output = HarnessOutput.ApprovalChanged(write.requestId, write.level),
-        )
-    } else {
-        null
-    }
-
-private fun HarnessState.Ready.approvalFailed(write: HarnessApprovalWrite): LibraryTransition? =
-    if (approvalWrite == write) {
-        LibraryTransition(
-            copy(approvalWrite = null),
-            output = HarnessOutput.StorageFailed(write.requestId),
-        )
-    } else {
-        null
-    }
-
-internal fun HarnessIntent.Internal.Loaded.isValid(): Boolean = approvalRevision >= 0 &&
+internal fun HarnessIntent.Internal.Loaded.isValid(): Boolean =
     isHarnessLibraryWithinLimits(harnesses) && validAttachments(harnesses, attachments)
 
 internal fun HarnessIntent.Internal.Loaded.ready(
@@ -149,8 +122,6 @@ internal fun HarnessIntent.Internal.Loaded.ready(
 ): HarnessState.Ready {
     val next = HarnessState.Ready(
         attachments = attachments,
-        approval = approval,
-        approvalRevision = approvalRevision,
         isRuntimeAvailable = isRuntimeAvailable,
         isSuspended = isSuspended,
         revision = revision,

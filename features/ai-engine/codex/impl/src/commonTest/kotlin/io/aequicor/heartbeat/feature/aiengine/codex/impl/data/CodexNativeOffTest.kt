@@ -15,7 +15,12 @@ import kotlin.test.assertSame
 class CodexNativeOffTest {
     private val both = CodexNativeOff(isShellDisabled = true, isSearchDisabled = true)
     private val config = json(
-        "features" to json("shell_tool" to JsonPrimitive(false), "apps" to JsonPrimitive(false)),
+        "features" to json(
+            "shell_tool" to JsonPrimitive(false),
+            "apps" to JsonPrimitive(false),
+            "multi_agent" to JsonPrimitive(false),
+            "apply_patch_freeform" to JsonPrimitive(false),
+        ),
         "web_search" to "disabled".json(),
     )
 
@@ -73,7 +78,7 @@ class CodexNativeOffTest {
         val restricted = both.applyTo(base)
         assertEquals(JsonPrimitive(false), restricted.obj("features")["shell_tool"])
         assertEquals(JsonPrimitive(false), restricted.obj("features")["apps"])
-        assertEquals(JsonPrimitive(true), restricted.obj("features")["multi_agent"])
+        assertEquals(JsonPrimitive(false), restricted.obj("features")["multi_agent"])
         assertEquals("disabled", restricted.text("web_search"))
         assertEquals(base["mcp_servers"], restricted["mcp_servers"])
         assertEquals("live", base.text("web_search"))
@@ -103,7 +108,7 @@ class CodexNativeOffTest {
 
     @Test
     fun `a restriction validates only its own keys and rejects string booleans`() {
-        val shell = json("features" to json("shell_tool" to JsonPrimitive(false)))
+        val shell = CodexNativeOff(isShellDisabled = true).applyTo(json())
         val search = json("web_search" to "disabled".json())
         CodexNativeOff(isShellDisabled = true).validateConfig(response(shell, shell))
         CodexNativeOff(isSearchDisabled = true).validateConfig(response(search, search))

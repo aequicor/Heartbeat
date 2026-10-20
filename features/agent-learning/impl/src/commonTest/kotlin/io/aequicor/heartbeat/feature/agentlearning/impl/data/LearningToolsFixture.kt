@@ -20,8 +20,6 @@ import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningMachineSpec
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningOutput
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningState
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.LearningMachine
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -138,7 +136,6 @@ internal fun tools(
     machine: LearningMachine = SpecMachine(),
     toggles: Toggles = Toggles(),
     worktrees: Worktrees = Worktrees(),
-    reviewer: AgentSafetyReviewer = AgentSafetyReviewer { _, _, _ -> AgentSafetyReview("safe", "Bounded instruction") },
 ) = LearningAgentTools(
     machine,
     toggles,
@@ -147,7 +144,6 @@ internal fun tools(
     object : PlatformInfo {
         override val host: HostPlatform = HostPlatform.Windows
     },
-    LearningToolSafety(reviewer),
 )
 
 internal fun context(workspace: WorkspaceRef? = PROJECT, target: EngineTarget? = TARGET) = AgentToolContext(
@@ -156,3 +152,14 @@ internal fun context(workspace: WorkspaceRef? = PROJECT, target: EngineTarget? =
     TurnId("turn"),
     target = target,
 )
+
+internal suspend fun LearningAgentTools.authorized(
+    context: AgentToolContext,
+    name: String,
+    arguments: kotlinx.serialization.json.JsonObject,
+): io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult {
+    val spec = catalog.first { it.name == name }
+    val declaration = specifications(context.workspace).firstOrNull { it.name == name }
+        ?: return execute(context, name, arguments)
+    return execute(context.copy(authorization = approval(context, declaration, arguments)), name, arguments)
+}

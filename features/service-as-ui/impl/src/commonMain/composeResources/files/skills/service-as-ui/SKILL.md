@@ -44,6 +44,6 @@ References are bundled too. Load a topic through `ui_reference`; the relative li
 
 ## Runtime boundaries
 
-The owner must exist, be enabled, and be active in the target context for its live surface to work. Library mutations, showing surfaces and agent method calls pass the host's automatic safety review. Ordinary safe operations need no additional approval UI. A refusal is an error to diagnose, not permission to weaken the review or ask the user to bypass it. Do not add button confirmations to routine actions.
+The owner must exist, be enabled, and be active in the target context for its live surface to work. Library mutations, showing surfaces and method calls use the shared profile security mode. Full Trust authorizes valid available calls; Automatic requests confirmation for effects it cannot classify. A stale binding requires refreshed data and a new call. Do not add redundant confirmation UI to routine actions.
 
 An anonymous `ui_show` spec is a snapshot with local interaction, not a substitute for an owner-backed app: it has no data sources, owner calls or WebView bridge. Use it for static results, copy/export, local disclosure and draft prompts. Keep durable records and timers in the owner's data, not solely in surface state or the DOM.

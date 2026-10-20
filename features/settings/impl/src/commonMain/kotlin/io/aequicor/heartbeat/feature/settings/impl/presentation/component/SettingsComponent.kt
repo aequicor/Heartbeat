@@ -33,7 +33,6 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessItemRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
-import io.aequicor.heartbeat.feature.harness.api.HarnessToolsRoute
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLibraryRoute
@@ -169,7 +168,6 @@ class SettingsComponent(
             HarnessRoute::class,
             HarnessDetailRoute::class,
             HarnessItemRoute::class,
-            HarnessToolsRoute::class,
             ServiceUiLibraryRoute::class,
             ServiceUiSurfaceRoute::class,
             ProjectConfigRoute::class,

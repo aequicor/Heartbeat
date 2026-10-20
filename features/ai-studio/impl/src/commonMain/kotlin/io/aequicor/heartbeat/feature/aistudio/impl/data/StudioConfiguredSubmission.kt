@@ -4,7 +4,6 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
@@ -22,12 +21,11 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
 import kotlinx.coroutines.CancellationException
 
-/** Resolves saved configuration, applies helper restrictions and crosses the final native submission barrier. */
+/** Resolves saved configuration and crosses the native submission barrier with the shared profile mode. */
 @Inject
 internal class StudioConfiguredSubmission(
     private val controller: StudioConfigurationController,
     private val learning: StudioLearningPrompts,
-    private val helperPolicy: StudioHelperPolicy,
     private val efforts: EffortChoicesView,
     private val origins: StudioRequestOrigins,
     private val security: StudioSecurityPolicy,
@@ -48,19 +46,12 @@ internal class StudioConfiguredSubmission(
         val id = request.id
         val record = access.configurationRecord(id)
         val stored = configurations()[id]?.applied ?: record.configuration
-        val approval = stored?.approval ?: request.settings.approval
-        val requested = if (record.helper == null) {
-            approval.trustFor(models(), target)
-        } else {
-            approval.toTrust()
-        }
-        val trust = helperPolicy.trust(record, requested, configurations)
-        if (record.helper != null) active.features.requireFeature(AppliesTrustLevels)
+        val isTrustSupported = models().isTrustSupported(target)
         val supported = models().reasoningEfforts(target)
         val effort = turnEffort(stored, record.helper, supported) {
             efforts.state.value.effectiveEffort(target, supported)
         }
-        log.i { "Submitting prompt length=${request.prompt.length} trust=${trust ?: "default"}" }
+        log.i { "Submitting prompt length=${request.prompt.length}" }
         // The plan and its read-only rule follow the chat into the session before anything of the turn changes.
         // Binding fails closed: a planning chat whose session stays unbound, or plans still loading, fail the turn
         // unsent.
@@ -73,11 +64,11 @@ internal class StudioConfiguredSubmission(
         } else {
             seeded.copy(directives = seeded.directives + HELPER_DIRECTIVE)
         }
-        // The handoff turn's narrowed trust is not the chat's configuration: its session is never reflected again.
+        // A handoff retires configuration observation because its session is never reflected again.
         if (request.isHandoff) controller.retire(id, active)
         val reviewTarget = record.helper?.model?.reviewTarget
         val submitted = send(access, active, constrained, effort, reviewTarget) {
-            turnPolicy(request, record, trust, configurations)
+            turnPolicy(isTrustSupported)
         }
         consumeCarriedContext(access, record, request, carried)
         if (request.isHandoff) return submitted.turn
@@ -91,37 +82,20 @@ internal class StudioConfiguredSubmission(
         return submitted.turn
     }
 
-    /** Captures one policy at submission; host jobs and restricted helper sessions never gain profile trust. */
-    private suspend fun turnPolicy(
-        request: StudioTurnRequest,
-        record: StudioChatRecord,
-        trust: TrustLevel?,
-        configurations: () -> Map<String, StudioSessionConfiguration>,
-    ): StudioPromptPolicy {
-        val isUserChat = request.isUserPrompt && record.helper == null
-        val level = if (isUserChat && request.compaction == null && !request.isHandoff) {
-            security.level()
-        } else {
-            StudioSecurityLevel.Automatic
-        }
-        // A non-null trust would be rejected by engines that do not advertise AppliesTrustLevels.
-        val requested = when (level) {
-            StudioSecurityLevel.Ask -> trust?.let { TrustLevel.Ask }
-            StudioSecurityLevel.Automatic -> trust
-            StudioSecurityLevel.Trust -> trust?.let { TrustLevel.Full }
-        }
-        // Engines without native tool hooks must also ask during a handoff summary.
-        val effective = if (request.isHandoff) {
-            requested?.let { TrustLevel.Ask }
-        } else {
-            helperPolicy.trust(record, requested, configurations)
-        }
+    /** Every kind of turn snapshots the same saved mode; tool execution also observes live changes. */
+    private suspend fun turnPolicy(isTrustSupported: Boolean): StudioPromptPolicy {
+        val level = security.level()
+        val trust = when (level) {
+            StudioSecurityLevel.Ask -> TrustLevel.Ask
+            StudioSecurityLevel.Automatic -> TrustLevel.AutoEdits
+            StudioSecurityLevel.Trust -> TrustLevel.Full
+        }.takeIf { isTrustSupported }
         val mode = if (level == StudioSecurityLevel.Automatic) {
             AgentToolDecisionMode.AutomaticSafety
         } else {
             AgentToolDecisionMode.Interactive
         }
-        return StudioPromptPolicy(mode, effective)
+        return StudioPromptPolicy(mode, trust)
     }
 
     /** Native acceptance owns the turn: a seed that cannot be marked delivered may only reach the next turn again. */
@@ -177,7 +151,9 @@ internal class StudioConfiguredSubmission(
             origins.record(active.ref, request.request, request.causes)
             val prompt = preparePrompt(access, request)
             val finalPolicy = if (helper != null) {
-                StudioPromptPolicy(AgentToolDecisionMode.AutomaticSafety, helper.begin { policy().trust })
+                var latest: StudioPromptPolicy? = null
+                val trust = helper.begin { policy().also { latest = it }.trust }
+                checkNotNull(latest).copy(trust = trust)
             } else {
                 request.submission?.begin()
                 policy()

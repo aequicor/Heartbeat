@@ -42,16 +42,6 @@ internal data class PiAgentConfig(
     override fun toString(): String = "PiAgentConfig(files=${files.keys}, builtins=$builtins, tools=${tools.size})"
 }
 
-/** The controlled native push wrapper preserves only the hermetic built-in shell configuration. */
-internal fun PiAgentConfig.supportsPinnedNativePush(): Boolean {
-    if (isDiscovering || builtins.isNotEmpty()) return false
-    val settings = files[SETTINGS_FILE]?.let { Json.parseToJsonElement(it) as? JsonObject }
-    return listOf("shellPath", "shellCommandPrefix").all { key ->
-        val value = settings?.get(key)
-        value == null || (value as? JsonPrimitive)?.content.isNullOrBlank()
-    }
-}
-
 /**
  * Derives the process configuration from [values]. Keys Heartbeat owns are removed, relative resource paths resolve
  * against the persistent profile [home] (the agent directory lives only as long as the process), and vault

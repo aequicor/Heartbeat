@@ -330,8 +330,8 @@ class PiSessionTest {
     }
 
     @Test
-    fun `host termination waits for explicit allowance at every trust level`() = runTest {
-        TrustLevel.entries.forEach { level ->
+    fun `host termination labels its consequence when the shared gate asks`() = runTest {
+        TrustLevel.entries.filter { it != TrustLevel.Full }.forEach { level ->
             val fixture = fixture(this)
             val turn = fixture.runningTurn(level)
             fixture.connection.event(approval("ui-1", target = "./gradlew --stop"))
@@ -368,7 +368,7 @@ class PiSessionTest {
     }
 
     @Test
-    fun `edit trust allows file edits and still asks before commands`() = runTest {
+    fun `automatic native mutations wait for the shared gate`() = runTest {
         val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.AutoEdits)
         val notes = TestWorkspace.resolve("notes.md").toString()
@@ -376,9 +376,10 @@ class PiSessionTest {
         runCurrent()
         fixture.connection.event(approval("ui-e2"))
         runCurrent()
-        assertEquals(listOf(answer("ui-e1", "confirmed", true)), fixture.connection.sent)
+        assertTrue(fixture.connection.sent.isEmpty())
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
-        assertEquals("bash: ls -la", awaiting.requests.single().title)
+        assertEquals(2, awaiting.requests.size)
+        assertEquals("bash: ls -la", awaiting.requests.last().title)
         fixture.session.shutdown()
     }
 
@@ -430,14 +431,12 @@ class PiSessionTest {
     }
 
     @Test
-    fun `full trust respects denied host termination`() = runTest {
+    fun `full trust does not add a second host termination veto`() = runTest {
         val fixture = fixture(this)
-        val turn = fixture.runningTurn(TrustLevel.Full)
+        fixture.runningTurn(TrustLevel.Full)
         fixture.connection.event(approval("ui-2", target = "taskkill /F /IM java.exe"))
         runCurrent()
-        fixture.session.respond(PermissionDecision(turn, PermissionRequestId("ui-2"), PermissionOptionId("deny")))
-        runCurrent()
-        assertEquals(listOf(answer("ui-2", "confirmed", false)), fixture.connection.sent)
+        assertEquals(listOf(answer("ui-2", "confirmed", true)), fixture.connection.sent)
         fixture.session.shutdown()
     }
 
@@ -654,7 +653,7 @@ class PiSessionTest {
     }
 
     @Test
-    fun `approval text shows hidden characters and oversized commands are blocked`() = runTest {
+    fun `approval text shows hidden characters and retains long commands`() = runTest {
         val fixture = fixture(this)
         fixture.runningTurn()
         fixture.connection.event(approval("ui-5", "ls\n‮rm -rf"))
@@ -663,7 +662,9 @@ class PiSessionTest {
         assertEquals("bash: ls\\n\\u202erm -rf", awaiting.requests.single().title)
         fixture.connection.event(approval("ui-6", "x".repeat(4_001)))
         runCurrent()
-        assertEquals(listOf(answer("ui-6", "confirmed", false)), fixture.connection.sent)
+        assertTrue(fixture.connection.sent.isEmpty())
+        val pending = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        assertEquals("bash: " + "x".repeat(4_001), pending.requests.last().title)
         fixture.session.shutdown()
     }
 }

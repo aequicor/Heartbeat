@@ -8,7 +8,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.EXAMPLE_ORGAN
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.EXAMPLE_SCREEN_WORKFLOW
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.EXAMPLE_UI_SCRIPT
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.EXAMPLE_VERIFY_SCRIPT
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.forbiddenConstruct
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationResult
@@ -18,7 +17,6 @@ import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNull
 
 /** The examples agents copy from harness_api_reference must compile against the current script API. */
 class HarnessReferenceExamplesTest {
@@ -40,8 +38,6 @@ class HarnessReferenceExamplesTest {
                 HarnessCodeKind.Workflow to EXAMPLE_SCREEN_WORKFLOW,
                 HarnessCodeKind.Workflow to EXAMPLE_ORGANISM_WORKFLOW,
             ).forEach { (kind, source) ->
-                assertNull(forbiddenConstruct(source))
-                assertEquals(emptyList(), validateHarnessSource(source))
                 val request = HarnessCompilationRequest(HarnessId("reference"), ItemId(kind.name), kind, source)
                 val result = host.compile(request)
                 val success = assertIs<HarnessCompilationResult.Success>(result, result.toDiagnosticText())

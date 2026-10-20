@@ -19,15 +19,16 @@ async function extension({ gate = "true", specs = "[]", allowed = true, note, re
     return { requests, ctx, call: event => handlers.get("tool_call")(event, ctx),
         result: event => handlers.get("tool_result")(event, ctx), end: () => handlers.get("agent_end")() };
 }
-const call = (toolName, input = {}) => ({ toolName, toolCallId: "call", input });
+let callId = 0;
+const call = (toolName, input = {}) => ({ toolName, toolCallId: `call-${callId++}`, input });
 
-test("read reaches host; denial blocks even read; explicit legacy opt-out skips", async () => {
+test("read reaches host; denial blocks even read; legacy opt-out cannot bypass the gate", async () => {
     const denied = await extension({ allowed: false });
     assert.equal((await denied.call(call("read", { path: "note.md" }))).block, true);
     assert.equal(denied.requests[0].toolName, "read");
     const legacy = await extension({ gate: "false" });
     assert.equal(await legacy.call(call("read")), undefined);
-    assert.equal(legacy.requests.length, 0);
+    assert.equal(legacy.requests.length, 1);
 });
 
 test("malformed environment gates every tool and never trusts a broken hosted list", async () => {
@@ -95,7 +96,7 @@ test("automatic refusal preserves the host reason instead of attributing it to t
     const api = await extension({ reply: JSON.stringify({ allowed: false, reason }) });
     assert.deepEqual(await api.call(call("write", { path: "config" })), { block: true, reason });
     assert.equal(api.requests[0].title, "heartbeat.tool-approval");
-    assert.equal(api.requests[0].toolCallId, "call");
+    assert.ok(api.requests[0].toolCallId.startsWith("call-"));
     const allowed = await extension({ reply: '{"allowed":true}' });
     assert.equal(await allowed.call(call("write", { path: "config" })), undefined);
 });
@@ -115,4 +116,46 @@ test("missing malformed and ambiguous verdicts never authorize a native call", a
     noUi.ctx.hasUI = false;
     assert.equal((await noUi.call(call("bash"))).block, true);
     assert.equal(noUi.requests.length, 0);
+});
+
+
+test("authorization binds mutable input cwd and turn lifetime", async () => {
+    for (const mutate of [
+        (api, event) => { event.input.command = "changed"; },
+        (api, event) => { event.input = { ...event.input }; },
+        (api, event) => { event.toolName = "write"; },
+        (api, event) => { event.toolCallId = "different"; },
+        (api) => { api.ctx.cwd = "/different"; },
+        (api) => api.end(),
+    ]) {
+        const api = await extension();
+        let answer;
+        api.ctx.ui.input = () => new Promise(resolve => { answer = resolve; });
+        const event = call("bash", { command: "original" });
+        const pending = api.call(event);
+        mutate(api, event);
+        answer('{"allowed":true}');
+        assert.equal((await pending).block, true);
+    }
+});
+
+test("downstream handlers cannot change an authorized call and authorization is single use", async () => {
+    const api = await extension();
+    const event = call("bash", { command: "original", nested: { args: ["one"] } });
+    assert.equal(await api.call(event), undefined);
+    assert.throws(() => { event.input.command = "changed"; }, TypeError);
+    assert.throws(() => { event.input.nested.args.push("two"); }, TypeError);
+    assert.throws(() => { event.input = {}; }, TypeError);
+    assert.equal(event.input.command, "original");
+    assert.equal((await api.call(event)).block, true);
+    assert.equal(api.requests.length, 1);
+});
+
+
+test("already shallow frozen containers still have every nested argument frozen", async () => {
+    const api = await extension();
+    const input = Object.freeze({ command: "original", nested: Object.freeze({ args: ["one"] }) });
+    assert.equal(await api.call(call("bash", input)), undefined);
+    assert.throws(() => input.nested.args.push("two"), TypeError);
+    assert.deepEqual(input.nested.args, ["one"]);
 });

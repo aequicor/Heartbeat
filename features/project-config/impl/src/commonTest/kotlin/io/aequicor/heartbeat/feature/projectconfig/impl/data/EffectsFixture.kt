@@ -3,17 +3,8 @@ package io.aequicor.heartbeat.feature.projectconfig.impl.data
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.aiengine.connections.api.BindingModels
-import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
-import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigBinding
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigFile
@@ -34,11 +25,9 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteFailur
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ProjectFolders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 
 internal val PROJECT = WorkspaceRef("project")
-internal val TARGET = EngineTarget(EngineId("claude"), EngineBindingId("b"), ModelId("sonnet"))
 
 /** Everything the effects touch, in memory; [run] drives the real spec with the real effects inline. */
 internal class EffectsFixture(vararg sections: ConfigSection) {
@@ -46,8 +35,6 @@ internal class EffectsFixture(vararg sections: ConfigSection) {
     val bundles = MemoryBundles()
     val workspaces = Workspaces(mapOf(PROJECT to "/work/project"))
     val storage = MemoryStorage()
-    val reviewer = Reviewer()
-    val selections = Selections(TARGET)
     val policy = ConfigStoragePolicy(storage)
     val access = ConfigFolderAccess(workspaces, folders, lazyOf(sections.toSet()), policy)
     val effects = ProjectConfigEffects(
@@ -55,8 +42,6 @@ internal class EffectsFixture(vararg sections: ConfigSection) {
         ConfigTasks(access, bundles),
         storage,
         policy,
-        lazyOf(reviewer),
-        selections,
         object : DispatcherProvider {
             override val main = Dispatchers.Unconfined
             override val default = Dispatchers.Unconfined
@@ -159,25 +144,4 @@ internal class MemoryStorage : ConfigBindingStorage {
     override suspend fun save(bindings: List<ConfigBinding>) {
         this.bindings = bindings
     }
-}
-
-/** Answers every review with [verdict] and records what it was asked. */
-internal class Reviewer(var verdict: String = "safe") : AgentSafetyReviewer {
-    val changes = mutableListOf<Pair<String, String>>()
-    override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview {
-        changes += policy to change
-        return AgentSafetyReview(verdict, "because")
-    }
-}
-
-/** A fixed model selection with [default]. */
-internal class Selections(default: EngineTarget?) : ModelSelections {
-    val selection = MutableStateFlow(
-        ModelSelection(listOf(BindingModels(TARGET.binding, setOf(TARGET.model))), default),
-    )
-
-    override fun observe(): Flow<ModelSelection> = selection
-
-    override suspend fun update(change: (ModelSelection) -> ModelSelection): ModelSelection =
-        change(selection.value).also { selection.value = it }
 }

@@ -44,19 +44,6 @@ public data class ToolPolicySpec(
     }
 }
 
-/** Legacy persisted setting retained for compatibility; agent edits always use automatic safety review. */
-@Serializable
-public enum class HarnessApproval {
-    @SerialName("ask")
-    Ask,
-
-    @SerialName("by_trust")
-    ByTrust,
-
-    @SerialName("accept_all")
-    AcceptAll,
-}
-
 /**
  * A committed library revision. Attachments are stored separately and do not change [revision].
  *

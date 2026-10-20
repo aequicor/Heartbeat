@@ -6,21 +6,12 @@ import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
 import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** Profile choice for ordinary studio turns; helpers and other hosts retain their own trust restrictions. */
-@Serializable
-public enum class StudioSecurityLevel {
-    /** Ask the user before actions with side effects. */
-    Ask,
-
-    /** Allow only actions accepted by independent automatic safety review. The initial profile choice. */
-    Automatic,
-
-    /** Trust actions within the engine's approval policy; independent host restrictions still apply. */
-    Trust,
-}
+/** Settings presentation uses the same mode as every agent execution boundary. */
+public typealias StudioSecurityLevel = SecurityMode
 
 /** Profile security settings, also embedded in the unified settings window. */
 @Serializable
@@ -35,7 +26,7 @@ public sealed interface StudioSecurityState : MachineState {
     /** Resolving the profile's saved choice before submitting a turn or enabling editing. */
     public data object Loading : StudioSecurityState
 
-    /** Storage was unreadable. Turns use Ask until Retry loads the actual choice. */
+    /** Storage was unreadable. Retry reloads the editor; execution observes profile policy independently. */
     public data object LoadError : StudioSecurityState
 
     /** The accepted choice; a failed write retains this level and exposes the failure to the screen. */

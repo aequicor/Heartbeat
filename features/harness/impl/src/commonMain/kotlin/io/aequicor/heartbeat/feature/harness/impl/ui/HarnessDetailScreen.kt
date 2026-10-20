@@ -17,8 +17,6 @@ import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbDivider
-import io.aequicor.heartbeat.ds.components.HbIcon
-import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbSwitch
@@ -82,8 +80,6 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.harness_status_activ
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_status_failed
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_status_failed_disabled
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_status_unsupported
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_tools
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_tools_summary
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_use
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -108,7 +104,6 @@ internal fun HarnessDetailScreen(
                 actions.collect { action ->
                     when (action) {
                         is HarnessDetailAction.OpenItem -> current.openItem(action.item)
-                        HarnessDetailAction.OpenTools -> current.openTools()
                         HarnessDetailAction.Close -> current.close()
                     }
                 }
@@ -146,7 +141,6 @@ internal fun HarnessDetailContent(
             val rows = groups[kind] ?: return@forEach
             item(key = "kind-${kind.name}") { ItemsSection(kind, rows, onIntent) }
         }
-        item(key = "tools") { ToolsSection(state, onIntent) }
         if (state.runs.isNotEmpty()) {
             item(key = "runs") { RunsSection(state.runs, onIntent) }
         }
@@ -279,24 +273,6 @@ private fun ItemsSection(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ToolsSection(
-    state: HarnessDetailState,
-    onIntent: (HarnessDetailIntent) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    HbSettingsSection(stringResource(Res.string.harness_tools), modifier) {
-        HbSettingsRow(
-            stringResource(Res.string.harness_tools),
-            Modifier.fillMaxWidth().testTag("harness-detail-tools"),
-            description = stringResource(Res.string.harness_tools_summary, state.hostedOff, state.nativeSwitches),
-            onClick = { onIntent(HarnessDetailIntent.OpenTools) },
-        ) {
-            HbIcon(HbIcons.ChevronRight, contentDescription = null)
         }
     }
 }
@@ -437,8 +413,6 @@ private val previewState = HarnessDetailState(
         ItemRowUi("3", "screen", ItemKindUi.Workflow, "Design and implement", true, ItemStatusUi.Failed),
     ),
     runs = persistentListOf(RunUi("wf_1", "screen", RunStatusUi.Running, 1, 2)),
-    hostedOff = 1,
-    nativeSwitches = 2,
 )
 
 @Preview

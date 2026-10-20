@@ -55,7 +55,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_show_more_s
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_brand
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AppUpdateUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectGroupUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.SafetyReviewsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarContent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
@@ -76,7 +75,6 @@ internal fun StudioSidebar(
     modifier: Modifier = Modifier,
     isDrawer: Boolean = false,
     appUpdate: AppUpdateUi? = null,
-    safetyReviews: SafetyReviewsUi? = null,
 ) {
     val sidebar = input.sidebar
     val content = remember(input.projects, input.sessions, input.running, input.awaitingPermission, sidebar) {
@@ -95,7 +93,6 @@ internal fun StudioSidebar(
     HbColumn(modifier.testTag("studio-sidebar"), gap = HbTheme.spacing.none) {
         SidebarHeader(
             appUpdate = appUpdate,
-            safetyReviews = safetyReviews,
             isAgentRunning = isAgentRunning,
             onUpdate = { onIntent(StudioIntent.InstallAppUpdate) },
             onNew = { onIntent(StudioIntent.NewSession(input.newSessionProjectId)) },
@@ -134,7 +131,6 @@ internal fun StudioSidebar(
 @Composable
 private fun SidebarHeader(
     appUpdate: AppUpdateUi?,
-    safetyReviews: SafetyReviewsUi?,
     isAgentRunning: Boolean,
     onUpdate: () -> Unit,
     onNew: () -> Unit,
@@ -162,7 +158,6 @@ private fun SidebarHeader(
                     },
                     maxLines = 1,
                 )
-                safetyReviews?.let { SafetyReviewsIndicator(it) }
                 appUpdate?.let { update -> AppUpdateButton(update, isAgentRunning, onUpdate) }
             }
             HbIconButton(

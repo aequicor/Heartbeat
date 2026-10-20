@@ -62,14 +62,6 @@ public data class HarnessAttachmentWrite(
     val generation: Long = 1,
 )
 
-/** Approval changes become effective only after their exact write succeeds. */
-public data class HarnessApprovalWrite(
-    val requestId: RequestId,
-    val level: HarnessApproval,
-    val revision: Long,
-    val generation: Long = 1,
-)
-
 /** Profile library. Durable data is loaded from the repository; pending IO is deliberately not persisted as state. */
 public sealed interface HarnessState : MachineState {
     public val isSuspended: Boolean
@@ -87,14 +79,11 @@ public sealed interface HarnessState : MachineState {
     public data class Ready(
         val harnesses: List<HarnessEntry> = emptyList(),
         val attachments: Map<SessionRef, Set<HarnessId>> = emptyMap(),
-        val approval: HarnessApproval = HarnessApproval.Ask,
         val isRuntimeAvailable: Boolean = false,
         override val isSuspended: Boolean = false,
         val revision: Long = 0,
-        val approvalRevision: Long = 0,
         val pending: Map<HarnessId, HarnessMutation> = emptyMap(),
         val attachmentWrite: HarnessAttachmentWrite? = null,
-        val approvalWrite: HarnessApprovalWrite? = null,
         val reload: HarnessLoad? = null,
         val loadGeneration: Long = 0,
         val activationGeneration: Long = 0,

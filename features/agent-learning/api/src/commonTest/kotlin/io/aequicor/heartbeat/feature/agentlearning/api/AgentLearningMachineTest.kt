@@ -8,8 +8,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class AgentLearningMachineTest {
     private val spec = AgentLearningMachineSpec
@@ -27,8 +25,8 @@ class AgentLearningMachineTest {
         )
         spec.assertTransition(
             AgentLearningState.Loading,
-            AgentLearningIntent.Internal.Loaded(listOf(encoding, encoding), LearningApproval.Ask),
-            AgentLearningState.Ready(listOf(encoding), LearningApproval.Ask),
+            AgentLearningIntent.Internal.Loaded(listOf(encoding, encoding)),
+            AgentLearningState.Ready(listOf(encoding)),
         )
         spec.assertTransition(
             AgentLearningState.Loading,
@@ -231,39 +229,6 @@ class AgentLearningMachineTest {
             registry.copy(instructions = listOf(encoding, renamed), revision = 4),
             effects = listOf(AgentLearningEffect.Persist(listOf(encoding, renamed), 4)),
         )
-    }
-
-    @Test
-    fun `approval level is stored separately and save failures are reported`() {
-        spec.assertTransition(
-            ready,
-            AgentLearningIntent.Public.SetApproval(LearningApproval.AcceptAll),
-            ready.copy(approval = LearningApproval.AcceptAll, approvalRevision = 1),
-            effects = listOf(AgentLearningEffect.PersistApproval(LearningApproval.AcceptAll, revision = 1)),
-        )
-        spec.assertIgnored(ready, AgentLearningIntent.Public.SetApproval(LearningApproval.Ask))
-        spec.assertTransition(
-            ready,
-            AgentLearningIntent.Internal.SaveFailed(),
-            ready,
-            outputs = listOf(AgentLearningOutput.StorageFailed),
-        )
-        assertEquals(
-            AgentLearningIntent.Internal.SaveFailed(),
-            spec.onEffectFailure(AgentLearningEffect.PersistApproval(LearningApproval.Ask), IllegalStateException()),
-        )
-        assertEquals(
-            AgentLearningIntent.Internal.LoadFailed,
-            spec.onEffectFailure(AgentLearningEffect.Load, IllegalStateException()),
-        )
-    }
-
-    @Test
-    fun `approval levels decide by the agent's safety rating`() {
-        assertTrue(LearningApproval.Ask.requiresDecision(isSafe = true))
-        assertFalse(LearningApproval.Automatic.requiresDecision(isSafe = true))
-        assertTrue(LearningApproval.Automatic.requiresDecision(isSafe = false))
-        assertFalse(LearningApproval.AcceptAll.requiresDecision(isSafe = false))
     }
 
     @Test

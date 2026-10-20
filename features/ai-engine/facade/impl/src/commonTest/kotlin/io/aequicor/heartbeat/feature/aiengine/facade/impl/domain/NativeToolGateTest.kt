@@ -55,9 +55,8 @@ internal class NativeToolGateTest {
                 ResolvedToolPolicy(nativeOn = setOf("read"), nativeOff = setOf("read"))
             },
         )
-        val forbiddenCoverage: (TrustLevel) -> Boolean = { error("Off must run first") }
-        assertIs<NativeVerdict.Deny>(tools.authorizeNative(CONTEXT, call(covered = forbiddenCoverage)))
-        assertIs<NativeVerdict.Deny>(tools.authorizeNative(CONTEXT, call("unknown", forbiddenCoverage)))
+        assertIs<NativeVerdict.Deny>(tools.authorizeNative(CONTEXT, call()))
+        assertIs<NativeVerdict.Deny>(tools.authorizeNative(CONTEXT, call("unknown")))
         assertTrue(hook.calls.isEmpty())
     }
 
@@ -69,7 +68,6 @@ internal class NativeToolGateTest {
         val context = CONTEXT.copy(
             permissions = AgentToolPermissions {
                 asked++
-                assertTrue(it.description.orEmpty().contains("Review this call"))
                 assertTrue(it.description.orEmpty().contains("/project/file"))
                 true
             },
@@ -77,31 +75,9 @@ internal class NativeToolGateTest {
         val call = call().copy(paths = listOf("/project/file"))
         assertEquals(NativeVerdict.Allow, tools.authorizeNative(context, call))
         assertEquals(1, asked)
-        assertTrue(hook.calls.single().isNative)
-        assertNull(hook.calls.single().context.turn)
-        assertEquals(REQUEST, hook.calls.single().context.request)
-    }
-
-    @Test
-    fun `hook denial dominates full trust and no permission is requested`() = runTest {
-        val tools = fixture(Hook(ToolHookVerdict.Deny("Blocked")))
-        val result = tools.authorizeNative(CONTEXT, call())
-        assertTrue(assertIs<NativeVerdict.Deny>(result).reason.contains("Blocked by a session hook"))
-    }
-
-    @Test
-    fun `adapter coverage determines whether ordinary approval is required`() = runTest {
-        val tools = fixture()
-        var asked = 0
-        val context = CONTEXT.copy(
-            permissions = AgentToolPermissions {
-                asked++
-                false
-            },
-        )
-        assertEquals(NativeVerdict.Allow, tools.authorizeNative(context, call()))
-        assertIs<NativeVerdict.Deny>(tools.authorizeNative(context, call(covered = { false })))
-        assertEquals(1, asked)
+        assertTrue(hook.calls.all { it.isNative })
+        assertNull(hook.calls.first().context.turn)
+        assertEquals(REQUEST, hook.calls.first().context.request)
     }
 
     @Test
@@ -115,7 +91,7 @@ internal class NativeToolGateTest {
                     true
                 },
             )
-            assertIs<NativeVerdict.Deny>(tools.authorizeNative(context, call(covered = { false })))
+            assertIs<NativeVerdict.Deny>(tools.authorizeNative(context, call().copy(action = AgentToolAction.Command)))
         }
     }
 
@@ -129,7 +105,7 @@ internal class NativeToolGateTest {
                 awaitCancellation()
             },
         )
-        val pending = async { tools.authorizeNative(context, call(covered = { false })) }
+        val pending = async { tools.authorizeNative(context, call().copy(action = AgentToolAction.Command)) }
         entered.await()
         tools.finishTurn(SESSION, TURN)
         assertFailsWith<CancellationException> { pending.await() }
@@ -148,7 +124,7 @@ internal class NativeToolGateTest {
                 awaitCancellation()
             },
         )
-        val pending = async { tools.authorizeNative(context, call(covered = { false })) }
+        val pending = async { tools.authorizeNative(context, call().copy(action = AgentToolAction.Command)) }
         entered.await()
         lifetime.cancel()
         assertFailsWith<CancellationException> { pending.await() }
@@ -157,7 +133,7 @@ internal class NativeToolGateTest {
     @Test
     fun `approval never truncates command details and diagnostics redact the command`() = runTest {
         val tools = fixture()
-        val long = call(covered = { false }).copy(command = "private".repeat(2_000))
+        val long = call().copy(action = AgentToolAction.Command).copy(command = "private".repeat(2_000))
         assertIs<NativeVerdict.Deny>(tools.authorizeNative(CONTEXT, long))
         assertEquals("NativeToolCall", long.toString())
         assertEquals("NativeVerdict.Deny", NativeVerdict.Deny("private").toString())
@@ -189,7 +165,9 @@ internal class NativeToolGateTest {
     fun `policy change between preflight and approval denies without showing permission`() = runTest {
         var policy = ENABLED
         val tools = fixture(policies = ToolPolicyResolver { _, _, _ -> policy })
-        val prepared = assertIs<NativePreparation.Ask>(tools.prepareNative(CONTEXT, call(covered = { false })))
+        val prepared = assertIs<NativePreparation.Ask>(
+            tools.prepareNative(CONTEXT, call().copy(action = AgentToolAction.Command)),
+        )
         policy = ResolvedToolPolicy(nativeOff = setOf("read"))
         assertIs<NativeVerdict.Deny>(prepared.confirmation.authorize())
     }
@@ -197,16 +175,11 @@ internal class NativeToolGateTest {
     @Test
     fun `finished facade turn revokes a prepared confirmation before it is consumed`() = runTest {
         val tools = fixture()
-        val prepared = assertIs<NativePreparation.Ask>(tools.prepareNative(CONTEXT, call(covered = { false })))
+        val prepared = assertIs<NativePreparation.Ask>(
+            tools.prepareNative(CONTEXT, call().copy(action = AgentToolAction.Command)),
+        )
         tools.finishTurn(SESSION, TURN)
         assertIs<NativeVerdict.Deny>(prepared.confirmation.authorize())
-    }
-
-    @Test
-    fun `preflight preserves trust coverage and never translates continue directly to allow`() = runTest {
-        val tools = fixture()
-        assertEquals(NativePreparation.Allow, tools.prepareNative(CONTEXT, call()))
-        assertIs<NativePreparation.Ask>(tools.prepareNative(CONTEXT, call(covered = { false })))
     }
 
     private suspend fun TestScope.fixture(
@@ -243,5 +216,4 @@ private val CONTEXT = AgentToolContext(
     permissions = AgentToolPermissions { error("No permission expected") },
 )
 private val ENABLED = ResolvedToolPolicy(nativeOn = setOf("read"))
-private fun call(name: String = "read", covered: (TrustLevel) -> Boolean = { true }) =
-    NativeToolCall(name, AgentToolAction.Read, covered = covered)
+private fun call(name: String = "read") = NativeToolCall(name, AgentToolAction.Read)

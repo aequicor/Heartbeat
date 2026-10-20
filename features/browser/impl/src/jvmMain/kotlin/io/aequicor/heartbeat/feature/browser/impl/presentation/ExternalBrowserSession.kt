@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
@@ -29,6 +31,10 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -59,7 +65,9 @@ internal class ExternalBrowserSession(
     private val browser: ExternalBrowser,
     policy: ExternalBrowserAgentPolicy,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    settings: AgentSecuritySettings? = null,
 ) : ExternalBrowserControl {
+    private val security = settings?.modes?.stateIn(profile.coroutineScope, SharingStarted.Eagerly, null)
     private val log = Log.tag("ExternalBrowserSession")
     private val lock = Mutex()
     private val handovers = Mutex()
@@ -108,6 +116,7 @@ internal class ExternalBrowserSession(
 
     override suspend fun snapshot(owner: String, operation: ExternalOperation, arguments: JsonObject): JsonObject {
         policyReady.await()
+        security?.filterNotNull()?.first()
         lock.withLock { checkEnabled() }
         return if (operation == ExternalOperation.NewTab) {
             newTabSnapshot(owner, arguments)
@@ -185,6 +194,7 @@ internal class ExternalBrowserSession(
 
     private suspend fun tabs(owner: String): JsonObject {
         policyReady.await()
+        security?.filterNotNull()?.first()
         lock.withLock { checkEnabled() }
         // The extension proves ownership by tab id and original group, never by the visible group title.
         for (tab in browser.ownedTabs(owner)) {
@@ -288,6 +298,7 @@ internal class ExternalBrowserSession(
 
     private suspend fun acquire(owner: String, expected: ExternalTab?, isUserTab: Boolean = expected != null): Entry {
         policyReady.await()
+        security?.filterNotNull()?.first()
         val reservation = reserve(owner, expected)
         try {
             reservation.previous?.mutex?.lock()
@@ -525,7 +536,7 @@ internal class ExternalBrowserSession(
     }
 
     private fun createEntry(owner: String, tab: ExternalTab, isUserTab: Boolean): Entry {
-        val guard = DesktopBrowserAgentGuard().apply { restrict(null) }
+        val guard = DesktopBrowserAgentGuard { security?.value == SecurityMode.Trust }.apply { restrict(null) }
         val token = Any()
         val transport: suspend (String, JsonObject) -> String = { method, params ->
             checkLive(tab.id, token)

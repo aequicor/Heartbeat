@@ -6,14 +6,15 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.native
  * A desktop app started from the IDE is forked by the Gradle daemon, so `gradlew --stop` — the step this project
  * documents for the detekt rule cache — stops that daemon and the app goes down with it: at once, with no stack
  * trace, no crash report and no chance to finish the running turn. Process killers and power commands end the host
- * the same way. Turn trust never approves a recognised host termination; only the user decides, and the request tells
- * what it costs.
+ * the same way. Recognition adds the consequences to the shared permission prompt; Full Trust does not add a
+ * second veto.
  *
  * Recognition follows the executable at the start of a statement and the command payload of common shell
  * wrappers, including their paths and executable extensions. Quoted arguments remain intact, so looking these
  * words up (`git grep taskkill`, `Select-String -Pattern Stop-Process`) is not a host termination. This is a heuristic
- * against unattended mistakes, not a shell interpreter or a sandbox: unknown forms remain subject to turn trust.
- * A chain exceeding the wrapper scan limit also asks the user, so nested wrappers cannot exhaust the call stack.
+ * against unattended mistakes, not a shell interpreter or a sandbox: unknown forms remain subject to the shared
+ * profile mode.
+ * The bounded wrapper scan cannot exhaust the call stack.
  */
 internal fun terminatesHostCommand(command: String, wrappersLeft: Int = HOST_WRAPPER_LIMIT): Boolean {
     val context = HostCommandContext()

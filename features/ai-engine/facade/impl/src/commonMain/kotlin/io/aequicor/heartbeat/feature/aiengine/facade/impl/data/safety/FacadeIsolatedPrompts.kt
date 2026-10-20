@@ -19,8 +19,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.Uuid
 
 /**
- * Isolated prompts share the safety review's isolation (native Off before the prompt, tool calls denied by
- * [AgentSafetyHook]) but have their own capacity, so host synthesis never delays a safety decision.
+ * Text-only service prompts use explicit native/hosted capability isolation and bounded capacity.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
@@ -40,7 +39,7 @@ internal class FacadeIsolatedPrompts(
         facade,
         isolation,
         scope,
-        AgentSafetyReviewSlots(MAX_PARALLEL_PROMPTS, MAX_QUEUED_PROMPTS, QUEUE_WAIT, "Isolated prompt", LOG_TAG),
+        IsolatedTurnSlots(MAX_PARALLEL_PROMPTS, MAX_QUEUED_PROMPTS, QUEUE_WAIT, "Isolated prompt", LOG_TAG),
         SETTLE_GRACE,
     )
 
@@ -94,3 +93,5 @@ private const val LOG_TAG = "IsolatedPrompts"
 private const val MAX_PARALLEL_PROMPTS = 2
 private const val MAX_QUEUED_PROMPTS = 8
 private val QUEUE_WAIT = 1.minutes
+
+internal val SETTLE_GRACE = 1.minutes

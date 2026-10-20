@@ -10,7 +10,6 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.Harness
-import io.aequicor.heartbeat.feature.harness.api.HarnessApprovalWrite
 import io.aequicor.heartbeat.feature.harness.api.HarnessAttachmentWrite
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessReceipt
@@ -116,37 +115,15 @@ internal class KeyValueHarnessLibrary(
         write
     }
 
-    override suspend fun saveApproval(write: HarnessApprovalWrite): HarnessApprovalWrite = access {
-        journal.recover()
-        if (write.generation < 1) throw HarnessStorageConflict()
-        val current = snapshot()
-        if (current.approvalRevision == write.revision && current.approval == write.level) return@access write
-        if (current.approvalRevision == Long.MAX_VALUE || current.approvalRevision + 1 != write.revision) {
-            throw HarnessStorageConflict()
-        }
-        val value = HarnessStoredApproval(write.level, write.revision)
-        val operation = harnessOperationId(
-            "approval",
-            write.requestId.value,
-            write.revision.toString(),
-            write.generation.toString(),
-        )
-        commit(operation, mapOf(APPROVAL to Json.encodeToString(value)))
-        write
-    }
-
     private suspend fun snapshot(): HarnessLibrarySnapshot {
         val ids = raw(INDEX)?.let { decodeHarnessRecord<List<HarnessId>>(it) }.orEmpty()
         if (ids.distinct().size != ids.size) throw HarnessStorageCorrupt()
         val harnesses = ids.map { id ->
             readHarness(id)
         }
-        val approval = raw(APPROVAL)?.let { decodeHarnessRecord<HarnessStoredApproval>(it) } ?: HarnessStoredApproval()
         return HarnessLibrarySnapshot(
             harnesses,
             decodeAttachments(raw(ATTACHMENTS)),
-            approval.level,
-            approval.revision,
         ).also {
             if (!it.isValid()) throw HarnessStorageCorrupt()
         }
@@ -182,7 +159,6 @@ internal class KeyValueHarnessLibrary(
     private companion object {
         const val INDEX = HARNESS_LIBRARY_INDEX
         const val ATTACHMENTS = "attachments"
-        const val APPROVAL = "approval"
     }
 }
 

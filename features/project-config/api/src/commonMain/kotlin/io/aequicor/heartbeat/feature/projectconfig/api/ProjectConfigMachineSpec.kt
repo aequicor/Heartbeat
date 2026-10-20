@@ -9,12 +9,12 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Publi
 
 /**
  * Live project configuration of the profile. The profile libraries stay where entities run: a unit from a project
- * folder or a bundle reaches them only after its automatic review and the user's trust, so they always hold a version
+ * folder or a bundle reaches them only after validation and the user's explicit consent, so they always hold a version
  * the user trusted. Project-owned entities are automatically written into their project's tree by default;
  * changes made in the app are written back into bound folders. App storage suspends all access to that project's
  * tree while keeping the runtime libraries and bindings. Location changes leave Ready to cancel its effects before
  * persisting the new policy and reloading. The machine never reads files or
- * calls the owners of entities: effects read folders, review, apply through the sections and write. Other features
+ * calls the owners of entities: effects read folders, validate, apply through the sections and write. Other features
  * send only Public intents (Reload, Sync, Dismiss, OpenBundle, CloseBundle); trusting proposals and writing folders or
  * bundles (Trust, KeepApp, RemoveFromProject, SaveToProject, Export, ImportToProject) are Internal commands of the
  * feature's own screen.
@@ -32,9 +32,8 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Publi
  * | Ready | ProjectsChanged | | added synced, proposals of removed dropped | Sync(added) |
  * | Ready | Sync / Changed | known project, idle | generation + 1, syncing | Sync |
  * | Ready | Sync / Changed | known project, syncing | dirty | |
- * | Ready | Synced | current generation | reconciled | SaveBindings, WriteBack, Review, Sync if dirty |
+ * | Ready | Synced | current generation | reconciled | SaveBindings, WriteBack, Sync if dirty |
  * | Ready | SyncFailed | current generation | idle with failure | Sync if dirty |
- * | Ready | Reviewed / ReviewsFailed | | review of the proposal at that digest | |
  * | Ready | Trust | seen digest; trustable (valid; safe, accepted risk or a removal) | applying | Apply |
  * | Ready | Applied | applying | proposal gone, binding committed | SaveBindings, Sync(project) |
  * | Ready | ApplyFailed | | proposal with failure | |
@@ -47,13 +46,13 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Publi
  * | Ready | SaveToProject / Export / OpenBundle / ImportToProject | no task | task | the task's effect |
  * | Ready | the same | another task | Ready | TaskFinished(Busy) |
  * | Ready | TaskDone | the task | no task, new bindings | SaveBindings, Sync(project), TaskFinished |
- * | Ready | BundleOpened | the task | bundle and its proposals | CloseBundle(previous), Review, TaskFinished |
+ * | Ready | BundleOpened | the task | bundle and its proposals | CloseBundle(previous), TaskFinished |
  * | Ready | CloseBundle | open bundle | bundle proposals gone | CloseBundle |
  * | Ready | BindingsSaveFailed | | Ready | StorageFailed |
  * | Loading / Failed / Ready | Disabled | | Off (effects cancelled) | |
  *
- * Effect failures: Load → LoadFailed, SaveBindings → BindingsSaveFailed, Sync → SyncFailed(Io), Review →
- * ReviewsFailed, Apply → ApplyFailed(Failed), WriteBack → WriteBackFailed, tasks → TaskDone(Failed(Unavailable)).
+ * Effect failures: Load → LoadFailed, SaveBindings → BindingsSaveFailed, Sync → SyncFailed(Io),
+ * Apply → ApplyFailed(Failed), WriteBack → WriteBackFailed, tasks → TaskDone(Failed(Unavailable)).
  */
 public val ProjectConfigMachineSpec: MachineSpec<
     ProjectConfigState,
@@ -157,18 +156,8 @@ private fun ReadyBuilder.syncs() {
 }
 
 private fun ReadyBuilder.decisions() {
-    on<Internal.Reviewed> {
-        stay {
-            state.reviewed(
-                listOf(reviewKey(intent.proposal, intent.digest) to intent.review),
-            )
-        }
-    }
-    on<Internal.ReviewsFailed> {
-        stay { state.reviewed(intent.proposals.map { it.reviewKey to ProposalReview.Unavailable }) }
-    }
     on<Internal.Trust>(
-        guard = { state.idleProposal(intent.proposal, intent.digest)?.isTrustable(intent.isRiskAccepted) == true },
+        guard = { state.idleProposal(intent.proposal, intent.digest)?.isTrustable == true },
     ) {
         step { state.trusted(checkNotNull(state.proposal(intent.proposal))) }
     }
@@ -197,7 +186,7 @@ private fun ReadyBuilder.decisions() {
     ) {
         stay {
             val proposal = checkNotNull(state.proposal(intent.proposal))
-            state.copy(proposals = state.proposals - proposal, dismissed = state.dismissed + proposal.reviewKey)
+            state.copy(proposals = state.proposals - proposal, dismissed = state.dismissed + proposal.versionKey)
         }
     }
     on<Internal.RemoveFromProject>(
@@ -306,7 +295,6 @@ private fun ProjectConfigEffect.failure(): ProjectConfigIntent? = when (this) {
     is ProjectConfigEffect.SaveBindings -> Internal.BindingsSaveFailed
     is ProjectConfigEffect.SaveStorage -> Internal.StorageSaveFailed
     is ProjectConfigEffect.Sync -> Internal.SyncFailed(requests, ConfigReadFailure.Io)
-    is ProjectConfigEffect.Review -> Internal.ReviewsFailed(proposals)
     is ProjectConfigEffect.Apply -> Internal.ApplyFailed(proposal.id, ConfigRejection.Failed)
     is ProjectConfigEffect.WriteBack -> Internal.WriteBackFailed(writeBacks)
     is ProjectConfigEffect.SaveToProject -> taskFailed(requestId)

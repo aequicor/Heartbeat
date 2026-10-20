@@ -7,7 +7,7 @@ public data class HarnessActivationRequest(val harness: Harness, val item: Harne
 
 /** Repository and runtime IO belong to impl. No effect is executed by this module. */
 public sealed interface HarnessEffect : MachineEffect {
-    /** Reads a coherent committed library, attachments and approval snapshot. */
+    /** Reads a coherent committed library and attachments snapshot. */
     public data class Load(val load: HarnessLoad) : HarnessEffect
 
     /** Persists one proposed revision and echoes the receipt after durable completion. */
@@ -18,9 +18,6 @@ public sealed interface HarnessEffect : MachineEffect {
 
     /** Persists the proposed attachment map and echoes the exact write. */
     public data class SaveAttachments(val write: HarnessAttachmentWrite) : HarnessEffect
-
-    /** Persists the proposed approval value and echoes the exact write. */
-    public data class SaveApproval(val write: HarnessApprovalWrite) : HarnessEffect
 
     /** Compiles and atomically publishes each exact item generation; reports one outcome per item. */
     public data class Activate(val items: List<HarnessActivationRequest>) : HarnessEffect

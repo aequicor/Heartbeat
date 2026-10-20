@@ -61,34 +61,6 @@ public data class LearnedInstruction(
     override fun toString(): String = "LearnedInstruction(id=${id.value}, kind=$kind, enabled=$isEnabled)"
 }
 
-/**
- * Additional learning confirmation policy for hosts using interactive trust rules. The host may still require
- * confirmation for this mutation regardless of this preference. Hosts using independent automatic safety review
- * assess every instruction themselves, regardless of this policy or the authoring agent's safety rating.
- */
-@Serializable
-public enum class LearningApproval {
-    /** Every new instruction waits for the user's decision. */
-    @SerialName("ask")
-    Ask,
-
-    /** The agent's safe rating needs no additional learning confirmation; other instructions ask the user. */
-    @SerialName("automatic")
-    Automatic,
-
-    /** Learning requires no additional confirmation; the host's trust gate still applies. */
-    @SerialName("accept_all")
-    AcceptAll,
-    ;
-
-    /** Whether saving an instruction the agent rated [isSafe] needs the user's decision. */
-    public fun requiresDecision(isSafe: Boolean): Boolean = when (this) {
-        Ask -> true
-        Automatic -> !isSafe
-        AcceptAll -> false
-    }
-}
-
 /** Size limits of the registry; the host refuses larger instructions instead of truncating them. */
 public object LearningLimits {
     /** Longest title or skill name. */

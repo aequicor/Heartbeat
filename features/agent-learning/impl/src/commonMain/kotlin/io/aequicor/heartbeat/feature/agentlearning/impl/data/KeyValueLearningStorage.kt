@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
-import io.aequicor.heartbeat.feature.agentlearning.api.LearningApproval
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.LearningStorage
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.StoredLearning
 import kotlinx.serialization.SerializationException
@@ -32,10 +31,8 @@ internal class KeyValueLearningStorage(
 
     override suspend fun load(): StoredLearning {
         val instructions = store.get(INSTRUCTIONS)?.let(::decode).orEmpty()
-        // An unknown approval level falls back to asking, the most careful choice.
-        val approval = store.get(APPROVAL)?.let { name -> LearningApproval.entries.firstOrNull { it.name == name } }
-        log.d { "read learned instructions: ${instructions.size}, approval known=${approval != null}" }
-        return StoredLearning(instructions, approval ?: LearningApproval.Ask)
+        log.d { "read learned instructions: ${instructions.size}" }
+        return StoredLearning(instructions)
     }
 
     /**
@@ -54,15 +51,9 @@ internal class KeyValueLearningStorage(
         store.set(INSTRUCTIONS, json.encodeToString(INSTRUCTION_LIST, instructions))
     }
 
-    override suspend fun saveApproval(approval: LearningApproval) {
-        log.d { "write learning approval: $approval" }
-        store.set(APPROVAL, approval.name)
-    }
-
     private companion object {
         val SPEC = KeyValueSpec("agent_learning")
         val INSTRUCTIONS = stringKey("instructions")
-        val APPROVAL = stringKey("approval")
         val INSTRUCTION_LIST = ListSerializer(LearnedInstruction.serializer())
         val json = Json { ignoreUnknownKeys = true }
     }

@@ -65,24 +65,19 @@ class ProjectConfigMachineTest {
     }
 
     @Test
-    fun `a new unit is reviewed and trusted only when safe or accepted and its binding is stored`() {
+    fun `a new unit waits for explicit consent on its exact version and its binding is stored`() {
         val learning = ConfigUnitRef(ConfigSectionId.Learning, "style")
         val scanned = ScannedUnit(learning, ConfigDigest("n1"), valid("c1"))
         val syncing = idle.send(Public.Sync(project))
         val synced = checkNotNull(spec.resolve(syncing, Internal.Synced(snapshot(2, unit("f1"), scanned))))
         val proposal = synced.to.ready.proposals.single()
         assertEquals(ProposalKind.Create, proposal.kind)
-        assertEquals(listOf(ProjectConfigEffect.Review(listOf(proposal))), synced.effects)
-
-        val risky = synced.to.ready.send(
-            Internal.Reviewed(proposal.id, ConfigDigest("n1"), ProposalReview.Done(ReviewVerdict.Risk, "network")),
-        )
-        assertTrue(risky.reviewing.isEmpty())
-        spec.assertIgnored(risky, Internal.Trust(proposal.id, proposal.digest))
-        // The user accepted the risk of another version of the files: nothing is applied.
-        spec.assertIgnored(risky, Internal.Trust(proposal.id, ConfigDigest("n0"), isRiskAccepted = true))
-        val accepted = Internal.Trust(proposal.id, proposal.digest, isRiskAccepted = true)
-        val applying = checkNotNull(spec.resolve(risky, accepted))
+        assertTrue(synced.effects.isEmpty())
+        val pending = synced.to.ready
+        // Consent for another version cannot apply these files.
+        spec.assertIgnored(pending, Internal.Trust(proposal.id, ConfigDigest("n0")))
+        val accepted = Internal.Trust(proposal.id, proposal.digest)
+        val applying = checkNotNull(spec.resolve(pending, accepted))
         val started = applying.to.ready.proposals.single()
         assertTrue(started.isApplying)
         assertEquals(listOf(ProjectConfigEffect.Apply(started)), applying.effects)
@@ -186,7 +181,7 @@ class ProjectConfigMachineTest {
         spec.assertIgnored(state, Internal.KeepApp(conflict.id, ConfigDigest("f1")))
         spec.assertIgnored(state, Public.Dismiss(conflict.id, ConfigDigest("f1")))
         val dismissed = state.send(Public.Dismiss(conflict.id, conflict.digest))
-        assertEquals(setOf(conflict.reviewKey), dismissed.dismissed)
+        assertEquals(setOf(conflict.versionKey), dismissed.dismissed)
         val hidden = dismissed.send(Public.Sync(project)).send(
             Internal.Synced(
                 snapshot(
@@ -271,8 +266,8 @@ class ProjectConfigMachineTest {
         spec.assertTransition(
             state,
             Internal.BundleOpened("r1", bundle, listOf(incoming)),
-            idle.copy(bundle = bundle, proposals = listOf(incoming), reviewing = setOf(incoming.reviewKey)),
-            effects = listOf(ProjectConfigEffect.CloseBundle("old"), ProjectConfigEffect.Review(listOf(incoming))),
+            idle.copy(bundle = bundle, proposals = listOf(incoming)),
+            effects = listOf(ProjectConfigEffect.CloseBundle("old")),
             outputs = listOf(ProjectConfigOutput.TaskFinished("r1", ConfigTaskResult.Opened(1))),
         )
         spec.assertTransition(

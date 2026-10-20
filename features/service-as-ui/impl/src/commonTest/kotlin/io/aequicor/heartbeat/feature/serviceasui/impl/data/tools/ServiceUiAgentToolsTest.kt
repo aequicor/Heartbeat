@@ -6,11 +6,8 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
@@ -43,16 +40,12 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiWrite
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteResult
 import io.aequicor.heartbeat.feature.serviceasui.api.apply
 import io.aequicor.heartbeat.feature.serviceasui.impl.di.BundledUiAuthoringKnowledge
-import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWebSafeMode
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,9 +64,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Clock
@@ -85,14 +76,12 @@ class ServiceUiAgentToolsTest {
     private val toggles = Toggles()
     private val cards = Cards()
     private val calls = Calls()
-    private val reviewer = Reviewer()
     private val tools = ServiceUiAgentTools(
         lazyOf(machine),
         lazyOf(calls),
         lazyOf(cards),
         toggles,
         FixedClock,
-        ServiceUiToolSafety(reviewer),
         BundledUiAuthoringKnowledge(),
     )
     private val context = AgentToolContext(
@@ -117,6 +106,9 @@ class ServiceUiAgentToolsTest {
             tools.catalog.map { it.name },
         )
         assertEquals(7, tools.specifications(null).size)
+        assertEquals(AgentToolAction.Command, tools.catalogSpec(ServiceUiTools.SHOW).action)
+        assertEquals(AgentToolAction.Read, tools.catalogSpec(ServiceUiTools.GET).action)
+        assertEquals(AgentToolAction.Read, tools.catalogSpec(ServiceUiTools.LIST).action)
         assertTrue("ui_reference" in tools.instructions(null))
         assertTrue("Heartbeat interface spec" in call(ServiceUiTools.REFERENCE).text)
 
@@ -155,7 +147,6 @@ class ServiceUiAgentToolsTest {
         assertEquals(0, machine.writes)
         assertTrue(cards.added.isEmpty())
         assertTrue(calls.invoked.isEmpty())
-        assertTrue(reviewer.proposals.isEmpty())
     }
 
     @Test
@@ -166,21 +157,15 @@ class ServiceUiAgentToolsTest {
             lazy { error("Reference must not load chat cards") },
             toggles,
             FixedClock,
-            ServiceUiToolSafety(reviewer),
             BundledUiAuthoringKnowledge(),
         )
         val declaration = knowledge.specifications(null).single { it.name == ServiceUiTools.REFERENCE }
         assertTrue(knowledge.isDetachedSupported)
         assertEquals(AgentToolAction.Read, declaration.action)
         assertEquals(null, context.workspace)
-        assertEquals(
-            null,
-            knowledge.automaticAuthorization(context, declaration, referenceTopic("mini-app-design")),
-        )
         ServiceUiReferenceTopics.forEach { topic ->
             assertFalse(knowledge.execute(context, ServiceUiTools.REFERENCE, referenceTopic(topic)).isError)
         }
-        assertTrue(reviewer.proposals.isEmpty())
 
         toggles.isEnabled.value = false
         assertTrue(knowledge.execute(context, ServiceUiTools.REFERENCE, referenceTopic("mini-app-design")).isError)
@@ -241,7 +226,6 @@ class ServiceUiAgentToolsTest {
             assertTrue("topic" in result.text, result.text)
         }
         assertEquals(0, machine.writes)
-        assertTrue(reviewer.proposals.isEmpty())
     }
 
     @Test
@@ -287,7 +271,6 @@ class ServiceUiAgentToolsTest {
         assertFalse(saved.isError, saved.text)
         val contextSurface = (machine.state.value as ServiceUiState.Ready).library.surfaces.single()
         assertEquals(UiPlacement.Context, contextSurface.content.placement)
-        assertEquals(1, reviewer.proposals.size)
         val got = Json.parseToJsonElement(
             call(ServiceUiTools.GET, buildJsonObject { put("id", contextSurface.id.value) }).text,
         ).jsonObject
@@ -373,9 +356,6 @@ class ServiceUiAgentToolsTest {
     fun `web documents receive automatic review and deletes need the current revision`() = runTest {
         val web = put("""{"version":1,"body":{"type":"web","html":"<p>Hi</p>"}}""", placement = "panel")
         val spec = tools.specifications(null).first { it.name == ServiceUiTools.PUT }
-        assertIs<AgentToolAutomaticAuthorization.Allowed>(tools.automaticAuthorization(context, spec, web))
-        assertIs<AgentToolAutomaticAuthorization.Allowed>(tools.automaticAuthorization(context, spec, put(SPEC)))
-        assertEquals(2, reviewer.proposals.size)
 
         call(ServiceUiTools.PUT, put(SPEC))
         val stale = call(ServiceUiTools.DELETE, delete(revision = 3))
@@ -402,7 +382,6 @@ class ServiceUiAgentToolsTest {
                 "body":{"type":"button","label":"Open","action":{"type":"open","modal":"view"}}}""",
         )
         val spec = ServiceUiToolSpecs.first { it.name == ServiceUiTools.SHOW }
-        assertIs<AgentToolAutomaticAuthorization.Allowed>(tools.automaticAuthorization(context, spec, web))
 
         cards.isFull = true
         assertTrue("already shows 64 cards" in call(ServiceUiTools.SHOW, show(surface = "harness:h_1:start")).text)
@@ -430,7 +409,6 @@ class ServiceUiAgentToolsTest {
         assertEquals(AgentToolResult("1"), result)
         assertEquals(calls.snapshot?.binding, calls.invoked.single().expectedBinding)
         assertEquals(context.session, calls.invoked.single().context.session)
-        assertTrue("script ui method source" in reviewer.proposals.single())
         val stranger = call(
             ServiceUiTools.CALL,
             buildJsonObject {
@@ -442,65 +420,14 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
-    fun `approval recomputes a snapshot but cannot grant execution or run another review`() = runTest {
+    fun `missing authorization cannot write and an exact facade approval can`() = runTest {
         val arguments = put(SPEC)
-        val recomputed = tools.approval(context, tools.catalogSpec(ServiceUiTools.PUT), arguments)
-        assertEquals(0, reviewer.proposals.size)
-        assertTrue(execute(ServiceUiTools.PUT, arguments, recomputed).isError)
+        assertTrue(tools.execute(context, ServiceUiTools.PUT, arguments).isError)
         assertEquals(0, machine.writes)
-
         val approved = approval(ServiceUiTools.PUT, arguments)
         assertEquals(approved, tools.approval(context, tools.catalogSpec(ServiceUiTools.PUT), arguments))
-        assertEquals(approved, approval(ServiceUiTools.PUT, arguments))
-        assertEquals(1, reviewer.proposals.size)
         assertFalse(execute(ServiceUiTools.PUT, arguments, approved).isError)
-        assertEquals(1, reviewer.proposals.size)
         assertEquals(1, machine.writes)
-    }
-
-    @Test
-    fun `writes reviewed under Safe Mode are judged as if external resources will load later`() = runTest {
-        approval(ServiceUiTools.PUT, put(SPEC))
-        assertTrue(reviewer.proposals.last().contains("Isolated"))
-        assertTrue("external resource reference as if it will load" in reviewer.policies.last())
-    }
-
-    @Test
-    fun `changing Safe Mode invalidates the reviewed write snapshot`() = runTest {
-        val arguments = put(SPEC)
-        val isolated = approval(ServiceUiTools.PUT, arguments)
-        toggles.isSafeMode.value = false
-        assertTrue(execute(ServiceUiTools.PUT, arguments, isolated).isError)
-        assertEquals(0, machine.writes)
-        val external = approval(ServiceUiTools.PUT, arguments)
-        assertTrue(reviewer.proposals.last().contains("ExternalAssets"))
-        assertFalse(execute(ServiceUiTools.PUT, arguments, external).isError)
-    }
-
-    @Test
-    fun `risk uncertainty and absent model leave writes cards and owner methods untouched`() = runTest {
-        reviewer.verdict = AgentSafetyReview("risky", "Dangerous operation")
-        assertTrue(call(ServiceUiTools.PUT, put(SPEC)).isError)
-        val refused = tools.approval(context, tools.catalogSpec(ServiceUiTools.PUT), put(SPEC))
-        assertTrue(execute(ServiceUiTools.PUT, put(SPEC), refused).isError)
-        reviewer.verdict = AgentSafetyReview("uncertain", "Unknown effect")
-        assertTrue(call(ServiceUiTools.SHOW, show(spec = TEXT)).isError)
-        val missingTarget = context.copy(target = null)
-        val arguments = methodArgs()
-        val decision = tools.automaticAuthorization(missingTarget, tools.catalogSpec(ServiceUiTools.CALL), arguments)
-        assertIs<AgentToolAutomaticAuthorization.Denied>(decision)
-        val missingApproval = tools.approval(missingTarget, tools.catalogSpec(ServiceUiTools.CALL), arguments)
-        assertTrue(
-            tools.execute(
-                missingTarget.copy(authorization = missingApproval),
-                ServiceUiTools.CALL,
-                arguments,
-            ).isError,
-        )
-        assertEquals(2, reviewer.proposals.size, "A missing model cannot start an independent review")
-        assertEquals(0, machine.writes)
-        assertTrue(cards.added.isEmpty())
-        assertTrue(calls.invoked.isEmpty())
     }
 
     @Test
@@ -524,7 +451,6 @@ class ServiceUiAgentToolsTest {
         assertTrue(execute(ServiceUiTools.CALL, arguments, approved).isError)
         calls.snapshot = original.copy(binding = "replacement-callback")
         assertTrue(execute(ServiceUiTools.CALL, arguments, approved).isError)
-        assertEquals(1, reviewer.proposals.size, "Execution never silently reviews its changed proposal")
         assertTrue(calls.invoked.isEmpty())
         calls.snapshot = original
         assertFalse(execute(ServiceUiTools.CALL, arguments, approved).isError)
@@ -544,63 +470,14 @@ class ServiceUiAgentToolsTest {
         )
         assertTrue(execute(ServiceUiTools.SHOW, arguments, approved).isError)
         assertTrue(cards.added.isEmpty())
-        assertEquals(2, reviewer.proposals.size)
     }
 
     @Test
-    fun `a surface changed while another review runs cannot enter the transcript`() = runTest {
+    fun `a deletion without facade authorization leaves the persisted interface intact`() = runTest {
         assertFalse(call(ServiceUiTools.PUT, put(SPEC)).isError)
-        val arguments = show(surface = "harness:h_1:start")
-        val approved = approval(ServiceUiTools.SHOW, arguments)
-        val entered = CompletableDeferred<Unit>()
-        val release = CompletableDeferred<Unit>()
-        reviewer.beforeReview = {
-            entered.complete(Unit)
-            release.await()
-        }
-        val otherReview = async { approval(ServiceUiTools.SHOW, show(spec = TEXT)) }
-        entered.await()
-
-        val ready = machine.state.value as ServiceUiState.Ready
-        machine.state.value = ready.copy(
-            library = ready.library.copy(
-                surfaces = ready.library.surfaces.map { it.copy(content = it.content.copy(spec = TEXT)) },
-            ),
-        )
-        assertTrue(execute(ServiceUiTools.SHOW, arguments, approved).isError)
-        assertFalse(otherReview.isCompleted, "Execution reads the memo without waiting for another review")
-        release.complete(Unit)
-        otherReview.await()
-        assertTrue(cards.added.isEmpty())
-        assertEquals(3, reviewer.proposals.size, "Execution cannot review the replacement implicitly")
-
-        assertFalse(call(ServiceUiTools.SHOW, arguments).isError)
-        assertEquals(
-            UiCardSource.Surface(UiSurfaceId("harness:h_1:start")),
-            cards.added.single().source,
-            "A newly reviewed card remains a live reference for subsequent updates",
-        )
-    }
-
-    @Test
-    fun `unreviewable methods and cancelled reviews never execute`() = runTest {
-        calls.snapshot = null
-        assertTrue(call(ServiceUiTools.CALL, methodArgs()).isError)
-        assertEquals(0, reviewer.proposals.size)
-        reviewer.failure = CancellationException("review cancelled")
-        assertFailsWith<CancellationException> { call(ServiceUiTools.PUT, put(SPEC)) }
-        assertEquals(0, machine.writes)
-        assertTrue(cards.added.isEmpty())
-        assertTrue(calls.invoked.isEmpty())
-    }
-
-    @Test
-    fun `a refused deletion leaves the persisted interface intact`() = runTest {
-        assertFalse(call(ServiceUiTools.PUT, put(SPEC)).isError)
-        reviewer.verdict = AgentSafetyReview("risky", "Keep the existing interface")
-        assertTrue(call(ServiceUiTools.DELETE, delete(revision = 1)).isError)
-        assertEquals(1, machine.writes)
-        assertEquals(1, (machine.state.value as ServiceUiState.Ready).library.surfaces.size)
+        val before = machine.state.value
+        assertTrue(tools.execute(context, ServiceUiTools.DELETE, delete(1)).isError)
+        assertEquals(before, machine.state.value)
     }
 
     @Test
@@ -634,16 +511,10 @@ class ServiceUiAgentToolsTest {
     }
 
     private suspend fun call(name: String, arguments: JsonObject = JsonObject(emptyMap())): AgentToolResult =
-        when (val decision = tools.automaticAuthorization(context, tools.catalogSpec(name), arguments)) {
-            is AgentToolAutomaticAuthorization.Allowed -> execute(name, arguments, decision.approval)
-            is AgentToolAutomaticAuthorization.Denied -> AgentToolResult(decision.reason, isError = true)
-            null -> tools.execute(context, name, arguments)
-        }
+        execute(name, arguments, approval(name, arguments))
 
     private suspend fun approval(name: String, arguments: JsonObject): AgentToolApproval =
-        assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            tools.automaticAuthorization(context, tools.catalogSpec(name), arguments),
-        ).approval
+        tools.approval(context, tools.catalogSpec(name), arguments)
 
     private suspend fun execute(name: String, arguments: JsonObject, approval: AgentToolApproval) =
         tools.execute(context.copy(authorization = approval), name, arguments)
@@ -741,28 +612,12 @@ class ServiceUiAgentToolsTest {
         ): UiMethodResult = error("An agent call must preserve its reviewed binding")
     }
 
-    private class Reviewer : AgentSafetyReviewer {
-        var verdict = AgentSafetyReview("safe", "Bounded local interface")
-        var failure: Exception? = null
-        var beforeReview: suspend () -> Unit = {}
-        val proposals = mutableListOf<String>()
-        val policies = mutableListOf<String>()
-        override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview {
-            proposals += change
-            policies += policy
-            beforeReview()
-            failure?.let { throw it }
-            return verdict
-        }
-    }
-
     private class Toggles : FeatureToggles {
         val isEnabled = MutableStateFlow(true)
-        val isSafeMode = MutableStateFlow(true)
 
-        @Suppress("UNCHECKED_CAST") // Tests expose boolean feature and Safe Mode flags.
+        @Suppress("UNCHECKED_CAST") // Tests expose Boolean feature flags.
         override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> =
-            (if (toggle == ServiceUiWebSafeMode) isSafeMode else isEnabled) as Flow<T>
+            isEnabled as Flow<T>
         override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = observe(toggle).first()
     }
 

@@ -53,7 +53,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NativeCallClassifier
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAttachment
@@ -619,16 +618,7 @@ class ClaudeLiveE2eTest {
                 )
         }
 
-        fun nativeSupport() = ClaudeNativeSupport {
-            ClaudeNativeWorkspace(
-                workspace.toString(),
-                object : NativeCallClassifier {
-                    override fun terminatesHost(command: String) = false
-                    override suspend fun isWorkspaceEdit(path: String, workspace: String) =
-                        path.startsWith(workspace) && "/.git/" !in path
-                },
-            )
-        }
+        fun nativeSupport() = ClaudeNativeSupport { ClaudeNativeWorkspace(workspace.toString()) }
 
         private fun transport(executable: String) = ProcessClaudeTransport(
             object : DispatcherProvider {

@@ -235,6 +235,7 @@ class CodexConnectionsTest {
             this,
             launch = object : PreparedCodexLaunch {
                 override suspend fun open(): CodexWire = opened.await()
+                override suspend fun open(off: CodexNativeOff): CodexWire = opened.await()
             },
         )
         val opening = async { assertFailsWith<EngineException> { fixture.open() } }

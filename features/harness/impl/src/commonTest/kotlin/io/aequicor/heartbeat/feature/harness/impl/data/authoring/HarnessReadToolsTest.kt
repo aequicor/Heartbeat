@@ -7,7 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -109,12 +109,12 @@ class HarnessReadToolsTest {
     }
 
     @Test
-    fun `get describes item statuses and the tool policy and returns one item on request`() = runTest {
+    fun `get describes item statuses and shared security and returns one item on request`() = runTest {
         val described = tools.execute(context, HarnessTools.GET, ref("test")).text
         assertTrue(described.contains("Activation: connected chats only · on · revision 0"), described)
         assertTrue(described.contains("- script script · failed and disabled"), described)
         assertTrue(described.contains("- workflow screen · active — Build a screen"), described)
-        assertTrue(described.endsWith("Tool policy: Heartbeat web_search off; claude Bash on"), described)
+        assertTrue(described.endsWith("Tool authorization: shared profile Security setting"), described)
         val item = tools.execute(context, HarnessTools.GET, ref("test", item = "screen")).text
         assertTrue(item.startsWith("workflow { it }\n\nInput schema: {}"), item)
         assertTrue(tools.execute(context, HarnessTools.GET, ref("nope")).isError)
@@ -149,10 +149,10 @@ class HarnessReadToolsTest {
     }
 
     @Test
-    fun `tools catalog shows effective switches defaults and what can be switched on`() = runTest {
+    fun `tools catalog describes availability under shared profile security`() = runTest {
         val text = tools.execute(context, HarnessTools.TOOLS_CATALOG, JsonObject(emptyMap())).text
         assertTrue(text.contains("- Поиск [search]: web_search (read)"), text)
-        assertTrue(text.contains("native enabling is off (flag harness.native_tools)"), text)
+        assertTrue(text.contains("shared profile security"), text)
         assertTrue(text.contains("Bash (command, on, on/off)"), text)
         assertTrue(text.contains("WebFetch (command, off, on/off)"), text)
         assertTrue(text.contains("Agent (command, on by default, off only)"), text)
@@ -160,7 +160,7 @@ class HarnessReadToolsTest {
         assertFalse(text.contains("Silent"), text)
         toggles.isNativeEnabling = true
         val enabled = tools.execute(context, HarnessTools.TOOLS_CATALOG, JsonObject(emptyMap())).text
-        assertTrue(enabled.contains("native enabling is available"), enabled)
+        assertTrue(enabled.contains("shared profile security"), enabled)
     }
 
     @Test
@@ -194,7 +194,6 @@ private class ReadToggles : FeatureToggles {
     @Suppress("UNCHECKED_CAST") // Only boolean flags are read.
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = when (toggle) {
         HarnessEnabled -> MutableStateFlow(isEnabled)
-        HarnessNativeTools -> MutableStateFlow(isNativeEnabling)
         else -> error("Unexpected toggle")
     } as Flow<T>
 
@@ -210,7 +209,6 @@ private class ReadLibrary(private val state: HarnessState.Ready) : HarnessLibrar
 }
 
 private object ReadCatalogs : HarnessToolCatalogs {
-    override fun nativeEnabling() = MutableStateFlow(false)
 
     override fun hosted() = listOf(
         ToolGroup("search", "Поиск", listOf(ToolCatalogEntry("web_search", AgentToolAction.Read))),
@@ -222,7 +220,7 @@ private object ReadCatalogs : HarnessToolCatalogs {
             "Claude",
             EngineFamily.Vendor,
             emptySet(),
-            HarnessNativeTools,
+            EngineUsageEnabled,
             nativeTools = listOf(
                 NativeToolSpec("Bash", AgentToolAction.Command, isEnabledByDefault = false, isGated = true),
                 NativeToolSpec("WebFetch", AgentToolAction.Command, isEnabledByDefault = true, isGated = true),
@@ -230,7 +228,7 @@ private object ReadCatalogs : HarnessToolCatalogs {
                 NativeToolSpec("Grep", AgentToolAction.Read, isEnabledByDefault = false, isGated = true),
             ),
         ),
-        EngineDescriptor(EngineId("silent"), "Silent", EngineFamily.Vendor, emptySet(), HarnessNativeTools),
+        EngineDescriptor(EngineId("silent"), "Silent", EngineFamily.Vendor, emptySet(), EngineUsageEnabled),
     )
 
     override suspend fun effective(scope: ToolPolicyScope) =

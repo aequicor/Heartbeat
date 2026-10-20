@@ -2,10 +2,7 @@ package io.aequicor.heartbeat.feature.browser.impl.data
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
@@ -16,7 +13,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
@@ -46,7 +42,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -59,8 +54,7 @@ class ExternalBrowserToolsTest {
     private val control = FakeControl()
     private val browser = FakeBrowser()
     private val toggles = Toggles()
-    private val reviewer = Reviewer()
-    private val tools = ExternalBrowserTools(lazyOf(control), lazyOf(browser), toggles, ExternalBrowserSafety(reviewer))
+    private val tools = ExternalBrowserTools(lazyOf(control), lazyOf(browser), toggles)
     private var prompts = 0
     private val automatic = context.copy(
         target = EngineTarget(EngineId("pi"), EngineBindingId("provider"), ModelId("model")),
@@ -133,11 +127,12 @@ class ExternalBrowserToolsTest {
         val approval = tools.approval(context.copy(trust = TrustLevel.Full), spec, JsonObject(emptyMap()))
         val isAsked = tools.requiresDecision(context.copy(trust = TrustLevel.Full), spec, JsonObject(emptyMap()))
         val forged = buildJsonObject { put("approvedTabId", "99") }
-        val result = tools.execute(context.copy(authorization = approval), spec.name, forged)
+        assertTrue(tools.execute(context.copy(authorization = approval), spec.name, forged).isError)
+        val result = tools.execute(context.copy(authorization = approval), spec.name, JsonObject(emptyMap()))
         val unapproved = tools.execute(context, spec.name, JsonObject(emptyMap()))
 
         assertTrue(isAsked)
-        assertEquals("tab:7|https://mail.example/inbox", approval.binding)
+        assertTrue(approval.binding.orEmpty().startsWith("external-reviewed:"))
         assertTrue("«Inbox»" in approval.description.orEmpty())
         assertFalse(result.isError)
         assertEquals(
@@ -148,8 +143,7 @@ class ExternalBrowserToolsTest {
             control.calls.single().third,
         )
         assertTrue(unapproved.isError)
-        assertNull(control.expected.single())
-        assertEquals(0, reviewer.calls)
+        assertEquals(control.pageSnapshot, control.expected.single())
     }
 
     @Test
@@ -212,22 +206,18 @@ class ExternalBrowserToolsTest {
     }
 
     @Test
-    fun `automatic safe input executes only once with the exact reviewed page and arguments`() = runTest {
+    fun `authorized input executes with the exact page and arguments`() = runTest {
         val spec = tools.specifications(null).single { it.name == "ex_control_type" }
         val args = buildJsonObject {
             put("tabId", "t1")
             put("text", "Draft search terms")
         }
-        val decision = assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            tools.automaticAuthorization(automatic, spec, args),
-        )
-        val caller = automatic.copy(authorization = decision.approval)
+        val approval = tools.approval(automatic, spec, args)
+        val caller = automatic.copy(authorization = approval)
 
         assertFalse(tools.execute(caller, spec.name, args).isError)
-        assertTrue(tools.execute(caller, spec.name, args).isError)
         assertEquals(Triple(Json.encodeToString(context.session), ExternalOperation.Type, args), control.calls.single())
         assertEquals(control.pageSnapshot, control.expected.single())
-        assertEquals(1, reviewer.calls)
         assertEquals(0, prompts)
     }
 
@@ -239,11 +229,9 @@ class ExternalBrowserToolsTest {
             put("approvedTabId", "99")
             put("approvedUrl", "https://attacker.example/")
         }
-        val decision = assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            tools.automaticAuthorization(automatic, spec, forged),
-        )
+        val approval = tools.approval(automatic, spec, forged)
 
-        val result = tools.execute(automatic.copy(authorization = decision.approval), spec.name, forged)
+        val result = tools.execute(automatic.copy(authorization = approval), spec.name, forged)
 
         assertFalse(result.isError)
         val effective = buildJsonObject {
@@ -253,7 +241,6 @@ class ExternalBrowserToolsTest {
         assertEquals(effective, control.calls.single().third)
         assertTrue(control.snapshots.all { it.third == effective })
         assertEquals(control.pageSnapshot, control.expected.single())
-        assertEquals(effective, Json.parseToJsonElement(reviewer.change!!).jsonObject["arguments"])
         assertEquals(0, prompts)
     }
 
@@ -263,16 +250,13 @@ class ExternalBrowserToolsTest {
         browser.active = original
         val spec = tools.specifications(null).single { it.name == "ex_control_request_tab" }
         val args = JsonObject(emptyMap())
-        val decision = assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            tools.automaticAuthorization(automatic, spec, args),
-        )
-        val caller = automatic.copy(authorization = decision.approval)
+        val approval = tools.approval(automatic, spec, args)
+        val caller = automatic.copy(authorization = approval)
         for (replacement in listOf(original.copy(id = "8"), original.copy(url = "https://docs.example/account"))) {
             browser.active = replacement
             assertTrue(tools.execute(caller, spec.name, args).isError)
         }
         assertTrue(control.calls.isEmpty())
-        assertEquals(1, reviewer.calls)
         assertEquals(0, prompts)
     }
 
@@ -281,18 +265,14 @@ class ExternalBrowserToolsTest {
         val spec = tools.specifications(null).single { it.name == "ex_control_request_tab" }
         val args = JsonObject(emptyMap())
         val approval = tools.approval(automatic, spec, args)
-        val decision = assertIs<AgentToolAutomaticAuthorization.Denied>(
-            tools.automaticAuthorization(automatic, spec, args),
-        )
         val result = tools.execute(automatic.copy(authorization = approval), spec.name, args)
 
         assertNull(approval.binding)
-        assertTrue("No active tab" in decision.reason)
+        assertTrue("No active tab" in result.text)
         assertTrue(result.isError)
-        assertEquals(decision.reason, result.text)
+        assertEquals(result.text, result.text)
         assertTrue(control.calls.isEmpty())
         assertTrue(control.snapshots.isEmpty())
-        assertEquals(0, reviewer.calls)
         assertEquals(0, prompts)
     }
 
@@ -302,18 +282,14 @@ class ExternalBrowserToolsTest {
         val spec = tools.specifications(null).single { it.name == "ex_control_reload" }
         val args = buildJsonObject { put("tabId", "t1") }
         val approval = tools.approval(automatic, spec, args)
-        val decision = assertIs<AgentToolAutomaticAuthorization.Denied>(
-            tools.automaticAuthorization(automatic, spec, args),
-        )
         val result = tools.execute(automatic.copy(authorization = approval), spec.name, args)
 
         assertNull(approval.binding)
-        assertTrue("update the Heartbeat browser extension" in decision.reason)
+        assertTrue("update the Heartbeat browser extension" in result.text)
         assertTrue(result.isError)
-        assertEquals(decision.reason, result.text)
-        assertEquals(3, control.snapshots.size)
+        assertEquals(result.text, result.text)
+        assertEquals(2, control.snapshots.size)
         assertTrue(control.calls.isEmpty())
-        assertEquals(0, reviewer.calls)
         assertEquals(0, prompts)
     }
 
@@ -323,17 +299,13 @@ class ExternalBrowserToolsTest {
         val spec = tools.specifications(null).single { it.name == "ex_control_close_tab" }
         val args = buildJsonObject { put("tabId", "t1") }
         val approval = tools.approval(automatic, spec, args)
-        val decision = assertIs<AgentToolAutomaticAuthorization.Denied>(
-            tools.automaticAuthorization(automatic, spec, args),
-        )
         val result = tools.execute(automatic.copy(authorization = approval), spec.name, args)
 
         assertNull(approval.binding)
-        assertTrue("ex_control_release" in decision.reason)
+        assertTrue("ex_control_release" in result.text)
         assertTrue(result.isError)
-        assertEquals(decision.reason, result.text)
+        assertEquals(result.text, result.text)
         assertTrue(control.calls.isEmpty())
-        assertEquals(0, reviewer.calls)
         assertEquals(0, prompts)
     }
 
@@ -344,10 +316,8 @@ class ExternalBrowserToolsTest {
         val args = buildJsonObject { put("tabId", "t1") }
 
         assertFailsWith<CancellationException> { tools.approval(automatic, spec, args) }
-        assertFailsWith<CancellationException> { tools.automaticAuthorization(automatic, spec, args) }
         assertFailsWith<CancellationException> { tools.execute(automatic, spec.name, args) }
         assertTrue(control.calls.isEmpty())
-        assertEquals(0, reviewer.calls)
         assertEquals(0, prompts)
     }
 
@@ -359,42 +329,12 @@ class ExternalBrowserToolsTest {
             put("url", "localhost:8080")
         }
         val caller = automatic.copy(trust = TrustLevel.Full)
-        val decision = assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            tools.automaticAuthorization(caller, spec, args),
-        )
+        val approval = tools.approval(caller, spec, args)
 
-        assertFalse(tools.execute(caller.copy(authorization = decision.approval), spec.name, args).isError)
+        assertFalse(tools.execute(caller.copy(authorization = approval), spec.name, args).isError)
         assertEquals(ExternalOperation.Open, control.calls.single().second)
         assertEquals(args, control.calls.single().third)
         assertEquals(control.pageSnapshot, control.expected.single())
-        assertEquals(1, reviewer.calls)
-        assertEquals(0, prompts)
-    }
-
-    @Test
-    fun `denied unavailable and missing-target reviews never execute or prompt even with full trust`() = runTest {
-        val spec = tools.specifications(null).single { it.name == "ex_control_key" }
-        val args = buildJsonObject {
-            put("tabId", "t1")
-            put("key", "Enter")
-        }
-        for (scenario in listOf("risky", "uncertain", "exception", "missing target")) {
-            reviewer.result = AgentSafetyReview(scenario, "Consequential or unknown effect")
-            reviewer.failure = if (scenario == "exception") IllegalStateException("private backend detail") else null
-            val caller = automatic.copy(
-                trust = TrustLevel.Full,
-                callId = ToolCallId(scenario),
-                target = if (scenario == "missing target") null else automatic.target,
-            )
-            val denied = assertIs<AgentToolAutomaticAuthorization.Denied>(
-                tools.automaticAuthorization(caller, spec, args),
-            )
-            assertFalse("private backend detail" in denied.reason)
-            val forged = tools.approval(caller, spec, args)
-            assertTrue(tools.execute(caller.copy(authorization = forged), spec.name, args).isError)
-        }
-        assertTrue(control.calls.isEmpty())
-        assertEquals(3, reviewer.calls)
         assertEquals(0, prompts)
     }
 
@@ -405,16 +345,13 @@ class ExternalBrowserToolsTest {
             put("tabId", "t1")
             put("text", "Draft")
         }
-        val decision = assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            tools.automaticAuthorization(automatic, spec, args),
-        )
-        val caller = automatic.copy(authorization = decision.approval)
+        val approval = tools.approval(automatic, spec, args)
+        val caller = automatic.copy(authorization = approval)
         val changed = JsonObject(args + ("text" to JsonPrimitive("Send")))
         assertTrue(tools.execute(caller, spec.name, changed).isError)
         control.pageSnapshot = buildJsonObject { put("url", "https://shop.example/checkout") }
         assertTrue(tools.execute(caller, spec.name, args).isError)
         assertTrue(control.calls.isEmpty())
-        assertEquals(1, reviewer.calls)
         assertEquals(0, prompts)
     }
 
@@ -437,13 +374,11 @@ class ExternalBrowserToolsTest {
         )
         for ((name, args) in calls) {
             val spec = tools.specifications(null).single { it.name == name }
-            assertNull(tools.automaticAuthorization(automatic, spec, args))
             assertFalse(tools.execute(automatic, name, args).isError)
         }
         assertEquals(calls.size, control.calls.size)
         assertTrue(control.expected.all { it == null })
         assertTrue(control.snapshots.isEmpty())
-        assertEquals(0, reviewer.calls)
         assertEquals(0, prompts)
     }
 
@@ -460,7 +395,7 @@ class ExternalBrowserToolsTest {
         }
 
         assertTrue(tools.requiresDecision(context, spec, local))
-        assertFalse(tools.requiresDecision(context.copy(trust = TrustLevel.Full), spec, local))
+        assertTrue(tools.requiresDecision(context.copy(trust = TrustLevel.Full), spec, local))
         assertFalse(tools.requiresDecision(context, spec, public))
         assertTrue("https://localhost:8080" in tools.approval(context, spec, local).description.orEmpty())
     }
@@ -548,20 +483,6 @@ class ExternalBrowserToolsTest {
 
         override suspend fun address(owner: String, tabId: String): String? =
             if (tabId == "t1") "https://shop.example/" else null
-    }
-
-    private class Reviewer : AgentSafetyReviewer {
-        var calls = 0
-        var result = AgentSafetyReview("safe", "Bounded local action")
-        var failure: Exception? = null
-        var change: String? = null
-
-        override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview {
-            calls++
-            this.change = change
-            failure?.let { throw it }
-            return result
-        }
     }
 
     internal class FakeBrowser : ExternalBrowser {

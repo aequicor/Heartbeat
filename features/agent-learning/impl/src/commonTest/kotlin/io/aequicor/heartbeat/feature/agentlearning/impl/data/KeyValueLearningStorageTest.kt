@@ -12,7 +12,6 @@ import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionId
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
-import io.aequicor.heartbeat.feature.agentlearning.api.LearningApproval
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
@@ -30,12 +29,9 @@ class KeyValueLearningStorageTest {
 
     @Test
     fun `registry and approval survive a round trip and default to asking`() = runTest {
-        assertEquals(LearningApproval.Ask, storage.load().approval)
         storage.saveInstructions(listOf(lesson))
-        storage.saveApproval(LearningApproval.AcceptAll)
         val loaded = storage.load()
         assertEquals(listOf(lesson), loaded.instructions)
-        assertEquals(LearningApproval.AcceptAll, loaded.approval)
     }
 
     @Test

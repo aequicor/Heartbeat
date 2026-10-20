@@ -67,7 +67,6 @@ class ConfigReconcileTest {
 
         val created = reconcile(emptyList(), snapshot(unit(review, "f1", "c1")))
         assertEquals(ProposalKind.Create, created.proposals.single().kind)
-        assertEquals(ProposalReview.Pending, created.proposals.single().review)
     }
 
     @Test
@@ -75,8 +74,7 @@ class ConfigReconcileTest {
         val removal = reconcile(listOf(binding), snapshot(entity = entity(key, "e2")))
         val proposal = removal.proposals.single()
         assertEquals(ProposalKind.Remove, proposal.kind)
-        assertEquals(ProposalReview.NotNeeded, proposal.review)
-        assertTrue(proposal.isTrustable(isRiskAccepted = false))
+        assertTrue(proposal.isTrustable)
 
         assertEquals(Reconciled(emptyList(), emptyList(), emptyList()), reconcile(listOf(binding), snapshot()))
     }
@@ -95,21 +93,20 @@ class ConfigReconcileTest {
     }
 
     @Test
-    fun `invalid units are shown but never trusted and reviews survive an unchanged rescan`() {
+    fun `invalid units are shown but never trusted and a failed apply survives an unchanged rescan`() {
         val problem = ConfigProblem(ConfigProblemCode.Syntax, ConfigPath("harnesses/review/harness.json"))
         val invalid = ScannedUnit(review, digest("f1"), UnitCheck.Invalid(listOf(problem)))
         val shown = reconcile(emptyList(), snapshot(invalid)).proposals.single()
         assertEquals(listOf(problem), shown.problems)
-        assertFalse(shown.isTrustable(isRiskAccepted = true))
+        assertFalse(shown.isTrustable)
 
         val first = reconcile(emptyList(), snapshot(unit(review, "f1", "c1"))).proposals.single()
-        val reviewed = first.copy(review = ProposalReview.Done(ReviewVerdict.Risk, "network"))
+        val reviewed = first.copy(failure = ConfigRejection.Failed)
         val again = reconcile(emptyList(), snapshot(unit(review, "f1", "c1")), listOf(reviewed))
         assertEquals(listOf(reviewed), again.proposals)
-        assertFalse(reviewed.isTrustable(isRiskAccepted = false))
-        assertTrue(reviewed.isTrustable(isRiskAccepted = true))
+        assertTrue(reviewed.isTrustable)
         val changed = reconcile(emptyList(), snapshot(unit(review, "f2", "c2")), listOf(reviewed))
-        assertEquals(ProposalReview.Pending, changed.proposals.single().review)
+        assertEquals(null, changed.proposals.single().failure)
         assertEquals(source, changed.proposals.single().source)
     }
 
@@ -132,7 +129,6 @@ class ConfigReconcileTest {
         assertEquals(listOf(ProposalKind.Update, ProposalKind.Create), proposals.map { it.kind })
         assertEquals(ConfigEntityKey("l1"), proposals.first().target)
         assertTrue(proposals.all { it.source == ConfigSource.Bundle("b1") })
-        assertFalse("network" in ProposalReview.Done(ReviewVerdict.Risk, "network").toString())
     }
 
     private fun snapshot(vararg units: ScannedUnit, entity: EntityDigest? = null) =

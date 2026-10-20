@@ -6,9 +6,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
-import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
-import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
-import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
@@ -33,7 +30,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import kotlin.time.Instant
 
 class StudioHelperPromptAdmissionsTest {
     private val session = SessionRef(EngineId("test"), SessionSourceId("local"), "native")
@@ -125,24 +121,7 @@ class StudioHelperPromptAdmissionsTest {
     @Test
     fun `trust lowered during fresh admission reaches native handoff instead of captured Full`() = runTest {
         val stores = ChecklistTestStores()
-        val parent = StudioChatRecord(
-            "parent",
-            "Parent",
-            Instant.DISTANT_PAST,
-            ref = session,
-            configuration = StudioSessionSettings("model", approval = ApprovalMode.AutoApprove),
-        )
-        val record = StudioChatRecord(
-            helper.value,
-            "Helper",
-            Instant.DISTANT_PAST,
-            helper = StudioHelperIdentity(metadata.owner, parent.id, session, TrustLevel.Full),
-        )
-        stores.keyValue(ChatSpec).set(ChatsKey, listOf(parent, record))
-        val policy = StudioHelperPolicy(stores)
-        var configurations = emptyMap<String, StudioSessionConfiguration>()
-        val captured = policy.trust(record, TrustLevel.Full) { configurations }
-        assertEquals(TrustLevel.Full, captured)
+        var currentTrust = TrustLevel.Full
         val attempts = StudioHelperAttempts(stores)
         attempts.prepare(helper, HelperPrompt(request, "prompt", handoff = handoff))
         val fresh = CompletableDeferred<Unit>()
@@ -160,11 +139,11 @@ class StudioHelperPromptAdmissionsTest {
         val gate = StudioHelperSubmission(attempts, admissions(setOf(owner)), helper, request)
         val nativeTrust = async {
             gate.withPreparation(session, null) {
-                gate.begin { policy.trust(record, captured) { configurations } }
+                gate.begin { currentTrust }
             }
         }
         fresh.await()
-        configurations = mapOf(parent.id to StudioSessionConfiguration(StudioSessionSettings("model")))
+        currentTrust = TrustLevel.Ask
         release.complete(Unit)
         assertEquals(TrustLevel.Ask, nativeTrust.await())
     }

@@ -14,16 +14,13 @@ import kotlinx.serialization.json.putJsonObject
 // Declared before the specifications: file-level values initialize in source order.
 private val ITEM_KINDS = listOf("skill", "instruction", "template", "script", "workflow")
 
-/**
- * Library edits use an independent automatic safety gate; the ordinary trust table grants no bypass.
- * Code uses independent safety review; native enabling always asks. Declarations never change while the feature is on.
- */
+/** Library edits use shared profile authorization; code must compile before saving. */
 internal val HARNESS_AUTHORING_SPECS = listOf(
     AgentToolSpec(
         HarnessTools.CREATE,
-        "Create a reusable harness: a named environment of skills, instructions, templates, scripts, workflows and " +
-            "tool policy for a task or project. Saved in the current project (worktrees use their source project), " +
-            "or the shared library without a project. Changes require automatic safety review.",
+        "Create a reusable harness: a named environment of skills, instructions, templates, scripts and workflows " +
+            "for a task or project. Saved in the current project (worktrees use their source project), " +
+            "or the shared library without a project. Changes use the shared profile Security setting.",
         schema(required = listOf("name", "title")) {
             text("name", "Immutable slug [a-z][a-z0-9_]{1,19}, e.g. compose_ui")
             text("title", "Short single-line title")
@@ -49,8 +46,8 @@ internal val HARNESS_AUTHORING_SPECS = listOf(
     AgentToolSpec(HarnessTools.DETACH, "Disconnect a harness from this chat.", harnessOnly()),
     AgentToolSpec(
         HarnessTools.ITEM_PUT,
-        "Add or replace a harness item by name. Kotlin code is compiled and independently reviewed; risky or " +
-            "uncertain changes return a safety error. Read harness_api_reference first. Never include secrets.",
+        "Add or replace a harness item by name. Kotlin code must compile; authorization follows " +
+            "the shared profile Security setting. Read harness_api_reference first. Never include secrets.",
         schema(required = listOf("harness", "kind", "name", "content")) {
             text("harness", "Harness slug")
             choice("kind", "skill, instruction, template, script or workflow", ITEM_KINDS)
@@ -71,32 +68,7 @@ internal val HARNESS_AUTHORING_SPECS = listOf(
             text("name", "Item slug")
         },
     ),
-    AgentToolSpec(
-        HarnessTools.TOOLS_SET,
-        "Replace the tool policy of a harness: Heartbeat tools to turn off and native engine tools to switch on or " +
-            "off (omitted tools keep their defaults; switches of engines unavailable now are kept). Read " +
-            "harness_tools_catalog first. Switching a tool on or giving a turned-off tool back always needs the " +
-            "automatic safety review.",
-        schema(required = listOf("harness")) {
-            text("harness", "Harness slug")
-            putJsonObject("hosted_off") {
-                put("type", "array")
-                put("description", "Heartbeat tool names to turn off")
-                putJsonObject("items") { put("type", "string") }
-            }
-            putJsonObject("native") {
-                put("type", "object")
-                put("description", "Engine id → { native tool name → \"on\" | \"off\" }")
-                putJsonObject("additionalProperties") {
-                    put("type", "object")
-                    putJsonObject("additionalProperties") {
-                        put("type", "string")
-                        put("enum", JsonArray(listOf(JsonPrimitive("on"), JsonPrimitive("off"))))
-                    }
-                }
-            }
-        },
-    ),
+
 )
 
 /** Reads of the library and its reference; they never change durable state. */
@@ -108,7 +80,7 @@ internal val HARNESS_READ_SPECS = listOf(
     ),
     AgentToolSpec(
         HarnessTools.GET,
-        "Read a harness: metadata, items with status, tool policy; with item, the full text or source of that item.",
+        "Read a harness: metadata, items with status; with item, the full text or source of that item.",
         schema(required = listOf("harness")) {
             text("harness", "Harness slug")
             text("item", "Optional item slug to read in full")

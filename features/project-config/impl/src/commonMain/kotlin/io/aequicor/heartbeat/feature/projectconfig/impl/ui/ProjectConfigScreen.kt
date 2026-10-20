@@ -39,8 +39,6 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProjectConf
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProjectUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProposalKindUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProposalUi
-import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProposalVersionUi
-import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ReviewUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.SectionUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.SourceUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.TaskFailureUi
@@ -123,7 +121,6 @@ internal fun ProjectConfigContent(
             }
         }
     }
-    state.confirmed?.let { RiskDialog(it, onIntent) }
     state.picker?.let { EntityPicker(it, state.entities, onIntent) }
     state.removing?.let { RemovalDialog(it, onIntent) }
     val pending = state.importing
@@ -221,7 +218,6 @@ private val previewState = ProjectConfigScreenState(
                 ContentUi(ContentKindUi.Script, "verify"),
             ),
             hasCode = true,
-            review = ReviewUi.Risky("Скрипт запускает внешние команды без ограничений", isUncertain = false),
             problems = persistentListOf(),
             failure = null,
             isApplying = false,
@@ -252,13 +248,6 @@ private fun ProjectConfigLightPreview() {
 @Composable
 private fun ProjectConfigDarkPreview() {
     HbTheme(darkTheme = true) { ProjectConfigContent(previewState, {}, {}) }
-}
-
-@Preview
-@Composable
-private fun ProjectConfigRiskPreview() {
-    val state = previewState.copy(confirming = ProposalVersionUi("p", "d"))
-    HbTheme(darkTheme = false) { ProjectConfigContent(state, {}, null) }
 }
 
 @Preview

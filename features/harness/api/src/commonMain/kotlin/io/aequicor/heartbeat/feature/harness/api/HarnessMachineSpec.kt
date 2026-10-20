@@ -30,8 +30,6 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | RemoveFailed, exact receipt | stay, restore statuses at a new generation | Activate, StorageFailed |
  * | Ready | Public Attach/Detach, known id, CAS scope, free, bounded | stay, pending attachment | SaveAttachments |
  * | Ready | AttachmentsSaved/Failed, exact | stay, commit/preserve map | Attached/Detached/StorageFailed |
- * | Ready | Internal.SetApproval, current approval revision and domain free | stay, pending approval | SaveApproval |
- * | Ready | ApprovalSaved/Failed, exact write | stay, commit/preserve approval | ApprovalChanged/StorageFailed |
  * | Ready | Public Reload, no pending reload | stay, isReloading | Load; concurrent writes continue |
  * | Ready | Loaded, exact reload and unchanged library without writes | stay, replace snapshot | Deactivate/Activate |
  * | Ready | Loaded, exact reload superseded by writes | stay, clear reload | none |
@@ -150,8 +148,6 @@ private fun HarnessEffect.failure(): HarnessIntent.Internal? = when (this) {
     is HarnessEffect.Remove -> HarnessIntent.Internal.RemoveFailed(receipt)
 
     is HarnessEffect.SaveAttachments -> HarnessIntent.Internal.AttachmentsFailed(write)
-
-    is HarnessEffect.SaveApproval -> HarnessIntent.Internal.ApprovalFailed(write)
 
     is HarnessEffect.Activate -> HarnessIntent.Internal.ActivationBatchFailed(items)
 

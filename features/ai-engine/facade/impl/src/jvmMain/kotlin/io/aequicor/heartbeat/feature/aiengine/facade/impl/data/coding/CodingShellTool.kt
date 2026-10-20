@@ -34,19 +34,12 @@ internal class CodingShellTool(
         "run_command",
         "Run a ${if (isWindows) "PowerShell" else "POSIX shell"} command in the project root and return its exit " +
             "code and combined output. Use for git and other CLI tools; use run_build for builds and tests when " +
-            "available. Commands are limited to $MAX_CODING_COMMAND_CHARS characters. " +
+            "available. " +
             "Synchronous: waits for exit; on timeout the command process tree is terminated. " +
             "Returns a final result, never a running job or a scheduler completion event. " +
             "Interactive programs are unsupported.",
         listOf(ToolParameterDescriptor("command", "Command line to run", ToolParameterType.String)),
         listOf(
-            ToolParameterDescriptor(
-                "review_files",
-                "Up to 16 project-relative source, manifest, lock or script files whose full text the safety " +
-                    "review needs. Supply all relevant context for project network operations; never include " +
-                    "secrets or credential configuration. Missing context remains uncertain. Evidence only.",
-                ToolParameterType.StringList,
-            ),
             ToolParameterDescriptor(
                 "timeout_seconds",
                 "Time limit, default $DEFAULT_TIMEOUT_SECONDS, at most $MAX_TIMEOUT_SECONDS; " +
@@ -62,9 +55,6 @@ internal class CodingShellTool(
     override suspend fun run(args: JsonObject): AgentToolResult {
         val command = args.argText("command")
         if (command.isBlank()) return AgentToolResult("command is empty", true)
-        if (command.length > MAX_CODING_COMMAND_CHARS) {
-            return AgentToolResult("Refused: command exceeds $MAX_CODING_COMMAND_CHARS characters", true)
-        }
         val timeout = (args.argInt("timeout_seconds") ?: DEFAULT_TIMEOUT_SECONDS).coerceIn(1, MAX_TIMEOUT_SECONDS)
         return try {
             execute(command, timeout.toLong())
@@ -224,7 +214,6 @@ internal fun codingCommandEnvironment(): Map<String, String> = System.getenv().f
 private val SECRET_PARTS = listOf("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH")
 
 /** Commands must fit in the shared approval presentation without hiding an executable suffix. */
-internal const val MAX_CODING_COMMAND_CHARS = 4_000
 
 private const val EXIT_GRACE_MILLIS = 200L
 private const val AFTER_EXIT_LIMIT_MILLIS = 2_000L

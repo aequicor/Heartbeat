@@ -2,6 +2,6 @@
     <string name="security_ask">Ask for approval</string>
     <string name="security_trust">Full trust</string>
     <string name="security_settings_hint">Change in Settings → Security</string>
-    <string name="security_unsupported">This engine does not support native approval levels</string>
-    <string name="security_helper_hint">Background helpers always use automatic review regardless of the profile’s confirmation level.</string>
+    <string name="security_unsupported">Tool capabilities depend on the engine and platform</string>
+    <string name="security_helper_hint">Background helpers use the shared profile security setting.</string>
 </resources>

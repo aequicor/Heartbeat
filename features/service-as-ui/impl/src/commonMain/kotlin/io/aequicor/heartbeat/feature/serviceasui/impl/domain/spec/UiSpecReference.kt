@@ -32,9 +32,9 @@ private fun placesAndDocument(): String = """
 A surface is a JSON document that Heartbeat draws with its own components. It belongs to an owner, a harness whose
 script publishes the methods the surface calls (`ui.method` in the harness script API). The user presses its buttons
 without you: nothing runs except the owner's methods, with the owner's permissions.
-Creating, replacing, removing and showing surfaces, and agent method calls, pass automatic safety review.
-Safe proposals execute without a user permission dialog. Risk, uncertainty or unavailable review returns an error
-to you; inspect the reason and correct the operation. Do not ask the user to bypass a safety refusal.
+Creating, replacing, removing and showing surfaces, and agent method calls, use shared profile authorization.
+Automatic and Ask request confirmation for changes and unknown effects; Full Trust authorizes valid available calls.
+Ownership, revision and argument checks still apply: if a target changed, inspect it and submit a fresh action.
 
 ## Places (`placement`)
 - `card`: the canonical mini-app. `ui_show(surface: id)` adds one compact entry to the chat; its Open button
@@ -124,7 +124,7 @@ private fun nodesReference(): String = """
 - `web` {html, bridge?, data?, height?: compact | regular | tall | content}: an isolated page in library surfaces (including
   `card` and `composer`) and in modals, one per surface, desktop only while web documents are enabled. Anonymous
   cards may show it only inside modals and never get a bridge; editor previews never execute owner methods.
-  Saving a web surface or showing an anonymous web spec uses automatic safety review. `height` is a bounded viewport:
+  Saving a web surface or showing an anonymous web spec uses shared profile authorization. `height` is a bounded viewport:
   compact for a standalone status strip; regular (default) and tall are fixed presets. Content grows and shrinks to
   its body or `[data-heartbeat-root]` within host bounds. The full mini-app fills the start view; its modal follows
   content height up to the available screen height and shrinks again when content becomes shorter. These app views
@@ -134,8 +134,7 @@ private fun nodesReference(): String = """
   close in the modal overlay the top-end corner. `--hb-overlay-width` and `--hb-overlay-height` describe that
   occupied area in CSS pixels (zero elsewhere).
   Let your header or toolbar account for this area at its inline end without adding an empty full-width top strip.
-  The page has its own origin. Safe Mode blocks external resources by default; inline scripts/styles and data assets work.
-  With the user's app-wide Safe Mode off, HTTP(S) script/style/font/image/media dependencies may load;
+  The page has its own origin. Inline scripts/styles, data assets and public HTTPS dependencies may load;
   no fetch, sockets, WebRTC, frames, workers, form submissions or links away. It reads `data` (a binding) as
   `heartbeat.data` and later values from the `heartbeat:data` event on `window` (`event.detail`). With `bridge: true`
   (library surfaces), `await heartbeat.call(method, args)` calls the owner's method with object `args` and returns
@@ -218,9 +217,9 @@ Buttons call approved harness `ui.method` methods; persist changed values using 
 Resume controls must keep existing records. Check the current state inside `data.update` before starting a new
 session so repeated clicks cannot reset active progress; separate starting, resuming and clearing actions.
 The host updates other drawn surfaces after a durable write, without a model turn or a page reload. Do not poll or
-read the same data after every successful call. Use inline SVG/CSS for artwork or assets allowed by Safe Mode.
-External scripts can read page data and use its allowed bridge; asset requests can transmit data. Automatic review
-does not certify third-party code. Changing Safe Mode reloads mini-apps (unsaved inputs may reset) and cancels previews.
+read the same data after every successful call. Use inline SVG/CSS for artwork or public HTTPS assets.
+External scripts can read page data and use its allowed bridge; asset requests can transmit data.
+The shared profile Security setting authorizes rendering; ownership, revision and renderer capabilities still apply.
 
 ## Built-in authoring skills
 Read `ui_reference(topic="mini-app-design")` for task flows, durable behavior, native platform fit and design.

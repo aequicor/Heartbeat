@@ -105,26 +105,6 @@ public enum class ProposalKind {
     Conflict,
 }
 
-/** Automatic safety review of a proposal. */
-public sealed interface ProposalReview {
-    /** A removal only takes capabilities away; the user confirms it without review. */
-    public data object NotNeeded : ProposalReview
-
-    /** Waiting for the reviewer. */
-    public data object Pending : ProposalReview
-
-    /** The reviewer did not answer (no default model, failure); the user may still trust the unit explicitly. */
-    public data object Unavailable : ProposalReview
-
-    /** The reviewer's verdict; [reason] is shown to the user and never logged. */
-    public data class Done(val verdict: ReviewVerdict, val reason: String) : ProposalReview {
-        override fun toString(): String = "Done($verdict)"
-    }
-}
-
-/** Verdict of the automatic review. */
-public enum class ReviewVerdict { Safe, Risk, Uncertain }
-
 /**
  * A change the user decides on: unit [unit] of [source] as of [digest] (null for a removal). [problems] make it
  * impossible to trust; [failure] is why the last attempt to apply it failed.
@@ -137,22 +117,16 @@ public data class ConfigProposal(
     val digest: ConfigDigest?,
     val summary: ConfigSummary? = null,
     val problems: List<ConfigProblem> = emptyList(),
-    val review: ProposalReview = if (kind == ProposalKind.Remove) ProposalReview.NotNeeded else ProposalReview.Pending,
     val isApplying: Boolean = false,
     val failure: ConfigRejection? = null,
 ) {
     /** Stable identity of the proposal within its source; a new digest replaces the proposal under the same id. */
     val id: String get() = "${source.label}|$unit"
 
-    /** Whether the user may trust it: valid and either reviewed safe or explicitly accepted ([isRiskAccepted]). */
-    public fun isTrustable(isRiskAccepted: Boolean): Boolean = problems.isEmpty() && !isApplying && when (review) {
-        ProposalReview.NotNeeded -> true
-        ProposalReview.Pending -> false
-        ProposalReview.Unavailable -> isRiskAccepted
-        is ProposalReview.Done -> review.verdict == ReviewVerdict.Safe || isRiskAccepted
-    }
+    /** A valid idle proposal can be applied by the user's explicit decision on this exact digest. */
+    public val isTrustable: Boolean get() = problems.isEmpty() && !isApplying
 
-    override fun toString(): String = "ConfigProposal($id, $kind, review=$review)"
+    override fun toString(): String = "ConfigProposal($id, $kind)"
 }
 
 private val ConfigSource.label: String

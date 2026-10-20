@@ -20,7 +20,7 @@ class ConfigProposalRecheckTest {
     )
 
     @Test
-    fun `a successful recheck after a timeout makes unchanged files eligible for review`() {
+    fun `a successful recheck after a timeout makes unchanged files eligible for explicit consent`() {
         val timedOut = proposal(UnitCheck.Invalid(listOf(compileProblem)))
 
         val retried = proposal(valid, timedOut)
@@ -28,35 +28,29 @@ class ConfigProposalRecheckTest {
         assertEquals(files, retried.digest)
         assertEquals(summary, retried.summary)
         assertTrue(retried.problems.isEmpty())
-        assertEquals(ProposalReview.Pending, retried.review)
-        assertTrue(retried.isReviewDue)
-        assertFalse(retried.isTrustable(isRiskAccepted = true))
+        assertTrue(retried.isTrustable)
     }
 
     @Test
     fun `a failed recheck revokes trust for unchanged files`() {
-        val reviewed = proposal(valid).copy(review = ProposalReview.Done(ReviewVerdict.Safe, "safe"))
+        val reviewed = proposal(valid)
 
         val rejected = proposal(UnitCheck.Invalid(listOf(compileProblem)), reviewed)
 
         assertEquals(listOf(compileProblem), rejected.problems)
         assertNull(rejected.summary)
-        assertEquals(ProposalReview.Pending, rejected.review)
-        assertFalse(rejected.isReviewDue)
-        assertFalse(rejected.isTrustable(isRiskAccepted = true))
+        assertFalse(rejected.isTrustable)
     }
 
     @Test
-    fun `a changed validation summary requires a fresh review for unchanged files`() {
-        val reviewed = proposal(valid).copy(review = ProposalReview.Done(ReviewVerdict.Safe, "safe"))
+    fun `a changed validation summary is shown before consent for unchanged files`() {
+        val reviewed = proposal(valid)
         val changedSummary = summary.copy(contents = listOf(ConfigContent(ConfigContentKind.Script, "check")))
 
         val rechecked = proposal(valid.copy(summary = changedSummary), reviewed)
 
         assertEquals(changedSummary, rechecked.summary)
-        assertEquals(ProposalReview.Pending, rechecked.review)
-        assertTrue(rechecked.isReviewDue)
-        assertFalse(rechecked.isTrustable(isRiskAccepted = true))
+        assertTrue(rechecked.isTrustable)
     }
 
     private fun proposal(check: UnitCheck, previous: ConfigProposal? = null): ConfigProposal = reconcile(
