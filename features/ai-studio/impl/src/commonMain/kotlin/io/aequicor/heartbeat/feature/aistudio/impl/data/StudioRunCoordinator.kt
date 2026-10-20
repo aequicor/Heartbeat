@@ -33,6 +33,8 @@ import kotlin.time.Instant
 /** Persistence and screen projection around a profile-owned request. */
 internal interface StudioRunHost {
     suspend fun startedRun(id: String, at: Instant)
+    suspend fun prepareRun(id: String) = Unit
+
     suspend fun executeRun(request: StudioTurnRequest): RunOutcome
     suspend fun finishedRun(id: String)
 }
@@ -50,6 +52,20 @@ internal class StudioRunCoordinator(
     private val log = Log.tag("StudioRunCoordinator")
     private val lock = Mutex()
     private val busy = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Reserves a non-turn mutation without starting an agent or waiting behind a running request. */
+    suspend fun <T> mutate(id: String, body: suspend () -> T): T {
+        log.i { "Reserve chat mutation until durable completion" }
+        lock.withLock {
+            check(!profile.isClosed && id !in busy.value) { "Session is busy" }
+            busy.value += id
+        }
+        try {
+            return body()
+        } finally {
+            withContext(NonCancellable) { lock.withLock { busy.value -= id } }
+        }
+    }
 
     suspend fun run(
         host: StudioRunHost,
@@ -87,6 +103,7 @@ internal class StudioRunCoordinator(
                 // Install cleanup before an admission/caller cancellation can revoke the reserved request.
                 profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) {
                     try {
+                        host.prepareRun(request.id)
                         beforeExecute()
                         host.executeRun(reserved)
                     } finally {

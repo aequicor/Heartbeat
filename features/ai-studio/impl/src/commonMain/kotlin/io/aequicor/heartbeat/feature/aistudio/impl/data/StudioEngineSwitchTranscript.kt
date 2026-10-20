@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 
 /** Bounded historical data, never a loggable representation of the conversation. */
@@ -22,13 +23,16 @@ internal fun engineSwitchTranscript(
     incoming: String,
     availableResources: Set<String> = emptySet(),
 ): StudioEngineSwitchTranscript {
-    val measure: (String) -> Long = if (contextLimitTokens != null) {
+    val rawMeasure: (String) -> Long = if (contextLimitTokens != null) {
         { it.encodeToByteArray().size.toLong() }
     } else {
         { it.length.toLong() }
     }
+    // Measure the final escaped representation, including whitespace trimmed by the host wrapper.
+    val wrapper = rawMeasure(hostDirective(""))
+    val measure: (String) -> Long = { rawMeasure(hostDirective(it)) - wrapper + rawMeasure(it) - rawMeasure(it.trim()) }
     val budget = contextLimitTokens?.coerceIn(0, Int.MAX_VALUE.toLong())?.let {
-        (it * 3 / 4 * 3 - measure(incoming)).coerceAtLeast(0)
+        (it * 3 / 4 * 3 - rawMeasure(incoming)).coerceAtLeast(0)
     } ?: UNKNOWN_WINDOW_CHARS.toLong()
     val header = SWITCH_CONTEXT_HEADER
     val bodyBudget = budget - measure(header) - measure(SWITCH_CONTEXT_END)

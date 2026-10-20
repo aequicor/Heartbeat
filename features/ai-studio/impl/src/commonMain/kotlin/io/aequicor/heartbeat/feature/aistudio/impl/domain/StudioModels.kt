@@ -194,6 +194,7 @@ data class StudioModel(
     /** Whether a running session of the engine changes its model in place. */
     val isModelSwitchSupported: Boolean = false,
     val inputSupport: PromptInputSupport = PromptInputSupport(),
+    val contextLimitTokens: Long? = null,
 )
 
 /** Models the demo agent can impersonate, from the most capable to the fastest. */

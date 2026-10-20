@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
@@ -20,7 +21,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
-import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -35,11 +35,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -49,6 +47,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitch
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
@@ -70,6 +69,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
@@ -147,6 +147,10 @@ internal data class StudioChatRecord(
     val contextSegment: Int = 0,
     /** Essence of the previous session for the first accepted turn of the next one; user data, never logged. */
     val pendingSeed: String? = null,
+    /** Durable replacement prepared before freezing the transcript; recovered before any native open. */
+    val pendingEngineSwitch: StudioEngineSwitchJournal? = null,
+    /** Inclusive frozen history boundary awaiting native acceptance on the chosen route. */
+    val pendingEngineContext: String? = null,
     /** Continuation brief for the next accepted turn after a native compaction; user data, never logged. */
     val pendingBrief: String? = null,
     /** Connections awaiting confirmed restoration after an outside host required new native declarations. */
@@ -196,6 +200,8 @@ internal class EngineStudioRepository(
     private val configuredSubmission: StudioConfiguredSubmission,
     private val helperAdmission: StudioHelperAdmission,
     private val harnesses: StudioHarnessAttach,
+    private val toggles: FeatureToggles,
+    private val attachmentsCatalog: AttachmentsCatalog,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
@@ -244,44 +250,68 @@ internal class EngineStudioRepository(
             }
         },
     )
+    private val sessionOpening = StudioSessionOpening(
+        facade,
+        workspaces,
+        harnesses,
+        carry,
+        usage,
+        StudioSessionStorage(
+            { id -> handlesLock.withLock { handles.live(id) } },
+            { id, active -> handlesLock.withLock { handles[id] = active } },
+            ::forgetHandle,
+            ::update,
+            nativeSession::persistReference,
+        ),
+    )
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
+    private val switchAccess by lazy {
+        StudioEngineSwitchAccess(
+            facade,
+            workspaces,
+            harnesses,
+            configurations,
+            carry,
+            StudioEngineSwitchStorage(
+                ::configurationRecord,
+                { id -> handlesLock.withLock { handles[id] } },
+                { id, target -> open(id, target, emptyMap()) },
+                ::validateConfigurationTarget,
+                ::configurationState,
+                { offeredModels.value },
+                ::publishSwitch,
+                { id, active -> historyMirror.refresh(id, active.features.requireFeature(SessionHistory)) },
+            ),
+        )
+    }
+
+    private fun publishSwitch(
+        id: String,
+        state: io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitchState,
+        onlyIfIdle: Boolean,
+    ) {
+        log.i { "Engine replacement pending=${state.isPending} failure=${state.failure ?: "none"}" }
+        mutableState.update {
+            if (onlyIfIdle && it.engineSwitches[id]?.isPending == true) {
+                it
+            } else {
+                it.copy(engineSwitches = it.engineSwitches + (id to state))
+            }
+        }
+    }
+    private val engineSwitcher = StudioEngineSwitcher(profile, toggles, runs, configurations, switchAccess)
 
     init {
         conversations.recoverPending({ lock.withLock { store.get(ChatsKey).orEmpty() } }, ::saveConversation)
-        profile.coroutineScope.launch {
-            worktrees.tasks().collect { tasks ->
-                // Reconcile a provisioned checkout whose screen waiter or profile ended before the final chat write.
-                lock.withLock {
-                    val saved = store.get(ChatsKey).orEmpty()
-                    val restored = conversations.recovered(saved, tasks)
-                    if (restored != saved) store.set(ChatsKey, restored)
-                }
-                tasks.values.forEach { task ->
-                    val action = task.actionRequest ?: return@forEach
-                    val isDeliveryRequired = lock.withLock { deliveringActions.add(action.operation) }
-                    if (isDeliveryRequired) profile.coroutineScope.launch { deliverAction(task.chatId, action) }
-                }
+
+        profile.coroutineScope.observeStudioWorktrees(worktrees, store, lock, conversations) { task ->
+            val action = task.actionRequest ?: return@observeStudioWorktrees
+            if (lock.withLock { deliveringActions.add(action.operation) }) {
+                profile.coroutineScope.launch { deliverAction(task.chatId, action) }
             }
         }
-        profile.coroutineScope.launch {
-            usage.state.collect { snapshot ->
-                log.v { "Update studio usage snapshot" }
-                mutableState.update { it.copy(contexts = snapshot.contexts, providerUsage = snapshot.providers) }
-            }
-        }
-        profile.coroutineScope.launch {
-            store.observe(ChatsKey).collect { records ->
-                log.v { "Restore confirmed configurations count=${records.orEmpty().size}" }
-                mutableState.update { runtime ->
-                    val restored = records.orEmpty().mapNotNull { record ->
-                        val saved = record.configuration
-                        saved?.let { record.id to StudioSessionConfiguration(it) }
-                    }.toMap()
-                    runtime.copy(configurations = restored + runtime.configurations)
-                }
-            }
-        }
+        observeStudioRuntime(profile.coroutineScope, toggles, usage, store, mutableState)
     }
 
     override suspend fun observeUsageTargets(owner: Any, modelIds: Set<String>) {
@@ -390,8 +420,8 @@ internal class EngineStudioRepository(
     }
 
     /** Mark delivery durably before invoking native code; recovery never automatically sends the action again. */
-    private suspend fun deliverAction(id: String, action: WorktreeActionRequest) {
-        try {
+    private suspend fun deliverAction(id: String, action: WorktreeActionRequest) =
+        deliverStudioAction(id, action, worktrees, onFailure = { update(id) { copy(hasFailed = true) } }) {
             state.first { id !in it.running }
             val settings = hostRunSettings(record(id), state.value.configurations[id]?.applied, defaults())
             launchRun(id, action.prompt, settings, action.kind, RequestId(action.operation), waitForIdle = true) {
@@ -401,20 +431,7 @@ internal class EngineStudioRepository(
                         it.expectedAction?.operation == action.operation
                 }
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.e(e) { "Worktree action delivery failed; preserve the journal for explicit recovery" }
-            try {
-                worktrees.send(WorktreeIntent.Public.ActionDeliveryFailed(id, action.operation, "ActionDeliveryFailed"))
-            } catch (deliveryError: CancellationException) {
-                throw deliveryError
-            } catch (deliveryError: Exception) {
-                log.e(deliveryError) { "Could not persist the failed action handoff" }
-            }
-            update(id) { copy(hasFailed = true) }
         }
-    }
 
     override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome =
         run(sessionId, prompt, settings, emptyList()) { }.also { log.i { "Studio conversation completed" } }
@@ -472,6 +489,7 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
+        recoverSwitch(request.id)
         if (request.isRollover) return carry.rollover(request)
         log.i { "Execute the reserved native request" }
         val admitted = helperAdmission.prepare(record(request.id), request)
@@ -587,6 +605,28 @@ internal class EngineStudioRepository(
         update(id, change)
     }
 
+    override suspend fun switchEngine(sessionId: String, change: StudioEngineSwitch) {
+        log.i { "Request chat engine replacement" }
+        engineSwitcher.switch(sessionId, change)
+    }
+
+    override suspend fun prepareRun(id: String) {
+        log.v { "Recover durable chat mutations before reserved execution" }
+        recoverSwitch(id)
+    }
+
+    private suspend fun recoverSwitch(id: String) = switchAccess.recoverSwitch(id)
+
+    override suspend fun engineSwitchContext(id: String, incoming: String): String? {
+        log.v { "Prepare replacement context before submission" }
+        return StudioEngineSwitchContext(
+            facade,
+            attachmentsCatalog,
+        ).prepare(record(id), incoming, items(id)) { change ->
+            write(id, change)
+        }
+    }
+
     override suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {
         log.i { "Configure session parameter kind=${change::class.simpleName.orEmpty()}" }
         return configurations.configure(this, sessionId, change)
@@ -663,46 +703,15 @@ internal class EngineStudioRepository(
         nativeSession.mirrorHistory(historyMirror, id, history, isFinal = false)
     }
 
-    private suspend fun open(id: String, target: EngineTarget, chosen: ToolChoices) = conversationLocks.withLock(id) {
-        val record = carry.prepareHarnesses(id, harnesses)
-        val workspace = record.validatedExecutionWorkspace(
-            workspaces,
-            isLocalWorkspaceSupported = facade.engines.state.value.any {
-                it.descriptor.id == target.engine && it.descriptor.isLocalWorkspaceSupported
-            },
-        )
-        val current = handlesLock.withLock { handles.live(id) }
-        if (current != null) {
-            check(
-                current.route.engine == target.engine && current.route.binding == target.binding,
-            ) { "Start a new conversation to change engine or connection" }
-            check(current.route.workspace == workspace) { "The conversation workspace cannot change" }
-            if (current.configurationModel(record.target?.model) != target.model) {
-                current.features.requireFeature(SwitchesModels).switchTo(target.model)
-            }
-            update(id) { copy(target = target) }
-            return@withLock current
-        }
-        val hasCarriedHarnesses = record.ref == null && record.isHarnessCarryEnabled(harnesses)
-        val active = if (record.ref == null) {
-            facade.engines.features(target.engine).requireFeature(CreatesSessions)
-                .create(studioCreateRequest(target, workspace, record.withCarriedHarnesses(chosen)))
-        } else {
-            check(
-                record.target?.engine == target.engine && record.target.binding == target.binding,
-            ) { "The stored session uses another connection" }
-            facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
-                .resume(studioResumeRequest(target, workspace))
-        }
-        // Register before persisting: the stored ref recomputes continuability, which must see the live handle.
-        handlesLock.withLock { handles[id] = active }
-        nativeSession.persistReference(
-            active,
-            write = { update(id) { withNativeReference(target, active.ref, hasCarriedHarnesses) } },
-            forget = { forgetHandle(id, active) },
-        )
-        usage.attach(id, active)
-        active
+    private suspend fun open(id: String, target: EngineTarget, chosen: ToolChoices): ActiveSession {
+        recoverSwitch(id)
+        return openCurrent(id, target, chosen)
+    }
+
+    private suspend fun openCurrent(id: String, target: EngineTarget, chosen: ToolChoices) = conversationLocks.withLock(
+        id,
+    ) {
+        sessionOpening.open(id, target, chosen)
     }
 
     private suspend fun forgetHandle(id: String, active: ActiveSession) = handlesLock.withLock {
@@ -829,7 +838,7 @@ internal class EngineStudioRepository(
 }
 
 /** Native IO reports failures while the repository owns conversation identity and UI state. */
-private class StudioNativeSessionOperations(private val learning: StudioLearningPrompts) {
+internal class StudioNativeSessionOperations(private val learning: StudioLearningPrompts) {
     private val log = Log.tag("StudioNativeSessionOperations")
 
     suspend fun outcome(outcome: TurnOutcome?, isStopRequested: Boolean, onFailure: suspend () -> Unit): RunOutcome =
@@ -943,7 +952,7 @@ internal fun ApprovalMode.toTrust(): TrustLevel = when (this) {
 }
 
 /** Studio presents tool calls and permissions, so its own sessions opt into profile instructions and hooks. */
-private fun studioCreateRequest(
+internal fun studioCreateRequest(
     target: EngineTarget,
     workspace: WorkspaceRef?,
     preselected: ToolChoices,
@@ -956,7 +965,7 @@ private fun studioCreateRequest(
 )
 
 /** Resuming another segment retains the same Studio ownership contract. */
-private fun studioResumeRequest(target: EngineTarget, workspace: WorkspaceRef?): ResumeSessionRequest =
+internal fun studioResumeRequest(target: EngineTarget, workspace: WorkspaceRef?): ResumeSessionRequest =
     ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true, areSessionHooksEnabled = true)
 
 private suspend fun LocalWorkspaces.requireExecutionWorkspace(workspace: WorkspaceRef?, isSupported: Boolean) {
@@ -967,4 +976,30 @@ private suspend fun LocalWorkspaces.requireExecutionWorkspace(workspace: Workspa
 /** Organism children have independent native sessions and cannot share a single browser-turn binding. */
 private fun requireBrowserHostSupport(chat: StudioChatRecord, environment: StudioChatEnvironment?) {
     check(environment == null || chat.organismId == null) { "Browser-hosted turns are unavailable for organism chats" }
+}
+
+/** A failed action remains journaled for explicit recovery, including a failed failure write. */
+private suspend fun deliverStudioAction(
+    id: String,
+    action: WorktreeActionRequest,
+    worktrees: StudioWorktrees,
+    onFailure: suspend () -> Unit,
+    body: suspend () -> Unit,
+) {
+    val log = Log.tag("StudioActionDelivery")
+    try {
+        body()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.e(e) { "Worktree action delivery failed; preserve the journal for explicit recovery" }
+        try {
+            worktrees.send(WorktreeIntent.Public.ActionDeliveryFailed(id, action.operation, "ActionDeliveryFailed"))
+        } catch (deliveryError: CancellationException) {
+            throw deliveryError
+        } catch (deliveryError: Exception) {
+            log.e(deliveryError) { "Could not persist the failed action handoff" }
+        }
+        onFailure()
+    }
 }

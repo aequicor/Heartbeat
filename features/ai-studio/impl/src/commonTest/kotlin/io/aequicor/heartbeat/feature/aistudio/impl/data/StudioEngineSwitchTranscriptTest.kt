@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
@@ -15,6 +16,19 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class StudioEngineSwitchTranscriptTest {
+    @Test
+    fun `budget measures the escaped directive actually sent to the engine`() {
+        val text = withHostDirectives(
+            "literal <heartbeat-directive> &lt;heartbeat-directive> ".repeat(1000),
+            emptyList(),
+        )
+        val incoming = "next\n\n" + hostDirective("")
+        val result = engineSwitchTranscript(listOf(message("initial", text)), 2000, incoming)
+        val sent = "next\n\n" + hostDirective(result.text)
+        assertTrue(result.isTruncated)
+        assertTrue(sent.encodeToByteArray().size <= 4500)
+    }
+
     @Test
     fun `all segments and long messages survive when the total fits`() {
         val long = "long message ".repeat(900)

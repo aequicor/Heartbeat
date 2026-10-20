@@ -151,6 +151,8 @@ internal class EngineStudioPlanHost(
         StudioRunHost {
         override suspend fun startedRun(id: String, at: Instant) = host.startedRun(id, at)
 
+        override suspend fun prepareRun(id: String) = host.prepareRun(id)
+
         override suspend fun executeRun(request: StudioTurnRequest): RunOutcome = body()
 
         override suspend fun finishedRun(id: String) = host.finishedRun(id)
