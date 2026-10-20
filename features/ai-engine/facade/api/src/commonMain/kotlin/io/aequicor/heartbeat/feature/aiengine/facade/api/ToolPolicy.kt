@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.api
 
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -80,10 +79,3 @@ public data class ToolGroup(val id: String, val title: String, val tools: List<T
 
 /** Builds static catalog metadata without retaining a schema or session context. */
 public fun List<AgentToolSpec>.toolCatalog(): List<ToolCatalogEntry> = map { ToolCatalogEntry(it.name, it.action) }
-
-/** Enables gated native tools beyond adapter defaults; disabling tools does not require this flag. */
-public val HarnessNativeTools: FeatureToggle.Flag = FeatureToggle.Flag(
-    key = "harness.native_tools",
-    description = "Включение нативных инструментов через харнессы",
-    default = true,
-)

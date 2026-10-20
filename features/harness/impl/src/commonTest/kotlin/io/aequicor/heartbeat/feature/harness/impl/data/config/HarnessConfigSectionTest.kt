@@ -3,15 +3,6 @@ package io.aequicor.heartbeat.feature.harness.impl.data.config
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
-import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
@@ -33,7 +24,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeDiagnostic
@@ -107,7 +97,6 @@ class HarnessConfigSectionTest {
         lazyOf(library),
         library,
         lazyOf(HarnessCodeChecks(host) { it }),
-        Catalogs(),
         toggles,
         HarnessCreationScope { project ->
             resolvedProjects += project
@@ -131,7 +120,7 @@ class HarnessConfigSectionTest {
         assertEquals(unit, check.canonical)
         assertEquals("review", check.identity)
         assertTrue(check.summary.hasCode)
-        assertTrue(check.summary.contents.any { it.kind == ConfigContentKind.ToolPolicy })
+        assertTrue(check.summary.contents.none { it.kind == ConfigContentKind.ToolPolicy })
         assertEquals(listOf(HarnessCodeKind.Script, HarnessCodeKind.Workflow), host.compiled.map { it.kind })
     }
 
@@ -242,17 +231,14 @@ class HarnessConfigSectionTest {
     }
 
     @Test
-    fun `tool policies that disable harness tools or enable unknown native tools are refused`() = runTest {
+    fun `legacy tool policies are accepted as inert metadata`() = runTest {
         fun policy(tools: String) = harnessUnit(
             "review",
             "harnesses/review/harness.json" to """{"title":"R","tools":$tools}""",
         )
 
-        assertEquals(listOf(ConfigProblemCode.Unsupported), problems(policy("""{"hostedOff":["harness_create"]}""")))
-        assertEquals(
-            listOf(ConfigProblemCode.Unsupported),
-            problems(policy("""{"native":{"other":{"Bash":"on"}}}""")),
-        )
+        assertIs<ConfigCheck.Valid>(section.check(policy("""{"hostedOff":["harness_create"]}""")))
+        assertIs<ConfigCheck.Valid>(section.check(policy("""{"native":{"other":{"Bash":"on"}}}""")))
         assertIs<ConfigCheck.Valid>(section.check(policy("""{"native":{"other":{"Bash":"off"}}}""")))
         assertIs<ConfigCheck.Valid>(section.check(policy("""{"hostedOff":["unknown_tool"]}""")))
     }
@@ -365,27 +351,6 @@ private class FakeHost : HarnessScriptHost {
         HarnessEvaluationResult.Unsupported
 
     override suspend fun removeCached(harness: HarnessId, item: ItemId) = Unit
-}
-
-private class Catalogs : HarnessToolCatalogs {
-    override fun hosted(): List<ToolGroup> = emptyList()
-
-    override fun engines() = listOf(
-        EngineDescriptor(
-            EngineId("claude"),
-            "Claude",
-            EngineFamily.Vendor,
-            emptySet(),
-            HarnessNativeTools,
-            nativeTools = listOf(
-                NativeToolSpec("Bash", AgentToolAction.Command, isEnabledByDefault = false, isGated = true),
-            ),
-        ),
-    )
-
-    override suspend fun effective(scope: ToolPolicyScope): ResolvedToolPolicy = error("unused")
-
-    override fun nativeEnabling() = flowOf(true)
 }
 
 private class Toggles(var isEnabled: Boolean = true) : FeatureToggles {

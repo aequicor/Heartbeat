@@ -8,12 +8,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
-import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
@@ -111,14 +108,12 @@ internal class HarnessReadTools(
     private suspend fun toolsCatalog(context: AgentToolContext): AgentToolResult {
         val catalogs = catalogs.value
         val text = buildString {
-            append("Heartbeat tools (can only be turned off with hosted_off):\n")
+            append("Heartbeat tools (shared profile security):\n")
             catalogs.hosted().forEach { group ->
                 append("- ").append(group.title).append(" [").append(group.id).append("]: ")
                 append(group.tools.joinToString { "${it.name} (${it.action.name.lowercase()})" }).append('\n')
             }
-            val isNativeEnabling = toggles.get(HarnessNativeTools)
-            append("\nNative engine tools; native enabling is ")
-            append(if (isNativeEnabling) "available" else "off (flag harness.native_tools)").append(":\n")
+            append("\nNative engine tools (shared profile security):\n")
             catalogs.engines().filter { it.nativeTools.isNotEmpty() }.forEach { engine ->
                 val effective = catalogs.effective(
                     ToolPolicyScope(engine.id, context.workspace, context.session.takeIf { it.engine == engine.id }),
@@ -158,17 +153,7 @@ private fun HarnessEntry.describe(): String = buildString {
         item.description()?.takeIf(String::isNotEmpty)?.let { append(" — ").append(it) }
         append('\n')
     }
-    append("Tool policy: ").append(harness.policyText())
-}
-
-private fun Harness.policyText(): String {
-    val lines = tools.hostedOff.sorted().map { "Heartbeat $it off" } +
-        tools.native.entries.sortedBy { it.key }.flatMap { (engine, switches) ->
-            switches.entries.sortedBy { it.key }.map { (tool, switch) ->
-                "$engine $tool ${if (switch == ToolSwitch.On) "on" else "off"}"
-            }
-        }
-    return lines.ifEmpty { listOf("defaults") }.joinToString("; ")
+    append("Tool authorization: shared profile Security setting")
 }
 
 private fun ItemStatus.statusLabel(): String? = when (this) {

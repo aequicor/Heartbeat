@@ -1,23 +1,19 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hasHiddenCharacters
-import io.aequicor.heartbeat.feature.aiengine.facade.api.hostedToolName
-import io.aequicor.heartbeat.feature.aiengine.facade.api.looksLikeSecret
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.isHarnessInputSchema
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
 
-/** Kinds of agent-authored items; code kinds compile before automatic safety review. */
+/** Kinds of agent-authored items; code kinds compile before shared profile authorization. */
 internal enum class ItemKind(val key: String, val isCode: Boolean) {
     Skill("skill", false),
     Instruction("instruction", false),
@@ -66,13 +62,6 @@ internal sealed interface AuthoringCommand {
     data class PutItem(val harness: HarnessName, val item: ItemDraft) : AuthoringCommand
 
     data class DeleteItem(val harness: HarnessName, val item: ItemName) : AuthoringCommand
-
-    /** Replaces the whole stored policy; tools omitted from [native] return to the engine default. */
-    data class SetTools(
-        val harness: HarnessName,
-        val hostedOff: Set<String>,
-        val native: Map<String, Map<String, ToolSwitch>>,
-    ) : AuthoringCommand
 }
 
 /** Parsing outcome; [message] tells the model what to fix and never echoes the rejected text. */
@@ -135,10 +124,7 @@ internal fun parseItemDelete(arguments: JsonObject): Parsed<AuthoringCommand.Del
     AuthoringCommand.DeleteItem(harnessName(arguments.text("harness")), itemName(arguments.text("name")))
 }
 
-/**
- * Reads harness_item_put. Text is checked as a heuristic, not a sandbox: hidden characters, credential-like
- * values and constructs that would stop or block the application are refused before the user is asked.
- */
+/** Reads harness_item_put against its schema and size limits; content authorization belongs to the shared gate. */
 internal fun parseItemPut(arguments: JsonObject): Parsed<AuthoringCommand.PutItem> = parsing {
     only(arguments, "harness", "kind", "name", "description", "content", "input")
     val kind = ItemKind.entries.firstOrNull { it.key == arguments.text("kind") }
@@ -158,9 +144,6 @@ internal fun parseItemPut(arguments: JsonObject): Parsed<AuthoringCommand.PutIte
         DESCRIPTION_CHARS,
         isRequired = kind == ItemKind.Skill || kind == ItemKind.Template,
     )
-    argument(!hasHiddenCharacters(content)) { "content contains invisible or control characters" }
-    argument(!looksLikeSecret("$description\n$content")) { "it looks like a credential; secrets are never stored" }
-    if (kind.isCode) forbiddenConstruct(content)?.let { invalid("code uses $it, which is not allowed in harness code") }
     val input = arguments["input"]?.let {
         argument(kind == ItemKind.Workflow) { "input is only for workflows" }
         argument(it is JsonObject && isHarnessInputSchema(it)) {
@@ -176,52 +159,6 @@ internal fun parseItemPut(arguments: JsonObject): Parsed<AuthoringCommand.PutIte
     }
     AuthoringCommand.PutItem(harnessName(arguments.text("harness")), draft)
 }
-
-/** Reads harness_tools_set: hosted names lose their MCP prefix; native switches are on/off per engine. */
-internal fun parseToolsSet(arguments: JsonObject): Parsed<AuthoringCommand.SetTools> = parsing {
-    only(arguments, "harness", "hosted_off", "native")
-    val hosted = when (val value = arguments["hosted_off"]) {
-        null -> emptyList()
-        is JsonArray -> value.map { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content.orEmpty() }
-        else -> invalid("hosted_off must be an array of tool names")
-    }.map { hostedToolName(it.trim()) }
-    argument(hosted.none(String::isBlank)) { "hosted_off must contain tool names" }
-    val native = when (val value = arguments["native"]) {
-        null -> emptyMap()
-
-        is JsonObject -> value.mapValues { (engine, tools) ->
-            argument(engine.isNotBlank() && tools is JsonObject) { "native must map engine ids to tool switches" }
-            tools.mapValues { (_, switch) ->
-                when ((switch as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content) {
-                    "on" -> ToolSwitch.On
-                    "off" -> ToolSwitch.Off
-                    else -> invalid("native switches must be on or off; omit a tool to keep its default")
-                }
-            }.also { argument(it.keys.none(String::isBlank)) { "native tool names must not be blank" } }
-        }.filterValues { it.isNotEmpty() }
-
-        else -> invalid("native must be an object")
-    }
-    AuthoringCommand.SetTools(harnessName(arguments.text("harness")), hosted.sorted().toSet(), native)
-}
-
-/** Lexical heuristic over code; the desktop compiler validator additionally checks tokens. */
-internal fun forbiddenConstruct(source: String): String? = FORBIDDEN.firstOrNull { (_, regex) ->
-    regex.containsMatchIn(source)
-}?.first
-
-private val FORBIDDEN = listOf(
-    "exitProcess" to Regex("\\bexitProcess\\b"),
-    "System.exit" to Regex("\\bSystem\\s*\\.\\s*exit\\b"),
-    "Runtime.halt" to Regex("\\.halt\\s*\\("),
-    // Names are assembled so that convention scanners do not mistake this rule table for a coroutine call.
-    word("Global" + "Scope"),
-    word("run" + "Blocking"),
-    "@file annotations" to Regex("@file\\s*:"),
-    word("println"),
-)
-
-private fun word(name: String) = name to Regex("\\b$name\\b")
 
 private class InvalidArguments(message: String) : IllegalArgumentException(message)
 
@@ -278,7 +215,6 @@ private fun line(value: String?, field: String, limit: Int, isRequired: Boolean)
     }
     argument(text.length <= limit) { "$field is longer than $limit characters" }
     argument(!hasHiddenCharacters(text)) { "$field contains invisible or control characters" }
-    argument(!looksLikeSecret(text)) { "$field looks like a credential; secrets are never stored" }
     return text
 }
 

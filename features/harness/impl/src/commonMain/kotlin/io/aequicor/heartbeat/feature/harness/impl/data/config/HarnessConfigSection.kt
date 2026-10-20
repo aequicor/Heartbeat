@@ -6,7 +6,6 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessAuthor
 import io.aequicor.heartbeat.feature.harness.api.HarnessChange
@@ -19,16 +18,13 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
-import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.api.ItemId
-import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.api.storageBytes
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeCheck
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
 import io.aequicor.heartbeat.feature.harness.impl.domain.config.HarnessConfigCodec
 import io.aequicor.heartbeat.feature.harness.impl.domain.config.HarnessContent
@@ -67,7 +63,6 @@ internal class HarnessConfigSection(
     private val machine: Lazy<HarnessMachine>,
     private val library: HarnessLibraryClient,
     private val checks: Lazy<HarnessCodeChecks>,
-    private val catalogs: HarnessToolCatalogs,
     private val toggles: FeatureToggles,
     private val creationScopes: HarnessCreationScope,
 ) : ConfigSection {
@@ -103,7 +98,7 @@ internal class HarnessConfigSection(
             is HarnessDecoded.Invalid -> return ConfigCheck.Invalid(decoded.problems)
             is HarnessDecoded.Valid -> decoded.content
         }
-        val problems = listOfNotNull(policyProblem(content.tools, unit.ref.name)) + compileProblems(content)
+        val problems = compileProblems(content)
         val candidate = candidate(content)
         val sizeProblem = ConfigProblem(ConfigProblemCode.Limit, metadataPath(unit.ref.name), "harness is too large")
             .takeIf { candidate.storageBytes() > HarnessLimits.BYTES_PER_HARNESS }
@@ -184,27 +179,6 @@ internal class HarnessConfigSection(
 
     private suspend fun current(): HarnessState.Ready? =
         if (toggles.get(HarnessEnabled)) library.current ?: library.ready() else null
-
-    /**
-     * Problems of tool switches that are unsafe or unverifiable on any machine: a harness never turns off harness
-     * tools, and native tools are switched on only when this machine knows them as gated. Switches naming tools or
-     * engines unknown here are kept: they turn something off or are ignored where the engine is missing.
-     */
-    private fun policyProblem(tools: ToolPolicySpec, name: String): ConfigProblem? {
-        val isOwnOff = tools.hostedOff.any { it.startsWith("harness_") || it.startsWith(HarnessTools.SCRIPT_PREFIX) }
-        val engines = catalogs.engines().associateBy { it.id.value }
-        val isUnverified = tools.native.any { (engine, switches) ->
-            val known = engines[engine]?.nativeTools.orEmpty().asSequence()
-            val gated = known.filter { it.isGated }.map { it.name }.toSet()
-            switches.any { (tool, switch) -> switch == ToolSwitch.On && tool !in gated }
-        }
-        val detail = when {
-            isOwnOff -> "harness tools cannot be turned off by a harness"
-            isUnverified -> "native tools can be turned on only when this machine knows them as gated"
-            else -> return null
-        }
-        return ConfigProblem(ConfigProblemCode.Unsupported, metadataPath(name), detail)
-    }
 
     private suspend fun compileProblems(content: HarnessContent): List<ConfigProblem> =
         content.items.mapNotNull { item ->

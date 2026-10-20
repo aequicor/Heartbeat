@@ -104,17 +104,12 @@ internal class FakeClaudeTransport : ClaudeTransport {
 internal class TestClaudeToggles : FeatureToggles {
     var isEnabled = true
     var isUsageEnabled = true
-    var isNativeEnabled = true
 
     // Tests read only ClaudeEngine.Enabled, a Boolean flag, so T is always Boolean here.
     @Suppress("UNCHECKED_CAST")
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = (
-        if (toggle ==
-            EngineUsageEnabled
-        ) {
+        if (toggle == EngineUsageEnabled) {
             isUsageEnabled
-        } else if (toggle == io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools) {
-            isNativeEnabled
         } else {
             isEnabled
         }

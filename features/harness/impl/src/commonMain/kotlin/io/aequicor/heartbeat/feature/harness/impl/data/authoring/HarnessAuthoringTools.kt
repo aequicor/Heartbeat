@@ -11,10 +11,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.harness.api.Harness
@@ -30,19 +28,15 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.api.ItemId
-import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.AuthoringCommand
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeCheck
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.ItemDraft
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.ItemKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.Parsed
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.hasEnabledScript
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.hasNativeOn
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.hasRestrictions
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.kind
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.listing
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.map
@@ -50,10 +44,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseCreate
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseHarnessRef
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseItemDelete
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseItemPut
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseToolsSet
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseUpdate
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.policyDiff
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.reEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -75,7 +66,6 @@ internal class HarnessAuthoringTools(
     private val toggles: FeatureToggles,
     private val library: Lazy<HarnessLibraryClient>,
     private val checks: Lazy<HarnessCodeChecks>,
-    private val catalogs: Lazy<HarnessToolCatalogs>,
     private val clock: Clock,
     private val creationScopes: HarnessCreationScope,
 ) : AgentToolContribution {
@@ -108,9 +98,6 @@ internal class HarnessAuthoringTools(
                     "Изменения подчиняются общей настройке безопасности; код также компилируется. " +
                         "Подтверждение относится к полному изменению. Не сохраняй секреты.",
                 )
-            }
-            if (has(HarnessTools.TOOLS_SET)) {
-                add("Чтобы убрать инструмент, выключай его через harness_tools_set, а не Deny-хуком.")
             }
         }.joinToString("\n")
     }
@@ -164,7 +151,6 @@ internal class HarnessAuthoringTools(
             put("arguments", arguments)
             put("previousHarness", Json.encodeToJsonElement(plan.harness))
             put("proposedItem", Json.encodeToJsonElement(plan.item))
-            put("proposedTools", Json.encodeToJsonElement(plan.tools))
             put("creationScope", Json.encodeToJsonElement(creationScope))
             put("connections", Json.encodeToJsonElement(connections.orEmpty().sortedBy { Json.encodeToString(it) }))
             put("consequences", plan.approval.description)
@@ -191,8 +177,6 @@ internal class HarnessAuthoringTools(
         is AuthoringCommand.DeleteItem -> withHarness(state, command.harness.value) {
             planItemDelete(state, it, command)
         }
-
-        is AuthoringCommand.SetTools -> withHarness(state, command.harness.value) { planTools(state, it, command) }
     }
 
     private fun parse(name: String, arguments: JsonObject): Parsed<AuthoringCommand> = when (name) {
@@ -203,7 +187,6 @@ internal class HarnessAuthoringTools(
         HarnessTools.DETACH -> parseHarnessRef(arguments).map { AuthoringCommand.Attach(it, isAttached = false) }
         HarnessTools.ITEM_PUT -> parseItemPut(arguments)
         HarnessTools.ITEM_DELETE -> parseItemDelete(arguments)
-        HarnessTools.TOOLS_SET -> parseToolsSet(arguments)
         else -> Parsed.Invalid("unknown tool")
     }
 
@@ -279,13 +262,11 @@ internal class HarnessAuthoringTools(
 
     /** What reaches more chats when the harness covers them; empty when nothing is affected. */
     private fun spreadWarning(harness: Harness): String = buildString {
-        if (harness.tools.hasNativeOn) append(NATIVE_ON_SPREAD).append('\n')
         if (harness.hasEnabledScript) append(SCRIPT_SPREAD).append('\n')
     }
 
     /** What chats lose when the harness stops covering them; empty when nothing is affected. */
     private fun liftWarning(harness: Harness): String = buildString {
-        if (harness.tools.hasRestrictions) append(RESTRICTIONS_LIFTED).append('\n')
         if (harness.hasEnabledScript) append(SCRIPT_HOOKS_LIFTED).append('\n')
     }
 
@@ -332,35 +313,6 @@ internal class HarnessAuthoringTools(
         return checks.value.check(harness.id, id, kind, draft.body, isAgent = true)
     }
 
-    /**
-     * The agent replaces the policy, except switches of engines that are not available now: the agent cannot see
-     * them in the catalog, so they are kept rather than silently dropped.
-     */
-    private fun planTools(state: HarnessState.Ready, harness: Harness, command: AuthoringCommand.SetTools): Plan {
-        val registered = catalogs.value.engines().map { it.id.value }.toSet()
-        val kept = harness.tools.native.filterKeys { it !in registered && it !in command.native }
-        val next = ToolPolicySpec(command.hostedOff, command.native + kept)
-        catalogs.value.problem(harness.tools, next)?.let { return Plan.Invalid(it) }
-        val enabled = reEnabled(harness.tools, next)
-        val diff = policyDiff(harness.tools, next).ifEmpty { listOf("No changes") }
-        val text = buildString {
-            append(diff.joinToString("\n"))
-            if (kept.isNotEmpty()) {
-                append("\n\nKept switches of engines unavailable now: ").append(kept.keys.sorted().joinToString())
-            }
-            if (enabled.isNotEmpty()) {
-                append("\n\nTools switched on or given back run under the trust level of each chat and its hooks.")
-            }
-        }
-        val plan = ready(state, harness, "Tool policy of ${harness.name.value}", text, command) as Plan.Ready
-        // Kept switches depend on the engines registered now, so the decision covers the exact resulting policy.
-        val binding = plan.approval.binding + ";tools=" + next.fingerprint()
-        return plan.copy(
-            approval = plan.approval.copy(binding = binding),
-            tools = next,
-        )
-    }
-
     private suspend fun apply(context: AgentToolContext, plan: Plan.Ready): AgentToolResult {
         val at = clock.now()
         val harness = plan.harness
@@ -405,18 +357,6 @@ internal class HarnessAuthoringTools(
             is AuthoringCommand.DeleteItem -> {
                 val item = checkNotNull(harness).items.first { it.name == command.item }
                 edit(context, plan, HarnessChange.RemoveItem(item.id), at, "Deleted item ${command.item.value}")
-            }
-
-            is AuthoringCommand.SetTools -> {
-                val isOn = checkNotNull(plan.tools).native.values.any { tools -> ToolSwitch.On in tools.values }
-                val note = if (isOn &&
-                    !toggles.get(HarnessNativeTools)
-                ) {
-                    " Native On switches take effect after the harness.native_tools flag is enabled."
-                } else {
-                    ""
-                }
-                edit(context, plan, HarnessChange.Tools(plan.tools), at, "Saved tool policy.$note")
             }
         }
     }
@@ -542,7 +482,6 @@ internal class HarnessAuthoringTools(
             val harness: Harness?,
             val approval: AgentToolApproval,
             val item: HarnessItem? = null,
-            val tools: ToolPolicySpec? = null,
             val reviewChange: String? = null,
             val connections: Set<SessionRef>? = null,
             val creationScope: HarnessScope? = null,
@@ -554,26 +493,6 @@ internal class HarnessAuthoringTools(
 
 private fun String.digest(): String = encodeUtf8().sha256().hex()
 
-/** Unambiguous digest of a whole policy: every name is length-prefixed, entries are sorted. */
-private fun ToolPolicySpec.fingerprint(): String = buildString {
-    fun field(value: String) = append(value.length).append(':').append(value)
-    hostedOff.sorted().forEach {
-        append('h')
-        field(it)
-    }
-    native.keys.sorted().forEach { engine ->
-        native.getValue(engine).entries.sortedBy { it.key }.forEach { (tool, switch) ->
-            append('n')
-            field(engine)
-            field(tool)
-            append(switch.name)
-        }
-    }
-}.digest().take(ID_CHARS)
-
-private const val NATIVE_ON_SPREAD = "Native tools switched on by this harness become available in more chats."
-private const val RESTRICTIONS_LIFTED =
-    "Tools turned off by this harness become available again where it stops applying."
 private const val SCRIPT_SPREAD =
     "Enabled scripts of this harness start running in more chats: their hooks see prompts and tool calls there."
 private const val SCRIPT_HOOKS_LIFTED =

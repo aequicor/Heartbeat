@@ -41,9 +41,8 @@ private val GUIDE = """
        - workflow: Kotlin orchestration of helper agents (Desktop only).
        Submit changes to the same harness sequentially. If a mutation reports a stale snapshot/scope, read
        harness_get again, reconcile the change with the current state, then retry it.
-    4. If the task needs a tool policy, read harness_tools_catalog, then use harness_tools_set to turn Heartbeat
-       tools off or switch native engine tools on/off. Enabling a tool never bypasses the host safety checks.
-    5. Check with harness_get, then tell the user what was set up.
+    4. Check with harness_get, then tell the user what was set up. Tool authorization is controlled by the
+       shared profile Security setting; harnesses do not have their own permission switches.
 
     When the host delivers connected harness instructions into the session context, apply them and do not
     reload them on every turn. If the harness block is missing or truncated, read harness_context.
@@ -69,15 +68,12 @@ private val GUIDE = """
       Add placement="context" only for a useful separate summary or quick action, not a duplicate app.
       See ui_reference for the exact spec, data sources and web bridge. A saved surface alone is not visible.
 
-    Safety: every agent mutation passes independent automatic review of the exact caller, content, previous
-    source and affected chats. Code also compiles before review. Only a safe verdict permits execution;
-    risk, uncertainty or unavailable review returns a tool error with a reason, without asking the user.
-    Fix the concrete issue before retrying; profile approval levels and full trust never bypass this gate.
-    Commands declared with commands.define are reviewed with the script, once: later runs from buttons, timers
-    and events are not checked again, so declare only commands safe to repeat unattended. Guarded process commands
-    (requiresDecision) additionally need a separate native host decision for each exact action snapshot.
-    Off switches and Deny/Ask hooks apply in every chat a harness is connected to; everything else comes from the
-    first ${HarnessLimits.ACTIVE_PER_SESSION} connected harnesses of a chat by name.
+    Safety: all agent mutations use the shared profile Security setting. Full trust needs no permission review;
+    Automatic asks for confirmation when deterministic rules do not establish an ordinary safe edit.
+    Code compiles before saving. Authorization binds the exact caller, source, content and affected chats;
+    stale bindings require a fresh call. Commands declared with commands.define execute the stored script;
+    explicit workflow decisions (requiresDecision) still belong to that workflow's own state.
+    Content and tools come from the first ${HarnessLimits.ACTIVE_PER_SESSION} connected harnesses by name.
     Never put secrets, tokens or personal data in harness source, instructions or templates. Runtime mini-app
     values belong in data (the protected profile store); do not use script fields or browser localStorage for
     persistent state. Keep instructions short: the whole harness block
@@ -663,7 +659,6 @@ ${EXAMPLE_SCREEN_WORKFLOW.prependIndent("    ")}
 
 ${EXAMPLE_VERIFY_SCRIPT.prependIndent("    ")}
 
-    harness_tools_set(harness="compose_ui", hosted_off=["web_search"], native={"claude": {"WebFetch": "off"}})
 
     Why: the instruction keeps every chat on tokens; the skill carries detail without filling the prompt; the
     workflow splits design and implementation into helper chats, and the cheap test checklist may run on a

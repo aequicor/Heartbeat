@@ -2,24 +2,13 @@ package io.aequicor.heartbeat.feature.harness.impl.data.authoring
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -40,7 +29,6 @@ import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
@@ -56,7 +44,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHos
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -77,13 +64,11 @@ class HarnessAuthoringToolsTest {
     private val toggles = AuthoringToggles()
     private val library = FakeLibrary()
     private val host = FakeHost()
-    private val catalogs = FakeCatalogs()
     private var creationScope: HarnessScope? = HarnessScope.Projects(setOf(SOURCE_PROJECT))
     private val tools = HarnessAuthoringTools(
         toggles,
         lazyOf(library),
         lazyOf(HarnessCodeChecks(host) { it.hashCode().toString() }),
-        lazyOf(catalogs),
         FixedClock,
         HarnessCreationScope { workspace -> if (workspace == null) HarnessScope.Attached else creationScope },
     )
@@ -254,23 +239,6 @@ class HarnessAuthoringToolsTest {
     }
 
     @Test
-    fun `catalog changes cannot alter a reviewed resulting policy`() = runTest {
-        library.tools = ToolPolicySpec(native = mapOf("pi" to mapOf("bash" to ToolSwitch.Off)))
-        val args = tools(native = "WebFetch" to "off")
-        val approval = allow(reviewContext, HarnessTools.TOOLS_SET, args)
-        catalogs.available = catalogs.available + EngineDescriptor(
-            EngineId("pi"),
-            "Pi",
-            EngineFamily.Vendor,
-            emptySet(),
-            HarnessNativeTools,
-            nativeTools = listOf(NativeToolSpec("bash", AgentToolAction.Command, true, isGated = true)),
-        )
-        assertTrue(tools.execute(reviewContext.copy(authorization = approval), HarnessTools.TOOLS_SET, args).isError)
-        assertTrue(library.sent.isEmpty())
-    }
-
-    @Test
     fun `library unavailable malformed input and unsafe tool declarations refuse without writes`() = runTest {
         library.isAvailable = false
         val args = put("instruction", "rule", "Use tokens")
@@ -278,8 +246,6 @@ class HarnessAuthoringToolsTest {
         library.isAvailable = true
         for ((name, invalid) in listOf(
             HarnessTools.ITEM_PUT to buildJsonObject { put("harness", "X") },
-            HarnessTools.TOOLS_SET to tools(native = "Agent" to "on"),
-            HarnessTools.TOOLS_SET to tools(hosted = "harness_create"),
             HarnessTools.CREATE to buildJsonObject {
                 put("name", "new_app")
                 put("title", "New")
@@ -293,7 +259,7 @@ class HarnessAuthoringToolsTest {
 
     @Test
     fun `declarations disappear with toggle and instructions honor declared tools`() = runTest {
-        assertEquals(8, tools.specifications(null).size)
+        assertEquals(7, tools.specifications(null).size)
         val scope = AgentToolScope(null, declared = emptySet())
         assertEquals("", tools.instructions(scope))
         toggles.enabled.value = false
@@ -342,7 +308,6 @@ private class AuthoringToggles : FeatureToggles {
     @Suppress("UNCHECKED_CAST") // The tools read only boolean flags.
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = when (toggle) {
         HarnessEnabled -> enabled
-        HarnessNativeTools -> MutableStateFlow(false)
         else -> error("Unexpected toggle")
     } as Flow<T>
 
@@ -402,32 +367,4 @@ private class FakeHost : HarnessScriptHost {
         HarnessEvaluationResult.Unsupported
 
     override suspend fun removeCached(harness: HarnessId, item: ItemId) = Unit
-}
-
-private class FakeCatalogs : HarnessToolCatalogs {
-    var available = listOf(
-        EngineDescriptor(
-            EngineId("claude"),
-            "Claude",
-            EngineFamily.Vendor,
-            emptySet(),
-            HarnessNativeTools,
-            nativeTools = listOf(
-                NativeToolSpec("Bash", AgentToolAction.Command, isEnabledByDefault = false, isGated = true),
-                NativeToolSpec("WebFetch", AgentToolAction.Command, isEnabledByDefault = true, isGated = true),
-                NativeToolSpec("Agent", AgentToolAction.Command, isEnabledByDefault = true, isGated = false),
-            ),
-        ),
-    )
-
-    override fun nativeEnabling() = flowOf(true)
-
-    override fun hosted() = listOf(
-        ToolGroup("search", "Поиск", listOf(ToolCatalogEntry("web_search", AgentToolAction.Read))),
-        ToolGroup("harness", "Харнессы", listOf(ToolCatalogEntry("harness_create", AgentToolAction.Read))),
-    )
-
-    override fun engines() = available
-
-    override suspend fun effective(scope: ToolPolicyScope) = ResolvedToolPolicy()
 }

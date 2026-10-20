@@ -1,10 +1,8 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.ItemId
-import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -96,25 +94,17 @@ class HarnessAuthoringDraftsTest {
     }
 
     @Test
-    fun `code with forbidden constructs secrets or hidden characters is refused before any question`() {
-        listOf(
-            "kotlin.system.exitProcess(0)",
-            "System . exit(1)",
-            "@file:Suppress(\"x\")\nval a = 1",
-            "print" + "ln(\"debug\")",
-            "val key = \"sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789\"",
-            "val a = 1‮",
-        ).forEach { source ->
-            assertIs<Parsed.Invalid>(
+    fun `code parsing does not guess effects from comments strings or credential shaped examples`() {
+        for (source in listOf(
+            "// never use println or System.exit\nhooks.toString()",
+            "val label = \"👩‍💻 / می‌روم\"",
+            "val example = \"sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789\"",
+            "val description = \"runBlocking is explained in this lesson\"",
+        )) {
+            assertIs<Parsed.Valid<AuthoringCommand.PutItem>>(
                 parseItemPut(args("harness" to "h1", "kind" to "script", "name" to "verify", "content" to source)),
-                source,
             )
         }
-        assertIs<Parsed.Valid<AuthoringCommand.PutItem>>(
-            parseItemPut(
-                args("harness" to "h1", "kind" to "script", "name" to "verify", "content" to "hooks.toString()"),
-            ),
-        )
     }
 
     @Test
@@ -138,66 +128,6 @@ class HarnessAuthoringDraftsTest {
         val unsupported = JsonObject(workflow + ("input" to buildJsonObject { put("type", "array") }))
         assertIs<Parsed.Invalid>(parseItemPut(unsupported))
     }
-
-    @Test
-    fun `tool policy strips MCP prefixes and reads on and off switches`() {
-        val arguments = buildJsonObject {
-            put("harness", "h1")
-            put("hosted_off", JsonArray(listOf(JsonPrimitive("mcp__heartbeat_tools__web_search"))))
-            putJsonObject("native") {
-                putJsonObject("claude") {
-                    put("Bash", "on")
-                    put("WebFetch", "off")
-                }
-            }
-        }
-        val parsed = assertIs<Parsed.Valid<AuthoringCommand.SetTools>>(parseToolsSet(arguments)).value
-        assertEquals(setOf("web_search"), parsed.hostedOff)
-        assertEquals(mapOf("Bash" to ToolSwitch.On, "WebFetch" to ToolSwitch.Off), parsed.native["claude"])
-        val wrong = buildJsonObject {
-            put("harness", "h1")
-            putJsonObject("native") { putJsonObject("claude") { put("Bash", "maybe") } }
-        }
-        assertIs<Parsed.Invalid>(parseToolsSet(wrong))
-    }
-
-    @Test
-    fun `policy diff names every change and detects tools switched on or given back`() {
-        val current = ToolPolicySpec(setOf("web_fetch"), mapOf("claude" to mapOf("Bash" to ToolSwitch.On)))
-        val next = ToolPolicySpec(
-            setOf("web_search"),
-            mapOf(
-                "claude" to mapOf("Bash" to ToolSwitch.On, "Write" to ToolSwitch.On),
-                "pi" to mapOf("read" to ToolSwitch.Off),
-            ),
-        )
-        assertEquals(listOf("web_fetch", "claude/Write"), reEnabled(current, next))
-        assertEquals(
-            listOf(
-                "Heartbeat tool web_search: off",
-                "Heartbeat tool web_fetch: default",
-                "claude tool Write: on (was default)",
-                "pi tool read: off (was default)",
-            ),
-            policyDiff(current, next),
-        )
-        // Back to current: web_search leaves hosted_off and pi read leaves Off; dropping On restricts only.
-        assertEquals(listOf("web_search", "pi/read"), reEnabled(next, current))
-    }
-
-    @Test
-    fun `releasing an off switch counts as enabling whatever the default`() {
-        val off = ToolPolicySpec(native = mapOf("codex" to mapOf("shell" to ToolSwitch.Off)))
-        assertEquals(listOf("codex/shell"), reEnabled(off, ToolPolicySpec()))
-        val on = ToolPolicySpec(native = mapOf("codex" to mapOf("shell" to ToolSwitch.On)))
-        assertEquals(listOf("codex/shell"), reEnabled(off, on))
-        assertTrue(reEnabled(ToolPolicySpec(), off).isEmpty())
-        assertTrue(reEnabled(on, off).isEmpty())
-        assertTrue(off.hasRestrictions && !off.hasNativeOn)
-        assertTrue(on.hasNativeOn && !on.hasRestrictions)
-        assertTrue(ToolPolicySpec(hostedOff = setOf("web_search")).hasRestrictions)
-    }
-
     private fun args(vararg values: Pair<String, String>): JsonObject =
         JsonObject(values.associate { (key, value) -> key to JsonPrimitive(value) })
 }
