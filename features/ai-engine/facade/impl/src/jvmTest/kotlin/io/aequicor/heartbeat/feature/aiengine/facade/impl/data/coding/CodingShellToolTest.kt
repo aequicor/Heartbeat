@@ -36,12 +36,11 @@ class CodingShellToolTest {
     }
 
     @Test
-    fun commandWithAnUnreviewableSuffixNeverStarts() = runTest {
+    fun longCommandRunsWithoutAReviewSizeLimit() = runTest {
         val suffix = if (isWindows) "; Set-Content hidden.txt changed" else "; touch hidden.txt"
-        val result = tool.run(args("echo safe" + " ".repeat(MAX_CODING_COMMAND_CHARS) + suffix))
-        assertTrue(result.isError)
-        assertTrue(result.text.startsWith("Refused"))
-        assertFalse(Files.exists(project.resolve("hidden.txt")))
+        val result = tool.run(args("echo safe" + " ".repeat(8_000) + suffix))
+        assertFalse(result.isError)
+        assertTrue(Files.exists(project.resolve("hidden.txt")))
     }
 
     @Test
