@@ -35,11 +35,12 @@ internal data class StudioHelperPreparation(val receipt: StudioHelperReceipt, va
 @Inject
 internal class StudioHelperAttempts(
     @ForScope(ProfileScope::class) stores: DataStores,
+    private val routes: StudioHelperRoutes = StudioHelperRoutes(),
 ) {
     private val log = Log.tag("StudioHelperAttempts")
     private val store = stores.keyValue(HelperAttemptsSpec)
     private val lock = Mutex()
-
+    private val chats = stores.keyValue(ChatSpec)
     suspend fun prepare(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
         prepare(helper, prompt, isRedelivery = false)
 
@@ -59,6 +60,14 @@ internal class StudioHelperAttempts(
         helper: HelperId,
         prompt: HelperPrompt,
         isRedelivery: Boolean,
+    ): StudioHelperPreparation = routes.withLock(helper) {
+        prepareLocked(helper, prompt, isRedelivery)
+    }
+
+    private suspend fun prepareLocked(
+        helper: HelperId,
+        prompt: HelperPrompt,
+        isRedelivery: Boolean,
     ): StudioHelperPreparation = lock.withLock {
         val records = read(helper)
         val fingerprint = prompt.fingerprint()
@@ -72,6 +81,9 @@ internal class StudioHelperAttempts(
                 "A helper request cannot change after it was journaled"
             }
             return@withLock StudioHelperPreparation(existing, isNew = false)
+        }
+        check(chats.get(ChatsKey).orEmpty().firstOrNull { it.id == helper.value }?.pendingEngineSwitch == null) {
+            "Helper engine replacement must recover before preparing another request"
         }
         check(records.values.none { it.isUnresolved && it.request != prompt.request }) {
             "The previous helper request must be reconciled first"

@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 
 /** IO owned by the studio repository, including its conversation lock and durable journal. */
 internal interface StudioEngineSwitchHost {
+    suspend fun <T> withIdleSource(id: String, body: suspend () -> T): T
     suspend fun switchRecord(id: String): StudioChatRecord
     suspend fun recoverSwitch(id: String)
     suspend fun validateSwitch(record: StudioChatRecord, target: EngineTarget): StudioModel
@@ -70,7 +71,7 @@ internal class StudioEngineSwitcher(
         host.switchState(id, StudioEngineSwitchState(isPending = true))
         try {
             log.i { "Prepare chat engine replacement" }
-            apply(id, change)
+            host.withIdleSource(id) { apply(id, change) }
         } catch (error: CancellationException) {
             throw error
         } catch (error: StudioEngineSwitchRefused) {

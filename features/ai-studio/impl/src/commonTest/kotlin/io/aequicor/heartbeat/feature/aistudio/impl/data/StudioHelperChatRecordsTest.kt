@@ -34,6 +34,19 @@ class StudioHelperChatRecordsTest {
     private val parent = StudioChatRecord("parent-chat", "Parent", at, ref = session, projectId = "project")
 
     @Test
+    fun `engine replacement keeps owner trust parent and explicit independent reviewer`() {
+        val identity = StudioHelperIdentity(request.owner, parent.id, session, TrustLevel.Ask)
+        val other = target.copy(engine = EngineId("other"))
+        val switched = identity.forEngineSwitch(target, other)
+        assertEquals(identity.copy(model = HelperModelOptions(reviewTarget = target)), switched)
+        assertEquals(switched, switched.forEngineSwitch(other, target))
+        assertEquals(identity, identity.forEngineSwitch(null, other))
+        assertEquals(identity, identity.forEngineSwitch(target, target))
+        val explicit = identity.copy(model = HelperModelOptions(reviewTarget = other))
+        assertEquals(explicit, explicit.forEngineSwitch(target, other))
+    }
+
+    @Test
     fun `worktree helper inherits checkout but owns no worktree provisioning or actions`() {
         val record = newStudioHelperRecord(
             "helper",

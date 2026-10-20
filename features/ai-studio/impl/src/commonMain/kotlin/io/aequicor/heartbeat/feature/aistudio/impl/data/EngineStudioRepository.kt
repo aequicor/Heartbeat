@@ -202,6 +202,7 @@ internal class EngineStudioRepository(
     private val harnesses: StudioHarnessAttach,
     private val toggles: FeatureToggles,
     private val attachmentsCatalog: AttachmentsCatalog,
+    private val switchHelpers: StudioEngineSwitchHelpers,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
@@ -271,8 +272,7 @@ internal class EngineStudioRepository(
             facade,
             workspaces,
             harnesses,
-            configurations,
-            carry,
+            StudioEngineSwitchMutations(configurations, carry, switchHelpers),
             StudioEngineSwitchStorage(
                 ::configurationRecord,
                 { id -> handlesLock.withLock { handles[id] } },
@@ -492,7 +492,15 @@ internal class EngineStudioRepository(
         recoverSwitch(request.id)
         if (request.isRollover) return carry.rollover(request)
         log.i { "Execute the reserved native request" }
-        val admitted = helperAdmission.prepare(record(request.id), request)
+        val current = configurationRecord(request.id)
+        val fresh = if (current.target == null && current.configuration == null) {
+            request
+        } else {
+            request.copy(
+                settings = hostRunSettings(current, current.configuration, request.settings),
+            )
+        }
+        val admitted = helperAdmission.prepare(current, fresh)
         try {
             update(request.id) { startedRun(request.request) }
             val result = turns.execute(this, admitted)

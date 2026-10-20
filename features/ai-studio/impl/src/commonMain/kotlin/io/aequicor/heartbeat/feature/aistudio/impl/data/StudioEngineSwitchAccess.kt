@@ -21,11 +21,15 @@ internal class StudioEngineSwitchAccess(
     private val facade: EngineFacade,
     private val workspaces: LocalWorkspaces,
     private val harnesses: StudioHarnessAttach,
-    private val configurations: StudioConfigurationController,
-    private val carry: StudioContextCarry,
+    private val mutations: StudioEngineSwitchMutations,
     private val storage: StudioEngineSwitchStorage,
 ) : StudioEngineSwitchHost {
     private val log = Log.tag("StudioEngineSwitchAccess")
+
+    override suspend fun <T> withIdleSource(id: String, body: suspend () -> T): T {
+        log.v { "Serialize replacement with helper preparation" }
+        return mutations.helpers.withIdleSource(storage.record(id), body)
+    }
 
     override suspend fun switchRecord(id: String): StudioChatRecord {
         log.v { "Read replacement source" }
@@ -34,15 +38,15 @@ internal class StudioEngineSwitchAccess(
 
     override suspend fun recoverSwitch(id: String) {
         if (storage.record(id).pendingEngineSwitch == null) return
-        storage.handle(id)?.let { configurations.retire(id, it) }
-        val recovered = carry.recoverEngineSwitch(id) ?: return
+        storage.handle(id)?.let { mutations.configurations.retire(id, it) }
+        val recovered = mutations.carry.recoverEngineSwitch(id) ?: return
         storage.configurationState(id, StudioSessionConfiguration(checkNotNull(recovered.configuration)))
         log.i { "Recovered journaled chat engine replacement" }
     }
 
     override suspend fun validateSwitch(record: StudioChatRecord, target: EngineTarget): StudioModel {
         log.v { "Validate replacement route" }
-        refuseUnless(record.helper == null, StudioEngineSwitchFailure.Unsupported)
+        mutations.helpers.validate(record, target)
         storage.validate(target)
         val engine = facade.engines.state.value.firstOrNull { it.descriptor.id == target.engine }?.descriptor
         refuseUnless(engine != null, StudioEngineSwitchFailure.Unsupported)
@@ -76,7 +80,7 @@ internal class StudioEngineSwitchAccess(
         settings: StudioSessionSettings,
     ) {
         log.i { "Persist replacement journal and route" }
-        carry.switchEngine(id, active) { current ->
+        mutations.carry.switchEngine(id, active) { current ->
             refuseUnless(current.target == change.expected, StudioEngineSwitchFailure.Stale)
             val snapshot = current.harnessCarrySnapshot(harnesses)
             val selected = snapshot?.values?.flatten()?.toSet()?.plus(current.pendingHarnesses.orEmpty())
@@ -85,7 +89,7 @@ internal class StudioEngineSwitchAccess(
             StudioEngineSwitchJournal(
                 current.ref, change.expected, change.target, settings, current.contextSegment + 1,
                 modelLabel(change.expected), modelLabel(change.target), selected,
-                current.pendingHarnessSource ?: current.ref, current.helper,
+                current.pendingHarnessSource ?: current.ref, mutations.helpers.identity(current, change.target),
             )
         }
         storage.configurationState(id, StudioSessionConfiguration(settings))
@@ -111,4 +115,11 @@ internal data class StudioEngineSwitchStorage(
     val models: () -> List<StudioModel>,
     val publish: (String, StudioEngineSwitchState, Boolean) -> Unit,
     val refresh: suspend (String, ActiveSession) -> Unit,
+)
+
+/** The barriers and journals participating in one replacement. */
+internal data class StudioEngineSwitchMutations(
+    val configurations: StudioConfigurationController,
+    val carry: StudioContextCarry,
+    val helpers: StudioEngineSwitchHelpers,
 )
