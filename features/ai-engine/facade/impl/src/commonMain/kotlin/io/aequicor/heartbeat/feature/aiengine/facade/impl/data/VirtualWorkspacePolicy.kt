@@ -19,6 +19,8 @@ internal class VirtualWorkspacePolicy(
     private val engines: Lazy<EngineFacade>,
     private val tools: Lazy<Set<AgentToolContribution>>,
 ) : AgentToolPolicyProvider {
+    override val isIsolation: Boolean = true
+
     override suspend fun policy(scope: ToolPolicyScope): ToolPolicy? {
         val workspace = scope.workspace ?: return null
         if (workspaces.virtual(workspace) == null) return null
