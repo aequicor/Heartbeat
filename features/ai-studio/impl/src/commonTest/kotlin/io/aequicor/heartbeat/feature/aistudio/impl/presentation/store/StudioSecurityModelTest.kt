@@ -59,6 +59,23 @@ class StudioSecurityModelTest {
     }
 
     @Test
+    fun `external profile changes remain visible while saving and after a failure`() = runTest {
+        machine.state.value = StudioSecurityState.Ready(StudioSecurityLevel.Ask)
+        val store = screen()
+        machine.state.value = StudioSecurityState.Ready(StudioSecurityLevel.Trust)
+        runCurrent()
+        assertEquals(StudioSecurityLevelUi.Trust, store.states.value.level)
+        machine.state.value = StudioSecurityState.Saving(StudioSecurityLevel.Automatic, StudioSecurityLevel.Ask)
+        runCurrent()
+        assertEquals(StudioSecurityLevelUi.Automatic, store.states.value.level)
+        assertTrue(store.states.value.isSaving)
+        machine.state.value = StudioSecurityState.Ready(StudioSecurityLevel.Automatic, isSaveFailed = true)
+        runCurrent()
+        assertEquals(StudioSecurityLevelUi.Automatic, store.states.value.level)
+        assertTrue(store.states.value.isSaveFailed)
+    }
+
+    @Test
     fun `reopened screen reflects errors and retries the profile load`() = runTest {
         machine.state.value = StudioSecurityState.LoadError
         val store = screen()
