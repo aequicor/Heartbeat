@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ExtensionPreparation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import org.junit.AssumptionViolatedException
+import java.nio.file.FileSystemException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.ZipEntry
@@ -98,15 +100,21 @@ class DesktopExtensionInstallerTest {
     }
 
     @Test
-    fun `unexpected files and links invalidate the offline cache`() = runTest {
+    fun `unexpected files invalidate the offline cache`() = runTest {
         archive()
         val installer = installer()
         val folder = installer.prepare {}
         Files.writeString(folder.resolve("injected.js"), "unexpected")
         assertNull(installer.locate())
-        Files.delete(folder.resolve("injected.js"))
+    }
+
+    @Test
+    fun `symbolic links invalidate the offline cache`() = runTest {
+        archive()
+        val installer = installer()
+        val folder = installer.prepare {}
         Files.delete(folder.resolve("app/panel.js"))
-        Files.createSymbolicLink(folder.resolve("app/panel.js"), archive)
+        createTestSymbolicLink(folder.resolve("app/panel.js"), archive)
         assertNull(installer.locate())
     }
 
@@ -114,23 +122,49 @@ class DesktopExtensionInstallerTest {
     fun `a linked cache root is rejected before writing outside the cache`() = runTest {
         archive()
         val outside = Files.createDirectory(root.resolve("outside"))
-        Files.createSymbolicLink(root.resolve("cache"), outside)
+        createTestSymbolicLink(root.resolve("cache"), outside)
         assertFailsWith<Exception> { installer().prepare {} }
         assertTrue(Files.list(outside).use { it.findAny().isEmpty })
     }
 
-    private fun installer(before: () -> Unit = {}): DesktopExtensionInstaller {
+    @Test
+    fun `installed resource paths fit the Chromium Windows path limit`() = runTest {
+        archive()
+        val folder = installer().prepare {}
+        val relative = root.resolve("cache").relativize(folder).toString().replace('\\', '/')
+        val storage = "C:/Users/extension-user/AppData/Roaming/Aequicor/Heartbeat/cache/chromium-extension"
+        val resource = "app/composeResources/io.aequicor.heartbeat.chromiumplugin.panel.resources/" +
+            "files/fonts/NotoSansSymbols2-Regular.ttf"
+        assertTrue("$storage/$relative/$resource".length < 260)
+        assertEquals(folder, installer().locate())
+    }
+
+    @Test
+    fun `cache prefix collisions still verify the full artifact digest and retain loaded folders`() = runTest {
+        archive()
+        val first = installer()
+        val original = first.prepare {}
+        val second = installer(expectedSha = sha.take(16) + "b".repeat(48))
+        assertNull(second.locate())
+        val replacement = second.prepare {}
+        assertNotEquals(original, replacement)
+        assertEquals(replacement, second.locate())
+        assertNull(first.locate())
+        assertTrue(Files.isRegularFile(original.resolve("app/panel.js")))
+    }
+
+    private fun installer(expectedSha: String = sha, before: () -> Unit = {}): DesktopExtensionInstaller {
         val cache = object : VerifiedArtifactCache {
             override suspend fun prepare(artifact: ReleaseArtifact, progress: suspend (Long, Long?) -> Unit): Path {
                 before()
-                assertEquals(sha, artifact.download.sha256)
+                assertEquals(expectedSha, artifact.download.sha256)
                 progress(Files.size(archive), Files.size(archive))
                 return archive
             }
         }
         return DesktopExtensionInstaller(root.resolve("cache"), cache, dispatchers) {
             "version=1.2.3\nurl=https://github.com/aequicor/Heartbeat/releases/download/v1.2.3/extension.zip\n" +
-                "sha256=$sha\nsize=${Files.size(archive)}\n"
+                "sha256=$expectedSha\nsize=${Files.size(archive)}\n"
         }
     }
 
@@ -150,4 +184,15 @@ class DesktopExtensionInstallerTest {
             }
         }
     }
+}
+
+/** Only Windows denial of symlink privilege skips a scenario; all other filesystem errors fail it. */
+private fun createTestSymbolicLink(link: Path, target: Path): Path = try {
+    Files.createSymbolicLink(link, target)
+} catch (error: FileSystemException) {
+    val reason = error.reason.orEmpty()
+    val missingPrivilege = reason.contains("required privilege", ignoreCase = true) ||
+        reason.contains("требуемыми правами", ignoreCase = true)
+    if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true) || !missingPrivilege) throw error
+    throw AssumptionViolatedException("Windows symlinks require Developer Mode or symlink privilege", error)
 }
