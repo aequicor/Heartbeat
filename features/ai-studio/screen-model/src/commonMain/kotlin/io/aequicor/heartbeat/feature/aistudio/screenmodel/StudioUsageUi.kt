@@ -9,11 +9,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
 import kotlin.time.Instant
 
-/** Confirmed context occupancy of one conversation. */
+/** Confirmed native usage of one conversation; unknown capacity and percentage stay null. */
 @Serializable
 @SerialName("ContextUsageUi")
 @Immutable
-data class ContextUsageUi(val usedTokens: Long, val capacityTokens: Long, val percent: Int)
+data class ContextUsageUi(val usedTokens: Long, val capacityTokens: Long?, val percent: Int?)
 
 /** One known provider quota window. */
 @Serializable

@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_credits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_expires
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_last_measurement
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limit_unknown
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_percent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_remaining
@@ -34,6 +35,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_resets
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_stale
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_title
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens_unknown_limit
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_unlimited
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_window_hours
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_window_minutes
@@ -55,11 +57,16 @@ internal fun StudioUsage(content: PaneContent, onIntent: (StudioIntent) -> Unit)
     val modelId = content.settings.modelId
     var isOpen by remember(content.pane.id, content.pane.sessionId, modelId) { mutableStateOf(false) }
     val title = stringResource(Res.string.usage_title)
-    val percent = context?.let { "$title: ${stringResource(Res.string.usage_percent, it.percent)}" } ?: title
-    val accessible = if (content.isCompacting) "$percent · ${stringResource(Res.string.usage_compacting)}" else percent
+    val percent = context?.percent
+    val detail = when {
+        context == null -> title
+        percent == null -> stringResource(Res.string.usage_tokens_unknown_limit, context.usedTokens.toString())
+        else -> "$title: ${stringResource(Res.string.usage_percent, percent)}"
+    }
+    val accessible = if (content.isCompacting) "$detail · ${stringResource(Res.string.usage_compacting)}" else detail
     HbComposerUsageButton(
         contextPercent = context?.percent,
-        label = stringResource(Res.string.usage_limits),
+        label = stringResource(if (context == null) Res.string.usage_limits else Res.string.usage_context),
         isExpanded = isOpen,
         onExpandedChange = {
             isOpen = it
@@ -105,9 +112,19 @@ private fun CompactButton(content: PaneContent, onClick: () -> Unit) {
 
 @Composable
 private fun ContextDetails(usage: ContextUsageUi) {
-    UsageRow(stringResource(Res.string.usage_context), "${usage.percent}%")
-    UsageProgress(usage.percent)
-    SecondaryText(stringResource(Res.string.usage_tokens, usage.usedTokens.toString(), usage.capacityTokens.toString()))
+    val percent = usage.percent
+    UsageRow(
+        stringResource(Res.string.usage_context),
+        percent?.let { "$it%" } ?: stringResource(Res.string.usage_limit_unknown),
+    )
+    if (percent != null) UsageProgress(percent)
+    val capacity = usage.capacityTokens
+    val tokens = if (capacity == null) {
+        stringResource(Res.string.usage_tokens_unknown_limit, usage.usedTokens.toString())
+    } else {
+        stringResource(Res.string.usage_tokens, usage.usedTokens.toString(), capacity.toString())
+    }
+    SecondaryText(tokens)
     SecondaryText(stringResource(Res.string.usage_last_measurement))
 }
 

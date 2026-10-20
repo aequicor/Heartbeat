@@ -31,7 +31,8 @@ class ClaudeUsageTest {
                 """,
             ),
         )
-        assertNull(usage.state.value)
+        assertEquals(65L, usage.state.value?.usedTokens)
+        assertNull(usage.state.value?.capacityTokens)
         usage.receive(
             parseClaudeObject(
                 """
@@ -95,7 +96,8 @@ class ClaudeUsageTest {
                 """,
             ),
         )
-        assertNull(usage.state.value)
+        assertEquals(15L, usage.state.value?.usedTokens)
+        assertNull(usage.state.value?.capacityTokens)
         usage.receive(
             parseClaudeObject(
                 """
@@ -103,7 +105,8 @@ class ClaudeUsageTest {
                 """,
             ),
         )
-        assertNull(usage.state.value)
+        assertEquals(15L, usage.state.value?.usedTokens)
+        assertNull(usage.state.value?.capacityTokens)
         usage.receive(
             parseClaudeObject(
                 """

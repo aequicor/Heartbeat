@@ -45,7 +45,8 @@ class CodexUsageTest {
                 """,
             ),
         )
-        assertNull(context.state.value)
+        assertEquals(12L, context.state.value?.usedTokens)
+        assertNull(context.state.value?.capacityTokens)
         context.receive(
             usageObject(
                 """

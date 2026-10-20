@@ -5,19 +5,26 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.time.Instant
 
-/** Native context occupancy for the current model, never cumulative session billing or a text estimate. */
+/**
+ * Native context usage for the current model, never cumulative session billing or a text estimate.
+ * [capacityTokens] is a confirmed positive limit, or null when unknown; native usage remains useful without it.
+ * An unknown capacity must not imply zero occupancy, unlimited context or a threshold for automatic compaction.
+ */
 public data class ContextUsage(
     val usedTokens: Long,
-    val capacityTokens: Long,
+    val capacityTokens: Long?,
     val observation: Observation = Observation(),
 ) {
     init {
         require(usedTokens >= 0) { "Negative context usage" }
-        require(capacityTokens > 0) { "Non-positive context capacity" }
+        require(capacityTokens == null || capacityTokens > 0) { "Non-positive context capacity" }
     }
 }
 
-/** Optional telemetry of an active native session; null means the occupancy or capacity is unknown. */
+/**
+ * Optional telemetry of an active native session; null means native token usage is unknown.
+ * The capacity can be independently unknown.
+ */
 public interface SessionContextUsage : EngineFeature {
     /** Last native observation, replaced after compaction or model changes; reading never generates text. */
     public val state: StateFlow<ContextUsage?>

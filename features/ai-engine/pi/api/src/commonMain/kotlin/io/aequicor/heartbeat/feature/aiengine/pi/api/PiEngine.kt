@@ -39,9 +39,11 @@ public val PiEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.pi", "Встр
 
 /**
  * Static metadata; installation and credentials are checked separately.
- * Pi accepts only managed API keys with a known revision: for the exact Anthropic, OpenAI, Google and Z.ai
- * Coding Plan origins, or for OpenAI-/Anthropic-compatible servers ([CompatibleProtocol]);
- * the native `zai` route uses `https://api.z.ai/api/coding/paas/v4`, not the pay-as-you-go API.
+ * Pi accepts only managed API keys with a known revision: for the exact Anthropic, OpenAI, Google, Z.ai Coding Plan
+ * and Qwen Token Plan origins, or for OpenAI-/Anthropic-compatible servers ([CompatibleProtocol]).
+ * The native `zai` route uses `https://api.z.ai/api/coding/paas/v4`, not the pay-as-you-go API, and the Qwen routes
+ * `https://token-plan.<region>.maas.aliyuncs.com/compatible-mode/v1`, not the origin root: every pin keeps Pi's own
+ * catalog for the route, so model ids, context limits, thinking levels and input modalities are the ones Pi verified.
  * model ids are `provider/native-id`. Stored transcripts of the profile are resumed after a restart
  * ([AttachesSessions]). Desktop only (Windows, macOS, Linux).
  */
@@ -87,6 +89,21 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
             ConnectionMethodId("zai"),
             ProviderInfo(ProviderId("zai"), "Z.ai Coding Plan"),
             EndpointOrigin("https://api.z.ai"),
+        ),
+        ConnectionMethod.ApiKey(
+            ConnectionMethodId("qwen-token-plan"),
+            ProviderInfo(ProviderId("qwen-token-plan"), "Qwen Token Plan"),
+            EndpointOrigin("https://token-plan.ap-southeast-1.maas.aliyuncs.com"),
+        ),
+        ConnectionMethod.ApiKey(
+            ConnectionMethodId("qwen-token-plan-individual"),
+            ProviderInfo(ProviderId("qwen-token-plan-individual"), "Qwen Token Plan Individual"),
+            EndpointOrigin("https://token-plan.ap-southeast-1.maas.aliyuncs.com"),
+        ),
+        ConnectionMethod.ApiKey(
+            ConnectionMethodId("qwen-token-plan-cn"),
+            ProviderInfo(ProviderId("qwen-token-plan-cn"), "Qwen Token Plan China"),
+            EndpointOrigin("https://token-plan.cn-beijing.maas.aliyuncs.com"),
         ),
         CompatibleProtocol.OpenAI.method,
         CompatibleProtocol.Anthropic.method,

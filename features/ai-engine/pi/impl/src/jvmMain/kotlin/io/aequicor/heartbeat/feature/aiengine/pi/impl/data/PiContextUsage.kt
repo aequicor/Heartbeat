@@ -22,7 +22,7 @@ internal fun piContextUsage(
     ) {
         return null
     }
-    val capacity = confirmedCapacity?.takeIf { it > 0 } ?: model.nativeContextCapacity() ?: return null
+    val capacity = confirmedCapacity?.takeIf { it > 0 } ?: model.nativeContextCapacity()
     val usage = message["usage"] as? JsonObject ?: return null
     val tokens = usage.number("totalTokens")?.takeIf { it > 0 } ?: run {
         val counts = listOf("input", "output", "cacheRead", "cacheWrite").map {

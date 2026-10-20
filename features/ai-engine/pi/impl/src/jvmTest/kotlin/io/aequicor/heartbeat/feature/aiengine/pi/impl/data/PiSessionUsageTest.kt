@@ -62,7 +62,8 @@ class PiSessionUsageTest {
             connection.contextWindows = mapOf("$provider/other" to 200000L)
         }
         fixture.connection.event(measurement(provider, "test"))
-        assertNull(fixture.session.contextUsage.state.value)
+        assertEquals(610L, fixture.session.contextUsage.state.value?.usedTokens)
+        assertNull(fixture.session.contextUsage.state.value?.capacityTokens)
         fixture.session.shutdown()
     }
 

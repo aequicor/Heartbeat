@@ -17,6 +17,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -161,6 +162,65 @@ class PiCompatibleCatalogTest {
             piConfiguredContextWindows(config),
         )
         assertEquals(emptyMap(), piConfiguredContextWindows(null))
+    }
+
+    @Test
+    fun `capacities and modalities a server declares become part of the model`() {
+        val models = parseCompatibleModels(
+            """{"data":[
+            {"id":"gpt-x","context_window":400000,"max_completion_tokens":128000,
+            "architecture":{"input_modalities":["text","image"]}},
+            {"id":"vllm-y","max_model_len":32768},
+            {"id":"ollama-z","context_length":20480,"architecture":{"input_modalities":["text"]}},
+            {"id":"junk","context_window":0,"max_tokens":-5,"architecture":{"input_modalities":["text","audio"]}},
+            {"id":"plain","architecture":{"input_modalities":[]}}]}""",
+        )
+        assertEquals(
+            listOf(
+                PiCompatibleModel("gpt-x", null, 400000, 128000, listOf("text", "image")),
+                PiCompatibleModel("vllm-y", null, 32768),
+                PiCompatibleModel("ollama-z", null, 20480, null, listOf("text")),
+                PiCompatibleModel("junk"),
+                PiCompatibleModel("plain"),
+            ),
+            models,
+        )
+    }
+
+    @Test
+    fun `models json writes the declared fields and Pi catalog keeps the last word`() {
+        val builtin = mapOf("m1" to Json.parseToJsonElement("""{"contextWindow":1000000}""").jsonObject)
+        val declared = listOf(
+            PiCompatibleModel("m1", null, 4096, 512, listOf("text", "image")),
+            PiCompatibleModel("m2", null, 32768),
+        )
+        val models = Json.parseToJsonElement(piModelsJson(PiProvider.OpenAiCompatible, openAiScope, declared, builtin))
+            .jsonObject.getValue("providers").jsonObject.getValue("openai-compatible").jsonObject
+            .getValue("models").jsonArray.map { it.jsonObject }
+        assertEquals(1000000L, models.first().getValue("contextWindow").jsonPrimitive.long)
+        assertEquals(512L, models.first().getValue("maxTokens").jsonPrimitive.long)
+        val inputs = models.first().getValue("input").jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("text", "image"), inputs)
+        assertEquals(setOf("id", "contextWindow"), models.last().keys)
+        assertEquals(32768L, models.last().getValue("contextWindow").jsonPrimitive.long)
+        assertEquals(
+            mapOf("openai-compatible/m1" to 1000000L, "openai-compatible/m2" to 32768L),
+            piConfiguredContextWindows(piModelsJson(PiProvider.OpenAiCompatible, openAiScope, declared, builtin)),
+        )
+    }
+
+    @Test
+    fun `discovery carries what the server listed about each model`() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"data":[{"id":"m1","context_window":131072,
+                "architecture":{"input_modalities":["text","image"]}}]}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val catalog = PiCompatibleCatalog(HttpClient(engine))
+        val models = catalog.models(CompatibleProtocol.OpenAI, openAiScope, "mock-key", source)
+        assertEquals(listOf(PiCompatibleModel("m1", null, 131072, null, listOf("text", "image"))), models)
     }
 
     @Test

@@ -52,6 +52,29 @@ class PiProviderTest {
     }
 
     @Test
+    fun tokenPlanPresetsAcceptNativeModelsAndRefuseEndpointOverrides() {
+        listOf(
+            "qwen-token-plan" to PiProvider.QwenTokenPlan,
+            "qwen-token-plan-individual" to PiProvider.QwenTokenPlanIndividual,
+            "qwen-token-plan-cn" to PiProvider.QwenTokenPlanCn,
+        ).forEach { (id, expected) ->
+            val method = PiDescriptor.connectionMethods.single { it.id.value == id }
+            val qwen = source.copy(scope = method.scopeFor())
+            val model = context.copy(model = ModelId("$id/qwen3.8-max"))
+            assertTrue(acceptsPi(qwen, model))
+            assertEquals(expected, provider(qwen))
+            assertFalse(method.isOriginEditable)
+            assertFalse(method.isPathEditable)
+            // The route pins the catalog path itself: a hand-written path is a different route.
+            assertFalse(acceptsPi(qwen.copy(scope = qwen.scope.copy(basePath = "/v1")), model))
+            assertFalse(
+                acceptsPi(qwen.copy(scope = qwen.scope.copy(origin = EndpointOrigin("https://example.com"))), model),
+            )
+            assertFalse(acceptsPi(qwen, model.copy(model = ModelId("openai-compatible/qwen3.8-max"))))
+        }
+    }
+
+    @Test
     fun foreignEngineModelEndpointAndCliLoginAreRejected() {
         assertFalse(acceptsPi(source, context.copy(engine = EngineId("other"))))
         assertFalse(acceptsPi(source, context.copy(model = ModelId("openai/model"))))

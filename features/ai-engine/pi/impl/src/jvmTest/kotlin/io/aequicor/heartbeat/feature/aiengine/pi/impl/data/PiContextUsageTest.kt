@@ -37,7 +37,9 @@ class PiContextUsageTest {
     fun `compatible model defaults do not confirm context capacity`() {
         for (provider in listOf(PiProvider.OpenAiCompatible.id, PiProvider.AnthropicCompatible.id)) {
             val model = json("""{"provider":"$provider","id":"test","contextWindow":128000}""")
-            assertNull(piContextUsage(message("""{"totalTokens":4096}""", provider = provider), model, now))
+            val usage = piContextUsage(message("""{"totalTokens":4096}""", provider = provider), model, now)
+            assertEquals(4096L, usage?.usedTokens)
+            assertNull(usage?.capacityTokens)
         }
     }
 

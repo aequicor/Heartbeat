@@ -103,6 +103,15 @@ class ContextLedgerDeliveryTest {
         assertTrue("70%" in status && "Fix every open issue" in status)
     }
 
+    @Test
+    fun `status exposes native tokens with an explicit unknown limit`() = runTest {
+        state.value = ContextOptimizationState.Ready(usage = mapOf(Session to ContextUsage(4096, null)))
+        val tools = ContextAgentTools(view, Registry(), EnabledToggles(), Clock.System)
+        val status = tools.execute(ToolContext, ContextOptimizationTools.STATUS, JsonObject(emptyMap())).text
+        assertTrue("Context occupancy after the last turn: 4096 tokens (limit unknown)" in status)
+        assertTrue("null" !in status)
+    }
+
     private class Registry : MachineRegistry {
         val sent = mutableListOf<MachineIntent>()
 

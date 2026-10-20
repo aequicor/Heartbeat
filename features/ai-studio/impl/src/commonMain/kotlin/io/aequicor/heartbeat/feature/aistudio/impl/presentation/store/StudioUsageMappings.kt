@@ -12,7 +12,7 @@ import kotlin.math.roundToInt
 internal fun ContextUsage.toUi(): ContextUsageUi = ContextUsageUi(
     usedTokens,
     capacityTokens,
-    (usedTokens.toDouble() / capacityTokens * PERCENT_MAX).coerceIn(0.0, PERCENT_MAX).roundToInt(),
+    capacityTokens?.let { (usedTokens.toDouble() / it * PERCENT_MAX).coerceIn(0.0, PERCENT_MAX).roundToInt() },
 )
 
 internal fun ProviderUsageSnapshot.toUi(): ProviderUsageUi = ProviderUsageUi(

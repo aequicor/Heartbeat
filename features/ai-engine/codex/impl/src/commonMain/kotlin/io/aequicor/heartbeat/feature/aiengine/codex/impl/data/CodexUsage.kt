@@ -51,7 +51,7 @@ internal class CodexContextUsage : SessionContextUsage {
         val tokens = (last?.get("totalTokens") as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 }
         val capacity = (usage?.get("modelContextWindow") as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 }
         log.d { "Codex context observation updated" }
-        mutableState.value = if (tokens != null && capacity != null) {
+        mutableState.value = if (tokens != null) {
             ContextUsage(tokens, capacity, Observation(Clock.System.now(), isStale = false))
         } else {
             null

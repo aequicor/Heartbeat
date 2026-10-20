@@ -51,7 +51,7 @@ internal class KoogSessionUsage(private val access: KoogAccess, scope: Coroutine
                 ?: nativeTokenSum(metadata.inputTokensCount?.toLong(), metadata.outputTokensCount?.toLong())
         }
         val capacity = tokens?.let { access.contextWindows.resolve(connection, model, client) }
-        value.value = if (tokens != null && capacity != null && access.usageEnabled()) {
+        value.value = if (tokens != null && access.usageEnabled()) {
             ContextUsage(tokens, capacity, Observation(Clock.System.now(), isStale = false))
         } else {
             null

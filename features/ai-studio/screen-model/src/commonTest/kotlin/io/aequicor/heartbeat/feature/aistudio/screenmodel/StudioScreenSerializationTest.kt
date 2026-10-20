@@ -13,6 +13,14 @@ import kotlin.time.Instant
 
 class StudioScreenSerializationTest {
     @Test
+    fun `conflict resolution keeps its existing remote field name`() {
+        val wire = """{"sessionId":"s","isResume":true,"resolveConflicts":true}"""
+        val intent = AiStudioScreenIntent.RecheckWorktree("s", isResume = true, isConflictResolutionRequested = true)
+        assertEquals(intent, StudioViewJson.decodeFromString(AiStudioScreenIntent.RecheckWorktree.serializer(), wire))
+        assertEquals(wire, StudioViewJson.encodeToString(AiStudioScreenIntent.RecheckWorktree.serializer(), intent))
+    }
+
+    @Test
     fun `replacement snapshots and expected menu route survive remote transport with legacy defaults`() {
         val screen = AiStudioScreenState(
             isEngineSwitchingAvailable = true,
