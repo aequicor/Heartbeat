@@ -4,10 +4,7 @@ import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -26,7 +23,6 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewMetrics
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
-import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiTools
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWeb
@@ -55,14 +51,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServiceUiPreviewToolsTest {
     private val renderer = Renderer()
     private val toggles = Toggles()
-    private val reviewer = Reviewer()
     private val tools = tools(HostPlatform.MacOs)
     private val context = AgentToolContext(
         SessionRef(EngineId("pi"), SessionSourceId("source"), "session"),
@@ -78,7 +71,6 @@ class ServiceUiPreviewToolsTest {
         assertEquals(ServiceUiTools.PREVIEW, declaration.name)
         assertEquals(AgentToolAction.Read, declaration.action)
         assertEquals(listOf(ServiceUiTools.PREVIEW), tools.catalog.map { it.name })
-        assertNull(tools.automaticAuthorization(context, declaration, arguments()))
         assertEquals(JsonArray(listOf(JsonPrimitive("html"))), declaration.inputSchema.getValue("required").jsonArray)
         assertEquals(JsonPrimitive(false), declaration.inputSchema["additionalProperties"])
         assertEquals(
@@ -242,7 +234,6 @@ class ServiceUiPreviewToolsTest {
                 assertFalse(approval.description.orEmpty().contains("Private sample"))
             }
         }
-        assertTrue(reviewer.changes.isEmpty())
         assertTrue(renderer.requests.isEmpty())
     }
 
@@ -293,35 +284,21 @@ class ServiceUiPreviewToolsTest {
     }
 
     @Test
-    fun `external previews need exact automatic review and cannot select their own policy`() = runTest {
+    fun `external previews need exact facade authorization and cannot select their own policy`() = runTest {
         toggles.set(ServiceUiWebSafeMode.key, false)
-        assertTrue(call().isError)
         val spec = tools.specifications(null).single()
-        reviewer.verdict = AgentSafetyReview("risk", "Data exfiltration")
-        assertIs<AgentToolAutomaticAuthorization.Denied>(tools.automaticAuthorization(context, spec, arguments()))
-        assertTrue(renderer.requests.isEmpty())
-        reviewer.verdict = AgentSafetyReview("safe", "Ordinary assets")
-        val changed = arguments("html" to JsonPrimitive(HTML + " "))
-        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            tools.automaticAuthorization(context, spec, changed),
-        )
-        val authorized = context.copy(authorization = allowed.approval)
-        assertTrue(tools.execute(authorized, ServiceUiTools.PREVIEW, arguments()).isError)
-        assertFalse(tools.execute(authorized, ServiceUiTools.PREVIEW, changed).isError)
-        assertEquals(BrowserDocumentResourcePolicy.ExternalAssets, renderer.requests.single().resourcePolicy)
-        assertTrue(reviewer.changes.last().contains("ExternalAssets"))
-        assertTrue(call(arguments("resourcePolicy" to JsonPrimitive("ExternalAssets"))).isError)
+        val approval = tools.approval(context, spec, arguments())
+        assertTrue(tools.execute(context, ServiceUiTools.PREVIEW, arguments()).isError)
+        assertFalse(tools.execute(context.copy(authorization = approval), ServiceUiTools.PREVIEW, arguments()).isError)
     }
 
     @Test
     fun `turning safe mode on revokes an active external preview and returns no image`() = runTest {
         toggles.set(ServiceUiWebSafeMode.key, false)
-        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            tools.automaticAuthorization(context, tools.specifications(null).single(), arguments()),
-        )
+        val allowed = tools.approval(context, tools.specifications(null).single(), arguments())
         renderer.isSuspended = true
         val preview = async {
-            tools.execute(context.copy(authorization = allowed.approval), ServiceUiTools.PREVIEW, arguments())
+            tools.execute(context.copy(authorization = allowed), ServiceUiTools.PREVIEW, arguments())
         }
         renderer.started.await()
         toggles.set(ServiceUiWebSafeMode.key, true)
@@ -353,7 +330,6 @@ class ServiceUiPreviewToolsTest {
         object : PlatformInfo {
             override val host = host
         },
-        ServiceUiToolSafety(reviewer),
     )
 
     private suspend fun call(args: Map<String, JsonElement> = arguments()) =
@@ -398,15 +374,6 @@ class ServiceUiPreviewToolsTest {
 
         @Suppress("UNCHECKED_CAST") // This fixture exposes boolean interface flags.
         override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = (toggle.key !in disabled.value) as T
-    }
-
-    private class Reviewer : AgentSafetyReviewer {
-        var verdict = AgentSafetyReview("safe", "Ordinary external assets")
-        val changes = mutableListOf<String>()
-        override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview {
-            changes += change
-            return verdict
-        }
     }
 
     private companion object {

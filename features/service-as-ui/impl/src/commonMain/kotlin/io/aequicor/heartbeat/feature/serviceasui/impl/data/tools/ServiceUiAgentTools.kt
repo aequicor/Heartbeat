@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
@@ -78,8 +77,8 @@ import kotlin.uuid.Uuid
 
 /**
  * Agent tools of the interface library: the format reference, reading the library and owners, and creating,
- * replacing and deleting interfaces. Mutations and agent method calls require independent automatic safety
- * review bound to the exact proposal; a refusal returns to the agent without an interactive permission request.
+ * replacing and deleting interfaces. Mutations and agent method calls require the central profile permission
+ * decision bound to the exact proposal.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -89,7 +88,6 @@ internal class ServiceUiAgentTools(
     private val cards: Lazy<UiCardStorage>,
     private val toggles: FeatureToggles,
     private val clock: Clock,
-    private val safety: ServiceUiToolSafety,
     private val knowledge: UiAuthoringKnowledge,
 ) : AgentToolContribution {
     private val log = Log.tag("ServiceUiTools")
@@ -108,19 +106,6 @@ internal class ServiceUiAgentTools(
     override suspend fun instructions(scope: AgentToolScope): String {
         val declared = scope.declared
         return if (declared == null || ServiceUiTools.PUT in declared) instructions(scope.workspace) else ""
-    }
-
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? {
-        if (spec.name !in REVIEWED_TOOLS) return null
-        if (!toggles.get(ServiceUiEnabled)) return AgentToolAutomaticAuthorization.Denied(NOT_LOADED)
-        return when (val proposal = safetyPlan(context, spec, arguments)) {
-            is SafetyPlan.Invalid -> AgentToolAutomaticAuthorization.Denied(proposal.message)
-            is SafetyPlan.Ready -> safety.authorize(context, proposal.request)
-        }
     }
 
     override suspend fun approval(
@@ -199,7 +184,7 @@ internal class ServiceUiAgentTools(
             if (plan is Plan.Put) put("proposed", Json.encodeToJsonElement(plan.content))
         }
         return SafetyPlan.Ready(
-            uiToolSafetyRequest(
+            uiToolOperation(
                 context,
                 plan.approval.copy(name = spec.name),
                 arguments,
@@ -242,7 +227,7 @@ internal class ServiceUiAgentTools(
             return SafetyPlan.Invalid("args are too large")
         }
         return SafetyPlan.Ready(
-            uiToolSafetyRequest(
+            uiToolOperation(
                 context,
                 unreviewedApproval(spec, arguments),
                 arguments,
@@ -277,7 +262,7 @@ internal class ServiceUiAgentTools(
             put("source", review.source)
         }
         return SafetyPlan.Ready(
-            uiToolSafetyRequest(
+            uiToolOperation(
                 context,
                 unreviewedApproval(spec, arguments),
                 arguments,
@@ -319,9 +304,9 @@ internal class ServiceUiAgentTools(
 
     private suspend fun authorizedPlan(context: AgentToolContext, name: String, arguments: JsonObject): SafetyPlan {
         val plan = safetyPlan(context, ServiceUiToolSpecs.first { it.name == name }, arguments)
-        return if (plan is SafetyPlan.Ready && !safety.isAuthorized(context, plan.request)) {
+        return if (plan is SafetyPlan.Ready && context.authorization != plan.request.approval) {
             SafetyPlan.Invalid(
-                "the interface changed while awaiting approval or safety review expired; request it again",
+                "the interface changed while awaiting approval ; request it again",
             )
         } else {
             plan
@@ -633,7 +618,7 @@ internal class ServiceUiAgentTools(
         data class Invalid(val message: String) : SafetyPlan
 
         /** The initial displayed surface is checked again after awaiting the safety memo. */
-        data class Ready(val request: UiToolSafetyRequest, val shownSurface: UiSurface? = null) : SafetyPlan {
+        data class Ready(val request: UiToolOperation, val shownSurface: UiSurface? = null) : SafetyPlan {
             override fun toString(): String = "SafetyPlan.Ready(***)"
         }
     }

@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
@@ -46,7 +45,6 @@ internal class ServiceUiPreviewTools(
     private val previews: BrowserDocumentPreviews,
     private val toggles: FeatureToggles,
     platform: PlatformInfo,
-    private val safety: ServiceUiToolSafety,
 ) : AgentToolContribution {
     private val isDesktop = platform.host in setOf(HostPlatform.MacOs, HostPlatform.Windows, HostPlatform.Linux)
     private val configuration = toggles.uiWebConfiguration(isDesktop)
@@ -64,19 +62,6 @@ internal class ServiceUiPreviewTools(
     override suspend fun instructions(scope: AgentToolScope): String {
         val declared = scope.declared
         return if (declared == null || ServiceUiTools.PREVIEW in declared) instructions(scope.workspace) else ""
-    }
-
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? {
-        val current = configuration.first()
-        if (!current.isEnabled) return AgentToolAutomaticAuthorization.Denied("WebView preview is unavailable")
-        if (current.resourcePolicy == BrowserDocumentResourcePolicy.Isolated) return null
-        val parsed = previewArguments(arguments)
-        if (parsed is UiPreviewArguments.Invalid) return AgentToolAutomaticAuthorization.Denied(parsed.message)
-        return safety.authorize(context, previewSafety(context, arguments, current))
     }
 
     override suspend fun approval(
@@ -99,9 +84,9 @@ internal class ServiceUiPreviewTools(
             is UiPreviewArguments.Invalid -> return failure(parsed.message)
         }
         if (current.resourcePolicy == BrowserDocumentResourcePolicy.ExternalAssets &&
-            !safety.isAuthorized(context, previewSafety(context, arguments, current))
+            context.authorization != previewSafety(context, arguments, current).approval
         ) {
-            return failure("Automatic safety review is missing or settings changed; request the preview again")
+            return failure("Authorization is missing or settings changed; request the preview again")
         }
         val configured = input.copy(request = input.request.copy(resourcePolicy = current.resourcePolicy))
         val result = previewWithConfiguration(configuration, current) { previews.preview(configured.request) }
@@ -120,7 +105,7 @@ internal class ServiceUiPreviewTools(
         context: AgentToolContext,
         arguments: JsonObject,
         configuration: UiWebConfiguration,
-    ): UiToolSafetyRequest = uiToolSafetyRequest(
+    ): UiToolOperation = uiToolOperation(
         context,
         AgentToolApproval(ServiceUiTools.PREVIEW, "Preview an HTML draft"),
         arguments,
