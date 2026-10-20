@@ -6,8 +6,6 @@ import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviewer
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
 import okio.ByteString.Companion.encodeUtf8
 
@@ -15,10 +13,6 @@ import okio.ByteString.Companion.encodeUtf8
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 public object HarnessAuthoringBindings {
-    @Provides
-    @SingleIn(ProfileScope::class)
-    internal fun reviews(reviewer: HarnessCodeReviewer): HarnessCodeReviews = HarnessCodeReviews(reviewer)
-
     @Provides
     @SingleIn(ProfileScope::class)
     internal fun checks(host: HarnessScriptHost): HarnessCodeChecks =

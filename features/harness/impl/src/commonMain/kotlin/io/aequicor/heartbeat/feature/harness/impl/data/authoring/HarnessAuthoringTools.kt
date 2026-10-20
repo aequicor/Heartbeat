@@ -6,7 +6,6 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
@@ -35,7 +34,6 @@ import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.AuthoringCommand
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeCheck
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
@@ -68,9 +66,8 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
- * Agent library mutations pass an independent automatic safety review. The complete proposed change, previous
- * harness, connections and trusted caller are bound to a cached verdict. Only safe permits execution; execution
- * never starts a new review or requests a user decision. Machine CAS checks protect revision and connection scope.
+ * Library mutations use the shared tool permission gate. The complete proposed change, previous harness,
+ * connections and caller are bound to the operation. Machine CAS checks protect revision and connection scope.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -80,7 +77,6 @@ internal class HarnessAuthoringTools(
     private val checks: Lazy<HarnessCodeChecks>,
     private val catalogs: Lazy<HarnessToolCatalogs>,
     private val clock: Clock,
-    private val reviews: Lazy<HarnessCodeReviews>,
     private val creationScopes: HarnessCreationScope,
 ) : AgentToolContribution {
     private val log = Log.tag("HarnessTools")
@@ -109,9 +105,8 @@ internal class HarnessAuthoringTools(
                         "workflow — оркестрация помощников.",
                 )
                 add(
-                    "Все изменения проходят независимую автоматическую проверку безопасности; код также " +
-                        "компилируется. Безопасные изменения выполняются, риск, неопределённость или недоступность " +
-                        "проверки возвращают ошибку с причиной. Не сохраняй секреты.",
+                    "Изменения подчиняются общей настройке безопасности; код также компилируется. " +
+                        "Подтверждение относится к полному изменению. Не сохраняй секреты.",
                 )
             }
             if (has(HarnessTools.TOOLS_SET)) {
@@ -125,25 +120,13 @@ internal class HarnessAuthoringTools(
         spec: AgentToolSpec,
         arguments: JsonObject,
     ): AgentToolApproval = when (val planned = plan(context, spec.name, arguments)) {
-        is Plan.Ready -> harnessSafetySnapshot(context, planned.approval, checkNotNull(planned.reviewChange)).approval
+        is Plan.Ready -> planned.approval
         is Plan.Invalid -> AgentToolApproval(spec.name, spec.description, planned.message, binding = "safety-refused")
-    }
-
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization {
-        if (!toggles.get(HarnessEnabled)) return AgentToolAutomaticAuthorization.Denied("Harnesses are turned off")
-        return when (val plan = reviewed(context, plan(context, spec.name, arguments), canStart = true)) {
-            is Plan.Ready -> AgentToolAutomaticAuthorization.Allowed(plan.approval)
-            is Plan.Invalid -> AgentToolAutomaticAuthorization.Denied(plan.message)
-        }
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (!toggles.get(HarnessEnabled)) return failure("harnesses are turned off")
-        val plan = when (val planned = reviewed(context, plan(context, name, arguments), canStart = false)) {
+        val plan = when (val planned = plan(context, name, arguments)) {
             is Plan.Invalid -> {
                 log.d { "Harness authoring request refused name=$name final=${planned.isFinal}" }
                 return failure("not saved: ${planned.message}")
@@ -151,27 +134,11 @@ internal class HarnessAuthoringTools(
 
             is Plan.Ready -> planned
         }
-        if (context.authorization?.binding != plan.approval.binding) {
+        if (context.authorization != plan.approval) {
             log.d { "Harness authoring approval is stale name=$name" }
-            return failure("the harness changed after safety review; request it again")
+            return failure("the harness changed after authorization; request it again")
         }
         return apply(context, plan)
-    }
-
-    /** Reads the exact cached verdict at execution; profile approval and turn trust never bypass review. */
-    private suspend fun reviewed(context: AgentToolContext, plan: Plan, canStart: Boolean): Plan {
-        if (plan !is Plan.Ready) return plan
-        val authorization = reviewHarnessChange(
-            reviews.value,
-            context,
-            plan.approval,
-            checkNotNull(plan.reviewChange),
-            canStart,
-        )
-        return when (authorization) {
-            is AgentToolAutomaticAuthorization.Allowed -> plan.copy(approval = authorization.approval)
-            is AgentToolAutomaticAuthorization.Denied -> Plan.Invalid(authorization.reason, isFinal = true)
-        }
     }
 
     private suspend fun plan(context: AgentToolContext, name: String, arguments: JsonObject): Plan {
@@ -203,7 +170,7 @@ internal class HarnessAuthoringTools(
             put("consequences", plan.approval.description)
         }.toString()
         return plan.copy(
-            approval = plan.approval.copy(name = name),
+            approval = harnessOperationSnapshot(context, plan.approval.copy(name = name), change).approval,
             reviewChange = change,
             connections = connections,
             creationScope = creationScope,

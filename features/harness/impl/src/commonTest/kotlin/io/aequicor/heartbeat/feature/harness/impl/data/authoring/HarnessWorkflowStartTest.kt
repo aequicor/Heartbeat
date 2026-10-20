@@ -6,7 +6,6 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -33,8 +32,6 @@ import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryTestStore
 import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessWorkflowLaunches
 import io.aequicor.heartbeat.feature.harness.impl.data.run.KeyValueHarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
@@ -86,8 +83,6 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 
 class HarnessWorkflowStartTest {
-    private var verdict = "safe"
-    private val changes = mutableListOf<String>()
     private val schema = buildJsonObject {
         put("type", "object")
         putJsonObject("properties") { putJsonObject("screen") { put("type", "string") } }
@@ -105,9 +100,8 @@ class HarnessWorkflowStartTest {
     fun `an approved start pins the approved workflow and reports the run`() = runTest {
         val tools = tools()
         val approval = tools.approval(context(), spec, arguments())
-        assertTrue(changes.isEmpty())
         assertEquals(approval, allow(tools, arguments()))
-        assertTrue(approval.binding.orEmpty().startsWith("safety="))
+        assertTrue(approval.binding.orEmpty().startsWith("operation="))
         val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, arguments())
         assertFalse(result.isError, result.text)
         assertTrue(result.text.startsWith("Started run wf_"), result.text)
@@ -121,7 +115,7 @@ class HarnessWorkflowStartTest {
         val tools = tools()
         val approval = allow(tools, arguments())
         val unapproved = tools.execute(context(), HarnessTools.WORKFLOW_START, arguments())
-        assertTrue(unapproved.isError && unapproved.text.contains("changed after safety review"), unapproved.text)
+        assertTrue(unapproved.isError && unapproved.text.contains("changed after authorization"), unapproved.text)
         val detached = tools.execute(
             context(authorization = approval, request = null),
             HarnessTools.WORKFLOW_START,
@@ -154,7 +148,7 @@ class HarnessWorkflowStartTest {
         val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, arguments())
         assertTrue(result.isError, result.text)
         // A stale approval is its own outcome: the agent asks again instead of reading it as a capacity failure.
-        assertEquals("The workflow changed after safety review; request it again", result.text)
+        assertEquals("The workflow changed after authorization; request it again", result.text)
         assertTrue(runs.sent.isEmpty())
     }
 
@@ -174,26 +168,13 @@ class HarnessWorkflowStartTest {
         val approval = allow(tools, wrong)
         val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, wrong)
         assertTrue(result.isError, result.text)
-        assertTrue(result.text.contains("changed after safety review"), result.text)
+        assertTrue(result.text.contains("changed after authorization"), result.text)
         assertFalse(result.text.contains("schema"), result.text)
         assertTrue(runs.sent.isEmpty())
     }
 
     @Test
-    fun `unsafe workflow and changed input never reach launch or start a second review`() = runTest {
-        val tools = tools()
-        verdict = "risk"
-        assertIs<AgentToolAutomaticAuthorization.Denied>(
-            tools.automaticAuthorization(context(), spec, arguments()),
-        )
-        assertTrue(tools.execute(context(), HarnessTools.WORKFLOW_START, arguments()).isError)
-        assertTrue(runs.sent.isEmpty())
-        assertEquals(1, changes.size)
-        assertTrue(changes.single().contains(workflow.source))
-    }
-
-    @Test
-    fun `safe assessment cannot be replayed with different valid workflow input`() = runTest {
+    fun `operation authorization cannot be replayed with different valid workflow input`() = runTest {
         val tools = tools()
         val approval = allow(tools, arguments())
         val changed = arguments(JsonPrimitive("changed"))
@@ -201,7 +182,6 @@ class HarnessWorkflowStartTest {
         val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, changed)
         assertTrue(result.isError)
         assertTrue(runs.sent.isEmpty())
-        assertEquals(1, changes.size)
     }
 
     private fun TestScope.tools(): HarnessWorkflowTools {
@@ -235,22 +215,12 @@ class HarnessWorkflowStartTest {
             HarnessWorkflowToolServices(
                 lazyOf(helpers),
                 lazyOf(HarnessRequestOrigins(MemoryHarnessRequestAncestry())),
-                lazyOf(
-                    HarnessCodeReviews { _, change ->
-                        changes += change
-                        CodeReview(verdict, "Workflow assessment")
-                    },
-                ),
             ),
         )
     }
 
     private suspend fun allow(tools: HarnessWorkflowTools, arguments: JsonObject): AgentToolApproval {
         val snapshot = tools.approval(context(), spec, arguments)
-        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            tools.automaticAuthorization(context(), spec, arguments),
-        )
-        assertEquals(snapshot, allowed.approval)
         return snapshot
     }
 
