@@ -34,7 +34,6 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioLocalProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.data.MachineStudioSurfaces
-import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioSafetyReviewsToggle
 import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioWorkspaceToggle
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
@@ -110,10 +109,6 @@ object AiStudioToggleBindings {
     @IntoSet
     fun localProjects(): FeatureToggle<*> = StudioLocalProjects
 
-    /** The sidebar indicator of automatic safety reviews. */
-    @Provides
-    @IntoSet
-    fun safetyReviews(): FeatureToggle<*> = StudioSafetyReviewsToggle
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

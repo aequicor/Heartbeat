@@ -26,8 +26,6 @@ import kotlin.time.Instant
 data class AiStudioScreenState(
     /** Native app update offer; remote hosts never install it. */
     val appUpdate: AppUpdateUi? = null,
-    /** Load of the profile's automatic safety reviews; absent while the reviewer is idle. */
-    val safetyReviews: SafetyReviewsUi? = null,
     /** Saved profile confirmation level, applied to the next ordinary user turn. */
     val securityLevel: SecurityLevelUi = SecurityLevelUi.Automatic,
     val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),

@@ -202,7 +202,6 @@ private fun WideWorkspace(
                     modifier = Modifier.width(HbTheme.dimensions.sidebarWidth).fillMaxHeight()
                         .background(HbTheme.surfaces.sidebar).studioSidebarFocus(focus),
                     appUpdate = state.appUpdate.takeIf { host.isAppUpdateAvailable },
-                    safetyReviews = state.safetyReviews,
                     isAgentRunning = state.hasRunningAgentsForUpdate(),
                 )
             }
@@ -320,7 +319,6 @@ private fun CompactWorkspace(
                     modifier = Modifier.fillMaxSize().studioSidebarFocus(focus),
                     isDrawer = true,
                     appUpdate = state.appUpdate.takeIf { host.isAppUpdateAvailable },
-                    safetyReviews = state.safetyReviews,
                     isAgentRunning = state.hasRunningAgentsForUpdate(),
                 )
             }

@@ -39,6 +39,4 @@ interface StudioEntries {
     /** Whether one "Settings" entry replaces the separate settings actions. */
     val showsUnifiedSettings: Flow<Boolean> get() = flowOf(false)
 
-    /** Whether the sidebar header shows the load of the profile's automatic safety reviews. */
-    val showsSafetyReviews: Flow<Boolean> get() = flowOf(false)
 }
