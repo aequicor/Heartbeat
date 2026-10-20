@@ -119,18 +119,44 @@ class DesktopExtensionInstallerTest {
         assertTrue(Files.list(outside).use { it.findAny().isEmpty })
     }
 
-    private fun installer(before: () -> Unit = {}): DesktopExtensionInstaller {
+    @Test
+    fun `installed resource paths fit the Chromium Windows path limit`() = runTest {
+        archive()
+        val folder = installer().prepare {}
+        val relative = root.resolve("cache").relativize(folder).toString().replace('\\', '/')
+        val storage = "C:/Users/extension-user/AppData/Roaming/Aequicor/Heartbeat/cache/chromium-extension"
+        val resource = "app/composeResources/io.aequicor.heartbeat.chromiumplugin.panel.resources/" +
+            "files/fonts/NotoSansSymbols2-Regular.ttf"
+        assertTrue("$storage/$relative/$resource".length < 260)
+        assertEquals(folder, installer().locate())
+    }
+
+    @Test
+    fun `cache prefix collisions still verify the full artifact digest and retain loaded folders`() = runTest {
+        archive()
+        val first = installer()
+        val original = first.prepare {}
+        val second = installer(expectedSha = sha.take(16) + "b".repeat(48))
+        assertNull(second.locate())
+        val replacement = second.prepare {}
+        assertNotEquals(original, replacement)
+        assertEquals(replacement, second.locate())
+        assertNull(first.locate())
+        assertTrue(Files.isRegularFile(original.resolve("app/panel.js")))
+    }
+
+    private fun installer(expectedSha: String = sha, before: () -> Unit = {}): DesktopExtensionInstaller {
         val cache = object : VerifiedArtifactCache {
             override suspend fun prepare(artifact: ReleaseArtifact, progress: suspend (Long, Long?) -> Unit): Path {
                 before()
-                assertEquals(sha, artifact.download.sha256)
+                assertEquals(expectedSha, artifact.download.sha256)
                 progress(Files.size(archive), Files.size(archive))
                 return archive
             }
         }
         return DesktopExtensionInstaller(root.resolve("cache"), cache, dispatchers) {
             "version=1.2.3\nurl=https://github.com/aequicor/Heartbeat/releases/download/v1.2.3/extension.zip\n" +
-                "sha256=$sha\nsize=${Files.size(archive)}\n"
+                "sha256=$expectedSha\nsize=${Files.size(archive)}\n"
         }
     }
 
