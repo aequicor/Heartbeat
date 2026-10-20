@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -55,9 +56,7 @@ internal class StudioConfiguredSubmission(
         // Binding fails closed: a planning chat whose session stays unbound, or plans still loading, fail the turn
         // unsent.
         planning.bind(id, active.ref)
-        val seed = record.pendingSeed.takeIf { request.compaction == null }
-        // The ledger and marks follow the chat before its first turn in the new session prepares its prompt.
-        if (seed != null) record.previousRefs.lastOrNull()?.let { rollovers.rolledOver(it, active.ref) }
+        carryLedger(record, active)
         val carried = record.carriedDirectives(request)
         val seeded = if (carried.isEmpty()) request else request.copy(directives = carried + request.directives)
         val constrained = if (record.helper == null) {
@@ -68,10 +67,10 @@ internal class StudioConfiguredSubmission(
         // A handoff retires configuration observation because its session is never reflected again.
         if (request.isHandoff) controller.retire(id, active)
         val reviewTarget = record.helper?.model?.reviewTarget
-        val submitted = send(active, constrained, effort, reviewTarget) {
+        val submitted = send(access, active, constrained, effort, reviewTarget) {
             turnPolicy(isTrustSupported)
         }
-        if (carried.isNotEmpty()) consumeSeed(access, id)
+        consumeCarriedContext(access, record, request, carried)
         if (request.isHandoff) return submitted.turn
         confirmConfiguration(
             access,
@@ -139,6 +138,7 @@ internal class StudioConfiguredSubmission(
     }
 
     private suspend fun send(
+        access: StudioConfigurationAccess,
         active: ActiveSession,
         request: StudioTurnRequest,
         reasoningEffort: String?,
@@ -149,8 +149,7 @@ internal class StudioConfiguredSubmission(
         val helper = request.submission as? StudioHelperSubmission
         val submit: suspend () -> SubmittedPrompt = {
             origins.record(active.ref, request.request, request.causes)
-            val compaction = request.compaction
-            val prompt = if (compaction == null) learning.prompt(request.id, request.prompt, request.directives) else ""
+            val prompt = preparePrompt(access, request)
             val finalPolicy = if (helper != null) {
                 var latest: StudioPromptPolicy? = null
                 val trust = helper.begin { policy().also { latest = it }.trust }
@@ -166,7 +165,7 @@ internal class StudioConfiguredSubmission(
                     finalPolicy.trust,
                     request.attachments,
                     request.request,
-                    compaction,
+                    request.compaction,
                     request.delivery,
                     decisionMode = finalPolicy.mode,
                     reviewTarget = reviewTarget,
@@ -177,6 +176,30 @@ internal class StudioConfiguredSubmission(
             SubmittedPrompt(turn, finalPolicy.trust)
         }
         return if (helper == null) submit() else helper.withPreparation(active.ref, active.route.workspace, submit)
+    }
+
+    private suspend fun carryLedger(record: StudioChatRecord, active: ActiveSession) {
+        if (record.pendingSeed != null || record.pendingEngineContext != null) {
+            record.previousRefs.lastOrNull()?.let { rollovers.rolledOver(it, active.ref) }
+        }
+    }
+
+    private suspend fun consumeCarriedContext(
+        access: StudioConfigurationAccess,
+        record: StudioChatRecord,
+        request: StudioTurnRequest,
+        carried: List<String>,
+    ) {
+        if (carried.isNotEmpty() || (record.pendingEngineContext != null && request.compaction == null)) {
+            consumeSeed(access, request.id)
+        }
+    }
+
+    private suspend fun preparePrompt(access: StudioConfigurationAccess, request: StudioTurnRequest): String {
+        if (request.compaction != null) return ""
+        val prepared = learning.prompt(request.id, request.prompt, request.directives)
+        val context = access.engineSwitchContext(request.id, prepared + "\n\n" + hostDirective(""))
+        return if (context == null) prepared else prepared + "\n\n" + hostDirective(context)
     }
 
     private data class StudioPromptPolicy(val mode: AgentToolDecisionMode, val trust: TrustLevel?)

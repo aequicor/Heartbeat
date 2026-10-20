@@ -58,9 +58,9 @@ internal class EngineStudioHelperChatRecords(
     @HighFrequency
     override suspend fun helperMetadata(session: SessionRef): HelperMetadata? {
         log.v { "Read durable helper session identity" }
-        val matches = store.get(ChatsKey).orEmpty().filter { it.ref == session }
+        val matches = store.get(ChatsKey).orEmpty().filter { it.owns(session) }
         check(matches.size <= 1) { "Helper session identity is ambiguous" }
-        return matches.singleOrNull()?.metadata()
+        return matches.singleOrNull()?.metadata()?.copy(session = session)
     }
 
     @HighFrequency

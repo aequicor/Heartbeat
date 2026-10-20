@@ -148,6 +148,7 @@ class EngineStudioEffects(
     private suspend fun configure(effect: AiStudioEffect.Configuration) {
         when (effect) {
             is AiStudioEffect.SaveSettings -> runtime.saveDefaults(effect.settings, effect.version)
+            is AiStudioEffect.SwitchSessionEngine -> runtime.switchEngine(effect.sessionId, effect.change)
             is AiStudioEffect.ChangeSessionSetting -> runtime.configure(effect.sessionId, effect.change)
         }
     }

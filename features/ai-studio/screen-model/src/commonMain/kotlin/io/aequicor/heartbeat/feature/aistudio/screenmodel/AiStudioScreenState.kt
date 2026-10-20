@@ -54,6 +54,8 @@ data class AiStudioScreenState(
     val stopFailures: ImmutableSet<String> = persistentSetOf(),
     val uncancellable: ImmutableSet<String> = persistentSetOf(),
     val settings: SettingsUi = DefaultSettingsUi,
+    val isEngineSwitchingAvailable: Boolean = false,
+    val engineSwitches: ImmutableMap<String, EngineSwitchUi> = persistentMapOf(),
     val configurations: ImmutableMap<String, SessionConfigurationUi> = persistentMapOf(),
     val projects: ImmutableList<ProjectUi> = persistentListOf(),
     val sessions: ImmutableList<SessionUi> = persistentListOf(),

@@ -24,7 +24,7 @@ internal class StudioTranscriptProjection(
         checklists.events,
     ) { stored, runtime, record, feedback, checklistEvents ->
         stored.toStudioMessages(record.updatedAt, sessionId in runtime.running, feedback)
-            .withChecklists(checklistEvents.filter { it.session == record.ref }) +
+            .withChecklists(checklistEvents.filter { record.owns(it.session) }) +
             if (record.hasFailed) {
                 listOf(StudioMessage.Failed("failure", record.updatedAt, record.failureKind))
             } else {

@@ -583,6 +583,8 @@ class AiStudioModel(
                 pipeline,
                 intent.paneId,
                 StudioSettingChange.Model(intent.modelId),
+                expectedModelId = intent.expectedModelId,
+                expectedSessionId = intent.expectedSessionId,
             ) { copy(modelId = intent.modelId) }
 
             is AiStudioScreenIntent.SelectEffort -> selectEffort(pipeline, intent)
@@ -639,7 +641,7 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.RecheckWorktree -> machines.send(
                 WorktreeMachineKey,
-                WorktreeIntent.Public.Recheck(intent.sessionId, intent.isResume, intent.resolveConflicts),
+                WorktreeIntent.Public.Recheck(intent.sessionId, intent.isResume, intent.isConflictResolutionRequested),
             )
 
             AiStudioScreenIntent.RetryWorktreeJournal -> machines.send(
@@ -715,9 +717,13 @@ class AiStudioModel(
         pipeline: StudioPipeline,
         paneId: Int?,
         change: StudioSettingChange,
+        expectedModelId: String? = null,
+        expectedSessionId: String? = null,
         changeDefault: RunSettings.() -> RunSettings,
     ) {
-        if (!changeSessionSetting(pipeline, paneId, change)) updateSettings(pipeline, changeDefault)
+        if (!changeSessionSetting(pipeline, paneId, change, expectedModelId, expectedSessionId)) {
+            updateSettings(pipeline, changeDefault)
+        }
     }
 
     /** Routes an existing native chat through its machine; new pages and scripted chats keep local defaults. */
@@ -725,20 +731,22 @@ class AiStudioModel(
         pipeline: StudioPipeline,
         paneId: Int?,
         change: StudioSettingChange,
+        expectedModelId: String? = null,
+        expectedSessionId: String? = null,
     ): Boolean = with(pipeline) {
         var isHandled = true
         withState {
             val pane = panes.firstOrNull { it.id == (paneId ?: focusedPaneId) } ?: return@withState
+            if (!acceptsSettingSelection(pane, expectedSessionId)) return@withState
             isHandled = false
             val sessionId = pane.sessionId ?: return@withState
-            if (organisms[sessionId] != null) {
-                isHandled = true
-                return@withState
-            }
             val modelId = configurations[sessionId]?.modelId ?: session(sessionId)?.modelId ?: settings.modelId
             if (studioModelTarget(modelId) == null) return@withState
             isHandled = true
-            sendTo(machine, AiStudioIntent.Public.ChangeSessionSetting(sessionId, change))
+            val intent = sessionSettingIntent(sessionId, change, expectedModelId ?: modelId, isEngineSwitchingAvailable)
+            // Legacy clients may change models in place, but cannot safely replace a route without chat identity.
+            if (intent is AiStudioIntent.Public.SwitchSessionEngine && expectedSessionId == null) return@withState
+            sendTo(machine, intent)
         }
         isHandled
     }

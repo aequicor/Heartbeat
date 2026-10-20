@@ -133,7 +133,11 @@ internal fun StudioChatRecord.carriedDirectives(request: StudioTurnRequest): Lis
 )
 
 /** The record after its next turn accepted the carried seed and brief. */
-internal fun StudioChatRecord.seeded(): StudioChatRecord = copy(pendingSeed = null, pendingBrief = null)
+internal fun StudioChatRecord.seeded(): StudioChatRecord = copy(
+    pendingSeed = null,
+    pendingBrief = null,
+    pendingEngineContext = null,
+)
 
 /** Continuation brief for the next turn after the engine compacted its context natively. */
 internal fun compactionBrief(items: List<SessionItem>): String {

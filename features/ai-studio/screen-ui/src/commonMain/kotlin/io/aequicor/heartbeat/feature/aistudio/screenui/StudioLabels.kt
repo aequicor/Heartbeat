@@ -16,6 +16,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.date_today
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.date_yesterday
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.duration_minutes
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.duration_seconds
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.engine_switch_changed
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.engine_switch_truncated
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.message_copied
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.message_copy
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_result
@@ -57,6 +59,8 @@ internal fun timelineLabels(section: String, calendar: StudioCalendar = StudioCa
         stoppedTemplate = stringResource(Res.string.stopped_after),
         compacted = stringResource(Res.string.context_compacted),
         rolledOver = stringResource(Res.string.context_rolled_over),
+        engineChanged = stringResource(Res.string.engine_switch_changed),
+        transferTruncated = stringResource(Res.string.engine_switch_truncated),
         collapsedTools = stringResource(Res.string.collapsed_tool_calls),
         organismResult = stringResource(Res.string.organism_result),
         failed = FailureLabels(

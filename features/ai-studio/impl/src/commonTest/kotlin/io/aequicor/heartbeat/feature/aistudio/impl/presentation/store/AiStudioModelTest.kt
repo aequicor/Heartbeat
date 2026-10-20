@@ -499,7 +499,7 @@ class AiStudioModelTest {
         )
         runCurrent()
         assertEquals(
-            SessionConfigurationUi(next, null, ApprovalUi.AutoApprove),
+            SessionConfigurationUi(next, null, ApprovalUi.AutoApprove, engineRoute = "engine/route"),
             screen.states.value.configurations["s-facade"],
         )
         assertEquals(configuration.toUi(), screen.states.value.configurations["other"])

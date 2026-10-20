@@ -36,6 +36,27 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class EngineStudioHelperChatsTest {
     @Test
+    fun `switching helper A cannot delay helper B or duplicate A submission`() = runTest {
+        val fixture = HelperFixture(backgroundScope)
+        val gate = CompletableDeferred<Unit>()
+        val switching = async { fixture.routes.withIdleRoute(HelperChat, fixture.attempts) { gate.await() } }
+        runCurrent()
+        val waiting = async { fixture.host.prompt(HelperChat, HelperInput) }
+        val duplicate = async { fixture.host.prompt(HelperChat, HelperInput) }
+        runCurrent()
+        assertFalse(waiting.isCompleted)
+        assertFalse(duplicate.isCompleted)
+        assertIs<HelperSubmission.Accepted>(fixture.host.prompt(HelperId("other"), HelperInput))
+        assertEquals(1, fixture.sends)
+        gate.complete(Unit)
+        switching.await()
+        assertIs<HelperSubmission.Accepted>(waiting.await())
+        assertEquals(waiting.await(), duplicate.await())
+        assertEquals(2, fixture.sends)
+        fixture.finish.complete(Unit)
+    }
+
+    @Test
     fun `virtual continuation returns its exact new result instead of the original cancelled receipt`() = runTest {
         val fixture = HelperFixture(backgroundScope)
         fixture.host.prompt(HelperChat, HelperInput)
@@ -289,7 +310,8 @@ private class HelperFixture(private val scope: CoroutineScope) :
     StudioHelperRuns,
     StudioHelperChatRecords {
     private val stores = ChecklistTestStores()
-    val attempts = StudioHelperAttempts(stores)
+    val routes = StudioHelperRoutes()
+    val attempts = StudioHelperAttempts(stores, routes)
     val host = restart()
     val finish = CompletableDeferred<Unit>()
     var beforeBegin: CompletableDeferred<Unit>? = null
@@ -310,7 +332,7 @@ private class HelperFixture(private val scope: CoroutineScope) :
 
     fun restart() = EngineStudioHelperChats(
         this,
-        StudioHelperAttempts(stores),
+        StudioHelperAttempts(stores, routes),
         emptyHelperAdmissions(),
         lazyOf(this),
         RunProfile(scope),

@@ -89,6 +89,8 @@ public sealed interface AiStudioState : MachineState {
         /** Planning mode is offered (its toggle is on); new panes may then choose it. */
         val isPlanningAvailable: Boolean = false,
         val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
+        val isEngineSwitchingAvailable: Boolean = false,
+        val engineSwitches: Map<String, StudioEngineSwitchState> = emptyMap(),
         /** Next creation token; never reused while Ready survives, even when pane ids are reused. */
         val nextCreateRequestId: Long = 0,
         val settingsVersion: StudioSettingsVersion = StudioSettingsVersion(),
@@ -158,6 +160,9 @@ public sealed interface AiStudioIntent : MachineIntent {
 
         /** Applies one parameter to [sessionId] without restarting its accepted work. */
         public data class ChangeSessionSetting(val sessionId: String, val change: StudioSettingChange) : Public
+
+        /** Replaces an idle chat's engine or connection while retaining its conversation. */
+        public data class SwitchSessionEngine(val sessionId: String, val change: StudioEngineSwitch) : Public
 
         /** Sends [prompt] from the composer of [paneId]: creates a session if needed and starts a run. */
         public data class Submit(
@@ -381,6 +386,9 @@ public sealed interface AiStudioEffect : MachineEffect {
 
     /** Hands a configuration change to the profile; cancelling the screen waiter does not cancel it. */
     public data class ChangeSessionSetting(val sessionId: String, val change: StudioSettingChange) : Configuration
+
+    /** Profile-owned replacement; closing the screen only detaches its waiter. */
+    public data class SwitchSessionEngine(val sessionId: String, val change: StudioEngineSwitch) : Configuration
 }
 
 /** One-shot events of the studio. */

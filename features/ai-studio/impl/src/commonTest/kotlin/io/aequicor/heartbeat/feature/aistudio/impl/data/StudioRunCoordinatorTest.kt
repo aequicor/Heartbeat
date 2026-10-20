@@ -37,6 +37,38 @@ import kotlin.time.Instant
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioRunCoordinatorTest {
     @Test
+    fun `mutation and sending share reservation and recovery precedes preparation`() = runTest {
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val gate = CompletableDeferred<Unit>()
+        val request = runRequest("switch")
+        val mutation = async { coordinator.mutate(request.id) { gate.await() } }
+        runCurrent()
+        val events = mutableListOf<String>()
+        val host = object : StudioRunHost {
+            override suspend fun prepareRun(id: String) {
+                events += "recover"
+            }
+            override suspend fun startedRun(id: String, at: Instant) {
+                events += "start"
+            }
+            override suspend fun finishedRun(id: String) {
+                events += "finish"
+            }
+            override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
+                events += "execute"
+                assertFailsWith<IllegalStateException> { coordinator.mutate(request.id) { } }
+                return RunOutcome.Completed
+            }
+        }
+        assertFailsWith<IllegalStateException> { coordinator.run(host, request) }
+        assertFailsWith<IllegalStateException> { coordinator.mutate(request.id) { } }
+        gate.complete(Unit)
+        mutation.await()
+        coordinator.run(host, request, beforeExecute = { events += "prepare" })
+        assertEquals(listOf("start", "recover", "prepare", "execute", "finish"), events)
+    }
+
+    @Test
     fun `owner cancellation at begin clears the unsubmitted receipt and leaves the chat reusable`() = runTest {
         val events = mutableListOf<String>()
         val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)

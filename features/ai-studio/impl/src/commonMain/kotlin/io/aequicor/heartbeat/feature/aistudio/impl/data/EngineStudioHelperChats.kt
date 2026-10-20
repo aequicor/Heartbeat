@@ -35,6 +35,7 @@ internal interface StudioHelperRuns {
         onAccepted: suspend (SessionRef, TurnId) -> Unit,
     )
 
+    suspend fun prepareHelperRoute(helper: HelperId) = Unit
     suspend fun helperTerminal(helper: HelperId, request: RequestId): StudioHelperTerminal?
     suspend fun stopHelper(helper: HelperId, request: RequestId): StudioHelperTerminal?
     suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? = null
@@ -54,26 +55,36 @@ internal class EngineStudioHelperChats(
 ) {
     private val log = Log.tag("StudioHelperChats")
     private val lock = Mutex()
+    private val preparations = StudioConversationLocks(Mutex())
     private val pending = mutableMapOf<Pair<HelperId, RequestId>, CompletableDeferred<HelperSubmission>>()
 
     suspend fun prompt(helper: HelperId, prompt: HelperPrompt): HelperSubmission {
         checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
-        val key = helper to prompt.request
-        val accepted = lock.withLock {
+        val accepted = preparations.withLock(helper.value) {
             check(!profile.isClosed) { "Profile is closed" }
+            if (attempts.receipt(helper, prompt.request) == null) runs.value.prepareHelperRoute(helper)
             val prepared = attempts.prepare(helper, prompt)
-            pending[key]?.let { return@withLock it }
-            if (!prepared.isNew) {
-                return@withLock CompletableDeferred<HelperSubmission>().apply {
-                    complete(checkNotNull(prepared.receipt.submission()) { "Helper acceptance is unresolved" })
-                }
-            }
-            val answer = CompletableDeferred<HelperSubmission>()
-            pending[key] = answer
-            profile.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) { execute(helper, prompt, answer) }
-            answer
+            acceptedSubmission(helper, prompt, prepared)
         }
         return accepted.await()
+    }
+
+    private suspend fun acceptedSubmission(
+        helper: HelperId,
+        prompt: HelperPrompt,
+        prepared: StudioHelperPreparation,
+    ): CompletableDeferred<HelperSubmission> = lock.withLock {
+        val key = helper to prompt.request
+        pending[key]?.let { return@withLock it }
+        if (!prepared.isNew) {
+            return@withLock CompletableDeferred<HelperSubmission>().apply {
+                complete(checkNotNull(prepared.receipt.submission()) { "Helper acceptance is unresolved" })
+            }
+        }
+        val answer = CompletableDeferred<HelperSubmission>()
+        pending[key] = answer
+        profile.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) { execute(helper, prompt, answer) }
+        answer
     }
 
     private suspend fun execute(helper: HelperId, prompt: HelperPrompt, answer: CompletableDeferred<HelperSubmission>) {
