@@ -262,7 +262,7 @@ internal class DesktopBrowserPolicy(
  * compared as the browser spells them: an unusual spelling of an approved address (hexadecimal IPv4, mapped IPv6),
  * or one with credentials, fails closed.
  */
-internal class DesktopBrowserAgentGuard {
+internal class DesktopBrowserAgentGuard(private val isTrusted: () -> Boolean = { false }) {
     private data class Restriction(val approvedOrigin: String?)
 
     @Volatile
@@ -270,7 +270,7 @@ internal class DesktopBrowserAgentGuard {
     private val refusedNavigation = AtomicBoolean(false)
     private val refusedContent = AtomicBoolean(false)
 
-    val isRestricted: Boolean get() = restriction != null
+    val isRestricted: Boolean get() = restriction != null && !isTrusted()
 
     fun unrestrict() {
         restriction = null
@@ -287,6 +287,7 @@ internal class DesktopBrowserAgentGuard {
      * embedded document as refused content: only the former fails the agent's own page load.
      */
     fun allows(url: String, kind: BrowserRequestKind): Boolean {
+        if (isTrusted()) return true
         val current = restriction ?: return true
         val web = guardedWebUrl(url, kind) ?: return true
         if (isPublicWebUrl(web)) return true

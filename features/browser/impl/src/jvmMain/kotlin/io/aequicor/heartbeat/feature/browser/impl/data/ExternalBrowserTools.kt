@@ -9,16 +9,13 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
@@ -58,7 +55,6 @@ internal class ExternalBrowserTools(
     private val control: Lazy<ExternalBrowserControl>,
     private val browser: Lazy<ExternalBrowser>,
     private val toggles: FeatureToggles,
-    private val safety: ExternalBrowserSafety,
 ) : AgentToolContribution {
     private val log = Log.tag("ExternalBrowserTools")
     private val reads = BrowserReadMemory()
@@ -109,7 +105,7 @@ internal class ExternalBrowserTools(
         spec: AgentToolSpec,
         arguments: JsonObject,
     ): Boolean = spec.name == REQUEST_TAB ||
-        (context.trust != TrustLevel.Full && privateAddress(spec.name, arguments) != null)
+        (privateAddress(spec.name, arguments) != null)
 
     override fun approval(spec: AgentToolSpec, arguments: JsonObject): AgentToolApproval =
         describe(spec, arguments, tab = null, owner = null)
@@ -118,26 +114,13 @@ internal class ExternalBrowserTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): AgentToolApproval = if (needsAutomaticReview(context, spec, arguments)) {
+    ): AgentToolApproval = if (needsOperationBinding(spec, arguments)) {
         when (val prepared = prepareReview(context, spec, arguments)) {
             is ReviewPreparation.Ready -> prepared.request.approval
             is ReviewPreparation.Unavailable -> AgentToolApproval(spec.name, spec.description, prepared.message)
         }
     } else {
         originalApproval(context, spec, arguments)
-    }
-
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? {
-        if (!needsAutomaticReview(context, spec, arguments)) return null
-        if (!isEnabled()) return AgentToolAutomaticAuthorization.Denied("External browser tools disabled")
-        return when (val prepared = prepareReview(context, spec, arguments)) {
-            is ReviewPreparation.Ready -> safety.authorize(context, prepared.request)
-            is ReviewPreparation.Unavailable -> AgentToolAutomaticAuthorization.Denied(prepared.message)
-        }
     }
 
     private suspend fun originalApproval(
@@ -175,7 +158,7 @@ internal class ExternalBrowserTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): ExternalBrowserSafetyRequest {
+    ): ExternalBrowserOperationRequest {
         val original = originalApproval(context, spec, arguments)
         val effective = if (spec.name == REQUEST_TAB) {
             requireNotNull(approvedTab(original, arguments)) { "No active tab available for hand-over" }
@@ -186,13 +169,13 @@ internal class ExternalBrowserTools(
         check(spec.name != "ex_control_close_tab" || snapshot.text("isUserTab") != "true") {
             "Use ex_control_release to return a user tab; closing it may discard unsaved work"
         }
-        return externalBrowserSafetyRequest(context, original, arguments, effective, snapshot)
+        return externalBrowserOperationRequest(context, original, arguments, effective, snapshot)
     }
 
-    private fun needsAutomaticReview(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject): Boolean {
+    private fun needsOperationBinding(spec: AgentToolSpec, arguments: JsonObject): Boolean {
         val isReviewRequired = spec.action != AgentToolAction.Read || spec.name == REQUEST_TAB ||
             privateAddress(spec.name, arguments) != null
-        return context.decisionMode == AgentToolDecisionMode.AutomaticSafety && isReviewRequired
+        return isReviewRequired
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
@@ -200,13 +183,13 @@ internal class ExternalBrowserTools(
         val operation = OPERATIONS[name] ?: return AgentToolResult("Unknown external browser tool", true)
         val owner = ownerOf(context)
         val spec = specs().single { it.name == name }
-        val reviewed = if (needsAutomaticReview(context, spec, arguments)) {
+        val reviewed = if (needsOperationBinding(spec, arguments)) {
             val prepared = prepareReview(context, spec, arguments)
             if (prepared is ReviewPreparation.Unavailable) return AgentToolResult(prepared.message, true)
             (prepared as ReviewPreparation.Ready).request.also {
-                if (!safety.consume(context, it)) {
+                if (context.authorization != it.approval) {
                     return AgentToolResult(
-                        "External browser action has no matching safety approval; read again and retry",
+                        "External browser action has no matching authorization; read again and retry",
                         true,
                     )
                 }
@@ -319,7 +302,7 @@ internal class ExternalBrowserTools(
     private fun specs(): List<AgentToolSpec> = ExternalBrowserToolSpecs.specifications()
 
     private sealed interface ReviewPreparation {
-        data class Ready(val request: ExternalBrowserSafetyRequest) : ReviewPreparation
+        data class Ready(val request: ExternalBrowserOperationRequest) : ReviewPreparation
         data class Unavailable(val message: String) : ReviewPreparation
     }
 

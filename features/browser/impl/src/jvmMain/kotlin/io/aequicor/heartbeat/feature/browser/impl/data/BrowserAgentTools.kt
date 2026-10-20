@@ -12,7 +12,6 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
@@ -21,7 +20,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.browser.api.BrowserAgentControl
@@ -98,7 +96,6 @@ internal class BrowserAgentTools(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
     private val external: Lazy<ExternalBrowser>,
-    private val safety: BrowserSafety,
 ) : AgentToolContribution {
     private val log = Log.tag("BrowserAgentTools")
 
@@ -149,7 +146,7 @@ internal class BrowserAgentTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): Boolean = context.trust != TrustLevel.Full && privateAddress(OPERATIONS[spec.name], arguments) != null
+    ): Boolean = privateAddress(OPERATIONS[spec.name], arguments) != null
 
     override fun approval(spec: AgentToolSpec, arguments: JsonObject): AgentToolApproval =
         approval(spec, arguments, tab = null, owner = null)
@@ -158,7 +155,7 @@ internal class BrowserAgentTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): AgentToolApproval = if (needsAutomaticReview(context, spec, arguments)) {
+    ): AgentToolApproval = if (needsOperationBinding(spec, arguments)) {
         when (val prepared = prepareReview(context, spec, arguments)) {
             is ReviewPreparation.Ready -> prepared.request.approval
             is ReviewPreparation.Unavailable -> AgentToolApproval(spec.name, spec.description, prepared.message)
@@ -167,26 +164,12 @@ internal class BrowserAgentTools(
         originalApproval(context, spec, arguments)
     }
 
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? {
-        if (!needsAutomaticReview(context, spec, arguments)) return null
-        if (!isEnabled()) return AgentToolAutomaticAuthorization.Denied("Browser tools disabled")
-        return when (val prepared = prepareReview(context, spec, arguments)) {
-            is ReviewPreparation.Ready -> safety.authorize(context, prepared.request)
-            is ReviewPreparation.Unavailable -> AgentToolAutomaticAuthorization.Denied(prepared.message)
-        }
-    }
-
     private fun originalApproval(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject) =
         approval(spec, arguments, tab = describeTab(arguments), owner = Json.encodeToString(context.session))
 
     /** Input and a non-public address are reviewed in automatic mode; ordinary observation never is. */
-    private fun needsAutomaticReview(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject): Boolean =
-        context.decisionMode == AgentToolDecisionMode.AutomaticSafety &&
-            (spec.action != AgentToolAction.Read || privateAddress(OPERATIONS[spec.name], arguments) != null)
+    private fun needsOperationBinding(spec: AgentToolSpec, arguments: JsonObject): Boolean =
+        spec.action != AgentToolAction.Read || privateAddress(OPERATIONS[spec.name], arguments) != null
 
     private suspend fun prepareReview(
         context: AgentToolContext,
@@ -208,7 +191,7 @@ internal class BrowserAgentTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): BrowserSafetyRequest {
+    ): BrowserOperationRequest {
         val operation = requireNotNull(OPERATIONS[spec.name]) { "Unknown browser tool" }
         check(isEnabled()) { "Browser tools disabled" }
         val evidence = if (operation == BrowserOperation.NewTab) {
@@ -218,7 +201,7 @@ internal class BrowserAgentTools(
             inspected.error?.let { error(it) }
             inspected.data
         }
-        return browserSafetyRequest(context, originalApproval(context, spec, arguments), arguments, evidence)
+        return browserOperationRequest(context, originalApproval(context, spec, arguments), arguments, evidence)
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
@@ -241,7 +224,7 @@ internal class BrowserAgentTools(
 
             else -> {
                 val spec = specs().single { it.name == name }
-                val review = if (needsAutomaticReview(context, spec, arguments)) {
+                val review = if (needsOperationBinding(spec, arguments)) {
                     spendReview(context, spec, arguments, operation)
                 } else {
                     ReviewSpent.Unreviewed
@@ -273,10 +256,10 @@ internal class BrowserAgentTools(
         is ReviewPreparation.Unavailable -> ReviewSpent.Refused(prepared.message)
 
         is ReviewPreparation.Ready ->
-            if (safety.consume(context, prepared.request)) {
+            if (context.authorization == prepared.request.approval) {
                 ReviewSpent.Approved(prepared.request.evidence?.let { BrowserReview(operation, it) })
             } else {
-                ReviewSpent.Refused("Browser action has no matching safety approval; read the page again and retry")
+                ReviewSpent.Refused("Browser action has no matching authorization; read the page again and retry")
             }
     }
 
@@ -439,7 +422,7 @@ internal class BrowserAgentTools(
         )
     }
 
-    private class Submitted(val request: BrowserRequest, val result: BrowserResult)
+    private data class Submitted(val request: BrowserRequest, val result: BrowserResult)
 
     /** The outcome of spending a review at execution: refused, approved with its evidence, or never reviewed. */
     private sealed interface ReviewSpent {
@@ -449,7 +432,7 @@ internal class BrowserAgentTools(
     }
 
     private sealed interface ReviewPreparation {
-        data class Ready(val request: BrowserSafetyRequest) : ReviewPreparation
+        data class Ready(val request: BrowserOperationRequest) : ReviewPreparation
         data class Unavailable(val message: String) : ReviewPreparation
     }
 

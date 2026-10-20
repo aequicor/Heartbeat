@@ -83,7 +83,7 @@ class DesktopBrowserReviewTest {
         val approved = page.fixture.inspect(tab).data
         page.focus = "card-number"
         val result = page.fixture.act(tab, BrowserOperation.Type, approved)
-        assertEquals("The browser action changed after safety review; read the page and request it again", result.error)
+        assertEquals("The browser action changed after authorization; read the page and request it again", result.error)
         assertTrue(page.methods.none { it.startsWith("Input.") })
     }
 

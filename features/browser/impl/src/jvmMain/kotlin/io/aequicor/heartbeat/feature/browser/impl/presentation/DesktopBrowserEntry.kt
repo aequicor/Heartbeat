@@ -16,6 +16,8 @@ import kotlinx.serialization.json.put
  * is created, as is the Chromium context behind it: handing the tab to another owner or taking control of it never
  * moves its cookies and sites.
  */
+// Retained native tab aggregates its independently owned lifecycle collaborators.
+@Suppress("LongParameterList")
 internal class DesktopBrowserEntry(
     var tab: BrowserTab,
     val surface: BrowserSurfaceAdapter,

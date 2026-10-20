@@ -12,6 +12,22 @@ import kotlin.test.assertTrue
 
 class DesktopBrowserPolicyTest {
     @Test
+    fun `profile trust changes immediately update restrictions on existing agent tabs`() {
+        var trusted = false
+        val guard = DesktopBrowserAgentGuard { trusted }
+        guard.restrict(null)
+        assertFalse(guard.allows("http://localhost:8080/", BrowserRequestKind.MainDocument))
+        trusted = true
+        assertFalse(guard.isRestricted)
+        assertTrue(guard.allows("http://localhost:8080/", BrowserRequestKind.MainDocument))
+        trusted = false
+        assertTrue(guard.isRestricted)
+        assertFalse(guard.allows("http://localhost:8080/", BrowserRequestKind.MainDocument))
+        guard.restrict("http://localhost:8080/")
+        assertTrue(guard.allows("http://localhost:8080/", BrowserRequestKind.MainDocument))
+    }
+
+    @Test
     fun `history gestures do not fork a tab even when their original transition was a link`() {
         val policy = DesktopBrowserPolicy({ false }, { false }, {}, {}, {}, DesktopBrowserAgentGuard(), true)
         val link = TransitionType.TT_LINK
