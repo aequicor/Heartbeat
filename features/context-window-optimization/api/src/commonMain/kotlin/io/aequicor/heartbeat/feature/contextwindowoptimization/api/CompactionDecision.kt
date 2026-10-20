@@ -8,16 +8,31 @@ public const val COMPACTION_HYSTERESIS_PERCENT: Int = 10
 /** Automatic compaction after a settled turn: a pending request (or none) and the next mark of the session. */
 public data class CompactionDecision(val pending: PendingCompaction?, val mark: CompactionMark)
 
-/** Occupancy of [this] usage in whole percent. */
-public val ContextUsage.percent: Int get() = (usedTokens * PERCENT / capacityTokens).toInt()
+/** Occupancy in whole percent, or null without a confirmed capacity; large native counters never overflow. */
+public val ContextUsage.percent: Int?
+    get() = capacityTokens?.let { capacity ->
+        val whole = usedTokens / capacity
+        if (whole > Int.MAX_VALUE / PERCENT) return Int.MAX_VALUE
+        val remainder = usedTokens % capacity
+        var low = 0
+        var high = PERCENT - 1
+        while (low < high) {
+            val mid = (low + high + 1) / 2
+            // ceil(capacity * mid / 100), split before multiplication to avoid overflow.
+            val threshold = (capacity / PERCENT) * mid + ((capacity % PERCENT) * mid + PERCENT - 1) / PERCENT
+            if (remainder >= threshold) low = mid else high = mid - 1
+        }
+        (whole * PERCENT + low).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
 
 /**
- * Decides automatic compaction for a settled turn. Unknown [usage] changes nothing. Below the threshold minus
- * [COMPACTION_HYSTERESIS_PERCENT] the attempts start over. Below the threshold a session that is not exhausted also
- * starts over: the last compaction worked, so the next crossing tries the first method again. An exhausted session
- * stays exhausted until the context drops below the threshold minus the hysteresis. At or above the threshold each
- * settled turn tries the next supported method of the strategy (Auto: native, then rollover), one per turn; when
- * none is left the session is exhausted, so a context that compaction cannot shrink never loops.
+ * Decides automatic compaction for a settled turn. Unknown [usage] or capacity changes nothing. Below the
+ * threshold minus [COMPACTION_HYSTERESIS_PERCENT] the attempts start over. Below the threshold a session that is
+ * not exhausted also starts over: the last compaction worked, so the next crossing tries the first method again.
+ * An exhausted session stays exhausted until the context drops below the threshold minus the hysteresis. At or
+ * above the threshold each settled turn tries the next supported method of the strategy (Auto: native, then
+ * rollover), one per turn; when none is left the session is exhausted, so a context that compaction cannot
+ * shrink never loops.
  */
 public fun ContextOptimizationSettings.decideCompaction(
     mark: CompactionMark,

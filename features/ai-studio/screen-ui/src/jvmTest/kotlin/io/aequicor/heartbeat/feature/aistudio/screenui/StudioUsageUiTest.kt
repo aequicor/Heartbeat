@@ -22,6 +22,9 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compacting
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limit_unknown
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens_unknown_limit
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
@@ -40,6 +43,40 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent a
 
 @OptIn(ExperimentalTestApi::class)
 class StudioUsageUiTest {
+    @Test
+    fun `unknown capacity shows tokens without a percentage and still offers manual compaction`() =
+        runSkikoComposeUiTest(size = Size(420f, 800f)) {
+            val events = mutableListOf<StudioIntent>()
+            var content by mutableStateOf(
+                pane().copy(
+                    contextUsage = ContextUsageUi(4096, null, null),
+                    pane = PaneUi(0, sessionId = "s"),
+                    isCompactEnabled = true,
+                ),
+            )
+            var unknownTokens = ""
+            var unknownLimit = ""
+            var knownTokens = ""
+            setContent {
+                unknownTokens = stringResource(Res.string.usage_tokens_unknown_limit, "4096")
+                unknownLimit = stringResource(Res.string.usage_limit_unknown)
+                knownTokens = stringResource(Res.string.usage_tokens, "4096", "8192")
+                UsageHost(content, compact = true, onIntent = events::add)
+            }
+            onNodeWithContentDescription(unknownTokens).assertIsDisplayed()
+            onNodeWithTag("usage-0").performClick()
+            onNodeWithText(unknownLimit).assertIsDisplayed()
+            onNodeWithText(unknownTokens).assertIsDisplayed()
+            onNodeWithText("0%").assertDoesNotExist()
+            onNodeWithTag("compact-0").performClick()
+            runOnIdle { assertEquals(StudioIntent.CompactContext(0), events.last()) }
+            runOnIdle { content = content.copy(contextUsage = ContextUsageUi(4096, 8192, 50)) }
+            onNodeWithText("50%").assertIsDisplayed()
+            onNodeWithTag("usage-0").performClick()
+            onNodeWithText(knownTokens).assertIsDisplayed()
+            onNodeWithText(unknownLimit).assertDoesNotExist()
+        }
+
     @Test
     fun `unknown telemetry is hidden and quota-only button never invents a zero context`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
@@ -110,9 +147,12 @@ class StudioUsageUiTest {
         for (width in listOf(1280f, 420f)) {
             for (dark in listOf(false, true)) {
                 runSkikoComposeUiTest(size = Size(width, 800f)) {
+                    var context by mutableStateOf(ContextUsageUi(78080, 128000, 61))
+                    var unknownTokens = ""
                     setContent {
+                        unknownTokens = stringResource(Res.string.usage_tokens_unknown_limit, "78080")
                         UsageHost(
-                            pane().copy(contextUsage = ContextUsageUi(78080, 128000, 61), providerUsage = provider()),
+                            pane().copy(contextUsage = context, providerUsage = provider()),
                             dark,
                             compact = width < 500f,
                         )
@@ -125,6 +165,15 @@ class StudioUsageUiTest {
                             captureToImage().toAwtImage(),
                             "png",
                             File(directory, "usage-${width.toInt()}-$dark.png"),
+                        ),
+                    )
+                    runOnIdle { context = ContextUsageUi(78080, null, null) }
+                    onNodeWithText(unknownTokens).assertIsDisplayed()
+                    check(
+                        ImageIO.write(
+                            captureToImage().toAwtImage(),
+                            "png",
+                            File(directory, "usage-unknown-${width.toInt()}-$dark.png"),
                         ),
                     )
                 }

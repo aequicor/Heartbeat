@@ -109,7 +109,7 @@ class KoogUsageTest {
     }
 
     @Test
-    fun `unknown metadata or capacity remains hidden and Ollama fallback is never a capacity`() = runTest {
+    fun `unknown capacity retains native usage and Ollama fallback is never a capacity`() = runTest {
         for (cloud in listOf(false, true)) {
             val f = KoogTestFixture(this)
             if (cloud) f.cloudRoute()
@@ -119,7 +119,9 @@ class KoogUsageTest {
             session.features.require(SendsPrompts).send(f.request())
             f.executor.frames.trySend(end(50, 10))
             runCurrent()
-            assertNull(session.features.require(SessionContextUsage).state.value)
+            val usage = session.features.require(SessionContextUsage).state.value
+            assertEquals(60L, usage?.usedTokens)
+            assertNull(usage?.capacityTokens)
             assertIs<ActiveSessionState.Ready>(session.state.value)
         }
     }

@@ -10,6 +10,38 @@ class CompactionDecisionTest {
     private val settings = ContextOptimizationSettings(thresholdPercent = 80)
 
     @Test
+    fun `exact threshold and hysteresis boundaries are not rounded down`() {
+        for (percent in listOf(57, 58)) {
+            val usage = ContextUsage(percent.toLong(), 100)
+            assertEquals(percent, usage.percent)
+            val threshold = settings.copy(thresholdPercent = percent)
+            assertEquals(
+                CompactionMethod.Native,
+                threshold.decideCompaction(CompactionMark(), usage, Both).pending?.method,
+            )
+            val exhausted = CompactionMark(2, isExhausted = true)
+            val hysteresis = settings.copy(thresholdPercent = percent + COMPACTION_HYSTERESIS_PERCENT)
+            assertEquals(CompactionDecision(null, exhausted), hysteresis.decideCompaction(exhausted, usage, Both))
+        }
+    }
+
+    @Test
+    fun `unknown capacity never compacts or resets previous attempts`() {
+        for (mark in listOf(CompactionMark(), CompactionMark(1), CompactionMark(2, isExhausted = true))) {
+            val usage = ContextUsage(Long.MAX_VALUE, null)
+            assertNull(usage.percent)
+            assertEquals(CompactionDecision(null, mark), settings.decideCompaction(mark, usage, Both))
+        }
+    }
+
+    @Test
+    fun `large native counts cannot overflow into low occupancy`() {
+        val usage = ContextUsage(Long.MAX_VALUE, Long.MAX_VALUE)
+        assertEquals(100, usage.percent)
+        assertEquals(CompactionMethod.Native, settings.decideCompaction(CompactionMark(), usage, Both).pending?.method)
+    }
+
+    @Test
     fun `unknown usage changes nothing`() {
         val mark = CompactionMark(attempts = 1)
         assertEquals(CompactionDecision(null, mark), settings.decideCompaction(mark, null, Both))

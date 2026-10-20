@@ -383,4 +383,6 @@
     <string name="sandbox_git_required">Sandbox и Worktree доступны только для Git-проектов.</string>
     <string name="sandbox_head_required">Для Sandbox нужен начальный Git-коммит (HEAD).</string>
     <string name="sandbox_engine_unsupported">Этот движок не поддерживает виртуальный доступ к проекту.</string>
+    <string name="usage_limit_unknown">Лимит неизвестен</string>
+    <string name="usage_tokens_unknown_limit">%1$s токенов · лимит неизвестен</string>
 </resources>

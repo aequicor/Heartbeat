@@ -81,7 +81,7 @@ internal class ClaudeContextUsage : SessionContextUsage {
         log.d { "Claude context observation updated" }
         val used = tokens
         val limit = capacity
-        mutableState.value = if (used != null && limit != null) {
+        mutableState.value = if (used != null) {
             ContextUsage(used, limit, Observation(Clock.System.now(), isStale = false))
         } else {
             null

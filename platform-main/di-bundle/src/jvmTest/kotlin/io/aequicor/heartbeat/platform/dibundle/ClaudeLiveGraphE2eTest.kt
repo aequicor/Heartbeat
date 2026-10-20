@@ -425,9 +425,10 @@ class ClaudeLiveGraphE2eTest {
                 .create(CreateSessionRequest(target))
             chat.finished(chat.say("Reply with exactly the single word PONG."))
             val usage = chat.features.available(SessionContextUsage)
-            val context = withTimeout(RECONCILE_TIMEOUT) { usage.state.first { it != null } }
+            val context = withTimeout(RECONCILE_TIMEOUT) { usage.state.first { it?.capacityTokens != null } }
             observe("context usage: $context")
-            assertTrue(context != null && context.usedTokens > 0 && context.capacityTokens >= context.usedTokens)
+            assertTrue(context != null && context.usedTokens > 0)
+            assertTrue(requireNotNull(context.capacityTokens) >= context.usedTokens)
             val limits = profile.facade.providerUsage.refresh(ClaudeEngine.Id, target.binding)
             observe("provider usage: windows=${limits.windows.map { it.id }} plan=${limits.planName}")
             chat.close()

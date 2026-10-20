@@ -80,7 +80,13 @@ internal class ContextAgentTools(
     private fun status(context: AgentToolContext): String {
         val state = ready() ?: return "Context optimization is loading."
         val usage = state.usage[context.session]
-        val occupancy = usage?.let { "${it.percent}% (${it.usedTokens} of ${it.capacityTokens} tokens)" } ?: "unknown"
+        val capacity = usage?.capacityTokens
+        val percent = usage?.percent
+        val occupancy = when {
+            usage == null -> "unknown"
+            capacity == null || percent == null -> "${usage.usedTokens} tokens (limit unknown)"
+            else -> "$percent% (${usage.usedTokens} of $capacity tokens)"
+        }
         val pending = state.pending[context.session] ?: state.running[context.session]
         return buildString {
             append("Context occupancy after the last turn: ").append(occupancy)
