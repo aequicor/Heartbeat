@@ -37,6 +37,8 @@ internal class AgentSafetyToolPolicy :
     private val log = Log.tag("AgentSafetyPolicy")
     private val sessions = MutableStateFlow<Map<SessionRef, ToolPolicy>>(emptyMap())
 
+    override val isIsolation: Boolean = true
+
     override val isActive: Boolean get() = sessions.value.isNotEmpty()
 
     override fun contains(session: SessionRef): Boolean = session in sessions.value

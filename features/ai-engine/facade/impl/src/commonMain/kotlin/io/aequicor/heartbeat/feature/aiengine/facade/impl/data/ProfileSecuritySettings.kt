@@ -11,11 +11,14 @@ import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
-import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
 
 /** Keeps the existing storage identity: upgrading never resets the user's chosen permission mode. */
 @SingleIn(ProfileScope::class)
@@ -29,14 +32,28 @@ internal class ProfileSecuritySettings(private val store: KeyValueStore) : Agent
     private val log = Log.tag("SecuritySettings")
 
     override val modes = store.observe(LevelKey)
-        .map { decode(it) ?: SecurityMode.Automatic }
-        .catch { error ->
-            log.w(IllegalStateException("Security setting unavailable (${error::class.simpleName.orEmpty()})")) {
-                "Permission setting could not be loaded; user confirmation is required"
+        .map { value ->
+            try {
+                decode(value) ?: SecurityMode.Automatic
+            } catch (error: IllegalStateException) {
+                log.w(error.redactedFailure()) { "Stored security mode is invalid; asking until repaired" }
+                SecurityMode.Ask
             }
+        }
+        .retryWhen { error, _ ->
+            if (error is CancellationException) throw error
+            reportUnavailable(error)
             emit(SecurityMode.Ask)
+            delay(1_000)
+            true
         }
         .distinctUntilChanged()
+
+    private fun reportUnavailable(error: Throwable) {
+        log.w(IllegalStateException("Security setting unavailable (${error::class.simpleName.orEmpty()})")) {
+            "Permission setting could not be loaded; user confirmation is required"
+        }
+    }
 
     override suspend fun load(): SecurityMode? = decode(store.get(LevelKey))
 

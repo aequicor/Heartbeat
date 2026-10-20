@@ -8,8 +8,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,6 +45,26 @@ class ProfileSecuritySettingsTest {
             assertEquals(SecurityMode.Ask, settings.modes.first())
             assertEquals(raw, disk.value.value)
         }
+    }
+
+    @Test
+    fun `one live subscription recovers after unreadable and invalid settings`() = runTest {
+        val disk = SecurityMemoryStore()
+        var subscriptions = 0
+        val failing = object : KeyValueStore by disk {
+            override fun <T : Any> observe(key: StoreKey<T>) = flow {
+                subscriptions++
+                if (subscriptions == 1) error("temporarily unavailable")
+                emitAll(disk.observe(key))
+            }
+        }
+        disk.value.value = "corrupt"
+        val received = async { ProfileSecuritySettings(failing).modes.take(2).toList() }
+        testScheduler.runCurrent()
+        testScheduler.advanceTimeBy(1_001)
+        disk.value.value = "Trust"
+        assertEquals(listOf(SecurityMode.Ask, SecurityMode.Trust), received.await())
+        assertEquals(2, subscriptions)
     }
 
     @Test

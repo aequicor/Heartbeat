@@ -37,6 +37,9 @@ public data class ToolPolicyScope(
 
 /** Profile multibinding; resolve lazily because a provider may itself use the engine facade. */
 public fun interface AgentToolPolicyProvider {
+    /** Capability isolation for an internal text-only service, independent of user permission preferences. */
+    public val isIsolation: Boolean get() = false
+
     /**
      * Null means this provider contributes no policy in this scope. Cancellation must propagate. A provider whose
      * policy source is unavailable throws; [ToolPolicyUnavailable] marks an unavailability it already reported.
