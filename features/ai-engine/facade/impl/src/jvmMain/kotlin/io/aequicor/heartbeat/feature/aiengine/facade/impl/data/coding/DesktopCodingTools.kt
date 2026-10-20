@@ -230,4 +230,4 @@ private fun unavailable() = AgentToolResult("Project tools are unavailable", isE
 
 private const val MAX_APPROVAL_CHARS = 4_000
 private const val SHELL_TOOL = "run_command"
-private val MUTATIONS = setOf("write_file", "edit_file", SHELL_TOOL)
+private val MUTATIONS = setOf("write_file", "edit_file", "delete_file", "move_file", SHELL_TOOL)

@@ -10,7 +10,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
@@ -69,10 +68,11 @@ private fun capture(
     val encoded = arguments.toString()
     val supplied = Json.parseToJsonElement(encoded).jsonObject
     val target = if (original.name == "run_command") null else root.canonical(supplied.argText("path"))
-    val execution = if (target == null) {
-        supplied
-    } else {
-        JsonObject(supplied + ("path" to JsonPrimitive(target.toString())))
+    val destination = if (original.name == "move_file") root.canonical(supplied.argText("destination")) else null
+    val execution = buildJsonObject {
+        supplied.forEach { (key, value) -> put(key, value) }
+        target?.let { put("path", it.toString()) }
+        destination?.let { put("destination", it.toString()) }
     }
     val change = buildJsonObject {
         put("caller", Json.encodeToJsonElement(context.session))
@@ -91,6 +91,7 @@ private fun capture(
         put("rootIdentity", fileIdentity(root.path))
         put("shell", if (System.getProperty("os.name").orEmpty().startsWith("Windows")) "PowerShell" else "/bin/sh")
         if (target != null) put("previousFile", fileEvidence(target))
+        if (destination != null) put("destinationFile", fileEvidence(destination))
     }.toString()
     val key = change.encodeUtf8().sha256().hex()
     return CodingOperationSnapshot(original.copy(binding = "coding-operation:$key"), change, root, execution)

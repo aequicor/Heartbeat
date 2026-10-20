@@ -23,7 +23,12 @@ public enum class ToolSwitch {
 }
 
 /** One contribution to a session policy. Hosted tools can only be disabled. */
-public data class ToolPolicy(val hostedOff: Set<String> = emptySet(), val native: Map<String, ToolSwitch> = emptyMap())
+public data class ToolPolicy(
+    val hostedOff: Set<String> = emptySet(),
+    val native: Map<String, ToolSwitch> = emptyMap(),
+    /** A text-only service has no tools, including adapter-operated and later-added tools. */
+    val isToolFree: Boolean = false,
+)
 
 /** Trusted host identity for policy lookup; never supplied through tool arguments. */
 public data class ToolPolicyScope(

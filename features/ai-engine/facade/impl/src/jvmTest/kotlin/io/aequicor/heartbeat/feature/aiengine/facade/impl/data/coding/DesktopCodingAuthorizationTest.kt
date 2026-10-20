@@ -142,6 +142,42 @@ class DesktopCodingAuthorizationTest {
         assertFalse(Files.exists(directory.resolve("marker.txt")))
     }
 
+    @Test
+    fun `delete and move bind source destination and workspace before confirmation`() = runTest {
+        for (name in listOf("delete_file", "move_file")) {
+            for (scenario in listOf("source", "destination", "workspace")) {
+                assertMutationSnapshot(name, scenario)
+            }
+        }
+    }
+
+    private suspend fun assertMutationSnapshot(name: String, scenario: String) {
+        resolved = directory
+        val source = directory.resolve("record.txt")
+        val destination = directory.resolve("moved.txt")
+        Files.writeString(source, "before")
+        Files.deleteIfExists(destination)
+        val caller = context.copy(
+            permissions = AgentToolPermissions {
+                when (scenario) {
+                    "source" -> Files.writeString(source, "human edit")
+                    "destination" -> if (name == "move_file") Files.writeString(destination, "another file")
+                    else -> resolved = other
+                }
+                true
+            },
+        )
+        val args = buildJsonObject {
+            put("path", "record.txt")
+            if (name == "move_file") put("destination", "moved.txt")
+        }
+        val tools = DefaultAgentTools(setOf(contribution), settings = TestSecuritySettings(SecurityMode.Ask))
+        val result = tools.execute(caller, name, args)
+        val isUnchanged = name == "delete_file" && scenario == "destination"
+        assertEquals(!isUnchanged, result.isError, "$name/$scenario")
+        assertEquals(!isUnchanged, Files.exists(source))
+    }
+
     private fun write(content: String = "new"): JsonObject = buildJsonObject {
         put("path", "record.txt")
         put("content", content)
