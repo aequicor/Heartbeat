@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerCaretRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnginePreparationUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.EngineSwitchUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoiceUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
@@ -127,6 +128,7 @@ data class PaneContent(
     val worktree: WorktreeUi? = null,
     val worktreeJournal: WorktreeJournalUi = WorktreeJournalUi.Ready,
     val configuration: SessionConfigurationUi? = null,
+    val engineSwitch: EngineSwitchUi? = null,
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val isAttachmentsEnabled: Boolean = false,
     val isRememberEnabled: Boolean = false,
@@ -155,7 +157,8 @@ data class PaneContent(
     val isCompactOffered: Boolean get() = isCompactEnabled && pane.sessionId != null
 
     /** The chat is offered compaction and is idle, so its context can be compacted now. */
-    val isCompactReady: Boolean get() = isCompactOffered && session?.isRunning != true
+    val isCompactReady: Boolean get() = isCompactOffered && session?.isRunning != true &&
+        engineSwitch?.isPending != true
 
     /** A descendant view has no execution controls; root ownership remains unchanged. */
     val isNativeChild: Boolean get() = nativeTree?.sessions?.any {
@@ -164,7 +167,7 @@ data class PaneContent(
     } == true
 
     /** Only the settings of this pane wait while its session configuration is being confirmed. */
-    val isSettingPending: Boolean get() = configuration?.pendingOperation != null
+    val isSettingPending: Boolean get() = configuration?.pendingOperation != null || engineSwitch?.isPending == true
 }
 
 /**
@@ -220,66 +223,64 @@ private fun AiStudioScreenState.projectPaneContent(
     session: SessionUi?,
     configuration: SessionConfigurationUi?,
     organism: OrganismUi?,
-): PaneContent {
-    val effectiveSettings = paneSettings(session, configuration).forOrganism(organism)
-    return PaneContent(
-        pane = pane,
-        enginePreparations = if (pane.id == focusedPaneId) enginePreparations else persistentListOf(),
-        projectTrust = projectTrust?.takeIf { pane.id == focusedPaneId },
-        dismissedNotices = dismissedNotices(pane.id),
-        noticeTargets = StudioNoticeUi.entries.associateWith { noticeDismissal(pane, it) }.toImmutableMap(),
-        cardFocus = cardFocusRequests[pane.id]?.takeIf { it.chatId == pane.sessionId },
-        app = appFor(pane),
-        isContextPanelAvailable = contextPanelFor(pane) != null,
-        session = session,
-        project = project(pane.projectId ?: session?.projectId),
-        projects = projects,
-        transcript = transcriptOf(pane.sessionId, session)?.collapsed(feedCollapse),
-        isFocused = pane.id == focusedPaneId,
-        isStopping = session != null && session.id in stopping,
-        elapsed = elapsed(session),
-        draft = draft(pane.id),
-        attachments = attachments(pane.id),
-        isAttachmentsEnabled = isAttachmentsEnabled,
-        isRememberEnabled = isRememberEnabled,
-        isCompactEnabled = isCompactEnabled,
-        isCompacting = pane.sessionId in compactingChats,
-        isOrganismEnabled = isOrganismEnabled,
-        harnesses = harnessChoices(pane),
-        isHarnessSelectionReady = isHarnessSelectionReady(pane),
-        isHarnessLoadFailed = harnessChoices.isLoadFailed,
-        isHarnessFailed = harnessChoices.isFailed(pane.sessionId),
-        organism = organism,
-        subSession = selectedSubSession(pane.sessionId, session),
-        nativeTree = nativeTrees[pane.sessionId],
-        isAttachmentFailed = pane.id in attachmentErrorPanes,
-        isAttachmentPending = isAttachmentPending(pane.id),
-        attachmentPreviews = attachmentPreviews,
-        suggestions = composerSuggestions[draftKey(pane.id)]?.takeIf { it.items.isNotEmpty() },
-        caretRequest = caretRequest(pane.id),
-        diagram = diagramActions(pane),
-        isSubmitFailed = pane.id in failedPanes,
-        renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
-        settings = effectiveSettings,
-        securityLevel = if (session?.isHelper == true) SecurityLevelUi.Automatic else securityLevel,
-        configuration = configuration,
-        isStopFailed = pane.sessionId in stopFailures,
-        isStoppable = pane.sessionId !in uncancellable,
-        isResearchAvailable = isResearchOffered(pane),
-        models = modelsForProject(pane.projectId ?: session?.projectId, paneModelId(session, configuration, organism)),
-        isProjectAddingAvailable = isProjectAddingAvailable && addingProjectTo == null,
-        isPickingProject = addingProjectTo == pane.id,
-        isProjectFailed = projectErrorPane == pane.id,
-        permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
-        calendar = studioCalendar(now),
-        contextUsage = contextOf(pane.sessionId, session),
-        providerUsage = providerUsage[effectiveSettings.modelId],
-        isWorktreeAvailable = isWorktreeOffered(pane),
-        isSandboxAvailable = isSandboxAvailable && isWorktreeOffered(pane),
-        worktree = worktreeFor(pane.sessionId),
-        worktreeJournal = worktreeJournal,
-    ).copy(planning = PanePlanning(isPlanningEnabled, plans[pane.sessionId], planModes(pane, session)))
-}
+): PaneContent = PaneContent(
+    pane = pane,
+    enginePreparations = if (pane.id == focusedPaneId) enginePreparations else persistentListOf(),
+    projectTrust = projectTrust?.takeIf { pane.id == focusedPaneId },
+    dismissedNotices = dismissedNotices(pane.id),
+    noticeTargets = StudioNoticeUi.entries.associateWith { noticeDismissal(pane, it) }.toImmutableMap(),
+    cardFocus = cardFocusRequests[pane.id]?.takeIf { it.chatId == pane.sessionId },
+    app = appFor(pane),
+    isContextPanelAvailable = contextPanelFor(pane) != null,
+    session = session,
+    project = project(pane.projectId ?: session?.projectId),
+    projects = projects,
+    transcript = transcriptOf(pane.sessionId, session)?.collapsed(feedCollapse),
+    isFocused = pane.id == focusedPaneId,
+    isStopping = session != null && session.id in stopping,
+    elapsed = elapsed(session),
+    draft = draft(pane.id),
+    attachments = attachments(pane.id),
+    isAttachmentsEnabled = isAttachmentsEnabled,
+    isRememberEnabled = isRememberEnabled,
+    isCompactEnabled = isCompactEnabled,
+    isCompacting = pane.sessionId in compactingChats,
+    isOrganismEnabled = isOrganismEnabled,
+    harnesses = harnessChoices(pane),
+    isHarnessSelectionReady = isHarnessSelectionReady(pane),
+    isHarnessLoadFailed = harnessChoices.isLoadFailed,
+    isHarnessFailed = harnessChoices.isFailed(pane.sessionId),
+    organism = organism,
+    subSession = selectedSubSession(pane.sessionId, session),
+    nativeTree = nativeTrees[pane.sessionId],
+    isAttachmentFailed = pane.id in attachmentErrorPanes,
+    isAttachmentPending = isAttachmentPending(pane.id),
+    attachmentPreviews = attachmentPreviews,
+    suggestions = composerSuggestions[draftKey(pane.id)]?.takeIf { it.items.isNotEmpty() },
+    caretRequest = caretRequest(pane.id),
+    diagram = diagramActions(pane),
+    isSubmitFailed = pane.id in failedPanes,
+    renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
+    settings = paneSettings(session, configuration).forOrganism(organism),
+    securityLevel = if (session?.isHelper == true) SecurityLevelUi.Automatic else securityLevel,
+    configuration = configuration,
+    engineSwitch = engineSwitches[pane.sessionId],
+    isStopFailed = pane.sessionId in stopFailures,
+    isStoppable = pane.sessionId !in uncancellable,
+    isResearchAvailable = isResearchOffered(pane),
+    models = modelsForPane(pane, session, configuration, organism),
+    isProjectAddingAvailable = isProjectAddingAvailable && addingProjectTo == null,
+    isPickingProject = addingProjectTo == pane.id,
+    isProjectFailed = projectErrorPane == pane.id,
+    permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
+    calendar = studioCalendar(now),
+    contextUsage = contextOf(pane.sessionId, session),
+    providerUsage = providerUsage[paneSettings(session, configuration).forOrganism(organism).modelId],
+    isWorktreeAvailable = isWorktreeOffered(pane),
+    isSandboxAvailable = isSandboxAvailable && isWorktreeOffered(pane),
+    worktree = worktreeFor(pane.sessionId),
+    worktreeJournal = worktreeJournal,
+).copy(planning = PanePlanning(isPlanningEnabled, plans[pane.sessionId], planModes(pane, session)))
 
 /** Where a plan of [session] can be implemented: a checkout needs a Git project, an organism a shared folder. */
 private fun AiStudioScreenState.planModes(pane: PaneUi, session: SessionUi?): ImmutableList<PlanImplementationModeUi> {
@@ -313,9 +314,6 @@ private fun AiStudioScreenState.isWorktreeOffered(pane: PaneUi): Boolean =
 /** Context belongs to the selected organism cell or to the native session. */
 private fun AiStudioScreenState.contextOf(sessionId: String?, session: SessionUi?): ContextUsageUi? =
     if (session?.isOrganism == true) organismObservation(sessionId)?.context else contexts[sessionId]
-
-private fun paneModelId(session: SessionUi?, configuration: SessionConfigurationUi?, organism: OrganismUi?): String? =
-    organism?.modelId ?: configuration?.modelId ?: session?.modelId?.takeIf(String::isNotBlank)
 
 /** Existing organisms keep their execution settings when the defaults for new chats change. */
 private fun SettingsUi.forOrganism(organism: OrganismUi?): SettingsUi = if (organism == null) {
@@ -352,7 +350,7 @@ private fun AiStudioScreenState.paneSettings(session: SessionUi?, configuration:
  * Existing project chats keep their engine and connection, but may switch between that connection's models:
  * the runtime session changes the model in place and refuses any other route.
  */
-private fun AiStudioScreenState.modelsForProject(projectId: String?, modelId: String?): ImmutableList<ModelUi> {
+internal fun AiStudioScreenState.modelsForProject(projectId: String?, modelId: String?): ImmutableList<ModelUi> {
     val connection = models.firstOrNull { it.id == modelId }?.connectionKey
     return models.filter {
         val isSameConnection = connection != null && it.connectionKey == connection
@@ -429,4 +427,4 @@ fun AiStudioScreenState.paneContent(pane: PaneUi, host: StudioHostCapabilities):
 private fun AiStudioScreenState.worktreeFor(
     session: String?,
 ): io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi? =
-    worktrees[session] ?: worktrees["organism.$session.${subSessions[session] ?: PRIMARY_SUB_SESSION}"]
+    session?.let { worktrees[it] ?: worktrees["organism.$it.${subSessions[it] ?: PRIMARY_SUB_SESSION}"] }

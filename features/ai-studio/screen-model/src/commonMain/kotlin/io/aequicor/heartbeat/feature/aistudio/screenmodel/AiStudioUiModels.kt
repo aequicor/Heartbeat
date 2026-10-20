@@ -65,6 +65,9 @@ data class ModelUi(
     val inputSupport: InputSupportUi = InputSupportUi(),
     /** A demo model of the scripted agent; its approval and effort preferences are local behavior. */
     val isScripted: Boolean = false,
+    /** Route identity independent of native in-place model-switch support. */
+    val engineRoute: String? = null,
+    val switchFailure: EngineSwitchFailureUi? = null,
 )
 
 /** Composer preferences mirrored from the machine. */
@@ -88,6 +91,7 @@ data class SessionConfigurationUi(
     val reasoningEffort: String?,
     val approval: ApprovalUi,
     val pendingOperation: String? = null,
+    val engineRoute: String? = null,
 )
 
 /** Preferences of a fresh workspace; equals the domain `DefaultRunSettings`. */

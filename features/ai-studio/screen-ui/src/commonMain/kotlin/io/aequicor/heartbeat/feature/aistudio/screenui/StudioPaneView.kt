@@ -553,6 +553,7 @@ private fun PaneNotices(
 
 @Composable
 private fun PaneSessionNotices(content: PaneContent, descriptionMaxHeight: Dp, onIntent: (StudioIntent) -> Unit) {
+    EngineSwitchNotice(content.engineSwitch)
     if (content.isNativeChild) {
         StudioNotice(content, StudioNoticeUi.NativeChild, stringResource(Res.string.session_child_view), onIntent)
     } else if (content.session?.isOrganism == true) {

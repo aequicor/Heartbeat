@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="engine_switch_pending">Changing engine… Your next message will continue this chat.</string>
+    <string name="engine_switch_disabled">Engine switching is turned off.</string>
+    <string name="engine_switch_busy">Wait until the current turn and pending operations have finished.</string>
+    <string name="engine_switch_stale">The chat route has changed. Choose an engine again.</string>
+    <string name="engine_switch_unsupported">This route does not support this chat.</string>
+    <string name="engine_switch_unavailable">Could not finish switching. Check the connection and try again.</string>
+    <string name="engine_switch_workspace">This engine cannot access the chat’s working directory.</string>
+    <string name="engine_switch_changed">Engine changed: %1$s → %2$s</string>
+    <string name="engine_switch_truncated">Transfer context was shortened to fit the model. The complete history remains in this chat.</string>
+</resources>

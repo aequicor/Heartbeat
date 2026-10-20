@@ -54,6 +54,8 @@ internal data class TimelineLabels(
     val rolledOver: String,
     val collapsedTools: String,
     val organismResult: String = "",
+    val engineChanged: String = "",
+    val transferTruncated: String = "",
 )
 
 /** Failed-run notices, one per [FailureUi]. */
@@ -352,7 +354,7 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
     is MessageUi.ContextNotice -> HbChatMessage(
         id = id,
         author = labels.studio,
-        text = if (isRollover) labels.rolledOver else labels.compacted,
+        text = noticeText(labels),
         role = HbChatRole.System,
         kind = HbMessageKind.Notice,
     )
@@ -424,4 +426,11 @@ private fun ReplyPartUi.toHb(labels: TimelineLabels, isStreaming: Boolean): HbMe
             kind = HbToolKind.Reasoning,
         ),
     )
+}
+
+private fun MessageUi.ContextNotice.noticeText(labels: TimelineLabels): String = when {
+    isTransferTruncated -> labels.transferTruncated
+    engineFrom != null && engineTo != null -> fill(labels.engineChanged, engineFrom.orEmpty(), engineTo.orEmpty())
+    isRollover -> labels.rolledOver
+    else -> labels.compacted
 }

@@ -97,7 +97,7 @@ internal class StudioEngineSwitchAccess(
 
     private fun modelLabel(target: EngineTarget): String = storage.models().firstOrNull {
         it.id == target.studioModelId()
-    }?.shortName?.let { "${target.engine.value} · $it" } ?: "${target.engine.value} · ${target.model.value}"
+    }?.name ?: "${target.engine.value} · ${target.binding.value} · ${target.model.value}"
 
     override fun switchState(id: String, state: StudioEngineSwitchState, onlyIfIdle: Boolean) {
         log.i { "Engine replacement state pending=${state.isPending} failure=${state.failure ?: "none"}" }

@@ -215,7 +215,7 @@ private fun StudioComposerInput(
                 settings.modelId,
                 content.models,
                 onIntent,
-                canSelect = !content.isSettingPending && content.organism == null,
+                canSelect = content.canSelectModel(),
                 paneId = pane.id,
                 modifier = Modifier.weight(1f, fill = false),
                 isCompact = presentation == ComposerPresentation.Compact,
@@ -533,7 +533,7 @@ private fun PaneContent.takesPrompts(): Boolean = session?.isContinuable != fals
 )
 
 /** Running requests retain cancellation; pending permissions block another prompt. */
-private fun PaneContent.isComposerEnabled(): Boolean = !pane.isCreating && !isPickingProject && !isStopping &&
+private fun PaneContent.isComposerEnabled(): Boolean = isComposerIdle() &&
     takesPrompts() &&
     (session?.isWorktree != true || worktreeJournal == WorktreeJournalUi.Ready || session.isRunning) &&
     (worktree?.phase != WorktreePhaseUi.ActionWorking || session?.isRunning == true) &&
@@ -690,14 +690,20 @@ private fun ModelMenu(
     val model = models.firstOrNull { it.id == modelId }
     val modelLabel = model?.shortName ?: stringResource(Res.string.model_not_selected)
     val items = models.map {
-        HbComposerAction(it.id, it.name, isEnabled = canSelect, isSelected = it.id == modelId)
+        HbComposerAction(
+            it.id,
+            it.name,
+            supportingText = it.switchFailure?.let { reason -> engineSwitchReason(reason) },
+            isEnabled = canSelect && it.switchFailure == null,
+            isSelected = it.id == modelId,
+        )
     }
     HbComposerMenuButton(
         label = modelLabel,
         actions = items.toImmutableList(),
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
-        onAction = { onIntent(StudioIntent.SelectModel(it, paneId)) },
+        onAction = { onIntent(StudioIntent.SelectModel(it, paneId, expectedModelId = modelId)) },
         modifier = modifier.testTag("model-chip"),
         accessibleLabel = model?.name ?: stringResource(Res.string.connect_model_hint),
         headerLabel = stringResource(Res.string.model_menu),
@@ -881,3 +887,10 @@ private fun composerModeActions(organism: Boolean?, worktree: Boolean?, planning
     }
     return listOfNotNull(organismAction, worktreeAction, planningAction)
 }
+
+/** Profile-wide replacement and pane setup both prevent another submission. */
+private fun PaneContent.isComposerIdle(): Boolean =
+    engineSwitch?.isPending != true && !pane.isCreating && !isPickingProject && !isStopping
+
+private fun PaneContent.canSelectModel(): Boolean =
+    !isSettingPending && organism == null && session?.isOrganism != true && !isNativeChild

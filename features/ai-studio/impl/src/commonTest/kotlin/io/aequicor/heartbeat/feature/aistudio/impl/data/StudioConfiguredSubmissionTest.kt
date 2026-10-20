@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
@@ -19,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -43,6 +46,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -59,6 +63,47 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioConfiguredSubmissionTest {
+    @Test
+    fun `replacement context survives size refusal and unknown acceptance without retrying`() = runTest {
+        for (failure in listOf(
+            EngineFailure.ContextLimitExceeded(100),
+            EngineFailure.Request(RequestFailureReason.OutcomeUnknown),
+        )) {
+            val fixture = SubmissionFixture(this)
+            fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+                pendingEngineContext = "boundary",
+            )
+            fixture.engineContext = "Historical data: the original task and tool result"
+            fixture.session.failure = EngineException(failure)
+            val attempt = async { assertFailsWith<EngineException> { fixture.submit("first") } }
+            runCurrent()
+            if (failure is EngineFailure.Request) {
+                assertFalse(attempt.isCompleted)
+                assertEquals(1, fixture.session.requests.size)
+                fixture.session.close()
+            }
+            attempt.await()
+            assertEquals(1, fixture.session.requests.size)
+            assertEquals("boundary", fixture.access.records.getValue("chat").pendingEngineContext)
+            assertEquals(0, fixture.access.consumedSeeds)
+            assertTrue(fixture.session.requests.single().text().contains(fixture.engineContext.orEmpty()))
+            assertTrue(fixture.preparedPrompt.orEmpty().contains("Hello"))
+        }
+    }
+
+    @Test
+    fun `accepted first replacement turn consumes its boundary exactly once`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(pendingEngineContext = "boundary")
+        fixture.engineContext = "Historical data: original task"
+        fixture.submit("first")
+        assertEquals(1, fixture.access.consumedSeeds)
+        assertEquals(null, fixture.access.records.getValue("chat").pendingEngineContext)
+        fixture.submit("next")
+        assertEquals(1, fixture.access.consumedSeeds)
+        assertFalse(fixture.session.requests.last().text().contains("Historical data"))
+    }
+
     @Test
     fun `automatic safety stays the default for ordinary user prompts`() = runTest {
         val fixture = SubmissionFixture(this)
@@ -319,6 +364,14 @@ private class SubmissionFixture(
     val configuration = StudioConfigurationFixture(test)
     private val target: EngineTarget = configuration.target
     val access = configuration.access
+    var engineContext: String? = null
+    var preparedPrompt: String? = null
+    private val submissionAccess = object : StudioConfigurationAccess by access {
+        override suspend fun engineSwitchContext(id: String, incoming: String): String? {
+            preparedPrompt = incoming
+            return engineContext.takeIf { access.records.getValue(id).pendingEngineContext != null }
+        }
+    }
     val native = ConfigurationNative(configuration.initial.copy(trust = TrustLevel.AutoEdits))
     val session = SubmissionSession(target, native, isTrustSupported)
     val security = MutableStateFlow(StudioSecurityLevel.Automatic)
@@ -354,7 +407,7 @@ private class SubmissionFixture(
 
     suspend fun submit(request: String, compaction: ContextCompaction? = null, isUserPrompt: Boolean = true): TurnId =
         submission.submit(
-            access,
+            submissionAccess,
             session,
             target,
             StudioTurnRequest(
@@ -381,12 +434,14 @@ private class SubmissionSession(
 ) : ActiveSession {
     private val trust = (object : AppliesTrustLevels {}).takeIf { isTrustSupported }
     val requests = mutableListOf<PromptRequest>()
+    var failure: EngineException? = null
     override val ref = SessionRef(target.engine, SessionSourceId("source"), "native")
     override val route = ExecutionRoute(target.engine, target.binding, AuthSourceId("auth"), AuthRevision.Known("1"))
     override val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
     private val prompts = object : SendsPrompts {
         override suspend fun send(request: PromptRequest): TurnId {
             requests += request
+            failure?.let { throw it }
             native.configuration.value = native.configuration.value.copy(trust = request.trust ?: TrustLevel.Ask)
             return TurnId("turn-${requests.size}")
         }

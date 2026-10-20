@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
@@ -7,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
 /** Written before transcript changes. Recovery repeats the same freeze and commits the same route. */
@@ -61,4 +63,20 @@ internal fun StudioChatRecord.committedSwitch(journal: StudioEngineSwitchJournal
         pendingHarnessContext = null,
         helper = journal.helper,
     )
+}
+
+/** Only studio-owned frozen boundaries carry replacement metadata; arbitrary native notices stay plain text. */
+internal fun SessionItem.Notice.engineSwitchNotice(): StudioEngineSwitchNotice? {
+    val key = info.id.value
+    if (!key.startsWith(FROZEN_PREFIX) ||
+        !(key.endsWith("/engine-switch") || key.endsWith("/engine-switch/truncated"))
+    ) {
+        return null
+    }
+    return try {
+        Json.decodeFromString<StudioEngineSwitchNotice>(text)
+    } catch (error: SerializationException) {
+        Log.tag("StudioEngineSwitchNotice").w(error) { "Invalid stored replacement notice" }
+        null
+    }
 }

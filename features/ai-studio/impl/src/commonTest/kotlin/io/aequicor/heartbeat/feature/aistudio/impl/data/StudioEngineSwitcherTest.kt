@@ -3,10 +3,21 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitch
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitchFailure
@@ -34,6 +45,51 @@ import kotlin.time.Instant
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class StudioEngineSwitcherTest {
+    @Test
+    fun `existing local source requires a confirmed terminal receipt including after restoration`() = runTest {
+        for (outcome in listOf(null, TurnOutcome.Completed, TurnOutcome.Cancelled, TurnOutcome.Unknown)) {
+            val fixture = SwitchFixture(this)
+            val active = ConfigurationSession(fixture.source, "native", null)
+            active.state.value = ActiveSessionState.Ready(
+                outcome?.let {
+                    Turn(TurnId("last"), RequestId("request"), fixture.source, outcome = it)
+                },
+            )
+            fixture.host.active = active
+            fixture.host.record = fixture.host.record.copy(ref = active.ref)
+            fixture.switcher.switch("chat", fixture.change)
+            val allowed = outcome != null && outcome != TurnOutcome.Unknown
+            assertEquals(if (allowed) null else StudioEngineSwitchFailure.Busy, fixture.host.state.failure)
+            assertEquals(if (allowed) fixture.change.target else fixture.source, fixture.host.record.target)
+            assertEquals(allowed, fixture.host.wasRefreshed)
+        }
+    }
+
+    @Test
+    fun `remote source inspection overrides a cached completed state and preserves uncertain route`() = runTest {
+        for (inspection in listOf(
+            TurnInspection.Idle,
+            TurnInspection.Unknown,
+            TurnInspection.Observed(RequestId("other"), null),
+        )) {
+            val fixture = SwitchFixture(this)
+            val session = ConfigurationSession(fixture.source, "native", null)
+            session.state.value = ActiveSessionState.Ready(
+                Turn(TurnId("last"), RequestId("request"), fixture.source, outcome = TurnOutcome.Completed),
+            )
+            fixture.host.active = object : ActiveSession by session {
+                override val features = inspectionFeatures(inspection)
+            }
+            fixture.host.record = fixture.host.record.copy(ref = session.ref)
+            fixture.switcher.switch("chat", fixture.change)
+            assertEquals(inspection == TurnInspection.Idle, fixture.host.wasRefreshed)
+            assertEquals(
+                if (inspection == TurnInspection.Idle) null else StudioEngineSwitchFailure.Busy,
+                fixture.host.state.failure,
+            )
+        }
+    }
+
     @Test
     fun `screen cancellation leaves profile replacement owned and completion precedes releasing its slot`() = runTest {
         val fixture = SwitchFixture(this)
@@ -116,6 +172,8 @@ private class SwitchHost(source: EngineTarget) : StudioEngineSwitchHost {
         target = source,
         configuration = StudioSessionSettings(source.studioModelId(), "unsupported", ApprovalMode.AutoEdits),
     )
+    var active: ActiveSession? = null
+    var wasRefreshed = false
     var state = StudioEngineSwitchState()
     var commit: suspend () -> Unit = {}
     var onState: (StudioEngineSwitchState) -> Unit = {}
@@ -124,8 +182,10 @@ private class SwitchHost(source: EngineTarget) : StudioEngineSwitchHost {
     override suspend fun recoverSwitch(id: String) = Unit
     override suspend fun validateSwitch(record: StudioChatRecord, target: EngineTarget): StudioModel =
         StudioModel(target.studioModelId(), "Target", reasoningEfforts = listOf("low"), defaultReasoningEffort = "low")
-    override suspend fun switchSource(id: String, target: EngineTarget): ActiveSession = error("No source exists")
-    override suspend fun refreshSwitchSource(id: String, active: ActiveSession) = error("No native request allowed")
+    override suspend fun switchSource(id: String, target: EngineTarget): ActiveSession = checkNotNull(active)
+    override suspend fun refreshSwitchSource(id: String, active: ActiveSession) {
+        wasRefreshed = true
+    }
     override suspend fun commitSwitch(
         id: String,
         change: StudioEngineSwitch,
@@ -149,4 +209,15 @@ private class SwitchToggles : FeatureToggles {
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
         if (toggle == StudioEngineSwitching) isEnabled as T else toggle.default
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(toggle.default)
+}
+
+private fun inspectionFeatures(inspection: TurnInspection): EngineFeatures = object : EngineFeatures {
+    private val inspector = object : RestoresSessionTurns {
+        override suspend fun checkpoint(request: RequestId): String? = null
+        override suspend fun inspect(checkpoint: String?): TurnInspection = inspection
+    }
+
+    @Suppress("UNCHECKED_CAST") // Exact feature key in this inspection-only fixture.
+    override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
+        if (key == RestoresSessionTurns) FeatureAccess.Available(inspector as F) else FeatureAccess.Unsupported
 }

@@ -5,8 +5,6 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitch
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitchFailure
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitchState
@@ -108,8 +106,7 @@ internal class StudioEngineSwitcher(
         val active = record.ref?.let { host.switchSource(id, change.expected) }
         if (active != null) {
             refuseUnless(active.canCarryEnvironment(), StudioEngineSwitchFailure.Busy)
-            val inspection = active.features.requireFeature(RestoresSessionTurns).inspect(null)
-            refuseUnless(inspection == TurnInspection.Idle, StudioEngineSwitchFailure.Busy)
+            refuseUnless(active.isEngineSwitchIdle(), StudioEngineSwitchFailure.Busy)
             host.refreshSwitchSource(id, active)
             refuseUnless(active.canCarryEnvironment(), StudioEngineSwitchFailure.Busy)
             configurations.retire(id, active)

@@ -33,6 +33,38 @@ import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class StudioHistoryProjectionTest {
+    @Test
+    fun `next turn does not animate frozen answer while awaiting new native history`() {
+        val items = listOf(
+            message("old", 0, MessageRole.Assistant, "Completed"),
+            SessionItem.Notice(info("${FROZEN_PREFIX}1/engine-switch", 1), """{"from":"A","to":"B"}"""),
+        )
+        assertFalse(assertIs<StudioMessage.Reply>(items.toStudioMessages(now, true).first()).isStreaming)
+    }
+
+    @Test
+    fun `replacement boundaries display typed labels and retain both segment answers`() {
+        val notices = listOf(
+            SessionItem.Notice(info("${FROZEN_PREFIX}1/engine-switch", 1), """{"from":"A","to":"B"}"""),
+            SessionItem.Notice(
+                info("${FROZEN_PREFIX}1/engine-switch/truncated", 2),
+                """{"from":"A","to":"B","isTruncated":true}""",
+            ),
+        )
+        val messages = (
+            listOf(message("before", 0, MessageRole.Assistant, "Old answer")) + notices +
+                message("after", 3, MessageRole.Assistant, "New answer")
+        ).toStudioMessages(now, false)
+        assertEquals(4, messages.size)
+        val changed = assertIs<StudioMessage.ContextNotice>(messages[1])
+        assertEquals(ContextNoticeKind.EngineChanged, changed.kind)
+        assertEquals("A", changed.engineFrom)
+        assertEquals("B", changed.engineTo)
+        assertEquals(ContextNoticeKind.TransferTruncated, assertIs<StudioMessage.ContextNotice>(messages[2]).kind)
+        assertIs<StudioMessage.Reply>(messages.first())
+        assertIs<StudioMessage.Reply>(messages.last())
+    }
+
     private val now = Instant.fromEpochSeconds(100)
 
     private fun feedback(after: String?, id: String = "operation", outcome: FeedbackOutcome = FeedbackOutcome.Pending) =
