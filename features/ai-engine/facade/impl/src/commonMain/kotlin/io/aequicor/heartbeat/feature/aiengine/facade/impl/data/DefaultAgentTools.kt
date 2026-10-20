@@ -232,9 +232,9 @@ internal class DefaultAgentTools(
         val turnEnded = context.lifetime?.invokeOnCompletion {
             invocation.cancel(CancellationException("Native turn ended"))
         }
-        val mode = permissions.mode()
         var trusted = context
         try {
+            val mode = permissions.mode()
             currentCoroutineContext().ensureActive()
             val isRegistered = callsLock.withLock {
                 val bound = context.request?.let { boundTurns[context.session to it] }

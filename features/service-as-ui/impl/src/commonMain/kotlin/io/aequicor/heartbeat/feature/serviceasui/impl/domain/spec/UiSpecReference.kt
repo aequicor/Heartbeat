@@ -33,8 +33,8 @@ A surface is a JSON document that Heartbeat draws with its own components. It be
 script publishes the methods the surface calls (`ui.method` in the harness script API). The user presses its buttons
 without you: nothing runs except the owner's methods, with the owner's permissions.
 Creating, replacing, removing and showing surfaces, and agent method calls, use shared profile authorization.
-Safe proposals execute without a user permission dialog. Risk, uncertainty or unavailable review returns an error
-to you; inspect the reason and correct the operation. Do not ask the user to bypass a safety refusal.
+Automatic and Ask request confirmation for changes and unknown effects; Full Trust authorizes valid available calls.
+Ownership, revision and argument checks still apply: if a target changed, inspect it and submit a fresh action.
 
 ## Places (`placement`)
 - `card`: the canonical mini-app. `ui_show(surface: id)` adds one compact entry to the chat; its Open button

@@ -15,7 +15,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityMachine
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityStore
 import kotlinx.coroutines.launch
 
-/** One machine per profile, loaded when a live studio host or its settings first needs the policy. */
+/** One settings editor per profile; execution reads committed profile policy independently of this UI state. */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 public object StudioSecurityBindings {

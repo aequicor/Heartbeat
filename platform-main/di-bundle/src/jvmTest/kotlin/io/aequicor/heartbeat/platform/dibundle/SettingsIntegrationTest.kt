@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.dibundle.root.RootChild
 import io.aequicor.heartbeat.platform.dibundle.root.RootStart
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -68,6 +69,18 @@ class SettingsIntegrationTest {
 
         init {
             processes += this
+        }
+
+        suspend fun awaitProfileHost() {
+            val ready = CompletableDeferred<RootChild.Profile>()
+            val observation = root.slot.subscribe { slot ->
+                (slot.child?.instance as? RootChild.Profile)?.let { ready.complete(it) }
+            }
+            try {
+                ready.await().host.filterNotNull().first()
+            } finally {
+                observation.cancel()
+            }
         }
 
         suspend fun close() {
@@ -186,6 +199,8 @@ class SettingsIntegrationTest {
         val first = Process(disk)
         (first.graph as TestToggleAccessors).toggleControl.setOverride(StudioEngineRuntime, true)
         first.graph.profileSessions.open(ProfileId("corrupted-security"))
+        first.awaitProfileHost()
+        first.root.handleDeepLink("heartbeat://settings/security")
         val initial = first.graph.machines.observe(StudioSecurityMachineKey).filterNotNull().first()
         initial.state.first { it is StudioSecurityState.Ready }
         initial.send(StudioSecurityIntent.Public.SetLevel(StudioSecurityLevel.Ask))
@@ -197,6 +212,8 @@ class SettingsIntegrationTest {
         file.writeBytes(corrupted)
 
         val restored = Process(disk)
+        restored.awaitProfileHost()
+        restored.root.handleDeepLink("heartbeat://settings/security")
         val security = restored.graph.machines.observe(StudioSecurityMachineKey).filterNotNull().first()
         assertEquals(
             StudioSecurityState.LoadError,

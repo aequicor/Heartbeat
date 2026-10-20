@@ -63,6 +63,8 @@ internal class KoogToolExecution(
         return continuePrompt(input, round.text, results)
     }
 
+    // Cancellation cleanup only updates the synchronous transcript, then rethrows the same exception.
+    @Suppress("SuspendFunSwallowedCancellation")
     private suspend fun execute(turn: Turn, tools: KoogToolbox, call: StreamFrame.ToolCallComplete): HandledToolCall {
         val info = ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id)
         val id = ToolCallId(call.id?.takeIf { it.isNotBlank() } ?: Uuid.random().toString())
@@ -78,7 +80,7 @@ internal class KoogToolExecution(
         )
         history.append { SessionEvent.ItemUpserted(it, started) }
         val executed = try {
-            executed(turn, call, tool, args, started, id)
+            executed(turn, call, tool, args, started)
         } catch (e: CancellationException) {
             // A stopped turn must not leave its call shown as pending or running.
             val cancelled = started.copy(info = info.copy(revision = 2), status = ToolCallStatus.Cancelled)
@@ -105,7 +107,6 @@ internal class KoogToolExecution(
         tool: KoogTool?,
         args: JsonObject?,
         started: SessionItem.ToolCall,
-        id: ToolCallId,
     ): KoogToolResult = when {
         tool == null -> {
             log.w { "Model called an unknown tool ${call.name}" }
@@ -114,11 +115,12 @@ internal class KoogToolExecution(
 
         args == null -> KoogToolResult("InvalidInput: arguments must be a JSON object", true)
 
-        tool.isMutating -> approve(turn, tool, args)?.let { KoogToolResult(it, true) } ?: run(tool, args, started, id)
+        tool.isMutating -> approve(turn, tool, args)?.let { KoogToolResult(it, true) }
+            ?: run(tool, args, started, started.call)
 
         else -> {
             log.i { "Running tool ${call.name}" }
-            tool.run(args, id)
+            tool.run(args, started.call)
         }
     }
 

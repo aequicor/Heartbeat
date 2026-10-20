@@ -208,3 +208,29 @@ tasks.register<Test>("engineSwitchLiveTest") {
     systemProperty("heartbeat.engineSwitch.liveTest", "true")
     testLogging { events("passed", "failed", "skipped") }
 }
+
+// Isolated, opt-in actual shell/approval regressions; never added to check or CI.
+val securityLiveHome = layout.buildDirectory.dir("security-live-home")
+val securityLiveReport = layout.buildDirectory.file("security-live-report.txt")
+val prepareSecurityLiveHome = tasks.register<Delete>("prepareSecurityLiveHome") {
+    delete(securityLiveHome, securityLiveReport)
+}
+val cleanSecurityLiveHome = tasks.register<Delete>("cleanSecurityLiveHome") {
+    delete(securityLiveHome)
+}
+tasks.register<Test>("securityLiveTest") {
+    group = "verification"
+    description = "Checks profile permissions through real Koog/Pi tools against an explicitly configured provider."
+    testClassesDirs = regularJvmTest.get().testClassesDirs
+    classpath = regularJvmTest.get().classpath + files(engineSwitchLiveResources)
+    filter { includeTestsMatching("*.SecurityLiveE2eTest") }
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf("Live checks must reach the configured provider") { true }
+    dependsOn(prepareSecurityLiveHome)
+    finalizedBy(cleanSecurityLiveHome)
+    systemProperty("user.home", securityLiveHome.get().asFile.absolutePath)
+    systemProperty("heartbeat.security.liveHome", securityLiveHome.get().asFile.absolutePath)
+    systemProperty("heartbeat.security.liveTest", "true")
+    systemProperty("heartbeat.security.liveReport", securityLiveReport.get().asFile.absolutePath)
+    testLogging { events("passed", "failed", "skipped") }
+}

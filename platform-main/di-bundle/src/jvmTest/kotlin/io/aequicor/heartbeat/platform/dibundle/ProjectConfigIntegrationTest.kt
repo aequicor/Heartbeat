@@ -17,7 +17,6 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigMachineKey
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigOutput
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigState
-import io.aequicor.heartbeat.feature.projectconfig.api.ProposalReview
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -81,11 +80,10 @@ class ProjectConfigIntegrationTest {
         val ref = withContext(Dispatchers.Default) { accessors.localWorkspaces.register(project.absolutePath) }.ref
 
         val proposal = awaitConfig(accessors) { state ->
-            state.proposals.singleOrNull()?.takeIf { it.review != ProposalReview.Pending }
+            state.proposals.singleOrNull()
         }
-        // The test profile has no default model, so the review is unavailable and the user accepts the risk.
-        assertEquals(ProposalReview.Unavailable, proposal.review)
-        trust(accessors, ProjectConfigIntent.Internal.Trust(proposal.id, proposal.digest, isRiskAccepted = true))
+        // Import uses the user's exact digest confirmation even when no review model is configured.
+        trust(accessors, ProjectConfigIntent.Internal.Trust(proposal.id, proposal.digest))
         val lesson = withContext(Dispatchers.Default) {
             withTimeout(TIMEOUT) {
                 accessors.machines.observe(AgentLearningMachineKey).filterNotNull().flatMapLatest { it.state }

@@ -26,7 +26,7 @@ public sealed interface StudioSecurityState : MachineState {
     /** Resolving the profile's saved choice before submitting a turn or enabling editing. */
     public data object Loading : StudioSecurityState
 
-    /** Storage was unreadable. Turns use Ask until Retry loads the actual choice. */
+    /** Storage was unreadable. Retry reloads the editor; execution observes profile policy independently. */
     public data object LoadError : StudioSecurityState
 
     /** The accepted choice; a failed write retains this level and exposes the failure to the screen. */

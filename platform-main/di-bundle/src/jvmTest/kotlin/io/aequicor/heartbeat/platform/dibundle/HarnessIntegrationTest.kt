@@ -32,7 +32,6 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
-import io.aequicor.heartbeat.feature.harness.api.HarnessToolsRoute
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ItemStatus
@@ -91,7 +90,6 @@ class HarnessIntegrationTest {
                 HarnessRoute::class,
                 HarnessDetailRoute::class,
                 HarnessItemRoute::class,
-                HarnessToolsRoute::class,
             )
             assertTrue(routes.containsAll(expected), "registered: $routes")
             // The studio's "+" menu is backed by the harness library, not by the no-op default.

@@ -23,11 +23,13 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsM
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
@@ -199,12 +201,14 @@ class StudioEngineIntegrationTest {
             val helper = helpers.createHelper(
                 HelperCreateRequest(ActionId("workflow"), null, workspace, target, "Helper", TrustLevel.Ask),
             )
+            services.agentSecuritySettings.save(SecurityMode.Trust)
+            services.studioRepository.observeModels().first { it.singleOrNull()?.isTrustSupported == true }
             seedHelperFullApproval(services, helper)
             val run = startAcceptedRun(services.studioRuntime, helper.value, "Hello", services.studioRuntime.defaults())
             val engine = TestAdapter.runtimes.single()
             val native = engine.natives.single()
             assertEquals(workspace, engine.createdRequests.single().workspace)
-            assertEquals(TrustLevel.Ask, native.sent.single().trust)
+            assertEquals(TrustLevel.Full, native.sent.single().trust)
             assertTrue(
                 native.sent.single().parts.filterIsInstance<ContentPart.Text>().any {
                     it.text.contains("Do not call scheduler_sleep")
@@ -246,7 +250,7 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun `helper trust lowered during admission is sent and persisted without configuration capability`() =
+    fun `profile trust lowered during helper admission is sent and persisted without configuration capability`() =
         runStudioTest {
             // This test deliberately blocks a 2s admission on real disk IO; use a serial real-time Main clock.
             Dispatchers.setMain(Dispatchers.Default.limitedParallelism(1))
@@ -260,17 +264,19 @@ class StudioEngineIntegrationTest {
         }
 
     @Test
-    fun `helper refuses native default when engine cannot enforce its trust cap`() = runStudioTest {
+    fun `helper uses shared security without requiring native trust capability`() = runStudioTest {
         val services = configured()
         val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
         val helper = services.scheduledSessionHosts.maxBy { it.priority }.createHelper(
             HelperCreateRequest(ActionId("workflow"), null, null, target, "Helper", TrustLevel.Ask),
         )
-        assertEquals(
-            RunOutcome.Failed,
-            services.studioRuntime.run(helper.value, "Must not send", services.studioRuntime.defaults()),
-        )
-        assertTrue(TestAdapter.runtimes.single().natives.single().sent.isEmpty())
+        services.agentSecuritySettings.save(SecurityMode.Automatic)
+        val run = startAcceptedRun(services.studioRuntime, helper.value, "Send", services.studioRuntime.defaults())
+        val native = TestAdapter.runtimes.single().natives.single()
+        assertNull(native.sent.single().trust)
+        assertEquals(AgentToolDecisionMode.AutomaticSafety, native.sent.single().decisionMode)
+        native.finish()
+        assertEquals(RunOutcome.Completed, run.await())
     }
 
     @Test
@@ -300,14 +306,15 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun `a fresh native conversation starts with the selected approval and effort defaults`() = runStudioTest {
+    fun `a fresh native conversation uses profile security and selected effort`() = runStudioTest {
         TestAdapter.reasoningEfforts = listOf("low", "high")
         TestAdapter.isTrustSupported = true
         try {
             val services = configured()
             val repository = services.studioRepository
             val runtime = services.studioRuntime
-            val settings = runtime.defaults().copy(approval = ApprovalMode.AutoApprove)
+            services.agentSecuritySettings.save(SecurityMode.Trust)
+            val settings = runtime.defaults().copy(approval = ApprovalMode.Ask)
             repository.observeModels().first { it.singleOrNull()?.reasoningEfforts == listOf("low", "high") }
             val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
             val efforts = requireNotNull(app.machines.find(EffortConfigurationMachineKey))
@@ -338,12 +345,14 @@ class StudioEngineIntegrationTest {
             val services = configured()
             val settings = services.studioRuntime.defaults().copy(approval = ApprovalMode.AutoEdits)
             val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+            services.agentSecuritySettings.save(SecurityMode.Trust)
             saveStartPageChoices(services, settings, target)
             assertTrue(services.studioRepository.observeWorkspace().first().sessions.isEmpty())
             app.profileSessions.close()
 
             val restored = app.profileSessions.open(ProfileId("studio")).graph as AiEngineTestAccessors
             assertEquals(settings, restored.studioRuntime.defaults())
+            assertEquals(SecurityMode.Trust, restored.agentSecuritySettings.load())
             val choices = requireNotNull(app.machines.find(EffortConfigurationMachineKey)).state.value
             assertEquals("high", assertIs<EffortConfigurationState.Ready>(choices).effortFor(target))
             restored.studioRepository.observeModels().first { it.isNotEmpty() }
@@ -353,13 +362,14 @@ class StudioEngineIntegrationTest {
                 restored.studioRuntime.state.first { chat.id in it.configurations }
                 val native = TestAdapter.runtimes.last().natives.last()
                 assertEquals("high", native.sent.single().reasoningEffort)
-                assertEquals(TrustLevel.AutoEdits, native.sent.single().trust)
+                assertEquals(TrustLevel.Full, native.sent.single().trust)
                 native.finish()
                 assertEquals(RunOutcome.Completed, run.await())
             }
             app.profileSessions.close()
             val isolated = app.profileSessions.open(ProfileId("isolated-defaults")).graph as AiEngineTestAccessors
             assertEquals(ApprovalMode.Ask, isolated.studioRuntime.defaults().approval)
+            assertEquals(SecurityMode.Automatic, isolated.agentSecuritySettings.modes.first())
             assertEquals("", isolated.studioRuntime.defaults().modelId)
         } finally {
             TestAdapter.reasoningEfforts = emptyList()

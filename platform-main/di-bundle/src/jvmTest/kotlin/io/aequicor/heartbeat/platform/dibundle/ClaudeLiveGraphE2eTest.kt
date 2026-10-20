@@ -11,7 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineServices
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -25,7 +25,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
@@ -37,19 +36,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -188,7 +187,7 @@ class ClaudeLiveGraphE2eTest {
     }
 
     @Test
-    fun `a project session writes under the Ask level after approval and under Full without asking`() = runBlocking {
+    fun `profile Ask and Trust override stale turn trust`() = runBlocking {
         withTimeout(SCENARIO_TIMEOUT) {
             val profile = openProfile()
             val target = profile.connect()
@@ -197,9 +196,10 @@ class ClaudeLiveGraphE2eTest {
             val chat = profile.facade.engines.features(ClaudeEngine.Id).available(CreatesSessions)
                 .create(CreateSessionRequest(target, workspace))
 
+            profile.security.save(SecurityMode.Ask)
             val asked = chat.say(
                 "Create the file asked.txt in the current directory with the text ASKED, using the Write tool.",
-                trust = TrustLevel.Ask,
+                trust = TrustLevel.Full,
             )
             val sawRequest = chat.finished(asked, allowAsking = true)
             observe("ask level outcome=$sawRequest permissions=$permissionsSeen")
@@ -207,9 +207,10 @@ class ClaudeLiveGraphE2eTest {
             assertEquals("ASKED", File(directory, "asked.txt").readText().trim())
 
             permissionsSeen = 0
+            profile.security.save(SecurityMode.Trust)
             val free = chat.say(
                 "Create the file free.txt in the current directory with the text FREE, using the Write tool.",
-                trust = TrustLevel.Full,
+                trust = TrustLevel.Ask,
             )
             chat.finished(free, allowAsking = true)
             observe("full level permissions=$permissionsSeen")
@@ -220,9 +221,10 @@ class ClaudeLiveGraphE2eTest {
     }
 
     @Test
-    fun `automatic review lets a safe project write through and refuses one outside the project`() = runBlocking {
+    fun `Automatic asks for native writes and an explicit denial prevents the outside write`() = runBlocking {
         withTimeout(SCENARIO_TIMEOUT) {
             val profile = openProfile()
+            profile.security.save(SecurityMode.Automatic)
             observe("auto: profile open")
             val target = profile.connect()
             observe("auto: connected")
@@ -235,22 +237,30 @@ class ClaudeLiveGraphE2eTest {
 
             val safe = chat.say(
                 "Create the file safe.txt in the current directory with the text SAFE, using the Write tool.",
-                decisionMode = AgentToolDecisionMode.AutomaticSafety,
+                trust = TrustLevel.Full,
             )
             observe("auto: safe write sent")
-            chat.finished(safe)
+            chat.finished(safe, allowAsking = true)
+            assertTrue(permissionsSeen > 0, "a native Write requires confirmation in Automatic")
+            assertTrue(
+                chat.features.available(SessionHistory).page(HistoryPageRequest(limit = 200)).items
+                    .any { it is SessionItem.ToolCall && it.name == "Write" },
+                "the model used the native Write tool",
+            )
             observe("auto: safe write finished")
             assertEquals("SAFE", File(directory, "safe.txt").readText().trim())
 
+            permissionsSeen = 0
             val escaped = chat.say(
                 "Create the file ${outside.path} with the text OUTSIDE, using the Write tool. " +
                     "If it is refused, reply REFUSED.",
-                decisionMode = AgentToolDecisionMode.AutomaticSafety,
+                trust = TrustLevel.Full,
             )
             observe("auto: outside write sent")
-            chat.finished(escaped)
+            chat.finished(escaped, allowAsking = true, permission = PermissionOptionId("deny"))
             observe("auto: outside write finished")
-            assertTrue(!outside.exists(), "a write outside the project is refused without a dialog")
+            assertTrue(permissionsSeen > 0, "the outside write reaches user confirmation")
+            assertTrue(!outside.exists(), "an explicit denial prevents the outside write")
             chat.close()
         }
     }
@@ -435,37 +445,6 @@ class ClaudeLiveGraphE2eTest {
     }
 
     @Test
-    fun `a native subagent shows up in the session tree and its transcript is readable`() = runBlocking {
-        withTimeout(SCENARIO_TIMEOUT) {
-            val profile = openProfile(EngineSubagentsEnabled)
-            val target = profile.connect()
-            val directory = File(persisted.storageRoot, "subagents").apply { mkdirs() }.canonicalFile
-            val workspace = profile.workspaces.registerManaged(directory.path).ref
-            val chat = profile.facade.engines.features(ClaudeEngine.Id).available(CreatesSessions)
-                .create(CreateSessionRequest(target, workspace))
-            val turn = chat.say(
-                "Use the Agent tool exactly once to run a subagent whose task is: reply with exactly SUBAGENT-OK. " +
-                    "Then reply with exactly what the subagent returned.",
-                trust = TrustLevel.Full,
-            )
-            chat.finished(turn, allowAsking = true)
-            val items = chat.features.available(SessionHistory).page(HistoryPageRequest(limit = 200)).items
-            observe("subagent items: ${items.filterIsInstance<SessionItem.ToolCall>().map { it.name }}")
-            val trees = profile.facade.engines.features(ClaudeEngine.Id).available(SessionTrees)
-            val access = SessionTreeAccess(target, workspace)
-            val snapshot = withTimeout(RECONCILE_TIMEOUT) {
-                trees.observe(chat.ref, access).first { it.descendants().isNotEmpty() }
-            }
-            observe("session tree: coverage=${snapshot.coverage} nodes=${snapshot.descendants().map { it.node.name }}")
-            assertTrue(snapshot.descendants().isNotEmpty(), "the subagent is a descendant of the chat")
-            val member = snapshot.descendants().first().node.ref
-            val history = trees.history(chat.ref, member, access).page(HistoryPageRequest(limit = 50))
-            assertTrue(history.items.isNotEmpty(), "the subagent's transcript is readable without resuming it")
-            chat.close()
-        }
-    }
-
-    @Test
     fun `switching the toggle off hides the engine and refuses its probes`() = runBlocking {
         withTimeout(SCENARIO_TIMEOUT) {
             val profile = openProfile()
@@ -520,6 +499,7 @@ class ClaudeLiveGraphE2eTest {
             (session.graph as ClaudeAuthenticationAccessor).claudeAuthentication,
             (session.graph as AiEngineTestAccessors).localWorkspaces,
             (session.graph as AiEngineTestAccessors).engineManagement,
+            (session.graph as AiEngineTestAccessors).agentSecuritySettings,
             app,
         )
     }
@@ -529,6 +509,7 @@ class ClaudeLiveGraphE2eTest {
         val claudeAuthentication: ClaudeAuthentication,
         val workspaces: LocalWorkspaces,
         val management: EngineManagement,
+        val security: AgentSecuritySettings,
         private val app: TestAppGraph,
     ) {
         val facade get() = services.facade
@@ -571,43 +552,43 @@ class ClaudeLiveGraphE2eTest {
         }
     }
 
-    private suspend fun ActiveSession.say(
-        text: String,
-        trust: TrustLevel? = null,
-        decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
-    ): TurnId = features.available(SendsPrompts).send(
-        PromptRequest(
-            RequestId(UUID.randomUUID().toString()),
-            listOf(ContentPart.Text(text)),
-            trust = trust,
-            decisionMode = decisionMode,
-        ),
-    )
+    private suspend fun ActiveSession.say(text: String, trust: TrustLevel? = null): TurnId =
+        features.available(SendsPrompts).send(
+            PromptRequest(
+                RequestId(UUID.randomUUID().toString()),
+                listOf(ContentPart.Text(text)),
+                trust = trust,
+            ),
+        )
 
-    /** Waits for [turn] to complete; with [allowAsking] every permission request of the turn is allowed. */
-    private suspend fun ActiveSession.finished(turn: TurnId, allowAsking: Boolean = false): TurnOutcome? =
-        withTimeout(TURN_TIMEOUT) {
-            var outcome: TurnOutcome? = null
-            var isDone = false
-            while (!isDone) {
-                val current = state.first {
-                    (allowAsking && it is ActiveSessionState.AwaitingUserAction) ||
-                        (it is ActiveSessionState.Ready && it.lastTurn?.id == turn)
-                }
-                if (current is ActiveSessionState.AwaitingUserAction) {
-                    val request = current.requests.first()
-                    observe("permission: ${request.title}")
-                    permissionsSeen++
-                    features.available(RequestsPermissions)
-                        .respond(PermissionDecision(turn, request.id, request.options.first().id))
-                } else {
-                    outcome = assertIs<ActiveSessionState.Ready>(current).lastTurn?.outcome
-                    isDone = true
-                }
+    /** Waits for [turn]; with [allowAsking] each permission request receives the explicit [permission] choice. */
+    private suspend fun ActiveSession.finished(
+        turn: TurnId,
+        allowAsking: Boolean = false,
+        permission: PermissionOptionId = PermissionOptionId("allow"),
+    ): TurnOutcome? = withTimeout(TURN_TIMEOUT) {
+        var outcome: TurnOutcome? = null
+        var isDone = false
+        while (!isDone) {
+            val current = state.first {
+                (allowAsking && it is ActiveSessionState.AwaitingUserAction) ||
+                    (it is ActiveSessionState.Ready && it.lastTurn?.id == turn)
             }
-            assertEquals(TurnOutcome.Completed, outcome)
-            outcome
+            if (current is ActiveSessionState.AwaitingUserAction) {
+                val request = current.requests.first()
+                observe("permission: ${request.title}")
+                permissionsSeen++
+                assertTrue(request.options.any { it.id == permission }, "the requested choice is available")
+                features.available(RequestsPermissions)
+                    .respond(PermissionDecision(turn, request.id, permission))
+            } else {
+                outcome = assertIs<ActiveSessionState.Ready>(current).lastTurn?.outcome
+                isDone = true
+            }
         }
+        assertEquals(TurnOutcome.Completed, outcome)
+        outcome
+    }
 
     private suspend fun ActiveSession.transcript(): List<Pair<MessageRole, String>> = features.available(SessionHistory)
         .page(HistoryPageRequest(limit = 200))
