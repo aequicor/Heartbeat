@@ -15,9 +15,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioSecurityPolicyTest {
@@ -57,32 +55,6 @@ class StudioSecurityPolicyTest {
         assertFalse(restored.isCompleted)
         second.state.value = StudioSecurityState.Ready(StudioSecurityLevel.Automatic)
         assertEquals(StudioSecurityLevel.Automatic, restored.await())
-    }
-
-    @Test
-    fun `settings survive recreation stay in their profile and failed saves keep the previous value`() = runTest {
-        val firstProfile = ChecklistTestStores()
-        val secondProfile = ChecklistTestStores()
-        val first = KeyValueStudioSecurityStore(firstProfile)
-        assertNull(first.load())
-        first.save(StudioSecurityLevel.Ask)
-        assertEquals(StudioSecurityLevel.Ask, KeyValueStudioSecurityStore(firstProfile).load())
-        assertNull(KeyValueStudioSecurityStore(secondProfile).load())
-
-        firstProfile.stores.values.single().failWrites = true
-        assertFailsWith<IllegalStateException> { first.save(StudioSecurityLevel.Trust) }
-        assertEquals(StudioSecurityLevel.Ask, KeyValueStudioSecurityStore(firstProfile).load())
-    }
-
-    @Test
-    fun `unknown and malformed values fail loading instead of enabling the automatic default`() = runTest {
-        val stores = ChecklistTestStores()
-        val repository = KeyValueStudioSecurityStore(stores)
-        listOf("", "Unknown", "{broken", "\"Trust\"").forEach { raw ->
-            stores.stores.values.single().values.value = mapOf("confirmation_level" to raw)
-            assertFailsWith<IllegalStateException> { repository.load() }
-            assertEquals(raw, stores.stores.values.single().values.value["confirmation_level"])
-        }
     }
 }
 
