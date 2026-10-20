@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitching
 import io.aequicor.heartbeat.feature.aistudio.api.StudioLocalProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.data.MachineStudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioSafetyReviewsToggle
@@ -104,6 +105,11 @@ object AiStudioToggleBindings {
     @Provides
     @IntoSet
     fun engineRuntime(): FeatureToggle<*> = StudioEngineRuntime
+
+    /** Explicit chat engine switching, disabled by default. */
+    @Provides
+    @IntoSet
+    fun engineSwitching(): FeatureToggle<*> = StudioEngineSwitching
 
     /** Experimental local folders backed by real CLI workspaces. */
     @Provides
