@@ -128,6 +128,7 @@ class AiStudioEffects(
     private fun configure(effect: AiStudioEffect.Configuration) {
         when (effect) {
             is AiStudioEffect.SaveSettings -> log.d { "Demo preferences remain in memory" }
+            is AiStudioEffect.SwitchSessionEngine -> log.w { "Engine replacement is unavailable in demo mode" }
             is AiStudioEffect.ChangeSessionSetting -> error("Live configuration requires an engine session")
         }
     }

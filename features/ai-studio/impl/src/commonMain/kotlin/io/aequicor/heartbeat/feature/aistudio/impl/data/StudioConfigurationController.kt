@@ -72,6 +72,9 @@ internal interface StudioConfigurationAccess {
 
     /** The next turn accepted the essence of the previous session or the continuation brief after compaction. */
     suspend fun consumeSeed(id: String) = Unit
+
+    /** Builds pending cross-engine history against the fully prepared first prompt. */
+    suspend fun engineSwitchContext(id: String, incoming: String): String? = null
 }
 
 /** Applies profile-owned changes independently of the screen and publishes correlated feedback. */
@@ -100,6 +103,16 @@ internal class StudioConfigurationController(
         },
         toggles.observe(FeedbackEnabled),
     ) { records, enabled -> if (enabled) records.filter { it.source == id } else emptyList() }
+
+    /** Shares the parameter-change barrier with engine replacement. The caller publishes its own result. */
+    suspend fun <T> exclusive(id: String, body: suspend () -> T): T {
+        check(lock.withLock { changing.add(id) }) { "Configuration is busy" }
+        try {
+            return body()
+        } finally {
+            withContext(NonCancellable) { lock.withLock { changing.remove(id) } }
+        }
+    }
 
     suspend fun configure(access: StudioConfigurationAccess, id: String, change: StudioSettingChange): Boolean {
         // The profile owns the accepted operation; awaiting it only attaches this screen effect.
@@ -136,6 +149,7 @@ internal class StudioConfigurationController(
         change: StudioSettingChange,
     ): ConfigurationResult {
         val record = access.configurationRecord(id)
+        check(record.pendingEngineSwitch == null) { "Engine replacement awaits recovery" }
         val target = record.configurationTarget()
         var actual = record.configuration?.native(target)
             ?: SessionConfiguration(target.model)
@@ -274,12 +288,14 @@ internal class StudioConfigurationController(
      */
     suspend fun retire(id: String, session: ActiveSession) {
         log.d { "Stop reflecting a retiring session into its chat" }
-        lock.withLock {
+        val job = lock.withLock {
             retired[id] = session
-            val observation = observed[id]?.takeIf { it.session === session } ?: return@withLock
+            val observation = observed[id]?.takeIf { it.session === session } ?: return@withLock null
             observed.remove(id)
-            observation.job.cancel()
+            observation.job
         }
+        job?.cancel()
+        job?.join()
     }
 
     private suspend fun followConfiguration(

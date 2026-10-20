@@ -407,12 +407,14 @@ private fun WorktreeUi.virtualCard(id: String, session: String, labels: Worktree
 }
 
 private fun WorktreeUi.pausedVirtualCard(id: String, session: String, labels: WorktreeLabels): WorktreeCard {
-    val conflicted = sandboxPhase == "Conflicted"
+    val isConflicted = sandboxPhase == "Conflicted"
     val resume = CardCommand(
-        HbToolAction("sandbox-continue", if (conflicted) labels.sandboxResolve else labels.sandboxContinue),
-        WorktreeCommand.Send(StudioIntent.RecheckWorktree(session, isResume = true, resolveConflicts = conflicted)),
+        HbToolAction("sandbox-continue", if (isConflicted) labels.sandboxResolve else labels.sandboxContinue),
+        WorktreeCommand.Send(
+            StudioIntent.RecheckWorktree(session, isResume = true, isConflictResolutionRequested = isConflicted),
+        ),
     )
-    val leave = if (conflicted) {
+    val leave = if (isConflicted) {
         CardCommand(
             HbToolAction("sandbox-leave-paused", labels.sandboxLeavePaused, HbButtonStyle.Ghost),
             WorktreeCommand.Send(StudioIntent.RecheckWorktree(session)),
@@ -422,7 +424,7 @@ private fun WorktreeUi.pausedVirtualCard(id: String, session: String, labels: Wo
     }
     return worktreeCard(
         id,
-        if (conflicted) labels.sandboxConflicted else labels.sandboxPaused,
+        if (isConflicted) labels.sandboxConflicted else labels.sandboxPaused,
         HbToolStatus.Pending,
         sandboxConflicts.joinToString("\n"),
         commands = listOfNotNull(resume, leave),

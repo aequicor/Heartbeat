@@ -151,6 +151,8 @@ sealed interface StudioMessage {
         override val id: String,
         override val createdAt: Instant,
         val kind: ContextNoticeKind,
+        val engineFrom: String? = null,
+        val engineTo: String? = null,
         override val isTimestampKnown: Boolean = false,
     ) : StudioMessage
 
@@ -163,7 +165,7 @@ sealed interface StudioMessage {
 }
 
 /** Host-recognized context events shown as dividers. */
-enum class ContextNoticeKind { Compacted, RolledOver }
+enum class ContextNoticeKind { Compacted, RolledOver, EngineChanged, TransferTruncated }
 
 /** User-facing class of a failed run; native error text is never shown. */
 enum class RunFailureKind {
@@ -194,6 +196,7 @@ data class StudioModel(
     /** Whether a running session of the engine changes its model in place. */
     val isModelSwitchSupported: Boolean = false,
     val inputSupport: PromptInputSupport = PromptInputSupport(),
+    val contextLimitTokens: Long? = null,
 )
 
 /** Models the demo agent can impersonate, from the most capable to the fastest. */

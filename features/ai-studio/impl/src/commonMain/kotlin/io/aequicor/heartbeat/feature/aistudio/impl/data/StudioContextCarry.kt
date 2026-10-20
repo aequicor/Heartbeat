@@ -57,6 +57,42 @@ internal class StudioContextCarry(
         RunOutcome.Completed
     }
 
+    /** Prepares once, then applies the journal under the same lock as native open and release. */
+    suspend fun switchEngine(
+        id: String,
+        expected: ActiveSession?,
+        journal: suspend (StudioChatRecord) -> StudioEngineSwitchJournal,
+    ) = locks.withLock(id) {
+        val current = record(id)
+        check(current.pendingEngineSwitch == null) { "Engine replacement must be recovered first" }
+        check(current.ref == expected?.ref) { "The source session changed" }
+        if (expected != null) {
+            check(handles.handle(id) === expected && expected.canCarryEnvironment()) { "The source is not idle" }
+        }
+        val prepared = journal(current)
+        update(id) { copy(pendingEngineSwitch = prepared) }
+        recoverSwitchLocked(id)
+    }
+
+    /** Even when the feature is disabled a saved replacement must settle before the chat runs again. */
+    suspend fun recoverEngineSwitch(id: String): StudioChatRecord? = locks.withLock(id) {
+        if (record(id).pendingEngineSwitch == null) return@withLock null
+        recoverSwitchLocked(id)
+    }
+
+    private suspend fun recoverSwitchLocked(id: String): StudioChatRecord {
+        val prepared = checkNotNull(record(id).pendingEngineSwitch)
+        write(id) { it.frozenForSwitch(prepared) }
+        val active = handles.handle(id)
+        if (active != null) {
+            check(active.ref == prepared.source) { "Another native session owns the replacement" }
+            active.close()
+            handles.forget(id, active)
+        }
+        update(id) { committedSwitch(prepared) }
+        return record(id)
+    }
+
     /** Outside context changes retain harness choices, including unresolved ones while the feature is off. */
     suspend fun environment(
         request: StudioTurnRequest,

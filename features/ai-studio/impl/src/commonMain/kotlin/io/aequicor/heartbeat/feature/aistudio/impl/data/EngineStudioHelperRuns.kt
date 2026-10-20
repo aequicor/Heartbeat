@@ -37,6 +37,12 @@ internal class EngineStudioHelperRuns(
 ) : StudioHelperRuns {
     private val log = Log.tag("StudioHelperRuns")
 
+    override suspend fun prepareHelperRoute(helper: HelperId) {
+        if (access.value.helperRecord(helper).pendingEngineSwitch == null) return
+        log.i { "Recover helper replacement before preparing a new receipt" }
+        coordinator.mutate(helper.value) { host.value.prepareRun(helper.value) }
+    }
+
     override suspend fun runHelper(
         helper: HelperId,
         prompt: HelperPrompt,

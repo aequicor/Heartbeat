@@ -156,8 +156,14 @@ sealed interface MessageUi {
     /** A context divider: compacted, or continued in a new session. */
     @Serializable
     @SerialName("MessageUi.ContextNotice")
-    data class ContextNotice(override val id: String, override val createdAt: Instant, val isRollover: Boolean) :
-        MessageUi
+    data class ContextNotice(
+        override val id: String,
+        override val createdAt: Instant,
+        val isRollover: Boolean,
+        val engineFrom: String? = null,
+        val engineTo: String? = null,
+        val isTransferTruncated: Boolean = false,
+    ) : MessageUi
 
     /** The run failed. */
     @Serializable

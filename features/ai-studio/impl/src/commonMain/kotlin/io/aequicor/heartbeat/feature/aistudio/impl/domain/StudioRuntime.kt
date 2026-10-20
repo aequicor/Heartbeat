@@ -7,14 +7,13 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
-import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 
 /** Profile service: accepted work and history observation outlive any individual screen. */
-interface StudioRuntime {
+interface StudioRuntime : StudioRuntimeConfiguration {
     val state: StateFlow<StudioRuntimeState>
 
     /**
@@ -71,13 +70,5 @@ interface StudioRuntime {
     /** Delivers an observed permission only to its captured native turn, refusing a reused request id. */
     suspend fun respond(permission: StudioPermission, optionId: String, answer: StudioPermissionAnswer? = null) {
         error("Captured permission delivery is unavailable")
-    }
-
-    /**
-     * Applies a parameter in profile-owned work; a screen waiter may detach without cancelling the change. Returns
-     * `true` for an acknowledged change or an already applied value, `false` for refusal or a concurrent change.
-     */
-    suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {
-        error("Session configuration is unavailable")
     }
 }

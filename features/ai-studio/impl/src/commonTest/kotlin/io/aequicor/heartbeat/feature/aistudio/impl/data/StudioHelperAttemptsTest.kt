@@ -49,6 +49,45 @@ class StudioHelperAttemptsTest {
     )
 
     @Test
+    fun `replacement refuses every unresolved phase and retains completed receipts after restart`() = runTest {
+        val stores = ChecklistTestStores()
+        val routes = StudioHelperRoutes()
+        val journal = StudioHelperAttempts(stores, routes)
+        journal.prepare(helper, prompt)
+        assertFailsWith<IllegalStateException> { routes.withIdleRoute(helper, journal) { error("must not switch") } }
+        journal.bindSession(helper, prompt.request, session)
+        journal.begin(helper, prompt.request, "sender")
+        assertFailsWith<IllegalStateException> { routes.withIdleRoute(helper, journal) { error("must not switch") } }
+        journal.accepted(helper, prompt.request, session, terminal.turn)
+        assertFailsWith<IllegalStateException> { routes.withIdleRoute(helper, journal) { error("must not switch") } }
+        journal.terminal(helper, prompt.request, terminal)
+        routes.withIdleRoute(
+            helper,
+            journal,
+        ) { assertEquals(terminal, journal.receipt(helper, prompt.request)?.terminal) }
+        val restored = StudioHelperAttempts(stores)
+        assertEquals(terminal, restored.receipt(helper, prompt.request)?.terminal)
+        assertFalse(restored.prepare(helper, prompt).isNew)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `new request preparation waits for replacement and other helper receipts remain readable`() = runTest {
+        val routes = StudioHelperRoutes()
+        val journal = StudioHelperAttempts(ChecklistTestStores(), routes)
+        val gate = CompletableDeferred<Unit>()
+        val replacement = async { routes.withIdleRoute(helper, journal) { gate.await() } }
+        runCurrent()
+        val preparing = async { journal.prepare(helper, prompt) }
+        runCurrent()
+        assertFalse(preparing.isCompleted)
+        assertTrue(journal.prepare(HelperId("other"), prompt).isNew)
+        gate.complete(Unit)
+        replacement.await()
+        assertTrue(preparing.await().isNew)
+    }
+
+    @Test
     fun `lost prepared target acknowledgement is cleaned before leaving local preparation`() = runTest {
         val stores = AttemptStores()
         val journal = StudioHelperAttempts(stores)

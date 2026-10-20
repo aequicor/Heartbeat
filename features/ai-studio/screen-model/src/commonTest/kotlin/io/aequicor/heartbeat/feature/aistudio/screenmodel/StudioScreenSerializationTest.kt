@@ -13,6 +13,46 @@ import kotlin.time.Instant
 
 class StudioScreenSerializationTest {
     @Test
+    fun `replacement snapshots and expected menu route survive remote transport with legacy defaults`() {
+        val screen = AiStudioScreenState(
+            isEngineSwitchingAvailable = true,
+            engineSwitches = persistentMapOf("chat" to EngineSwitchUi(true, EngineSwitchFailureUi.Busy)),
+            models = persistentListOf(
+                ModelUi("b", "B", engineRoute = "binding", switchFailure = EngineSwitchFailureUi.Workspace),
+            ),
+            transcripts = persistentMapOf(
+                "chat" to persistentListOf(
+                    MessageUi.ContextNotice("boundary", at, isRollover = false, engineFrom = "A", engineTo = "B"),
+                    MessageUi.ContextNotice("partial", at, isRollover = false, isTransferTruncated = true),
+                ),
+            ),
+        )
+        assertEquals(
+            screen,
+            StudioViewJson.decodeFromString<AiStudioScreenState>(
+                StudioViewJson.encodeToString(AiStudioScreenState.serializer(), screen),
+            ),
+        )
+        val intent = AiStudioScreenIntent.SelectModel("b", 1, "a", "chat")
+        assertEquals(
+            intent,
+            StudioViewJson.decodeFromString<AiStudioScreenIntent>(
+                StudioViewJson.encodeToString(AiStudioScreenIntent.serializer(), intent),
+            ),
+        )
+        assertEquals(
+            AiStudioScreenIntent.SelectModel("b"),
+            StudioViewJson.decodeFromString(
+                AiStudioScreenIntent.SelectModel.serializer(),
+                """{"modelId":"b"}""",
+            ),
+        )
+        val legacy = StudioViewJson.decodeFromString<AiStudioScreenState>("{}")
+        assertEquals(false, legacy.isEngineSwitchingAvailable)
+        assertEquals(emptyMap(), legacy.engineSwitches)
+    }
+
+    @Test
     fun `isolation choice survives remote snapshots and intents`() {
         val pane = PaneUi(7, projectId = "project", isWorktree = true, isSandbox = true)
         val screen = AiStudioScreenState(isSandboxAvailable = true, panes = persistentListOf(pane))
