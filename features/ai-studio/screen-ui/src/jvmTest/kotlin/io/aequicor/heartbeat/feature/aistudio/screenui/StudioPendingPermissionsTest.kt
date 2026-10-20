@@ -2,9 +2,11 @@ package io.aequicor.heartbeat.feature.aistudio.screenui
 
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
@@ -15,6 +17,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionStateUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionUi
@@ -82,6 +85,31 @@ class StudioPendingPermissionsTest {
         assertEquals(emptySet(), child.visiblePermissionChats(true, false, false))
         assertEquals(emptySet(), root.copy(sessions = persistentListOf()).visiblePermissionChats(true, false, false))
     }
+
+    @Test
+    fun `compact workspace footer keeps the last background decision reachable`() =
+        runSkikoComposeUiTest(size = Size(420f, 360f)) {
+            val events = mutableListOf<StudioIntent>()
+            val first = organismState().organisms.getValue("chat")
+            val second = first.copy(permissions = persistentListOf(first.permissions.single().copy(cell = "c2")))
+            val state = organismState().copy(
+                phase = StudioPhase.Ready,
+                panes = persistentListOf(PaneUi(0)),
+                organisms = persistentMapOf("chat" to first, "second" to second),
+            )
+            setContent {
+                HbTheme(darkTheme = false) {
+                    AiStudioContent(state, { events += it }, StudioExits())
+                }
+            }
+            onNodeWithTag("organism-permission-c2-p1-allow").performScrollTo().assertIsDisplayed().performClick()
+            runOnIdle {
+                assertEquals(
+                    listOf<StudioIntent>(StudioIntent.DecideOrganism("second", "c2", "t1", "p1", "allow")),
+                    events,
+                )
+            }
+        }
 
     private fun organismState() = AiStudioScreenState(
         organisms = persistentMapOf(

@@ -84,7 +84,7 @@ class StudioConfiguredSubmissionTest {
         fixture.submit("review")
 
         assertEquals(
-            listOf(TrustLevel.Ask, TrustLevel.Full, TrustLevel.Full),
+            listOf(TrustLevel.Ask, TrustLevel.Full, TrustLevel.AutoEdits),
             fixture.session.requests.map { it.trust },
         )
         assertEquals(
@@ -111,7 +111,7 @@ class StudioConfiguredSubmissionTest {
     }
 
     @Test
-    fun `full profile trust does not replace host jobs or compaction or handoff policy`() = runTest {
+    fun `full profile trust applies to host jobs compaction and handoff`() = runTest {
         val fixture = SubmissionFixture(this)
         fixture.security.value = StudioSecurityLevel.Trust
 
@@ -120,15 +120,15 @@ class StudioConfiguredSubmissionTest {
         fixture.submit("${HANDOFF_REQUEST_PREFIX}1")
 
         assertEquals(
-            listOf(TrustLevel.AutoEdits, TrustLevel.AutoEdits, TrustLevel.Ask),
+            listOf(TrustLevel.Full, TrustLevel.Full, TrustLevel.Full),
             fixture.session.requests.map { it.trust },
         )
-        assertTrue(fixture.session.requests.all { it.decisionMode == AgentToolDecisionMode.AutomaticSafety })
-        assertEquals(0, fixture.securityReads)
+        assertTrue(fixture.session.requests.all { it.decisionMode == AgentToolDecisionMode.Interactive })
+        assertEquals(fixture.session.requests.size, fixture.securityReads)
     }
 
     @Test
-    fun `full profile trust never raises the ceiling of a helper user prompt`() = runTest {
+    fun `full profile trust applies to a helper regardless of its legacy ceiling`() = runTest {
         val fixture = SubmissionFixture(this)
         fixture.security.value = StudioSecurityLevel.Trust
         fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
@@ -138,13 +138,13 @@ class StudioConfiguredSubmissionTest {
         fixture.submit("helper-user-message")
 
         val request = fixture.session.requests.single()
-        assertEquals(TrustLevel.Ask, request.trust)
-        assertEquals(AgentToolDecisionMode.AutomaticSafety, request.decisionMode)
-        assertEquals(0, fixture.securityReads)
+        assertEquals(TrustLevel.Full, request.trust)
+        assertEquals(AgentToolDecisionMode.Interactive, request.decisionMode)
+        assertEquals(fixture.session.requests.size, fixture.securityReads)
     }
 
     @Test
-    fun `helper turns retain parent review and automatic policy under full profile trust`() = runTest {
+    fun `helper turns retain their model metadata and use full profile trust`() = runTest {
         val fixture = SubmissionFixture(this)
         fixture.security.value = StudioSecurityLevel.Trust
         val parent = fixture.configuration.target.copy(model = ModelId("parent"))
@@ -165,10 +165,10 @@ class StudioConfiguredSubmissionTest {
         assertEquals(3, fixture.session.requests.size)
         fixture.session.requests.forEach { request ->
             assertEquals(parent, request.reviewTarget)
-            assertEquals(AgentToolDecisionMode.AutomaticSafety, request.decisionMode)
-            assertEquals(TrustLevel.Ask, request.trust)
+            assertEquals(AgentToolDecisionMode.Interactive, request.decisionMode)
+            assertEquals(TrustLevel.Full, request.trust)
         }
-        assertEquals(0, fixture.securityReads)
+        assertEquals(fixture.session.requests.size, fixture.securityReads)
     }
 
     @Test
@@ -184,7 +184,7 @@ class StudioConfiguredSubmissionTest {
     }
 
     @Test
-    fun `the handoff summary turn asks but its trust never becomes the chat's configuration`() = runTest {
+    fun `handoff follows the profile mode without changing the chat configuration`() = runTest {
         val fixture = SubmissionFixture(this)
         fixture.submit("prompt")
         runCurrent()
@@ -192,8 +192,8 @@ class StudioConfiguredSubmissionTest {
         fixture.submit("${HANDOFF_REQUEST_PREFIX}1")
         runCurrent()
 
-        assertEquals(TrustLevel.Ask, fixture.session.requests.last().trust)
-        assertEquals(TrustLevel.Ask, fixture.native.configuration.value.trust)
+        assertEquals(TrustLevel.AutoEdits, fixture.session.requests.last().trust)
+        assertEquals(TrustLevel.AutoEdits, fixture.native.configuration.value.trust)
         assertEquals(ApprovalMode.AutoEdits, fixture.storedApproval())
         fixture.submit("next")
         runCurrent()
@@ -326,7 +326,6 @@ private class SubmissionFixture(
     private val submission = StudioConfiguredSubmission(
         configuration.controller,
         StudioLearningPrompts(LearningOff, UnconfinedDispatchers),
-        StudioHelperPolicy(ChecklistTestStores()),
         object : EffortChoicesView {
             override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
         },

@@ -108,7 +108,6 @@ object AiStudioToggleBindings {
     @Provides
     @IntoSet
     fun localProjects(): FeatureToggle<*> = StudioLocalProjects
-
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

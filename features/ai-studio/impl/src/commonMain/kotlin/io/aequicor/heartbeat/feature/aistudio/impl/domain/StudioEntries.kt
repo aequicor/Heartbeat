@@ -38,5 +38,4 @@ interface StudioEntries {
 
     /** Whether one "Settings" entry replaces the separate settings actions. */
     val showsUnifiedSettings: Flow<Boolean> get() = flowOf(false)
-
 }
