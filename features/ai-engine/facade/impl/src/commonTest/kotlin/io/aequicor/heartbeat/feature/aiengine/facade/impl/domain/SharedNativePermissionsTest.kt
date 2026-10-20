@@ -87,4 +87,4 @@ private val Context = AgentToolContext(
     TurnId("turn"),
     decisionMode = AgentToolDecisionMode.AutomaticSafety,
 )
-private val Call = NativeToolCall("bash", AgentToolAction.Command, command = "true", covered = { false })
+private val Call = NativeToolCall("bash", AgentToolAction.Command, command = "true")

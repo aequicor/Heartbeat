@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -144,9 +143,7 @@ internal class ClaudeNativeGate(
         return if (trusted == null || native == null) {
             NativePreparation.Deny("Native turn ended or tool arguments are invalid")
         } else {
-            val result = tools.prepareNative(trusted.copy(callId = ToolCallId(call.id)), native)
-            val refusal = if (result == NativePreparation.Allow) automaticRecheck(trusted, call) else null
-            if (refusal == null) result else NativePreparation.Deny(refusal)
+            tools.prepareNative(trusted.copy(callId = ToolCallId(call.id)), native)
         }
     }
 
@@ -156,18 +153,8 @@ internal class ClaudeNativeGate(
         return if (trusted == null || native == null) {
             NativeVerdict.Deny("Native turn ended or tool arguments are invalid")
         } else {
-            val result = tools.authorizeNative(trusted.copy(callId = ToolCallId(call.id)), native)
-            val refusal = if (result == NativeVerdict.Allow) automaticRecheck(trusted, call) else null
-            if (refusal == null) result else NativeVerdict.Deny(refusal)
+            tools.authorizeNative(trusted.copy(callId = ToolCallId(call.id)), native)
         }
-    }
-
-    /** Re-resolves file containment after review; it does not provide an OS filesystem sandbox. */
-    private suspend fun automaticRecheck(trusted: AgentToolContext, call: Call): String? {
-        if (trusted.decisionMode != AgentToolDecisionMode.AutomaticSafety) return null
-        val native = workspace.classify(call.name, call.input)
-            ?: return "Native action can no longer be classified"
-        return native.automaticDenial
     }
 
     private fun call(request: JsonObject, inputKey: String): Call {

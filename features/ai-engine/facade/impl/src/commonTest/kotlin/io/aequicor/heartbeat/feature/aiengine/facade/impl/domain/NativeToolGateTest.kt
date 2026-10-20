@@ -55,9 +55,8 @@ internal class NativeToolGateTest {
                 ResolvedToolPolicy(nativeOn = setOf("read"), nativeOff = setOf("read"))
             },
         )
-        val forbiddenCoverage: (TrustLevel) -> Boolean = { error("Off must run first") }
-        assertIs<NativeVerdict.Deny>(tools.authorizeNative(CONTEXT, call(covered = forbiddenCoverage)))
-        assertIs<NativeVerdict.Deny>(tools.authorizeNative(CONTEXT, call("unknown", forbiddenCoverage)))
+        assertIs<NativeVerdict.Deny>(tools.authorizeNative(CONTEXT, call()))
+        assertIs<NativeVerdict.Deny>(tools.authorizeNative(CONTEXT, call("unknown")))
         assertTrue(hook.calls.isEmpty())
     }
 
@@ -217,5 +216,4 @@ private val CONTEXT = AgentToolContext(
     permissions = AgentToolPermissions { error("No permission expected") },
 )
 private val ENABLED = ResolvedToolPolicy(nativeOn = setOf("read"))
-private fun call(name: String = "read", covered: (TrustLevel) -> Boolean = { true }) =
-    NativeToolCall(name, AgentToolAction.Read, covered = covered)
+private fun call(name: String = "read") = NativeToolCall(name, AgentToolAction.Read)
