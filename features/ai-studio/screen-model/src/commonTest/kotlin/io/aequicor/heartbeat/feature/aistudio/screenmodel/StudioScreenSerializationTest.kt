@@ -13,6 +13,14 @@ import kotlin.time.Instant
 
 class StudioScreenSerializationTest {
     @Test
+    fun `conflict resolution keeps its existing remote field name`() {
+        val wire = """{"sessionId":"s","isResume":true,"resolveConflicts":true}"""
+        val intent = AiStudioScreenIntent.RecheckWorktree("s", isResume = true, isResolvingConflicts = true)
+        assertEquals(intent, StudioViewJson.decodeFromString(AiStudioScreenIntent.RecheckWorktree.serializer(), wire))
+        assertEquals(wire, StudioViewJson.encodeToString(AiStudioScreenIntent.RecheckWorktree.serializer(), intent))
+    }
+
+    @Test
     fun `isolation choice survives remote snapshots and intents`() {
         val pane = PaneUi(7, projectId = "project", isWorktree = true, isSandbox = true)
         val screen = AiStudioScreenState(isSandboxAvailable = true, panes = persistentListOf(pane))

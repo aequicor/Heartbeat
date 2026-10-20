@@ -429,4 +429,4 @@ fun AiStudioScreenState.paneContent(pane: PaneUi, host: StudioHostCapabilities):
 private fun AiStudioScreenState.worktreeFor(
     session: String?,
 ): io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi? =
-    worktrees[session] ?: worktrees["organism.$session.${subSessions[session] ?: PRIMARY_SUB_SESSION}"]
+    session?.let { worktrees[it] ?: worktrees["organism.$it.${subSessions[it] ?: PRIMARY_SUB_SESSION}"] }

@@ -319,7 +319,7 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     data class RecheckWorktree(
         val sessionId: String,
         val isResume: Boolean = false,
-        val resolveConflicts: Boolean = false,
+        @SerialName("resolveConflicts") val isResolvingConflicts: Boolean = false,
     ) : Worktree
 
     /** Restores the profile journal after a storage failure. */

@@ -643,7 +643,7 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.RecheckWorktree -> machines.send(
                 WorktreeMachineKey,
-                WorktreeIntent.Public.Recheck(intent.sessionId, intent.isResume, intent.resolveConflicts),
+                WorktreeIntent.Public.Recheck(intent.sessionId, intent.isResume, intent.isResolvingConflicts),
             )
 
             AiStudioScreenIntent.RetryWorktreeJournal -> machines.send(
