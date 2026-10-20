@@ -4,14 +4,11 @@ import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.scheduler.api.GraphAction
@@ -40,11 +37,8 @@ import kotlin.time.Duration.Companion.seconds
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
-internal class TaskGraphTools(
-    private val machine: TaskGraphMachine,
-    private val driver: TaskGraphDriver,
-    private val safety: Lazy<TaskGraphSafety>,
-) : AgentToolContribution {
+internal class TaskGraphTools(private val machine: TaskGraphMachine, private val driver: TaskGraphDriver) :
+    AgentToolContribution {
     override val group: String = "scheduler"
     override val title: String = "Планировщик"
 
@@ -79,16 +73,7 @@ internal class TaskGraphTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): Boolean = spec.name == TaskGraphToolSpecs.CREATE && context.trust != TrustLevel.Full
-
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? {
-        if (context.decisionMode != AgentToolDecisionMode.AutomaticSafety || spec.name !in MUTATIONS) return null
-        return safety.value.authorize(context, approval(context, spec, arguments))
-    }
+    ): Boolean = spec.name == TaskGraphToolSpecs.CREATE
 
     override suspend fun approval(
         context: AgentToolContext,
@@ -153,7 +138,6 @@ internal class TaskGraphTools(
         if (context.authorization != expected) {
             return failure("Graph authorization changed")
         }
-        if (!consumeReview(context, expected)) return failure("Graph safety review expired; request it again")
         return if (spec.name == TaskGraphToolSpecs.CANCEL) {
             accepted(
                 TaskGraphIntent.Public.Cancel(graph.id, context.session, context.initiator()),
@@ -213,7 +197,6 @@ internal class TaskGraphTools(
         val parsed = parseGraph(context, arguments)
         val expected = approval(context, spec, arguments)
         if (context.authorization != expected) return failure("The complete graph must be approved first")
-        if (!consumeReview(context, expected)) return failure("Graph safety review expired; request it again")
         val graph = parsed.copy(approval = checkNotNull(expected.binding))
         val existing = ready()?.graphs?.find { it.id == graph.id }
         if (existing != null) {
@@ -321,11 +304,7 @@ internal class TaskGraphTools(
         graph.runs.entries.joinToString { "${it.key}=${it.value.phase}" }
     private fun failure(text: String) = AgentToolResult(text, isError = true)
 
-    private suspend fun consumeReview(context: AgentToolContext, approval: AgentToolApproval): Boolean =
-        context.decisionMode != AgentToolDecisionMode.AutomaticSafety || safety.value.consume(context, approval)
-
     private companion object {
-        val MUTATIONS = setOf(TaskGraphToolSpecs.CREATE, TaskGraphToolSpecs.CANCEL, TaskGraphToolSpecs.RESOLVE)
         val graphJson = Json {
             classDiscriminator = "kind"
             encodeDefaults = true

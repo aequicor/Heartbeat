@@ -20,11 +20,8 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -62,8 +59,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertIs
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WorktreeAgentToolsTest {
@@ -147,18 +142,16 @@ class WorktreeAgentToolsTest {
     }
 
     @Test
-    fun `oversized configuration and cancellation fail before producing any partial approval`() = runTest {
+    fun `large configuration and cancellation retain the complete operation`() = runTest {
         val fixture = Fixture()
         val plan = WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build", listOf("a".repeat(20_000)))))
         val configuration = Json.encodeToJsonElement(plan).jsonObject
-        assertEquals(
-            "BuildApprovalTooLarge",
-            assertFailsWith<IllegalStateException> { fixture.approval("configure_build", configuration) }.message,
+        assertTrue(
+            fixture.approval("configure_build", configuration).description.orEmpty().contains("a".repeat(20_000)),
         )
         fixture.queue(plan)
-        assertEquals(
-            "BuildApprovalTooLarge",
-            assertFailsWith<IllegalStateException> { fixture.approval("cancel_build", operationArguments()) }.message,
+        assertTrue(
+            fixture.approval("cancel_build", operationArguments()).description.orEmpty().contains("a".repeat(20_000)),
         )
     }
 
@@ -193,60 +186,20 @@ class WorktreeAgentToolsTest {
     }
 
     @Test
-    fun `automatic mode reviews build changes and leaves reads and interactive callers alone`() = runTest {
-        val fixture = Fixture()
-        val plan = planArguments(WorktreeBuildCommand("test", "build"))
-        val configure = fixture.spec("configure_build")
-        val reviewed = fixture.tools.automaticAuthorization(AUTOMATIC, configure, plan)
-        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(reviewed)
-        assertEquals(fixture.tools.approval(AUTOMATIC, configure, plan), allowed.approval)
-        assertTrue("|safety=" in checkNotNull(allowed.approval.binding))
-        assertEquals(1, fixture.reviews.size)
-        assertTrue("\"operation\":\"configure_build\"" in fixture.reviews.single(), fixture.reviews.single())
-        assertNull(fixture.tools.automaticAuthorization(CONTEXT, configure, plan))
-        val status = fixture.spec("build_status")
-        assertNull(fixture.tools.automaticAuthorization(AUTOMATIC, status, operationArguments()))
-        val worktree = fixture.spec("worktree_status")
-        assertNull(fixture.tools.automaticAuthorization(AUTOMATIC, worktree, JsonObject(emptyMap())))
-    }
-
-    @Test
-    fun `automatic mode refuses a plan the reviewer does not call safe or cannot capture`() = runTest {
-        val fixture = Fixture()
-        val configure = fixture.spec("configure_build")
-        val plan = planArguments(WorktreeBuildCommand("test", "curl"))
-        fixture.verdict = AgentSafetyReview("risk", "Downloads and runs code")
-        val denied = assertIs<AgentToolAutomaticAuthorization.Denied>(
-            fixture.tools.automaticAuthorization(AUTOMATIC, configure, plan),
-        )
-        assertTrue("Downloads and runs code" in denied.reason)
-        fixture.verdict = AgentSafetyReview("safe", "Bounded build")
-        val huge = planArguments(WorktreeBuildCommand("test", "build", listOf("a".repeat(20_000))))
-        assertIs<AgentToolAutomaticAuthorization.Denied>(
-            fixture.tools.automaticAuthorization(AUTOMATIC, configure, huge),
-        )
-        assertIs<AgentToolAutomaticAuthorization.Denied>(
-            fixture.tools.automaticAuthorization(AUTOMATIC.copy(target = null), configure, plan),
-        )
-    }
-
-    @Test
-    fun `a build verdict is consumed once and does not outlive a changed operation`() = runTest {
+    fun `a build requires the exact operation authorization`() = runTest {
         val fixture = Fixture()
         val configure = fixture.spec("configure_build")
         val plan = planArguments(WorktreeBuildCommand("test", "build"))
         val other = planArguments(WorktreeBuildCommand("test", "other"))
-        assertEquals("SafetyReviewExpired", fixture.tools.execute(AUTOMATIC, "configure_build", plan).text)
+        assertEquals("AuthorizationChanged", fixture.tools.execute(AUTOMATIC, "configure_build", plan).text)
         val bound = fixture.tools.approval(AUTOMATIC, configure, plan)
         val authorized = AUTOMATIC.copy(authorization = bound)
-        fixture.tools.automaticAuthorization(AUTOMATIC, configure, plan)
-        assertEquals("SafetyReviewExpired", fixture.tools.execute(authorized, "configure_build", other).text)
-        assertTrue(fixture.tools.execute(authorized, "configure_build", plan).text != "SafetyReviewExpired")
-        assertEquals("SafetyReviewExpired", fixture.tools.execute(authorized, "configure_build", plan).text)
+        assertEquals("AuthorizationChanged", fixture.tools.execute(authorized, "configure_build", other).text)
+        assertTrue(fixture.tools.execute(authorized, "configure_build", plan).text != "AuthorizationChanged")
     }
 
     @Test
-    fun `the build keeps the configuration revision inside the review binding`() = runTest {
+    fun `the build keeps the configuration revision inside the operation binding`() = runTest {
         val fixture = Fixture()
         fixture.queue(WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))))
         val run = fixture.spec("run_build")
@@ -254,7 +207,7 @@ class WorktreeAgentToolsTest {
         val interactive = fixture.tools.approval(CONTEXT, run, arguments)
         val automatic = fixture.tools.approval(AUTOMATIC, run, arguments)
         assertEquals("1", interactive.binding)
-        assertTrue(checkNotNull(automatic.binding).startsWith("1|safety="))
+        assertEquals(interactive.binding, automatic.binding)
         assertEquals(interactive.description, automatic.description)
     }
 
@@ -264,11 +217,11 @@ class WorktreeAgentToolsTest {
         fixture.prepare()
         fixture.git.rejection = "NeedsConfiguration"
         val plan = planArguments(WorktreeBuildCommand("test", "build"))
-        val result = fixture.tools.execute(CONTEXT, "configure_build", plan)
+        val result = fixture.execute(CONTEXT, "configure_build", plan)
         assertTrue(result.isError)
         assertTrue(result.text.startsWith("NeedsConfiguration: configure at least one project command"), result.text)
         fixture.git.rejection = "path /Users/secret is not allowed"
-        assertEquals("InvalidBuildPlan", fixture.tools.execute(CONTEXT, "configure_build", plan).text)
+        assertEquals("InvalidBuildPlan", fixture.execute(CONTEXT, "configure_build", plan).text)
     }
 
     @Test
@@ -277,16 +230,14 @@ class WorktreeAgentToolsTest {
         fixture.prepare()
         val plan = planArguments(WorktreeBuildCommand("test", "build"))
         fixture.git.failure = IllegalStateException("WorktreeUnavailable")
-        assertEquals("WorktreeUnavailable", fixture.tools.execute(CONTEXT, "configure_build", plan).text)
+        assertEquals("WorktreeUnavailable", fixture.execute(CONTEXT, "configure_build", plan).text)
         fixture.git.failure = IllegalStateException("git failed in /Users/secret/repo")
-        assertEquals("OperationFailed", fixture.tools.execute(CONTEXT, "configure_build", plan).text)
+        assertEquals("OperationFailed", fixture.execute(CONTEXT, "configure_build", plan).text)
     }
 
     private class Fixture {
         private val workspaces = PreviewWorkspaces()
         val toggles = PreviewToggles()
-        val reviews = mutableListOf<String>()
-        var verdict = AgentSafetyReview("safe", "Bounded build")
         val git = PreviewGit()
         private val journal = WorktreeJournal(PreviewStores(), git, PreviewBuilds(), workspaces, toggles)
         val tools = WorktreeAgentTools(
@@ -294,12 +245,12 @@ class WorktreeAgentToolsTest {
             PreviewRegistry(),
             toggles,
             workspaces,
-            WorktreeBuildSafety(
-                AgentSafetyReviewer { _, _, change ->
-                    reviews += change
-                    verdict
-                },
-            ),
+        )
+
+        suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject) = tools.execute(
+            context.copy(authorization = tools.approval(context, spec(name), arguments)),
+            name,
+            arguments,
         )
 
         suspend fun spec(name: String) = tools.specifications(PROJECT).single { it.name == name }

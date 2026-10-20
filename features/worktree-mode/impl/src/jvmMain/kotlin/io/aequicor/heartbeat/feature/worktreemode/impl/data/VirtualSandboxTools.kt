@@ -5,10 +5,8 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -21,11 +19,8 @@ import kotlinx.serialization.json.jsonPrimitive
 /** Integration and conflict resolution operate on host-owned virtual revisions, never on shell arguments. */
 @Inject
 @ContributesIntoSet(ProfileScope::class)
-internal class VirtualSandboxTools(
-    private val workspaces: VirtualSandboxStore,
-    private val journal: WorktreeJournal,
-    private val safety: WorktreeBuildSafety,
-) : AgentToolContribution {
+internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, private val journal: WorktreeJournal) :
+    AgentToolContribution {
     override val group: String = "virtual_sandbox"
     override val title: String = "Виртуальная песочница"
     override val catalog = specs.toolCatalog()
@@ -65,31 +60,17 @@ internal class VirtualSandboxTools(
         val description = "Virtual revision=${state.revision}\nSnapshot=${state.snapshot}\n" +
             "Input=$arguments\nCurrent=$child"
         require(description.length <= MAX_VIRTUAL_ACTION_CHARS) { "SandboxActionTooLarge" }
-        return safety.bind(
-            context,
-            AgentToolApproval(
-                spec.name,
-                "Изменить виртуальное состояние",
-                description,
-                "${state.revision}:${state.snapshot}:$arguments",
-            ),
+        return AgentToolApproval(
+            spec.name,
+            "Изменить виртуальное состояние",
+            description,
+            "${state.revision}:${state.snapshot}:$arguments",
         )
-    }
-
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? = if (context.decisionMode == AgentToolDecisionMode.AutomaticSafety) {
-        safety.authorize(context, approval(context, spec, arguments))
-    } else {
-        null
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         val bound = approval(context, specs.single { it.name == name }, arguments)
         check(context.authorization == bound) { "SandboxAuthorizationChanged" }
-        if (context.decisionMode == AgentToolDecisionMode.AutomaticSafety) check(safety.consume(context, bound))
         checkNotNull(journal.authenticated(context)) { "TurnUnavailable" }
         val parent = checkNotNull(context.workspace)
         val expectedRevision = checkNotNull(bound.binding).substringBefore(':').toLong()
