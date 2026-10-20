@@ -33,8 +33,18 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
-/** Model advertised by a compatible server. */
-internal data class PiCompatibleModel(val id: String, val name: String?)
+/**
+ * Model advertised by a compatible server. [contextWindow], [maxTokens] and [inputs] are values the server itself
+ * published; they stay null when its list carries no such field, so Pi keeps its own default and Heartbeat never
+ * invents a capacity.
+ */
+internal data class PiCompatibleModel(
+    val id: String,
+    val name: String? = null,
+    val contextWindow: Long? = null,
+    val maxTokens: Long? = null,
+    val inputs: List<String>? = null,
+)
 
 /**
  * Lists models of an OpenAI-/Anthropic-compatible server (`GET <base>/models`, Anthropic `<base>/v1/models`).
@@ -155,21 +165,50 @@ private fun checkStatus(status: HttpStatusCode, source: AuthSourceId) {
     piFailure(EngineFailure.Transport(reason))
 }
 
-/** Both protocols answer `{"data":[{"id":…}]}`; Anthropic adds `display_name`. */
+/**
+ * Both protocols answer `{"data":[{"id":…}]}`; Anthropic adds `display_name`, and the OpenAI surface may add a
+ * context window (`context_window` of `GET /models`, `max_model_len` of self-hosted servers, `context_length` of
+ * Ollama), an output cap (`max_completion_tokens`, `max_tokens`) and `architecture.input_modalities`. Fields a
+ * server does not publish stay unknown: implausible or partly unknown values are dropped, never guessed at.
+ */
 internal fun parseCompatibleModels(text: String): List<PiCompatibleModel> {
     val data = Json.parseToJsonElement(text).jsonObject["data"] as? JsonArray
         ?: throw IllegalArgumentException("Missing data")
     return data.mapNotNull { element ->
         val model = element as? JsonObject ?: return@mapNotNull null
-        val id = (model["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
-            ?: return@mapNotNull null
-        PiCompatibleModel(id, (model["display_name"] as? JsonPrimitive)?.takeIf { it.isString }?.content)
+        val id = model.text("id")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        PiCompatibleModel(
+            id = id,
+            name = model.text("display_name"),
+            contextWindow = model.capacity("context_window", "max_model_len", "context_length"),
+            maxTokens = model.capacity("max_completion_tokens", "max_tokens"),
+            inputs = model.inputModalities(),
+        )
     }.distinctBy { it.id }
 }
 
+/** Token counts a server may declare: positive and within a range a real endpoint reaches. */
+private fun JsonObject.capacity(vararg keys: String): Long? = keys.firstNotNullOfOrNull { key ->
+    (this[key] as? JsonPrimitive)?.longOrNull?.takeIf { it in 1..MAX_ADVERTISED_TOKENS }
+}
+
+/** Declared input modalities: known ones only, and a list without text is not a chat model. */
+private fun JsonObject.inputModalities(): List<String>? {
+    val modalities = ((this["architecture"] as? JsonObject)?.get("input_modalities") as? JsonArray).orEmpty()
+        .mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content }
+    if (modalities.isEmpty() || "text" !in modalities || modalities.any { it !in PiAdvertisedInputs }) return null
+    return modalities.distinct()
+}
+
+/** Largest token count a server may declare; a bigger list is malformed, not a long-context model. */
+private const val MAX_ADVERTISED_TOKENS = 100_000_000L
+
+private val PiAdvertisedInputs = setOf("text", "image")
+
 /**
  * Pi `models.json` declaring [provider] at the API base of [scope]. The key is never written: Pi interpolates
- * [COMPATIBLE_KEY_VARIABLE] from the process environment. A model Pi's own catalog serves at the same API base
+ * [COMPATIBLE_KEY_VARIABLE] from the process environment. Fields the server published ([PiCompatibleModel]) are
+ * written before the ones of Pi's own catalog: a model Pi serves at the same API base
  * ([builtin], see [piBuiltinModelsAt]) inherits its reasoning, thinking levels, compatibility and limits: an
  * undeclared model is not a reasoning model for Pi, so it would offer no thinking levels.
  */
@@ -198,6 +237,7 @@ internal fun piModelsJson(
                                         buildJsonObject {
                                             put("id", model.id)
                                             model.name?.let { put("name", it) }
+                                            putAdvertised(model)
                                             builtin[model.id]?.let(::putInherited)
                                         },
                                     )
@@ -257,6 +297,13 @@ internal val PiCatalogProviders = listOf(
     "qwen-token-plan-individual", "together", "xiaomi", "xiaomi-token-plan-ams", "xiaomi-token-plan-cn",
     "xiaomi-token-plan-sgp", "zai", "zai-coding-cn",
 )
+
+/** Model fields a compatible server declared about itself; Pi fills the rest with its own defaults. */
+private fun JsonObjectBuilder.putAdvertised(model: PiCompatibleModel) {
+    model.contextWindow?.let { put("contextWindow", it) }
+    model.maxTokens?.let { put("maxTokens", it) }
+    model.inputs?.let { inputs -> put("input", JsonArray(inputs.map(::JsonPrimitive))) }
+}
 
 /** Model fields a compatible model inherits from Pi's catalog; identity, name and cost stay the server's. */
 private val PiInheritedFields = listOf("reasoning", "thinkingLevelMap", "compat", "contextWindow", "maxTokens", "input")
