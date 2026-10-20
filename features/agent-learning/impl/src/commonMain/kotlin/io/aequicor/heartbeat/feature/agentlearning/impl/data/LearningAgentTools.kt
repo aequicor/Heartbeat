@@ -59,9 +59,8 @@ import kotlin.uuid.Uuid
  * The agent's side of self-learning: `remember` saves an instruction for the project of the session (or for chats
  * without a project) and `load_learned_skill` returns a learned skill. Instructions of the session are added to its
  * prompt even when no learning tools are declared. Declarations never change while the toggle is on, so native
- * threads that froze their tools stay valid. AutomaticSafety uses independent review of the exact instruction and
- * trusted scope, regardless of the instruction's self-rating or local learning policy. Instruction texts are never
- * logged.
+ * threads that froze their tools stay valid. The shared profile mode authorizes the exact instruction and scope;
+ * its self-rating is not authority. Instruction texts are never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -120,7 +119,7 @@ internal class LearningAgentTools(
             is RememberPlan.Ready -> planned
         }
         if (context.authorization != safetyRequest(context, plan).approval) {
-            return failure("the instruction or its scope changed after safety review; request it again")
+            return failure("the instruction or its scope changed after authorization; request it again")
         }
         val draft = plan.draft
         val now = Clock.System.now().toEpochMilliseconds()
@@ -263,8 +262,7 @@ internal class LearningAgentTools(
     /**
      * Reviewed content in the language of the other hosted approvals. The window may show only its top, so the first
      * line is the host's (kind, scope and the agent's rating) and no text of the agent stands in front of it. Then,
-     * set apart, the text to be stored, whole and never a preview (parseRemember allows no two blank lines in a row
-     * there), and one line each: the title, when to use it and the reason.
+     * set apart, the complete text to be stored, and one line each: the title, when to use it and the reason.
      */
     private fun approvalText(draft: RememberDraft, context: AgentToolContext): String = buildString {
         append(

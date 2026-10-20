@@ -80,7 +80,7 @@ class LearningAgentToolsTest {
     }
 
     @Test
-    fun `invalid and secret looking lessons are refused`() = runTest {
+    fun `malformed lessons are refused`() = runTest {
         val machine = SpecMachine()
         val tools = tools(machine)
         val missing = tools.authorized(
@@ -89,9 +89,8 @@ class LearningAgentToolsTest {
             JsonObject(mapOf("kind" to JsonPrimitive("x"))),
         )
         val long = remember("general", "Long", "content" to "x".repeat(2_001))
-        val secret = remember("general", "Key", "content" to "Use api_key=abcdef1234567890 for requests")
         val skill = remember("skill", "Release")
-        for (arguments in listOf(long, secret, skill)) {
+        for (arguments in listOf(long, skill)) {
             assertTrue(tools.authorized(context(), LearningTools.REMEMBER, arguments).isError)
         }
         assertTrue(missing.isError)
@@ -99,14 +98,22 @@ class LearningAgentToolsTest {
     }
 
     @Test
-    fun `hidden characters are refused and an unknown workspace gets no learning prompt`() = runTest {
-        val tools = tools()
-        val hidden = remember("general", "Bidi", "content" to "Run \u202Erm -rf\u202C safely")
-        val tagged = remember("general", "Tags", "content" to "Use UTF-8\uDB40\uDC41")
-        assertTrue(tools.authorized(context(), LearningTools.REMEMBER, hidden).isError)
-        assertTrue(tools.authorized(context(), LearningTools.REMEMBER, tagged).isError)
-        val multiline = remember("general", "Lines", "content" to "First line\n\tSecond line")
-        assertFalse(tools.authorized(context(), LearningTools.REMEMBER, multiline).isError)
+    fun `credential shaped examples use normal operation authorization`() = runTest {
+        val machine = SpecMachine()
+        val tools = tools(machine)
+        val example = remember("general", "Example", "content" to "Example api_key=abcdef1234567890 is a placeholder")
+        assertFalse(tools.authorized(context(), LearningTools.REMEMBER, example).isError)
+        assertEquals(1, (machine.state.value as AgentLearningState.Ready).instructions.size)
+    }
+
+    @Test
+    fun `unicode content is preserved and an unknown workspace gets no learning prompt`() = runTest {
+        val machine = SpecMachine()
+        val tools = tools(machine)
+        val content = "Use 👩‍💻 for developer and می‌روم in the example."
+        val arguments = remember("general", "Unicode", "content" to content)
+        assertFalse(tools.authorized(context(), LearningTools.REMEMBER, arguments).isError)
+        assertEquals(content, (machine.state.value as AgentLearningState.Ready).instructions.single().content)
         assertEquals("", tools.instructions(AgentToolScope(WorkspaceRef("unknown"), TARGET)))
     }
 
@@ -150,27 +157,13 @@ class LearningAgentToolsTest {
     }
 
     @Test
-    fun `content with blank lines in a row is refused`() = runTest {
+    fun `paragraph spacing is preserved through normal operation authorization`() = runTest {
         val machine = SpecMachine()
         val tools = tools(machine)
-        val spec = tools.specifications(PROJECT).first { it.name == LearningTools.REMEMBER }
-        val refused = listOf(
-            "Step one\n\n\nStep two",
-            "Step one\r\n\r\n\r\nStep two",
-            "Step one\n  \n\t\nStep two",
-            "Step one\u2028\u2028\u2028Step two",
-            "Step one" + "\n".repeat(200) + "Title: Harmless",
-        )
-        for (content in refused) {
-            val arguments = remember("general", "Spaced", "content" to content)
-            val result = tools.authorized(context(), LearningTools.REMEMBER, arguments)
-            assertTrue(result.isError, content)
-            assertTrue("at most one blank line between paragraphs" in result.text, result.text)
-            assertFalse(tools.requiresDecision(context(), spec, arguments))
-        }
-        assertEquals(emptyList(), (machine.state.value as AgentLearningState.Ready).instructions)
-        val paragraphs = remember("general", "Paragraphs", "content" to "Step one\r\n \r\nStep two")
-        assertFalse(tools.authorized(context(), LearningTools.REMEMBER, paragraphs).isError)
+        val content = "Step one\n\n\nStep two"
+        val arguments = remember("general", "Spaced", "content" to content)
+        assertFalse(tools.authorized(context(), LearningTools.REMEMBER, arguments).isError)
+        assertEquals(content, (machine.state.value as AgentLearningState.Ready).instructions.single().content)
     }
 
     @Test

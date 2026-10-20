@@ -65,11 +65,13 @@ class ProcessHarnessCompilerTest {
         )
         assertTrue(failed.diagnostics.any { it.severity == HarnessDiagnosticSeverity.Error })
         assertFalse(Files.exists(unused))
-        val restricted = assertIs<HarnessCompilerOutcome.Failed>(
-            compiler.compile(HarnessCodeKind.Script, "println(\"forbidden\")", unused),
-        )
-        assertTrue(restricted.diagnostics.any { it.message.contains("println") })
-        assertFalse(Files.exists(unused))
+        val valid = """
+            val Serializable = "👩‍💻 / می‌روم"
+            val task: suspend () -> Unit = {}
+            println(Serializable)
+        """.trimIndent()
+        assertIs<HarnessCompilerOutcome.Compiled>(compiler.compile(HarnessCodeKind.Script, valid, unused))
+        assertTrue(Files.size(unused) > 0)
         val worker = workers.processes.single()
         assertTrue(worker.isAlive)
         scope.cancel()

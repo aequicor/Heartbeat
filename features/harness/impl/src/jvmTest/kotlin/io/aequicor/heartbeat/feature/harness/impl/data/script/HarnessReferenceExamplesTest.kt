@@ -38,7 +38,6 @@ class HarnessReferenceExamplesTest {
                 HarnessCodeKind.Workflow to EXAMPLE_SCREEN_WORKFLOW,
                 HarnessCodeKind.Workflow to EXAMPLE_ORGANISM_WORKFLOW,
             ).forEach { (kind, source) ->
-                assertEquals(emptyList(), validateHarnessSource(source))
                 val request = HarnessCompilationRequest(HarnessId("reference"), ItemId(kind.name), kind, source)
                 val result = host.compile(request)
                 val success = assertIs<HarnessCompilationResult.Success>(result, result.toDiagnosticText())
