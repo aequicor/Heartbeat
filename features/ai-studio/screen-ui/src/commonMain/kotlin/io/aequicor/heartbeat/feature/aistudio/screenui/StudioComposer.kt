@@ -216,6 +216,7 @@ private fun StudioComposerInput(
                 content.models,
                 onIntent,
                 canSelect = content.canSelectModel(),
+                sessionId = pane.sessionId,
                 paneId = pane.id,
                 modifier = Modifier.weight(1f, fill = false),
                 isCompact = presentation == ComposerPresentation.Compact,
@@ -682,6 +683,7 @@ private fun ModelMenu(
     models: ImmutableList<ModelUi>,
     onIntent: (StudioIntent) -> Unit,
     canSelect: Boolean,
+    sessionId: String?,
     paneId: Int,
     modifier: Modifier = Modifier,
     isCompact: Boolean = false,
@@ -703,7 +705,9 @@ private fun ModelMenu(
         actions = items.toImmutableList(),
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
-        onAction = { onIntent(StudioIntent.SelectModel(it, paneId, expectedModelId = modelId)) },
+        onAction = {
+            onIntent(StudioIntent.SelectModel(it, paneId, modelId, expectedSessionId = sessionId.orEmpty()))
+        },
         modifier = modifier.testTag("model-chip"),
         accessibleLabel = model?.name ?: stringResource(Res.string.connect_model_hint),
         headerLabel = stringResource(Res.string.model_menu),

@@ -77,7 +77,10 @@ class StudioEngineSwitchUiTest {
                 saveSwitchImage("menu-$dark")
                 onNodeWithText("Engine B").performClick()
                 runOnIdle {
-                    assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectModel("b", 0, "a")), events)
+                    assertEquals(
+                        listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectModel("b", 0, "a", "chat")),
+                        events,
+                    )
                     state = state.copy(engineSwitches = persistentMapOf("chat" to EngineSwitchUi(isPending = true)))
                 }
                 onNodeWithTag("engine-switch-notice").assertIsDisplayed()

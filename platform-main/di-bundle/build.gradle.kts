@@ -174,3 +174,37 @@ tasks.register<Test>("claudeLiveGraphTest") {
     systemProperty("heartbeat.claude.liveReport", layout.buildDirectory.file("claude-live-report.txt").get().asFile.path)
     testLogging { events("passed", "failed", "skipped") }
 }
+
+// Reuse the desktop publisher pin so the test graph can prepare the actual bundled Pi runtime.
+val engineSwitchLiveResources = tasks.register<Sync>("prepareEngineSwitchLiveResources") {
+    dependsOn(":platform-main:desktop:preparePiMetadata")
+    from(project(":platform-main:desktop").layout.buildDirectory.dir("generated/piMetadata")) { into("pi") }
+    into(layout.buildDirectory.dir("engine-switch-live-resources"))
+}
+
+// Pi's legacy-directory cleanup uses JVM user.home independently of the profile's StorageRoot.
+val engineSwitchLiveHome = layout.buildDirectory.dir("engine-switch-live-home")
+val prepareEngineSwitchLiveHome = tasks.register<Delete>("prepareEngineSwitchLiveHome") {
+    delete(engineSwitchLiveHome)
+}
+val cleanEngineSwitchLiveHome = tasks.register<Delete>("cleanEngineSwitchLiveHome") {
+    delete(engineSwitchLiveHome)
+}
+
+// Opt-in real Koog/Pi requests: credentials come from an explicitly supplied file, in an isolated test profile.
+tasks.register<Test>("engineSwitchLiveTest") {
+    group = "verification"
+    description = "Checks studio engine switching against an explicitly configured compatible endpoint."
+    testClassesDirs = regularJvmTest.get().testClassesDirs
+    classpath = regularJvmTest.get().classpath
+    classpath += files(engineSwitchLiveResources)
+    filter { includeTestsMatching("*.EngineSwitchLiveE2eTest") }
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf("Live checks must reach the configured provider") { true }
+    dependsOn(prepareEngineSwitchLiveHome)
+    finalizedBy(cleanEngineSwitchLiveHome)
+    systemProperty("user.home", engineSwitchLiveHome.get().asFile.absolutePath)
+    systemProperty("heartbeat.engineSwitch.liveHome", engineSwitchLiveHome.get().asFile.absolutePath)
+    systemProperty("heartbeat.engineSwitch.liveTest", "true")
+    testLogging { events("passed", "failed", "skipped") }
+}

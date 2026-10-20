@@ -33,7 +33,7 @@ class StudioScreenSerializationTest {
                 StudioViewJson.encodeToString(AiStudioScreenState.serializer(), screen),
             ),
         )
-        val intent = AiStudioScreenIntent.SelectModel("b", 1, "a")
+        val intent = AiStudioScreenIntent.SelectModel("b", 1, "a", "chat")
         assertEquals(
             intent,
             StudioViewJson.decodeFromString<AiStudioScreenIntent>(

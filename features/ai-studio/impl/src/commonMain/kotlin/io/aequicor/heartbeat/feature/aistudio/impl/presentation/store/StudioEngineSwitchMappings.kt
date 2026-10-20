@@ -6,8 +6,12 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitchFailure
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitchState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EngineSwitchFailureUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EngineSwitchUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 
 internal fun StudioEngineSwitchState.toUi(): EngineSwitchUi = EngineSwitchUi(
     isPending,
@@ -39,3 +43,9 @@ internal fun sessionSettingIntent(
         AiStudioIntent.Public.ChangeSessionSetting(id, change)
     }
 }
+
+/** A menu snapshot belongs to its original pane content; excluded chats never change native settings. */
+internal fun AiStudioScreenState.acceptsSettingSelection(pane: PaneUi, expectedSessionId: String?): Boolean =
+    (expectedSessionId == null || pane.sessionId.orEmpty() == expectedSessionId) &&
+        organisms[pane.sessionId] == null && session(pane.sessionId)?.isOrganism != true &&
+        selectedNative(pane.sessionId) == PRIMARY_SUB_SESSION

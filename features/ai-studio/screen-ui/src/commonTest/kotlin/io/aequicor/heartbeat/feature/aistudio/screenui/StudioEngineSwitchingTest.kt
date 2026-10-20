@@ -63,6 +63,17 @@ class StudioEngineSwitchingTest {
     }
 
     @Test
+    fun `plan implementation keeps compatible choices when composer offers engine switching`() {
+        val content = state.paneContent(pane)
+        assertEquals(listOf("a", "same", "b", "cloud"), content.models.map { it.id })
+        assertEquals(listOf(a, same), content.planImplementationOffer().models)
+        val worktree = state.copy(
+            sessions = persistentListOf(session.copy(projectId = null, executionWorkspace = "wt")),
+        )
+        assertEquals(listOf(a, same), worktree.paneContent(pane).planImplementationOffer().models)
+    }
+
+    @Test
     fun `pending operation reaches both panes and blocks repeated settings`() {
         val switching = state.copy(engineSwitches = persistentMapOf("chat" to EngineSwitchUi(isPending = true)))
         for (item in switching.panes) {

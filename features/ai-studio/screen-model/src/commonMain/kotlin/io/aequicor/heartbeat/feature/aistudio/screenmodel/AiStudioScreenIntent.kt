@@ -367,8 +367,13 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Changes an existing session's model, or the default for a new page. */
     @Serializable
     @SerialName("AiStudioScreenIntent.SelectModel")
-    data class SelectModel(val modelId: String, val paneId: Int? = null, val expectedModelId: String? = null) :
-        Composer
+    data class SelectModel(
+        val modelId: String,
+        val paneId: Int? = null,
+        val expectedModelId: String? = null,
+        /** Captured chat; empty for a new-chat pane, null for legacy clients without this guard. */
+        val expectedSessionId: String? = null,
+    ) : Composer
 
     /** Changes the session's effort for subsequent requests, or the default for a new page. */
     @Serializable

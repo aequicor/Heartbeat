@@ -46,7 +46,6 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectTrustNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
@@ -57,7 +56,6 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneNoticeDismissals
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.revealNotice
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.startRename
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
@@ -590,6 +588,7 @@ class AiStudioModel(
                 intent.paneId,
                 StudioSettingChange.Model(intent.modelId),
                 expectedModelId = intent.expectedModelId,
+                expectedSessionId = intent.expectedSessionId,
             ) { copy(modelId = intent.modelId) }
 
             is AiStudioScreenIntent.SelectEffort -> selectEffort(pipeline, intent)
@@ -723,9 +722,12 @@ class AiStudioModel(
         paneId: Int?,
         change: StudioSettingChange,
         expectedModelId: String? = null,
+        expectedSessionId: String? = null,
         changeDefault: RunSettings.() -> RunSettings,
     ) {
-        if (!changeSessionSetting(pipeline, paneId, change, expectedModelId)) updateSettings(pipeline, changeDefault)
+        if (!changeSessionSetting(pipeline, paneId, change, expectedModelId, expectedSessionId)) {
+            updateSettings(pipeline, changeDefault)
+        }
     }
 
     /** Routes an existing native chat through its machine; new pages and scripted chats keep local defaults. */
@@ -734,25 +736,21 @@ class AiStudioModel(
         paneId: Int?,
         change: StudioSettingChange,
         expectedModelId: String? = null,
+        expectedSessionId: String? = null,
     ): Boolean = with(pipeline) {
         var isHandled = true
         withState {
             val pane = panes.firstOrNull { it.id == (paneId ?: focusedPaneId) } ?: return@withState
+            if (!acceptsSettingSelection(pane, expectedSessionId)) return@withState
             isHandled = false
             val sessionId = pane.sessionId ?: return@withState
-            if (organisms[sessionId] != null || session(sessionId)?.isOrganism == true ||
-                selectedNative(sessionId) != PRIMARY_SUB_SESSION
-            ) {
-                isHandled = true
-                return@withState
-            }
             val modelId = configurations[sessionId]?.modelId ?: session(sessionId)?.modelId ?: settings.modelId
             if (studioModelTarget(modelId) == null) return@withState
             isHandled = true
-            sendTo(
-                machine,
-                sessionSettingIntent(sessionId, change, expectedModelId ?: modelId, isEngineSwitchingAvailable),
-            )
+            val intent = sessionSettingIntent(sessionId, change, expectedModelId ?: modelId, isEngineSwitchingAvailable)
+            // Legacy clients may change models in place, but cannot safely replace a route without chat identity.
+            if (intent is AiStudioIntent.Public.SwitchSessionEngine && expectedSessionId == null) return@withState
+            sendTo(machine, intent)
         }
         isHandled
     }

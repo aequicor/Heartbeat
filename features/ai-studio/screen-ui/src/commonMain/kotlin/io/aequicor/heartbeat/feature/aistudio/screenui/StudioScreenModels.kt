@@ -104,6 +104,8 @@ data class PaneContent(
     /** Targets captured with this pane's snapshot, including for delayed remote clicks. */
     val noticeTargets: ImmutableMap<StudioNoticeUi, StudioNoticeDismissalUi>,
     val models: ImmutableList<ModelUi> = persistentListOf(),
+    /** Plan implementation retains its own workspace and connection compatibility rules. */
+    val planModels: ImmutableList<ModelUi> = models,
     /** The profile choice shown in the composer of ordinary native chats. */
     val securityLevel: SecurityLevelUi = SecurityLevelUi.Automatic,
     val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),
@@ -269,6 +271,7 @@ private fun AiStudioScreenState.projectPaneContent(
     isStoppable = pane.sessionId !in uncancellable,
     isResearchAvailable = isResearchOffered(pane),
     models = modelsForPane(pane, session, configuration, organism),
+    planModels = planModelsForPane(pane, session, configuration, organism),
     isProjectAddingAvailable = isProjectAddingAvailable && addingProjectTo == null,
     isPickingProject = addingProjectTo == pane.id,
     isProjectFailed = projectErrorPane == pane.id,

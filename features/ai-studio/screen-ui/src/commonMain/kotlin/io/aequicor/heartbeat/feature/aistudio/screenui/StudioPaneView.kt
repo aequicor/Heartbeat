@@ -1188,7 +1188,7 @@ private fun PlanEditorDialog(
 }
 
 /** What the implementation dialog offers for the chat of this pane: its route, approvals and modes. */
-private fun PaneContent.planImplementationOffer(): PlanImplementationOffer {
+internal fun PaneContent.planImplementationOffer(): PlanImplementationOffer {
     val model = models.firstOrNull { it.id == settings.modelId }
     val effort = if (configuration != null) {
         settings.nativeEffort
@@ -1196,7 +1196,7 @@ private fun PaneContent.planImplementationOffer(): PlanImplementationOffer {
         model?.let { settings.engineEfforts[it.id] }
     }
     return PlanImplementationOffer(
-        models,
+        planModels,
         settings.modelId,
         settings.approval,
         planning.modes,

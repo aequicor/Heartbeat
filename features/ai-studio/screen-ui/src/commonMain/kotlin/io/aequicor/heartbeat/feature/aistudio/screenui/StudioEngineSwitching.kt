@@ -98,3 +98,14 @@ internal fun EngineSwitchNotice(state: EngineSwitchUi?, modifier: Modifier = Mod
         tone = if (failure != null) HbTone.Danger else HbTone.Neutral,
     )
 }
+
+/** The plan dialog keeps the pre-switch model filter, independent of composer replacement offers. */
+internal fun AiStudioScreenState.planModelsForPane(
+    pane: PaneUi,
+    session: SessionUi?,
+    configuration: SessionConfigurationUi?,
+    organism: OrganismUi?,
+): ImmutableList<ModelUi> = modelsForProject(
+    pane.projectId ?: session?.projectId ?: session?.executionWorkspace,
+    organism?.modelId ?: configuration?.modelId ?: session?.modelId?.takeIf(String::isNotBlank),
+)
