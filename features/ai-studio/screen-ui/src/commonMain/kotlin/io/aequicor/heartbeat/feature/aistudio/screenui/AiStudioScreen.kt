@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
@@ -102,10 +103,7 @@ private fun StudioWorkspace(
     val focus = remember { StudioFocusState() }
     val timelineState = remember { StudioTimelineState() }
     val dispatch: (StudioIntent) -> Unit = { intent ->
-        val isChatNavigation =
-            intent is StudioIntent.OpenSession || intent is StudioIntent.NewSession ||
-                intent is StudioIntent.OpenBeside
-        if (chatArea != null && isChatNavigation) exits.onCloseChatArea?.invoke()
+        if (chatArea != null && intent.isChatNavigation()) exits.onCloseChatArea?.invoke()
         focus.beforeIntent(intent, state)
         onIntent(intent)
     }
@@ -121,7 +119,10 @@ private fun StudioWorkspace(
         val minimumWideWidth = studio.sidebarWidth +
             studio.outerInset * 2 + studio.panelGap + dimensions.paneMinWidth + studio.messagePadding * 2
         val isCompact = availableWidth < maxOf(dimensions.compactBreakpoint, minimumWideWidth)
-        Box(
+        val isSplitAllowed = host.isSplitAvailable &&
+            availableWidth - sidebarWidth - studio.outerInset * 2 >= dimensions.paneMinWidth * 2 + studio.panelGap
+        val visibleChats = state.visiblePermissionChats(isSplitAllowed, isCompact, isEmbedded = chatArea != null)
+        HbColumn(
             Modifier.fillMaxSize().studioShortcuts(state, isCompact, focus, dispatch)
                 .then(
                     workspaceAttachmentCapture(
@@ -132,33 +133,40 @@ private fun StudioWorkspace(
                     ),
                 )
                 .testTag("studio-workspace"),
+            gap = HbTheme.spacing.none,
         ) {
-            if (isCompact) {
-                CompactWorkspace(
-                    state,
-                    dispatch,
-                    exits,
-                    focus,
-                    drawerWidth = minOf(dimensions.drawerMaxWidth, availableWidth),
-                    chatArea = chatArea,
-                    timelineState = timelineState,
-                    host = host,
-                )
-            } else {
-                val panesWidth = availableWidth - sidebarWidth - studio.outerInset * 2
-                WideWorkspace(
-                    state,
-                    dispatch,
-                    exits,
-                    focus,
-                    sidebarWidth,
-                    isSplitAllowed = host.isSplitAvailable &&
-                        panesWidth >= dimensions.paneMinWidth * 2 + studio.panelGap,
-                    chatArea = chatArea,
-                    timelineState = timelineState,
-                    host = host,
-                )
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (isCompact) {
+                    CompactWorkspace(
+                        state,
+                        dispatch,
+                        exits,
+                        focus,
+                        drawerWidth = minOf(dimensions.drawerMaxWidth, availableWidth),
+                        chatArea = chatArea,
+                        timelineState = timelineState,
+                        host = host,
+                    )
+                } else {
+                    WideWorkspace(
+                        state,
+                        dispatch,
+                        exits,
+                        focus,
+                        sidebarWidth,
+                        isSplitAllowed = isSplitAllowed,
+                        chatArea = chatArea,
+                        timelineState = timelineState,
+                        host = host,
+                    )
+                }
             }
+            StudioPendingPermissions(
+                state,
+                visibleChats,
+                dispatch,
+                Modifier.fillMaxWidth().heightIn(max = viewport.height / 2),
+            )
         }
     }
 }
@@ -417,3 +425,6 @@ private fun StudioChatArea(
         Box(Modifier.weight(1f).fillMaxWidth()) { component.Content(Modifier.fillMaxSize()) }
     }
 }
+
+private fun StudioIntent.isChatNavigation() =
+    this is StudioIntent.OpenSession || this is StudioIntent.NewSession || this is StudioIntent.OpenBeside

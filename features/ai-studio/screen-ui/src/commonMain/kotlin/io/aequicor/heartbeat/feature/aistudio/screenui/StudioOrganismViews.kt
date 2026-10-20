@@ -258,7 +258,7 @@ internal fun OrganismNotices(content: PaneContent, descriptionMaxHeight: Dp, onI
 }
 
 @Composable
-private fun OrganismPermissionCard(
+internal fun OrganismPermissionCard(
     sessionId: String,
     request: OrganismPermissionUi,
     descriptionMaxHeight: Dp,
