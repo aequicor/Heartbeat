@@ -12,18 +12,13 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding.ToolDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding.ToolParameterDescriptor
@@ -47,11 +42,9 @@ internal class GitHubPullTools(
     private val configuration: GitHubPullConfigurationSource,
     private val toggles: FeatureToggles,
     transport: GitHubPullTransport,
-    reviewer: AgentSafetyReviewer,
 ) : AgentToolContribution {
     private val log = Log.tag("GitHubPullTools")
     private val api = GitHubPullApi(transport)
-    private val safety = GitHubPullSafety(reviewer)
     private val mutations = Mutex()
     override val group = "github"
     override val title = "GitHub PR"
@@ -76,22 +69,11 @@ internal class GitHubPullTools(
         arguments: JsonObject,
     ): AgentToolApproval = snapshot(context, spec.name, arguments).approval
 
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? =
-        if (context.decisionMode == AgentToolDecisionMode.AutomaticSafety && spec.action != AgentToolAction.Read) {
-            safety.authorize(snapshot(context, spec.name, arguments))
-        } else {
-            null
-        }
-
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
         try {
             mutations.withLock {
                 val snapshot = snapshot(context, name, arguments)
-                if (!snapshot.operation.isRead && !safety.consume(snapshot)) {
+                if (!snapshot.operation.isRead && context.authorization != snapshot.approval) {
                     AgentToolResult("GitHub authorization is missing, changed or already consumed", isError = true)
                 } else {
                     currentCoroutineContext().ensureActive()
@@ -109,10 +91,6 @@ internal class GitHubPullTools(
                 isError = true,
             )
         }
-
-    override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
-        safety.finish(session, turn)
-    }
 
     private suspend fun snapshot(context: AgentToolContext, name: String, arguments: JsonObject): GitHubPullSnapshot {
         check(toggles.get(GitHubPullToolsEnabled)) { "GitHub tools disabled" }
