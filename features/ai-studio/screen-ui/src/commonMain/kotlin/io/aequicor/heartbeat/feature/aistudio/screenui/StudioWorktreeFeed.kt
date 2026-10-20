@@ -411,7 +411,7 @@ private fun WorktreeUi.pausedVirtualCard(id: String, session: String, labels: Wo
     val resume = CardCommand(
         HbToolAction("sandbox-continue", if (isConflicted) labels.sandboxResolve else labels.sandboxContinue),
         WorktreeCommand.Send(
-            StudioIntent.RecheckWorktree(session, isResume = true, isResolvingConflicts = isConflicted),
+            StudioIntent.RecheckWorktree(session, isResume = true, isConflictResolutionRequested = isConflicted),
         ),
     )
     val leave = if (isConflicted) {

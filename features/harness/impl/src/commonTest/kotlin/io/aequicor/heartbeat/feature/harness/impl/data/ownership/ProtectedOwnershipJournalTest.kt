@@ -18,6 +18,10 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.Owner
 import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.OwnershipLocalProcess
 import io.aequicor.heartbeat.feature.harness.impl.domain.ownership.runtime.OwnershipNativeIntent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
 import okio.ByteString.Companion.encodeUtf8
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -136,7 +140,7 @@ class ProtectedOwnershipJournalTest {
     }
 
     @Test
-    fun `future intent epochs and journal quota fail closed without losing receipts`() = runTest {
+    fun `journal quota rejects new intents but preserves receipts and exact replay after restart`() = runTest {
         val secrets = HarnessDataTestSecrets()
         val journal = ProtectedOwnershipJournal(secrets)
         val binding = OwnershipLocalBinding(local, identity, OwnershipFence(key, journal.host(), 1))
@@ -145,19 +149,44 @@ class ProtectedOwnershipJournalTest {
             local,
             OwnershipPermit("0".repeat(32), 1, binding.fence, OwnershipPermitKind.Workflow),
         )
-        repeat(512) { index ->
-            assertTrue(
-                journal.reserve(first.copy(permit = first.permit.copy(id = index.toString(16).padStart(32, '0')))),
-            )
+        assertTrue(journal.reserve(first))
+        val storageKey = secrets.values.keys.single()
+        val stored = Json.parseToJsonElement(checkNotNull(secrets.values[storageKey])).jsonObject
+        // Seed the persisted history once: repeated reserve would serialize a growing journal 512 times.
+        val receipts = List(511) { index ->
+            first.copy(permit = first.permit.copy(id = index.toString(16).padStart(32, '0')))
         }
+        secrets.values[storageKey] = JsonObject(stored + ("intents" to Json.encodeToJsonElement(receipts))).toString()
+        val restarted = ProtectedOwnershipJournal(secrets)
+        val last = first.copy(permit = first.permit.copy(id = 511.toString(16).padStart(32, '0')))
+        assertTrue(restarted.reserve(last))
+        val fullJournal = secrets.values[storageKey]
         assertFailsWith<IllegalStateException> {
-            journal.reserve(first.copy(permit = first.permit.copy(id = "f".repeat(32))))
+            restarted.reserve(first.copy(permit = first.permit.copy(id = "f".repeat(32))))
         }
+        assertTrue(restarted.reserve(first))
+        assertEquals(fullJournal, secrets.values[storageKey])
+        assertEquals(receipts + last, ProtectedOwnershipJournal(secrets).intents(local))
+    }
+
+    @Test
+    fun `future intent epoch fails closed without overwriting the journal`() = runTest {
+        val secrets = HarnessDataTestSecrets()
+        val journal = ProtectedOwnershipJournal(secrets)
+        val binding = OwnershipLocalBinding(local, identity, OwnershipFence(key, journal.host(), 1))
+        assertTrue(journal.bind(null, binding))
+        val first = OwnershipNativeIntent(
+            local,
+            OwnershipPermit("0".repeat(32), 1, binding.fence, OwnershipPermitKind.Workflow),
+        )
+        assertTrue(journal.reserve(first))
         assertEquals(first, journal.intent(local, first.permit.id))
         val storageKey = secrets.values.keys.single()
-        secrets.values[storageKey] = checkNotNull(secrets.values[storageKey]).replace("\"epoch\":1", "\"epoch\":2")
+        val corruptJournal = checkNotNull(secrets.values[storageKey]).replace("\"epoch\":1", "\"epoch\":2")
             .replaceFirst("\"epoch\":2", "\"epoch\":1")
-        assertFailsWith<IllegalStateException> { journal.host() }
+        secrets.values[storageKey] = corruptJournal
+        assertFailsWith<IllegalStateException> { ProtectedOwnershipJournal(secrets).host() }
+        assertEquals(corruptJournal, secrets.values[storageKey])
     }
 
     @Test

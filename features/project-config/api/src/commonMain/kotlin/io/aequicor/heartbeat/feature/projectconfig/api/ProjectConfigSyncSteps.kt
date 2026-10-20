@@ -41,7 +41,7 @@ internal fun Ready.changed(project: WorkspaceRef): ConfigStep {
 internal fun Ready.isCurrent(project: WorkspaceRef, generation: Long): Boolean =
     projects[project]?.let { it.isSyncing && it.generation == generation } == true
 
-/** Reconciles a sync result: bindings, proposals, write-backs and reviews; a dirty project is synced again. */
+/** Reconciles a sync result: bindings, proposals, write-backs; a dirty project is synced again. */
 internal fun Ready.synced(intent: ProjectConfigIntent.Internal.Synced): ConfigStep {
     val snapshot = intent.snapshot
     val project = snapshot.project
@@ -51,15 +51,13 @@ internal fun Ready.synced(intent: ProjectConfigIntent.Internal.Synced): ConfigSt
     // A proposal being applied stays as it is: its result commits the binding the sync could not know yet.
     val applying = previous.filter { it.isApplying }
     val applyingIds = applying.map { it.id }.toSet()
-    val shown = applying + result.proposals.filterNot { it.reviewKey in dismissed || it.id in applyingIds }
+    val shown = applying + result.proposals.filterNot { it.versionKey in dismissed || it.id in applyingIds }
     val writes = result.writeBacks.filterNot { next ->
         writing.any { it.project == next.project && it.unit == next.unit }
     }
-    val reviews = shown.filter { it.isReviewDue && it.reviewKey !in reviewing }
     val next = copy(
         proposals = proposals.filterNot { it.projectOrNull == project } + shown,
         writing = writing + writes,
-        reviewing = reviewing + reviews.map { it.reviewKey },
         projects = projects + (
             project to sync.copy(
                 isSyncing = false,
@@ -72,7 +70,6 @@ internal fun Ready.synced(intent: ProjectConfigIntent.Internal.Synced): ConfigSt
     )
     val effects = listOfNotNull(
         ProjectConfigEffect.WriteBack(writes).takeIf { writes.isNotEmpty() },
-        ProjectConfigEffect.Review(reviews).takeIf { reviews.isNotEmpty() },
     )
     return ConfigStep(next, effects)
         .then { it.withBindings(bindings.filterNot { binding -> binding.project == project } + result.bindings) }

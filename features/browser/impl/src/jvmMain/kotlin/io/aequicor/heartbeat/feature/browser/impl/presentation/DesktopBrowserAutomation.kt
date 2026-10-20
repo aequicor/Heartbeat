@@ -90,7 +90,7 @@ internal class DesktopBrowserAutomation(
         .jsonObject
 
     /**
-     * A synchronous observation for independent safety review. It does not replace the agent's last read or its
+     * A synchronous observation for exact operation authorization. It does not replace the agent's last read or its
      * element references. Document, node identity, focus, form and target geometry are compared again before input.
      */
     suspend fun safetySnapshot(operation: BrowserOperation?, arguments: JsonObject): JsonObject {

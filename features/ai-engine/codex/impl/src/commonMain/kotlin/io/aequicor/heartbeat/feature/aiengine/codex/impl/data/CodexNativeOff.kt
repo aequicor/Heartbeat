@@ -22,7 +22,7 @@ internal data class CodexNativeOff(
 
     /** Appended after every user override and isolation flag without accepting arbitrary configuration keys. */
     fun arguments(): List<String> = buildList {
-        if (isShellDisabled) addAll(listOf("-c", "features.shell_tool=false"))
+        if (isShellDisabled) executionFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
         if (isSearchDisabled) addAll(listOf("-c", "web_search=\"disabled\""))
         if (isVirtualWorkspace) virtualFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
     }
@@ -48,7 +48,7 @@ internal data class CodexNativeOff(
                 "features",
                 buildJsonObject {
                     (config["features"] as? JsonObject).orEmpty().forEach { (key, value) -> put(key, value) }
-                    if (isShellDisabled) put("shell_tool", false)
+                    if (isShellDisabled) executionFeatures.forEach { put(it, false) }
                     if (isVirtualWorkspace) virtualFeatures.forEach { put(it, false) }
                 },
             )
@@ -77,16 +77,19 @@ internal data class CodexNativeOff(
         if (!matches(effective) || !hasFlags) unsupportedPolicy()
     }
 
-    private fun matches(config: JsonObject): Boolean =
-        (!isShellDisabled || (config["features"] as? JsonObject)?.get("shell_tool") == JsonPrimitive(false)) &&
-            (!isSearchDisabled || config["web_search"] == JsonPrimitive("disabled")) &&
-            (
-                !isVirtualWorkspace || virtualFeatures.all {
-                    (config["features"] as? JsonObject)?.get(
-                        it,
-                    ) == JsonPrimitive(false)
-                }
-            )
+    private fun matches(config: JsonObject): Boolean = (
+        !isShellDisabled || executionFeatures.all {
+            (config["features"] as? JsonObject)?.get(it) == JsonPrimitive(false)
+        }
+    ) &&
+        (!isSearchDisabled || config["web_search"] == JsonPrimitive("disabled")) &&
+        (
+            !isVirtualWorkspace || virtualFeatures.all {
+                (config["features"] as? JsonObject)?.get(
+                    it,
+                ) == JsonPrimitive(false)
+            }
+        )
 
     private fun unsupportedPolicy(): Nothing = fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
 
@@ -94,6 +97,7 @@ internal data class CodexNativeOff(
         val Version = Regex("([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?")
         const val MIN_MINOR = 160
         const val PRERELEASE_GROUP = 4
+        val executionFeatures = listOf("shell_tool", "apply_patch_freeform", "multi_agent")
         val virtualFeatures = listOf("view_image_tool", "apply_patch_freeform", "multi_agent")
     }
 }

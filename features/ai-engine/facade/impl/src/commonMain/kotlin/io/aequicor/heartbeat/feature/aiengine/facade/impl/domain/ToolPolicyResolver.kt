@@ -28,6 +28,9 @@ internal fun mergedToolPolicy(
     hostedNames: Set<String>,
     canEnableNative: Boolean,
 ): ResolvedToolPolicy {
+    if (policies.any { it.isToolFree }) {
+        return ResolvedToolPolicy(nativeOff = catalog.map { it.name }.toSet(), hostedDenied = hostedNames)
+    }
     val off = policies.flatMap { it.native.filterValues { value -> value == ToolSwitch.Off }.keys }.toSet()
     val on = policies.flatMap { it.native.filterValues { value -> value == ToolSwitch.On }.keys }.toSet()
     return ResolvedToolPolicy(

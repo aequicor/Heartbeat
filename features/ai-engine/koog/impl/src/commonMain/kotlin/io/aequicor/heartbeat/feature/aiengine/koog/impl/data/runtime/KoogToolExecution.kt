@@ -63,7 +63,7 @@ internal class KoogToolExecution(
         return continuePrompt(input, round.text, results)
     }
 
-    // The cancellation handler only updates in-memory history and immediately rethrows; it never suspends.
+    // Cancellation cleanup only updates the synchronous transcript, then rethrows the same exception.
     @Suppress("SuspendFunSwallowedCancellation")
     private suspend fun execute(turn: Turn, tools: KoogToolbox, call: StreamFrame.ToolCallComplete): HandledToolCall {
         val info = ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id)
@@ -115,8 +115,8 @@ internal class KoogToolExecution(
 
         args == null -> KoogToolResult("InvalidInput: arguments must be a JSON object", true)
 
-        tool.isMutating ->
-            approve(turn, tool, args)?.let { KoogToolResult(it, true) } ?: run(tool, args, started, started.call)
+        tool.isMutating -> approve(turn, tool, args)?.let { KoogToolResult(it, true) }
+            ?: run(tool, args, started, started.call)
 
         else -> {
             log.i { "Running tool ${call.name}" }

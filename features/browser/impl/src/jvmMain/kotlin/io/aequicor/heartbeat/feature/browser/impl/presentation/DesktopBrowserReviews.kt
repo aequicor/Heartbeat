@@ -11,14 +11,14 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * The evidence an agent action's independent safety review is bound to: this tab, its page, and the target and
+ * The evidence an agent action's operation authorization is bound to: this tab, its page, and the target and
  * focus of the reviewed [BrowserReview.operation]. It leaves the page, the element references and the last snapshot
  * of the agent's own read untouched. A navigation does not depend on the page it leaves, so the page is not observed
  * for it: a tab that shows an error page can still be pointed elsewhere. Its address stays bound, so a tab that is
  * still redirecting meanwhile is refused as changed.
  */
 internal suspend fun DesktopBrowserEntry.inspect(request: BrowserRequest): BrowserResult {
-    require(request.owner != null) { "Only an agent session is reviewed" }
+    requireNotNull(request.owner) { "Only an agent session is reviewed" }
     val review = requireNotNull(request.review) { "Review operation required" }
     return BrowserResult(request.id, observe(review, request))
 }
@@ -26,11 +26,11 @@ internal suspend fun DesktopBrowserEntry.inspect(request: BrowserRequest): Brows
 /**
  * A reviewed agent action runs only on the page, target and focus its review saw. The live tab is observed again
  * under the tab's operation lock, immediately before the action, so a page that changed meanwhile fails it instead
- * of receiving input the reviewer never judged.
+ * of receiving input the user never authorized.
  */
 internal suspend fun DesktopBrowserEntry.requireReviewedState(request: BrowserRequest) {
     val review = request.review ?: return
-    check(request.owner != null) { "Only an agent session is reviewed" }
+    checkNotNull(request.owner) { "Only an agent session is reviewed" }
     check(review.operation == request.operation) { REVIEWED_STATE_CHANGED }
     val approved = checkNotNull(review.approved) { "A reviewed action carries the state its review saw" }
     check(reviewedBrowserState(observe(review, request)) == reviewedBrowserState(approved)) { REVIEWED_STATE_CHANGED }
@@ -51,4 +51,4 @@ private suspend fun DesktopBrowserEntry.observe(review: BrowserReview, request: 
 
 private const val MAX_REVIEW_TITLE = 512
 private const val REVIEWED_STATE_CHANGED =
-    "The browser action changed after safety review; read the page and request it again"
+    "The browser action changed after authorization; read the page and request it again"

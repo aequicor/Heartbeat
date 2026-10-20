@@ -46,7 +46,8 @@ internal class DesktopExtensionInstaller(
     suspend fun locate(): Path? = withContext(dispatchers.io) {
         try {
             val release = ExtensionRelease.read(metadata())
-            installed(ExtensionInstallation(root.resolve(release.artifact.download.sha256), release))
+            val folder = root.resolve(release.artifact.download.sha256.take(CACHE_KEY_LENGTH))
+            installed(ExtensionInstallation(folder, release))
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -59,7 +60,7 @@ internal class DesktopExtensionInstaller(
     suspend fun prepare(progress: suspend (ExtensionPreparation) -> Unit): Path = withContext(dispatchers.io) {
         mutex.withLock {
             val release = ExtensionRelease.read(metadata())
-            val folder = root.resolve(release.artifact.download.sha256)
+            val folder = root.resolve(release.artifact.download.sha256.take(CACHE_KEY_LENGTH))
             Files.createDirectories(root)
             require(Files.isDirectory(root, NOFOLLOW_LINKS)) { "Extension cache must not be a link" }
             Files.createDirectories(folder)
@@ -126,5 +127,8 @@ private fun removeExtensionStaging(staging: Path) {
     }
 }
 
+// Chromium on Windows cannot load extension resources beyond MAX_PATH, even when Java can extract them.
+// This prefix only namespaces the cache; ExtensionInstallation verifies the complete SHA-256 before reuse.
+private const val CACHE_KEY_LENGTH = 16
 private const val LOCK_POLL_MILLIS = 50L
 private const val MAX_LOCK_BYTES = 16L * 1024

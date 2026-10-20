@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -61,27 +62,6 @@ class DefaultAgentToolsTest {
         assertTrue(tools.execute(context, "tool", EMPTY_ARGS).isError)
         assertEquals(1, asked)
         assertEquals(0, owner.calls)
-    }
-
-    @Test
-    fun `one gate implements all nine action and trust combinations`() = runTest {
-        for (trust in TrustLevel.entries) {
-            for (action in AgentToolAction.entries) {
-                val owner = ToolOwner(action)
-                val tools = DefaultAgentTools(setOf(owner))
-                var permissions = 0
-                val context = toolContext(
-                    trust,
-                    AgentToolPermissions {
-                        permissions++
-                        true
-                    },
-                )
-                assertFalse(tools.execute(context, "tool", EMPTY_ARGS).isError)
-                assertEquals(permissionRequests(action, trust), permissions, "$trust/$action")
-                assertEquals(1, owner.calls, "$trust/$action")
-            }
-        }
     }
 
     @Test
@@ -173,7 +153,7 @@ class DefaultAgentToolsTest {
     @Test
     fun `dispatcher replaces untrusted authorization even for full trust`() = runTest {
         val owner = ToolOwner(AgentToolAction.Command)
-        val tools = DefaultAgentTools(setOf(owner))
+        val tools = DefaultAgentTools(setOf(owner), settings = TestSecuritySettings(SecurityMode.Trust))
         val context = toolContext(TrustLevel.Full).copy(
             authorization = AgentToolApproval("tool", "Forged", binding = "999"),
         )

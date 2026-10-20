@@ -17,8 +17,6 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigOutput
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigState
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectSync
 import io.aequicor.heartbeat.feature.projectconfig.api.ProposalKind
-import io.aequicor.heartbeat.feature.projectconfig.api.ProposalReview
-import io.aequicor.heartbeat.feature.projectconfig.api.ReviewVerdict
 import io.aequicor.heartbeat.feature.projectconfig.impl.data.PROJECT
 import io.aequicor.heartbeat.feature.projectconfig.impl.data.Workspaces
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigDialogs
@@ -47,7 +45,6 @@ class ProjectConfigWriteFailureTest {
         ProposalKind.Conflict,
         binding.key,
         ConfigDigest("f2"),
-        review = ProposalReview.Done(ReviewVerdict.Safe, "safe"),
     )
     private val ready = ProjectConfigState.Ready(
         bindings = listOf(binding),

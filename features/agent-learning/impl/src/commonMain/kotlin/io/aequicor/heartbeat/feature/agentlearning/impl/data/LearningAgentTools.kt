@@ -16,7 +16,6 @@ import io.aequicor.heartbeat.feature.agentlearning.api.InstructionId
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnRejection
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
-import io.aequicor.heartbeat.feature.agentlearning.api.LearningApproval
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningTools
 import io.aequicor.heartbeat.feature.agentlearning.api.ModelScope
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.DraftResult
@@ -24,15 +23,12 @@ import io.aequicor.heartbeat.feature.agentlearning.impl.domain.LearningMachine
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.ModelReach
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.RememberDraft
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.applicable
-import io.aequicor.heartbeat.feature.agentlearning.impl.domain.isRatedSafe
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.learningPrompt
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.parseRemember
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
@@ -63,9 +59,8 @@ import kotlin.uuid.Uuid
  * The agent's side of self-learning: `remember` saves an instruction for the project of the session (or for chats
  * without a project) and `load_learned_skill` returns a learned skill. Instructions of the session are added to its
  * prompt even when no learning tools are declared. Declarations never change while the toggle is on, so native
- * threads that froze their tools stay valid. AutomaticSafety uses independent review of the exact instruction and
- * trusted scope, regardless of the instruction's self-rating or local learning policy. Instruction texts are never
- * logged.
+ * threads that froze their tools stay valid. The shared profile mode authorizes the exact instruction and scope;
+ * its self-rating is not authority. Instruction texts are never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -75,7 +70,6 @@ internal class LearningAgentTools(
     private val machines: MachineRegistry,
     private val workspaces: LocalWorkspaces,
     private val platform: PlatformInfo,
-    private val safety: LearningToolSafety,
 ) : AgentToolContribution {
     override val group: String = "learning"
     override val title: String = "Обучение"
@@ -98,55 +92,15 @@ internal class LearningAgentTools(
         return learningPrompt(platform.host, applicable, scope.declared)
     }
 
-    override suspend fun requiresDecision(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): Boolean {
-        if (spec.name != LearningTools.REMEMBER) return false
-        // Invalid arguments are refused by execution deterministically, so they are not put to the user; the trust
-        // table still applies on its own. The project is not consulted: it is resolved again on execution and may
-        // become known in between (a worktree getting ready), so an unknown one must not skip the decision.
-        if (parseRemember(arguments) is DraftResult.Invalid) return false
-        return approvalLevel().requiresDecision(isRatedSafe(arguments))
-    }
-
     override suspend fun approval(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
     ): AgentToolApproval {
         if (spec.name != LearningTools.REMEMBER) return AgentToolApproval(spec.name, spec.description)
-        if (context.decisionMode == AgentToolDecisionMode.AutomaticSafety) {
-            return when (val plan = rememberPlan(context, arguments)) {
-                is RememberPlan.Ready -> safetyRequest(context, plan).approval
-                is RememberPlan.Invalid -> AgentToolApproval(spec.name, spec.description, plan.message, "invalid")
-            }
-        }
-        val draft = (parseRemember(arguments) as? DraftResult.Valid)?.draft
-        val level = approvalLevel()
-        return AgentToolApproval(
-            spec.name,
-            "Remember instruction \"${draft?.title ?: "untitled"}\"",
-            draft?.let { approvalText(it, context) },
-            binding = "approval=$level",
-        )
-    }
-
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? {
-        if (spec.name != LearningTools.REMEMBER || context.decisionMode != AgentToolDecisionMode.AutomaticSafety) {
-            return null
-        }
-        if (!toggles.get(AgentLearningEnabled)) {
-            return AgentToolAutomaticAuthorization.Denied("Self-learning is turned off")
-        }
         return when (val plan = rememberPlan(context, arguments)) {
-            is RememberPlan.Invalid -> AgentToolAutomaticAuthorization.Denied(plan.message)
-            is RememberPlan.Ready -> safety.authorize(context, safetyRequest(context, plan))
+            is RememberPlan.Ready -> safetyRequest(context, plan).approval
+            is RememberPlan.Invalid -> AgentToolApproval(spec.name, spec.description, plan.message, "invalid")
         }
     }
 
@@ -164,10 +118,8 @@ internal class LearningAgentTools(
             is RememberPlan.Invalid -> return failure(planned.message)
             is RememberPlan.Ready -> planned
         }
-        if (context.decisionMode == AgentToolDecisionMode.AutomaticSafety &&
-            !safety.isAuthorized(context, safetyRequest(context, plan))
-        ) {
-            return failure("the instruction or its scope changed after safety review; request it again")
+        if (context.authorization != safetyRequest(context, plan).approval) {
+            return failure("the instruction or its scope changed after authorization; request it again")
         }
         val draft = plan.draft
         val now = Clock.System.now().toEpochMilliseconds()
@@ -208,8 +160,8 @@ internal class LearningAgentTools(
         return RememberPlan.Ready(draft, project.ref, scope)
     }
 
-    private fun safetyRequest(context: AgentToolContext, plan: RememberPlan.Ready): LearningSafetyRequest =
-        learningSafetyRequest(
+    private fun safetyRequest(context: AgentToolContext, plan: RememberPlan.Ready): LearningOperation =
+        learningOperation(
             context,
             plan.draft,
             plan.project,
@@ -218,7 +170,6 @@ internal class LearningAgentTools(
                 LearningTools.REMEMBER,
                 "Remember instruction \"${plan.draft.title}\"",
                 approvalText(plan.draft, context),
-                binding = "approval=${approvalLevel()}",
             ),
         )
 
@@ -286,9 +237,6 @@ internal class LearningAgentTools(
         machine.state.first { it is AgentLearningState.Ready || it is AgentLearningState.Failed }
     } as? AgentLearningState.Ready
 
-    private fun approvalLevel(): LearningApproval =
-        (machine.state.value as? AgentLearningState.Ready)?.approval ?: LearningApproval.Ask
-
     /**
      * The project an instruction belongs to: a worktree checkout maps to its original project, a session without
      * a project to null. A workspace that is neither a saved project nor a known checkout is unknown.
@@ -314,8 +262,7 @@ internal class LearningAgentTools(
     /**
      * Reviewed content in the language of the other hosted approvals. The window may show only its top, so the first
      * line is the host's (kind, scope and the agent's rating) and no text of the agent stands in front of it. Then,
-     * set apart, the text to be stored, whole and never a preview (parseRemember allows no two blank lines in a row
-     * there), and one line each: the title, when to use it and the reason.
+     * set apart, the complete text to be stored, and one line each: the title, when to use it and the reason.
      */
     private fun approvalText(draft: RememberDraft, context: AgentToolContext): String = buildString {
         append(

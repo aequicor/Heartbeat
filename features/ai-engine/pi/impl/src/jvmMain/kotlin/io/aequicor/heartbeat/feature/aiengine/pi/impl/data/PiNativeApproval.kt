@@ -3,13 +3,11 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -83,7 +81,7 @@ internal class PiNativeApproval(
     }
 
     private suspend fun authorize(id: String, call: PiApprovalCall, turn: Turn, context: AgentToolContext): Decision {
-        val classified = classify(call, isWorkspaceAttached = context.workspace != null)
+        val classified = classify(call)
             ?: return Decision(NativeVerdict.Deny("Unknown native tool"), false, false)
         val (native, isHostTermination) = classified
         var isAsked = false
@@ -92,7 +90,7 @@ internal class PiNativeApproval(
             permissions = AgentToolPermissions { approval ->
                 if (!isCurrent()) return@AgentToolPermissions false
                 val request = approvalRequest(id, turn.id, call, isHostTermination)
-                    ?.copy(description = approval.description) ?: return@AgentToolPermissions false
+                    .copy(description = approval.description)
                 isAsked = true
                 hosted.approval(turn, request, PiApprovalAllow)
             },
@@ -102,19 +100,7 @@ internal class PiNativeApproval(
         } else {
             environment.tools.authorizeNative(bound, native)
         }
-        val checked = if (verdict == NativeVerdict.Allow &&
-            bound.decisionMode == AgentToolDecisionMode.AutomaticSafety
-        ) {
-            val current = classify(call, isWorkspaceAttached = bound.workspace != null)?.first
-            when {
-                current == null -> NativeVerdict.Deny("Native action can no longer be classified")
-                current.automaticDenial != null -> NativeVerdict.Deny(checkNotNull(current.automaticDenial))
-                else -> verdict
-            }
-        } else {
-            verdict
-        }
-        return Decision(checked, isAsked, native.action == AgentToolAction.Read)
+        return Decision(verdict, isAsked, native.action == AgentToolAction.Read)
     }
 
     /**
@@ -132,7 +118,7 @@ internal class PiNativeApproval(
     }
 
     private data class Decision(val verdict: NativeVerdict, val isAsked: Boolean, val isRead: Boolean)
-    private suspend fun classify(call: PiApprovalCall, isWorkspaceAttached: Boolean): Pair<NativeToolCall, Boolean>? {
+    private fun classify(call: PiApprovalCall): Pair<NativeToolCall, Boolean>? {
         val group = piToolGroup(call.tool).takeIf { call.tool !in SearchTools }
         if (group != null) return extensionCall(call, group) to false
         val action = if (call.tool in SearchTools) {
@@ -142,10 +128,7 @@ internal class PiNativeApproval(
                 ?: return null
         }
         val isHostTermination = action == AgentToolAction.Command && environment.nativeCalls.terminatesHost(call.target)
-        val path = call.path
         val workspace = connection.workingDirectory?.toString()
-        val isEdit = action == AgentToolAction.Edit && path != null && workspace != null &&
-            environment.nativeCalls.isWorkspaceEdit(path, workspace)
         val native = NativeToolCall(
             call.tool,
             action,
@@ -153,35 +136,20 @@ internal class PiNativeApproval(
             command = call.target.takeIf { action == AgentToolAction.Command },
             arguments = call.arguments,
             workingDirectory = workspace,
-            // Only the trusted extension's controlled push wrapper pins its final environment. A launcher's
-            // environment or model-facing argument cannot attest to Pi's ordinary shell runtime.
-            commandEnvironment = call.commandEnvironment?.takeIf {
-                connection.hasPinnedNativePush && action == AgentToolAction.Command && it.directory == workspace
-            }?.captured,
-            automaticDenial = automaticDenial(action, isHostTermination, isWorkspaceAttached && isEdit),
-            covered = { trust -> isCovered(trust, action, isHostTermination, isEdit) },
+
         )
         return native to isHostTermination
     }
 
-    /**
-     * A tool of an extension, checked under its group's policy name. It shows the tool and its arguments to the
-     * reviewer, is never covered by a trust level and cannot terminate Heartbeat automatically.
-     */
-    private fun extensionCall(call: PiApprovalCall, group: PiToolGroups): NativeToolCall {
-        val isHostTermination = environment.nativeCalls.terminatesHost(call.target)
-        return NativeToolCall(
-            group.policyName,
-            group.action,
-            command = listOf(call.tool, call.target).filter { it.isNotBlank() }.joinToString(" "),
-            arguments = call.arguments,
-            workingDirectory = connection.workingDirectory?.toString(),
-            // Extension tools own their execution backend; its environment is not a pinned native shell.
-            commandEnvironment = null,
-            automaticDenial = "Automatic execution cannot terminate Heartbeat".takeIf { isHostTermination },
-            covered = { false },
-        )
-    }
+    /** Extension tools describe their full action to the shared permission gate. */
+    private fun extensionCall(call: PiApprovalCall, group: PiToolGroups): NativeToolCall = NativeToolCall(
+        group.policyName,
+        group.action,
+        command = listOf(call.tool, call.target).filter { it.isNotBlank() }.joinToString(" "),
+        arguments = call.arguments,
+        workingDirectory = connection.workingDirectory?.toString(),
+
+    )
 }
 
 /** Input RPC carries the denial unchanged; legacy confirm requests still receive their Boolean contract. */
@@ -196,24 +164,3 @@ private fun NativeVerdict.response(isStructured: Boolean): Pair<String, JsonElem
 }
 
 private val NativeVerdict.isAllowed: Boolean get() = this == NativeVerdict.Allow
-
-/** Legacy trust preserves its read/edit rules and never covers host termination. */
-private fun isCovered(
-    trust: TrustLevel,
-    action: AgentToolAction,
-    isHostTermination: Boolean,
-    isEdit: Boolean,
-): Boolean = !isHostTermination && (
-    action == AgentToolAction.Read || trust == TrustLevel.Full || (trust == TrustLevel.AutoEdits && isEdit)
-)
-
-/** Deterministic host and filesystem restrictions cannot be overruled by model review. */
-private fun automaticDenial(action: AgentToolAction, isHostTermination: Boolean, isProjectEdit: Boolean): String? =
-    when {
-        isHostTermination -> "Automatic execution cannot terminate Heartbeat"
-
-        action == AgentToolAction.Edit && !isProjectEdit ->
-            "Automatic edits require a pinned path inside the trusted workspace"
-
-        else -> null
-    }

@@ -20,7 +20,6 @@ class ConfigWriteBackFailureTest {
         ProposalKind.Conflict,
         binding.key,
         ConfigDigest("f2"),
-        review = ProposalReview.Done(ReviewVerdict.Safe, "safe"),
     )
     private val ready = ProjectConfigState.Ready(
         bindings = listOf(binding),

@@ -9,21 +9,28 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualFileChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ProfileToolPolicies
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.VirtualWorkspacePolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety.IsolatedTurnFixture
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.flowOf
@@ -45,6 +52,7 @@ internal class DefaultAgentToolsPolicyTest {
     fun `virtual sessions keep plan tools and block direct shell access`() = runTest {
         val planNames = listOf("plan_read", "plan_write", "plan_propose")
         val owner = object : Owner() {
+            override val catalog = (planNames + "run_command").map { ToolCatalogEntry(it, AgentToolAction.Command) }
             override suspend fun specifications(workspace: WorkspaceRef?) = (planNames + "run_command").map {
                 AgentToolSpec(it, it, empty)
             }
@@ -67,7 +75,34 @@ internal class DefaultAgentToolsPolicyTest {
             override suspend fun resolve(ref: WorkspaceRef): String? = error("Physical path must remain hidden")
             override suspend fun virtual(ref: WorkspaceRef) = virtual
         }
-        val tools = DefaultAgentTools(setOf(owner), workspaces = projects)
+        val fixture = IsolatedTurnFixture()
+        val entry = registration()
+        val registry = EngineRegistry(
+            listOf(
+                EngineRegistration(
+                    entry.descriptor.copy(
+                        nativeTools = listOf(NativeToolSpec("shell", AgentToolAction.Command, true, false)),
+                    ),
+                    entry.authOwner,
+                    entry.factory,
+                ),
+            ),
+            EnginePlatform.DesktopMacOs,
+        )
+        val isolation = VirtualWorkspacePolicy(projects, lazyOf(fixture.facade), lazyOf(setOf(owner)))
+        val resolver = ProfileToolPolicies(lazyOf(setOf(isolation)), registry)
+        for (isExecuting in listOf(false, true)) {
+            val policy = checkNotNull(
+                resolver.resolve(
+                    ToolPolicyScope(session.engine, workspace),
+                    owner.catalog.map { it.name }.toSet(),
+                    isExecuting,
+                ),
+            )
+            assertEquals(setOf("shell"), policy.nativeOff)
+            assertEquals(setOf("run_command"), policy.hostedDenied)
+        }
+        val tools = DefaultAgentTools(setOf(owner), workspaces = projects, policies = resolver)
         assertEquals(planNames, tools.specifications(scope).map { it.name })
         planNames.forEach { assertFalse(tools.execute(context, it, empty).isError) }
         assertTrue(tools.execute(context, "run_command", empty).isError)

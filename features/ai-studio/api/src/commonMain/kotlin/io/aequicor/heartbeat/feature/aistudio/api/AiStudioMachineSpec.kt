@@ -35,6 +35,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | FocusPane | another open pane | Ready | |
  * | Ready | UpdateSettings | | Ready (new-conversation preferences, revision + 1) | SaveSettings |
  * | Ready | SettingsSaveFailed | | Ready (in-memory preferences retained) | |
+ * | Ready | SwitchSessionEngine | enabled, shown, idle, no pending change | Ready | SwitchSessionEngine |
  * | Ready | ChangeSessionSetting | session shown, no change pending, not stopping | Ready | ChangeSessionSetting |
  * | Ready | Submit | prompt or attachments, new-session page, idle | Ready (pane creating) | CreateSession |
  * | Ready | Submit | prompt, session idle | Ready (session running) | Run |
@@ -153,10 +154,17 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 stay { state.copy(running = state.running + intent.sessionId) }
                 effect { AiStudioEffect.ImplementPlan(intent.sessionId, intent.implementation, state.settings) }
             }
+            on<AiStudioIntent.Public.SwitchSessionEngine>(guard = {
+                state.isEngineSwitchingAvailable && state.panes.any { it.sessionId == intent.sessionId } &&
+                    state.isIdle(intent.sessionId) && intent.sessionId !in state.stopping &&
+                    state.configurations[intent.sessionId]?.pendingOperation == null
+            }) {
+                effect { AiStudioEffect.SwitchSessionEngine(intent.sessionId, intent.change) }
+            }
             on<AiStudioIntent.Public.ChangeSessionSetting>(guard = {
                 state.panes.any { it.sessionId == intent.sessionId } &&
                     state.configurations[intent.sessionId]?.pendingOperation == null &&
-                    intent.sessionId !in state.stopping
+                    intent.sessionId !in state.stopping && state.engineSwitches[intent.sessionId]?.isPending != true
             }) {
                 effect { AiStudioEffect.ChangeSessionSetting(intent.sessionId, intent.change) }
             }
@@ -203,6 +211,7 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
 
                 AiStudioEffect.ObserveModels, AiStudioEffect.ObserveAvailability, is AiStudioEffect.Apply,
                 is AiStudioEffect.Usage,
+                is AiStudioEffect.SwitchSessionEngine,
                 is AiStudioEffect.ChangeSessionSetting,
                 -> null
             }
@@ -449,6 +458,8 @@ private fun ReadyTransitions.runtimeSnapshots() {
                 answeredPermissions = answered,
                 uncancellable = snapshot.uncancellable,
                 configurations = snapshot.configurations,
+                engineSwitches = snapshot.engineSwitches,
+                isEngineSwitchingAvailable = snapshot.isEngineSwitchingAvailable,
                 stopFailures = (state.stopFailures + snapshot.stopFailures).intersect(snapshot.running),
             )
         }
@@ -519,7 +530,8 @@ private fun AiStudioState.Ready.hasPane(id: Int?): Boolean = id == null || pane(
 private fun AiStudioState.Ready.ownsCreateRequest(paneId: Int, requestId: Long): Boolean =
     pane(paneId)?.let { it.isCreating && it.createRequestId == requestId } == true
 
-private fun AiStudioState.Ready.isIdle(sessionId: String): Boolean = sessionId !in running
+private fun AiStudioState.Ready.isIdle(sessionId: String): Boolean =
+    sessionId !in running && engineSwitches[sessionId]?.isPending != true
 
 private fun AiStudioState.Ready.sessionOf(paneId: Int): String = checkNotNull(pane(paneId)?.sessionId)
 

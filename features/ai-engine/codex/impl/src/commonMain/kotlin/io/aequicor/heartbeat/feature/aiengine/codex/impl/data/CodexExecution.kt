@@ -24,7 +24,7 @@ internal data class CodexThreadRequest(
     val isVirtualWorkspace: Boolean = false,
 ) {
     val off: CodexNativeOff get() = CodexNativeOff(
-        "shell" in policy.nativeOff,
+        true,
         "web_search" in policy.nativeOff,
         isVirtualWorkspace,
     )

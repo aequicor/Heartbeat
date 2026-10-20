@@ -21,8 +21,3 @@ public data class HarnessDetailRoute(public val harness: String) : Route
 @Serializable
 @SerialName("harness_item")
 public data class HarnessItemRoute(public val harness: String, public val item: String) : Route
-
-/** Tool policy of one harness: Heartbeat tools that are off and native engine tool switches. */
-@Serializable
-@SerialName("harness_tools")
-public data class HarnessToolsRoute(public val harness: String) : Route

@@ -37,9 +37,8 @@ import io.aequicor.heartbeat.feature.organicai.api.zygote
  * The organic AI machine as the workflow owner uses it, through public intents only. The machine exists only while
  * organic AI is on in the profile, so a missing or sleeping machine is [OrganismView.Unavailable], never absence:
  * a sleeping machine still owns its developing organisms and revives them on awakening. An aborted organism is
- * ended only once the machine confirms the release of its sessions. Conception fixes AutomaticSafety for every
- * working cell turn and caps trust at Ask; a process decision never expands native tool permissions. Texts are
- * never logged.
+ * ended only once the machine confirms the release of its sessions. Working cells use the shared security mode;
+ * waiting for user permission keeps the workflow developing. Texts are never logged.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -163,15 +162,11 @@ private fun Organism.toView(): OrganismView = when (val ended = status) {
     OrganismStatus.Developing -> developingView()
 }
 
-/** A workflow has no permission dialog; any live cell requesting input must go through ordinary abort cleanup. */
+/** Permission requests remain live and are answered through the shared Studio organism projection. */
 private fun Organism.developingView(): OrganismView {
     val phase = zygote.phase
     return when {
-        cells.any { (it.phase as? CellPhase.Working)?.awaiting?.isNotEmpty() == true } ->
-            OrganismView.Stalled(OrganismEnd.InteractionRequired)
-
         phase is CellPhase.Stalled -> OrganismView.Stalled(phase.breakdown.toEnd())
-
         else -> OrganismView.Developing
     }
 }

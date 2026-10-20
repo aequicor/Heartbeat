@@ -15,9 +15,49 @@ class StudioScreenSerializationTest {
     @Test
     fun `conflict resolution keeps its existing remote field name`() {
         val wire = """{"sessionId":"s","isResume":true,"resolveConflicts":true}"""
-        val intent = AiStudioScreenIntent.RecheckWorktree("s", isResume = true, isResolvingConflicts = true)
+        val intent = AiStudioScreenIntent.RecheckWorktree("s", isResume = true, isConflictResolutionRequested = true)
         assertEquals(intent, StudioViewJson.decodeFromString(AiStudioScreenIntent.RecheckWorktree.serializer(), wire))
         assertEquals(wire, StudioViewJson.encodeToString(AiStudioScreenIntent.RecheckWorktree.serializer(), intent))
+    }
+
+    @Test
+    fun `replacement snapshots and expected menu route survive remote transport with legacy defaults`() {
+        val screen = AiStudioScreenState(
+            isEngineSwitchingAvailable = true,
+            engineSwitches = persistentMapOf("chat" to EngineSwitchUi(true, EngineSwitchFailureUi.Busy)),
+            models = persistentListOf(
+                ModelUi("b", "B", engineRoute = "binding", switchFailure = EngineSwitchFailureUi.Workspace),
+            ),
+            transcripts = persistentMapOf(
+                "chat" to persistentListOf(
+                    MessageUi.ContextNotice("boundary", at, isRollover = false, engineFrom = "A", engineTo = "B"),
+                    MessageUi.ContextNotice("partial", at, isRollover = false, isTransferTruncated = true),
+                ),
+            ),
+        )
+        assertEquals(
+            screen,
+            StudioViewJson.decodeFromString<AiStudioScreenState>(
+                StudioViewJson.encodeToString(AiStudioScreenState.serializer(), screen),
+            ),
+        )
+        val intent = AiStudioScreenIntent.SelectModel("b", 1, "a", "chat")
+        assertEquals(
+            intent,
+            StudioViewJson.decodeFromString<AiStudioScreenIntent>(
+                StudioViewJson.encodeToString(AiStudioScreenIntent.serializer(), intent),
+            ),
+        )
+        assertEquals(
+            AiStudioScreenIntent.SelectModel("b"),
+            StudioViewJson.decodeFromString(
+                AiStudioScreenIntent.SelectModel.serializer(),
+                """{"modelId":"b"}""",
+            ),
+        )
+        val legacy = StudioViewJson.decodeFromString<AiStudioScreenState>("{}")
+        assertEquals(false, legacy.isEngineSwitchingAvailable)
+        assertEquals(emptyMap(), legacy.engineSwitches)
     }
 
     @Test
@@ -60,7 +100,6 @@ class StudioScreenSerializationTest {
     private val state = AiStudioScreenState(
         phase = StudioPhase.Ready,
         appUpdate = AppUpdateUi("1.4.0", AppUpdateStageUi.Downloading, 25, AppUpdateFailureUi.Network),
-        safetyReviews = SafetyReviewsUi(capacity = 3, running = 2, queued = 1, finishing = 1, abandoned = 1),
         projects = persistentListOf(ProjectUi("p1", "Heartbeat", EnvironmentUi.Local, "main")),
         sessions = persistentListOf(SessionUi("s1", "Перенос панели ✅", "p1", at, isRunning = true)),
         panes = persistentListOf(PaneUi(1, sessionId = "s1", projectId = "p1")),

@@ -1,16 +1,5 @@
 package io.aequicor.heartbeat.feature.harness.impl.presentation
 
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
-import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
-import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessChange
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
@@ -22,7 +11,6 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
@@ -36,7 +24,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHos
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -50,9 +37,7 @@ class HarnessScreenModelsTest {
     private val script = HarnessItem.Script(ItemId("verify"), ItemName("verify"), "Checks", "hooks.toString()")
     private val ready = HarnessState.Ready(
         harnesses = listOf(HarnessEntry(harness.copy(items = listOf(rule, script), revision = 4))),
-        approval = HarnessApproval.ByTrust,
         isRuntimeAvailable = true,
-        approvalRevision = 2,
     )
 
     @Test
@@ -300,30 +285,6 @@ class HarnessScreenModelsTest {
     }
 
     @Test
-    fun `tool policy shows refusals and storage failures of its own edits only`() = runTest {
-        val library = RecordingLibrary(ready)
-        val model = HarnessToolsModel(harness.id.value, library, Catalogs, storeFactory(), backgroundScope)
-        val screen = subscribe(model.store)
-        screen.intent(HarnessToolsIntent.SetNative("claude", "Bash", NativeChoiceUi.Off))
-        runCurrent()
-        val own = assertIs<HarnessIntent.Internal.Update>(library.sent.single()).requestId
-
-        library.outputs.emit(HarnessOutput.Rejected(request(), HarnessRejection.Conflict))
-        library.outputs.emit(HarnessOutput.StorageFailed(null))
-        runCurrent()
-        assertTrue(!screen.states.value.isSaveFailed, "an agent write or a reload failure is not this screen's")
-        library.outputs.emit(HarnessOutput.Rejected(own, HarnessRejection.Conflict))
-        runCurrent()
-        assertTrue(screen.states.value.isSaveFailed)
-
-        screen.intent(HarnessToolsIntent.DismissError)
-        runCurrent()
-        library.outputs.emit(HarnessOutput.StorageFailed(own))
-        runCurrent()
-        assertTrue(screen.states.value.isSaveFailed)
-    }
-
-    @Test
     fun `library retries a failed load through the public reload`() = runTest {
         val library = RecordingLibrary(HarnessState.Failed())
         val model = HarnessLibraryModel(library, storeFactory(), backgroundScope)
@@ -334,26 +295,6 @@ class HarnessScreenModelsTest {
         runCurrent()
         assertIs<HarnessIntent.Public.Reload>(library.sent.single())
         assertTrue(!screen.states.value.isSaveFailed)
-    }
-
-    @Test
-    fun `tool switches replace the stored policy and gated tools are offered on`() = runTest {
-        val library = RecordingLibrary(ready)
-        val model = HarnessToolsModel(
-            harness.id.value,
-            library,
-            Catalogs,
-            storeFactory(),
-            backgroundScope,
-        )
-        val screen = subscribe(model.store)
-        val claude = screen.states.value.engines.single()
-        assertEquals(listOf(true, false), claude.tools.map { it.isOnAllowed })
-        screen.intent(HarnessToolsIntent.SetNative("claude", "Bash", NativeChoiceUi.On))
-        runCurrent()
-        val update = assertIs<HarnessIntent.Internal.Update>(library.sent.single())
-        val tools = (update.change as HarnessChange.Tools).tools
-        assertEquals(mapOf("claude" to mapOf("Bash" to ToolSwitch.On)), tools.native)
     }
 }
 
@@ -394,26 +335,4 @@ private class EditorHost(
         HarnessEvaluationResult.Unsupported
 
     override suspend fun removeCached(harness: HarnessId, item: ItemId) = Unit
-}
-
-private object Catalogs : HarnessToolCatalogs {
-    override fun hosted() = emptyList<ToolGroup>()
-
-    override fun engines() = listOf(
-        EngineDescriptor(
-            EngineId("claude"),
-            "Claude",
-            EngineFamily.Vendor,
-            emptySet(),
-            HarnessNativeTools,
-            nativeTools = listOf(
-                NativeToolSpec("Bash", AgentToolAction.Command, isEnabledByDefault = false, isGated = true),
-                NativeToolSpec("Agent", AgentToolAction.Command, isEnabledByDefault = true, isGated = false),
-            ),
-        ),
-    )
-
-    override suspend fun effective(scope: ToolPolicyScope) = ResolvedToolPolicy()
-
-    override fun nativeEnabling() = flowOf(true)
 }

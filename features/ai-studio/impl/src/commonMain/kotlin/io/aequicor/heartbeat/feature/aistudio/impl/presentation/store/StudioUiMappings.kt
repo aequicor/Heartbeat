@@ -43,6 +43,7 @@ internal fun StudioSessionConfiguration.toUi(): SessionConfigurationUi = Session
     applied.reasoningEffort,
     applied.approval.toUi(),
     pendingOperation,
+    studioModelTarget(applied.modelId)?.let { "${it.engine.value}/${it.binding.value}" },
 )
 
 /** Models offered by the composer, from the most capable to the fastest. */
@@ -62,6 +63,7 @@ internal fun StudioModel.toUi(): ModelUi = ModelUi(
     isTrustSupported,
     inputSupport.toUi(),
     isScripted = StudioModels.any { it.id == id },
+    engineRoute = studioModelTarget(id)?.let { "${it.engine.value}/${it.binding.value}" },
 )
 
 internal fun StudioPane.toUi(): PaneUi = PaneUi(
@@ -145,7 +147,14 @@ internal fun StudioMessage.toUi(): MessageUi = when (this) {
 
     is StudioMessage.Failed -> MessageUi.Failed(id, createdAt, FailureUi.valueOf(kind.name))
 
-    is StudioMessage.ContextNotice -> MessageUi.ContextNotice(id, createdAt, kind == ContextNoticeKind.RolledOver)
+    is StudioMessage.ContextNotice -> MessageUi.ContextNotice(
+        id,
+        createdAt,
+        kind == ContextNoticeKind.RolledOver,
+        engineFrom,
+        engineTo,
+        kind == ContextNoticeKind.TransferTruncated,
+    )
 }
 
 private fun StudioToolRun.toUi(): ToolUi = ToolUi(

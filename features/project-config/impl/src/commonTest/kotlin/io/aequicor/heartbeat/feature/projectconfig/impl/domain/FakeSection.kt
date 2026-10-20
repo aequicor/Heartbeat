@@ -33,8 +33,6 @@ internal class FakeSection(
     val applied = mutableListOf<Pair<ConfigUnit, ConfigApplyContext>>()
     var rejection: ConfigRejection? = null
 
-    override val reviewPolicy: String = "fake policy"
-
     override val entities: Flow<List<ConfigEntity>?> = state.map { entities ->
         entities?.map {
             ConfigEntity(

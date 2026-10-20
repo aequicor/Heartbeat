@@ -1,13 +1,5 @@
 package io.aequicor.heartbeat.feature.projectconfig.api
 
-/** Records review results of proposals still at the reviewed digest. */
-internal fun Ready.reviewed(results: List<Pair<String, ProposalReview>>): Ready = copy(
-    proposals = proposals.map { proposal ->
-        results.firstOrNull { it.first == proposal.reviewKey }?.let { proposal.copy(review = it.second) } ?: proposal
-    },
-    reviewing = reviewing - results.map { it.first }.toSet(),
-)
-
 /** Starts applying a trusted proposal. */
 internal fun Ready.trusted(proposal: ConfigProposal): ConfigStep {
     val applying = proposal.copy(isApplying = true, failure = null)
@@ -40,18 +32,15 @@ internal fun Ready.taskDone(intent: ProjectConfigIntent.Internal.TaskDone): Conf
         .then { if (project != null) it.changed(project) else ConfigStep(it) }
 }
 
-/** Replaces the open bundle with [intent]'s and reviews its proposals. */
+/** Replaces the open bundle with [intent]'s and presents its proposals for explicit consent. */
 internal fun Ready.bundleOpened(intent: ProjectConfigIntent.Internal.BundleOpened): ConfigStep {
-    val reviews = intent.proposals.filter { it.isReviewDue }
     val next = copy(
         bundle = intent.bundle,
         task = null,
         proposals = proposals.filterNot { it.source is ConfigSource.Bundle } + intent.proposals,
-        reviewing = reviewing + reviews.map { it.reviewKey },
     )
     val effects = listOfNotNull(
         bundle?.let { ProjectConfigEffect.CloseBundle(it.id) },
-        ProjectConfigEffect.Review(reviews).takeIf { reviews.isNotEmpty() },
     )
     val result = ConfigTaskResult.Opened(intent.proposals.size)
     return ConfigStep(next, effects, listOf(ProjectConfigOutput.TaskFinished(intent.requestId, result)))

@@ -1,11 +1,8 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data
 
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
@@ -24,7 +21,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -68,21 +64,18 @@ internal class ProfileToolPoliciesTest {
     }
 
     @Test
-    fun `native opt in needs both toggle and workspace while off works without either`() = runTest {
-        val policy = ToolPolicy(native = mapOf("read" to ToolSwitch.Off, "edit" to ToolSwitch.On))
-        val disabled = resolver(listOf(policy), isEnabled = false).resolve(scope, emptySet(), false)!!
-        val detached = resolver(listOf(policy)).resolve(scope.copy(workspace = null), emptySet(), false)!!
-        assertTrue(disabled.nativeOn.isEmpty())
-        assertTrue(detached.nativeOn.isEmpty())
-        assertEquals(setOf("read"), disabled.nativeOff)
-        assertEquals(disabled.nativeOff, detached.nativeOff)
-        assertTrue(HarnessNativeTools.default)
+    fun `gated tools are available without the obsolete toggle or a workspace`() = runTest {
+        val disabled = resolver(emptyList()).resolve(scope, emptySet(), false)!!
+        val detached = resolver(emptyList()).resolve(scope.copy(workspace = null), emptySet(), false)!!
+        assertEquals(setOf("read", "edit", "collision"), disabled.nativeOn)
+        assertEquals(disabled.nativeOn, detached.nativeOn)
+        assertTrue(disabled.nativeOff.isEmpty())
     }
 
     @Test
     fun `equal effective policies retain generation but an ABA change gets a new generation`() = runTest {
         var current = ToolPolicy()
-        val resolver = create(lazyOf(setOf(AgentToolPolicyProvider { current })))
+        val resolver = create(lazyOf(setOf(isolation { current })))
         val first = resolver.resolve(scope, emptySet(), false)!!
         current = ToolPolicy(native = mapOf("unknown" to ToolSwitch.On))
         assertEquals(first, resolver.resolve(scope, emptySet(), false))
@@ -96,7 +89,7 @@ internal class ProfileToolPoliciesTest {
 
     @Test
     fun `provider failure restores defaults for declarations but refuses execution`() = runTest {
-        val resolver = create(lazyOf(setOf(AgentToolPolicyProvider { error("private provider detail") })))
+        val resolver = create(lazyOf(setOf(isolation { error("private provider detail") })))
         val declarations = resolver.resolve(scope, emptySet(), false)!!
         assertEquals(setOf("read"), declarations.nativeOn)
         assertTrue(declarations.hostedDenied.isEmpty())
@@ -105,7 +98,7 @@ internal class ProfileToolPoliciesTest {
 
     @Test
     fun `already reported provider unavailability still fails closed`() = runTest {
-        val resolver = create(lazyOf(setOf(AgentToolPolicyProvider { throw ToolPolicyUnavailable() })))
+        val resolver = create(lazyOf(setOf(isolation { throw ToolPolicyUnavailable() })))
         val declarations = resolver.resolve(scope, emptySet(), false)!!
         assertEquals(setOf("read"), declarations.nativeOn)
         assertNull(resolver.resolve(scope, emptySet(), true))
@@ -114,7 +107,7 @@ internal class ProfileToolPoliciesTest {
     @Test
     fun `adapter preflight cannot restore native defaults after its restrictive provider fails`() = runTest {
         var isFailed = false
-        val provider = AgentToolPolicyProvider {
+        val provider = isolation {
             if (isFailed) error("private provider detail")
             ToolPolicy(native = mapOf("read" to ToolSwitch.Off))
         }
@@ -135,21 +128,21 @@ internal class ProfileToolPoliciesTest {
     fun `adapter preflight refuses a timed out provider and propagates cancellation`() = runTest {
         val stalled = DefaultAgentTools(
             emptySet(),
-            policies = create(lazyOf(setOf(AgentToolPolicyProvider { awaitCancellation() }))),
+            policies = create(lazyOf(setOf(isolation { awaitCancellation() }))),
         )
         assertNull(stalled.nativeToolsForExecution(scope))
         val cancelled = DefaultAgentTools(
             emptySet(),
-            policies = create(lazyOf(setOf(AgentToolPolicyProvider { throw CancellationException("cancel") }))),
+            policies = create(lazyOf(setOf(isolation { throw CancellationException("cancel") }))),
         )
         assertFailsWith<CancellationException> { cancelled.nativeToolsForExecution(scope) }
     }
 
     @Test
     fun `provider timeout refuses execution while caller cancellation propagates`() = runTest {
-        val stalled = create(lazyOf(setOf(AgentToolPolicyProvider { awaitCancellation() })))
+        val stalled = create(lazyOf(setOf(isolation { awaitCancellation() })))
         assertNull(stalled.resolve(scope, emptySet(), true))
-        val cancelled = create(lazyOf(setOf(AgentToolPolicyProvider { throw CancellationException("cancel") })))
+        val cancelled = create(lazyOf(setOf(isolation { throw CancellationException("cancel") })))
         assertFailsWith<CancellationException> { cancelled.resolve(scope, emptySet(), false) }
     }
 
@@ -160,7 +153,7 @@ internal class ProfileToolPoliciesTest {
         val contributions = lazy {
             isLoaded = true
             setOf(
-                AgentToolPolicyProvider {
+                isolation {
                     received = it
                     null
                 },
@@ -180,7 +173,7 @@ internal class ProfileToolPoliciesTest {
         val resolver = create(
             lazyOf(
                 setOf(
-                    AgentToolPolicyProvider {
+                    isolation {
                         entered++
                         gate.await()
                         null
@@ -204,7 +197,7 @@ internal class ProfileToolPoliciesTest {
         val resolver = create(
             lazyOf(
                 setOf(
-                    AgentToolPolicyProvider {
+                    isolation {
                         if (++calls == 1) {
                             gate.await()
                             ToolPolicy(native = mapOf("read" to ToolSwitch.Off))
@@ -233,36 +226,20 @@ internal class ProfileToolPoliciesTest {
     }
 
     @Test
-    fun `native enable toggle changes effective generation`() = runTest {
-        var isEnabled = false
-        val toggles = object : FeatureToggles {
-            override fun <T : Any> observe(toggle: FeatureToggle<T>) = flowOf(toggle.default)
-            override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T {
-                @Suppress("UNCHECKED_CAST")
-                return if (toggle == HarnessNativeTools) isEnabled as T else toggle.default
-            }
-        }
-        val provider = AgentToolPolicyProvider { ToolPolicy(native = mapOf("edit" to ToolSwitch.On)) }
-        val resolver = create(lazyOf(setOf(provider)), toggles)
-        val before = resolver.resolve(scope, emptySet(), false)!!
-        isEnabled = true
-        val after = resolver.resolve(scope, emptySet(), false)!!
-        assertEquals(setOf("read"), before.nativeOn)
-        assertEquals(setOf("read", "edit"), after.nativeOn)
-        assertNotEquals(before.generation, after.generation)
+    fun `legacy policy providers cannot hide tools or fail their availability`() = runTest {
+        val provider = AgentToolPolicyProvider { error("Legacy provider must not be consulted") }
+        val result = create(lazyOf(setOf(provider))).resolve(scope, emptySet(), true)!!
+        assertEquals(setOf("read", "edit", "collision"), result.nativeOn)
+        assertTrue(result.hostedDenied.isEmpty())
     }
 
     private fun session(id: String) = SessionRef(TestEngine, SessionSourceId("local"), id)
 
-    private fun resolver(policies: List<ToolPolicy>, isEnabled: Boolean = true) = create(
-        lazyOf(policies.map { policy -> AgentToolPolicyProvider { policy } }.toSet()),
-        flags(isEnabled),
+    private fun resolver(policies: List<ToolPolicy>) = create(
+        lazyOf(policies.map { policy -> isolation { policy } }.toSet()),
     )
 
-    private fun create(
-        providers: Lazy<Set<AgentToolPolicyProvider>>,
-        toggles: FeatureToggles = flags(true),
-    ): ProfileToolPolicies {
+    private fun create(providers: Lazy<Set<AgentToolPolicyProvider>>): ProfileToolPolicies {
         val registration = registration()
         val registry = EngineRegistry(
             listOf(
@@ -274,14 +251,12 @@ internal class ProfileToolPoliciesTest {
             ),
             EnginePlatform.DesktopMacOs,
         )
-        return ProfileToolPolicies(providers, registry, toggles)
-    }
-
-    private fun flags(isEnabled: Boolean) = object : FeatureToggles {
-        override fun <T : Any> observe(toggle: FeatureToggle<T>) = flowOf(toggle.default)
-        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T {
-            @Suppress("UNCHECKED_CAST")
-            return if (toggle == HarnessNativeTools) isEnabled as T else toggle.default
-        }
+        return ProfileToolPolicies(providers, registry)
     }
 }
+
+private fun isolation(block: suspend (ToolPolicyScope) -> ToolPolicy?): AgentToolPolicyProvider =
+    object : AgentToolPolicyProvider {
+        override val isIsolation = true
+        override suspend fun policy(scope: ToolPolicyScope): ToolPolicy? = block(scope)
+    }

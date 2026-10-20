@@ -203,7 +203,7 @@ private fun StudioComposerInput(
             null
         },
         leadingContent = {
-            StudioComposerLeading(content, hasRunPreferences, presentation, onIntent, onOpenResearch) {
+            StudioComposerLeading(content, presentation, onIntent, onOpenResearch) {
                 requestInputFocus()
             }
             if (isAddingEnabled && presentation != ComposerPresentation.Compact) {
@@ -215,7 +215,8 @@ private fun StudioComposerInput(
                 settings.modelId,
                 content.models,
                 onIntent,
-                canSelect = !content.isSettingPending && content.organism == null,
+                canSelect = content.canSelectModel(),
+                sessionId = pane.sessionId,
                 paneId = pane.id,
                 modifier = Modifier.weight(1f, fill = false),
                 isCompact = presentation == ComposerPresentation.Compact,
@@ -311,7 +312,6 @@ private fun sectionLabel(suggestion: SuggestionUi): String = when (suggestion.ki
 @Composable
 private fun StudioComposerLeading(
     content: PaneContent,
-    hasRunPreferences: Boolean,
     presentation: ComposerPresentation,
     onIntent: (StudioIntent) -> Unit,
     onOpenResearch: ((String) -> Unit)?,
@@ -325,15 +325,8 @@ private fun StudioComposerLeading(
         draft = content.draft,
         isRememberEnabled = content.isRememberEnabled,
         onFocusInput = onFocusInput,
-        approval = if (content.organism != null) {
-            content.organism.approval
-        } else {
-            content.settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() }
-        },
         onDraft = { onIntent(StudioIntent.Suggestions.DraftChanged(content.pane.id, it)) },
-        onApproval = { onIntent(StudioIntent.SelectApproval(it, content.pane.id)) },
-        approvalEnabled = !content.isSettingPending && content.organism == null,
-        securityLevel = content.securityLevel.takeIf { content.usesProfileSecurity(hasRunPreferences) },
+        securityLevel = content.securityLevel,
         isTrustSupported = content.isTrustSupported(),
         isHelper = content.session?.isHelper == true,
         organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },
@@ -360,14 +353,8 @@ private fun StudioComposerLeading(
     )
 }
 
-/** The profile security level that replaces the chat's approval choice, or null when the chat keeps its own. */
-internal fun PaneContent.profileSecurityLevel(): SecurityLevelUi? =
-    securityLevel.takeIf { usesProfileSecurity(supportsRunPreferences()) }
-
-/** Ordinary native chats show the profile choice; demo preferences and organism decisions keep their own modes. */
-private fun PaneContent.usesProfileSecurity(hasRunPreferences: Boolean): Boolean =
-    !hasRunPreferences && organism == null && session?.isOrganism != true &&
-        !pane.isOrganism && models.any { it.id == settings.modelId }
+/** Every pane displays the same saved profile mode. */
+internal fun PaneContent.profileSecurityLevel(): SecurityLevelUi = securityLevel
 
 @Composable
 private fun StudioComposerContext(
@@ -533,7 +520,7 @@ private fun PaneContent.takesPrompts(): Boolean = session?.isContinuable != fals
 )
 
 /** Running requests retain cancellation; pending permissions block another prompt. */
-private fun PaneContent.isComposerEnabled(): Boolean = !pane.isCreating && !isPickingProject && !isStopping &&
+private fun PaneContent.isComposerEnabled(): Boolean = isComposerIdle() &&
     takesPrompts() &&
     (session?.isWorktree != true || worktreeJournal == WorktreeJournalUi.Ready || session.isRunning) &&
     (worktree?.phase != WorktreePhaseUi.ActionWorking || session?.isRunning == true) &&
@@ -595,11 +582,8 @@ private fun TemplatesMenu(
     draft: String,
     isRememberEnabled: Boolean,
     onFocusInput: () -> Unit,
-    approval: ApprovalUi?,
     onDraft: (String) -> Unit,
-    onApproval: (ApprovalUi) -> Unit,
-    approvalEnabled: Boolean,
-    securityLevel: SecurityLevelUi?,
+    securityLevel: SecurityLevelUi,
     isTrustSupported: Boolean,
     isHelper: Boolean,
     organism: Boolean?,
@@ -641,7 +625,7 @@ private fun TemplatesMenu(
     )
     val actions = attachments + templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
         listOfNotNull(rememberAction.takeIf { isRememberEnabled }) + modes +
-        approvalActions(approval, approvalEnabled, securityLevel, isTrustSupported, isHelper)
+        securityActions(securityLevel, isTrustSupported, isHelper)
     HbComposerMenuButton(
         label = stringResource(Res.string.composer_add),
         actions = actions.toImmutableList(),
@@ -656,8 +640,6 @@ private fun TemplatesMenu(
                 onPasteImage?.invoke()
             } else if (id == RESEARCH_ACTION) {
                 onResearch?.invoke()
-            } else if (id.startsWith(APPROVAL_PREFIX)) {
-                onApproval(ApprovalUi.valueOf(id.removePrefix(APPROVAL_PREFIX)))
             } else if (id in modeSwitches) {
                 modeSwitches.getValue(id).invoke()
             } else if (id == REMEMBER_ACTION) {
@@ -682,6 +664,7 @@ private fun ModelMenu(
     models: ImmutableList<ModelUi>,
     onIntent: (StudioIntent) -> Unit,
     canSelect: Boolean,
+    sessionId: String?,
     paneId: Int,
     modifier: Modifier = Modifier,
     isCompact: Boolean = false,
@@ -690,14 +673,22 @@ private fun ModelMenu(
     val model = models.firstOrNull { it.id == modelId }
     val modelLabel = model?.shortName ?: stringResource(Res.string.model_not_selected)
     val items = models.map {
-        HbComposerAction(it.id, it.name, isEnabled = canSelect, isSelected = it.id == modelId)
+        HbComposerAction(
+            it.id,
+            it.name,
+            supportingText = it.switchFailure?.let { reason -> engineSwitchReason(reason) },
+            isEnabled = canSelect && it.switchFailure == null,
+            isSelected = it.id == modelId,
+        )
     }
     HbComposerMenuButton(
         label = modelLabel,
         actions = items.toImmutableList(),
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
-        onAction = { onIntent(StudioIntent.SelectModel(it, paneId)) },
+        onAction = {
+            onIntent(StudioIntent.SelectModel(it, paneId, modelId, expectedSessionId = sessionId.orEmpty()))
+        },
         modifier = modifier.testTag("model-chip"),
         accessibleLabel = model?.name ?: stringResource(Res.string.connect_model_hint),
         headerLabel = stringResource(Res.string.model_menu),
@@ -735,35 +726,19 @@ private fun EffortMenu(
 }
 
 @Composable
-private fun approvalActions(
-    selected: ApprovalUi?,
-    enabled: Boolean,
-    securityLevel: SecurityLevelUi?,
+private fun securityActions(
+    securityLevel: SecurityLevelUi,
     isTrustSupported: Boolean,
     isHelper: Boolean,
-): List<HbComposerAction> {
-    if (securityLevel != null) {
-        return listOf(
-            HbComposerAction(
-                id = "profile-security",
-                label = securityLevelLabel(securityLevel),
-                supportingText = securityLevelHint(securityLevel, isTrustSupported, isHelper),
-                sectionLabel = stringResource(Res.string.approval_menu),
-                isEnabled = false,
-            ),
-        )
-    }
-    if (selected == null) return emptyList()
-    return ApprovalUi.entries.mapIndexed { index, approval ->
-        HbComposerAction(
-            id = "$APPROVAL_PREFIX${approval.name}",
-            label = approvalLabel(approval),
-            sectionLabel = if (index == 0) stringResource(Res.string.approval_menu) else null,
-            isSelected = approval == selected,
-            isEnabled = enabled,
-        )
-    }
-}
+): List<HbComposerAction> = listOf(
+    HbComposerAction(
+        id = "profile-security",
+        label = securityLevelLabel(securityLevel),
+        supportingText = securityLevelHint(securityLevel, isTrustSupported, isHelper),
+        sectionLabel = stringResource(Res.string.approval_menu),
+        isEnabled = false,
+    ),
+)
 
 /** The name of the profile security [level] shown instead of the chat's approval choice. */
 @Composable
@@ -817,7 +792,6 @@ private const val PLANNING_ACTION = "planning"
 
 private const val NO_PROJECT = "no-project"
 private const val ADD_PROJECT = "add-project"
-private const val APPROVAL_PREFIX = "approval:"
 
 private fun PaneContent.canAddAttachments(): Boolean {
     val support = models.firstOrNull { it.id == settings.modelId }?.inputSupport
@@ -881,3 +855,10 @@ private fun composerModeActions(organism: Boolean?, worktree: Boolean?, planning
     }
     return listOfNotNull(organismAction, worktreeAction, planningAction)
 }
+
+/** Profile-wide replacement and pane setup both prevent another submission. */
+private fun PaneContent.isComposerIdle(): Boolean =
+    engineSwitch?.isPending != true && !pane.isCreating && !isPickingProject && !isStopping
+
+private fun PaneContent.canSelectModel(): Boolean =
+    !isSettingPending && organism == null && session?.isOrganism != true && !isNativeChild

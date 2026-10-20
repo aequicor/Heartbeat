@@ -59,7 +59,7 @@ public data class UiMethodReview(val binding: String, val source: String) {
 
 /**
  * One host-authorized call of [method] with JSON [arguments] in [context]. Surface actions leave [expectedBinding]
- * null. An independently reviewed agent call must pass its reviewed binding; the provider refuses a changed or
+ * null. An authorized agent call must pass its reviewed binding; the provider refuses a changed or
  * retired registration immediately before invoking code. A binding never substitutes for context admission.
  */
 public data class UiMethodCall(

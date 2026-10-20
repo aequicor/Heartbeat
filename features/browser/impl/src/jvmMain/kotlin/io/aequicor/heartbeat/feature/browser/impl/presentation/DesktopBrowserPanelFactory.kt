@@ -160,7 +160,9 @@ internal class DefaultDesktopBrowserPanelFactory(
                     BrowserStorage.User -> profile.useContext(engine)
                     is BrowserStorage.Agent -> profile.useAgentContext(storage.owner, engine)
                 }
-            }.also { panel -> (storage as? BrowserStorage.Agent)?.let { agentOwners[panel] = it.owner } }
+            }.also { panel ->
+                if (storage is BrowserStorage.Agent) agentOwners[panel] = storage.owner
+            }
         }
     }
 

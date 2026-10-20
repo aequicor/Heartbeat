@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
-import io.aequicor.heartbeat.feature.harness.api.HarnessApprovalWrite
 import io.aequicor.heartbeat.feature.harness.api.HarnessAttachmentWrite
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
@@ -72,7 +71,6 @@ internal class MemoryLibrary : HarnessLibraryStorage {
         return receipt
     }
     override suspend fun saveAttachments(write: HarnessAttachmentWrite): HarnessAttachmentWrite = write
-    override suspend fun saveApproval(write: HarnessApprovalWrite): HarnessApprovalWrite = write
 }
 
 internal class RecordingRuntime : HarnessRuntimeControl {

@@ -17,18 +17,9 @@ public sealed interface AgentLearningState : MachineState {
     /** The stored registry could not be read; nothing is written until a reload succeeds. */
     public data object Failed : AgentLearningState
 
-    /**
-     * The registry is known. [revision] grows with every change of [instructions] and [approvalRevision] with every
-     * change of [approval], so the effect handler can drop a save that arrives after a newer one. Until the user
-     * chooses otherwise interactive hosts require learning confirmation ([LearningApproval.Ask]); hosts using
-     * automatic safety review independently assess every instruction regardless of this preference.
-     */
-    public data class Ready(
-        val instructions: List<LearnedInstruction> = emptyList(),
-        val approval: LearningApproval = LearningApproval.Ask,
-        val revision: Long = 0,
-        val approvalRevision: Long = 0,
-    ) : AgentLearningState
+    /** Known registry; revisions drop writes that arrive after a newer persisted change. */
+    public data class Ready(val instructions: List<LearnedInstruction> = emptyList(), val revision: Long = 0) :
+        AgentLearningState
 }
 
 /** Why the registry did not take an instruction. */
@@ -95,15 +86,12 @@ public sealed interface AgentLearningIntent : MachineIntent {
 
         /** Removes an instruction. */
         public data class Delete(val id: InstructionId) : Public
-
-        /** Changes how new instructions are accepted. */
-        public data class SetApproval(val approval: LearningApproval) : Public
     }
 
     /** Results of effects. */
     public sealed interface Internal : AgentLearningIntent {
         /** The stored registry was read. */
-        public data class Loaded(val instructions: List<LearnedInstruction>, val approval: LearningApproval) : Internal
+        public data class Loaded(val instructions: List<LearnedInstruction>) : Internal
 
         /** The stored registry could not be read. */
         public data object LoadFailed : Internal
@@ -133,9 +121,6 @@ public sealed interface AgentLearningEffect : MachineEffect {
         val revision: Long,
         val receipt: LearnReceipt? = null,
     ) : AgentLearningEffect
-
-    /** Stores the approval level; ignored when a save of a newer [revision] already ran. */
-    public data class PersistApproval(val approval: LearningApproval, val revision: Long = 0) : AgentLearningEffect
 }
 
 /** One-shot notifications. */

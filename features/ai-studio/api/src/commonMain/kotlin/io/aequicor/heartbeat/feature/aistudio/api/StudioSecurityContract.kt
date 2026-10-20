@@ -6,21 +6,12 @@ import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
 import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** Profile choice for ordinary studio turns; helpers and other hosts retain their own trust restrictions. */
-@Serializable
-public enum class StudioSecurityLevel {
-    /** Ask the user before actions with side effects. */
-    Ask,
-
-    /** Allow only actions accepted by independent automatic safety review. The initial profile choice. */
-    Automatic,
-
-    /** Trust actions within the engine's approval policy; independent host restrictions still apply. */
-    Trust,
-}
+/** Settings presentation uses the same mode as every agent execution boundary. */
+public typealias StudioSecurityLevel = SecurityMode
 
 /** Profile security settings, also embedded in the unified settings window. */
 @Serializable
@@ -32,19 +23,19 @@ public sealed interface StudioSecurityState : MachineState {
     /** Storage has not been requested yet. */
     public data object Idle : StudioSecurityState
 
-    /** Resolving the profile's saved choice before submitting a turn or enabling editing. */
+    /** Resolving the profile's saved choice before enabling editing. */
     public data object Loading : StudioSecurityState
 
-    /** Storage was unreadable. Turns use Ask until Retry loads the actual choice. */
+    /** Storage was unreadable. Retry reloads the editor; execution observes profile policy independently. */
     public data object LoadError : StudioSecurityState
 
-    /** The accepted choice; a failed write retains this level and exposes the failure to the screen. */
+    /** The latest observed profile choice, with any preceding write failure. */
     public data class Ready(
         val level: StudioSecurityLevel = StudioSecurityLevel.Automatic,
         val isSaveFailed: Boolean = false,
     ) : StudioSecurityState
 
-    /** The previous level remains effective until [requested] is durably saved. */
+    /** The latest observed level remains visible while [requested] is being saved. */
     public data class Saving(val level: StudioSecurityLevel, val requested: StudioSecurityLevel) : StudioSecurityState
 }
 
@@ -70,10 +61,13 @@ public sealed interface StudioSecurityIntent : MachineIntent {
         /** The saved value could not be resolved and must not be overwritten. */
         public data object LoadFailed : Internal
 
-        /** The selected level was written successfully. */
+        /** Latest committed profile choice; observation never cancels a pending write. */
+        public data class Observed(val level: StudioSecurityLevel) : Internal
+
+        /** The write completed; the displayed level still comes from profile observation. */
         public data object Saved : Internal
 
-        /** The selected level was not written; keep the preceding effective policy. */
+        /** The selected level was not written; retain the latest observed profile policy. */
         public data object SaveFailed : Internal
     }
 }
@@ -82,6 +76,9 @@ public sealed interface StudioSecurityIntent : MachineIntent {
 public sealed interface StudioSecurityEffect : MachineEffect {
     /** Reads the profile's saved choice without creating a default entry. */
     public data object Load : StudioSecurityEffect
+
+    /** Observes profile changes for the current state; leaving it cancels this subscription. */
+    public data object Observe : StudioSecurityEffect
 
     /** Replaces the saved level; only one save is active at a time. */
     public data class Save(val level: StudioSecurityLevel) : StudioSecurityEffect

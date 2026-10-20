@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="engine_switch_pending">Меняем движок… Следующее сообщение продолжит этот чат.</string>
+    <string name="engine_switch_disabled">Переключение движка выключено.</string>
+    <string name="engine_switch_busy">Дождитесь подтверждённого завершения хода и текущих операций.</string>
+    <string name="engine_switch_stale">Маршрут чата изменился. Выберите движок ещё раз.</string>
+    <string name="engine_switch_unsupported">Этот маршрут не поддерживает данный чат.</string>
+    <string name="engine_switch_unavailable">Не удалось завершить переключение. Проверьте подключение и повторите выбор.</string>
+    <string name="engine_switch_workspace">Этот движок не поддерживает рабочую директорию чата.</string>
+    <string name="engine_switch_changed">Движок изменён: %1$s → %2$s</string>
+    <string name="engine_switch_truncated">Контекст переноса сокращён под окно модели. Полная история сохранена в чате.</string>
+</resources>

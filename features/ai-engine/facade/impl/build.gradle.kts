@@ -28,3 +28,12 @@ kotlin {
         }
     }
 }
+
+// Preserve useful diagnostics from the local JVM suite.
+val regularJvmTest = tasks.named<Test>("jvmTest")
+regularJvmTest.configure {
+    // Preserve child-process exit codes and assertion messages in remote test logs; stdout stays opt-in.
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}

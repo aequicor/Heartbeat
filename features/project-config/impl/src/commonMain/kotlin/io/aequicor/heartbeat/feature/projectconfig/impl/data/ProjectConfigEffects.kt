@@ -6,8 +6,6 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
-import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigApplyContext
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigApplyResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigBinding
@@ -23,21 +21,17 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectSnapshot
 import io.aequicor.heartbeat.feature.projectconfig.api.ProposalKind
-import io.aequicor.heartbeat.feature.projectconfig.api.ProposalReview
 import io.aequicor.heartbeat.feature.projectconfig.api.SyncRequest
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigBindingStorage
-import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigReviews
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteException
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlin.uuid.Uuid
 
 /**
  * Executes the machine's effects: reads folders through [ConfigFolderAccess], checks and applies units only through
- * their sections, reviews with the profile's default model and writes bindings. Every effect answers with one result
+ * their sections, writes bindings after the user's explicit consent. Every effect answers with one result
  * per element; only counts, kinds and verdicts are logged, never texts, paths or review reasons.
  */
 @Inject
@@ -46,8 +40,6 @@ internal class ProjectConfigEffects(
     private val tasks: ConfigTasks,
     private val storage: ConfigBindingStorage,
     private val policy: ConfigStoragePolicy,
-    private val reviewer: Lazy<AgentSafetyReviewer>,
-    private val selections: ModelSelections,
     private val dispatchers: DispatcherProvider,
 ) : EffectHandler<ProjectConfigEffect, ProjectConfigIntent> {
     private val log = Log.tag("ProjectConfigEffects")
@@ -73,8 +65,6 @@ internal class ProjectConfigEffects(
             is ProjectConfigEffect.SaveBindings -> save(effect)
 
             is ProjectConfigEffect.Sync -> effect.requests.forEach { machine.send(sync(it)) }
-
-            is ProjectConfigEffect.Review -> effect.proposals.forEach { machine.send(review(it)) }
 
             is ProjectConfigEffect.Apply -> machine.send(apply(effect.proposal))
 
@@ -129,24 +119,6 @@ internal class ProjectConfigEffects(
         return Internal.Synced(snapshot, folder.hasFolder)
     }
 
-    private suspend fun review(proposal: ConfigProposal): Internal {
-        val digest = checkNotNull(proposal.digest) { "Removals are not reviewed" }
-        val unit = access.unit(proposal) ?: return Internal.Reviewed(proposal.id, digest, ProposalReview.Unavailable)
-        val section = access.reader.sections()[unit.ref.section]
-        val current = proposal.target?.let { target ->
-            section?.encode(target, proposal.unit.name)
-        }
-        val change = ConfigReviews.change(proposal, unit, current, Uuid.random().toHexString())
-        val target = selections.observe().first().defaultTarget
-        val result = if (section == null || change == null || target == null) {
-            ProposalReview.Unavailable
-        } else {
-            ConfigReviews.result(reviewer.value.review(target, ConfigReviews.policy(section.reviewPolicy), change))
-        }
-        log.i { "Reviewed ${proposal.kind} of a ${proposal.unit.section} unit: $result" }
-        return Internal.Reviewed(proposal.id, digest, result)
-    }
-
     private suspend fun apply(proposal: ConfigProposal): Internal {
         val sections = access.reader.sections()
         val section = sections[proposal.unit.section]
@@ -154,7 +126,7 @@ internal class ProjectConfigEffects(
             return Internal.ApplyFailed(proposal.id, ConfigRejection.Unavailable)
         }
         if (proposal.kind == ProposalKind.Remove) return remove(proposal, section)
-        // Exactly the reviewed files: a unit changed since then waits for its new proposal.
+        // Exactly the confirmed files: a unit changed since then waits for its new proposal.
         val unit = access.unit(proposal) ?: return Internal.ApplyFailed(proposal.id, ConfigRejection.Conflict)
         val project = (proposal.source as? ConfigSource.Project)?.project
         val parent = section.parent?.let { parentSection ->

@@ -21,7 +21,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** An agent action reviewed by the independent safety review runs only on the page and focus the review saw. */
+/** An authorized agent action runs only on the page and focus captured by its operation binding. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class DesktopBrowserReviewTest {
     @Test
@@ -83,7 +83,7 @@ class DesktopBrowserReviewTest {
         val approved = page.fixture.inspect(tab).data
         page.focus = "card-number"
         val result = page.fixture.act(tab, BrowserOperation.Type, approved)
-        assertEquals("The browser action changed after safety review; read the page and request it again", result.error)
+        assertEquals("The browser action changed after authorization; read the page and request it again", result.error)
         assertTrue(page.methods.none { it.startsWith("Input.") })
     }
 

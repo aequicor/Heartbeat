@@ -2,8 +2,7 @@
  * Heartbeat tool approval for the bundled Pi runtime.
  *
  * Every native and adapter-operated tool call waits for a Heartbeat decision: the host answers it on its own when
- * the turn's trust level covers the tool, or uses the turn's automatic safety reviewer. Interactive turns may ask
- * the user. The request travels over Pi's RPC extension UI protocol (`input`); its string value carries a JSON
+ * shared profile mode permits it, or asks the user for this exact action. The request travels over Pi's RPC extension UI protocol (`input`); its string value carries a JSON
  * verdict so refusals preserve their reason. The host answers with
  * `extension_ui_response`. A missing, cancelled or failed answer blocks the tool: Pi treats a failing
  * `tool_call` handler as a block as well.
@@ -16,139 +15,31 @@
  * - Inspect Pi's tool pipeline: validate -> tool_call -> execute must pass the same mutable event.input to the
  *   tool; edit/write must execute our pinned absolute path without applying another rewrite.
  * - In a disposable workspace, exercise edit and write with relative and absolute paths. Compare the RPC
- *   approval payload's path with the actual file changed; AutoEdits may approve an ordinary file inside it.
+ *   approval payload's path with the actual file changed. Automatic asks for native mutations; Trust permits them.
  * - Exercise @, ~, file:, Unicode spaces from UNICODE_SPACES, and Windows /c/, /mnt/c/ and /cygdrive/c/ paths.
  *   Also use a cwd containing a Unicode space: when either the input or resolved path would be rewritten,
- *   the approval payload must omit path and AutoEdits must ask the user.
- * - Check an outside-workspace path and a protected project file (for example .git/config): AutoEdits must
+ *   the approval payload must omit path; Automatic asks for confirmation.
+ * - Check an outside-workspace path and a protected project file (for example .git/config): Automatic must
  *   ask the user. A denied, missing, cancelled or failed confirmation must leave every target unchanged.
  * Record the tested Pi version, OS and results in the upgrade PR; if an invariant changes, update the pinning
  * and host approval policy before shipping the new runtime. JVM approval fixtures do not execute this script.
  */
 import { resolve } from "node:path";
-import { existsSync } from "node:fs";
 
 const APPROVAL_TITLE = "heartbeat.tool-approval";
-const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch"]);
 const EDIT_TOOLS = new Set(["edit", "write"]);
-// The launcher enables the gate even before any harness exists: later live Off must not require a restart.
-// A legacy caller may explicitly opt out; malformed environment always falls back to gating everything.
-function gateConfig(): { hosted: Set<string>; all: boolean } {
+// Hosted bridge tools have their own shared gate; every other tool reaches this gate.
+function hostedTools(): Set<string> {
     try {
         const specs = JSON.parse(process.env.HEARTBEAT_AGENT_TOOL_SPECS ?? "[]");
-        const all = JSON.parse(process.env.HEARTBEAT_GATE_ALL ?? "true");
-        if (typeof all !== "boolean" || !Array.isArray(specs) || specs.some(spec => typeof spec?.name !== "string")) {
-            return { hosted: new Set(), all: true };
-        }
-        return { hosted: new Set(specs.map(spec => spec.name)), all };
-    } catch { return { hosted: new Set(), all: true }; }
+        return Array.isArray(specs) && specs.every(spec => typeof spec?.name === "string")
+            ? new Set(specs.map(spec => spec.name)) : new Set();
+    } catch { return new Set(); }
 }
-const { hosted: HOSTED_TOOLS, all: GATE_ALL } = gateConfig();
+const HOSTED_TOOLS = hostedTools();
 // Pi's path normalization replaces these spaces and rewrites `@`, `~`, `file:` and, on Windows, `/c/` shell paths.
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/;
 const WINDOWS_SHELL_PATH = /^\/(?:mnt\/|cygdrive\/)?[a-z](?:\/|$)/i;
-const SIMPLE_PUSH = /^git[ \t]+push(?:[ \t]+(?:-u[ \t]+)?origin[ \t]+[A-Za-z0-9][A-Za-z0-9._/-]*)?$/;
-const ENVIRONMENT_KEYS = new Set([
-    "PATH", "HOME", "XDG_CONFIG_HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR",
-    "PATHEXT", "PROGRAMFILES", "PROGRAMFILES(X86)", "TMPDIR", "TMP", "TEMP",
-]);
-
-function publicHost(value: string): boolean {
-    return value.length <= 253 && value.includes(".") &&
-        value.split(".").every(label => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label)) &&
-        !/^[0-9.]+$/.test(value) && !/(?:^|\.)(?:localhost|local|internal|test|invalid|example)$/i.test(value);
-}
-
-function publicRepository(value: string): boolean {
-    const parts = value.split("/");
-    if (parts.length === 3 && !publicHost(parts.shift()!)) return false;
-    return parts.length === 2 && /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(parts[0]) &&
-        /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$/.test(parts[1]);
-}
-
-function hasReviewFiles(input: any): boolean {
-    return Array.isArray(input.review_files) && input.review_files.length > 0 && input.review_files.length <= 16 &&
-        input.review_files.every((file: unknown) => typeof file === "string" && file.trim().length > 0);
-}
-
-function needsPinnedEnvironment(input: any): boolean {
-    return typeof input.command === "string" && (SIMPLE_PUSH.test(input.command.trim()) || hasReviewFiles(input));
-}
-
-/**
- * Only paths/config discovery inputs cross RPC. Override values and credentials stay in this closure.
- * This projection cannot establish arbitrary manager/script environment effects; unresolved effects stay uncertain.
- */
-function gitEnvironment(env: Record<string, string | undefined>): Record<string, string> {
-    const result: Record<string, string> = {};
-    let unsafe = false;
-    for (const [key, value] of Object.entries(env)) {
-        if (value === undefined) continue;
-        const upper = key.toUpperCase();
-        if (ENVIRONMENT_KEYS.has(upper)) { result[key] = value; continue; }
-        if (upper === "GH_HOST" || upper === "GH_REPO") {
-            if (upper === "GH_HOST" ? publicHost(value) : publicRepository(value)) result[key] = value;
-            else unsafe = true;
-            continue;
-        }
-        if ((/^(GH_|GITHUB_)/.test(upper) && !["GH_TOKEN", "GITHUB_TOKEN"].includes(upper)) ||
-            /(?:_CONFIG|_REGISTRY|_INDEX|_PROXY)(?:_|$)/.test(upper) ||
-            /^(NPM_CONFIG_|YARN_|PNPM_|PIP_|CARGO_|UV_|POETRY_|PDM_|BUNDLE_|GEM_|NUGET_|DOTNET_|COMPOSER_|GRADLE_|MAVEN_)/.test(upper) ||
-            /^(NODE_|PYTHON|RUBY|PERL|JAVA_|JDK_|RUST)/.test(upper) ||
-            /(?:OPTIONS|OPTS|FLAGS|WRAPPER|COMMAND|PATH|HOME)$/.test(upper) ||
-            ["CLASSPATH", "CC", "CXX", "CFLAGS", "CXXFLAGS", "LDFLAGS"].includes(upper) ||
-            ["GOENV", "GOPROXY", "GONOPROXY", "GONOSUMDB", "GOPRIVATE", "GOSUMDB", "GOMODCACHE", "GOPATH"].includes(upper)) unsafe = true;
-        if (/^(GIT_|SSH_|BASH_FUNC_|LD_|DYLD_|CURL_|GCM_)/.test(upper) &&
-            !["SSH_AUTH_SOCK", "SSH_AGENT_PID", "GIT_PAGER"].includes(upper)) unsafe = true;
-        if (["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "SSL_CERT_FILE", "SSL_CERT_DIR"].includes(upper)) unsafe = true;
-    }
-    if (unsafe) result.GIT_HEARTBEAT_UNSAFE_OVERRIDE_PRESENT = "1";
-    return result;
-}
-
-type PushPlan = { command: string; input: string; cwd: string; env: Record<string, string | undefined>; approved: boolean };
-
-/**
- * Only the hermetic bundled Unix runtime installs this override. Commands without review metadata retain Pi's
- * default tool. Pushes and commands with review_files consume a private plan, pinning input/cwd/env at spawn.
- */
-async function pinNativePush(pi: any, plans: Map<string, PushPlan>): Promise<boolean> {
-    if (process.env.HEARTBEAT_PIN_NATIVE_PUSH !== "true" || process.platform === "win32" || !existsSync("/bin/bash")) return false;
-    const { createBashToolDefinition } = await import("@earendil-works/pi-coding-agent");
-    const { Type } = await import("typebox");
-    const original = createBashToolDefinition(process.cwd());
-    pi.registerTool({
-        ...original,
-        description: original.description + " Optional review_files selects up to 16 project source, manifest, lock or script files " +
-            "for complete safety evidence. List only relevant project files; never select credentials, secrets or private configuration. " +
-            "Evidence is for review and does not itself authorize a command or package manager. " +
-            "The environment projection cannot establish unknown manager/script environment effects; those remain uncertain.",
-        parameters: Type.Object({
-            ...original.parameters.properties,
-            review_files: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 16 })),
-        }),
-        async execute(id: string, input: any, signal: any, onUpdate: any, ctx: any) {
-            const plan = plans.get(id);
-            plans.delete(id);
-            if (!plan) {
-                if (needsPinnedEnvironment(input)) {
-                    throw new Error("Native push has no live host-approved execution plan");
-                }
-                return createBashToolDefinition(ctx.cwd).execute(id, input, signal, onUpdate, ctx);
-            }
-            if (!plan.approved || JSON.stringify(input) !== plan.input || resolve(ctx.cwd) !== plan.cwd || signal?.aborted) {
-                throw new Error("Native push changed after its host approval");
-            }
-            const pinned = createBashToolDefinition(plan.cwd, {
-                shellPath: "/bin/bash",
-                spawnHook: () => ({ command: plan.command, cwd: plan.cwd, env: { ...plan.env } }),
-            });
-            return pinned.execute(id, input, signal, onUpdate, ctx);
-        },
-    });
-    return true;
-}
-
 function isRewrittenByPi(path: string): boolean {
 	return path.startsWith("@") || path.startsWith("~") || /^file:/i.test(path) || UNICODE_SPACES.test(path) ||
 		(process.platform === "win32" && WINDOWS_SHELL_PATH.test(path));
@@ -178,14 +69,25 @@ function decisionReply(value: unknown): { allowed: boolean; reason?: string } {
     return refused;
 }
 
-export default async function (pi: any) {
+/** Pi passes this original object to later handlers and execution. Mutating an authorized call is invalid. */
+function freezeInput(value: any): void {
+    if (!value || typeof value !== "object") return;
+    for (const nested of Object.values(value)) freezeInput(nested);
+    Object.freeze(value);
+}
+
+export default function (pi: any) {
     const completed = new Set<string>();
-    const pushes = new Map<string, PushPlan>();
-    const isPushPinned = await pinNativePush(pi, pushes);
-    pi.on("agent_end", () => { completed.clear(); pushes.clear(); });
+    const claimed = new Set<string>();
+    let generation = 0;
+    pi.on("agent_end", () => { generation++; completed.clear(); claimed.clear(); });
 	pi.on("tool_call", async (event: any, ctx: any) => {
 		if (HOSTED_TOOLS.has(event.toolName)) return undefined;
-		if (!GATE_ALL && READ_ONLY_TOOLS.has(event.toolName)) return undefined;
+        const { toolName, toolCallId } = event;
+        if (claimed.has(toolCallId)) return { block: true, reason: "Tool authorization was already consumed" };
+        claimed.add(toolCallId);
+        const callGeneration = generation;
+        const cwd = ctx.cwd;
 		const input = event.input ?? {};
 		let target: string;
 		let path: string | undefined;
@@ -197,24 +99,16 @@ export default async function (pi: any) {
         } else {
 			target = typeof input.command === "string" ? input.command : typeof input.path === "string" ? input.path : "";
 		}
-        let plan: PushPlan | undefined;
-        if (isPushPinned && event.toolName === "bash" && needsPinnedEnvironment(input) &&
-            typeof event.toolCallId === "string" && pushes.size < 16) {
-            plan = { command: target, input: JSON.stringify(input), cwd: resolve(ctx.cwd), env: { ...process.env }, approved: false };
-            pushes.set(event.toolCallId, plan);
-        }
-        const nativeCommandEnvironment = plan ? { version: 1, cwd: plan.cwd, values: gitEnvironment(plan.env) } : undefined;
-		const request = JSON.stringify({ toolCallId: event.toolCallId, toolName: event.toolName, target, path, arguments: input, nativeCommandEnvironment });
-        let decision: { allowed: boolean; reason?: string };
-        try {
-            decision = decisionReply(ctx.hasUI ? await ctx.ui.input(APPROVAL_TITLE, request) : undefined);
-        } catch (error) {
-            pushes.delete(event.toolCallId);
-            throw error;
-        }
-        if (plan) {
-            plan.approved = decision.allowed;
-            if (!decision.allowed) pushes.delete(event.toolCallId);
+        const request = JSON.stringify({ toolCallId: event.toolCallId, toolName: event.toolName, target, path, arguments: input });
+        const inputSnapshot = JSON.stringify(input);
+        const decision = decisionReply(ctx.hasUI ? await ctx.ui.input(APPROVAL_TITLE, request) : undefined);
+        if (decision.allowed) {
+            if (generation !== callGeneration || ctx.cwd !== cwd || event.input !== input ||
+                event.toolName !== toolName || event.toolCallId !== toolCallId || JSON.stringify(input) !== inputSnapshot) {
+                return { block: true, reason: "Tool call changed after authorization; request it again" };
+            }
+            freezeInput(input);
+            Object.freeze(event);
         }
         if (decision.allowed && (event.toolName === "web_search" || event.toolName === "web_fetch")) {
             completed.add(event.toolCallId);

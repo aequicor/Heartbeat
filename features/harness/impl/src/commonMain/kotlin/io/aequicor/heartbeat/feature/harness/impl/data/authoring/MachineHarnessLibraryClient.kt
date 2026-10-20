@@ -61,7 +61,6 @@ private fun HarnessOutput.outcomeOf(intent: HarnessIntent.Command): LibraryOutco
         is HarnessOutput.Deleted -> requestId
         is HarnessOutput.Attached -> requestId
         is HarnessOutput.Detached -> requestId
-        is HarnessOutput.ApprovalChanged -> requestId
         is HarnessOutput.Rejected -> requestId
         is HarnessOutput.StorageFailed -> requestId
         is HarnessOutput.ItemActivated, is HarnessOutput.ItemFailed, is HarnessOutput.RuntimeFailed -> null

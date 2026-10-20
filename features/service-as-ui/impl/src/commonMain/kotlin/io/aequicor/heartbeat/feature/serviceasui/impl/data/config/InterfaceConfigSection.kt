@@ -56,14 +56,6 @@ internal class InterfaceConfigSection(private val machine: ServiceUiMachine, pri
 
     override val parent: ConfigSectionId = ConfigSectionId.Harnesses
 
-    override val reviewPolicy: String = """
-A unit is a declarative interface of a harness shown in the chat: native nodes, and optional web nodes whose HTML runs
-in an isolated document without network unless the user turned Safe Mode off; its buttons call methods of the owning
-harness. Return risk for texts or HTML that phish for credentials or payment data, imitate system dialogs or other
-products, load external resources to leak data, or trick the user into dangerous actions. Ordinary dashboards, lists,
-forms and charts are safe.
-"""
-
     /**
      * Portable surfaces, or null while the feature is off or the harnesses' owner snapshot is incomplete (loading,
      * reloading): a surface of an owner missing from an incomplete snapshot is unknown, not removed.

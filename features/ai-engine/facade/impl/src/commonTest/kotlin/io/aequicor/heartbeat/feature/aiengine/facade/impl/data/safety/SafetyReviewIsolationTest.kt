@@ -39,7 +39,7 @@ class SafetyReviewIsolationTest {
             assertEquals(ToolHookVerdict.Continue, hook.beforeTool(call(user, isNative)))
         }
         val nested = call(user, false)
-        val context = nested.context.copy(request = RequestId(REVIEW_REQUEST_PREFIX + "nested"))
+        val context = nested.context.copy(request = RequestId(ISOLATED_REQUEST_PREFIX + "nested"))
         assertIs<ToolHookVerdict.Deny>(hook.beforeTool(nested.copy(context = context)))
         policy.release(review)
         assertFalse(hook.isIntercepting)

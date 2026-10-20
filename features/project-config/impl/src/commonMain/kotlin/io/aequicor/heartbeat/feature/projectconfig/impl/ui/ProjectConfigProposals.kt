@@ -10,7 +10,6 @@ import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbText
@@ -25,10 +24,8 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProblemUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProjectConfigScreenIntent
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProposalKindUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProposalUi
-import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ReviewUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.Res
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_applying
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_cancel
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_content_instruction
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_content_interface
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_content_lesson
@@ -66,16 +63,6 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_problem_par
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_problem_syntax
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_problem_unsupported
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_proposals_empty
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_review_not_needed
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_review_pending
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_review_risk
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_review_safe
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_review_unavailable
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_review_unavailable_hint
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_review_uncertain
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_risk_confirm
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_risk_text
-import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_risk_title
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_section_proposals
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_section_proposals_hint
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_source_bundle
@@ -132,13 +119,12 @@ private fun ProposalRow(
     }
 }
 
-/** Badges, origin, contents, review and problems of [proposal]: everything the trust decision rests on. */
+/** Badges, origin, contents and validation problems of [proposal]: everything the trust decision rests on. */
 @Composable
 private fun ProposalDetails(proposal: ProposalUi) {
     HbFlowRow {
         HbBadge(stringResource(proposal.section.title()))
         HbBadge(stringResource(proposal.kind.title()), tone = proposal.kind.tone())
-        ReviewBadge(proposal.review)
         if (proposal.hasCode) HbBadge(stringResource(Res.string.pc_has_code), tone = HbTone.Warning)
     }
     Caption(sourceText(proposal))
@@ -147,11 +133,6 @@ private fun ProposalDetails(proposal: ProposalUi) {
         Caption(stringResource(Res.string.pc_content_line, stringResource(content.kind.title()), content.name))
     }
     if (proposal.hasCode) Caption(stringResource(Res.string.pc_has_code_hint))
-    when (val review = proposal.review) {
-        is ReviewUi.Risky -> Caption(review.reason)
-        ReviewUi.Unavailable -> Caption(stringResource(Res.string.pc_review_unavailable_hint))
-        ReviewUi.NotNeeded, ReviewUi.Pending, is ReviewUi.Safe -> Unit
-    }
     proposal.problems.forEach { Caption(problemText(it)) }
 }
 
@@ -190,50 +171,6 @@ private fun ProposalActions(proposal: ProposalUi, onIntent: (ProjectConfigScreen
             style = HbButtonStyle.Ghost,
             size = HbButtonSize.Small,
         )
-    }
-}
-
-@Composable
-private fun ReviewBadge(review: ReviewUi) {
-    val (title, tone) = when (review) {
-        ReviewUi.NotNeeded -> Res.string.pc_review_not_needed to HbTone.Neutral
-
-        ReviewUi.Pending -> Res.string.pc_review_pending to HbTone.Neutral
-
-        ReviewUi.Unavailable -> Res.string.pc_review_unavailable to HbTone.Warning
-
-        is ReviewUi.Safe -> Res.string.pc_review_safe to HbTone.Success
-
-        is ReviewUi.Risky -> (if (review.isUncertain) Res.string.pc_review_uncertain else Res.string.pc_review_risk) to
-            HbTone.Danger
-    }
-    HbBadge(stringResource(title), tone = tone)
-}
-
-/** Confirmation of a proposal the automatic review did not confirm as safe. */
-@Composable
-internal fun RiskDialog(proposal: ProposalUi, onIntent: (ProjectConfigScreenIntent) -> Unit) {
-    HbDialog(
-        stringResource(Res.string.pc_risk_title),
-        { onIntent(ProjectConfigScreenIntent.CancelRisk) },
-        Modifier.testTag("project-config-risk"),
-        actions = {
-            HbButton(
-                stringResource(Res.string.pc_cancel),
-                { onIntent(ProjectConfigScreenIntent.CancelRisk) },
-                style = HbButtonStyle.Secondary,
-            )
-            HbButton(
-                stringResource(Res.string.pc_risk_confirm),
-                { onIntent(ProjectConfigScreenIntent.ConfirmRisk) },
-                Modifier.testTag("project-config-risk-confirm"),
-                style = HbButtonStyle.Danger,
-            )
-        },
-    ) {
-        HbText(stringResource(Res.string.pc_risk_text))
-        HbText(proposal.title, style = HbTheme.typography.label)
-        ProposalDetails(proposal)
     }
 }
 

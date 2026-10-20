@@ -78,10 +78,12 @@ private class NativeHistoryProjection(private val time: Instant) {
 
             is SessionItem.Message -> appendMessage(item)
 
-            is SessionItem.Notice -> when (item.kind) {
-                NoticeKind.ContextCompacted -> appendContextNotice(item.info.id.value, ContextNoticeKind.Compacted)
-                NoticeKind.ContextRollover -> appendContextNotice(item.info.id.value, ContextNoticeKind.RolledOver)
-                null -> appendNotice(item.info.id.value, item.text)
+            is SessionItem.Notice -> if (!appendEngineSwitch(item)) {
+                when (item.kind) {
+                    NoticeKind.ContextCompacted -> appendContextNotice(item.info.id.value, ContextNoticeKind.Compacted)
+                    NoticeKind.ContextRollover -> appendContextNotice(item.info.id.value, ContextNoticeKind.RolledOver)
+                    null -> appendNotice(item.info.id.value, item.text)
+                }
             }
 
             is SessionItem.Plan, is SessionItem.ToolCall, is SessionItem.ToolResult -> appendAnswer(item)
@@ -135,6 +137,20 @@ private class NativeHistoryProjection(private val time: Instant) {
 
             MessageRole.Assistant -> appendAnswer(item)
         }
+    }
+
+    private fun appendEngineSwitch(item: SessionItem.Notice): Boolean {
+        val notice = item.engineSwitchNotice() ?: return false
+        flush()
+        streamingAnswer = null
+        messages += StudioMessage.ContextNotice(
+            item.info.id.value,
+            time,
+            if (notice.isTruncated) ContextNoticeKind.TransferTruncated else ContextNoticeKind.EngineChanged,
+            engineFrom = notice.from,
+            engineTo = notice.to,
+        )
+        return true
     }
 
     private fun appendContextNotice(id: String, kind: ContextNoticeKind) {

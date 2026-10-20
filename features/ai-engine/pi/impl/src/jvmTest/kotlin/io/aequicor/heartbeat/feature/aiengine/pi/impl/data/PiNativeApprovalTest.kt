@@ -17,7 +17,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NativeCallClassifier
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.test.runCurrent
@@ -27,10 +26,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PiNativeApprovalTest {
@@ -86,7 +82,7 @@ class PiNativeApprovalTest {
     }
 
     @Test
-    fun `outside unpinned and detached edits carry a deterministic automatic refusal`() = runTest {
+    fun `outside unpinned and detached edits honor the shared gate`() = runTest {
         val scenarios = listOf(
             WorkspaceRef("project") to "/outside/file",
             WorkspaceRef("project") to null,
@@ -95,46 +91,17 @@ class PiNativeApprovalTest {
         for ((workspace, path) in scenarios) {
             val tools = object : ProfileAgentTools by NoAgentTools {
                 override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
-                    assertNotNull(call.automaticDenial)
-                    return NativeVerdict.Deny(checkNotNull(call.automaticDenial))
+                    assertEquals(AgentToolAction.Edit, call.action)
+                    return NativeVerdict.Allow
                 }
             }
             val fixture = fixture(this, tools = tools, project = workspace)
             fixture.runningTurn(TrustLevel.Full)
             fixture.connection.event(approval("edit", "file", "write", path))
             runCurrent()
-            assertEquals(listOf(answer("edit", "confirmed", false)), fixture.connection.sent)
+            assertEquals(listOf(answer("edit", "confirmed", true)), fixture.connection.sent)
             fixture.session.shutdown()
         }
-    }
-
-    @Test
-    fun `a path that escapes its workspace during review is refused before Pi receives allow`() = runTest {
-        var isInside = true
-        var classifications = 0
-        val classifier = object : NativeCallClassifier {
-            override fun terminatesHost(command: String) = false
-            override suspend fun isWorkspaceEdit(path: String, workspace: String): Boolean {
-                classifications++
-                return isInside
-            }
-        }
-        val tools = object : ProfileAgentTools by NoAgentTools {
-            override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
-                assertNull(call.automaticDenial)
-                isInside = false
-                return NativeVerdict.Allow
-            }
-        }
-        val fixture = fixture(this, tools = tools, nativeCalls = classifier)
-        fixture.connection.promptAck.complete(JsonObject(emptyMap()))
-        fixture.session.send(prompt("automatic").copy(decisionMode = AgentToolDecisionMode.AutomaticSafety))
-        fixture.connection.event(record("""{"type":"agent_start"}"""))
-        fixture.connection.event(approval("edit", "file", "write", TestWorkspace.resolve("file").toString()))
-        runCurrent()
-        assertEquals(2, classifications)
-        assertEquals(listOf(answer("edit", "confirmed", false)), fixture.connection.sent)
-        fixture.session.shutdown()
     }
 
     @Test
@@ -151,7 +118,6 @@ class PiNativeApprovalTest {
                 assertEquals(arguments, call.arguments)
                 assertEquals("true", call.command)
                 assertEquals(TestWorkspace.toString(), call.workingDirectory)
-                assertNull(call.commandEnvironment)
                 assertEquals("anthropic/test", context.target?.model?.value)
                 return NativeVerdict.Allow
             }
@@ -175,64 +141,6 @@ class PiNativeApprovalTest {
             assertIs<ActiveSessionState.Running>(fixture.session.state.value).turn.decisionMode,
         )
         fixture.session.shutdown()
-    }
-
-    @Test
-    fun `native push environment requires process capability and matching execution directory`() = runTest {
-        for ((isPinned, directory) in listOf(
-            true to TestWorkspace.toString(),
-            false to TestWorkspace.toString(),
-            true to "/other/workspace",
-        )) {
-            var calls = 0
-            val tools = object : ProfileAgentTools by NoAgentTools {
-                override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
-                    calls++
-                    if (isPinned && directory == TestWorkspace.toString()) {
-                        assertEquals(mapOf("PATH" to "/trusted/bin"), call.commandEnvironment?.environment)
-                    } else {
-                        assertNull(call.commandEnvironment)
-                    }
-                    return NativeVerdict.Allow
-                }
-            }
-            val fixture = fixture(this, tools = tools)
-            fixture.connection.hasPinnedNativePush = isPinned
-            fixture.runningTurn(TrustLevel.Full)
-            val request = approval("push", "git push origin branch")
-            val proof = JsonObject(
-                mapOf(
-                    "version" to JsonPrimitive(1),
-                    "cwd" to JsonPrimitive(directory),
-                    "values" to record("""{"PATH":"/trusted/bin"}"""),
-                ),
-            )
-            val payload = JsonObject(record(request.string("message")!!) + ("nativeCommandEnvironment" to proof))
-            fixture.connection.event(JsonObject(request + ("message" to JsonPrimitive(payload.toString()))))
-            runCurrent()
-            assertEquals(1, calls)
-            fixture.session.shutdown()
-        }
-    }
-
-    @Test
-    fun `native environment protocol supports reviewed file metadata without trusting model environment fields`() {
-        val proof = """"nativeCommandEnvironment":{"version":1,"cwd":"/project","values":""" +
-            """{"PATH":"/bin","GH_REPO":"owner/repo"}}"""
-        val withFiles = approvalCall(
-            """{"toolName":"bash","target":"git status","arguments":""" +
-                """{"command":"git status","review_files":["source.kt"]},$proof}""",
-        )
-        assertEquals("owner/repo", withFiles?.commandEnvironment?.captured?.environment?.get("GH_REPO"))
-        val noFiles = approvalCall(
-            """{"toolName":"bash","target":"git status","arguments":{"command":"git status"},$proof}""",
-        )
-        assertNull(noFiles?.commandEnvironment)
-        val forged = approvalCall(
-            """{"toolName":"bash","target":"git status","arguments":""" +
-                """{"command":"git status","review_files":["source.kt"],$proof}}""",
-        )
-        assertNull(forged?.commandEnvironment)
     }
 
     @Test
@@ -330,7 +238,6 @@ class PiNativeApprovalTest {
             override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
                 assertEquals(AgentToolAction.Read, call.action)
                 assertEquals(listOf("notes.md"), call.paths)
-                assertTrue(call.covered(TrustLevel.Ask))
                 val allowed = context.permissions.request(AgentToolApproval(call.name, "Read", "Hook asks for review"))
                 return if (allowed) NativeVerdict.Allow else NativeVerdict.Deny("Declined")
             }
@@ -348,7 +255,7 @@ class PiNativeApprovalTest {
     }
 
     @Test
-    fun `gate denial defeats full trust and extension tools cannot inherit it`() = runTest {
+    fun `adapter transports shared denial for native and extension tools`() = runTest {
         val calls = mutableListOf<NativeToolCall>()
         val tools = object : ProfileAgentTools by NoAgentTools {
             override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
@@ -361,7 +268,6 @@ class PiNativeApprovalTest {
         fixture.connection.event(approval("denied"))
         fixture.connection.event(approval("unknown", tool = "unknown"))
         runCurrent()
-        assertEquals(listOf(true, false), calls.map { it.covered(TrustLevel.Full) })
         assertEquals("extension", calls.last().name)
         assertEquals(AgentToolAction.Command, calls.last().action)
         assertEquals(
@@ -377,8 +283,6 @@ class PiNativeApprovalTest {
             override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
                 assertEquals(AgentToolAction.Edit, call.action)
                 assertEquals(null, call.command)
-                assertTrue(call.covered(TrustLevel.Full))
-                assertFalse(call.covered(TrustLevel.AutoEdits))
                 return NativeVerdict.Allow
             }
         }

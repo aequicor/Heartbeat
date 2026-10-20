@@ -10,12 +10,10 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -39,7 +37,6 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserReview
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -60,9 +57,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -80,7 +75,7 @@ class BrowserAgentToolsTest {
         val lease = fixture.external.bindSession(Json.encodeToString(context.session), "browser")
         assertTrue(fixture.tools.specifications(scope).isEmpty())
         assertEquals("", fixture.tools.instructions(scope.copy(declared = setOf("browser_tabs"))))
-        assertTrue(fixture.tools.execute(context, "browser_tabs", JsonObject(emptyMap())).isError)
+        assertTrue(fixture.execute(context, "browser_tabs", JsonObject(emptyMap())).isError)
         assertEquals(0, fixture.registry.lookups)
         val otherScope = scope.copy(session = context.session.copy(nativeId = "other"))
         assertEquals(13, fixture.tools.specifications(otherScope).size)
@@ -114,7 +109,7 @@ class BrowserAgentToolsTest {
             fixture.toggles.values[BrowserEnabled.key] = browserEnabled
             fixture.toggles.values[BrowserAgentControl.key] = agentEnabled
             assertTrue(fixture.tools.specifications(null).isEmpty())
-            val result = fixture.tools.execute(context, "browser_click", JsonObject(emptyMap()))
+            val result = fixture.execute(context, "browser_click", JsonObject(emptyMap()))
             assertTrue(result.isError)
             assertEquals(0, fixture.registry.lookups)
             assertTrue(fixture.machine.sent.isEmpty())
@@ -179,7 +174,7 @@ class BrowserAgentToolsTest {
                 val spec = specs.getValue(name)
                 assertTrue(fixture.tools.requiresDecision(context.copy(trust = TrustLevel.Ask), spec, arguments), url)
                 assertTrue(fixture.tools.requiresDecision(context.copy(trust = TrustLevel.AutoEdits), spec, arguments))
-                assertFalse(fixture.tools.requiresDecision(context.copy(trust = TrustLevel.Full), spec, arguments))
+                assertTrue(fixture.tools.requiresDecision(context.copy(trust = TrustLevel.Full), spec, arguments))
                 val approval = fixture.tools.approval(context, spec, arguments)
                 assertTrue(approval.description.orEmpty().contains(url.substringAfter("://")), url)
             }
@@ -231,7 +226,7 @@ class BrowserAgentToolsTest {
         val fixture = Fixture()
         fixture.openTabs("tab")
         fixture.readReturns("snap")
-        assertFalse(fixture.tools.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") }).isError)
+        assertFalse(fixture.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") }).isError)
         val click = fixture.tools.specifications(null).single { it.name == "browser_click" }
         suspend fun describe(element: Int, snapshot: String, session: AgentToolContext = context) =
             fixture.tools.approval(
@@ -268,7 +263,7 @@ class BrowserAgentToolsTest {
             },
         ).description.orEmpty()
         val read = buildJsonObject { put("tabId", "tab") }
-        assertFalse(fixture.tools.execute(context, "browser_read", read).isError)
+        assertFalse(fixture.execute(context, "browser_read", read).isError)
         assertTrue(describe("snap").length < 1_500)
         // Other sessions reading many times do not displace this session's latest read.
         repeat(50) { index ->
@@ -278,7 +273,7 @@ class BrowserAgentToolsTest {
         assertTrue(describe("snap").contains("A «x"))
         // A newer read of the same session replaces the older snapshot.
         fixture.readReturns("newer")
-        fixture.tools.execute(context, "browser_read", read)
+        fixture.execute(context, "browser_read", read)
         assertTrue(describe("snap").contains("описание недоступно"))
         assertTrue(describe("newer").contains("A «Pay"))
         // Clearing browser data closes every tab, and the reads go with them.
@@ -322,7 +317,7 @@ class BrowserAgentToolsTest {
     fun `timeout is reported as an error and cancels the pending operation`() = runTest {
         val fixture = Fixture()
         fixture.machine.completeImmediately = false
-        val result = fixture.tools.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
+        val result = fixture.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
         assertTrue(result.isError)
         assertEquals("Browser operation timed out", result.text)
         val request = fixture.machine.requests.single()
@@ -335,7 +330,7 @@ class BrowserAgentToolsTest {
         val fixture = Fixture()
         fixture.machine.completeImmediately = false
         fixture.machine.acknowledgeImmediately = false
-        val result = fixture.tools.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
+        val result = fixture.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
         assertEquals("Browser operation timed out", result.text)
     }
 
@@ -343,7 +338,7 @@ class BrowserAgentToolsTest {
     fun `refused request needs no cancellation acknowledgement`() = runTest {
         val fixture = Fixture()
         fixture.machine.performResult = SendResult.Ignored
-        val result = fixture.tools.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
+        val result = fixture.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
         assertTrue(result.isError)
         assertTrue(fixture.machine.sent.none { it is BrowserIntent.Public.CancelOperation })
     }
@@ -357,7 +352,7 @@ class BrowserAgentToolsTest {
             put("owner", "another-session")
             put("requestId", "forged-request")
         }
-        val operation = async { fixture.tools.execute(context, "browser_read", arguments) }
+        val operation = async { fixture.execute(context, "browser_read", arguments) }
         runCurrent()
         val request = fixture.machine.requests.single()
         assertEquals(Json.encodeToString(context.session), request.owner)
@@ -377,7 +372,7 @@ class BrowserAgentToolsTest {
         val fixture = Fixture()
         assertTrue(fixture.tools.specifications(null).isNotEmpty())
         fixture.toggles.values[BrowserAgentControl.key] = false
-        val result = fixture.tools.execute(context, "browser_type", buildJsonObject { put("text", "secret") })
+        val result = fixture.execute(context, "browser_type", buildJsonObject { put("text", "secret") })
         assertTrue(result.isError)
         assertEquals(0, fixture.registry.lookups)
     }
@@ -388,7 +383,7 @@ class BrowserAgentToolsTest {
         fixture.machine.completeImmediately = false
         fixture.machine.acknowledgeImmediately = false
         val operation = async {
-            fixture.tools.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
+            fixture.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
         }
         runCurrent()
         val request = fixture.machine.requests.single()
@@ -409,7 +404,7 @@ class BrowserAgentToolsTest {
     fun `successful completion needs no cancellation`() = runTest {
         val fixture = Fixture()
         fixture.machine.acknowledgeImmediately = false
-        assertFalse(fixture.tools.execute(context, "browser_tabs", JsonObject(emptyMap())).isError)
+        assertFalse(fixture.execute(context, "browser_tabs", JsonObject(emptyMap())).isError)
         assertTrue(fixture.machine.sent.none { it is BrowserIntent.Public.CancelOperation })
     }
 
@@ -422,28 +417,19 @@ class BrowserAgentToolsTest {
     )
 
     @Test
-    fun `a safe verdict runs the input exactly once on the reviewed page`() = runTest {
+    fun `an authorized input uses the captured page`() = runTest {
         val fixture = Fixture().apply { showing() }
         val spec = fixture.spec("browser_type")
         val arguments = typed("hello")
         val approval = fixture.tools.approval(automatic, spec, arguments)
         assertFalse(approval.binding.isNullOrBlank())
-        assertEquals(
-            AgentToolAutomaticAuthorization.Allowed(approval),
-            fixture.tools.automaticAuthorization(automatic, spec, arguments),
-        )
         val granted = automatic.copy(authorization = approval)
         assertFalse(fixture.tools.execute(granted, "browser_type", arguments).isError)
         val input = fixture.machine.requests.single { it.operation == BrowserOperation.Type }
         assertEquals(BrowserReview(BrowserOperation.Type, page()), input.review)
         assertEquals(Json.encodeToString(context.session), input.owner)
         assertEquals(arguments, input.arguments)
-        assertEquals(1, fixture.reviewer.calls)
-        assertTrue(fixture.reviewer.change.orEmpty().contains("hello"))
-        // The verdict is spent: the same call cannot run again, and no second review starts.
-        assertTrue(fixture.tools.execute(granted, "browser_type", arguments).isError)
         assertEquals(1, fixture.machine.requests.count { it.operation == BrowserOperation.Type })
-        assertEquals(1, fixture.reviewer.calls)
     }
 
     @Test
@@ -452,105 +438,18 @@ class BrowserAgentToolsTest {
         val spec = fixture.spec("browser_type")
         val arguments = typed("hello")
         val approval = fixture.tools.approval(automatic, spec, arguments)
-        assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            fixture.tools.automaticAuthorization(automatic, spec, arguments),
-        )
         // The dispatcher compares the approval once more after the decision, before it runs the tool.
         assertEquals(approval, fixture.tools.approval(automatic, spec, arguments))
         assertFalse(fixture.tools.execute(automatic.copy(authorization = approval), "browser_type", arguments).isError)
         assertEquals(1, fixture.machine.requests.count { it.operation == BrowserOperation.Type })
-        assertEquals(1, fixture.reviewer.calls)
     }
 
     @Test
-    fun `every input tool is reviewed in automatic mode and keeps the trust table in interactive mode`() = runTest {
-        val fixture = Fixture().apply { showing() }
-        val inputs = listOf("browser_click", "browser_type", "browser_key", "browser_scroll", "browser_drag")
-        for (name in inputs) {
-            val spec = fixture.spec(name)
-            val arguments = buildJsonObject { put("tabId", "tab") }
-            assertIs<AgentToolAutomaticAuthorization.Allowed>(
-                fixture.tools.automaticAuthorization(automatic, spec, arguments),
-                name,
-            )
-            val interactive = automatic.copy(decisionMode = AgentToolDecisionMode.Interactive)
-            assertNull(fixture.tools.automaticAuthorization(interactive, spec, arguments), name)
-            assertTrue(fixture.tools.approval(interactive, spec, arguments).binding.isNullOrBlank(), name)
-        }
-        val reads = listOf("browser_tabs", "browser_read", "browser_screenshot", "browser_close_tab", "browser_search")
-        for (name in reads + listOf("browser_open", "browser_new_tab")) {
-            val arguments = buildJsonObject {
-                put("tabId", "tab")
-                put("url", "https://example.com/")
-            }
-            assertNull(fixture.tools.automaticAuthorization(automatic, fixture.spec(name), arguments), name)
-        }
-        assertEquals(inputs.size, fixture.reviewer.calls)
-    }
-
-    @Test
-    fun `risky uncertain unavailable or malformed verdicts refuse the input without ever running it`() = runTest {
-        val verdicts = listOf(
-            AgentSafetyReview("risky", "Submits a payment"),
-            AgentSafetyReview("uncertain", "Unclear form"),
-            AgentSafetyReview("safe", ""),
-        )
-        for (verdict in verdicts) {
-            val fixture = Fixture().apply { showing() }
-            fixture.reviewer.result = verdict
-            val spec = fixture.spec("browser_type")
-            val arguments = typed("hello")
-            val approval = fixture.tools.approval(automatic, spec, arguments)
-            assertIs<AgentToolAutomaticAuthorization.Denied>(
-                fixture.tools.automaticAuthorization(automatic, spec, arguments),
-            )
-            val result = fixture.tools.execute(automatic.copy(authorization = approval), "browser_type", arguments)
-            assertTrue(result.isError)
-            assertTrue(fixture.machine.requests.none { it.operation == BrowserOperation.Type })
-        }
-    }
-
-    @Test
-    fun `an unavailable reviewer or review model refuses the input and does not leak the failure`() = runTest {
-        val fixture = Fixture().apply { showing() }
-        val spec = fixture.spec("browser_key")
-        val arguments = buildJsonObject {
-            put("tabId", "tab")
-            put("key", "Enter")
-        }
-        fixture.reviewer.failure = IllegalStateException("private backend detail")
-        val denied = assertIs<AgentToolAutomaticAuthorization.Denied>(
-            fixture.tools.automaticAuthorization(automatic, spec, arguments),
-        )
-        assertFalse("private backend detail" in denied.reason)
-        val calls = fixture.reviewer.calls
-        val unreviewable = automatic.copy(target = null)
-        assertIs<AgentToolAutomaticAuthorization.Denied>(
-            fixture.tools.automaticAuthorization(unreviewable, spec, arguments),
-        )
-        assertEquals(calls, fixture.reviewer.calls)
-        val approval = fixture.tools.approval(automatic, spec, arguments)
-        assertTrue(fixture.tools.execute(automatic.copy(authorization = approval), "browser_key", arguments).isError)
-        assertTrue(fixture.machine.requests.none { it.operation == BrowserOperation.Key })
-    }
-
-    @Test
-    fun `cancellation of the review propagates`() = runTest {
-        val fixture = Fixture().apply { showing() }
-        fixture.reviewer.failure = CancellationException("cancelled")
-        assertFailsWith<CancellationException> {
-            fixture.tools.automaticAuthorization(automatic, fixture.spec("browser_type"), typed("hello"))
-        }
-        assertTrue(fixture.machine.requests.none { it.operation == BrowserOperation.Type })
-    }
-
-    @Test
-    fun `other arguments another session or another call cannot spend a verdict`() = runTest {
+    fun `other arguments another session or another call cannot spend an authorization`() = runTest {
         val fixture = Fixture().apply { showing() }
         val spec = fixture.spec("browser_type")
         val arguments = typed("hello")
         val approval = fixture.tools.approval(automatic, spec, arguments)
-        fixture.tools.automaticAuthorization(automatic, spec, arguments)
         val other = SessionRef(EngineId("pi"), SessionSourceId("local"), "other-session")
         val attempts = listOf(
             automatic.copy(authorization = approval) to typed("pay 100"),
@@ -563,7 +462,6 @@ class BrowserAgentToolsTest {
         }
         assertTrue(fixture.machine.requests.none { it.operation == BrowserOperation.Type })
         assertFalse(fixture.tools.execute(automatic.copy(authorization = approval), "browser_type", arguments).isError)
-        assertEquals(1, fixture.reviewer.calls)
     }
 
     @Test
@@ -572,11 +470,10 @@ class BrowserAgentToolsTest {
         val spec = fixture.spec("browser_type")
         val arguments = typed("hello")
         val approval = fixture.tools.approval(automatic, spec, arguments)
-        fixture.tools.automaticAuthorization(automatic, spec, arguments)
         fixture.focus = "card-number"
         val result = fixture.tools.execute(automatic.copy(authorization = approval), "browser_type", arguments)
         assertTrue(result.isError)
-        assertTrue(result.text.contains("safety approval"), result.text)
+        assertTrue(result.text.contains("authorization"), result.text)
         assertTrue(fixture.machine.requests.none { it.operation == BrowserOperation.Type })
     }
 
@@ -586,7 +483,6 @@ class BrowserAgentToolsTest {
         val spec = fixture.spec("browser_type")
         val arguments = typed("hello")
         val approval = fixture.tools.approval(automatic, spec, arguments)
-        fixture.tools.automaticAuthorization(automatic, spec, arguments)
         fixture.content = "Updated 12:01"
         assertFalse(fixture.tools.execute(automatic.copy(authorization = approval), "browser_type", arguments).isError)
         assertEquals(1, fixture.machine.requests.count { it.operation == BrowserOperation.Type })
@@ -600,18 +496,13 @@ class BrowserAgentToolsTest {
         }
         val spec = fixture.spec("browser_click")
         val arguments = buildJsonObject { put("tabId", "tab") }
-        val denied = assertIs<AgentToolAutomaticAuthorization.Denied>(
-            fixture.tools.automaticAuthorization(automatic, spec, arguments),
-        )
-        assertTrue(denied.reason.contains("Read or capture the page again"))
-        assertEquals(0, fixture.reviewer.calls)
         val approval = fixture.tools.approval(automatic, spec, arguments)
         assertTrue(fixture.tools.execute(automatic.copy(authorization = approval), "browser_click", arguments).isError)
         assertTrue(fixture.machine.requests.none { it.operation == BrowserOperation.Click })
     }
 
     @Test
-    fun `opening a private address is reviewed in automatic mode while a public one is not`() = runTest {
+    fun `opening a private address is bound to its page snapshot while a public one is not`() = runTest {
         val fixture = Fixture().apply { showing() }
         val open = fixture.spec("browser_open")
         val private = buildJsonObject {
@@ -619,9 +510,6 @@ class BrowserAgentToolsTest {
             put("url", "http://localhost:3000/admin")
         }
         val approval = fixture.tools.approval(automatic, open, private)
-        assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            fixture.tools.automaticAuthorization(automatic, open, private),
-        )
         val granted = automatic.copy(authorization = approval)
         assertFalse(fixture.tools.execute(granted, "browser_open", private).isError)
         val inspection = fixture.machine.requests.first { it.operation == BrowserOperation.Inspect }
@@ -633,8 +521,6 @@ class BrowserAgentToolsTest {
             put("tabId", "tab")
             put("url", "https://example.com/")
         }
-        assertNull(fixture.tools.automaticAuthorization(automatic, open, public))
-        assertEquals(1, fixture.reviewer.calls)
     }
 
     @Test
@@ -643,14 +529,10 @@ class BrowserAgentToolsTest {
         val newTab = fixture.spec("browser_new_tab")
         val private = buildJsonObject { put("url", "http://192.168.1.1/") }
         val approval = fixture.tools.approval(automatic, newTab, private)
-        assertIs<AgentToolAutomaticAuthorization.Allowed>(
-            fixture.tools.automaticAuthorization(automatic, newTab, private),
-        )
         val granted = automatic.copy(authorization = approval)
         assertFalse(fixture.tools.execute(granted, "browser_new_tab", private).isError)
         assertTrue(fixture.machine.requests.none { it.operation == BrowserOperation.Inspect })
         assertNull(fixture.machine.requests.single { it.operation == BrowserOperation.NewTab }.review)
-        assertEquals(1, fixture.reviewer.calls)
     }
 
     @Test
@@ -658,10 +540,7 @@ class BrowserAgentToolsTest {
         val fixture = Fixture().apply { showing() }
         val spec = fixture.spec("browser_type")
         fixture.toggles.values[BrowserAgentControl.key] = false
-        assertIs<AgentToolAutomaticAuthorization.Denied>(
-            fixture.tools.automaticAuthorization(automatic, spec, typed("hello")),
-        )
-        assertEquals(0, fixture.reviewer.calls)
+        assertTrue(fixture.tools.execute(automatic, spec.name, typed("hello")).isError)
         assertTrue(fixture.machine.sent.isEmpty())
     }
 
@@ -675,11 +554,10 @@ class BrowserAgentToolsTest {
             put("approved", "everything")
             put("owner", "another-session")
         }
-        assertFalse(fixture.tools.execute(context, "browser_type", arguments).isError)
-        val input = fixture.machine.requests.single()
-        assertNull(input.review)
+        assertFalse(fixture.execute(context, "browser_type", arguments).isError)
+        val input = fixture.machine.requests.single { it.operation == BrowserOperation.Type }
+        assertEquals(BrowserReview(BrowserOperation.Type, page()), input.review)
         assertEquals(Json.encodeToString(context.session), input.owner)
-        assertEquals(0, fixture.reviewer.calls)
     }
 
     private fun typed(text: String) = buildJsonObject {
@@ -705,8 +583,13 @@ class BrowserAgentToolsTest {
         val registry = ToolRegistry(machine)
         val toggles = ToolToggles()
         val external = ExternalBrowserToolsTest.FakeBrowser()
-        val reviewer = Reviewer()
-        val tools = BrowserAgentTools(registry, toggles, lazyOf(external), BrowserSafety(reviewer))
+        val tools = BrowserAgentTools(registry, toggles, lazyOf(external))
+
+        suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
+            val spec = tools.specifications(null).singleOrNull { it.name == name }
+            val approval = spec?.let { tools.approval(context, it, arguments) }
+            return tools.execute(context.copy(authorization = approval), name, arguments)
+        }
 
         var focus = "search-box"
         var content = "Search the catalog"
@@ -768,20 +651,6 @@ class BrowserAgentToolsTest {
                     JsonObject(emptyMap())
                 }
             }
-        }
-    }
-
-    private class Reviewer : AgentSafetyReviewer {
-        var calls = 0
-        var result = AgentSafetyReview("safe", "Bounded action on a page the agent opened")
-        var failure: Exception? = null
-        var change: String? = null
-
-        override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview {
-            calls++
-            this.change = change
-            failure?.let { throw it }
-            return result
         }
     }
 

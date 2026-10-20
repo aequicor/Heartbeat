@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.platform.dibundle
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
@@ -31,6 +32,8 @@ import kotlin.time.Duration.Companion.seconds
 
 /** Real profile-graph regression for trust changes across durable helper admission. */
 internal suspend fun CoroutineScope.assertHelperAdmissionTrust(services: AiEngineTestAccessors) {
+    services.agentSecuritySettings.save(SecurityMode.Trust)
+    services.studioRepository.observeModels().first { it.isNotEmpty() && it.all { model -> model.isTrustSupported } }
     val runtime = services.studioRuntime
     val parent = services.studioRepository.createSession(null, "Parent")
     seedHelperFullApproval(services, HelperId(parent.id))
@@ -63,7 +66,7 @@ internal suspend fun CoroutineScope.assertHelperAdmissionTrust(services: AiEngin
         )
     }
     awaitHelperBarrier("fresh admission") { owner.fresh.await() }
-    lowerHelperTrustCap(services, helper)
+    services.agentSecuritySettings.save(SecurityMode.Ask)
     owner.release.complete(Unit)
     assertIs<HelperSubmission.Accepted>(sending.await())
     val native = engine.natives.last()
@@ -111,18 +114,4 @@ private suspend fun awaitHelperBarrier(name: String, block: suspend () -> Unit) 
             } == true,
         ) { "Timed out waiting for $name" }
     }
-}
-
-private suspend fun lowerHelperTrustCap(services: AiEngineTestAccessors, helper: HelperId) {
-    val store = (services as TestStorageAccessors).stores.keyValue(KeyValueSpec("ai_studio_chats"))
-    val key = jsonKey("chats", JsonArray.serializer())
-    val records = requireNotNull(store.get(key)).map { record ->
-        if (record.jsonObject["id"] != JsonPrimitive(helper.value)) return@map record
-        val identity = record.jsonObject.getValue("helper").jsonObject
-        val limited = JsonObject(
-            identity + ("trustCap" to Json.encodeToJsonElement(TrustLevel.serializer(), TrustLevel.Ask)),
-        )
-        JsonObject(record.jsonObject + ("helper" to limited))
-    }
-    store.set(key, JsonArray(records))
 }

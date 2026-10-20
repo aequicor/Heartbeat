@@ -23,7 +23,7 @@ internal interface AgentSafetyIsolation {
 }
 
 /**
- * Native Off applies before the first review prompt, including ungated Codex tools (its adapter cold-resumes
+ * Tool-free isolation applies before the first service prompt, including ungated Codex tools (its adapter cold-resumes
  * with the policy before submitting). There is no project, detached hosted tools or inherited harness selection.
  * A session whose terminal state is unknown retains its restrictions until observed completion or profile closure.
  */
@@ -37,18 +37,27 @@ internal class AgentSafetyToolPolicy :
     private val log = Log.tag("AgentSafetyPolicy")
     private val sessions = MutableStateFlow<Map<SessionRef, ToolPolicy>>(emptyMap())
 
+    override val isIsolation: Boolean = true
+
     override val isActive: Boolean get() = sessions.value.isNotEmpty()
 
     override fun contains(session: SessionRef): Boolean = session in sessions.value
 
     override fun restrict(session: SessionRef, nativeTools: List<String>) {
-        sessions.update { it + (session to ToolPolicy(native = nativeTools.associateWith { ToolSwitch.Off })) }
-        log.d { "Restricted tools of a safety review session" }
+        sessions.update {
+            it + (
+                session to ToolPolicy(
+                    native = nativeTools.associateWith { ToolSwitch.Off },
+                    isToolFree = true,
+                )
+            )
+        }
+        log.d { "Restricted tools of a text-only service session" }
     }
 
     override fun release(session: SessionRef) {
         sessions.update { it - session }
-        log.d { "Released tool restrictions of a completed review session" }
+        log.d { "Released tool restrictions of a completed service session" }
     }
 
     override suspend fun policy(scope: ToolPolicyScope): ToolPolicy? = sessions.value[scope.session]

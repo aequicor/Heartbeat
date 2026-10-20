@@ -98,40 +98,38 @@ internal class ClaudeNativeSessionTest {
             val args = fixture.transport.calls.last()
             assertTrue("--permission-prompt-tool=stdio" in args)
             assertTrue("--permission-mode=default" in args)
-            assertEquals(setOf("Bash") + ClaudeAgentTools, claudeToolFlags(args).native)
+            assertEquals(setOf("Bash"), claudeToolFlags(args).native)
             runtime.close()
         }
     }
 
     @Test
-    fun `additional native tools remain disabled without project toggle supported version or native support`() =
-        runTest {
-            val tools = object : ProfileAgentTools by NoAgentTools {
-                override suspend fun nativeTools(scope: ToolPolicyScope) = ResolvedToolPolicy(nativeOn = setOf("Read"))
-            }
-            for (missing in listOf("project", "toggle", "version", "support")) {
-                val fixture = ClaudeFixture(backgroundScope)
-                fixture.transport.versionValue = if (missing == "version") "2.1.284" else "2.1.285"
-                fixture.toggles.isNativeEnabled = missing != "toggle"
-                val native = if (missing ==
-                    "support"
-                ) {
-                    MissingClaudeNativeSupport
-                } else {
-                    ClaudeNativeSupport { nativeWorkspace() }
-                }
-                val runtime = fixture.runtime(tools, native = native)
-                val workspace = WorkspaceRef("project").takeUnless { missing == "project" }
-                val session = runtime.create(CreateSessionRequest(testTarget, workspace))
-                session.features.available(SendsPrompts).send(prompt())
-                runCurrent()
-                assertIs<ActiveSessionState.Ready>(session.state.value)
-                val args = fixture.transport.calls.last()
-                assertFalse("Read" in claudeToolFlags(args).native)
-                assertFalse(args.any { "permission-prompt-tool" in it })
-                runtime.close()
-            }
+    fun `additional native tools remain disabled without project supported version or native support`() = runTest {
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun nativeTools(scope: ToolPolicyScope) = ResolvedToolPolicy(nativeOn = setOf("Read"))
         }
+        for (missing in listOf("project", "version", "support")) {
+            val fixture = ClaudeFixture(backgroundScope)
+            fixture.transport.versionValue = if (missing == "version") "2.1.284" else "2.1.285"
+            val native = if (missing ==
+                "support"
+            ) {
+                MissingClaudeNativeSupport
+            } else {
+                ClaudeNativeSupport { nativeWorkspace() }
+            }
+            val runtime = fixture.runtime(tools, native = native)
+            val workspace = WorkspaceRef("project").takeUnless { missing == "project" }
+            val session = runtime.create(CreateSessionRequest(testTarget, workspace))
+            session.features.available(SendsPrompts).send(prompt())
+            runCurrent()
+            assertIs<ActiveSessionState.Ready>(session.state.value)
+            val args = fixture.transport.calls.last()
+            assertFalse("Read" in claudeToolFlags(args).native)
+            assertFalse(args.any { "permission-prompt-tool" in it })
+            runtime.close()
+        }
+    }
 
     private class Pipe(private val id: String) : ClaudeDuplex {
         val frames = Channel<JsonObject>(Channel.UNLIMITED)

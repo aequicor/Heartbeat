@@ -2,12 +2,12 @@ package io.aequicor.heartbeat.feature.aiengine.facade.api
 
 import kotlinx.serialization.Serializable
 
-/** Trusted host choice for a turn; model arguments never select or change how permission is decided. */
+/** Legacy turn metadata retained for protocol compatibility; AgentSecuritySettings decides authorization. */
 @Serializable
 public enum class AgentToolDecisionMode {
-    /** Ordinary trust rules may request a user decision. */
+    /** Legacy interactive label; no independent authorization authority. */
     Interactive,
 
-    /** Independent safety review allows an exact operation or refuses it; never requests a user decision. */
+    /** Legacy automatic label; the current shared profile mode determines confirmation. */
     AutomaticSafety,
 }

@@ -3,7 +3,7 @@ package io.aequicor.heartbeat.feature.harness.api
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 
-/** The harness library and its tools. Native enabling additionally uses facade's HarnessNativeTools toggle. */
+/** The harness library and its tools; authorization uses the shared profile security mode. */
 public val HarnessEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "harness.enabled",
     description = "Харнессы: инструкции, инструменты и workflow агента",

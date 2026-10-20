@@ -34,6 +34,25 @@ class StudioHelperMetadataTest {
     private val session = SessionRef(EngineId("pi"), SessionSourceId("store"), "native")
 
     @Test
+    fun `historical references keep helper ownership while current lookup follows replacement`() = runTest {
+        val fixture = HelperMetadataFixture()
+        val id = fixture.records.createHelper(input())
+        val next = session.copy(nativeId = "replacement")
+        fixture.store.set(
+            ChatsKey,
+            fixture.store.get(ChatsKey).orEmpty().map {
+                it.copy(ref = next, previousRefs = listOf(session), lastRunRequest = RequestId("completed"))
+            },
+        )
+        val restored = fixture.records()
+        assertEquals(session, restored.helperMetadata(session)?.session)
+        assertEquals(next, restored.helperMetadata(id)?.session)
+        assertEquals(owner, restored.helperMetadata(session)?.owner)
+        assertEquals(RequestId("completed"), restored.helperMetadata(session)?.lastRequest)
+        assertEquals(id, restored.helperMetadata(session)?.id)
+    }
+
+    @Test
     fun `durable ref and unresolved request are visible before native acceptance and after reopen`() = runTest {
         val fixture = HelperMetadataFixture()
         val id = fixture.records.createHelper(input())

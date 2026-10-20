@@ -58,4 +58,6 @@ public data class StudioRuntimeState(
     /** Provider quotas keyed by the full studio model route. */
     val providerUsage: Map<String, ProviderUsageSnapshot> = emptyMap(),
     val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
+    val isEngineSwitchingAvailable: Boolean = false,
+    val engineSwitches: Map<String, StudioEngineSwitchState> = emptyMap(),
 )

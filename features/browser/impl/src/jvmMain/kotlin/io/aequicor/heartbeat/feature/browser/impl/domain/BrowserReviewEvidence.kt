@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
 /**
- * What an independent safety review of a browser action stays bound to: the tab, its document and address, the
+ * What an exact operation authorization of a browser action stays bound to: the tab, its document and address, the
  * viewport, and the target, hit target, destination and focus with their form. The reviewer also sees the page's
  * title and text, but those are left out here: a live page rewrites them (clocks, counters, rotating banners) while a
  * review runs, and the action is defined by the element it reaches, not by the text around it. The same holds for

@@ -27,19 +27,6 @@ class PiAgentConfigTest {
     private val noSecrets: suspend (String) -> String? = { null }
 
     @Test
-    fun `native push pinning requires default shell and no discovered or built in extensions`() {
-        assertTrue(PiAgentConfig().supportsPinnedNativePush())
-        assertFalse(PiAgentConfig(isDiscovering = true).supportsPinnedNativePush())
-        assertFalse(PiAgentConfig(builtins = listOf("builtin:mcp")).supportsPinnedNativePush())
-        for (settings in listOf(
-            """{"shellPath":"/custom/shell"}""",
-            """{"shellCommandPrefix":"source /private/profile"}""",
-        )) {
-            assertFalse(PiAgentConfig(files = mapOf(SETTINGS_FILE to settings)).supportsPinnedNativePush())
-        }
-    }
-
-    @Test
     fun `an empty configuration keeps the hermetic command line`() = runTest {
         val config = piAgentConfig(EngineConfigValues(), home, secret = noSecrets)
         assertEquals(PiAgentConfig(), config)

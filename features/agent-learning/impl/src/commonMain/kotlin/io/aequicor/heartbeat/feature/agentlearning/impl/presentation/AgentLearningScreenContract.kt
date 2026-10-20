@@ -8,9 +8,6 @@ import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
 
-/** How new instructions are accepted, as shown in settings. */
-internal enum class ApprovalUi { Ask, Automatic, AcceptAll }
-
 /** Where an instruction applies, as shown in settings. */
 internal enum class KindUi { General, Model, Skill }
 
@@ -87,7 +84,6 @@ internal enum class LearningErrorUi {
 @Immutable
 internal data class AgentLearningScreenState(
     val isLoaded: Boolean = false,
-    val approval: ApprovalUi = ApprovalUi.Automatic,
     val instructions: ImmutableList<InstructionUi> = persistentListOf(),
     val projects: ImmutableList<ProjectUi> = persistentListOf(),
     val filter: ProjectFilterUi = ProjectFilterUi.All,
@@ -107,8 +103,6 @@ internal data class AgentLearningScreenState(
 
 /** Controls of the registry screen. */
 internal sealed interface AgentLearningScreenIntent : MVIIntent {
-    /** Changes how new instructions are accepted. */
-    data class SelectApproval(val approval: ApprovalUi) : AgentLearningScreenIntent
 
     /** Turns an instruction on or off. */
     data class SetEnabled(val id: String, val isEnabled: Boolean) : AgentLearningScreenIntent

@@ -15,13 +15,10 @@ class PromptTextTest {
     }
 
     @Test
-    fun `review detects hidden controls and credential patterns`() {
+    fun `metadata validation detects hidden controls`() {
         assertFalse(hasHiddenCharacters("plain\ntext\twith\rwhitespace"))
         assertTrue(hasHiddenCharacters("hidden\u202Etext"))
         assertTrue(hasHiddenCharacters("tag\uDB40\uDC01"))
-        assertTrue(looksLikeSecret("sk-" + "x".repeat(24)))
-        assertTrue(looksLikeSecret("-----BEGIN PRIVATE KEY-----"))
-        assertFalse(looksLikeSecret("Get credentials from the profile secret store"))
     }
 
     @Test

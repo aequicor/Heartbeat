@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.api
 
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -23,7 +22,12 @@ public enum class ToolSwitch {
 }
 
 /** One contribution to a session policy. Hosted tools can only be disabled. */
-public data class ToolPolicy(val hostedOff: Set<String> = emptySet(), val native: Map<String, ToolSwitch> = emptyMap())
+public data class ToolPolicy(
+    val hostedOff: Set<String> = emptySet(),
+    val native: Map<String, ToolSwitch> = emptyMap(),
+    /** A text-only service has no tools, including adapter-operated and later-added tools. */
+    val isToolFree: Boolean = false,
+)
 
 /** Trusted host identity for policy lookup; never supplied through tool arguments. */
 public data class ToolPolicyScope(
@@ -37,6 +41,9 @@ public data class ToolPolicyScope(
 
 /** Profile multibinding; resolve lazily because a provider may itself use the engine facade. */
 public fun interface AgentToolPolicyProvider {
+    /** Capability isolation for an internal text-only service, independent of user permission preferences. */
+    public val isIsolation: Boolean get() = false
+
     /**
      * Null means this provider contributes no policy in this scope. Cancellation must propagate. A provider whose
      * policy source is unavailable throws; [ToolPolicyUnavailable] marks an unavailability it already reported.
@@ -72,10 +79,3 @@ public data class ToolGroup(val id: String, val title: String, val tools: List<T
 
 /** Builds static catalog metadata without retaining a schema or session context. */
 public fun List<AgentToolSpec>.toolCatalog(): List<ToolCatalogEntry> = map { ToolCatalogEntry(it.name, it.action) }
-
-/** Enables gated native tools beyond adapter defaults; disabling tools does not require this flag. */
-public val HarnessNativeTools: FeatureToggle.Flag = FeatureToggle.Flag(
-    key = "harness.native_tools",
-    description = "Включение нативных инструментов через харнессы",
-    default = true,
-)

@@ -124,19 +124,6 @@ private const val LOW_SURROGATE_BASE = 0xDC00
 private const val SURROGATE_BITS = 10
 private val TAG_CHARACTERS = 0xE0000..0xE007F
 
-/** Common credential shapes: provider keys, tokens, private keys and `key = value` assignments. */
-public fun looksLikeSecret(text: String): Boolean = SECRET_PATTERNS.any { it.containsMatchIn(text) }
-
-private val SECRET_PATTERNS = listOf(
-    Regex("""\bsk-[A-Za-z0-9_-]{20,}"""),
-    Regex("""\b(?:ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{20,}"""),
-    Regex("""\bAKIA[0-9A-Z]{16}\b"""),
-    Regex("""\bAIza[0-9A-Za-z_-]{35}\b"""),
-    Regex("""\bxox[abposr]-[A-Za-z0-9-]{10,}"""),
-    Regex("""-----BEGIN [A-Z ]*PRIVATE KEY-----"""),
-    Regex("""(?i)\b(?:api[_-]?key|access[_-]?token|secret|password|passwd)\b\s*[:=]\s*["']?[^\s"']{8,}"""),
-)
-
 /** A per-prompt character budget for complete lines, including one separator per line. */
 public class PromptBudget(private var remaining: Int) {
     /** Number of lines that did not fit. */

@@ -31,7 +31,7 @@ internal class ExtensionInstallation(private val root: Path, private val release
         val pointer = root.resolve("active")
         if (!Files.isRegularFile(pointer, NOFOLLOW_LINKS) || Files.size(pointer) > MAX_POINTER_BYTES) return null
         val name = Files.readString(pointer)
-        require(name.matches(Regex("extension-[0-9a-f-]{36}"))) { "Invalid extension cache pointer" }
+        require(name.matches(Regex("e-[0-9a-f]{32}"))) { "Invalid extension cache pointer" }
         val folder = root.resolve(name)
         require(Files.isDirectory(folder, NOFOLLOW_LINKS)) { "Extension cache directory is missing" }
         val marker = folder.resolve(COMPLETION)
@@ -73,7 +73,8 @@ internal class ExtensionInstallation(private val root: Path, private val release
             put("files", JsonObject(files.mapValues { JsonPrimitive(it.value) }))
         }
         Files.writeString(staging.resolve(COMPLETION), marker.toString(), CREATE_NEW)
-        val name = "extension-${UUID.randomUUID()}"
+        // Keep the full random identity without hyphens; long resource paths must fit Chromium MAX_PATH.
+        val name = "e-${UUID.randomUUID().toString().replace("-", "")}"
         val folder = root.resolve(name)
         Files.move(staging, folder, ATOMIC_MOVE)
         val pointer = root.resolve(".active-${UUID.randomUUID()}")

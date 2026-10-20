@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.dibundle.root.RootChild
 import io.aequicor.heartbeat.platform.dibundle.root.RootStart
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -68,6 +69,19 @@ class SettingsIntegrationTest {
 
         init {
             processes += this
+        }
+
+        suspend fun awaitProfileHost(id: ProfileId? = null) {
+            val ready = CompletableDeferred<RootChild.Profile>()
+            val observation = root.slot.subscribe { slot ->
+                (slot.child?.instance as? RootChild.Profile)?.takeIf { id == null || it.id == id }
+                    ?.let { ready.complete(it) }
+            }
+            try {
+                ready.await().host.filterNotNull().first()
+            } finally {
+                observation.cancel()
+            }
         }
 
         suspend fun close() {
@@ -161,7 +175,7 @@ class SettingsIntegrationTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val process = Process()
         (process.graph as TestToggleAccessors).toggleControl.setOverride(StudioEngineRuntime, true)
-        process.graph.profileSessions.open(ProfileId("settings-security"))
+        val services = process.graph.profileSessions.open(ProfileId("settings-security")).graph as AiEngineTestAccessors
         advanceUntilIdle()
         process.root.handleDeepLink("heartbeat://settings/security")
         val security = process.graph.machines.observe(StudioSecurityMachineKey).filterNotNull().first()
@@ -170,12 +184,28 @@ class SettingsIntegrationTest {
         assertEquals(SettingsSection.Security, (process.host.routes.last() as SettingsRoute).section)
         security.send(StudioSecurityIntent.Public.SetLevel(StudioSecurityLevel.Ask))
         security.state.first { it == StudioSecurityState.Ready(StudioSecurityLevel.Ask) }
+        services.agentSecuritySettings.save(StudioSecurityLevel.Trust)
+        security.state.first { it == StudioSecurityState.Ready(StudioSecurityLevel.Trust) }
+        // The formerly selected Ask must be actionable after an external write.
+        security.send(StudioSecurityIntent.Public.SetLevel(StudioSecurityLevel.Ask))
+        security.state.first { it == StudioSecurityState.Ready(StudioSecurityLevel.Ask) }
+        assertEquals(StudioSecurityLevel.Ask, services.agentSecuritySettings.load())
         process.host.onBack()
         advanceUntilIdle()
+        services.agentSecuritySettings.save(StudioSecurityLevel.Automatic)
+        security.state.first { it == StudioSecurityState.Ready(StudioSecurityLevel.Automatic) }
         assertNotNull(process.graph.machines.find(StudioSecurityMachineKey))
         process.root.handleDeepLink("heartbeat://settings/security")
         advanceUntilIdle()
-        assertEquals(StudioSecurityState.Ready(StudioSecurityLevel.Ask), security.state.value)
+        assertEquals(StudioSecurityState.Ready(StudioSecurityLevel.Automatic), security.state.value)
+        process.graph.profileSessions.open(ProfileId("settings-security-other"))
+        process.awaitProfileHost(ProfileId("settings-security-other"))
+        process.root.handleDeepLink("heartbeat://settings/security")
+        val other = process.graph.machines.observe(StudioSecurityMachineKey).filterNotNull().first { it !== security }
+        other.state.first { it is StudioSecurityState.Ready }
+        other.send(StudioSecurityIntent.Public.SetLevel(StudioSecurityLevel.Trust))
+        other.state.first { it == StudioSecurityState.Ready(StudioSecurityLevel.Trust) }
+        assertEquals(StudioSecurityState.Ready(StudioSecurityLevel.Automatic), security.state.value)
         process.close()
     }
 
@@ -186,6 +216,8 @@ class SettingsIntegrationTest {
         val first = Process(disk)
         (first.graph as TestToggleAccessors).toggleControl.setOverride(StudioEngineRuntime, true)
         first.graph.profileSessions.open(ProfileId("corrupted-security"))
+        first.awaitProfileHost()
+        first.root.handleDeepLink("heartbeat://settings/security")
         val initial = first.graph.machines.observe(StudioSecurityMachineKey).filterNotNull().first()
         initial.state.first { it is StudioSecurityState.Ready }
         initial.send(StudioSecurityIntent.Public.SetLevel(StudioSecurityLevel.Ask))
@@ -197,6 +229,8 @@ class SettingsIntegrationTest {
         file.writeBytes(corrupted)
 
         val restored = Process(disk)
+        restored.awaitProfileHost()
+        restored.root.handleDeepLink("heartbeat://settings/security")
         val security = restored.graph.machines.observe(StudioSecurityMachineKey).filterNotNull().first()
         assertEquals(
             StudioSecurityState.LoadError,

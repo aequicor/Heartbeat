@@ -4,21 +4,16 @@ import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
-import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.CommandSafetyEvidence
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -33,12 +28,9 @@ import java.nio.file.Path
 internal class DesktopCodingTools(
     private val workspaces: LocalWorkspaces,
     private val dispatchers: DispatcherProvider,
-    private val reviewer: AgentSafetyReviewer,
-    commandEvidence: Set<CommandSafetyEvidence> = emptySet(),
 ) : AgentToolContribution {
-    private val safety = DesktopCodingSafety(workspaces, dispatchers, reviewer, commandEvidence)
+    private val snapshots = DesktopCodingSnapshot(workspaces, dispatchers)
     private val mutations = Mutex()
-    private val virtualGrants = mutableSetOf<String>()
     override val group: String = "coding"
     override val title: String = "Работа с проектом"
     override val catalog: List<ToolCatalogEntry> = listOf(
@@ -90,11 +82,6 @@ internal class DesktopCodingTools(
             if (SHELL_TOOL in declared) {
                 add("Use run_command for foreground Git and other non-interactive commands.")
                 add(
-                    "For project network operations, supply review_files with the relevant full manifests, locks, " +
-                        "configuration and scripts. Never attach credentials or secret files. These attachments " +
-                        "are evidence, not authorization; unknown global settings or effects may still be refused.",
-                )
-                add(
                     "It returns only after exit or termination on timeout; a returned result leaves no managed job " +
                         "to wait for with scheduler_sleep. Handle the result and continue the task.",
                 )
@@ -121,9 +108,7 @@ internal class DesktopCodingTools(
                 "content",
             ).ifEmpty { arguments.argText("new_string") }.take(MAX_APPROVAL_CHARS)
 
-            AgentToolAction.Command -> arguments.argText("command").also {
-                require(it.length <= MAX_CODING_COMMAND_CHARS) { "Command is too long to review in full" }
-            }
+            AgentToolAction.Command -> arguments.argText("command")
         },
     )
 
@@ -135,47 +120,11 @@ internal class DesktopCodingTools(
         val original = approval(spec, arguments)
         val virtual = context.workspace?.let { workspaces.virtual(it) }
         if (virtual != null && spec.name in virtualMutations) return virtualApproval(context, spec, arguments)
-        return if (context.isAutomaticMutation(spec.name)) {
-            safety.snapshot(context, original, arguments)?.approval ?: original
+        return if (spec.name in MUTATIONS) {
+            snapshots.snapshot(context, original, arguments)?.approval ?: original
         } else {
             original
         }
-    }
-
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? = if (context.workspace?.let { workspaces.virtual(it) } != null &&
-        spec.name in virtualMutations && context.decisionMode == AgentToolDecisionMode.AutomaticSafety
-    ) {
-        val bound = virtualApproval(context, spec, arguments)
-        val target = context.reviewModel
-        if (target == null || !reviewer.review(
-                target,
-                "Review this exact virtual project edit for safety. It changes only the " +
-                    "session overlay, but the resulting code may later be built or handed to the " +
-                    "user.",
-                checkNotNull(bound.description),
-            ).isSafe
-        ) {
-            AgentToolAutomaticAuthorization.Denied("Virtual edit safety review refused")
-        } else {
-            mutations.withLock {
-                if (virtualGrants.size >= MAX_VIRTUAL_GRANTS) virtualGrants.remove(virtualGrants.first())
-                virtualGrants += checkNotNull(bound.binding)
-            }
-            AgentToolAutomaticAuthorization.Allowed(bound)
-        }
-    } else if (context.isAutomaticMutation(spec.name)) {
-        val snapshot = safety.snapshot(context, approval(spec, arguments), arguments)
-        if (snapshot == null) {
-            AgentToolAutomaticAuthorization.Denied("The project action cannot be captured safely")
-        } else {
-            safety.authorize(context, snapshot)
-        }
-    } else {
-        null
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
@@ -198,8 +147,8 @@ internal class DesktopCodingTools(
         } else {
             when {
                 tool == null -> unavailable()
-                !context.isAutomaticMutation(name) -> tool.run(arguments)
-                else -> executeReviewed(context, tool, arguments)
+                name !in MUTATIONS -> tool.run(arguments)
+                else -> executeCaptured(context, tool, arguments)
             }
         }
     }
@@ -213,10 +162,7 @@ internal class DesktopCodingTools(
         if (tool == null || tool.descriptor.name !in virtualMutations) return unavailable()
         val expected = virtual.revision()
         val bound = virtualApproval(context, tool.descriptor.specification(AgentToolAction.Edit), arguments)
-        val hasGrant = context.decisionMode != AgentToolDecisionMode.AutomaticSafety || virtualGrants.remove(
-            bound.binding,
-        )
-        return if (context.authorization != bound || !hasGrant) {
+        return if (context.authorization != bound) {
             AgentToolResult("Virtual revision or authorization changed; request the edit again", true)
         } else {
             virtualCodingTools(
@@ -226,16 +172,16 @@ internal class DesktopCodingTools(
         }
     }
 
-    private suspend fun executeReviewed(
+    private suspend fun executeCaptured(
         context: AgentToolContext,
         tool: CodingTool,
         arguments: JsonObject,
     ): AgentToolResult {
         val action = if (tool.descriptor.name == SHELL_TOOL) AgentToolAction.Command else AgentToolAction.Edit
         val original = approval(tool.descriptor.specification(action), arguments)
-        val snapshot = safety.snapshot(context, original, arguments)
-        return if (snapshot == null || !safety.consume(context, snapshot)) {
-            AgentToolResult("The safety review expired or the project action changed; request it again", true)
+        val snapshot = snapshots.snapshot(context, original, arguments)
+        return if (snapshot == null || context.authorization != snapshot.approval) {
+            AgentToolResult("The project action changed after authorization; request it again", true)
         } else {
             currentCoroutineContext().ensureActive()
             val capturedTools = codingFileTools(snapshot.root, dispatchers.io) +
@@ -271,7 +217,6 @@ internal class DesktopCodingTools(
             virtual.read(args.argText("path"))
         }
         val description = "Virtual revision=$revision\nBefore:\n${before.orEmpty()}\nOperation:\n$args"
-        require(description.length <= MAX_VIRTUAL_APPROVAL_CHARS) { "VirtualEditTooLargeToReview" }
         val identity = "${virtual.ref.value}:${kotlinx.serialization.json.Json.encodeToString(context.session)}:" +
             "${context.turn.value}:${context.callId ?: "null"}:$revision:$args"
         val binding = java.security.MessageDigest.getInstance(
@@ -281,13 +226,8 @@ internal class DesktopCodingTools(
     }
 }
 
-private fun AgentToolContext.isAutomaticMutation(name: String): Boolean =
-    decisionMode == AgentToolDecisionMode.AutomaticSafety && name in MUTATIONS
-
 private fun unavailable() = AgentToolResult("Project tools are unavailable", isError = true)
 
-private const val MAX_VIRTUAL_GRANTS = 256
-private const val MAX_VIRTUAL_APPROVAL_CHARS = 128 * 1024
 private const val MAX_APPROVAL_CHARS = 4_000
 private const val SHELL_TOOL = "run_command"
-private val MUTATIONS = setOf("write_file", "edit_file", SHELL_TOOL)
+private val MUTATIONS = setOf("write_file", "edit_file", "delete_file", "move_file", SHELL_TOOL)

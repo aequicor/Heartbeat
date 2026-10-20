@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
@@ -29,8 +28,6 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.hasActiveBuilds
-import io.aequicor.heartbeat.feature.worktreemode.impl.data.WorktreeBuildSafety.Companion.isAutomatic
-import io.aequicor.heartbeat.feature.worktreemode.impl.data.WorktreeBuildSafety.Companion.revisionBinding
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.filterNotNull
@@ -55,7 +52,6 @@ internal class WorktreeAgentTools(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
     private val workspaces: LocalWorkspaces,
-    private val safety: WorktreeBuildSafety,
 ) : AgentToolContribution {
     override val group: String = "worktree"
     override val title: String = "Рабочие копии и сборки"
@@ -146,27 +142,7 @@ internal class WorktreeAgentTools(
 
             else -> approval(spec, arguments)
         }
-        // Automatic mode replaces the user decision with an independent review of this exact operation.
-        return if (spec.name in reviewedTools && context.isAutomatic()) safety.bind(context, approval) else approval
-    }
-
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? {
-        if (spec.name !in reviewedTools || !context.isAutomatic()) return null
-        val bound = try {
-            approval(context, spec, arguments)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            log.w(IllegalStateException("WorktreeApprovalUnavailable (${error::class.simpleName.orEmpty()})")) {
-                "Build action cannot be captured for review name=${spec.name}"
-            }
-            return AgentToolAutomaticAuthorization.Denied("The build action cannot be captured safely")
-        }
-        return safety.authorize(context, bound)
+        return approval
     }
 
     private suspend fun buildApproval(
@@ -222,7 +198,7 @@ internal class WorktreeAgentTools(
         )
     }
 
-    /** Mutating previews are complete; invisible text is escaped and oversized actions fail before the gate. */
+    /** Mutating previews are complete; invisible text is escaped without truncating the authorized operation. */
     private fun reviewableApproval(
         spec: AgentToolSpec,
         title: String,
@@ -231,7 +207,6 @@ internal class WorktreeAgentTools(
     ): AgentToolApproval {
         val safeTitle = title.visibleApprovalText()
         val safeDescription = description.visibleApprovalText()
-        check(safeTitle.length + safeDescription.length <= MAX_APPROVAL_CHARS) { "BuildApprovalTooLarge" }
         return AgentToolApproval(spec.name, safeTitle, safeDescription, binding)
     }
 
@@ -250,10 +225,10 @@ internal class WorktreeAgentTools(
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
         try {
-            // The verdict covers the state the dispatcher captured, so it is consumed before the task is tracked.
-            val isReviewConsumed = name !in reviewedTools || !context.isAutomatic() ||
-                safety.consume(context, approval(context, toolSpecs.single { it.name == name }, arguments))
-            if (!isReviewConsumed) return failure("SafetyReviewExpired")
+            // Revalidate the exact operation before tracking or mutating its task.
+            val isAuthorized = name !in mutatingTools ||
+                context.authorization == approval(context, toolSpecs.single { it.name == name }, arguments)
+            if (!isAuthorized) return failure("AuthorizationChanged")
             val task = authenticateOrTrack(context)
             if (task == null) failure("TurnUnavailable") else dispatch(task, context, name, arguments)
         } catch (error: CancellationException) {
@@ -346,7 +321,7 @@ internal class WorktreeAgentTools(
     private suspend fun build(task: WorktreeTask, context: AgentToolContext, arguments: JsonObject): AgentToolResult {
         if (task.run?.kind == WorktreeRunKind.Merge) return failure("MergeInProgress")
         if (!task.isBuildApproved || task.buildPlan == null) return failure("NeedsConfiguration")
-        val binding = context.authorization?.revisionBinding()?.split('@').orEmpty()
+        val binding = context.authorization?.binding?.split('@').orEmpty()
         val expected = binding.firstOrNull()?.toLongOrNull()
             ?: return failure("BuildAuthorizationUnavailable")
         if (expected != task.buildConfigurationRevision) return failure("BuildConfigurationChanged")
@@ -459,7 +434,6 @@ internal class WorktreeAgentTools(
 
     private companion object {
         const val COMMAND_TIMEOUT = 30_000L
-        const val MAX_APPROVAL_CHARS = 16_384
         const val HEX_RADIX = 16
         const val UNICODE_ESCAPE_WIDTH = 4
         const val MAX_SUMMARY = 4_096
@@ -543,7 +517,7 @@ internal class WorktreeAgentTools(
         val buildToolSpecs = toolSpecs.filterNot { it.name == "mark_task_complete" }
 
         /** Tools that change the saved plan or the machine's processes: reviewed in automatic mode. */
-        val reviewedTools = setOf("configure_build", "run_build", "cancel_build")
+        val mutatingTools = setOf("configure_build", "run_build", "cancel_build")
 
         fun schema(field: String): JsonObject = Json.parseToJsonElement(
             """{"type":"object","properties":{"$field":{"type":"string"}},

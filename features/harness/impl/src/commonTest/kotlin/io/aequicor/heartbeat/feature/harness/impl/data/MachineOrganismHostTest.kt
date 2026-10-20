@@ -245,7 +245,7 @@ class MachineOrganismHostTest {
         for (found in scenarios) {
             val machine = FakeOrganicMachine(OrganicAiState.Living(mapOf(id to found)))
             val view = host(machine).view(bound)
-            assertEquals(OrganismView.Stalled(OrganismEnd.InteractionRequired), view)
+            assertEquals(OrganismView.Developing, view)
             assertFalse(view.isEnded)
             assertTrue(view.isAbortable)
             assertTrue(machine.sent.isEmpty())

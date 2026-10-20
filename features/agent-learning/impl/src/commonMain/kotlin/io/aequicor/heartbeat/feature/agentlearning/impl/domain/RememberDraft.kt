@@ -4,7 +4,6 @@ import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningLimits
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningTools.Arguments
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hasHiddenCharacters
-import io.aequicor.heartbeat.feature.aiengine.facade.api.looksLikeSecret
 import io.aequicor.heartbeat.feature.aiengine.facade.api.singleLine
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -14,8 +13,8 @@ internal enum class ModelReach { Engine, Model }
 
 /**
  * A validated `remember` call; scope and identity are added by the host, never taken from the model. [title] and
- * [description] are single lines with every run of whitespace folded into one space; [content] has no two blank lines
- * in a row; [reason] is shown to the user only, folded into one line.
+ * [description] are single lines with every run of whitespace folded into one space; [content] preserves paragraph
+ * spacing and Unicode; [reason] is shown to the user only.
  */
 internal data class RememberDraft(
     val kind: InstructionKind,
@@ -104,14 +103,8 @@ private fun RememberDraft.problem(): String? = when {
     content.length > LearningLimits.content(kind) ->
         "content is longer than ${LearningLimits.content(kind)} characters; make it shorter"
 
-    // Blank lines could push the rest of the approval out of its window.
-    content.hasBlankLines() ->
-        "content has several blank lines in a row; use at most one blank line between paragraphs"
-
-    hasHiddenCharacters(title + description + content + reason) ->
-        "it contains invisible or control characters; use plain text"
-
-    looksLikeSecret("$title\n$description\n$content") -> "it looks like a credential; secrets are never stored"
+    hasHiddenCharacters(title + description + reason) ->
+        "metadata contains invisible or control characters; use single-line plain text"
 
     else -> null
 }
@@ -120,13 +113,6 @@ private fun RememberDraft.problem(): String? = when {
 internal fun isRatedSafe(arguments: JsonObject): Boolean = arguments.text(Arguments.SAFETY) == "safe"
 
 private fun String.hasLineBreak(): Boolean = any { it == '\n' || it == '\r' || it == '\u2028' || it == '\u2029' }
-
-/** Whether two lines in a row are blank; a line of whitespace only counts as blank. */
-private fun String.hasBlankLines(): Boolean = split(LINE_BREAK).zipWithNext().any { (line, next) ->
-    line.isBlank() && next.isBlank()
-}
-
-private val LINE_BREAK = Regex("\r\n|[\n\r\u2028\u2029]")
 
 /** At most [limit] characters, never ending in half of a surrogate pair. */
 private fun String.truncated(limit: Int): String = when {

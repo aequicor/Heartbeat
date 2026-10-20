@@ -18,14 +18,11 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.Subagent
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRun
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRunStore
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.brief
 import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
@@ -57,9 +54,9 @@ import kotlin.uuid.Uuid
 
 /**
  * `subagent_spawn` / `subagent_receive`: subagents of ordinary chats. A spawn chooses the model configuration with
- * [AdaptiveModels] and starts a scheduler background agent in a helper chat, reviewed by the parent's review model;
+ * [AdaptiveModels] and starts a scheduler background agent in a helper chat, authorized by the shared profile setting;
  * the scheduler owns its work, recovery and result, retained for this feature until the parent reads it. Starting
- * follows the host's trust policy in interactive mode and needs an independent review in automatic mode.
+ * follows the host's trust policy in interactive mode and needs an shared profile authorization in automatic mode.
  * Tasks and results are never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
@@ -70,7 +67,6 @@ internal class SubagentAgentTools(
     private val agents: Lazy<BackgroundAgents>,
     private val runs: SubagentRunStore,
     private val starts: SubagentStarts,
-    private val safety: SubagentToolSafety,
     private val toggles: FeatureToggles,
     private val clock: Clock,
 ) : AgentToolContribution {
@@ -86,27 +82,12 @@ internal class SubagentAgentTools(
 
     override suspend fun instructions(workspace: WorkspaceRef?): String = if (isEnabled()) INSTRUCTIONS else ""
 
-    override suspend fun requiresDecision(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject) =
-        spec.name == SubagentTools.SPAWN && context.trust != TrustLevel.Full
-
     override suspend fun approval(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject) =
         if (spec.name == SubagentTools.SPAWN) {
-            safety.approval(context, APPROVAL_TITLE, arguments)
+            subagentApproval(context, APPROVAL_TITLE, arguments)
         } else {
             AgentToolApproval(spec.name, spec.description)
         }
-
-    override suspend fun automaticAuthorization(
-        context: AgentToolContext,
-        spec: AgentToolSpec,
-        arguments: JsonObject,
-    ): AgentToolAutomaticAuthorization? {
-        if (spec.name != SubagentTools.SPAWN || context.decisionMode != AgentToolDecisionMode.AutomaticSafety) {
-            return null
-        }
-        if (!isEnabled()) return AgentToolAutomaticAuthorization.Denied("subagents are turned off")
-        return safety.authorize(context, safety.approval(context, APPROVAL_TITLE, arguments), arguments)
-    }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (!isEnabled()) return failure("subagents are turned off")
@@ -118,9 +99,8 @@ internal class SubagentAgentTools(
     }
 
     private suspend fun spawn(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
-        val isReviewed = context.decisionMode != AgentToolDecisionMode.AutomaticSafety ||
-            safety.isAuthorized(context, safety.approval(context, APPROVAL_TITLE, arguments))
-        if (!isReviewed) return failure("the safety review expired or the request changed; request it again")
+        val isReviewed = context.authorization == subagentApproval(context, APPROVAL_TITLE, arguments)
+        if (!isReviewed) return failure("the request changed after authorization; request it again")
         val request = arguments.spawnRequest().getOrElse { return failure(it.message.orEmpty()) }
         val selection = SelectionContext(SubagentHost.StudioHelper, context.target, context.workspace)
         val choice = adaptive.value.select(request, selection)

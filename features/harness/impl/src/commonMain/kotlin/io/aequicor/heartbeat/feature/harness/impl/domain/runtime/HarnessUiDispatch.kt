@@ -19,7 +19,7 @@ internal data class HarnessUiMethod(val name: ItemName, val description: String)
     override fun toString(): String = "HarnessUiMethod(name=${name.value})"
 }
 
-/** Private immutable code and exact callback lifetime selected for an independent method review. */
+/** Private immutable code and exact callback lifetime selected for an exact method authorization. */
 internal data class HarnessUiReview(val binding: String, val source: String) {
     override fun toString(): String = "HarnessUiReview(***)"
 }
@@ -56,7 +56,7 @@ internal sealed interface HarnessUiOutcome {
 }
 
 /**
- * Runs UI methods for surface actions and bound, independently reviewed agent calls. A call in a chat requires the
+ * Runs UI methods for surface actions and bound, authorized agent calls. A call in a chat requires the
  * harness to be active there (see [connectedAdmission]); without a chat, only a running activation is required.
  * Each call is admitted again immediately before author code runs and is cancelled together with its caller.
  */

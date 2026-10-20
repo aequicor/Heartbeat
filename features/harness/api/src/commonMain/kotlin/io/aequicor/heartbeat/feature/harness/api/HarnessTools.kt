@@ -16,7 +16,6 @@ public object HarnessTools {
     public const val DETACH: String = "harness_detach"
     public const val ITEM_PUT: String = "harness_item_put"
     public const val ITEM_DELETE: String = "harness_item_delete"
-    public const val TOOLS_SET: String = "harness_tools_set"
 
     public const val LIST: String = "harness_list"
     public const val GET: String = "harness_get"

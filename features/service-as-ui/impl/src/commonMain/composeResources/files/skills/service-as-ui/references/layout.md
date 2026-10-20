@@ -66,7 +66,7 @@ The examples in this table are node fragments, not standalone specs. Binding exa
 
 Text styles: `body` (default), `caption`, `title`, `heading`, `code`. Text/badge tones: `neutral` (default), `brand`, `success`, `warning`, `danger`. Button styles: `secondary` (default), `primary`, `ghost`, `danger`.
 
-`enabledWhen` uses binding truthiness, not a JavaScript expression. `confirm` is a supported explicit question before an action; it is unrelated to automatic safety review. Leave it out of routine flows and honor a user's requirement for no confirmations. `id` is an optional short identifier for a button, not its visible text.
+`enabledWhen` uses binding truthiness, not a JavaScript expression. `confirm` is a supported explicit question before an action; it is independent of host tool authorization. Leave it out of routine flows and honor a user's requirement for no confirmations. `id` is an optional short identifier for a button, not its visible text.
 
 An `icon` makes an icon button: `label` remains required as its tooltip and accessible name. Supported names:
 

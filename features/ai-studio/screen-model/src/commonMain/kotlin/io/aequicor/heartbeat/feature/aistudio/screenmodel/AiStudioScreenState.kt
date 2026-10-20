@@ -26,8 +26,6 @@ import kotlin.time.Instant
 data class AiStudioScreenState(
     /** Native app update offer; remote hosts never install it. */
     val appUpdate: AppUpdateUi? = null,
-    /** Load of the profile's automatic safety reviews; absent while the reviewer is idle. */
-    val safetyReviews: SafetyReviewsUi? = null,
     /** Saved profile confirmation level, applied to the next ordinary user turn. */
     val securityLevel: SecurityLevelUi = SecurityLevelUi.Automatic,
     val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),
@@ -56,6 +54,8 @@ data class AiStudioScreenState(
     val stopFailures: ImmutableSet<String> = persistentSetOf(),
     val uncancellable: ImmutableSet<String> = persistentSetOf(),
     val settings: SettingsUi = DefaultSettingsUi,
+    val isEngineSwitchingAvailable: Boolean = false,
+    val engineSwitches: ImmutableMap<String, EngineSwitchUi> = persistentMapOf(),
     val configurations: ImmutableMap<String, SessionConfigurationUi> = persistentMapOf(),
     val projects: ImmutableList<ProjectUi> = persistentListOf(),
     val sessions: ImmutableList<SessionUi> = persistentListOf(),

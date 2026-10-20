@@ -4,10 +4,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Multibinds
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
@@ -24,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
@@ -54,10 +52,6 @@ import kotlinx.serialization.json.JsonObject
 /** Empty profiles/mobile graphs still have a dispatcher, with no local tools. */
 @ContributesTo(ProfileScope::class)
 public interface AgentToolBindings {
-    /** Platform command inspectors may be absent on mobile. */
-    @Multibinds(allowEmpty = true)
-    public fun commandSafetyEvidence(): Set<CommandSafetyEvidence>
-
     /** Contributions may be absent on mobile and in profiles without local engines. */
     @Multibinds(allowEmpty = true)
     public fun agentToolContributions(): Set<AgentToolContribution>
@@ -75,15 +69,11 @@ internal class DefaultAgentTools(
     private val hooks: SessionHooks = NoSessionHooks,
     policies: ToolPolicyResolver = NoToolPolicyResolver,
     private val offloads: Lazy<Set<ToolOutputOffload>> = lazyOf(emptySet()),
-    safety: Lazy<AgentSafetyReviewer> = lazyOf(
-        AgentSafetyReviewer { _, _, _ ->
-            AgentSafetyReview("uncertain", "Native automatic safety review is unavailable")
-        },
-    ),
     private val workspaces: LocalWorkspaces? = null,
-    commandEvidence: Set<CommandSafetyEvidence> = emptySet(),
+    settings: AgentSecuritySettings = DefaultSecuritySettings,
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
+    private val permissions = ToolPermissions(settings)
     private val legacyNames: Map<String, Set<String>> by lazy {
         contributions.flatMap { it.legacyNames.entries }
             .groupBy({ it.key }, { it.value })
@@ -93,8 +83,7 @@ internal class DefaultAgentTools(
     private val nativeGate = NativeToolGate(
         policyLookup,
         hooks,
-        safety,
-        commandEvidence,
+        permissions,
         hostedNames = { catalog().flatMap { it.tools }.map { it.name }.toSet() },
         isVirtual = { context ->
             context.workspace?.value?.startsWith("sandbox-") == true ||
@@ -103,6 +92,7 @@ internal class DefaultAgentTools(
     )
     private val callsLock = Mutex()
     private val calls = mutableMapOf<Pair<SessionRef, TurnId>, MutableSet<Job>>()
+    private val claimedCalls = mutableMapOf<Pair<SessionRef, TurnId>, MutableSet<String>>()
     private val finishedTurns = mutableSetOf<Pair<SessionRef, TurnId>>()
     private val uncatalogued = MutableStateFlow(emptySet<String>())
 
@@ -186,7 +176,7 @@ internal class DefaultAgentTools(
                             } else {
                                 // Use the original native context so the facade binding is reapplied exactly once.
                                 withInvocation(context, NativeVerdict.Deny("Native turn has ended")) {
-                                    nativeGate.confirm(it, call, checked.approval)
+                                    nativeGate.confirm(it, call, checked)
                                 }
                             }
                         },
@@ -244,6 +234,7 @@ internal class DefaultAgentTools(
         }
         var trusted = context
         try {
+            val mode = permissions.mode()
             currentCoroutineContext().ensureActive()
             val isRegistered = callsLock.withLock {
                 val bound = context.request?.let { boundTurns[context.session to it] }
@@ -252,7 +243,12 @@ internal class DefaultAgentTools(
                     historyTurn = context.turn,
                     target = bound?.target ?: context.target,
                     authorization = null,
-                    decisionMode = bound?.decisionMode ?: context.decisionMode,
+                    trust = when (mode) {
+                        SecurityMode.Ask -> TrustLevel.Ask
+                        SecurityMode.Automatic -> TrustLevel.AutoEdits
+                        SecurityMode.Trust -> TrustLevel.Full
+                    },
+                    decisionMode = AgentToolDecisionMode.Interactive,
                     reviewTarget = bound?.reviewTarget ?: context.reviewTarget,
                 )
                 val key = trusted.session to trusted.turn
@@ -284,6 +280,7 @@ internal class DefaultAgentTools(
                 callsLock.withLock {
                     val key = session to turn
                     finishedTurns.add(key)
+                    claimedCalls.remove(key)
                     val bound = boundTurns.entries.singleOrNull {
                         it.key.first == session && it.value.turn == turn
                     }?.key?.second
@@ -338,25 +335,21 @@ internal class DefaultAgentTools(
         arguments: JsonObject,
         isAdapterOperated: Boolean = false,
     ): AgentToolResult {
+        val callId = context.callId?.value
+        if (callId != null && !callsLock.withLock {
+                claimedCalls.getOrPut(context.session to context.turn) { mutableSetOf() }.add(callId)
+            }
+        ) {
+            return AgentToolResult("This tool call has already been handled", isError = true)
+        }
         val declaration = declarations(context.toolScope(), isExecuting = true, isAdapterOperated = isAdapterOperated)
             .singleOrNull { it.second.name == name }
             ?: return AgentToolResult("Tool is unavailable for this session", isError = true)
         val (owner, spec) = declaration
         log.i { "Hosted tool requested name=${spec.name} action=${spec.action}" }
         return try {
-            val call = hooks.context(context.session, context.request, context.turn)?.let {
-                HookedToolCall(it, name, spec.action, arguments)
-            }
-            val verdict = call?.let { hooks.beforeTool(it) } ?: ToolHookVerdict.Continue
-            if (verdict is ToolHookVerdict.Deny) {
-                log.i { "Hosted tool denied by a session hook name=${spec.name}" }
-                return AgentToolResult(
-                    "Blocked by a session hook: ${verdict.reason.take(HOOK_NOTE_CHARS)}",
-                    isError = true,
-                )
-            }
             val approval = owner.approval(context, spec, arguments)
-            val refusal = authorizationRefusal(context, HostedApproval(owner, spec, arguments, approval), verdict)
+            val refusal = authorizationRefusal(context, HostedApproval(owner, spec, arguments, approval))
             if (refusal != null) {
                 refusal
             } else if (isAdapterOperated) {
@@ -369,7 +362,7 @@ internal class DefaultAgentTools(
                     .shortened(context, name)
                     .withinBudget(spec)
                 log.i { "Hosted tool finished name=${spec.name} failed=${result.isError}" }
-                val note = call?.let { hooks.afterTool(it, result) }
+                val note = afterResult(context, spec, arguments, result)
                 if (note.isNullOrBlank()) {
                     result
                 } else {
@@ -389,119 +382,101 @@ internal class DefaultAgentTools(
         }
     }
 
-    private suspend fun authorizationRefusal(
+    /** A notification failure cannot turn a completed side effect into an apparent execution failure. */
+    private suspend fun afterResult(
         context: AgentToolContext,
-        operation: HostedApproval,
-        verdict: ToolHookVerdict,
-    ): AgentToolResult? {
-        val (owner, spec, arguments) = operation
-        val automatic = owner.automaticAuthorization(context, spec, arguments)
-        return when {
-            automatic != null -> automaticRefusal(context, operation, automatic, verdict)
-
-            context.decisionMode == AgentToolDecisionMode.AutomaticSafety ->
-                unreviewedAutomaticRefusal(context, operation, verdict)
-
-            else -> interactiveRefusal(context, operation, verdict)
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+        result: AgentToolResult,
+    ): String? = try {
+        hooks.context(context.session, context.request, context.turn)?.let {
+            hooks.afterTool(HookedToolCall(it, spec.name, spec.action, arguments), result)
         }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(IllegalStateException("Result hook failed (${error::class.simpleName.orEmpty()})")) {
+            "Tool completed but its result hook failed"
+        }
+        null
     }
 
-    /** Automatic mode permits ordinary reads; a missing mutation reviewer is a refusal, never a prompt. */
-    private suspend fun unreviewedAutomaticRefusal(
-        context: AgentToolContext,
-        operation: HostedApproval,
-        verdict: ToolHookVerdict,
-    ): AgentToolResult? {
-        val (owner, spec, arguments) = operation
-        val refusal = verdict.automaticRefusal()
-            ?: if (spec.action != AgentToolAction.Read || owner.requiresDecision(context, spec, arguments)) {
-                "This tool has no independent automatic safety review; the action was refused"
+    private suspend fun authorizationRefusal(context: AgentToolContext, operation: HostedApproval): AgentToolResult? {
+        while (true) {
+            val accepted = permissions.authorize(
+                context,
+                operation.approval.copy(
+                    description = listOfNotNull(
+                        operation.approval.description,
+                        "Arguments: ${operation.argumentsSnapshot}",
+                    ).joinToString("\n\n"),
+                ),
+            ) { requiresConfirmation(context, operation, it) }
+            val failure = if (accepted == null) {
+                "The user declined this action"
             } else {
-                null
+                changedOperation(
+                    context,
+                    operation,
+                )
             }
-        return if (refusal != null) {
-            AgentToolResult(refusal, isError = true)
-        } else {
-            automaticRecheck(context, operation, isUnreviewedRead = true)
+            if (failure != null) return AgentToolResult(failure, isError = true)
+            // A mode change during final revalidation requires a new decision before dispatch.
+            if (permissions.mode() == accepted) return null
         }
     }
 
-    private suspend fun interactiveRefusal(
+    private suspend fun requiresConfirmation(
         context: AgentToolContext,
         operation: HostedApproval,
-        verdict: ToolHookVerdict,
-    ): AgentToolResult? {
-        val (owner, spec, arguments) = operation
-        val approval = operation.approval
-        val isRequiredByTrust = requiresTrustDecision(spec.action, context.trust)
-        // The owner may add a decision (its own approval policy); it can never remove one the table demands.
-        val existing = owner.existingAuthorization(context, spec, arguments)
-        val isCovered = !existing?.binding.isNullOrBlank() && existing == approval
-        val isDecisionRequired = verdict is ToolHookVerdict.Ask ||
-            (!isCovered && (isRequiredByTrust || owner.requiresDecision(context, spec, arguments)))
-        val shown = if (verdict is ToolHookVerdict.Ask) {
-            approval.copy(
-                description = "A session hook requires confirmation: ${verdict.reason.take(HOOK_NOTE_CHARS)}\n\n" +
-                    approval.description.orEmpty(),
-            )
-        } else {
-            approval
-        }
-        return if (isDecisionRequired && !context.permissions.request(shown)) {
-            log.i { "Hosted tool declined name=${spec.name}" }
-            AgentToolResult("The user declined this action", isError = true)
-        } else if (declarations(
-                context.toolScope(),
-                isExecuting = true,
-                isAdapterOperated = owner.isAdapterOperated,
-            ).none { it.first === owner && it.second == spec }
-        ) {
-            AgentToolResult("Tool became unavailable", isError = true)
-        } else if ((isDecisionRequired || isCovered) && owner.approval(context, spec, arguments) != approval) {
-            AgentToolResult("The action changed while awaiting approval; request it again", isError = true)
-        } else {
-            null
-        }
+        mode: SecurityMode,
+    ): Boolean {
+        if (mode == SecurityMode.Trust) return false
+        val owner = operation.owner
+        val spec = operation.spec
+        val existing = owner.existingAuthorization(context, spec, operation.arguments)
+        val isCovered = !existing?.binding.isNullOrBlank() && existing == operation.approval
+        val isOrdinaryEdit = context.workspace != null && spec.name in PROJECT_EDITS
+        return hookNeedsConfirmation(context, operation) || (
+            !isCovered &&
+                (
+                    needsConfirmation(mode, spec.action, isOrdinaryEdit) ||
+                        owner.requiresDecision(context, spec, operation.arguments)
+                )
+        )
     }
 
-    /** Review never overrides a hook or a changed operation, and never opens an interactive permission path. */
-    private suspend fun automaticRefusal(
-        context: AgentToolContext,
-        operation: HostedApproval,
-        decision: AgentToolAutomaticAuthorization,
-        verdict: ToolHookVerdict,
-    ): AgentToolResult? {
-        val refusal = decision.refusal(operation.approval, verdict)
-        if (refusal != null) return AgentToolResult(refusal, isError = true)
-        return automaticRecheck(context, operation)
+    private suspend fun hookNeedsConfirmation(context: AgentToolContext, operation: HostedApproval): Boolean = try {
+        val verdict = hooks.context(context.session, context.request, context.turn)?.let {
+            hooks.beforeTool(HookedToolCall(it, operation.spec.name, operation.spec.action, operation.arguments))
+        } ?: ToolHookVerdict.Continue
+        verdict != ToolHookVerdict.Continue
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(IllegalStateException("Permission hook failed (${error::class.simpleName.orEmpty()})")) {
+            "Permission hook unavailable; requesting confirmation"
+        }
+        true
     }
 
-    private suspend fun automaticRecheck(
-        context: AgentToolContext,
-        operation: HostedApproval,
-        isUnreviewedRead: Boolean = false,
-    ): AgentToolResult? {
-        val call = hooks.context(context.session, context.request, context.turn)?.let {
-            HookedToolCall(it, operation.spec.name, operation.spec.action, operation.arguments)
-        }
-        val currentHook = call?.let { hooks.beforeTool(it) } ?: ToolHookVerdict.Continue
-        val hookRefusal = currentHook.automaticRefusal()
-        if (hookRefusal != null) return AgentToolResult(hookRefusal, isError = true)
-        val (owner, spec, arguments) = operation
-        val approval = operation.approval
-        return if (declarations(
-                context.toolScope(),
-                isExecuting = true,
-                isAdapterOperated = owner.isAdapterOperated,
-            ).none { it.first === owner && it.second == spec }
-        ) {
-            AgentToolResult("Tool became unavailable after safety review", isError = true)
-        } else if (owner.approval(context, spec, arguments) != approval) {
-            AgentToolResult("The action changed during safety review; request it again", isError = true)
-        } else if (isUnreviewedRead && owner.requiresDecision(context, spec, arguments)) {
-            AgentToolResult("This read now requires a decision and has no automatic safety review", isError = true)
-        } else {
-            null
+    private suspend fun changedOperation(context: AgentToolContext, operation: HostedApproval): String? {
+        val owner = operation.owner
+        val spec = operation.spec
+        val isAvailable = declarations(
+            context.toolScope(),
+            isExecuting = true,
+            isAdapterOperated = owner.isAdapterOperated,
+        )
+            .any { it.first === owner && it.second == spec }
+        return when {
+            !isAvailable -> "Tool became unavailable"
+
+            operation.arguments.toString() != operation.argumentsSnapshot ||
+                owner.approval(context, spec, operation.arguments) != operation.approval ->
+                "The action changed while awaiting approval; request it again"
+
+            else -> null
         }
     }
 
@@ -583,8 +558,4 @@ internal class DefaultAgentTools(
 
 private const val HOOK_NOTE_CHARS = 2_000
 
-private fun requiresTrustDecision(action: AgentToolAction, trust: TrustLevel): Boolean = when (action) {
-    AgentToolAction.Read -> false
-    AgentToolAction.Edit -> trust == TrustLevel.Ask
-    AgentToolAction.Command -> trust != TrustLevel.Full
-}
+private val PROJECT_EDITS = setOf("write_file", "edit_file", "delete_file", "move_file")
