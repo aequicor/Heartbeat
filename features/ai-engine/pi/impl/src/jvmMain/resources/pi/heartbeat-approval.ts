@@ -15,11 +15,11 @@
  * - Inspect Pi's tool pipeline: validate -> tool_call -> execute must pass the same mutable event.input to the
  *   tool; edit/write must execute our pinned absolute path without applying another rewrite.
  * - In a disposable workspace, exercise edit and write with relative and absolute paths. Compare the RPC
- *   approval payload's path with the actual file changed; AutoEdits may approve an ordinary file inside it.
+ *   approval payload's path with the actual file changed. Automatic asks for native mutations; Trust permits them.
  * - Exercise @, ~, file:, Unicode spaces from UNICODE_SPACES, and Windows /c/, /mnt/c/ and /cygdrive/c/ paths.
  *   Also use a cwd containing a Unicode space: when either the input or resolved path would be rewritten,
- *   the approval payload must omit path and AutoEdits must ask the user.
- * - Check an outside-workspace path and a protected project file (for example .git/config): AutoEdits must
+ *   the approval payload must omit path; Automatic asks for confirmation.
+ * - Check an outside-workspace path and a protected project file (for example .git/config): Automatic must
  *   ask the user. A denied, missing, cancelled or failed confirmation must leave every target unchanged.
  * Record the tested Pi version, OS and results in the upgrade PR; if an invariant changes, update the pinning
  * and host approval policy before shipping the new runtime. JVM approval fixtures do not execute this script.

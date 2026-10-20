@@ -32,7 +32,7 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * Immutable graph approvals and owner-scoped status, cancellation and interrupted-attempt resolution. Automatic
- * callers independently review the complete operation; interactive callers follow trust and permission hooks.
+ * calls use shared profile authorization of the complete operation and exact graph revision.
  * A graph approval never raises the trust of its agent tasks.
  */
 @ContributesIntoSet(ProfileScope::class)

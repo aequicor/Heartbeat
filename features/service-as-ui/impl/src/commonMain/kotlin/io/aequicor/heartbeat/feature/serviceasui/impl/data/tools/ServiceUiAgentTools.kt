@@ -255,7 +255,7 @@ internal class ServiceUiAgentTools(
             return SafetyPlan.Invalid("args are too large")
         }
         val review = calls.value.review(owner, method, UiCallContext(context.session, context.workspace))
-            ?: return SafetyPlan.Invalid("method source is unavailable for automatic safety review")
+            ?: return SafetyPlan.Invalid("method source is unavailable for operation binding")
         val snapshot = buildJsonObject {
             put("owner", Json.encodeToJsonElement(owner))
             put("method", method)
@@ -428,7 +428,7 @@ internal class ServiceUiAgentTools(
         arguments: JsonObject,
         expectedBinding: String?,
     ): AgentToolResult {
-        if (expectedBinding == null) return failure("method safety review is unavailable")
+        if (expectedBinding == null) return failure("method authorization binding is unavailable")
         val ready = ready() ?: return failure(NOT_LOADED)
         val owner = try {
             owner(ready, requireNotNull(arguments.text("owner")) { "owner is required" })
@@ -452,7 +452,7 @@ internal class ServiceUiAgentTools(
         arguments: JsonObject,
         expectedLibraryRevision: Long?,
     ): AgentToolResult {
-        if (expectedLibraryRevision == null) return failure("library safety review is unavailable")
+        if (expectedLibraryRevision == null) return failure("library authorization binding is unavailable")
         val plan = plan(name, arguments)
         if (plan !is Plan.Write) return failure((plan as? Plan.Invalid)?.message ?: "unknown interface tool")
         if (context.authorization?.binding != plan.approval.binding) {

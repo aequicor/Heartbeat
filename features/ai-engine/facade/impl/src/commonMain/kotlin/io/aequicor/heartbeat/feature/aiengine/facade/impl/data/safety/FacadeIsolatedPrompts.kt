@@ -19,8 +19,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.Uuid
 
 /**
- * Isolated prompts share the safety review's isolation (native Off before the prompt, tool calls denied by
- * [AgentSafetyHook]) and bounded capacity.
+ * Text-only service prompts use explicit native/hosted capability isolation and bounded capacity.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)

@@ -83,17 +83,13 @@ public data class AgentToolContext(
     val historyTurn: TurnId? = null,
     /** Host-bound decision mode of the accepted request, independent of the session's trust level. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
-    /**
-     * Model that independently reviews this turn's automatic safety decisions, chosen by the host (a subagent on a
-     * cheaper model is reviewed by its parent's model). Null reviews on [target]. Never decoded from model arguments;
-     * the dispatcher replaces it with the value recorded by [ProfileAgentTools.bindTurn] for a bound request.
-     */
+    /** Legacy host model metadata retained in exact call bindings; it does not run a permission review. */
     val reviewTarget: EngineTarget? = null,
 ) {
     override fun toString(): String = "AgentToolContext"
 }
 
-/** The model an automatic safety review of this call runs on: the host's review model, else the turn's own. */
+/** Legacy host model identity retained for exact operation bindings. */
 public val AgentToolContext.reviewModel: EngineTarget? get() = reviewTarget ?: target
 
 /**
@@ -272,8 +268,8 @@ public interface ProfileAgentTools {
     /**
      * Binds a trusted request to its facade turn before native submission can invoke any hosted tools.
      * [target] is the engine and model the turn runs on; calls of the request see it as [AgentToolContext.target].
-     * [decisionMode] is the host's immutable choice, applied before any native or hosted authorization.
-     * [reviewTarget] is the host's model for automatic safety reviews of the request; null reviews on [target].
+     * [decisionMode] is immutable legacy metadata; the live profile security mode decides authorization.
+     * [reviewTarget] is legacy host identity included in operation bindings, not an authorization source.
      */
     public suspend fun bindTurn(
         session: SessionRef,
@@ -310,12 +306,13 @@ public interface ProfileAgentTools {
     /** Instructions for a concrete session: its workspace, engine and model, and the tools it declared. */
     public suspend fun instructions(scope: AgentToolScope): String = instructions(scope.workspace)
 
-    /** Rechecks availability and enforces TrustLevel before invoking a contribution. */
+    /** Rechecks availability and shared profile authorization before invoking a contribution. */
     public suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult
 
     /**
      * Noninteractive preflight of an adapter-classified native call under the same turn barrier as hosted calls:
-     * checks policy, then hooks, then the adapter's trust coverage, and never asks the user itself. A call needing
+     * checks capability isolation and the live profile mode; preparation does not display a prompt itself. A
+     * call needing
      * a decision returns [NativePreparation.Ask], whose one-shot confirmation asks the user and rechecks policy
      * around the decision. Cancellation revokes the result. Adapters with separate pre-tool and permission
      * callbacks use this form; they must recheck their captured turn before answering the native process.

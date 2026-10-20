@@ -44,7 +44,7 @@ import kotlinx.serialization.json.JsonPrimitive
  *
  * Trust follows the embedded browser's tools: observation and public-web navigation are [AgentToolAction.Read],
  * page input, history/reload and closing a tab are [AgentToolAction.Command]. In automatic mode, these actions,
- * private navigation and tab hand-over receive independent safety review bound to the caller and live page.
+ * private navigation and tab hand-over receive exact operation authorization bound to the caller and live page.
  * Execution consumes that decision and revalidates the page under its operation lock. Interactive hosts preserve
  * their trust policy: handing over a user tab always asks, and private navigation asks unless fully trusted.
  */

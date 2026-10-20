@@ -123,12 +123,9 @@ public data class PromptRequest(
     val trust: TrustLevel? = null,
     /** Native context compaction instead of a prompt; see [CompactsContext]. */
     val compaction: ContextCompaction? = null,
-    /** Trusted host decision mode; automatic review never falls back to an interactive permission. */
+    /** Legacy host label; tool authorization reads the shared profile mode. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
-    /**
-     * Trusted host model for automatic safety reviews of this turn (see [AgentToolContext.reviewTarget]); null reviews
-     * on the turn's own model. A turn an adapter restores after a restart reviews on its own model.
-     */
+    /** Legacy host identity for operation binding; no model-based permission review is performed. */
     val reviewTarget: EngineTarget? = null,
 ) {
     init {
