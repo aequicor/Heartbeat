@@ -33,10 +33,12 @@ internal fun claudeToolFlags(
     search: Boolean,
     subagents: Boolean,
     providerSearch: Boolean,
+    /** Provider search and child agents cannot carry action evidence; MCP search requires a scoped guard. */
+    requiresActionAnalysis: Boolean = false,
 ): ClaudeToolFlags {
-    val isProviderSearch = search && providerSearch && "web_search" !in policy.hostedDenied
+    val isProviderSearch = search && !requiresActionAnalysis && providerSearch && "web_search" !in policy.hostedDenied
     val native = policy.nativeOn.intersect(ClaudeNativeCatalog.filter { it.isGated }.map { it.name }.toSet()) +
-        (if (subagents) ClaudeAgentTools - policy.nativeOff else emptySet()) +
+        (if (subagents && !requiresActionAnalysis) ClaudeAgentTools - policy.nativeOff else emptySet()) +
         (
             if (isProviderSearch && "WebSearch" !in policy.nativeOff) {
                 setOf("WebSearch")
@@ -45,7 +47,11 @@ internal fun claudeToolFlags(
             }
         )
     val available = native - policy.nativeOff
-    val bridged = if (search) ClaudeSearchTools.filterKeys { it !in policy.hostedDenied }.values.toSet() else emptySet()
+    val bridged = if (search) {
+        ClaudeSearchTools.filterKeys { it !in policy.hostedDenied }.values.toSet()
+    } else {
+        emptySet()
+    }
     return ClaudeToolFlags(available, available.intersect(ClaudeProviderTools) + bridged)
 }
 

@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeGuard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -215,28 +216,33 @@ internal class ProcessClaudeTransport(
         operation: suspend (Process) -> Int,
     ): Int {
         val isSearchEnabled = SEARCH_BRIDGE_MARKER in arguments
+        val requiresScopedSearch = SCOPED_SEARCH_BRIDGE_MARKER in arguments
+        if (requiresScopedSearch && !isSearchEnabled) searchUnavailable()
         val endpoint = hosted?.endpoint
-        val bridgeConfig = when {
-            endpoint != null -> hostedConfig(endpoint, isSearchEnabled)
-            isSearchEnabled -> searchConfig()
-            else -> null
+        val searchAccess = if (requiresScopedSearch) {
+            val guard = hosted?.searchGuard ?: searchUnavailable()
+            searchOperation { searchBridge.attach(guard) }
+        } else {
+            null
         }
+        var bridgeConfig: Path? = null
         var instructionFile: Path? = null
         try {
+            val searchEndpoint = if (requiresScopedSearch) {
+                checkNotNull(searchAccess).endpoint
+            } else if (isSearchEnabled) {
+                searchOperation { searchBridge.endpoint() }
+            } else {
+                null
+            }
+            bridgeConfig = when {
+                endpoint != null -> hostedConfig(endpoint, searchEndpoint)
+                searchEndpoint != null -> searchConfig(searchEndpoint)
+                else -> null
+            }
             instructionFile = hosted?.takeIf { endpoint != null || it.instructions.isNotBlank() }
                 ?.let { instructionFile(it.instructions) }
-            val effectiveArguments = if (endpoint != null) {
-                claudeHostedArguments(
-                    arguments,
-                    checkNotNull(bridgeConfig),
-                    checkNotNull(instructionFile),
-                    claudeToolFlags(arguments),
-                )
-            } else {
-                val plain = bridgeConfig?.let { claudeSearchArguments(arguments, it, claudeToolFlags(arguments)) }
-                    ?: arguments
-                plain + instructionFile?.let { listOf("--append-system-prompt-file", it.toString()) }.orEmpty()
-            }
+            val effectiveArguments = configuredArguments(arguments, endpoint, bridgeConfig, instructionFile)
             val process = start(processBuilder(startup, effectiveArguments, workspace))
             try {
                 return operation(process)
@@ -245,9 +251,28 @@ internal class ProcessClaudeTransport(
                 closeInput(process)
             }
         } finally {
+            searchAccess?.close()
             bridgeConfig?.let(Files::deleteIfExists)
             instructionFile?.let(Files::deleteIfExists)
         }
+    }
+
+    /** Applies the prepared bridge files without changing which scoped capabilities were selected for the turn. */
+    private fun configuredArguments(
+        arguments: List<String>,
+        endpoint: AgentToolBridgeEndpoint?,
+        bridgeConfig: Path?,
+        instructionFile: Path?,
+    ): List<String> = if (endpoint != null) {
+        claudeHostedArguments(
+            arguments,
+            checkNotNull(bridgeConfig),
+            checkNotNull(instructionFile),
+            claudeToolFlags(arguments),
+        )
+    } else {
+        val plain = bridgeConfig?.let { claudeSearchArguments(arguments, it, claudeToolFlags(arguments)) } ?: arguments
+        plain + instructionFile?.let { listOf("--append-system-prompt-file", it.toString()) }.orEmpty()
     }
 
     private val configDirectory by lazy { claudeMcpDirectory() }
@@ -259,28 +284,25 @@ internal class ProcessClaudeTransport(
         return file
     }
 
-    /** Bridge start and config file failures surface as an unavailable engine, never as a raw exception. */
-    private fun searchConfig(): Path = try {
-        claudeSearchConfig(searchBridge.endpoint(), configDirectory)
-    } catch (e: IOException) {
-        log.w(e) { "Search bridge config could not be prepared" }
-        searchUnavailable()
-    } catch (e: IllegalStateException) {
-        log.w(e) { "Search bridge is closed" }
-        searchUnavailable()
-    } catch (e: UnsupportedOperationException) {
-        log.w(e) { "MCP config permissions are not supported" }
-        searchUnavailable()
-    } catch (e: SecurityException) {
-        log.w(e) { "MCP config permissions were denied" }
+    private fun searchConfig(endpoint: SearchBridgeEndpoint): Path = searchOperation {
+        claudeSearchConfig(endpoint, configDirectory)
+    }
+
+    /** Bridge lifecycle and config failures surface as an unavailable engine without exposing capability data. */
+    private fun <T> searchOperation(operation: () -> T): T = try {
+        operation()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e.redacted()) { "Search bridge could not be prepared" }
         searchUnavailable()
     }
 
     private fun searchUnavailable(): Nothing =
         throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
 
-    private fun hostedConfig(endpoint: AgentToolBridgeEndpoint, search: Boolean): Path = try {
-        claudeHostedConfig(endpoint, if (search) searchBridge.endpoint() else null, configDirectory)
+    private fun hostedConfig(endpoint: AgentToolBridgeEndpoint, search: SearchBridgeEndpoint?): Path = try {
+        claudeHostedConfig(endpoint, search, configDirectory)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -466,6 +488,7 @@ internal data class ClaudeHostedTools(
     val endpoint: AgentToolBridgeEndpoint?,
     val instructions: String,
     val isProject: Boolean = true,
+    val searchGuard: SearchBridgeGuard? = null,
 ) {
     override fun toString(): String = "ClaudeHostedTools(***)"
 }
@@ -617,6 +640,7 @@ internal const val MAX_FRAME_CHARS = 2 * 1024 * 1024
 
 /** Replace the complete generated tool selection; no earlier native permission list can survive rebuilding. */
 private fun withoutToolOptions(arguments: List<String>): List<String> = arguments.filterNot {
-    it == SEARCH_BRIDGE_MARKER || it.startsWith("--tools=") || it.startsWith("--allowedTools=") ||
+    it == SEARCH_BRIDGE_MARKER || it == SCOPED_SEARCH_BRIDGE_MARKER ||
+        it.startsWith("--tools=") || it.startsWith("--allowedTools=") ||
         it.startsWith("--disallowedTools=")
 }

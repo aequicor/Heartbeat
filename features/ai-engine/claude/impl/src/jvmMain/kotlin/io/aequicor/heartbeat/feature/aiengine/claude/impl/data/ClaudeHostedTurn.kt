@@ -26,6 +26,7 @@ internal class ClaudeHostedTurn(
     private val log = Log.tag("ClaudeHostedTurn")
     private val isOpen = AtomicBoolean(true)
     private var attachment: AgentToolBridgeAttachment? = null
+    val searchGuard = ClaudeSearchGuard(environment.tools, ::toolContext, ::isActive)
     val permissions = ClaudePermissions(
         observer,
         history,

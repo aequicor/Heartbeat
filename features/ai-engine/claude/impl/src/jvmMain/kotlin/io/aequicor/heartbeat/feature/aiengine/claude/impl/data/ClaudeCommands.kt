@@ -30,12 +30,14 @@ internal fun claudeArguments(
 internal val ClaudeEffortLevels = setOf("low", "medium", "high", "xhigh", "max")
 
 internal const val SEARCH_BRIDGE_MARKER = "--heartbeat-search-bridge"
+internal const val SCOPED_SEARCH_BRIDGE_MARKER = "--heartbeat-scoped-search-bridge"
 
 /** A verified gate plan or a legacy turn with all additional native tools removed. */
 internal data class ClaudeTurnPlan(
     val arguments: List<String>,
     val native: ClaudeNativeWorkspace?,
     val gated: Set<String>,
+    val isActionAnalysisRequired: Boolean = false,
 )
 
 /** Existing multimodal submissions are already user JSON frames; plain text is never reparsed as protocol. */
