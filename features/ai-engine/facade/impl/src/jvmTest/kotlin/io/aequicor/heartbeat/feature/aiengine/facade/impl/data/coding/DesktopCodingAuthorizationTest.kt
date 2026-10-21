@@ -25,7 +25,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.Executors
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -83,8 +85,8 @@ class DesktopCodingAuthorizationTest {
     }
 
     @Test
-    fun `changed file workspace or symlink invalidates a pending operation`() = runTest {
-        for (scenario in listOf("file", "workspace", "symlink")) {
+    fun `changed file or workspace invalidates a pending operation`() = runTest {
+        for (scenario in listOf("file", "workspace")) {
             resolved = directory
             val path = directory.resolve("record.txt")
             Files.deleteIfExists(path)
@@ -94,14 +96,7 @@ class DesktopCodingAuthorizationTest {
                 permissions = AgentToolPermissions {
                     when (scenario) {
                         "file" -> Files.writeString(path, "human edit")
-
                         "workspace" -> resolved = other
-
-                        else -> {
-                            Files.writeString(directory.resolve("elsewhere.txt"), "other")
-                            Files.delete(path)
-                            Files.createSymbolicLink(path, directory.resolve("elsewhere.txt"))
-                        }
                     }
                     true
                 },
@@ -110,6 +105,36 @@ class DesktopCodingAuthorizationTest {
             assertFalse(Files.exists(other.resolve("record.txt")))
             assertFalse(Files.readString(path) == "new")
         }
+    }
+
+    @Test
+    fun `replacing the approved file with a symlink preserves the linked target`() = runTest {
+        val path = Files.writeString(directory.resolve("record.txt"), "before")
+        val target = Files.writeString(directory.resolve("elsewhere.txt"), "other")
+        val replacement = try {
+            Files.createSymbolicLink(directory.resolve("replacement.txt"), target)
+        } catch (error: IOException) {
+            throw AssertionError(
+                "This test requires real symbolic links. Fixture creation failed before authorization; " +
+                    "on Windows the test process needs symbolic-link permission or Developer Mode.",
+                error,
+            )
+        }
+        assertTrue(Files.isSymbolicLink(replacement))
+        var replaced = false
+        val caller = context.copy(
+            permissions = AgentToolPermissions {
+                Files.move(replacement, path, StandardCopyOption.REPLACE_EXISTING)
+                replaced = true
+                true
+            },
+        )
+        val tools = DefaultAgentTools(setOf(contribution), settings = TestSecuritySettings(SecurityMode.Ask))
+        assertTrue(tools.execute(caller, "write_file", write()).isError)
+        assertTrue(replaced, "The permission callback must actually replace the approved file")
+        assertTrue(Files.isSymbolicLink(path))
+        assertEquals("other", Files.readString(target))
+        assertEquals("other", Files.readString(path))
     }
 
     @Test
