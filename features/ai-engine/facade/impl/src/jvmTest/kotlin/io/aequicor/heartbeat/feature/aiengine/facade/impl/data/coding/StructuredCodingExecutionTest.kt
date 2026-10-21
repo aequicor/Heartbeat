@@ -92,32 +92,44 @@ class StructuredCodingExecutionTest {
     }
 
     @Test
-    fun `original PowerShell listings run through the real automatic gate without confirmation`() = runTest {
+    fun `original recursive PowerShell listing runs through the automatic gate`() = runTest {
+        originalPowerShellListing(
+            "Get-ChildItem -Path features/ai-engine -Directory -Recurse -Depth 2 | " +
+                "Select-Object -ExpandProperty FullName",
+            "facade",
+        )
+    }
+
+    @Test
+    fun `original core PowerShell listing runs through the automatic gate`() = runTest {
+        originalPowerShellListing(
+            "Get-ChildItem -Path core -Directory | Select-Object -ExpandProperty FullName",
+            "common",
+        )
+    }
+
+    @Test
+    fun `original root PowerShell listing runs through the automatic gate`() = runTest {
+        originalPowerShellListing("Get-ChildItem -Directory | Select-Object -ExpandProperty Name", "features")
+    }
+
+    private suspend fun originalPowerShellListing(source: String, expected: String) {
         assumeTrue(isWindows())
         Files.createDirectories(directory.resolve("features/ai-engine/facade/api"))
         Files.createDirectories(directory.resolve("core/common"))
         // The controlled runner must not resolve an executable from the project directory.
         Files.writeString(directory.resolve("powershell.exe"), "not a shell")
-        bind("List directories in features/ai-engine, core and the project root.", count = 3)
-        val commands = listOf(
-            "Get-ChildItem -Path features/ai-engine -Directory -Recurse -Depth 2 | " +
-                "Select-Object -ExpandProperty FullName",
-            "Get-ChildItem -Path core -Directory | Select-Object -ExpandProperty FullName",
-            "Get-ChildItem -Directory | Select-Object -ExpandProperty Name",
-        )
-        for ((index, command) in commands.withIndex()) {
-            val result = tools.execute(context("listing-$index"), "run_command", command(command))
-            assertFalse(result.isError, result.text)
-            assertTrue(result.text.contains("Exit code: 0"))
-            val expected = when (index) {
-                0 -> "facade"
-                1 -> "common"
-                else -> "features"
-            }
-            assertTrue(result.text.contains(expected))
+        bind("List directories in features/ai-engine, core and the project root.")
+        val arguments = buildJsonObject {
+            put("command", source)
+            put("timeout_seconds", 20)
         }
+        val result = tools.execute(context("listing"), "run_command", arguments)
+        assertFalse(result.isError, result.text)
+        assertTrue(result.text.contains("Exit code: 0"), result.text)
+        assertTrue(result.text.contains(expected), result.text)
         assertTrue(approvals.isEmpty())
-        assertEquals(3, modelPrompts.size)
+        assertEquals(1, modelPrompts.size)
     }
 
     @Test
