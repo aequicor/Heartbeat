@@ -29,7 +29,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_expires
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_last_measurement
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limit_unknown
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limits
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limits_unavailable
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_percent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_remaining
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_remaining_total
@@ -50,12 +49,12 @@ import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Instant
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
-/** Route observations keep unavailable telemetry explicit instead of silently hiding the details panel. */
+/** Context details remain available for observed routes; provider limits appear only with reported metrics. */
 @Composable
 internal fun StudioUsage(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     val context = content.contextUsage
-    val provider = content.providerUsage
-    if (context == null && provider == null) return
+    val provider = content.providerUsage?.takeIf { it.isVisible }
+    if (context == null && content.providerUsage == null) return
     val modelId = content.settings.modelId
     var isOpen by remember(content.pane.id, content.pane.sessionId, modelId) { mutableStateOf(false) }
     val title = stringResource(Res.string.usage_title)
@@ -68,7 +67,9 @@ internal fun StudioUsage(content: PaneContent, onIntent: (StudioIntent) -> Unit)
     val accessible = if (content.isCompacting) "$detail · ${stringResource(Res.string.usage_compacting)}" else detail
     HbComposerUsageButton(
         contextPercent = context?.percent,
-        label = stringResource(if (context == null) Res.string.usage_limits else Res.string.usage_context),
+        label = stringResource(
+            if (context == null && provider != null) Res.string.usage_limits else Res.string.usage_context,
+        ),
         isExpanded = isOpen,
         onExpandedChange = {
             isOpen = it
@@ -99,8 +100,10 @@ private fun UsageDetails(
             SecondaryText(stringResource(Res.string.usage_context_unavailable))
         }
         if (content.isCompactOffered) CompactButton(content, onCompact)
-        HbDivider()
-        ProviderDetails(provider, content.calendar)
+        if (provider != null) {
+            HbDivider()
+            ProviderDetails(provider, content.calendar)
+        }
     }
 }
 
@@ -135,12 +138,8 @@ private fun ContextDetails(usage: ContextUsageUi) {
 }
 
 @Composable
-private fun ProviderDetails(usage: ProviderUsageUi?, calendar: StudioCalendar) {
-    HbText(listOfNotNull(stringResource(Res.string.usage_limits), usage?.planName).joinToString(" · "))
-    if (usage == null || !usage.isVisible) {
-        SecondaryText(stringResource(Res.string.usage_limits_unavailable))
-        return
-    }
+private fun ProviderDetails(usage: ProviderUsageUi, calendar: StudioCalendar) {
+    HbText(listOfNotNull(stringResource(Res.string.usage_limits), usage.planName).joinToString(" · "))
     usage.windows.forEach { window ->
         Column(verticalArrangement = Arrangement.spacedBy(HbTheme.spacing.xs)) {
             UsageRow(windowTitle(window), "${window.percent}%")

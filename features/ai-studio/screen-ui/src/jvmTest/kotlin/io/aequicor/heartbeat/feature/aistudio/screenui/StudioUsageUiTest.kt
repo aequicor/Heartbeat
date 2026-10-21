@@ -23,8 +23,9 @@ import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compacting
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context_unavailable
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_credits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limit_unknown
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limits_unavailable
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens_unknown_limit
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
@@ -33,6 +34,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageCreditsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageWindowUi
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
@@ -93,17 +95,17 @@ class StudioUsageUiTest {
         }
 
     @Test
-    fun `a route without telemetry shows explicit unknown context and quota in every theme and width`() {
+    fun `a route without quota shows only context in every theme and width`() {
         for (width in listOf(1280f, 420f)) {
             for (dark in listOf(false, true)) {
                 runSkikoComposeUiTest(size = Size(width, 800f)) {
                     val events = mutableListOf<StudioIntent>()
                     var unknownContext = ""
-                    var unknownLimits = ""
+                    var limitsTitle = ""
                     val empty = ProviderUsageUi(persistentListOf(), null, null, null, true)
                     setContent {
                         unknownContext = stringResource(Res.string.usage_context_unavailable)
-                        unknownLimits = stringResource(Res.string.usage_limits_unavailable)
+                        limitsTitle = stringResource(Res.string.usage_limits)
                         UsageHost(
                             pane().copy(
                                 pane = PaneUi(0, sessionId = "existing-chat"),
@@ -116,7 +118,7 @@ class StudioUsageUiTest {
                     }
                     onNodeWithTag("usage-0").assertIsDisplayed().performClick()
                     onNodeWithText(unknownContext).assertIsDisplayed()
-                    onNodeWithText(unknownLimits).assertIsDisplayed()
+                    onNodeWithText(limitsTitle).assertDoesNotExist()
                     onNodeWithText("0%").assertDoesNotExist()
                     runOnIdle { assertEquals(listOf<StudioIntent>(StudioIntent.RefreshUsage("model")), events) }
                     val directory = File("build/previews").apply { mkdirs() }
@@ -124,13 +126,50 @@ class StudioUsageUiTest {
                         ImageIO.write(
                             captureToImage().toAwtImage(),
                             "png",
-                            File(directory, "usage-unavailable-${width.toInt()}-$dark.png"),
+                            File(directory, "usage-context-only-${width.toInt()}-$dark.png"),
                         ),
                     )
                 }
             }
         }
     }
+
+    @Test
+    fun `reported context stays visible when quota is absent or empty and known zero credits remain visible`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val empty = ProviderUsageUi(persistentListOf(), null, "Plan without metrics", null, true)
+            var content by mutableStateOf(pane().copy(contextUsage = ContextUsageUi(4096, 8192, 50)))
+            var limitsTitle = ""
+            var creditsTitle = ""
+            var tokens = ""
+            setContent {
+                limitsTitle = stringResource(Res.string.usage_limits)
+                creditsTitle = stringResource(Res.string.usage_credits)
+                tokens = stringResource(Res.string.usage_tokens, "4096", "8192")
+                UsageHost(content)
+            }
+            onNodeWithTag("usage-0").performClick()
+            onNodeWithText(tokens).assertIsDisplayed()
+            onNodeWithText(limitsTitle).assertDoesNotExist()
+            runOnIdle { content = content.copy(providerUsage = empty) }
+            onNodeWithText(tokens).assertIsDisplayed()
+            onNodeWithText("Plan without metrics", substring = true).assertDoesNotExist()
+            onNodeWithText(limitsTitle).assertDoesNotExist()
+            runOnIdle {
+                content = content.copy(
+                    providerUsage = empty.copy(
+                        planName = null,
+                        credits = UsageCreditsUi(0.0, 100.0, null, false, null),
+                    ),
+                )
+            }
+            onNodeWithText(limitsTitle).assertIsDisplayed()
+            onNodeWithText(creditsTitle).assertIsDisplayed()
+            runOnIdle { content = content.copy(providerUsage = null) }
+            onNodeWithText(limitsTitle).assertDoesNotExist()
+            onNodeWithText(creditsTitle).assertDoesNotExist()
+            onNodeWithText(tokens).assertIsDisplayed()
+        }
 
     @Test
     fun `a compacting chat announces it on the context indicator until it ends`() =

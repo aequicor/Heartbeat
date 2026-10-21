@@ -386,5 +386,4 @@
     <string name="usage_limit_unknown">Лимит неизвестен</string>
     <string name="usage_tokens_unknown_limit">%1$s токенов · лимит неизвестен</string>
     <string name="usage_context_unavailable">Движок не передал статистику контекста.</string>
-    <string name="usage_limits_unavailable">Данные о квоте подписки недоступны для этого подключения.</string>
 </resources>

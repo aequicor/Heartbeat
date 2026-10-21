@@ -39,7 +39,7 @@ data class UsageCreditsUi(
     val expiresAt: Instant?,
 )
 
-/** Account telemetry projected for display; empty metrics expose an explicit unavailable state. */
+/** Account telemetry projected for display; empty metrics keep the provider section hidden. */
 @Serializable
 @SerialName("ProviderUsageUi")
 @Immutable
