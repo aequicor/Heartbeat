@@ -391,4 +391,6 @@
     <string name="sandbox_engine_unsupported">This engine does not support virtual workspace access.</string>
     <string name="usage_limit_unknown">Limit unknown</string>
     <string name="usage_tokens_unknown_limit">%1$s tokens · limit unknown</string>
+    <string name="usage_context_unavailable">The engine has not reported context usage.</string>
+    <string name="usage_limits_unavailable">Subscription quota data is unavailable for this connection.</string>
 </resources>

@@ -153,7 +153,15 @@ class PiSessionTest {
         val restarted = fixture.connections.last()
         assertEquals(2, fixture.connections.size)
         assertEquals(
-            listOf("switch_session", "get_state", "set_model", "set_thinking_level", "get_state", "get_state"),
+            listOf(
+                "switch_session",
+                "get_state",
+                "set_model",
+                "set_thinking_level",
+                "get_state",
+                "get_entries",
+                "get_state",
+            ),
             restarted.commands,
         )
         assertEquals("native.jsonl", restarted.fields.first().string("sessionPath"))

@@ -22,7 +22,9 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compacting
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context_unavailable
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limit_unknown
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_limits_unavailable
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_tokens_unknown_limit
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
@@ -89,6 +91,46 @@ class StudioUsageUiTest {
             onNodeWithText("99%").assertIsDisplayed()
             onNodeWithText("0%").assertDoesNotExist()
         }
+
+    @Test
+    fun `a route without telemetry shows explicit unknown context and quota in every theme and width`() {
+        for (width in listOf(1280f, 420f)) {
+            for (dark in listOf(false, true)) {
+                runSkikoComposeUiTest(size = Size(width, 800f)) {
+                    val events = mutableListOf<StudioIntent>()
+                    var unknownContext = ""
+                    var unknownLimits = ""
+                    val empty = ProviderUsageUi(persistentListOf(), null, null, null, true)
+                    setContent {
+                        unknownContext = stringResource(Res.string.usage_context_unavailable)
+                        unknownLimits = stringResource(Res.string.usage_limits_unavailable)
+                        UsageHost(
+                            pane().copy(
+                                pane = PaneUi(0, sessionId = "existing-chat"),
+                                providerUsage = empty,
+                            ),
+                            dark,
+                            compact = width < 500f,
+                            onIntent = events::add,
+                        )
+                    }
+                    onNodeWithTag("usage-0").assertIsDisplayed().performClick()
+                    onNodeWithText(unknownContext).assertIsDisplayed()
+                    onNodeWithText(unknownLimits).assertIsDisplayed()
+                    onNodeWithText("0%").assertDoesNotExist()
+                    runOnIdle { assertEquals(listOf<StudioIntent>(StudioIntent.RefreshUsage("model")), events) }
+                    val directory = File("build/previews").apply { mkdirs() }
+                    check(
+                        ImageIO.write(
+                            captureToImage().toAwtImage(),
+                            "png",
+                            File(directory, "usage-unavailable-${width.toInt()}-$dark.png"),
+                        ),
+                    )
+                }
+            }
+        }
+    }
 
     @Test
     fun `a compacting chat announces it on the context indicator until it ends`() =
