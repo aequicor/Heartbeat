@@ -243,6 +243,7 @@ internal class PiSession(
             }
             stored?.let { promptResources.restore(ref, it) }
             stored?.let { journal.restore(it, answers.restore()) }
+            stored?.let { usage.restore(it) }
             continuation.start(snapshot, transcript == null && restored == null, persistedTranscript)
             sessionConfiguration.start(snapshot)
             isStarted = true
@@ -500,6 +501,7 @@ internal class PiSession(
             continuation.capture(snapshot)
             val model = snapshot["model"] as? JsonObject
             usage.model(model, fresh.contextCapacity(model))
+            if (file != null) usage.restore(fresh)
             fresh
         }
     }

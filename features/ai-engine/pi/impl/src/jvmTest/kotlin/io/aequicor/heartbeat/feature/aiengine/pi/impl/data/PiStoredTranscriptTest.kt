@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PiStoredTranscriptTest {
@@ -58,6 +59,51 @@ class PiStoredTranscriptTest {
             val failure = assertFailsWith<EngineException>(json) { storedBranch(stored(json)) }.failure
             assertEquals(EngineFailure.Transport(TransportFailureReason.ProtocolViolation), failure)
         }
+    }
+
+    @Test
+    fun `only the current branch after its latest context replacement can supply usage`() {
+        for (replacement in listOf("compaction", "branch_summary", "context_edit", "model_change")) {
+            val old = """{"type":"message","id":"old","parentId":null,
+                "message":{"role":"assistant","content":"Old"}}"""
+            val boundary = """{"type":"$replacement","id":"boundary","parentId":"old"}"""
+            val abandoned = """{"type":"message","id":"abandoned","parentId":"old",
+                "message":{"role":"assistant","content":"Abandoned"}}"""
+            val latest = """{"type":"message","id":"latest","parentId":"boundary",
+                "message":{"role":"assistant","content":"Current"}}"""
+            assertNull(
+                storedBranch(
+                    stored("""{"leafId":"boundary","entries":[$old,$boundary,$abandoned]}"""),
+                ).contextMessage,
+                replacement,
+            )
+            assertEquals(
+                "Current",
+                storedBranch(
+                    stored("""{"leafId":"latest","entries":[$old,$boundary,$latest,$abandoned]}"""),
+                ).contextMessage?.string("content"),
+                replacement,
+            )
+        }
+    }
+
+    @Test
+    fun `same model selection during reattachment retains usage but switching away never revives it`() {
+        val reply = """{"type":"message","id":"reply","parentId":null,
+            "message":{"role":"assistant","provider":"openai-compatible","model":"qwen3.8-max"}}"""
+        val same = """{"type":"model_change","id":"same","parentId":"reply",
+            "provider":"openai-compatible","modelId":"qwen3.8-max"}"""
+        val away = """{"type":"model_change","id":"away","parentId":"same",
+            "provider":"openai-compatible","modelId":"other"}"""
+        val back = """{"type":"model_change","id":"back","parentId":"away",
+            "provider":"openai-compatible","modelId":"qwen3.8-max"}"""
+        assertEquals(
+            "qwen3.8-max",
+            storedBranch(stored("""{"leafId":"same","entries":[$reply,$same]}""")).contextMessage?.string("model"),
+        )
+        assertNull(
+            storedBranch(stored("""{"leafId":"back","entries":[$reply,$same,$away,$back]}""")).contextMessage,
+        )
     }
 
     private fun stored(json: String) = Json.parseToJsonElement(json).jsonObject

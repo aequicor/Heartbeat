@@ -11,7 +11,12 @@ import kotlinx.serialization.json.contentOrNull
 private val log = Log.tag("PiStoredTranscript")
 
 /** Stored conversation [messages], oldest first; [isComplete] is false when the branch lost its beginning. */
-internal data class PiStoredBranch(val messages: List<JsonObject>, val isComplete: Boolean)
+internal data class PiStoredBranch(
+    val messages: List<JsonObject>,
+    val isComplete: Boolean,
+    /** Last assistant after the latest context replacement; older measurements describe a different context. */
+    val contextMessage: JsonObject? = null,
+)
 
 /**
  * Active branch of the native session this connection sits on. Read from `get_entries`: `get_messages` holds
@@ -46,7 +51,34 @@ internal fun storedBranch(stored: JsonObject): PiStoredBranch {
     return PiStoredBranch(
         branch.filter { it.string("type") == "message" }.mapNotNull { it["message"] as? JsonObject },
         isComplete,
+        storedContextMessage(branch),
     )
+}
+
+/**
+ * Pi 0.87.1 appends model_change even when set_model selects the same model during reattachment.
+ * Only a different route invalidates its last measurement; switching away and back cannot revive it.
+ * Compaction, branch summaries and context edits replace the measured context.
+ */
+private fun storedContextMessage(branch: List<JsonObject>): JsonObject? {
+    var message: JsonObject? = null
+    for (entry in branch) {
+        when (entry.string("type")) {
+            "compaction", "branch_summary", "context_edit" -> message = null
+
+            "model_change" -> if (!entry.matchesContextModel(message)) message = null
+
+            "message" -> (entry["message"] as? JsonObject)?.takeIf { it.string("role") == "assistant" }
+                ?.let { message = it }
+        }
+    }
+    return message
+}
+
+private fun JsonObject.matchesContextModel(message: JsonObject?): Boolean {
+    val provider = string("provider") ?: return false
+    val id = string("modelId") ?: return false
+    return provider == message?.string("provider") && id == message.string("model")
 }
 
 private fun storedViolation(): Nothing = piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))

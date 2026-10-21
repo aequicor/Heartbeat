@@ -265,7 +265,7 @@ private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, ()
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
     return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() || app != null ||
-        contextUsage != null || providerUsage?.isVisible == true || planning.plan != null
+        contextUsage != null || providerUsage != null || planning.plan != null
 }
 
 /** Suggestions of the pane's active token with section labels and icons for their kinds and origins. */
