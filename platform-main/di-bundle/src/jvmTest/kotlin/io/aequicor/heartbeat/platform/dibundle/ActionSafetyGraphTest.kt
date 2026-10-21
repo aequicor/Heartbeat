@@ -78,11 +78,20 @@ class ActionSafetyGraphTest {
                 isApproved
             }
             fun context(id: String) = AgentToolContext(
-                session, workspace, turn, request = request, permissions = permissions,
-                callId = ToolCallId(id), target = target,
+                session,
+                workspace,
+                turn,
+                request = request,
+                permissions = permissions,
+                callId = ToolCallId(id),
+                target = target,
             )
             val isWindows = System.getProperty("os.name").startsWith("Windows")
-            val listing = if (isWindows) "Get-ChildItem -Directory | Select-Object -ExpandProperty Name" else "/bin/ls -1"
+            val listing = if (isWindows) {
+                "Get-ChildItem -Directory | Select-Object -ExpandProperty Name"
+            } else {
+                "/bin/ls -1"
+            }
             val listed = tools.execute(context("listing"), "run_command", buildJsonObject { put("command", listing) })
             assertFalse(listed.isError, listed.text)
             assertTrue(listed.text.contains("child"), listed.text)

@@ -162,6 +162,18 @@ heartbeatJcef.registerNativeTest(
 // Real Claude Code CLI through the production graph, opt-in and outside `check`: it needs an authenticated CLI
 // (the Claude Code desktop app's is found automatically) and spends model quota.
 val regularJvmTest = tasks.named<Test>("jvmTest")
+tasks.register<Test>("actionSafetyLiveTest") {
+    group = "verification"
+    description = "Checks structured permissions with a real isolated Codex reviewer and a disposable project."
+    testClassesDirs = regularJvmTest.get().testClassesDirs
+    classpath = regularJvmTest.get().classpath
+    filter { includeTestsMatching("*.ActionSafetyLiveE2eTest") }
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf("Live checks must reach the real CLI") { true }
+    systemProperty("heartbeat.actionSafety.liveTest", "true")
+    testLogging { events("passed", "failed", "skipped") }
+}
+
 tasks.register<Test>("claudeLiveGraphTest") {
     group = "verification"
     description = "Runs the Claude engine through the production graph against the real Claude Code CLI."

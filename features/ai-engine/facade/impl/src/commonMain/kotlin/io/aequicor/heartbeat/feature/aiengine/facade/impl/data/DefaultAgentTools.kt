@@ -394,7 +394,11 @@ internal class DefaultAgentTools(
         log.i { "Hosted tool requested name=${spec.name} action=${spec.action}" }
         return try {
             val approval = owner.approval(context, spec, arguments)
-            val refusal = authorizationRefusal(context, HostedApproval(owner, spec, arguments, approval), input::isCurrent)
+            val refusal = authorizationRefusal(
+                context,
+                HostedApproval(owner, spec, arguments, approval),
+                input::isCurrent,
+            )
             if (refusal != null) {
                 refusal
             } else if (!input.isCurrent()) {

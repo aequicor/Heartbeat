@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstruction
@@ -9,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Guarded by the dispatcher's invocation mutex. No transcript role or adapter-provided text enters this ledger. */
 internal class BoundUserInstructions {
+    private val log = Log.tag("BoundUserInstructions")
     private val histories = mutableMapOf<SessionRef, TrustedUserInstructions>()
     private val snapshots = mutableMapOf<Pair<SessionRef, RequestId>, String?>()
     private val bound = mutableMapOf<Pair<SessionRef, RequestId>, TrustedUserInstructions>()
@@ -67,6 +69,7 @@ internal class BoundUserInstructions {
         histories[session] = TrustedUserInstructions.Incomplete
         snapshots.keys.filter { it.first == session }.forEach { snapshots[it] = null }
         revisions.value += session to (revision(session) + 1L)
+        log.v { "Invalidated human authority and advanced its execution revision" }
     }
 
     fun release(session: SessionRef, request: RequestId?) {

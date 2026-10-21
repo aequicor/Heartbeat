@@ -6,10 +6,15 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDroppedException
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -251,3 +256,32 @@ private class StudioPreparationDeferred : CancellationException("Scheduled prepa
 
 /** Internal owner cancellation, translated to permanent rejection after cleanup. */
 private class StudioPreparationDropped : CancellationException("Scheduled preparation dropped")
+
+/** Builds the exact turn envelope before reserving profile-owned execution. */
+internal suspend fun StudioRunCoordinator.launch(
+    host: StudioRunHost,
+    sessionId: String,
+    prompt: String,
+    settings: RunSettings,
+    kind: WorktreeRunKind,
+    request: RequestId,
+    waitForIdle: Boolean = false,
+    attachments: List<ResourceRef> = emptyList(),
+    submissionId: String = "",
+    onAccepted: suspend () -> Unit = {},
+    environment: StudioChatEnvironment? = null,
+    isUserPrompt: Boolean = false,
+    userInstruction: String? = null,
+    beforeExecute: suspend () -> Unit = {},
+): RunOutcome = run(
+    host,
+    StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
+        .copy(
+            submissionId = submissionId,
+            environment = environment,
+            isUserPrompt = isUserPrompt,
+            userInstruction = userInstruction,
+        ),
+    waitForIdle,
+    beforeExecute = beforeExecute,
+)

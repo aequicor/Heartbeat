@@ -247,7 +247,11 @@ internal class StructuredActionAuthorizationTest {
             assertEquals(0, fixture.executions, route.name)
             assertEquals(1, fixture.approvals.size, route.name)
             assertTrue(fixture.prompts.isEmpty(), route.name)
-            assertTrue(fixture.inspectedInputs.all { it["nested"]?.jsonObject?.get("target") == JsonPrimitive("original") })
+            assertTrue(
+                fixture.inspectedInputs.all {
+                    it["nested"]?.jsonObject?.get("target") == JsonPrimitive("original")
+                },
+            )
         }
     }
 
@@ -295,7 +299,11 @@ internal class StructuredActionAuthorizationTest {
             modeRead.complete(Unit)
             assertFalse(pending.await(), route.name)
             assertEquals(0, fixture.executions, route.name)
-            assertTrue(fixture.inspectedInputs.all { it["nested"]?.jsonObject?.get("target") == JsonPrimitive("original") })
+            assertTrue(
+                fixture.inspectedInputs.all {
+                    it["nested"]?.jsonObject?.get("target") == JsonPrimitive("original")
+                },
+            )
         }
     }
 

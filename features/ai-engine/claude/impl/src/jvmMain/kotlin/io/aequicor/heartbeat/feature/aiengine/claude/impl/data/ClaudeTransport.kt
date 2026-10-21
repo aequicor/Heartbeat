@@ -216,10 +216,10 @@ internal class ProcessClaudeTransport(
         operation: suspend (Process) -> Int,
     ): Int {
         val isSearchEnabled = SEARCH_BRIDGE_MARKER in arguments
-        val requiresScopedSearch = SCOPED_SEARCH_BRIDGE_MARKER in arguments
-        if (requiresScopedSearch && !isSearchEnabled) searchUnavailable()
+        val isScopedSearchRequired = SCOPED_SEARCH_BRIDGE_MARKER in arguments
+        if (isScopedSearchRequired && !isSearchEnabled) searchUnavailable()
         val endpoint = hosted?.endpoint
-        val searchAccess = if (requiresScopedSearch) {
+        val searchAccess = if (isScopedSearchRequired) {
             val guard = hosted?.searchGuard ?: searchUnavailable()
             searchOperation { searchBridge.attach(guard) }
         } else {
@@ -228,7 +228,7 @@ internal class ProcessClaudeTransport(
         var bridgeConfig: Path? = null
         var instructionFile: Path? = null
         try {
-            val searchEndpoint = if (requiresScopedSearch) {
+            val searchEndpoint = if (isScopedSearchRequired) {
                 checkNotNull(searchAccess).endpoint
             } else if (isSearchEnabled) {
                 searchOperation { searchBridge.endpoint() }

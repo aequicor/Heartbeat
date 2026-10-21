@@ -429,7 +429,15 @@ internal class EngineStudioRepository(
         deliverStudioAction(id, action, worktrees, onFailure = { update(id) { copy(hasFailed = true) } }) {
             state.first { id !in it.running }
             val settings = hostRunSettings(record(id), state.value.configurations[id]?.applied, defaults())
-            launchRun(id, action.prompt, settings, action.kind, RequestId(action.operation), waitForIdle = true) {
+            runs.launch(
+                this,
+                id,
+                action.prompt,
+                settings,
+                action.kind,
+                RequestId(action.operation),
+                waitForIdle = true,
+            ) {
                 worktrees.send(WorktreeIntent.Public.ActionDelivered(id, action.operation))
                 worktrees.await(id, failOnTaskError = false) {
                     it.actionRequest == null && it.phase == WorktreePhase.ActionWorking &&
@@ -454,7 +462,8 @@ internal class EngineStudioRepository(
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
         requireBrowserHostSupport(record(sessionId), environment)
         val organism = organisms.submit(record(sessionId), prompt, settings, attachments, submissionId, onAccepted)
-        return organism ?: launchRun(
+        return organism ?: runs.launch(
+            this,
             sessionId,
             prompt,
             settings,
@@ -468,33 +477,6 @@ internal class EngineStudioRepository(
             userInstruction = userInstruction,
         )
     }
-
-    private suspend fun launchRun(
-        sessionId: String,
-        prompt: String,
-        settings: RunSettings,
-        kind: WorktreeRunKind,
-        request: RequestId,
-        waitForIdle: Boolean = false,
-        attachments: List<ResourceRef> = emptyList(),
-        submissionId: String = "",
-        onAccepted: suspend () -> Unit = {},
-        environment: StudioChatEnvironment? = null,
-        isUserPrompt: Boolean = false,
-        userInstruction: String? = null,
-        beforeExecute: suspend () -> Unit = {},
-    ): RunOutcome = runs.run(
-        this,
-        StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
-            .copy(
-                submissionId = submissionId,
-                environment = environment,
-                isUserPrompt = isUserPrompt,
-                userInstruction = userInstruction,
-            ),
-        waitForIdle,
-        beforeExecute = beforeExecute,
-    )
 
     override suspend fun startedRun(id: String, at: Instant) {
         log.i { "Start profile-owned execution" }
@@ -547,15 +529,7 @@ internal class EngineStudioRepository(
         log.i { "Profile execution ended; clear local run state" }
         handlesLock.withLock {
             stopRequests.remove(id)
-            mutableState.update {
-                it.copy(
-                    running = it.running - id,
-                    runStartedAt = it.runStartedAt - id,
-                    stopFailures = it.stopFailures - id,
-                    uncancellable = it.uncancellable - id,
-                    permissions = it.permissions.filterNot { request -> request.sessionId == id },
-                )
-            }
+            mutableState.update { it.withoutFinishedRun(id) }
         }
     }
 

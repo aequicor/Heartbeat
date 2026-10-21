@@ -428,7 +428,7 @@ internal class LocalSearchBridge(
 
 private sealed interface SearchAccess
 private data object LegacySearch : SearchAccess
-private class ScopedSearch(val guard: SearchBridgeGuard, val lifetime: Job) : SearchAccess
+private data class ScopedSearch(val guard: SearchBridgeGuard, val lifetime: Job) : SearchAccess
 
 /** Routes each feature lookup to the first attachment providing it; blocked access survives only if none does. */
 private class AttachedFeatures(private val owners: List<EngineFeatures>) : EngineFeatures {
