@@ -55,7 +55,7 @@ class PowerShellStructureProcessTest {
         withContext(io) {
             val process = startParser(executable)
             try {
-                val path = "пример-😀"
+                val path = "пример-😀\\\"\t\n\u0001"
                 val command = "Get-ChildItem -LiteralPath '$path' -Directory"
                 process.outputStream.write("${command.length}\n$command".toByteArray(Charsets.UTF_8))
                 process.outputStream.flush()
@@ -111,7 +111,7 @@ class PowerShellStructureProcessTest {
             "-NonInteractive",
             "-EncodedCommand",
             Base64.getEncoder().encodeToString(script.toByteArray(Charsets.UTF_16LE)),
-        ).redirectErrorStream(true).apply {
+        ).redirectError(ProcessBuilder.Redirect.DISCARD).apply {
             environment()["PSModulePath"] = executable.parent.resolve("Modules").toString()
         }.start()
     }

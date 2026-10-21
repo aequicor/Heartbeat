@@ -66,7 +66,7 @@ internal class PowerShellStructure(
             environment().putAll(inherited)
             environment()["PSModulePath"] = executable.parent.resolve("Modules").toString()
             directory(executable.parent.toFile())
-        }.redirectErrorStream(true).start()
+        }.redirectError(ProcessBuilder.Redirect.DISCARD).start()
         val output = async(io, start = CoroutineStart.LAZY) {
             process.inputStream.readNBytes(MAX_OUTPUT_BYTES + 1).also {
                 onStage(PowerShellParserStage.StdoutRead)
