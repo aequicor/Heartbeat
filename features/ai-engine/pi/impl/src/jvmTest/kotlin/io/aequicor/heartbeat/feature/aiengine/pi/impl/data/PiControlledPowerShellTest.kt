@@ -58,6 +58,7 @@ class PiControlledPowerShellTest {
             assertNull(environment["HEARTBEAT_AGENT_TOOLS_TOKEN"])
             assertNull(environment["NODE_OPTIONS"])
             assertEquals("host-path", environment.string("PATH"))
+            assertEquals("NUL", environment.string("PSModuleAnalysisCachePath"))
             assertEquals(
                 layout.root.resolve("System32/WindowsPowerShell/v1.0/Modules").toString(),
                 environment.string("PSModulePath"),

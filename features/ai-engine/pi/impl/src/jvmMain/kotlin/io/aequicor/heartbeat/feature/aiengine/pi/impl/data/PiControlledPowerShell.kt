@@ -61,6 +61,8 @@ internal fun piControlledPowerShell(
     val fixedEnvironment = host.environment.toMutableMap().also(::retainPiEnvironment).toSortedMap()
     // Prevent implicit module discovery in the user's module directories. Profiles never run.
     fixedEnvironment["PSModulePath"] = executable.parent.resolve("Modules").toString()
+    // Keep command discovery independent of the shared per-user module analysis cache.
+    fixedEnvironment["PSModuleAnalysisCachePath"] = "NUL"
     val configuration = buildJsonObject {
         put("revision", POWERSHELL_REVISION)
         put("executable", executable.toString())

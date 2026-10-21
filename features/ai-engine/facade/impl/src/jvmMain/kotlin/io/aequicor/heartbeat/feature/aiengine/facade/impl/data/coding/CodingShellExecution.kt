@@ -15,6 +15,8 @@ internal fun controlledCodingEnvironment(isWindows: Boolean): Map<String, String
         if (isWindows) {
             keys.filter { it.equals("PSModulePath", ignoreCase = true) }.forEach(::remove)
             put("PSModulePath", windowsPowerShell().parent.resolve("Modules").toString())
+            // Command discovery must not consult or mutate the shared per-user module analysis cache.
+            put("PSModuleAnalysisCachePath", "NUL")
         }
     }
 
