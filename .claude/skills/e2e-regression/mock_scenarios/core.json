@@ -1,0 +1,74 @@
+{
+  "models": ["e2e-small", "e2e-large"],
+  "responses": [
+    {
+      "label": "tool-result-summary",
+      "match": {"hasToolResult": true},
+      "kind": "text",
+      "text": "Инструмент отработал: результат получен и обработан."
+    },
+    {
+      "label": "ping",
+      "match": {"contains": "ping"},
+      "kind": "text",
+      "text": "pong: мок-модель отвечает",
+      "usage": {"prompt_tokens": 8, "completion_tokens": 6, "total_tokens": 14}
+    },
+    {
+      "label": "streamed-answer",
+      "match": {"contains": "stream"},
+      "kind": "text",
+      "chunks": ["Потоковый ", "ответ ", "пришёл ", "тремя ", "кусками."],
+      "streamDelay": 0.35
+    },
+    {
+      "label": "tool-call",
+      "match": {"contains": "инструмент", "requiresTools": true, "hasToolResult": false},
+      "kind": "tool_call",
+      "tool": "read_file",
+      "arguments": {"path": "README.md"}
+    },
+    {
+      "label": "write-permission",
+      "match": {"contains": "запиши файл", "requiresTools": true, "hasToolResult": false},
+      "kind": "tool_call",
+      "tool": "write_file",
+      "arguments": {"path": "e2e-permission.txt", "content": "e2e mock write"}
+    },
+    {
+      "label": "rate-limit",
+      "match": {"contains": "429"},
+      "kind": "error",
+      "status": 429,
+      "type": "rate_limit_error",
+      "message": "mock rate limit"
+    },
+    {
+      "label": "server-error",
+      "match": {"contains": "ошибка сервера"},
+      "kind": "error",
+      "status": 500,
+      "type": "server_error",
+      "message": "mock internal failure"
+    },
+    {
+      "label": "slow-answer-for-cancel",
+      "match": {"contains": "отмена"},
+      "kind": "delay",
+      "seconds": 40,
+      "then": {"kind": "text", "text": "Этот текст не должен дойти до чата: ход отменён."}
+    },
+    {
+      "label": "second-call-differs",
+      "match": {"callIndex": 1},
+      "kind": "text",
+      "text": "Второй запрос в этом прогоне: история диалога видна модели."
+    },
+    {
+      "label": "default",
+      "default": true,
+      "kind": "text",
+      "text": "Мок-модель получила запрос. Это детерминированный ответ для регрессионного прогона."
+    }
+  ]
+}
