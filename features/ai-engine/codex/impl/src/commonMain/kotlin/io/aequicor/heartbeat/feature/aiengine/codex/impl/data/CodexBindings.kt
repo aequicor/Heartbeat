@@ -38,8 +38,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 
-/** 1: a discovered model reports the image and document formats it accepts. */
-private const val CODEX_MODEL_CATALOG_REVISION = 1
+/** 2: legacy model metadata preserves the native default image support instead of caching text-only support. */
+private const val CODEX_MODEL_CATALOG_REVISION = 2
 
 /** Registers metadata without starting a CLI process or inspecting credentials. */
 @BindingContainer
