@@ -80,6 +80,19 @@ class StudioEngineSwitchJournalTest {
     }
 
     @Test
+    fun `same binding model replacement preserves history through restart`() = runTest {
+        val target = a.copy(model = ModelId("next"))
+        carry().switchEngine("chat", null) { journal(it, target) }
+        record = Json.decodeFromString<StudioChatRecord>(Json.encodeToString(record))
+        assertEquals(target, record.target)
+        assertEquals(target.studioModelId(), record.configuration?.modelId)
+        assertEquals("Retained title", record.title)
+        assertNull(record.ref)
+        assertNotNull(record.pendingEngineContext)
+        assertTrue(engineSwitchTranscript(history, null, "next prompt").text.contains("Original task"))
+    }
+
+    @Test
     fun `journal recovery preserves native ownership and independent chat fields`() = runTest {
         val source = SessionRef(a.engine, SessionSourceId("profile"), "native")
         record = record.copy(

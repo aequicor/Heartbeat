@@ -45,7 +45,7 @@ internal fun AiStudioScreenState.modelsForPane(
     val isBusy = isEngineSwitchBusy(session, configuration)
     val nativeModels = modelsForProject(project, modelId)
     return models.mapNotNull { model ->
-        if (model.id == modelId || (route != null && model.engineRoute == route)) {
+        if (model.id == modelId || (route != null && model.connectionKey == route)) {
             nativeModels.firstOrNull { it.id == model.id }
         } else {
             model.copy(

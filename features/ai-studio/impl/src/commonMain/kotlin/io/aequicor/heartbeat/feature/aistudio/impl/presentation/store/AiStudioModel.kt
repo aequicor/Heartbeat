@@ -743,7 +743,15 @@ class AiStudioModel(
             val modelId = configurations[sessionId]?.modelId ?: session(sessionId)?.modelId ?: settings.modelId
             if (studioModelTarget(modelId) == null) return@withState
             isHandled = true
-            val intent = sessionSettingIntent(sessionId, change, expectedModelId ?: modelId, isEngineSwitchingAvailable)
+            val selected = (change as? StudioSettingChange.Model)?.modelId
+            val nativeModel = models.firstOrNull { it.id == selected }
+            val intent = sessionSettingIntent(
+                sessionId,
+                change,
+                expectedModelId ?: modelId,
+                isEngineSwitchingAvailable,
+                isModelSwitchSupported = nativeModel?.connectionKey != null,
+            )
             // Legacy clients may change models in place, but cannot safely replace a route without chat identity.
             if (intent is AiStudioIntent.Public.SwitchSessionEngine && expectedSessionId == null) return@withState
             sendTo(machine, intent)
