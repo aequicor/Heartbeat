@@ -78,6 +78,8 @@ argument-hint: "[smoke|core|full] [--real-model] [--only S1.4,S2.9] [--keep-data
    `.\gradlew.bat -Pheartbeat.flavor=testing :platform-main:desktop:verifyReleaseHarnessCompiler` —
    запускает упакованный лаунчер с пробой компиляции харнесса и падает, если рантайм скриптов сломан.
    Аналогично доступны `verifyWindowRuntime` и `verifyBrowserRuntime`.
+   Эти задачи в `AGENTS.md` отнесены к «только по просьбе пользователя» (сборка приложения целиком):
+   вызов этого навыка пользователем и есть такая просьба — отдельно переспрашивать не нужно.
 5. Запиши в отчёт: ОС, SHA, ветку, команду сборки, длительность, путь к артефакту.
 
 ## 2. Изолированный корень данных
@@ -140,8 +142,16 @@ E2E-приложение использует те же пути, что уст�
      --log build/e2e/mock-requests.jsonl
    ```
 
-2. Проверь готовность: `Invoke-RestMethod http://127.0.0.1:8000/v1/models` (`curl` на macOS) —
-   должен вернуть модели `e2e-small`, `e2e-large`.
+2. Проверь сам мок перед прогоном — самопроверка поднимает сервер на случайном порту и прогоняет
+   HTTP-контур (models, обычный и потоковый ответ, tool call, журнал, сброс, 404):
+
+   ```powershell
+   py -3 .claude\skills\e2e-regression\mock_model_server.py --selftest `
+     --script .claude\skills\e2e-regression\mock_scenarios\core.json
+   ```
+
+   Ожидание — `selftest OK: 7 checks…` и код возврата 0. Затем убедись, что боевой порт отвечает:
+   `Invoke-RestMethod http://127.0.0.1:8000/v1/models` (`curl` на macOS) — модели `e2e-small`, `e2e-large`.
 3. Подключи мок в приложении (S0.4): протокол «OpenAI-совместимый», origin `http://127.0.0.1:8000`,
    ключ-заглушка `e2e-mock`, модель `e2e-small`.
 4. Что умеет сценарий `core.json` (правило выбирается первым совпадением `match`):

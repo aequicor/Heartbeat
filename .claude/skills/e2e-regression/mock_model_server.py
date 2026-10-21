@@ -14,6 +14,9 @@ origin `http://127.0.0.1:8000`, эндпоинты `/v1/chat/completions` и `/v
 Запуск (Windows):  py -3 mock_model_server.py --port 8000 --script mock_scenarios/core.json --log ..\\..\\..\\build\\e2e\\mock.jsonl
 Запуск (macOS):    python3 mock_model_server.py --port 8000 --script mock_scenarios/core.json --log /tmp/hb-e2e-mock.jsonl
 Остановка:         Ctrl+C или закрытие процесса; `POST /__e2e/reset` сбрасывает журнал и счётчик.
+Самопроверка:      py -3 mock_model_server.py --selftest [--script mock_scenarios/core.json]
+                   поднимает сервер на случайном порту, прогоняет HTTP-контур (models, обычный и потоковый
+                   ответ, tool call, журнал, сброс, 404) и завершается с кодом 0/1 — запускай перед прогоном.
 """
 
 from __future__ import annotations
@@ -24,6 +27,8 @@ import re
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -340,15 +345,97 @@ def load_script(path: Path | None) -> None:
     _state["models"] = [str(m) for m in models]
 
 
+def selftest() -> int:
+    """Прогон HTTP-контура мока на случайном порту: доказывает, что сервер пригоден для E2E-прогона."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    failures: list[str] = []
+    checks = 0
+
+    def call(path: str, payload: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+        request = urllib.request.Request(base + path, data=data, method="POST" if data else "GET")
+        request.add_header("Content-Type", "application/json")
+        for key, value in (headers or {}).items():
+            request.add_header(key, value)
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read()
+
+    def check(name: str, condition: bool, detail: str = "") -> None:
+        nonlocal checks
+        checks += 1
+        if not condition:
+            failures.append(f"{name}: {detail}")
+
+    status, body = call("/v1/models")
+    listed = json.loads(body.decode("utf-8"))
+    ids = [m["id"] for m in listed.get("data", [])]
+    check("models", status == 200 and ids == _state["models"], f"status={status} ids={ids}")
+
+    status, body = call("/v1/chat/completions", {"model": _state["models"][0],
+                                                  "messages": [{"role": "user", "content": "ping"}]},
+                        {"Authorization": "Bearer e2e-mock"})
+    plain = json.loads(body.decode("utf-8"))
+    message = plain["choices"][0]["message"]
+    check("completion", status == 200 and plain["choices"][0]["finish_reason"] == "stop"
+          and isinstance(message.get("content"), str) and message["content"]
+          and plain["usage"]["total_tokens"] > 0, f"status={status} body={body[:200]!r}")
+
+    status, body = call("/v1/chat/completions", {"model": _state["models"][0], "stream": True,
+                                                "messages": [{"role": "user", "content": "stream"}]})
+    events = body.decode("utf-8").split("data: ")
+    check("stream", status == 200 and body.endswith(b"data: [DONE]\n\n") and len(events) >= 4,
+          f"status={status} events={len(events)}")
+
+    status, body = call("/v1/chat/completions", {"model": _state["models"][0], "stream": True,
+                                                "messages": [{"role": "user", "content": "инструмент"}],
+                                                "tools": [{"type": "function",
+                                                           "function": {"name": "read_file", "parameters": {}}}]})
+    text = body.decode("utf-8")
+    check("tool-route", status == 200 and text.endswith("data: [DONE]\n\n"), f"status={status}")
+
+    status, body = call("/v1/embeddings")
+    check("unknown-route", status == 404, f"status={status}")
+
+    status, body = call("/__e2e/requests")
+    journal = json.loads(body.decode("utf-8"))
+    logged = journal.get("requests", [])
+    check("journal", journal.get("calls") == 3 and len(logged) == 4
+          and logged[0].get("auth") is True and logged[-1].get("path") == "/v1/embeddings",
+          f"calls={journal.get('calls')} logged={len(logged)}")
+
+    call("/__e2e/reset", {})
+    status, body = call("/__e2e/requests")
+    check("reset", json.loads(body.decode("utf-8")).get("calls") == 0, f"status={status}")
+
+    server.shutdown()
+    server.server_close()
+    if failures:
+        print("selftest FAILED", flush=True)
+        for failure in failures:
+            print("  " + failure, flush=True)
+        return 1
+    print(f"selftest OK: {checks} checks, models={_state['models']}, rules={len(_state['rules'])}", flush=True)
+    return 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Heartbeat E2E mock model server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--script", type=Path, default=None, help="JSON со сценариями ответов")
     parser.add_argument("--log", type=Path, default=None, help="JSONL-журнал запросов приложения")
+    parser.add_argument("--selftest", action="store_true", help="проверить HTTP-контур мока и выйти")
     args = parser.parse_args(argv)
 
     load_script(args.script)
+    if args.selftest:
+        return selftest()
     if args.log:
         args.log.parent.mkdir(parents=True, exist_ok=True)
         _state["sink"] = args.log.open("a", encoding="utf-8")
