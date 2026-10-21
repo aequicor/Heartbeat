@@ -13,8 +13,19 @@ function Literal($node) {
 }
 
 try {
-    $source = [Console]::In.ReadToEnd()
-    if ($source.Length -eq 0 -or $source.Length -gt 32768) { throw 'Input bound' }
+    # Host-owned UTF-16 character count followed by UTF-8 text. Do not wait for EOF: another inherited pipe
+    # handle must not delay parsing an already complete request. Kotlin String.length uses the same units.
+    $sourceLength = 0
+    if (-not [int]::TryParse([Console]::In.ReadLine(), [ref]$sourceLength) -or
+        $sourceLength -lt 1 -or $sourceLength -gt 32768) { throw 'Input bound' }
+    $sourceBuffer = New-Object char[] $sourceLength
+    $received = 0
+    while ($received -lt $sourceLength) {
+        $read = [Console]::In.Read($sourceBuffer, $received, $sourceLength - $received)
+        if ($read -le 0) { throw 'Incomplete input' }
+        $received += $read
+    }
+    $source = -join $sourceBuffer
     $tokens = $null
     $errors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)

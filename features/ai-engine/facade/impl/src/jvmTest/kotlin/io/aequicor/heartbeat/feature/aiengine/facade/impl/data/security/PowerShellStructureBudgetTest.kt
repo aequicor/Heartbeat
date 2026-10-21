@@ -24,7 +24,7 @@ class PowerShellStructureBudgetTest {
     }
 
     @Test
-    fun `a parser that exceeds the old startup allowance can finish within its bounded budget`() = runTest {
+    fun `a parser that exceeds a short startup allowance can finish within its bounded budget`() = runTest {
         assumeTrue(!System.getProperty("os.name").startsWith("Windows"))
         val executable = parser()
         val insufficient = withContext(io) { PowerShellStructure(executable, io, timeoutMillis = 50).parse("pwd") }
