@@ -74,7 +74,13 @@ internal class LocalCodexTransport(
 
                 override suspend fun open(): CodexWire = openResolved(resolved, environment)
                 override suspend fun open(off: CodexNativeOff): CodexWire {
-                    if (off.isRestricted) off.requireVersion(version())
+                    if (off.isActionAnalysisRequired) {
+                        // Do not reuse the permissive legacy version parser for an exact-build contract.
+                        val exact = withContext(dispatchers.io) { version(resolved, environment, isExact = true) }
+                        off.requireVersion(exact)
+                    } else if (off.isRestricted) {
+                        off.requireVersion(version())
+                    }
                     return openResolved(resolved, environment, off)
                 }
 
@@ -175,6 +181,7 @@ internal class LocalCodexTransport(
     private suspend fun version(
         launch: CodexLaunch,
         environment: Map<String, String> = capturedCodexEnvironment(launch),
+        isExact: Boolean = false,
     ): String? = try {
         val builder = ProcessBuilder(launch.executable, "--version").redirectErrorStream(true)
         builder.environment().clear()
@@ -183,7 +190,12 @@ internal class LocalCodexTransport(
         try {
             process.outputStream.close()
             val isDone = runInterruptible { process.waitFor(VERSION_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
-            if (isDone) parseCodexVersion(probeOutput(process)) else null
+            if (isDone) {
+                val output = probeOutput(process)
+                if (isExact) codexActionAnalysisVersion(output) else parseCodexVersion(output)
+            } else {
+                null
+            }
         } finally {
             stopProbe(process)
         }

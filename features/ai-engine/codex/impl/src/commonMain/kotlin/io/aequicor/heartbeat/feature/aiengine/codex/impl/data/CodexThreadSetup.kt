@@ -45,8 +45,16 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         val session = nativeId?.let(::sessionRef)
         val policy = policy(ToolPolicyScope(identity.engine, route.workspace, session, target, chosen))
         val isVirtual = route.workspace?.let { host.workspaces.virtual(it) } != null
-        return CodexThreadRequest(nativeId, target, route, areDetachedToolsEnabled, policy, chosen, isVirtual)
-            .also { restoreForOpening(it) }
+        return CodexThreadRequest(
+            nativeId,
+            target,
+            route,
+            areDetachedToolsEnabled,
+            policy,
+            chosen,
+            isVirtual,
+            host.tools.requiresActionAnalysis(),
+        ).also { restoreForOpening(it) }
     }
 
     /** A persisted stop fence forbids both creating another execution process and resuming the native thread. */
@@ -94,6 +102,9 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
     suspend fun start(prepared: CodexPreparedThread, connection: CodexConnection): JsonObject {
         // Configuration and hosted instruction preparation can suspend after the initial opening check.
         restoreForOpening(prepared.request)
+        if (host.tools.requiresActionAnalysis() != prepared.request.isActionAnalysisRequired) {
+            fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
         val nativeId = prepared.request.nativeId
         val response = connection.rpc.request(
             if (nativeId == null) "thread/start" else "thread/resume",

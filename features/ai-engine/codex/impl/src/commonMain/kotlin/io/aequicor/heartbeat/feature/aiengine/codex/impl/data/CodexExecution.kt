@@ -22,11 +22,13 @@ internal data class CodexThreadRequest(
     /** Creator's [CreateSessionRequest.preselected] for a new thread; its hosted declarations follow them. */
     val preselected: Map<String, Set<String>> = emptyMap(),
     val isVirtualWorkspace: Boolean = false,
+    val isActionAnalysisRequired: Boolean = false,
 ) {
     val off: CodexNativeOff get() = CodexNativeOff(
         true,
         "web_search" in policy.nativeOff,
         isVirtualWorkspace,
+        isActionAnalysisRequired,
     )
 }
 
@@ -57,6 +59,7 @@ internal class CodexExecution(
     private val scope get() = ToolPolicyScope(session.ref.engine, session.route.workspace, session.ref, session.target)
     private val areDetachedToolsEnabled = opening?.request?.areDetachedToolsEnabled ?: session.areHostedToolsEnabled
     private var applied = opening?.request?.policy ?: ResolvedToolPolicy()
+    private var isActionAnalysisApplied = opening?.request?.isActionAnalysisRequired ?: false
     private var isConcreteScope = opening?.request?.nativeId != null || opening == null
     private var instructions = opening?.instructions.orEmpty()
     var connection: CodexConnection = initial
@@ -79,6 +82,7 @@ internal class CodexExecution(
         if (connection.isClosed) return reopen(request)
         return when {
             isConcreteScope && request.policy == applied &&
+                request.isActionAnalysisRequired == isActionAnalysisApplied &&
                 runtime.threads.instructions(request) == instructions -> true
 
             canRebase(request) -> rebase(request)
@@ -89,10 +93,11 @@ internal class CodexExecution(
 
     private suspend fun rebase(request: CodexThreadRequest): Boolean {
         val prepared = runtime.threads.prepare(request, connection)
-        if (runtime.threads.policy(scope) != request.policy) return false
+        if (!isCurrent(request)) return false
         return if (prepared.instructions == instructions) {
             session.ensureReadyForPolicy()
             applied = request.policy
+            isActionAnalysisApplied = request.isActionAnalysisRequired
             isConcreteScope = true
             true
         } else {
@@ -102,6 +107,7 @@ internal class CodexExecution(
 
     /** Generations from different scopes are incomparable; rebase once only when content and instructions match. */
     private fun canRebase(request: CodexThreadRequest): Boolean = !isConcreteScope && !connection.isClosed &&
+        request.isActionAnalysisRequired == isActionAnalysisApplied &&
         request.policy.copy(generation = 0) == applied.copy(generation = 0)
 
     private suspend fun reopen(request: CodexThreadRequest): Boolean {
@@ -117,11 +123,12 @@ internal class CodexExecution(
             val response = runtime.threads.start(prepared, candidate)
             session.ensureReadyForPolicy()
             audit(response.obj("thread"))
-            if (runtime.threads.policy(scope) != request.policy) return false
+            if (!isCurrent(request)) return false
             session.ensureReadyForPolicy()
             connection = candidate
             onConnected(candidate)
             applied = request.policy
+            isActionAnalysisApplied = request.isActionAnalysisRequired
             isConcreteScope = true
             instructions = prepared.instructions
             candidate.bind(session)
@@ -141,10 +148,16 @@ internal class CodexExecution(
             log.w(e) { "Codex submission refused: execution policy unavailable" }
             fail(EngineFailure.Request(RequestFailureReason.Invalid, request))
         }
-        if (connection.isClosed || policy != applied) {
+        if (connection.isClosed || policy != applied ||
+            runtime.host.tools.requiresActionAnalysis() != isActionAnalysisApplied
+        ) {
             fail(EngineFailure.Request(RequestFailureReason.Invalid, request))
         }
     }
+
+    private suspend fun isCurrent(request: CodexThreadRequest): Boolean =
+        runtime.threads.policy(scope) == request.policy &&
+            runtime.host.tools.requiresActionAnalysis() == request.isActionAnalysisRequired
 
     private companion object {
         const val MAX_ATTEMPTS = 3
