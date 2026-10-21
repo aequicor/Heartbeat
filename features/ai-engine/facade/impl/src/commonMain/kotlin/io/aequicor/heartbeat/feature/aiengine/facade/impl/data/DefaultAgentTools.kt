@@ -590,6 +590,12 @@ internal class DefaultAgentTools(
         check(available.map { it.second.name }.distinct().size == available.size) { "Duplicate hosted tool name" }
         val catalogued = catalog().flatMap { it.tools }.map { it.name }.toSet()
         reportUncatalogued(available.map { it.second.name }.filterNot { it in catalogued })
+        val virtual = scope.workspace?.let { workspaces?.virtual(it) }
+        check(
+            scope.workspace?.value?.startsWith("sandbox-") != true || virtual != null,
+        ) { "VirtualWorkspaceUnavailable" }
+        if (isExecuting) virtual?.revision()
+        // Read policy after every owner and virtual-workspace suspension; only pure filtering follows.
         val policy = policyLookup.resolve(
             ToolPolicyScope(
                 scope.target?.engine ?: scope.session?.engine,
@@ -603,11 +609,6 @@ internal class DefaultAgentTools(
         )
         // Names the session froze at creation and the policy both narrow the allowed list only: an owner whose
         // tools are all filtered out still answers for instructions independent of them.
-        val virtual = scope.workspace?.let { workspaces?.virtual(it) }
-        check(
-            scope.workspace?.value?.startsWith("sandbox-") != true || virtual != null,
-        ) { "VirtualWorkspaceUnavailable" }
-        if (isExecuting) virtual?.revision()
         val session = available.filter { (_, spec) ->
             scope.declared?.contains(spec.name) != false &&
                 (virtual == null || virtualToolAllowed(spec.name))

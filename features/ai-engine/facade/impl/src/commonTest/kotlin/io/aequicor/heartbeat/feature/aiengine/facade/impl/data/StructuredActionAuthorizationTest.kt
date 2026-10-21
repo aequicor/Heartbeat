@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
@@ -38,6 +40,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualFileChange
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety.ActionSafetyPolicy
@@ -48,6 +52,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -403,6 +409,14 @@ internal class StructuredActionAuthorizationTest {
     }
 
     @Test
+    fun `virtual workspace waits cannot preserve an obsolete hosted tool policy`() = runTest {
+        for (route in HOSTED_ROUTES) {
+            assertVirtualPolicyWait(route, lookup = true)
+            assertVirtualPolicyWait(route, lookup = false)
+        }
+    }
+
+    @Test
     fun `new hard hook restriction during approval blocks every route`() = runTest {
         for (route in DispatchRoute.entries) {
             val fixture = ActionFixture(route, mutation())
@@ -604,6 +618,7 @@ private class ActionFixture(
     private val route: DispatchRoute,
     var analysis: ActionAnalysis? = verifiedRead(),
     mode: SecurityMode = SecurityMode.Automatic,
+    workspaces: LocalWorkspaces? = null,
 ) {
     val settings = TestSecuritySettings(mode)
     val prompts = mutableListOf<IsolatedPrompt>()
@@ -674,6 +689,7 @@ private class ActionFixture(
     var policy = ResolvedToolPolicy(nativeOn = setOf(NATIVE_NAME))
     val tools = DefaultAgentTools(
         setOf(owner),
+        workspaces = workspaces,
         hooks = hooks,
         policies = ToolPolicyResolver { _, _, _ ->
             resolvingPolicy()
@@ -759,3 +775,57 @@ private val REQUEST = RequestId("request")
 private val TURN = TurnId("facade-turn")
 private val TARGET = EngineTarget(SESSION.engine, EngineBindingId("binding"), ModelId("model"))
 private val HOSTED_ROUTES = listOf(DispatchRoute.Hosted, DispatchRoute.AdapterOperated)
+
+/** Both lookups model real virtual workspace mutex waits without filesystem or wall-clock dependencies. */
+private class VirtualPolicyWorkspaces(
+    private val lookup: suspend () -> Unit,
+    private val inspectRevision: suspend () -> Unit,
+) : LocalWorkspaces {
+    override val isAvailable = true
+    override fun observe() = flowOf(emptyList<LocalWorkspace>())
+    override suspend fun register(directory: String): LocalWorkspace = error("Unexpected registration")
+    override suspend fun resolve(ref: WorkspaceRef): String? = error("Unexpected physical path resolution")
+    override suspend fun virtual(ref: WorkspaceRef): VirtualWorkspace {
+        lookup()
+        return object : VirtualWorkspace {
+            override val ref = WORKSPACE
+            override val processDirectory = "service"
+            override suspend fun revision(): Long {
+                inspectRevision()
+                return 1L
+            }
+            override suspend fun paths() = emptyList<String>()
+            override suspend fun read(path: String): String? = error("Unexpected virtual read")
+            override suspend fun change(expectedRevision: Long, changes: List<VirtualFileChange>): Long =
+                error("Unexpected virtual write")
+            override suspend fun move(expectedRevision: Long, path: String, destination: String): Long =
+                error("Unexpected virtual move")
+        }
+    }
+}
+
+private suspend fun assertVirtualPolicyWait(route: DispatchRoute, lookup: Boolean) = coroutineScope {
+    var inspectVirtual: suspend () -> Unit = {}
+    val projects = VirtualPolicyWorkspaces(
+        lookup = { if (lookup) inspectVirtual() },
+        inspectRevision = { if (!lookup) inspectVirtual() },
+    )
+    val fixture = ActionFixture(route, workspaces = projects)
+    fixture.bind("Read the selected project file")
+    val entered = CompletableDeferred<Unit>()
+    val inspected = CompletableDeferred<Unit>()
+    fixture.inspecting = {
+        if (fixture.inspections.size == 2) {
+            inspectVirtual = {
+                entered.complete(Unit)
+                inspected.await()
+            }
+        }
+    }
+    val pending = async { fixture.invoke() }
+    entered.await()
+    fixture.policy = ResolvedToolPolicy(hostedDenied = setOf(HOSTED_NAME))
+    inspected.complete(Unit)
+    assertFalse(pending.await(), "$route lookup=$lookup")
+    assertEquals(0, fixture.executions, "$route lookup=$lookup")
+}
