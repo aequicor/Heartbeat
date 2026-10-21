@@ -7,7 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellDialect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellExecution
-import io.aequicor.heartbeat.feature.aiengine.facade.api.POWER_SHELL_UTF8_INITIALIZATION
+import io.aequicor.heartbeat.feature.aiengine.facade.api.POWER_SHELL_CONTROLLED_INITIALIZATION
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import kotlinx.serialization.json.Json
@@ -28,7 +28,7 @@ class PiControlledPowerShellTest {
     fun `the bundled executor validates the same UTF8 initialization as the shared contract`() {
         val source = assertNotNull(javaClass.getResourceAsStream("/pi/heartbeat-powershell.ts"))
             .use { it.bufferedReader().readText() }
-        assertTrue("const INITIALIZATION = ${JsonPrimitive(POWER_SHELL_UTF8_INITIALIZATION)};" in source)
+        assertTrue("const INITIALIZATION = ${JsonPrimitive(POWER_SHELL_CONTROLLED_INITIALIZATION)};" in source)
     }
 
     @Test
@@ -44,13 +44,13 @@ class PiControlledPowerShellTest {
                 listOf("-NoLogo", "-NoProfile", "-NonInteractive", "-Command"),
                 controlled.shell.argumentPrefix,
             )
-            assertEquals(POWER_SHELL_UTF8_INITIALIZATION, controlled.shell.initialization)
+            assertEquals(POWER_SHELL_CONTROLLED_INITIALIZATION, controlled.shell.initialization)
             val envelope = Json.parseToJsonElement(controlled.manifest).jsonObject
             val configuration = assertNotNull(envelope.string("configuration"))
             assertEquals(fingerprint(configuration), controlled.shell.environmentBinding)
             assertEquals(controlled.shell.environmentBinding, envelope.string("binding"))
             assertEquals(
-                POWER_SHELL_UTF8_INITIALIZATION,
+                POWER_SHELL_CONTROLLED_INITIALIZATION,
                 Json.parseToJsonElement(configuration).jsonObject.string("initialization"),
             )
             val environment = Json.parseToJsonElement(configuration).jsonObject.getValue("environment").jsonObject

@@ -3,7 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellDialect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellExecution
-import io.aequicor.heartbeat.feature.aiengine.facade.api.POWER_SHELL_UTF8_INITIALIZATION
+import io.aequicor.heartbeat.feature.aiengine.facade.api.POWER_SHELL_CONTROLLED_INITIALIZATION
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -19,7 +19,7 @@ internal data class PiControlledPowerShell(val shell: NativeShellExecution, val 
 
 internal const val PI_POWERSHELL_MANIFEST = "HEARTBEAT_CONTROLLED_POWERSHELL"
 internal const val PI_POWERSHELL_RESOURCE = "heartbeat-powershell.ts"
-private const val POWERSHELL_REVISION = "heartbeat-powershell-v1"
+private const val POWERSHELL_REVISION = "heartbeat-powershell-v2"
 private const val VERIFIED_PI_VERSION = "0.87.1"
 private val PowerShellArguments = listOf("-NoLogo", "-NoProfile", "-NonInteractive", "-Command")
 
@@ -67,7 +67,7 @@ internal fun piControlledPowerShell(
         put("revision", POWERSHELL_REVISION)
         put("executable", executable.toString())
         put("argumentPrefix", JsonArray(PowerShellArguments.map(::JsonPrimitive)))
-        put("initialization", POWER_SHELL_UTF8_INITIALIZATION)
+        put("initialization", POWER_SHELL_CONTROLLED_INITIALIZATION)
         put("directory", host.directory.toAbsolutePath().normalize().toString())
         put("environment", JsonObject(fixedEnvironment.mapValues { JsonPrimitive(it.value) }))
         put("taskkill", taskkill.toString())
@@ -83,7 +83,7 @@ internal fun piControlledPowerShell(
             executable.toString(),
             PowerShellArguments,
             binding,
-            initialization = POWER_SHELL_UTF8_INITIALIZATION,
+            initialization = POWER_SHELL_CONTROLLED_INITIALIZATION,
         ),
         manifest,
     )

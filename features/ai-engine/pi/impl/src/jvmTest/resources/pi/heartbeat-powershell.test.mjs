@@ -12,8 +12,7 @@ import { readControlledPowerShell, controlledPowerShellOperations, installContro
 const windows = process.platform === "win32";
 const root = process.env.SystemRoot;
 const argumentPrefix = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"];
-const initialization = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n" +
-    "$OutputEncoding = [Console]::OutputEncoding\n";
+const initialization = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n$OutputEncoding = [Console]::OutputEncoding\ntry {\nMicrosoft.PowerShell.Core\\Import-Module -Name ([System.IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Management.psd1')) -ErrorAction Stop\nMicrosoft.PowerShell.Core\\Import-Module -Name ([System.IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Utility.psd1')) -ErrorAction Stop\n} catch { [System.Environment]::Exit(2) }\n";
 const fixtureApi = `
 export const VERSION = "0.87.1";
 export function createPowerShellToolDefinition(cwd, { operations }) {
@@ -37,9 +36,9 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 
 function configuration(directory) {
     const executable = win32.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-    return { revision: "heartbeat-powershell-v1", executable, argumentPrefix, initialization, directory,
+    return { revision: "heartbeat-powershell-v2", executable, argumentPrefix, initialization, directory,
         environment: { SystemRoot: root, TEMP: tmpdir(), TMP: tmpdir(),
-            PSModulePath: win32.join(win32.dirname(executable), "Modules") },
+            PSModulePath: win32.join(win32.dirname(executable), "Modules"), PSModuleAnalysisCachePath: "NUL" },
         taskkill: win32.join(root, "System32", "taskkill.exe") };
 }
 function encode(value) {
@@ -76,7 +75,7 @@ test("missing malformed tampered and non-system launcher manifests never install
     assert.equal(readControlledPowerShell(undefined), undefined);
     assert.equal(readControlledPowerShell("{}"), undefined);
     assert.equal(readControlledPowerShell("garbage"), undefined);
-    assert.equal(readControlledPowerShell(encode(value).replace("heartbeat-powershell-v1", "different")), undefined);
+    assert.equal(readControlledPowerShell(encode(value).replace("heartbeat-powershell-v2", "different")), undefined);
     for (const bad of [
         { ...value, revision: "other" }, { ...value, executable: "powershell.exe" },
         { ...value, taskkill: "taskkill.exe" }, { ...value, argumentPrefix: [...argumentPrefix, "extra"] },

@@ -5,9 +5,9 @@ import { win32 } from "node:path";
 
 const MANIFEST = "HEARTBEAT_CONTROLLED_POWERSHELL";
 const ARGUMENTS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"];
-// Must match facade:api POWER_SHELL_UTF8_INITIALIZATION byte for byte; included in the host binding.
-const INITIALIZATION = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n$OutputEncoding = [Console]::OutputEncoding\n";
-const REVISION = "heartbeat-powershell-v1";
+// Must match facade:api POWER_SHELL_CONTROLLED_INITIALIZATION byte for byte; included in the host binding.
+const INITIALIZATION = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n$OutputEncoding = [Console]::OutputEncoding\ntry {\nMicrosoft.PowerShell.Core\\Import-Module -Name ([System.IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Management.psd1')) -ErrorAction Stop\nMicrosoft.PowerShell.Core\\Import-Module -Name ([System.IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Utility.psd1')) -ErrorAction Stop\n} catch { [System.Environment]::Exit(2) }\n";
+const REVISION = "heartbeat-powershell-v2";
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const PIPE_DRAIN_MS = 250;
 const STOP_TIMEOUT_MS = 5000;

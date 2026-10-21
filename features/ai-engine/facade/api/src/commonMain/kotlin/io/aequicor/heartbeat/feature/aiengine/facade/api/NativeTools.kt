@@ -30,6 +30,21 @@ public const val POWER_SHELL_UTF8_INITIALIZATION: String =
         "\$OutputEncoding = [Console]::OutputEncoding\n"
 
 /**
+ * Fixed controlled Windows startup: UTF-8 plus the two system modules used by directory inspection.
+ * Absolute engine-owned manifests avoid ambient command discovery. Failed imports terminate the process before
+ * proposed source runs, even if that source declares a trap. Adapters bind these exact bytes and their revision.
+ */
+public const val POWER_SHELL_CONTROLLED_INITIALIZATION: String = POWER_SHELL_UTF8_INITIALIZATION +
+    "try {\n" +
+    "Microsoft.PowerShell.Core\\Import-Module -Name " +
+    "([System.IO.Path]::Combine(\$PSHOME, 'Modules', 'Microsoft.PowerShell.Management', " +
+    "'Microsoft.PowerShell.Management.psd1')) -ErrorAction Stop\n" +
+    "Microsoft.PowerShell.Core\\Import-Module -Name " +
+    "([System.IO.Path]::Combine(\$PSHOME, 'Modules', 'Microsoft.PowerShell.Utility', " +
+    "'Microsoft.PowerShell.Utility.psd1')) -ErrorAction Stop\n" +
+    "} catch { [System.Environment]::Exit(2) }\n"
+
+/**
  * Host-attested executor used by this native call. The adapter must launch exactly this executable, argument
  * prefix and sanitized environment and prevent discovery/overrides from replacing it. The executor appends the
  * concatenation of [initialization] and the proposed command as one argument. Unknown launchers leave
@@ -42,8 +57,9 @@ public data class NativeShellExecution(
     /** Opaque fingerprint of the complete fixed execution environment and implementation revision. */
     val environmentBinding: String,
     /**
-     * Exact adapter-owned script prelude. Only empty or [POWER_SHELL_UTF8_INITIALIZATION] for PowerShell may be
-     * treated as trusted initialization; the analyzer must reject every other value, even from a known launcher.
+     * Exact adapter-owned script prelude. Only empty, [POWER_SHELL_UTF8_INITIALIZATION] or
+     * [POWER_SHELL_CONTROLLED_INITIALIZATION] may be trusted for PowerShell. The analyzer must reject every other
+     * value, even from a known launcher.
      * The complete fixed prelude participates in [environmentBinding]; model arguments cannot supply it.
      */
     val initialization: String = "",

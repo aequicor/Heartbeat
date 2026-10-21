@@ -2,7 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellDialect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellExecution
-import io.aequicor.heartbeat.feature.aiengine.facade.api.POWER_SHELL_UTF8_INITIALIZATION
+import io.aequicor.heartbeat.feature.aiengine.facade.api.POWER_SHELL_CONTROLLED_INITIALIZATION
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import okio.ByteString.Companion.encodeUtf8
@@ -28,9 +28,9 @@ internal fun controlledCodingShell(
     if (isWindows) NativeShellDialect.PowerShell else NativeShellDialect.Posix,
     if (isWindows) windowsPowerShell().toString() else "/bin/sh",
     if (isWindows) listOf("-NoLogo", "-NoProfile", "-NonInteractive", "-Command") else listOf("-c"),
-    ("coding-shell-v1:" + JsonObject(environment.toSortedMap().mapValues { JsonPrimitive(it.value) }))
+    ("coding-shell-v2:" + JsonObject(environment.toSortedMap().mapValues { JsonPrimitive(it.value) }))
         .encodeUtf8().sha256().hex(),
-    initialization = if (isWindows) POWER_SHELL_UTF8_INITIALIZATION else "",
+    initialization = if (isWindows) POWER_SHELL_CONTROLLED_INITIALIZATION else "",
 )
 
 private fun windowsPowerShell(): Path = Path.of(

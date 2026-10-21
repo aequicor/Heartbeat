@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionResource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionResourceKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellDialect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellExecution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.POWER_SHELL_CONTROLLED_INITIALIZATION
 import io.aequicor.heartbeat.feature.aiengine.facade.api.POWER_SHELL_UTF8_INITIALIZATION
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding.ProjectRoot
 import kotlinx.coroutines.CancellationException
@@ -166,7 +167,10 @@ private fun powerShellDepth(pipeline: ShellPipeline): Int {
 private fun hasLiteralLauncher(shell: NativeShellExecution): Boolean {
     if (!Path.of(shell.executable).isAbsolute) return false
     if (shell.initialization.isNotEmpty() &&
-        (shell.dialect != NativeShellDialect.PowerShell || shell.initialization != POWER_SHELL_UTF8_INITIALIZATION)
+        (
+            shell.dialect != NativeShellDialect.PowerShell ||
+                shell.initialization !in listOf(POWER_SHELL_UTF8_INITIALIZATION, POWER_SHELL_CONTROLLED_INITIALIZATION)
+        )
     ) {
         return false
     }
