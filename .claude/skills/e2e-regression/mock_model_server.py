@@ -41,7 +41,7 @@ _state: dict[str, Any] = {"rules": [], "default": None, "models": [DEFAULT_MODEL
 
 
 def last_text(messages: list[dict[str, Any]]) -> str:
-    """Склеенный текст всех сообщений запроса: по нему матчатся правила сценария."""
+    """Склеенный текст переданных сообщений, включая текстовые части multimodal content."""
     parts: list[str] = []
     for message in messages:
         content = message.get("content")
@@ -56,8 +56,11 @@ def last_text(messages: list[dict[str, Any]]) -> str:
 
 def select_rule(body: dict[str, Any], calls: int) -> dict[str, Any]:
     messages = [m for m in body.get("messages", []) if isinstance(m, dict)]
-    text = last_text(messages).lower()
-    has_tool_result = any(m.get("role") == "tool" for m in messages)
+    user_index = next((i for i in range(len(messages) - 1, -1, -1)
+                       if messages[i].get("role") == "user"), None)
+    text = last_text([messages[user_index]]) if user_index is not None else ""
+    turn = messages[user_index + 1:] if user_index is not None else messages
+    has_tool_result = any(m.get("role") == "tool" for m in turn)
     for rule in _state["rules"]:
         match = rule.get("match")
         if not isinstance(match, dict):
@@ -66,13 +69,13 @@ def select_rule(body: dict[str, Any], calls: int) -> dict[str, Any]:
             continue
         if "callIndex" in match and match["callIndex"] != calls:
             continue
-        if "contains" in match and str(match["contains"]).lower() not in text:
+        if "contains" in match and str(match["contains"]).lower() not in text.lower():
             continue
-        if "regex" in match and not re.search(str(match["regex"]), last_text(messages)):
+        if "regex" in match and not re.search(str(match["regex"]), text):
             continue
-        if match.get("hasToolResult") and not has_tool_result:
+        if "hasToolResult" in match and bool(match["hasToolResult"]) != has_tool_result:
             continue
-        if match.get("requiresTools") and not body.get("tools"):
+        if "requiresTools" in match and bool(match["requiresTools"]) != bool(body.get("tools")):
             continue
         return rule
     return _state["default"] or {"kind": "text", "text": DEFAULT_TEXT}
@@ -147,6 +150,7 @@ class Handler(BaseHTTPRequestHandler):
     # --- маршруты ------------------------------------------------------------------------------
     def do_GET(self) -> None:  # noqa: N802 - имя требует http.server
         if self.path.startswith("/v1/models"):
+            self.record(self.path, {}, None)
             self.send_json(
                 {
                     "object": "list",
@@ -185,7 +189,10 @@ class Handler(BaseHTTPRequestHandler):
             _state["calls"] = calls + 1
         rule = select_rule(body, calls)
         self.record(self.path, body, rule)
-        self.respond(rule, body)
+        try:
+            self.respond(rule, body)
+        except (BrokenPipeError, ConnectionResetError):
+            return  # отмена хода: остановить генерацию, а не продолжать куски и задержки
 
     # --- ответы --------------------------------------------------------------------------------
     def respond(self, rule: dict[str, Any], body: dict[str, Any]) -> None:
@@ -217,7 +224,8 @@ class Handler(BaseHTTPRequestHandler):
         if rule.get("kind") == "empty":
             text, finish = "", "stop"
         else:
-            text, finish = str(rule.get("text", DEFAULT_TEXT)), str(rule.get("finish_reason", "stop"))
+            text = "".join(pieces_of(rule, str(rule.get("text", DEFAULT_TEXT))))
+            finish = str(rule.get("finish_reason", "stop"))
         usage = usage_of(rule, body, text)
         if not body.get("stream"):
             self.send_json(
@@ -299,7 +307,7 @@ class Handler(BaseHTTPRequestHandler):
             }
         ]
         self.write_chunk(sse(head))
-        for piece in pieces_of(rule, arguments):
+        for piece in pieces_of({}, arguments):
             chunk = base_chunk(model)
             chunk["choices"] = [
                 {"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": piece}}]},
@@ -318,11 +326,8 @@ class Handler(BaseHTTPRequestHandler):
         self.write_chunk(b"")
 
     def write_chunk(self, payload: bytes) -> None:
-        try:
-            self.wfile.write(b"%X\r\n" % len(payload) + payload + b"\r\n")
-            self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            pass  # клиент отменил ход: это ожидаемый результат сценария на отмену
+        self.wfile.write(b"%X\r\n" % len(payload) + payload + b"\r\n")
+        self.wfile.flush()
 
 
 def pieces_of(rule: dict[str, Any], text: str) -> list[str]:
@@ -346,79 +351,148 @@ def load_script(path: Path | None) -> None:
 
 
 def selftest() -> int:
-    """Прогон HTTP-контура мока на случайном порту: доказывает, что сервер пригоден для E2E-прогона."""
+    """Проверяет HTTP, многоходовой выбор правил и полный tool cycle на core-сценарии."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = True
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
     base = f"http://127.0.0.1:{server.server_address[1]}"
     failures: list[str] = []
+    expected_log: list[dict[str, Any]] = []
     checks = 0
+    original_rules = _state["rules"]
 
-    def call(path: str, payload: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
+    def call(path: str, payload: dict[str, Any] | None = None, auth: bool = False) -> tuple[int, bytes]:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
-        request = urllib.request.Request(base + path, data=data, method="POST" if data else "GET")
+        request = urllib.request.Request(base + path, data=data, method="POST" if data is not None else "GET")
         request.add_header("Content-Type", "application/json")
-        for key, value in (headers or {}).items():
-            request.add_header(key, value)
+        if auth:
+            request.add_header("Authorization", "Bearer e2e-mock")
+        if not path.startswith("/__e2e/"):
+            expected_log.append({"path": path, "messages": json.loads(data or b"{}").get("messages"), "auth": auth})
+        # Loopback должен оставаться локальным и при системном HTTP_PROXY.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
+            with opener.open(request, timeout=15) as response:
                 return response.status, response.read()
         except urllib.error.HTTPError as error:
-            return error.code, error.read()
+            with error:
+                return error.code, error.read()
 
-    def check(name: str, condition: bool, detail: str = "") -> None:
+    def check(name: str, condition: bool) -> None:
         nonlocal checks
         checks += 1
         if not condition:
-            failures.append(f"{name}: {detail}")
+            raise AssertionError(name)
 
-    status, body = call("/v1/models")
-    listed = json.loads(body.decode("utf-8"))
-    ids = [m["id"] for m in listed.get("data", [])]
-    check("models", status == 200 and ids == _state["models"], f"status={status} ids={ids}")
+    def complete(messages: list[dict[str, Any]], stream: bool = False,
+                 tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        payload = {"model": _state["models"][0], "messages": messages, "stream": stream}
+        if tools is not None:
+            payload["tools"] = tools
+        status, body = call("/v1/chat/completions", payload, auth=True)
+        check("completion HTTP", status == 200)
+        if not stream:
+            result = json.loads(body)
+            choice = result["choices"][0]
+            return {"message": choice["message"], "finish_reason": choice["finish_reason"], "usage": result["usage"]}
+        check("SSE termination", body.endswith(b"data: [DONE]\n\n"))
+        events = [json.loads(line[6:]) for line in body.decode("utf-8").splitlines()
+                  if line.startswith("data: ") and line != "data: [DONE]"]
+        message: dict[str, Any] = {"role": "assistant", "content": ""}
+        tool_calls: dict[int, dict[str, Any]] = {}
+        finish, usage = None, None
+        for event in events:
+            usage = event.get("usage", usage)
+            for choice in event["choices"]:
+                delta = choice["delta"]
+                message["content"] += delta.get("content") or ""
+                finish = choice.get("finish_reason") or finish
+                for fragment in delta.get("tool_calls", []):
+                    tool = tool_calls.setdefault(fragment["index"], {"function": {"arguments": ""}})
+                    for key in ("id", "type"):
+                        if key in fragment:
+                            tool[key] = fragment[key]
+                    function = fragment.get("function", {})
+                    if "name" in function:
+                        tool["function"]["name"] = function["name"]
+                    tool["function"]["arguments"] += function.get("arguments", "")
+        if tool_calls:
+            message["tool_calls"] = [tool_calls[index] for index in sorted(tool_calls)]
+            message["content"] = message["content"] or None
+        return {"message": message, "finish_reason": finish, "usage": usage}
 
-    status, body = call("/v1/chat/completions", {"model": _state["models"][0],
-                                                  "messages": [{"role": "user", "content": "ping"}]},
-                        {"Authorization": "Bearer e2e-mock"})
-    plain = json.loads(body.decode("utf-8"))
-    message = plain["choices"][0]["message"]
-    check("completion", status == 200 and plain["choices"][0]["finish_reason"] == "stop"
-          and isinstance(message.get("content"), str) and message["content"]
-          and plain["usage"]["total_tokens"] > 0, f"status={status} body={body[:200]!r}")
+    try:
+        call("/__e2e/reset", {})
+        status, body = call("/v1/models")
+        check("models", status == 200 and [m["id"] for m in json.loads(body)["data"]] == _state["models"])
+        history = [{"role": "system", "content": "ping stream инструмент"},
+                   {"role": "user", "content": "ping"}]
+        ping = complete(history)
+        check("plain completion", ping["finish_reason"] == "stop" and
+              ping["message"]["content"] == "pong: мок-модель отвечает" and ping["usage"]["total_tokens"] > 0)
+        history += [ping["message"], {"role": "user", "content": [{"type": "text", "text": "stream"}]}]
+        plain, streamed = complete(history), complete(history, stream=True)
+        check("latest user and chunks", plain == streamed and plain["message"]["content"] ==
+              "Потоковый ответ пришёл тремя кусками.")
 
-    status, body = call("/v1/chat/completions", {"model": _state["models"][0], "stream": True,
-                                                "messages": [{"role": "user", "content": "stream"}]})
-    events = body.decode("utf-8").split("data: ")
-    check("stream", status == 200 and body.endswith(b"data: [DONE]\n\n") and len(events) >= 4,
-          f"status={status} events={len(events)}")
+        tools = [{"type": "function", "function": {"name": name, "parameters": {}}}
+                 for name in ("read_file", "write_file")]
+        for prompt, name, arguments in (
+            ("инструмент", "read_file", {"path": "README.md"}),
+            ("запиши файл", "write_file", {"path": "e2e-permission.txt", "content": "e2e mock write"}),
+        ):
+            history += [plain["message"], {"role": "user", "content": prompt}]
+            tool_response = complete(history, stream=True, tools=tools)
+            calls = tool_response["message"].get("tool_calls", [])
+            check("streamed tool call", tool_response["finish_reason"] == "tool_calls" and len(calls) == 1)
+            tool = calls[0]
+            check("tool identity and arguments", bool(tool["id"]) and tool["type"] == "function" and
+                  tool["function"]["name"] == name and json.loads(tool["function"]["arguments"]) == arguments)
+            nonstream = complete(history, tools=tools)
+            check("plain/stream tool parity", nonstream["message"] == tool_response["message"] and
+                  nonstream["finish_reason"] == "tool_calls" and nonstream["usage"] == tool_response["usage"])
+            history += [tool_response["message"], {"role": "tool", "tool_call_id": tool["id"], "content": "ok"}]
+            summary = complete(history, tools=tools)
+            check("tool result finishes turn", summary["finish_reason"] == "stop" and
+                  summary["message"]["content"] == "Инструмент отработал: результат получен и обработан.")
+            history += [summary["message"], {"role": "user", "content": "stream"}]
+            next_turn = complete(history, tools=tools)
+            check("old tool result does not capture next turn", next_turn["message"] == plain["message"] and
+                  next_turn["finish_reason"] == "stop")
 
-    status, body = call("/v1/chat/completions", {"model": _state["models"][0], "stream": True,
-                                                "messages": [{"role": "user", "content": "инструмент"}],
-                                                "tools": [{"type": "function",
-                                                           "function": {"name": "read_file", "parameters": {}}}]})
-    text = body.decode("utf-8")
-    check("tool-route", status == 200 and text.endswith("data: [DONE]\n\n"), f"status={status}")
+        # Отдельное правило проверяет явные false и regex без зависимости от текстов core.
+        _state["rules"] = [{"match": {"regex": "^guard$", "hasToolResult": False, "requiresTools": False},
+                            "kind": "text", "text": "guard matched"}] + original_rules
+        guard = [{"role": "user", "content": "guard"}]
+        check("false predicates match", complete(guard)["message"]["content"] == "guard matched")
+        check("requiresTools false excludes tools", complete(guard, tools=tools)["message"]["content"] != "guard matched")
+        check("hasToolResult false excludes result", complete(guard + [{"role": "tool", "content": "ok"}])
+              ["message"]["content"] != "guard matched")
+        check("regex ignores old messages", complete(guard + [{"role": "user", "content": "new"}])
+              ["message"]["content"] != "guard matched")
+        _state["rules"] = original_rules
 
-    status, body = call("/v1/embeddings")
-    check("unknown-route", status == 404, f"status={status}")
-
-    status, body = call("/__e2e/requests")
-    journal = json.loads(body.decode("utf-8"))
-    logged = journal.get("requests", [])
-    check("journal", journal.get("calls") == 3 and len(logged) == 4
-          and logged[0].get("auth") is True and logged[-1].get("path") == "/v1/embeddings",
-          f"calls={journal.get('calls')} logged={len(logged)}")
-
-    call("/__e2e/reset", {})
-    status, body = call("/__e2e/requests")
-    check("reset", json.loads(body.decode("utf-8")).get("calls") == 0, f"status={status}")
-
-    server.shutdown()
-    server.server_close()
+        status, _ = call("/v1/embeddings")
+        check("unknown route", status == 404)
+        status, body = call("/__e2e/requests")
+        journal = json.loads(body)
+        logged = [{key: entry.get(key) for key in ("path", "messages", "auth")}
+                  for entry in journal["requests"]]
+        check("journal including models and history", status == 200 and logged == expected_log and
+              journal["calls"] == sum(entry["path"] == "/v1/chat/completions" for entry in expected_log))
+        status, _ = call("/__e2e/reset", {})
+        _, body = call("/__e2e/requests")
+        check("reset clears counter and journal", status == 200 and json.loads(body) == {"calls": 0, "requests": []})
+    except Exception as error:
+        failures.append(f"{type(error).__name__}: {error}")
+    finally:
+        _state["rules"] = original_rules
+        server.shutdown()
+        server.server_close()
+        worker.join()
     if failures:
-        print("selftest FAILED", flush=True)
-        for failure in failures:
-            print("  " + failure, flush=True)
+        print("selftest FAILED: " + "; ".join(failures), flush=True)
         return 1
     print(f"selftest OK: {checks} checks, models={_state['models']}, rules={len(_state['rules'])}", flush=True)
     return 0
@@ -433,7 +507,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--selftest", action="store_true", help="проверить HTTP-контур мока и выйти")
     args = parser.parse_args(argv)
 
-    load_script(args.script)
+    script = args.script
+    if args.selftest and script is None:
+        script = Path(__file__).with_name("mock_scenarios") / "core.json"
+    load_script(script)
     if args.selftest:
         return selftest()
     if args.log:

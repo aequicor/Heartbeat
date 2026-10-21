@@ -2,6 +2,12 @@
   "models": ["e2e-small", "e2e-large"],
   "responses": [
     {
+      "label": "tool-result-summary",
+      "match": {"hasToolResult": true},
+      "kind": "text",
+      "text": "Инструмент отработал: результат получен и обработан."
+    },
+    {
       "label": "ping",
       "match": {"contains": "ping"},
       "kind": "text",
@@ -17,16 +23,17 @@
     },
     {
       "label": "tool-call",
-      "match": {"contains": "инструмент", "requiresTools": true},
+      "match": {"contains": "инструмент", "requiresTools": true, "hasToolResult": false},
       "kind": "tool_call",
       "tool": "read_file",
       "arguments": {"path": "README.md"}
     },
     {
-      "label": "tool-result-summary",
-      "match": {"hasToolResult": true},
-      "kind": "text",
-      "text": "Инструмент отработал: результат получен и обработан."
+      "label": "write-permission",
+      "match": {"contains": "запиши файл", "requiresTools": true, "hasToolResult": false},
+      "kind": "tool_call",
+      "tool": "write_file",
+      "arguments": {"path": "e2e-permission.txt", "content": "e2e mock write"}
     },
     {
       "label": "rate-limit",
