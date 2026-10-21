@@ -93,6 +93,7 @@ class AiStudioEffects(
                         effect.requestId,
                         effect.attachments,
                         effect.submissionId,
+                        userInstruction = effect.userInstruction,
                     ),
                 )
             }

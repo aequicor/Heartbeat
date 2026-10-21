@@ -20,11 +20,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -63,6 +65,14 @@ import kotlin.uuid.Uuid
 /** Conversation persistence stays under the repository's existing record lock. */
 internal interface StudioConfigurationAccess {
     suspend fun configurationRecord(id: String): StudioChatRecord
+
+    /** Saves direct human input before send and returns all durable originals; missing support fails closed. */
+    suspend fun captureUserInstructions(
+        id: String,
+        request: RequestId,
+        instruction: String?,
+    ): TrustedUserInstructions = TrustedUserInstructions.Incomplete
+
     suspend fun configurationAnchor(id: String): FeedbackAnchor
     suspend fun configurationSession(id: String, target: EngineTarget): ActiveSession
     suspend fun saveConfiguration(id: String, settings: StudioSessionSettings)

@@ -36,11 +36,25 @@ class EngineStudioCreationTest {
                 return SendResult.Ignored
             }
         }
-        val request = AiStudioEffect.CreateSession(1, null, "First prompt", DefaultRunSettings, 42)
+        val request = AiStudioEffect.CreateSession(
+            1,
+            null,
+            "First prompt",
+            DefaultRunSettings,
+            42,
+            userInstruction = "Original human input",
+        )
         effects.handle(request, machine)
         val created = assertIs<AiStudioIntent.Internal.SessionCreated>(sent.single())
         assertEquals(
-            AiStudioIntent.Internal.SessionCreated(1, created.sessionId, "First prompt", DefaultRunSettings, 42),
+            AiStudioIntent.Internal.SessionCreated(
+                1,
+                created.sessionId,
+                "First prompt",
+                DefaultRunSettings,
+                42,
+                userInstruction = "Original human input",
+            ),
             created,
         )
         val session = repository.observeWorkspace().first().session(created.sessionId)

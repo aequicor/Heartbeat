@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.core.datastore.jsonKey
@@ -39,6 +40,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -101,7 +103,7 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-internal val ChatSpec = KeyValueSpec("ai_studio_chats")
+internal val ChatSpec = KeyValueSpec("ai_studio_chats", readPolicy = KeyValueReadPolicy.Strict)
 internal val ChatsKey: StoreKey<List<StudioChatRecord>> =
     jsonKey("chats", ListSerializer(StudioChatRecord.serializer()))
 
@@ -159,6 +161,8 @@ internal data class StudioChatRecord(
     val pendingHarnessSource: SessionRef? = null,
     /** Native create received the carried IDs while harnesses were enabled; retries reuse these declarations. */
     val pendingHarnessContext: SessionRef? = null,
+    /** Original human instructions only; null is legacy or unknown provenance and never implies complete authority. */
+    val humanAuthority: StudioHumanAuthority? = null,
 ) {
     /** Whether [session] is this chat's current or an earlier native session. */
     fun owns(session: SessionRef): Boolean = ref == session || session in previousRefs
@@ -402,6 +406,7 @@ internal class EngineStudioRepository(
             worktreeTaskId = id.takeIf { isWorktree },
             isSandbox = isSandbox.takeIf { isWorktree },
             executionWorkspace = executionWorkspace,
+            humanAuthority = StudioHumanAuthority(),
         )
         val admitted = organism?.let { organisms.admit(id, it, isWorktree, projectId).on(pending) } ?: pending
         val record = conversations.create(admitted, ::saveConversation)
@@ -443,6 +448,7 @@ internal class EngineStudioRepository(
         attachments: List<ResourceRef>,
         submissionId: String,
         environment: StudioChatEnvironment?,
+        userInstruction: String?,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
@@ -459,6 +465,7 @@ internal class EngineStudioRepository(
             submissionId = submissionId,
             environment = environment,
             isUserPrompt = true,
+            userInstruction = userInstruction,
         )
     }
 
@@ -474,11 +481,17 @@ internal class EngineStudioRepository(
         onAccepted: suspend () -> Unit = {},
         environment: StudioChatEnvironment? = null,
         isUserPrompt: Boolean = false,
+        userInstruction: String? = null,
         beforeExecute: suspend () -> Unit = {},
     ): RunOutcome = runs.run(
         this,
         StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
-            .copy(submissionId = submissionId, environment = environment, isUserPrompt = isUserPrompt),
+            .copy(
+                submissionId = submissionId,
+                environment = environment,
+                isUserPrompt = isUserPrompt,
+                userInstruction = userInstruction,
+            ),
         waitForIdle,
         beforeExecute = beforeExecute,
     )
@@ -645,6 +658,15 @@ internal class EngineStudioRepository(
         val record = record(id)
         val applied = state.value.configurations[id]?.applied ?: return record
         return record.copy(configuration = applied, target = studioModelTarget(applied.modelId) ?: record.target)
+    }
+
+    override suspend fun captureUserInstructions(
+        id: String,
+        request: RequestId,
+        instruction: String?,
+    ): TrustedUserInstructions = lock.withLock {
+        log.v { "Capture durable human authority before native submission" }
+        captureStudioUserInstructions(store, id, request, instruction)
     }
 
     override suspend fun configurationSession(id: String, target: EngineTarget): ActiveSession {

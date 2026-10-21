@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
@@ -58,11 +59,57 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioConfiguredSubmissionTest {
+    @Test
+    fun `configured sender persists originals before send and automatic turns inherit them`() = runTest {
+        val fixture = SubmissionFixture(this)
+        val store = ChecklistTestStore(ChatSpec)
+        val initial = fixture.access.records.getValue("chat").copy(humanAuthority = StudioHumanAuthority())
+        store.set(ChatsKey, listOf(initial))
+        fixture.authorityStore = store
+        fixture.submit("human", userInstruction = "  Never read core  ")
+        fixture.submit("automatic", isUserPrompt = false)
+        val first = fixture.session.requests.first()
+        val automatic = fixture.session.requests.last()
+        assertNull(first.userInstruction)
+        val authority = assertIs<TrustedUserInstructions.Complete>(first.trustedUserInstructions)
+        assertEquals("  Never read core  ", authority.messages.single().text)
+        assertEquals(authority, automatic.trustedUserInstructions)
+        assertEquals("  Never read core  ", store.get(ChatsKey)?.single()?.humanAuthority?.messages?.single()?.text)
+    }
+
+    @Test
+    fun `configured sender never crosses the native boundary when authority persistence fails`() = runTest {
+        val fixture = SubmissionFixture(this)
+        val store = ChecklistTestStore(ChatSpec)
+        val initial = fixture.access.records.getValue("chat").copy(humanAuthority = StudioHumanAuthority())
+        store.set(ChatsKey, listOf(initial))
+        fixture.authorityStore = store
+        store.failWrites = true
+        assertFailsWith<IllegalStateException> {
+            fixture.submit("human", userInstruction = "Read the selected file")
+        }
+        assertTrue(fixture.session.requests.isEmpty())
+    }
+
+    @Test
+    fun `configured sender keeps missing legacy authority explicit even with new human text`() = runTest {
+        val fixture = SubmissionFixture(this)
+        val store = ChecklistTestStore(ChatSpec)
+        store.set(ChatsKey, listOf(fixture.access.records.getValue("chat")))
+        fixture.authorityStore = store
+        fixture.submit("human", userInstruction = "Continue")
+        val sent = fixture.session.requests.single()
+        assertEquals(TrustedUserInstructions.Incomplete, sent.trustedUserInstructions)
+        assertNull(sent.userInstruction)
+    }
+
     @Test
     fun `replacement context survives size refusal and unknown acceptance without retrying`() = runTest {
         for (failure in listOf(
@@ -366,7 +413,16 @@ private class SubmissionFixture(
     val access = configuration.access
     var engineContext: String? = null
     var preparedPrompt: String? = null
+    var authorityStore: ChecklistTestStore? = null
     private val submissionAccess = object : StudioConfigurationAccess by access {
+        override suspend fun captureUserInstructions(
+            id: String,
+            request: RequestId,
+            instruction: String?,
+        ): TrustedUserInstructions = authorityStore?.let {
+            captureStudioUserInstructions(it, id, request, instruction)
+        } ?: TrustedUserInstructions.Incomplete
+
         override suspend fun engineSwitchContext(id: String, incoming: String): String? {
             preparedPrompt = incoming
             return engineContext.takeIf { access.records.getValue(id).pendingEngineContext != null }
@@ -404,23 +460,28 @@ private class SubmissionFixture(
         )
     }
 
-    suspend fun submit(request: String, compaction: ContextCompaction? = null, isUserPrompt: Boolean = true): TurnId =
-        submission.submit(
-            submissionAccess,
-            session,
-            target,
-            StudioTurnRequest(
-                "chat",
-                prompt = if (compaction == null) "Hello" else "",
-                settings = DefaultRunSettings,
-                kind = WorktreeRunKind.Coding,
-                request = RequestId(request),
-                compaction = compaction,
-                isUserPrompt = isUserPrompt,
-            ),
-            { listOf(StudioModel(target.studioModelId(), "Model", isTrustSupported = isTrustSupported)) },
-            { access.states },
-        )
+    suspend fun submit(
+        request: String,
+        compaction: ContextCompaction? = null,
+        isUserPrompt: Boolean = true,
+        userInstruction: String? = null,
+    ): TurnId = submission.submit(
+        submissionAccess,
+        session,
+        target,
+        StudioTurnRequest(
+            "chat",
+            prompt = if (compaction == null) "Hello" else "",
+            settings = DefaultRunSettings,
+            kind = WorktreeRunKind.Coding,
+            request = RequestId(request),
+            compaction = compaction,
+            isUserPrompt = isUserPrompt,
+            userInstruction = userInstruction,
+        ),
+        { listOf(StudioModel(target.studioModelId(), "Model", isTrustSupported = isTrustSupported)) },
+        { access.states },
+    )
 
     fun storedApproval(): ApprovalMode? = access.records.getValue("chat").configuration?.approval
 }

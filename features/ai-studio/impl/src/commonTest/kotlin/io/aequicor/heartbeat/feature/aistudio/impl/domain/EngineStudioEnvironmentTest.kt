@@ -41,7 +41,7 @@ class EngineStudioEnvironmentTest {
         val machine = object : EffectScope<AiStudioIntent> {
             override suspend fun send(intent: AiStudioIntent) = SendResult.Accepted
         }
-        val effect = AiStudioEffect.Run("chat", "hello", DefaultRunSettings)
+        val effect = AiStudioEffect.Run("chat", "hello", DefaultRunSettings, userInstruction = "original human input")
         val running = launch { effects.handle(effect.copy(environment = first), machine) }
         runCurrent()
         assertEquals(listOf<StudioChatEnvironment?>(first), runtime.accepted)
@@ -51,6 +51,7 @@ class EngineStudioEnvironmentTest {
         effects.handle(effect, machine)
         assertEquals(listOf(first, second, null), runtime.accepted)
         assertEquals(runtime.accepted, runtime.finished)
+        assertEquals(List<String?>(3) { "original human input" }, runtime.instructions)
     }
 }
 
@@ -58,6 +59,7 @@ private class EnvironmentRuntime : StudioRuntime {
     override val state = MutableStateFlow(StudioRuntimeState())
     val accepted = mutableListOf<StudioChatEnvironment?>()
     val finished = mutableListOf<StudioChatEnvironment?>()
+    val instructions = mutableListOf<String?>()
     val complete = CompletableDeferred<Unit>()
     override suspend fun defaults() = DefaultRunSettings
     override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome = error("unused")
@@ -68,9 +70,11 @@ private class EnvironmentRuntime : StudioRuntime {
         attachments: List<ResourceRef>,
         submissionId: String,
         environment: StudioChatEnvironment?,
+        userInstruction: String?,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         accepted += environment
+        instructions += userInstruction
         onAccepted()
         complete.await()
         finished += environment

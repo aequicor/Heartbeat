@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.platform.dibundle
 
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -72,7 +73,9 @@ internal suspend fun CoroutineScope.assertHelperAdmissionTrust(services: AiEngin
     val native = engine.natives.last()
     assertEquals(TrustLevel.Ask, native.sent.single().trust)
     assertEquals(ApprovalMode.Ask, runtime.state.value.configurations.getValue(helper.value).applied.approval)
-    val store = (services as TestStorageAccessors).stores.keyValue(KeyValueSpec("ai_studio_chats"))
+    val store = (services as TestStorageAccessors).stores.keyValue(
+        KeyValueSpec("ai_studio_chats", readPolicy = KeyValueReadPolicy.Strict),
+    )
     val records = requireNotNull(store.get(jsonKey("chats", JsonArray.serializer())))
     val saved = records.single { it.jsonObject["id"] == JsonPrimitive(helper.value) }
     val configuration = Json.decodeFromJsonElement(
@@ -88,7 +91,9 @@ internal suspend fun seedHelperFullApproval(
     helper: HelperId,
     approval: ApprovalMode = ApprovalMode.AutoApprove,
 ) {
-    val store = (services as TestStorageAccessors).stores.keyValue(KeyValueSpec("ai_studio_chats"))
+    val store = (services as TestStorageAccessors).stores.keyValue(
+        KeyValueSpec("ai_studio_chats", readPolicy = KeyValueReadPolicy.Strict),
+    )
     val key = jsonKey("chats", JsonArray.serializer())
     val full = StudioSessionSettings(services.studioRuntime.defaults().modelId, approval = approval)
     val configuration = Json.encodeToJsonElement(StudioSessionSettings.serializer(), full)

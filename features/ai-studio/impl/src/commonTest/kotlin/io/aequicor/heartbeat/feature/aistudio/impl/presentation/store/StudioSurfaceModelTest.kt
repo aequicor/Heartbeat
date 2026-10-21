@@ -35,6 +35,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class StudioSurfaceModelTest {
@@ -130,6 +131,7 @@ class StudioSurfaceModelTest {
         runCurrent()
         val submit = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
         assertEquals(1 to "Map the PRs", submit.paneId to submit.prompt)
+        assertNull(submit.userInstruction)
     }
 
     @Test

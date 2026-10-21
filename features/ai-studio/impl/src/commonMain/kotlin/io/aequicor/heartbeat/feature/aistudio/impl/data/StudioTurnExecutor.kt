@@ -113,6 +113,8 @@ internal data class StudioTurnRequest(
     val environment: StudioChatEnvironment? = null,
     /** Only a user submission may read the profile confirmation level; host jobs retain their own policy. */
     val isUserPrompt: Boolean = false,
+    /** Original text from the human submission boundary, excluding generated plans and host continuations. */
+    val userInstruction: String? = null,
     /** Executor-owned evidence recorded at the native send boundary, after preparation. */
     val delivery: StudioPromptDelivery? = null,
 ) {

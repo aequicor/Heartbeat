@@ -5,6 +5,7 @@ import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import com.arkivanov.essenty.lifecycle.resume
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
@@ -438,7 +439,9 @@ class StudioEngineIntegrationTest {
         val settings = runtime.defaults()
         val savedTarget = requireNotNull(services.modelSelections.observe().first().defaultTarget)
         val chat = repository.createSession(null, "Legacy conversation")
-        val store = (services as TestStorageAccessors).stores.keyValue(KeyValueSpec("ai_studio_chats"))
+        val store = (services as TestStorageAccessors).stores.keyValue(
+            KeyValueSpec("ai_studio_chats", readPolicy = KeyValueReadPolicy.Strict),
+        )
         val key = jsonKey("chats", JsonArray.serializer())
         val stored = requireNotNull(store.get(key)).single().jsonObject
         // Earlier versions stored the route without a session configuration snapshot.

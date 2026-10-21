@@ -42,6 +42,8 @@ interface StudioRuntime : StudioRuntimeConfiguration {
     /**
      * Starts a turn with durable references and reports native acceptance before awaiting completion.
      * [submissionId] names the screen submission that created a new chat, so its first turn finds what it claimed.
+     * [userInstruction] is captured at an explicit human composer send, never inferred from [prompt].
+     * Generated follow-ups, question titles, choice labels and service surface prompts must leave it null.
      */
     suspend fun run(
         sessionId: String,
@@ -50,6 +52,7 @@ interface StudioRuntime : StudioRuntimeConfiguration {
         attachments: List<ResourceRef>,
         submissionId: String = "",
         environment: StudioChatEnvironment? = null,
+        userInstruction: String? = null,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         require(environment == null) { "Outside environments are unavailable for this runtime" }

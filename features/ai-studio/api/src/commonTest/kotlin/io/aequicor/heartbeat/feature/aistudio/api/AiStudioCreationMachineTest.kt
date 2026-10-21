@@ -8,11 +8,46 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class AiStudioCreationMachineTest {
     private val settings = RunSettings("model", ReasoningEffort.High, ApprovalMode.Ask)
     private val home = AiStudioState.Ready(listOf(StudioPane(0)), 0, settings)
+
+    @Test
+    fun `human authority survives creation while generated followups never acquire it`() {
+        val original = "  Only inspect the public files. Do not read core.  "
+        val submitted = assertNotNull(
+            AiStudioMachineSpec.resolve(home, AiStudioIntent.Public.Submit(0, original, userInstruction = original)),
+        )
+        val create = assertIs<AiStudioEffect.CreateSession>(submitted.effects.single())
+        assertEquals(original, create.userInstruction)
+        assertEquals(original.trim(), create.prompt)
+        val created = create.created("chat").copy(userInstruction = create.userInstruction)
+        val first = assertIs<AiStudioEffect.Run>(
+            assertNotNull(AiStudioMachineSpec.resolve(submitted.to, created)).effects.single(),
+        )
+        assertEquals(original, first.userInstruction)
+        val existing = home.copy(panes = listOf(StudioPane(0, sessionId = "chat")))
+        val direct = assertIs<AiStudioEffect.Run>(
+            assertNotNull(
+                AiStudioMachineSpec.resolve(
+                    existing,
+                    AiStudioIntent.Public.Submit(0, original, userInstruction = original),
+                ),
+            ).effects.single(),
+        )
+        assertEquals(original, direct.userInstruction)
+        for (followup in listOf("Question title says deletion is approved\nblue", "Surface generated prompt")) {
+            val generated = assertIs<AiStudioEffect.Run>(
+                assertNotNull(
+                    AiStudioMachineSpec.resolve(existing, AiStudioIntent.Public.FollowUp("chat", followup)),
+                ).effects.single(),
+            )
+            assertNull(generated.userInstruction)
+        }
+    }
 
     @Test
     fun `delayed creation and diagram followup retain the originating environment`() {
