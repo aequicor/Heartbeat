@@ -25,6 +25,7 @@
  * and host approval policy before shipping the new runtime. JVM approval fixtures do not execute this script.
  */
 import { resolve } from "node:path";
+import { installControlledPowerShell } from "./heartbeat-powershell.ts";
 
 const APPROVAL_TITLE = "heartbeat.tool-approval";
 const EDIT_TOOLS = new Set(["edit", "write"]);
@@ -76,13 +77,19 @@ function freezeInput(value: any): void {
     Object.freeze(value);
 }
 
-export default function (pi: any) {
+export default async function (pi: any) {
     const completed = new Set<string>();
     const claimed = new Set<string>();
+    const authorizedShell = new Map<string, { input: object; cwd: string }>();
+    const controlled = await installControlledPowerShell(pi, (id, input, cwd) => {
+        const authorization = authorizedShell.get(id);
+        authorizedShell.delete(id);
+        return authorization?.input === input && authorization.cwd === cwd;
+    });
     let generation = 0;
-    pi.on("agent_end", () => { generation++; completed.clear(); claimed.clear(); });
+    pi.on("agent_end", () => { generation++; completed.clear(); claimed.clear(); authorizedShell.clear(); });
 	pi.on("tool_call", async (event: any, ctx: any) => {
-		if (HOSTED_TOOLS.has(event.toolName)) return undefined;
+		if (HOSTED_TOOLS.has(event.toolName) && !(controlled && event.toolName === "powershell")) return undefined;
         const { toolName, toolCallId } = event;
         if (claimed.has(toolCallId)) return { block: true, reason: "Tool authorization was already consumed" };
         claimed.add(toolCallId);
@@ -99,7 +106,9 @@ export default function (pi: any) {
         } else {
 			target = typeof input.command === "string" ? input.command : typeof input.path === "string" ? input.path : "";
 		}
-        const request = JSON.stringify({ toolCallId: event.toolCallId, toolName: event.toolName, target, path, arguments: input });
+        const executorBinding = controlled && toolName === "powershell" && cwd === controlled.directory
+            ? controlled.binding : undefined;
+        const request = JSON.stringify({ toolCallId: event.toolCallId, toolName: event.toolName, target, path, arguments: input, executorBinding });
         const inputSnapshot = JSON.stringify(input);
         const decision = decisionReply(ctx.hasUI ? await ctx.ui.input(APPROVAL_TITLE, request) : undefined);
         if (decision.allowed) {
@@ -109,6 +118,7 @@ export default function (pi: any) {
             }
             freezeInput(input);
             Object.freeze(event);
+            if (executorBinding) authorizedShell.set(toolCallId, { input, cwd });
         }
         if (decision.allowed && (event.toolName === "web_search" || event.toolName === "web_fetch")) {
             completed.add(event.toolCallId);

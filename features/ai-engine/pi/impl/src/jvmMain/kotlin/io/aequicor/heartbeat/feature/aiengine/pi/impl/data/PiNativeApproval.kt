@@ -136,7 +136,7 @@ internal class PiNativeApproval(
             command = call.target.takeIf { action == AgentToolAction.Command },
             arguments = call.arguments,
             workingDirectory = workspace,
-
+            shell = connection.controlledShell(call),
         )
         return native to isHostTermination
     }

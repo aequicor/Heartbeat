@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellDialect
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellExecution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
@@ -24,12 +26,64 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PiNativeApprovalTest {
+    @Test
+    fun `PowerShell launch evidence comes from the connection and never from model arguments`() = runTest {
+        val shell = NativeShellExecution(
+            NativeShellDialect.PowerShell,
+            "host-fixed",
+            listOf("-Command"),
+            "host-binding",
+        )
+        val observed = mutableListOf<NativeToolCall>()
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun requiresActionAnalysis(): Boolean = true
+            override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
+                observed += call
+                return NativeVerdict.Allow
+            }
+        }
+        val fixture = fixture(this, tools = tools) { _, connection -> connection.controlledPowerShell = shell }
+        fixture.runningTurn()
+        assertEquals(true, fixture.connection.plan?.isActionAnalysisRequired)
+        val command = "Get-ChildItem -Directory | Select-Object -ExpandProperty Name"
+        for (binding in listOf("host-binding", "forged", null)) {
+            val message = buildJsonObject {
+                put("toolName", "powershell")
+                put("toolCallId", "call-${binding.orEmpty()}")
+                put("target", command)
+                binding?.let { put("executorBinding", it) }
+                put(
+                    "arguments",
+                    buildJsonObject {
+                        put("command", command)
+                        put("executorBinding", "host-binding")
+                        put("shell", buildJsonObject { put("environmentBinding", "host-binding") })
+                    },
+                )
+            }
+            val placeholder = "placeholder" to JsonPrimitive(message.toString())
+            fixture.connection.event(
+                JsonObject(structuredApproval("shell-${binding.orEmpty()}") + placeholder),
+            )
+            runCurrent()
+        }
+        assertEquals(3, observed.size)
+        assertEquals(shell, observed.first().shell)
+        assertNull(observed[1].shell)
+        assertNull(observed[2].shell)
+        assertTrue(observed.all { it.command == command })
+        fixture.session.shutdown()
+    }
+
     @Test
     fun `input approval transports the exact automatic verdict without a user dialog`() = runTest {
         val reason = "Automatic safety is uncertain: inspect \"config\" first.\nRetry with a bounded edit."

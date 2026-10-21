@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellExecution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlinx.coroutines.CancellationException
@@ -41,6 +42,9 @@ internal interface PiConnection {
     /** Explicit limits from this process's models.json; excludes Pi's synthetic fallback windows. */
     val contextWindows: Map<String, Long>
 
+    /** Immutable host evidence; absent for custom runtimes, discovery and arbitrary extension implementations. */
+    val controlledPowerShell: NativeShellExecution? get() = null
+
     /** Sends a correlated command and returns its `data`; a timeout fails only this command. */
     suspend fun command(type: String, fields: JsonObject = JsonObject(emptyMap())): JsonObject
 
@@ -71,6 +75,7 @@ internal class PiRpc(
     private val commandTimeoutMillis: Long = COMMAND_TIMEOUT,
     override val workingDirectory: Path? = null,
     override val contextWindows: Map<String, Long> = emptyMap(),
+    override val controlledPowerShell: NativeShellExecution? = null,
 ) : PiConnection {
     private val log = Log.tag("PiRpc")
     private val termination = PiProcessStop(process, dispatchers)

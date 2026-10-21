@@ -29,6 +29,8 @@ internal data class PiApprovalCall(
     val result: AgentToolResult? = null,
     val toolCallId: ToolCallId? = null,
     val isStructuredReply: Boolean = false,
+    /** Private extension envelope; trusted only when it matches this connection's host manifest. */
+    val executorBinding: String? = null,
 ) {
     override fun toString(): String = "PiApprovalCall"
 }
@@ -81,6 +83,7 @@ internal fun approvalCall(message: String?, isResult: Boolean = false): PiApprov
         fields.string("toolCallId")
             ?.takeIf { it.isNotBlank() && it.length <= MAX_TOOL_CALL_ID_CHARS }
             ?.let(::ToolCallId),
+        executorBinding = fields.string("executorBinding"),
     )
 }
 
