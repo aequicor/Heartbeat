@@ -203,7 +203,8 @@ class StructuredCodingExecutionTest {
     @Test
     fun `unknown shell command executes only after the exact manual decision and cannot be replayed`() = runTest {
         val source = if (isWindows()) {
-            "Set-Content -LiteralPath marker.txt -Value approved -NoNewline"
+            val marker = directory.resolve("marker.txt").toString().replace("'", "''")
+            "[System.IO.File]::WriteAllText('$marker', 'approved')"
         } else {
             "printf approved > marker.txt"
         }
@@ -212,10 +213,11 @@ class StructuredCodingExecutionTest {
             true
         }
         val caller = context("manual")
-        val first = tools.execute(caller, "run_command", command(source))
-        assertFalse(first.isError, first.text)
+        val arguments = command(source)
+        val first = tools.execute(caller, "run_command", arguments)
+        assertFalse(first.isError, "Initial authorized execution: ${first.text}")
         assertEquals("approved", Files.readString(directory.resolve("marker.txt")))
-        assertTrue(tools.execute(caller, "run_command", command(source)).isError)
+        assertTrue(tools.execute(caller, "run_command", arguments).isError, "The exact call cannot be replayed")
         assertEquals(1, approvals.size)
         assertTrue(modelPrompts.isEmpty())
     }
@@ -268,7 +270,10 @@ class StructuredCodingExecutionTest {
         },
     )
 
-    private fun command(source: String) = buildJsonObject { put("command", source) }
+    private fun command(source: String) = buildJsonObject {
+        put("command", source)
+        put("timeout_seconds", 20)
+    }
     private fun isWindows() = System.getProperty("os.name").startsWith("Windows")
 
     private suspend fun bind(instruction: String, count: Int = 1) {
