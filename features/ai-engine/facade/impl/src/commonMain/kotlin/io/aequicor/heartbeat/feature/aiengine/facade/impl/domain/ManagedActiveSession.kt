@@ -287,7 +287,7 @@ class ManagedActiveSession(
                     decisionMode = request.decisionMode,
                     reviewTarget = request.reviewTarget,
                 )
-                policy.bindTurn(ref, request.id, turn)
+                policy.bindTurn(ref, request.id, turn, request.userInstruction, request.trustedUserInstructions)
                 val prepared = hookHandle?.prepare(request, turn) ?: request
                 submit(prepared, turn)
             }

@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NoSessionHooks
@@ -47,7 +48,9 @@ import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 
 /** Empty profiles/mobile graphs still have a dispatcher, with no local tools. */
 @ContributesTo(ProfileScope::class)
@@ -71,6 +74,7 @@ internal class DefaultAgentTools(
     private val offloads: Lazy<Set<ToolOutputOffload>> = lazyOf(emptySet()),
     private val workspaces: LocalWorkspaces? = null,
     settings: AgentSecuritySettings = DefaultSecuritySettings,
+    private val actionSafety: ActionSafetyGate? = null,
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
     private val permissions = ToolPermissions(settings)
@@ -89,6 +93,7 @@ internal class DefaultAgentTools(
             context.workspace?.value?.startsWith("sandbox-") == true ||
                 context.workspace?.let { workspaces?.virtual(it) } != null
         },
+        actionSafety = actionSafety,
     )
     private val callsLock = Mutex()
     private val calls = mutableMapOf<Pair<SessionRef, TurnId>, MutableSet<Job>>()
@@ -98,6 +103,9 @@ internal class DefaultAgentTools(
 
     // Entries stay after the turn: a delayed call must still resolve to its finished facade turn.
     private val boundTurns = mutableMapOf<Pair<SessionRef, RequestId>, BoundTurn>()
+    private val userInstructions = BoundUserInstructions()
+
+    override suspend fun requiresActionAnalysis(): Boolean = actionSafety?.isEnabled() == true
 
     override suspend fun bindTurn(
         session: SessionRef,
@@ -114,6 +122,33 @@ internal class DefaultAgentTools(
             val next = BoundTurn(turn, target ?: previous?.target, decisionMode, reviewTarget ?: previous?.reviewTarget)
             check(previous == null || previous == next) { "Request already has a different execution identity" }
             boundTurns[key] = next
+            userInstructions.inherit(session, request)
+        }
+    }
+
+    override suspend fun bindUserInstruction(
+        session: SessionRef,
+        request: RequestId,
+        turn: TurnId,
+        instruction: String,
+    ) {
+        callsLock.withLock {
+            check(boundTurns[session to request]?.turn == turn) { "Human instruction needs the exact bound turn" }
+            check(session to turn !in finishedTurns) { "Human instruction cannot revive a finished turn" }
+            userInstructions.bind(session, request, instruction)
+        }
+    }
+
+    override suspend fun bindUserInstructions(
+        session: SessionRef,
+        request: RequestId,
+        turn: TurnId,
+        instructions: TrustedUserInstructions,
+    ) {
+        callsLock.withLock {
+            check(boundTurns[session to request]?.turn == turn) { "Human authority needs the exact bound turn" }
+            check(session to turn !in finishedTurns) { "Human authority cannot revive a finished turn" }
+            userInstructions.bind(session, request, instructions)
         }
     }
 
@@ -154,10 +189,12 @@ internal class DefaultAgentTools(
         return owners.map { it.instructions(scoped) }.joined()
     }
 
-    override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
-        withInvocation(context, AgentToolResult("Native turn has ended", isError = true)) {
-            executeAuthorized(it, name, arguments)
+    override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
+        val input = HostedInput(arguments)
+        return withInvocation(context, AgentToolResult("Native turn has ended", isError = true)) {
+            executeAuthorized(it, name, input)
         }
+    }
 
     override suspend fun prepareNative(context: AgentToolContext, call: NativeToolCall): NativePreparation =
         withInvocation(context, NativePreparation.Deny("Native turn has ended")) { trusted ->
@@ -196,9 +233,12 @@ internal class DefaultAgentTools(
         context: AgentToolContext,
         name: String,
         arguments: JsonObject,
-    ): NativeVerdict = withInvocation(context, NativeVerdict.Deny("Native turn has ended")) {
-        val result = executeAuthorized(it, name, arguments, isAdapterOperated = true)
-        if (result.isError) NativeVerdict.Deny(result.text) else NativeVerdict.Allow
+    ): NativeVerdict {
+        val input = HostedInput(arguments)
+        return withInvocation(context, NativeVerdict.Deny("Native turn has ended")) {
+            val result = executeAuthorized(it, name, input, isAdapterOperated = true)
+            if (result.isError) NativeVerdict.Deny(result.text) else NativeVerdict.Allow
+        }
     }
 
     override suspend fun afterHosted(
@@ -235,6 +275,7 @@ internal class DefaultAgentTools(
         var trusted = context
         try {
             val mode = permissions.mode()
+            val isStructured = requiresActionAnalysis()
             currentCoroutineContext().ensureActive()
             val isRegistered = callsLock.withLock {
                 val bound = context.request?.let { boundTurns[context.session to it] }
@@ -243,6 +284,8 @@ internal class DefaultAgentTools(
                     historyTurn = context.turn,
                     target = bound?.target ?: context.target,
                     authorization = null,
+                    userInstruction = bound?.let { userInstructions.get(context.session, context.request) },
+                    isActionAnalysisRequired = isStructured,
                     trust = when (mode) {
                         SecurityMode.Ask -> TrustLevel.Ask
                         SecurityMode.Automatic -> TrustLevel.AutoEdits
@@ -284,6 +327,7 @@ internal class DefaultAgentTools(
                     val bound = boundTurns.entries.singleOrNull {
                         it.key.first == session && it.value.turn == turn
                     }?.key?.second
+                    userInstructions.release(session, bound ?: request)
                     bound to calls[key]?.toList().orEmpty()
                 }
             }
@@ -332,9 +376,10 @@ internal class DefaultAgentTools(
     private suspend fun executeAuthorized(
         context: AgentToolContext,
         name: String,
-        arguments: JsonObject,
+        input: HostedInput,
         isAdapterOperated: Boolean = false,
     ): AgentToolResult {
+        val arguments = input.arguments
         val callId = context.callId?.value
         if (callId != null && !callsLock.withLock {
                 claimedCalls.getOrPut(context.session to context.turn) { mutableSetOf() }.add(callId)
@@ -349,9 +394,11 @@ internal class DefaultAgentTools(
         log.i { "Hosted tool requested name=${spec.name} action=${spec.action}" }
         return try {
             val approval = owner.approval(context, spec, arguments)
-            val refusal = authorizationRefusal(context, HostedApproval(owner, spec, arguments, approval))
+            val refusal = authorizationRefusal(context, HostedApproval(owner, spec, arguments, approval), input::isCurrent)
             if (refusal != null) {
                 refusal
+            } else if (!input.isCurrent()) {
+                AgentToolResult(HOSTED_INPUT_CHANGED, isError = true)
             } else if (isAdapterOperated) {
                 currentCoroutineContext().ensureActive()
                 // The adapter performs the operation only after this authorization returns successfully.
@@ -401,7 +448,16 @@ internal class DefaultAgentTools(
         null
     }
 
-    private suspend fun authorizationRefusal(context: AgentToolContext, operation: HostedApproval): AgentToolResult? {
+    private suspend fun authorizationRefusal(
+        context: AgentToolContext,
+        operation: HostedApproval,
+        isInputCurrent: () -> Boolean,
+    ): AgentToolResult? {
+        if (actionSafety?.isEnabled() == true) {
+            return HostedActionSafety(actionSafety, permissions, hooks).refusal(context, operation, isInputCurrent) {
+                changedOperation(context, operation)
+            }?.let { AgentToolResult(it, isError = true) }
+        }
         while (true) {
             val accepted = permissions.authorize(
                 context,
@@ -557,5 +613,17 @@ internal class DefaultAgentTools(
 }
 
 private const val HOOK_NOTE_CHARS = 2_000
+
+/** Captured at public ingress before mode, policy, owner or hook suspension; owners never receive caller storage. */
+private class HostedInput(private val original: JsonObject) {
+    private val snapshot = original.toString()
+    val arguments = Json.parseToJsonElement(snapshot).jsonObject
+
+    fun isCurrent(): Boolean = original.toString() == snapshot && arguments.toString() == snapshot
+
+    override fun toString(): String = "HostedInput"
+}
+
+internal const val HOSTED_INPUT_CHANGED = "The action input changed; request it again"
 
 private val PROJECT_EDITS = setOf("write_file", "edit_file", "delete_file", "move_file")
