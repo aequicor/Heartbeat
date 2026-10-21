@@ -91,6 +91,25 @@ class StudioEngineSwitcherTest {
     }
 
     @Test
+    fun `same connection model replacement keeps settings and requires confirmed idle`() = runTest {
+        for (inspection in listOf(TurnInspection.Idle, TurnInspection.Unknown)) {
+            val fixture = SwitchFixture(this)
+            val change = fixture.change.copy(target = fixture.source.copy(model = ModelId("other")))
+            val session = ConfigurationSession(fixture.source, "native", null)
+            fixture.host.active = object : ActiveSession by session {
+                override val features = inspectionFeatures(inspection)
+            }
+            fixture.host.record = fixture.host.record.copy(ref = session.ref)
+            fixture.switcher.switch("chat", change)
+            val allowed = inspection == TurnInspection.Idle
+            assertEquals(if (allowed) null else StudioEngineSwitchFailure.Busy, fixture.host.state.failure)
+            assertEquals(if (allowed) change.target else fixture.source, fixture.host.record.target)
+            assertEquals(ApprovalMode.AutoEdits, fixture.host.record.configuration?.approval)
+            assertEquals(allowed, fixture.host.wasRefreshed)
+        }
+    }
+
+    @Test
     fun `screen cancellation leaves profile replacement owned and completion precedes releasing its slot`() = runTest {
         val fixture = SwitchFixture(this)
         val gate = CompletableDeferred<Unit>()

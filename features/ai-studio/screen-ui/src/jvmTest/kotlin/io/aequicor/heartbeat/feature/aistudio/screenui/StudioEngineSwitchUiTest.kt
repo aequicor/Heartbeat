@@ -46,6 +46,7 @@ class StudioEngineSwitchUiTest {
             runSkikoComposeUiTest(size = Size(1000f, 800f)) {
                 val pane = PaneUi(0, sessionId = "chat")
                 val a = ModelUi("a", "Engine A", isLocalProjectSupported = true, engineRoute = "one")
+                val sibling = a.copy(id = "sibling", name = "Another model of Engine A")
                 val b = a.copy(id = "b", name = "Engine B", engineRoute = "two")
                 val unsupported = b.copy(id = "cloud", name = "Cloud", isLocalProjectSupported = false)
                 var state by mutableStateOf(
@@ -55,7 +56,7 @@ class StudioEngineSwitchUiTest {
                         sessions = persistentListOf(
                             SessionUi("chat", "Task", "project", Instant.DISTANT_PAST, modelId = "a"),
                         ),
-                        models = persistentListOf(a, b, unsupported),
+                        models = persistentListOf(a, sibling, b, unsupported),
                     ).withDraft(0, "Preserved draft"),
                 )
                 val events = mutableListOf<AiStudioScreenIntent>()
@@ -75,10 +76,11 @@ class StudioEngineSwitchUiTest {
                 onNodeWithText("Cloud").assertIsDisplayed().assertIsNotEnabled()
                 onNodeWithText(workspaceReason).assertIsDisplayed()
                 saveSwitchImage("menu-$dark")
-                onNodeWithText("Engine B").performClick()
+                onNodeWithText("Engine B").assertIsDisplayed()
+                onNodeWithText(sibling.name).performClick()
                 runOnIdle {
                     assertEquals(
-                        listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectModel("b", 0, "a", "chat")),
+                        listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectModel("sibling", 0, "a", "chat")),
                         events,
                     )
                     state = state.copy(engineSwitches = persistentMapOf("chat" to EngineSwitchUi(isPending = true)))

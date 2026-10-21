@@ -97,11 +97,7 @@ internal class StudioEngineSwitcher(
         refuseUnless(record.organismId == null, StudioEngineSwitchFailure.Unsupported)
         refuseUnless(record.target == change.expected, StudioEngineSwitchFailure.Stale)
         if (change.target == change.expected) return
-        refuseUnless(
-            change.target.engine != change.expected.engine ||
-                change.target.binding != change.expected.binding,
-            StudioEngineSwitchFailure.Unsupported,
-        )
+        // A different model on the same binding also needs replacement when native configuration is unavailable.
         val model = host.validateSwitch(record, change.target)
         val active = record.ref?.let { host.switchSource(id, change.expected) }
         if (active != null) {

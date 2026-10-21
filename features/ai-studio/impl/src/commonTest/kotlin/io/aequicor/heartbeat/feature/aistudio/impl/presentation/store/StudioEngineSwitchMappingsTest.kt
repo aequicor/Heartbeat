@@ -32,6 +32,30 @@ class StudioEngineSwitchMappingsTest {
         }
     }
 
+    @Test
+    fun `same binding without native configuration replaces context only with enabled switching`() {
+        val target = source.copy(model = ModelId("other"))
+        val change = StudioSettingChange.Model(target.studioModelId())
+        assertEquals(
+            AiStudioIntent.Public.SwitchSessionEngine("chat", StudioEngineSwitch(source, target)),
+            sessionSettingIntent("chat", change, source.studioModelId(), true, false),
+        )
+        assertEquals(
+            AiStudioIntent.Public.ChangeSessionSetting("chat", change),
+            sessionSettingIntent("chat", change, source.studioModelId(), false, false),
+        )
+        val unchanged = StudioSettingChange.Model(source.studioModelId())
+        assertEquals(
+            AiStudioIntent.Public.ChangeSessionSetting("chat", unchanged),
+            sessionSettingIntent("chat", unchanged, source.studioModelId(), true, false),
+        )
+        val effort = StudioSettingChange.Effort("high")
+        assertEquals(
+            AiStudioIntent.Public.ChangeSessionSetting("chat", effort),
+            sessionSettingIntent("chat", effort, source.studioModelId(), true, false),
+        )
+    }
+
     private fun intent(change: StudioSettingChange, enabled: Boolean) =
-        sessionSettingIntent("chat", change, source.studioModelId(), enabled)
+        sessionSettingIntent("chat", change, source.studioModelId(), enabled, isModelSwitchSupported = true)
 }

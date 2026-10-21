@@ -25,19 +25,24 @@ internal fun StudioEngineSwitchState.toUi(): EngineSwitchUi = EngineSwitchUi(
     },
 )
 
-/** Menu snapshots carry their source route so a delayed remote action cannot replace a newer route. */
+/**
+ * Menu snapshots carry their source route so a delayed remote action cannot replace a newer route.
+ * Engines without in-place model configuration replace the native context even within the same binding.
+ */
 internal fun sessionSettingIntent(
     id: String,
     change: StudioSettingChange,
     expectedModelId: String,
     isSwitchingAvailable: Boolean,
+    isModelSwitchSupported: Boolean,
 ): AiStudioIntent.Public {
     val source = studioModelTarget(expectedModelId)
     val target = (change as? StudioSettingChange.Model)?.modelId?.let(::studioModelTarget)
     if (!isSwitchingAvailable || source == null || target == null) {
         return AiStudioIntent.Public.ChangeSessionSetting(id, change)
     }
-    return if (source.engine != target.engine || source.binding != target.binding) {
+    val isSameBinding = source.engine == target.engine && source.binding == target.binding
+    return if (source != target && (!isSameBinding || !isModelSwitchSupported)) {
         AiStudioIntent.Public.SwitchSessionEngine(id, StudioEngineSwitch(source, target))
     } else {
         AiStudioIntent.Public.ChangeSessionSetting(id, change)

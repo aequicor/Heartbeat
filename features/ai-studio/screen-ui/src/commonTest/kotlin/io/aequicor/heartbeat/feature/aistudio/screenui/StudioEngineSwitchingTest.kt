@@ -49,6 +49,23 @@ class StudioEngineSwitchingTest {
     }
 
     @Test
+    fun `models without native switching remain available through context replacement`() {
+        val current = a.copy(connectionKey = null)
+        val sibling = same.copy(connectionKey = null)
+        val codex = state.copy(models = persistentListOf(current, sibling, b))
+        val idle = codex.paneContent(pane).models
+        assertEquals(listOf(current, sibling, b), idle)
+        val running = codex.copy(running = persistentSetOf("chat")).paneContent(pane).models
+        assertNull(running[0].switchFailure)
+        assertEquals(EngineSwitchFailureUi.Busy, running[1].switchFailure)
+        val disabled = codex.copy(isEngineSwitchingAvailable = false).paneContent(pane).models
+        assertEquals(listOf(current), disabled)
+        // Pi-like engines keep in-place selection, including during a turn.
+        val native = state.copy(running = persistentSetOf("chat")).paneContent(pane).models
+        assertNull(native.first { it.id == same.id }.switchFailure)
+    }
+
+    @Test
     fun `idle menu offers other bindings with workspace and helper refusals`() {
         val models = state.paneContent(pane).models
         assertEquals(listOf("a", "same", "b", "cloud"), models.map { it.id })
