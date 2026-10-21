@@ -34,6 +34,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -241,6 +243,8 @@ internal class StudioQuestionBridge(
         }
         check(isReserved) { "Session already runs a follow-up answer" }
         log.i { "Deliver restored answer as a profile-owned follow-up" }
+        runtime.value.invalidateUserInstructions(question.source)
+        currentCoroutineContext().ensureActive()
         val outcome = runtime.value.run(
             question.source,
             question.followUpText(answer),

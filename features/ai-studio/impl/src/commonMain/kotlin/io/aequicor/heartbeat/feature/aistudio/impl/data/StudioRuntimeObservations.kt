@@ -12,6 +12,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 
+/** Clear only the completed conversation's transient execution and permission projection. */
+internal fun StudioRuntimeState.withoutFinishedRun(id: String): StudioRuntimeState = copy(
+    running = running - id,
+    runStartedAt = runStartedAt - id,
+    stopFailures = stopFailures - id,
+    uncancellable = uncancellable - id,
+    permissions = permissions.filterNot { it.sessionId == id },
+)
+
 /** Profile observations shared by local and remote screens, independent of a visible pane. */
 internal fun observeStudioRuntime(
     scope: CoroutineScope,

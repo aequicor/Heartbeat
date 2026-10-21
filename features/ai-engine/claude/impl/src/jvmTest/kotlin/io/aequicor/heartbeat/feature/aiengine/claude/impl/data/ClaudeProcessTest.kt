@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -13,8 +14,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAccess
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAttachment
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeGuard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -65,6 +68,10 @@ class ClaudeProcessTest {
     private fun TestScope.transport(
         executable: String = java,
         launches: EngineLaunchConfig = EngineLaunchConfig.Default,
+        search: SearchBridge = object : SearchBridge {
+            override fun endpoint() = SearchBridgeEndpoint("http://127.0.0.1:1", "test")
+            override fun attach(features: EngineFeatures) = SearchBridgeAttachment { }
+        },
     ): ProcessClaudeTransport {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
@@ -75,10 +82,7 @@ class ClaudeProcessTest {
         return ProcessClaudeTransport(
             dispatchers,
             ClaudeConfiguration(executable = executable),
-            object : SearchBridge {
-                override fun endpoint() = SearchBridgeEndpoint("http://127.0.0.1:1", "test")
-                override fun attach(features: EngineFeatures) = SearchBridgeAttachment { }
-            },
+            search,
             TestLocalWorkspaces(),
             launches,
         )
@@ -525,7 +529,65 @@ class ClaudeProcessTest {
             Files.deleteIfExists(config)
         }
     }
+
+    @Test
+    fun `scoped search gives the process only its guarded token and closes access afterwards`() = runTest {
+        val program = Files.createTempFile("claude-scoped-search", ".java")
+        Files.writeString(program, SCOPED_SEARCH_PROGRAM)
+        var closed = 0
+        val guard = SearchBridgeGuard { _, _, _ -> AgentToolResult("Denied", isError = true) }
+        val bridge = object : SearchBridge {
+            override fun endpoint(): SearchBridgeEndpoint = error("Profile token must not be exposed")
+            override fun attach(features: EngineFeatures) = SearchBridgeAttachment { }
+            override fun attach(guard: SearchBridgeGuard): SearchBridgeAccess = object : SearchBridgeAccess {
+                override val endpoint = SearchBridgeEndpoint("http://127.0.0.1:1", "scoped-token")
+                override fun close() {
+                    closed++
+                }
+            }
+        }
+        try {
+            val lines = mutableListOf<String>()
+            val exit = transport(search = bridge).run(
+                listOf(program.toString(), SEARCH_BRIDGE_MARKER, SCOPED_SEARCH_BRIDGE_MARKER),
+                hosted = ClaudeHostedTools(null, "", searchGuard = guard),
+            ) {
+                lines += it
+                false
+            }
+            assertEquals(0, exit)
+            assertEquals(listOf("scoped"), lines)
+            assertEquals(1, closed)
+        } finally {
+            Files.deleteIfExists(program)
+        }
+    }
+
+    @Test
+    fun `scoped search cannot fall back when the guard or bridge support is missing`() = runTest {
+        val flags = listOf(SEARCH_BRIDGE_MARKER, SCOPED_SEARCH_BRIDGE_MARKER)
+        assertFailsWith<EngineException> { transport().run(flags) { false } }
+        val guard = SearchBridgeGuard { _, _, operation -> operation() }
+        assertFailsWith<EngineException> {
+            transport().run(flags, hosted = ClaudeHostedTools(null, "", searchGuard = guard)) { false }
+        }
+    }
 }
+
+private const val SCOPED_SEARCH_PROGRAM = """
+class ScopedSearch {
+    public static void main(String[] args) throws Exception {
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].startsWith("--heartbeat-")) throw new IllegalStateException("Internal flag leaked");
+            if (args[i].equals("--mcp-config")) {
+                var config = java.nio.file.Files.readString(java.nio.file.Path.of(args[i + 1]));
+                if (!config.contains("Bearer scoped-token")) throw new IllegalStateException("Wrong capability");
+                System.out.println("scoped");
+            }
+        }
+    }
+}
+"""
 
 private fun assertExited(pid: Long) {
     ProcessHandle.of(pid).ifPresent { it.onExit().get(EXIT_TIMEOUT_SECONDS, TimeUnit.SECONDS) }

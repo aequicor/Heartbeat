@@ -25,3 +25,16 @@ kotlin {
         }
     }
 }
+
+// Opt-in real Node/PowerShell contracts; not part of check and does not contact a provider.
+tasks.register<Exec>("powerShellProcessTest") {
+    group = "verification"
+    description = "Runs controlled PowerShell Node contracts with Node 22.18+; process cases require Windows"
+    workingDir(layout.projectDirectory.asFile)
+    commandLine(
+        "node",
+        "--test",
+        layout.projectDirectory.file("src/jvmTest/resources/pi/heartbeat-approval.test.mjs").asFile.absolutePath,
+        layout.projectDirectory.file("src/jvmTest/resources/pi/heartbeat-powershell.test.mjs").asFile.absolutePath,
+    )
+}

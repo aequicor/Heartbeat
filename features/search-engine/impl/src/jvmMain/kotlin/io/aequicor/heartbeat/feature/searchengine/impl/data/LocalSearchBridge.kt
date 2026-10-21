@@ -9,18 +9,25 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAccess
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAttachment
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeGuard
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -42,6 +49,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Loopback-only, profile-lifetime MCP/JSON bridge; child engines never receive Querit keys. */
@@ -58,6 +66,7 @@ internal class LocalSearchBridge(
     private val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bearer)
     private val attachments = CopyOnWriteArrayList<EngineFeatures>()
     private val lock = Any()
+    private val accesses = mutableMapOf<String, ScopedSearch>()
     private var server: HttpServer? = null
     private var executor: ExecutorService? = null
     private var isClosed = false
@@ -71,6 +80,23 @@ internal class LocalSearchBridge(
         check(!isClosed) { "Search bridge is closed" }
         val running = server ?: start()
         SearchBridgeEndpoint("http://127.0.0.1:${running.address.port}", token)
+    }
+
+    override fun attach(guard: SearchBridgeGuard): SearchBridgeAccess = synchronized(lock) {
+        check(!isClosed) { "Search bridge is closed" }
+        check(accesses.size < MAX_ACCESSES) { "Search bridge capacity reached" }
+        val running = server ?: start()
+        val key = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(ByteArray(TOKEN_BYTES).also(SecureRandom()::nextBytes))
+        val access = ScopedSearch(guard, SupervisorJob(scope.coroutineContext[Job]))
+        accesses[key] = access
+        object : SearchBridgeAccess {
+            override val endpoint = SearchBridgeEndpoint("http://127.0.0.1:${running.address.port}", key)
+            override fun close() {
+                synchronized(lock) { if (accesses[key] === access) accesses.remove(key) }
+                access.lifetime.cancel()
+            }
+        }
     }
 
     /** Live engines publish their native web operations here; the routed tools prefer them over the provider. */
@@ -122,6 +148,8 @@ internal class LocalSearchBridge(
     private fun stop() {
         val (running, pool) = synchronized(lock) {
             isClosed = true
+            accesses.values.forEach { it.lifetime.cancel() }
+            accesses.clear()
             (server to executor).also {
                 server = null
                 executor = null
@@ -137,7 +165,8 @@ internal class LocalSearchBridge(
 
     private fun handle(exchange: HttpExchange, mcp: Boolean) {
         try {
-            if (exchange.requestMethod != "POST" || !authorized(exchange)) {
+            val access = authorized(exchange)
+            if (exchange.requestMethod != "POST" || access == null) {
                 reply(exchange, FORBIDDEN, "{}")
                 return
             }
@@ -151,7 +180,7 @@ internal class LocalSearchBridge(
                 reply(exchange, ACCEPTED, "")
                 return
             }
-            val response = dispatch(request, mcp)
+            val response = dispatch(request, mcp, access)
             reply(exchange, OK, response.toString())
         } catch (e: TimeoutException) {
             log.w(e) { "Bridge request timed out" }
@@ -162,18 +191,21 @@ internal class LocalSearchBridge(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.w(e) { "Bridge request failed" }
+            log.w(IllegalStateException("Bridge request failed (${e::class.simpleName.orEmpty()})")) {
+                "Bridge request failed"
+            }
             reply(exchange, BAD_REQUEST, "{}")
         } finally {
             exchange.close()
         }
     }
 
-    private fun dispatch(request: JsonObject, mcp: Boolean): JsonObject {
+    private fun dispatch(request: JsonObject, mcp: Boolean, access: SearchAccess): JsonObject {
         val pending = CompletableFuture<JsonObject>()
-        val job = scope.launch {
+        val job = scope.launch((access as? ScopedSearch)?.lifetime ?: scope.coroutineContext) {
             try {
-                pending.complete(if (mcp) mcp(request) else execute(request))
+                currentCoroutineContext().ensureActive()
+                pending.complete(if (mcp) mcp(request, access) else execute(request, access))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -184,11 +216,12 @@ internal class LocalSearchBridge(
         job.invokeOnCompletion { error ->
             if (error != null) pending.completeExceptionally(BridgeUnavailableException(error))
         }
-        return await(pending, job)
+        return await(pending, job, isScoped = access is ScopedSearch)
     }
 
-    private fun await(pending: CompletableFuture<JsonObject>, job: Job): JsonObject = try {
-        pending.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+    private fun await(pending: CompletableFuture<JsonObject>, job: Job, isScoped: Boolean): JsonObject = try {
+        // Scoped authorization can wait for a person; only the search IO consumes its timeout budget.
+        if (isScoped) pending.get() else pending.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
     } catch (e: TimeoutException) {
         job.cancel()
         throw e
@@ -196,14 +229,27 @@ internal class LocalSearchBridge(
         // Unwraps the tool failure so logs show the real cause.
         // A cancelled scope already completes the future with BridgeUnavailableException (503).
         throw e.cause ?: e
+    } finally {
+        // An interrupted HTTP worker must not leave a detached authorization or search coroutine.
+        if (!pending.isDone) job.cancel()
     }
 
-    private fun authorized(exchange: HttpExchange): Boolean {
-        val actual = exchange.requestHeaders.getFirst("Authorization")?.removePrefix("Bearer ") ?: return false
-        return MessageDigest.isEqual(token.toByteArray(), actual.toByteArray())
+    private fun authorized(exchange: HttpExchange): SearchAccess? {
+        val header = exchange.requestHeaders.getFirst("Authorization") ?: return null
+        if (!header.startsWith("Bearer ")) return null
+        val actual = header.removePrefix("Bearer ")
+        return synchronized(lock) {
+            if (isClosed) {
+                null
+            } else if (MessageDigest.isEqual(token.toByteArray(), actual.toByteArray())) {
+                LegacySearch
+            } else {
+                accesses[actual]?.takeIf { it.lifetime.isActive }
+            }
+        }
     }
 
-    private suspend fun mcp(request: JsonObject): JsonObject {
+    private suspend fun mcp(request: JsonObject, access: SearchAccess): JsonObject {
         val id = request["id"] ?: JsonNull
         val method = (request["method"] as? JsonPrimitive)?.content.orEmpty()
         val params = request["params"] as? JsonObject ?: JsonObject(emptyMap())
@@ -225,7 +271,7 @@ internal class LocalSearchBridge(
             "tools/call" -> {
                 val name = (params["name"] as? JsonPrimitive)?.content.orEmpty()
                 val args = params["arguments"] as? JsonObject ?: JsonObject(emptyMap())
-                val result = tool(name, args)
+                val result = tool(name, args, access)
                 buildJsonObject {
                     put(
                         "content",
@@ -261,63 +307,76 @@ internal class LocalSearchBridge(
         }
     }
 
-    private suspend fun execute(request: JsonObject): JsonObject {
+    private suspend fun execute(request: JsonObject, access: SearchAccess): JsonObject {
         val name = (request["name"] as? JsonPrimitive)?.content.orEmpty()
         val args = request["arguments"] as? JsonObject ?: JsonObject(emptyMap())
-        val result = tool(name, args)
+        val result = tool(name, args, access)
         return buildJsonObject {
             put("success", result.second)
             put("text", result.first)
         }
     }
 
-    private suspend fun tool(name: String, args: JsonObject): Pair<String, Boolean> {
-        val result = runTool(name, args)
-        log.i { "Bridge tool $name: ${if (result.second) "ok" else result.first}" }
+    private suspend fun tool(name: String, args: JsonObject, access: SearchAccess): Pair<String, Boolean> {
+        val result = if (access is ScopedSearch) {
+            val answer = executeScopedSearch(access.guard, name, args, access.lifetime) {
+                runTool(name, args, native = null).let { AgentToolResult(it.first, isError = !it.second) }
+            }
+            answer.text to !answer.isError
+        } else {
+            runTool(name, args, attachedFeatures())
+        }
+        log.i { "Bridge tool completed success=${result.second}" }
         return result
     }
 
-    private suspend fun runTool(name: String, args: JsonObject): Pair<String, Boolean> = try {
-        val text = when (name) {
-            "web_search" -> {
-                val query = (args["query"] as? JsonPrimitive)?.content.orEmpty()
-                val count = ((args["count"] as? JsonPrimitive)?.intOrNull ?: DEFAULT_COUNT).coerceIn(1, MAX_COUNT)
-                JsonArray(
-                    search.search(query, count, attachedFeatures()).map { result ->
-                        buildJsonObject {
-                            put("url", result.url)
-                            put("title", result.title)
-                            put("snippet", result.snippet)
-                        }
-                    },
-                ).toString()
-            }
-
-            "web_fetch" -> {
-                val url = (args["url"] as? JsonPrimitive)?.content.orEmpty()
-                val result = search.fetch(url, attachedFeatures())
-                buildJsonObject {
-                    put(
-                        "url",
-                        result.url,
-                    )
-                    put("title", result.title)
-                    put("content", result.text)
-                }.toString()
-            }
-
-            else -> return "InvalidInput" to false
-        }
-        text to true
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: SearchException) {
-        log.w(e) { "Search tool failed" }
-        toolFailure(name, e) to false
-    } catch (e: Exception) {
-        log.w(e) { "Search tool failed" }
-        "Unavailable" to false
+    private suspend fun runTool(name: String, args: JsonObject, native: EngineFeatures?): Pair<String, Boolean> {
+        if (name != "web_search" && name != "web_fetch") return "InvalidInput" to false
+        return executeTool(name, args, native)
     }
+
+    private suspend fun executeTool(name: String, args: JsonObject, native: EngineFeatures?): Pair<String, Boolean> =
+        try {
+            val text = when (name) {
+                "web_search" -> {
+                    val query = (args["query"] as? JsonPrimitive)?.content.orEmpty()
+                    val count = ((args["count"] as? JsonPrimitive)?.intOrNull ?: DEFAULT_COUNT).coerceIn(1, MAX_COUNT)
+                    JsonArray(
+                        search.search(query, count, native).map { result ->
+                            buildJsonObject {
+                                put("url", result.url)
+                                put("title", result.title)
+                                put("snippet", result.snippet)
+                            }
+                        },
+                    ).toString()
+                }
+
+                "web_fetch" -> {
+                    val url = (args["url"] as? JsonPrimitive)?.content.orEmpty()
+                    val result = search.fetch(url, native)
+                    buildJsonObject {
+                        put(
+                            "url",
+                            result.url,
+                        )
+                        put("title", result.title)
+                        put("content", result.text)
+                    }.toString()
+                }
+
+                else -> error("Unsupported search operation")
+            }
+            text to true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SearchException) {
+            log.w(e) { "Search tool failed" }
+            toolFailure(name, e) to false
+        } catch (e: Exception) {
+            log.w(e) { "Search tool failed" }
+            "Unavailable" to false
+        }
 
     /** Model-facing failure text: the structured one-line verdict, or the typed failure name. */
     private fun toolFailure(tool: String, error: SearchException): String =
@@ -360,11 +419,16 @@ internal class LocalSearchBridge(
         const val FORBIDDEN = 403
         const val UNAVAILABLE = 503
         const val MAX_THREADS = 4
+        const val MAX_ACCESSES = 64
         const val REQUEST_TIMEOUT_SECONDS = 60L
         const val DEFAULT_COUNT = 5
         const val MAX_COUNT = 20
     }
 }
+
+private sealed interface SearchAccess
+private data object LegacySearch : SearchAccess
+private data class ScopedSearch(val guard: SearchBridgeGuard, val lifetime: Job) : SearchAccess
 
 /** Routes each feature lookup to the first attachment providing it; blocked access survives only if none does. */
 private class AttachedFeatures(private val owners: List<EngineFeatures>) : EngineFeatures {
@@ -385,3 +449,22 @@ private class AttachedFeatures(private val owners: List<EngineFeatures>) : Engin
 private class BridgeUnavailableException(cause: Throwable) : Exception("Search bridge unavailable", cause)
 
 private fun invalidRequest(): Nothing = throw IllegalArgumentException("Invalid bridge request")
+
+/** Authorization has no IO deadline; a consumed operation has its own bounded search budget. */
+internal suspend fun executeScopedSearch(
+    guard: SearchBridgeGuard,
+    name: String,
+    arguments: JsonObject,
+    lifetime: Job,
+    timeoutMillis: Long = 60_000L,
+    operation: suspend () -> AgentToolResult,
+): AgentToolResult {
+    val invoked = AtomicBoolean()
+    val invocation = currentCoroutineContext()
+    return guard.execute(name, arguments) {
+        invocation.ensureActive()
+        lifetime.ensureActive()
+        check(invoked.compareAndSet(false, true)) { "Search operation already consumed" }
+        withTimeoutOrNull(timeoutMillis) { operation() } ?: AgentToolResult("Timeout", isError = true)
+    }
+}

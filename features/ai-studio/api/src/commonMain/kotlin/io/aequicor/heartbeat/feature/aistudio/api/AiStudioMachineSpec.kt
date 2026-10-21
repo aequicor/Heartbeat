@@ -295,6 +295,7 @@ private fun ReadyTransitions.conversations() {
                 isOrganism = state.pane(intent.paneId)?.isOrganism == true,
                 isPlanning = state.pane(intent.paneId)?.isPlanning == true && state.isPlanningAvailable,
                 environment = intent.environment,
+                userInstruction = intent.userInstruction,
             )
         }
     }
@@ -315,6 +316,7 @@ private fun ReadyTransitions.conversations() {
                 intent.paneId.takeIf { intent.submissionId.isNotEmpty() },
                 intent.submissionId,
                 environment = intent.environment,
+                userInstruction = intent.userInstruction,
             )
         }
     }
@@ -367,6 +369,7 @@ private fun ReadyTransitions.creationResults() {
                 intent.paneId.takeIf { intent.submissionId.isNotEmpty() },
                 intent.submissionId,
                 environment = intent.environment,
+                userInstruction = intent.userInstruction,
             )
         }
     }

@@ -9,13 +9,19 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 public enum class SecurityMode {
-    /** Read operations run; other operations ask the user. */
+    /** Reads run unless [ActionSafetyEnabled] is active; the structured policy asks for every operation. */
     Ask,
 
-    /** Exact host rules approve ordinary operations; everything else asks the user. No model decides permission. */
+    /**
+     * Exact host rules approve ordinary operations. With [ActionSafetyEnabled], complete host evidence and
+     * original human authority enter two-stage model review; unknown evidence or unavailable review asks the user.
+     */
     Automatic,
 
-    /** Correct calls of available tools run without permission hooks, policy vetoes or model reviews. */
+    /**
+     * Correct calls run without model review. With [ActionSafetyEnabled], mandatory analysis denials and hook
+     * Deny or Ask remain effective; without it, permission hooks do not run. Host validity checks always apply.
+     */
     Trust,
 }
 

@@ -159,6 +159,7 @@ internal class StudioConfiguredSubmission(
                 policy()
             }
             val native: suspend () -> TurnId = {
+                val authority = access.captureUserInstructions(request.id, request.request, request.userInstruction)
                 active.submitStudioPrompt(
                     prompt,
                     reasoningEffort,
@@ -169,6 +170,7 @@ internal class StudioConfiguredSubmission(
                     request.delivery,
                     decisionMode = finalPolicy.mode,
                     reviewTarget = reviewTarget,
+                    trustedUserInstructions = authority,
                 )
             }
             // A helper receipt must not stay Submitting when the engine refused the request before acceptance.

@@ -551,7 +551,7 @@ class AiStudioModel(
                 paneId,
             )
         ) {
-            submitStudioDraft(pipeline, machine, harnesses, paneId, environment)
+            submitStudioDraft(pipeline, machine, harnesses, paneId, environment, isDirectHumanSubmission = true)
         }
     }
 

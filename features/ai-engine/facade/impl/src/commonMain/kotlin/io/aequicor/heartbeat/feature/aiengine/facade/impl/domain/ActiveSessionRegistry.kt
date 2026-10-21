@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -214,8 +215,19 @@ class SessionPolicy(
     fun observeFailure(failure: EngineFailure) = context.observeFailure(failure)
 
     /** Registers the canonical identity before the native adapter can call hosted tools. */
-    suspend fun bindTurn(session: SessionRef, request: RequestId, turn: Turn) {
+    suspend fun bindTurn(
+        session: SessionRef,
+        request: RequestId,
+        turn: Turn,
+        userInstruction: String? = null,
+        instructions: TrustedUserInstructions? = null,
+    ) {
         tools.bindTurn(session, request, turn.id, turn.target, turn.decisionMode, turn.reviewTarget)
+        if (instructions != null) {
+            tools.bindUserInstructions(session, request, turn.id, instructions)
+        } else {
+            userInstruction?.let { tools.bindUserInstruction(session, request, turn.id, it) }
+        }
     }
 
     /**

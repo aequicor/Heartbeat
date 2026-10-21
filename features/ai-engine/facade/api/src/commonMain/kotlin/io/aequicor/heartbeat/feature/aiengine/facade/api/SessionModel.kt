@@ -125,8 +125,16 @@ public data class PromptRequest(
     val compaction: ContextCompaction? = null,
     /** Legacy host label; tool authorization reads the shared profile mode. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
-    /** Legacy host identity for operation binding; no model-based permission review is performed. */
+    /** Model for enhanced automatic action review; null uses the turn model. Unused by the legacy path. */
     val reviewTarget: EngineTarget? = null,
+    /** Original direct human input supplied in-process by the UI; serialized requests cannot manufacture it. */
+    @kotlinx.serialization.Transient
+    val userInstruction: String? = null,
+    /**
+     * Complete host-persisted logical chat authority; takes precedence over [userInstruction], including Incomplete.
+     */
+    @kotlinx.serialization.Transient
+    val trustedUserInstructions: TrustedUserInstructions? = null,
 ) {
     init {
         require(parts.isNotEmpty() == (compaction == null)) { "A prompt has parts, a compaction has none" }

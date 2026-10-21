@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeShellExecution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -255,6 +256,7 @@ internal class FakeConnection : PiConnection {
     var model = "test"
     var modelMetadata = JsonObject(emptyMap())
     override var contextWindows: Map<String, Long> = emptyMap()
+    override var controlledPowerShell: NativeShellExecution? = null
     var provider = "anthropic"
     var contextWindow = 1000L
     var isStreaming = false

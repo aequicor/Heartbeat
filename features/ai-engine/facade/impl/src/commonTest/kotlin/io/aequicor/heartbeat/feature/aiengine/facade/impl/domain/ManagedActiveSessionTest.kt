@@ -19,8 +19,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -30,8 +32,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstruction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -65,12 +70,14 @@ class ManagedActiveSessionTest {
         fixture: RouteFixture,
         native: FakeNativeSession = FakeNativeSession(),
         handleContext: CoroutineContext = EmptyCoroutineContext,
+        tools: ProfileAgentTools = NoAgentTools,
     ): Pair<ActiveSession, TestHandleScope> {
         val policy = SessionPolicy(
             fixture.routes,
             EnabledEngines(fixture.registry, fixture.toggles, backgroundScope),
             handles,
             fixture.context,
+            tools = tools,
         )
         val handle = TestHandleScope("h${++counter}", CoroutineScope(backgroundScope.coroutineContext + handleContext))
         val route = fixture.store.bindings.value.single().let { binding ->
@@ -87,6 +94,49 @@ class ManagedActiveSessionTest {
     }
 
     private fun ActiveSession.sender() = (features.resolve(SendsPrompts) as FeatureAccess.Available).feature
+
+    @Test
+    fun `durable authority is bound before native send and suppresses the single message fallback`() = runTest {
+        val request = RequestId("continue")
+        val authority = TrustedUserInstructions.Complete(
+            listOf(
+                TrustedUserInstruction(RequestId("original"), "Never read core"),
+                TrustedUserInstruction(request, "Continue"),
+            ),
+        )
+        val native = FakeNativeSession()
+        var received: TrustedUserInstructions? = null
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun bindUserInstruction(
+                session: SessionRef,
+                request: RequestId,
+                turn: TurnId,
+                instruction: String,
+            ) = error("A single instruction must not replace the durable logical conversation snapshot")
+
+            override suspend fun bindUserInstructions(
+                session: SessionRef,
+                request: RequestId,
+                turn: TurnId,
+                instructions: TrustedUserInstructions,
+            ) {
+                assertEquals(native.ref, session)
+                assertEquals(RequestId("continue"), request)
+                received = instructions
+            }
+        }
+        val (session) = open(RouteFixture(this), native, tools = tools)
+        native.onSend = { assertEquals(authority, received) }
+        session.sender().send(
+            PromptRequest(
+                request,
+                listOf(ContentPart.Text("Generated transport prompt")),
+                userInstruction = "This lone message cannot erase the earlier restriction",
+                trustedUserInstructions = authority,
+            ),
+        )
+        assertEquals(1, native.sent.size)
+    }
 
     private class Configuration : ChangesSessionConfiguration {
         override val configuration = MutableStateFlow(SessionConfiguration(ModelId("m1"), trust = TrustLevel.Ask))

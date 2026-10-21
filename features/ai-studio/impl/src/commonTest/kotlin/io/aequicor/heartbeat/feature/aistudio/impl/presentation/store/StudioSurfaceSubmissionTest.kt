@@ -35,6 +35,7 @@ import pro.respawn.flowmvi.plugins.reduce
 import pro.respawn.flowmvi.test.subscribeAndTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class StudioSurfaceSubmissionTest {
     private val mutations: List<(AiStudioScreenState) -> AiStudioScreenState> = listOf(
@@ -102,6 +103,7 @@ class StudioSurfaceSubmissionTest {
                 runCurrent()
                 val submitted = machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>()
                 assertEquals(if (index == 0) listOf("Surface prompt") else emptyList(), submitted.map { it.prompt })
+                submitted.forEach { assertNull(it.userInstruction) }
             }
         }
     }

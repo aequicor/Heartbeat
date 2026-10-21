@@ -9,7 +9,7 @@ async function extension({ gate = "true", specs = "[]", allowed = true, note, re
     const handlers = new Map();
     const requests = [];
     const module = await import(new URL(`../../../jvmMain/resources/pi/heartbeat-approval.ts?test=${generation++}`, import.meta.url));
-    module.default({ on: (event, handler) => handlers.set(event, handler) });
+    await module.default({ on: (event, handler) => handlers.set(event, handler) });
     const ctx = { hasUI: true, cwd: "/workspace", ui: {
         input: async (title, message, options) => {
             requests.push({ title, ...JSON.parse(message), options });

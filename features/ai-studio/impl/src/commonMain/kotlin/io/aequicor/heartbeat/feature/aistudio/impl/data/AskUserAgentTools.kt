@@ -28,6 +28,8 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
@@ -136,6 +138,10 @@ internal class AskUserAgentTools(
                 }
             }
         }
+        if (answers.values.any { it != Answer.Skipped }) {
+            chats.value.invalidateUserInstructions(context.session)
+        }
+        currentCoroutineContext().ensureActive()
         return AgentToolResult(Json.encodeToString(AskAnswers(answers.mapValues { (_, answer) -> answer.payload() })))
     }
 

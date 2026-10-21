@@ -17,43 +17,61 @@ internal data class CodexNativeOff(
     val isShellDisabled: Boolean = false,
     val isSearchDisabled: Boolean = false,
     val isVirtualWorkspace: Boolean = false,
+    /** Native reads and provider tools have no shared per-call gate and must also be unavailable. */
+    val isActionAnalysisRequired: Boolean = false,
+    /** Text-only service sessions close the same native catalog independently of the profile safety toggle. */
+    val isToolFree: Boolean = false,
 ) {
-    val isRestricted: Boolean get() = isShellDisabled || isSearchDisabled || isVirtualWorkspace
+    /** Both enhanced authorization and text-only isolation need an audited native inventory. */
+    val isVerifiedInventoryRequired get() = isActionAnalysisRequired || isToolFree
+    private val isExecutionOff get() = isShellDisabled || isVerifiedInventoryRequired
+    private val isSearchOff get() = isSearchDisabled || isVerifiedInventoryRequired
+    private val isLocalOff get() = isVirtualWorkspace || isVerifiedInventoryRequired
+    val isRestricted: Boolean get() = isExecutionOff || isSearchOff || isLocalOff
 
     /** Appended after every user override and isolation flag without accepting arbitrary configuration keys. */
     fun arguments(): List<String> = buildList {
-        if (isShellDisabled) executionFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
-        if (isSearchDisabled) addAll(listOf("-c", "web_search=\"disabled\""))
-        if (isVirtualWorkspace) virtualFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
+        if (isExecutionOff) executionFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
+        if (isSearchOff) addAll(listOf("-c", "web_search=\"disabled\""))
+        if (isLocalOff) virtualFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
+        if (isVerifiedInventoryRequired) enhancedFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
+        if (isToolFree) addAll(listOf("-c", "features.default_mode_request_user_input=false"))
     }
 
     /**
-     * 0.160.0 is the first verified protocol. Later versions, including desktop prereleases, are candidates only:
-     * effective-config checks must still prove Off before thread creation or resume. Prereleases of the minimum
-     * version and unknown versions cannot authorize restrictions. Unrestricted launches retain compatibility.
+     * Enhanced execution and text-only isolation accept only a build whose model-facing inventory was checked.
+     * Its known flags are insufficient proof for any earlier, later or differently suffixed build. Legacy restrictions
+     * retain their existing 0.160.0 protocol baseline and effective-config checks.
      */
     fun requireVersion(version: String?) {
         if (!isRestricted) return
-        val match = version?.let { Version.matchEntire(it) } ?: unsupportedPolicy()
-        val numbers = (1..3).map { match.groupValues[it].toIntOrNull() ?: unsupportedPolicy() }
-        if (numbers[0] == 0 && numbers[1] < MIN_MINOR) unsupportedPolicy()
-        if (numbers == listOf(0, MIN_MINOR, 0) && match.groupValues[PRERELEASE_GROUP].isNotEmpty()) unsupportedPolicy()
+        if (isVerifiedInventoryRequired) {
+            if (version !in verifiedEnhancedVersions) unsupportedPolicy()
+        } else {
+            val match = version?.let { Version.matchEntire(it) } ?: unsupportedPolicy()
+            val numbers = (1..3).map { match.groupValues[it].toIntOrNull() ?: unsupportedPolicy() }
+            if (numbers[0] == 0 && numbers[1] < MIN_MINOR) unsupportedPolicy()
+            val isBaselinePrerelease = numbers == listOf(0, MIN_MINOR, 0) &&
+                match.groupValues[PRERELEASE_GROUP].isNotEmpty()
+            if (isBaselinePrerelease) unsupportedPolicy()
+        }
     }
 
     /** Applies Off after adapter defaults, including the optional `web_search=live` default. */
     fun applyTo(config: JsonObject): JsonObject = buildJsonObject {
         config.forEach { (key, value) -> put(key, value) }
-        if (isShellDisabled || isVirtualWorkspace) {
-            put(
-                "features",
-                buildJsonObject {
-                    (config["features"] as? JsonObject).orEmpty().forEach { (key, value) -> put(key, value) }
-                    if (isShellDisabled) executionFeatures.forEach { put(it, false) }
-                    if (isVirtualWorkspace) virtualFeatures.forEach { put(it, false) }
-                },
-            )
+        if (isExecutionOff || isLocalOff) {
+            put("features", disabledFeatures(config))
         }
-        if (isSearchDisabled) put("web_search", "disabled")
+        if (isSearchOff) put("web_search", "disabled")
+    }
+
+    private fun disabledFeatures(config: JsonObject): JsonObject = buildJsonObject {
+        (config["features"] as? JsonObject).orEmpty().forEach { (key, value) -> put(key, value) }
+        if (isExecutionOff) executionFeatures.forEach { put(it, false) }
+        if (isLocalOff) virtualFeatures.forEach { put(it, false) }
+        if (isVerifiedInventoryRequired) enhancedFeatures.forEach { put(it, false) }
+        if (isToolFree) put("default_mode_request_user_input", false)
     }
 
     /**
@@ -77,19 +95,17 @@ internal data class CodexNativeOff(
         if (!matches(effective) || !hasFlags) unsupportedPolicy()
     }
 
-    private fun matches(config: JsonObject): Boolean = (
-        !isShellDisabled || executionFeatures.all {
-            (config["features"] as? JsonObject)?.get(it) == JsonPrimitive(false)
+    private fun matches(config: JsonObject): Boolean {
+        val features = config["features"] as? JsonObject
+        val required = buildList {
+            if (isExecutionOff) addAll(executionFeatures)
+            if (isLocalOff) addAll(virtualFeatures)
+            if (isVerifiedInventoryRequired) addAll(enhancedFeatures)
+            if (isToolFree) add("default_mode_request_user_input")
         }
-    ) &&
-        (!isSearchDisabled || config["web_search"] == JsonPrimitive("disabled")) &&
-        (
-            !isVirtualWorkspace || virtualFeatures.all {
-                (config["features"] as? JsonObject)?.get(
-                    it,
-                ) == JsonPrimitive(false)
-            }
-        )
+        return required.all { features?.get(it) == JsonPrimitive(false) } &&
+            (!isSearchOff || config["web_search"] == JsonPrimitive("disabled"))
+    }
 
     private fun unsupportedPolicy(): Nothing = fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
 
@@ -99,5 +115,39 @@ internal data class CodexNativeOff(
         const val PRERELEASE_GROUP = 4
         val executionFeatures = listOf("shell_tool", "apply_patch_freeform", "multi_agent")
         val virtualFeatures = listOf("view_image_tool", "apply_patch_freeform", "multi_agent")
+
+        /**
+         * Windows CLI 0.163.0-alpha.10.2: `features list`, `config/read(includeLayers=true)` and an offline
+         * Responses fixture verified this registry and the actual declarations. `view_image_tool` alone is
+         * ignored; `view_image` removes local image reads. `code_mode_only` can expose exec/wait despite
+         * code_mode=false, and multi_agent_v2 can expose collaboration despite multi_agent=false. Goals also
+         * have native state mutations. The remaining feature variants are closed even when a user override
+         * enables them. Auth, storage, sandbox, proxy and presentation flags keep their captured values.
+         *
+         * After these restrictions the fixture declares only the host-provided dynamic tool and native
+         * request_user_input. The latter is a questionnaire routed to CodexSession.userInput, where the live
+         * turn and host availability are checked; it is not an autonomous filesystem or network operation.
+         * Text-only isolation also sets default_mode_request_user_input=false, although this verified build
+         * retains its declaration. CodexSession refuses every such callback while the applied launch or current
+         * policy is tool-free, so no human form is published.
+         * `native-inventory.test.mjs` repeats the capture without credentials or an external model service.
+         */
+        val verifiedEnhancedVersions = setOf("0.163.0-alpha.10.2")
+        val enhancedFeatures = listOf(
+            "view_image", "unified_exec", "unified_exec_tty", "shell_snapshot", "shell_snapshot_v2",
+            "code_mode", "code_mode_host", "code_mode_host_grpc", "code_mode_only",
+            "code_mode_only_strict_3p_tools", "code_mode_tool_search", "code_mode_prewarm",
+            "multi_agent_v2", "multi_agent_v2_dynamic_tools", "agent_message_board", "goals",
+            "memories", "external_agent_memory_import", "chronicle", "artifact", "workspace_dependencies",
+            "skill_search", "standalone_web_search", "web_search_cached", "web_search_request",
+            "deferred_executor", "deferred_tool_world_state", "executor_capability_discovery",
+            "stable_environment_tools", "request_permissions_tool", "enable_mcp_apps",
+        )
     }
 }
+
+/** Retains the whole reported build identifier; the legacy parser can truncate an unverified suffix. */
+internal fun codexActionAnalysisVersion(output: String): String? = output.lineSequence()
+    .map(String::trim)
+    .singleOrNull { it.startsWith("codex-cli ") }
+    ?.removePrefix("codex-cli ")

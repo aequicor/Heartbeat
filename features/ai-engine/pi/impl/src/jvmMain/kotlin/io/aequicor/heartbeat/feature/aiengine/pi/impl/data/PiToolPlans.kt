@@ -25,6 +25,8 @@ internal data class PiLaunchPlan(
     val emptySessionId: String? = null,
     // Current confirmed model, including after a switch or a process restart. Discovery leaves it absent.
     val selectedModel: ModelId? = null,
+    // Frozen execution contract; enabling analysis later requires a fresh process to acquire evidence.
+    val isActionAnalysisRequired: Boolean = false,
 ) {
     val names: Set<String> get() = policy.nativeOn + search + hosted?.specifications.orEmpty().map { it.name }
 
@@ -127,6 +129,7 @@ internal class PiToolPlans(
             desired.search,
             desired.names,
             desired.instructions,
+            isActionAnalysisRequired = environment.tools.requiresActionAnalysis(),
         )
     }
 

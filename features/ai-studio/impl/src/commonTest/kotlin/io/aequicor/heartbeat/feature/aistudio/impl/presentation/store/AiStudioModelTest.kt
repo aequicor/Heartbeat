@@ -345,6 +345,7 @@ class AiStudioModelTest {
         assertEquals("Next step", screen.states.value.draft(0))
         val submitted = fixture.machine.sent.last() as AiStudioIntent.Public.Submit
         assertEquals("Next step", submitted.prompt)
+        assertEquals("Next step", submitted.userInstruction)
         fixture.machine.outputs.emit(AiStudioOutput.SubmitAccepted(0, submitted.submissionId, "s-facade"))
         runCurrent()
         assertEquals("", screen.states.value.draft(0))

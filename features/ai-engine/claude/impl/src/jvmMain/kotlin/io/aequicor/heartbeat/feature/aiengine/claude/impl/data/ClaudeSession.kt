@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptResourceHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
@@ -304,12 +305,22 @@ internal class ClaudeSession(
         var isTransportInvoked = false
         try {
             log.i { "Submitting Claude prompt effort=${submission.request.reasoningEffort ?: "default"}" }
-            val tools = hosted.prepare()
+            val preparedTools = hosted.prepare()
             val isResume = isConversationStarted()
             val plan = promptArguments(submission.request, isResume)
+            val tools = if (SCOPED_SEARCH_BRIDGE_MARKER in plan.arguments) {
+                (preparedTools ?: ClaudeHostedTools(null, "", isProject = route.workspace != null))
+                    .copy(searchGuard = hosted.searchGuard)
+            } else {
+                preparedTools
+            }
             // A conversation known to exist stays confirmed: only an unknown one waits for the CLI's history to decide.
             if (!hasNativeSession) launch = ClaudeLaunch.Attempted
             persist()
+            // The profile owns the policy snapshot. A different snapshot must not reuse this launch plan.
+            if (environment.tools.requiresActionAnalysis() != plan.isActionAnalysisRequired) {
+                throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+            }
             isTransportInvoked = true
             val exit = executePlan(plan, submission, observer, hosted, tools)
             log.i { "Claude prompt process ended exit=$exit" }
@@ -415,13 +426,15 @@ internal class ClaudeSession(
     }
 
     private suspend fun promptArguments(request: PromptRequest, isResume: Boolean): ClaudeTurnPlan {
-        val policy = environment.tools.nativeTools(ToolPolicyScope(ref.engine, route.workspace, ref, target))
+        val isActionAnalysisRequired = environment.tools.requiresActionAnalysis()
+        val policy = turnPolicy(isActionAnalysisRequired)
         val isSearchEnabled = toggles.get(SearchEngineTools)
         val requestedFlags = claudeToolFlags(
             policy,
             isSearchEnabled,
             subagents = false,
             providerSearch = route.workspace == null,
+            requiresActionAnalysis = isActionAnalysisRequired,
         )
         val gated = requestedFlags.native.intersect(ClaudeNativeCatalog.filter { it.isGated }.map { it.name }.toSet())
         // A compaction runs no tools: it never needs the native gate.
@@ -445,7 +458,28 @@ internal class ClaudeSession(
         } else {
             emptyList()
         }
-        return ClaudeTurnPlan(arguments + inputFlags + gateFlags, native, gated)
+        val scopedSearch = if (isActionAnalysisRequired && SEARCH_BRIDGE_MARKER in arguments) {
+            listOf(SCOPED_SEARCH_BRIDGE_MARKER)
+        } else {
+            emptyList()
+        }
+        return ClaudeTurnPlan(
+            arguments + inputFlags + gateFlags + scopedSearch,
+            native,
+            gated,
+            isActionAnalysisRequired,
+        )
+    }
+
+    /** Strict policy lookup cannot silently discard an isolation restriction when enhanced analysis is required. */
+    private suspend fun turnPolicy(isActionAnalysisRequired: Boolean): ResolvedToolPolicy {
+        val policyScope = ToolPolicyScope(ref.engine, route.workspace, ref, target)
+        if (!isActionAnalysisRequired) return environment.tools.nativeTools(policyScope)
+        if (!supportsClaudeNativeGate(transport.version())) {
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
+        return environment.tools.nativeToolsForExecution(policyScope)
+            ?: throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
     }
 
     /** The gate for additional native tools, or null with the reason they are removed from this turn. */

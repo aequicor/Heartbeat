@@ -105,6 +105,7 @@ class EngineStudioEffects(
                 effect.attachments,
                 effect.submissionId,
                 effect.environment,
+                effect.userInstruction,
             ),
         )
     }
@@ -129,6 +130,7 @@ class EngineStudioEffects(
             effect.attachments,
             effect.submissionId,
             effect.environment,
+            effect.userInstruction,
         ) {
             isAccepted = true
             if (effect.submissionId.isNotEmpty()) {

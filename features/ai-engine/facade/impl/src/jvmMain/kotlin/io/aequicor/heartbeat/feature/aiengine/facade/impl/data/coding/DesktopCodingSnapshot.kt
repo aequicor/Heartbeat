@@ -90,6 +90,11 @@ private fun capture(
         put("root", root.path.toString())
         put("rootIdentity", fileIdentity(root.path))
         put("shell", if (System.getProperty("os.name").orEmpty().startsWith("Windows")) "PowerShell" else "/bin/sh")
+        if (context.isActionAnalysisRequired) {
+            val shell = controlledCodingShell(System.getProperty("os.name").orEmpty().startsWith("Windows"))
+            put("controlledExecutable", shell.executable)
+            put("controlledEnvironment", shell.environmentBinding)
+        }
         if (target != null) put("previousFile", fileEvidence(target))
         if (destination != null) put("destinationFile", fileEvidence(destination))
     }.toString()

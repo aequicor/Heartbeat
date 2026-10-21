@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.core.datastore.jsonKey
@@ -31,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -39,6 +41,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -101,7 +104,7 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-internal val ChatSpec = KeyValueSpec("ai_studio_chats")
+internal val ChatSpec = KeyValueSpec("ai_studio_chats", readPolicy = KeyValueReadPolicy.Strict)
 internal val ChatsKey: StoreKey<List<StudioChatRecord>> =
     jsonKey("chats", ListSerializer(StudioChatRecord.serializer()))
 
@@ -159,6 +162,8 @@ internal data class StudioChatRecord(
     val pendingHarnessSource: SessionRef? = null,
     /** Native create received the carried IDs while harnesses were enabled; retries reuse these declarations. */
     val pendingHarnessContext: SessionRef? = null,
+    /** Original human instructions only; null is legacy or unknown provenance and never implies complete authority. */
+    val humanAuthority: StudioHumanAuthority? = null,
 ) {
     /** Whether [session] is this chat's current or an earlier native session. */
     fun owns(session: SessionRef): Boolean = ref == session || session in previousRefs
@@ -203,6 +208,7 @@ internal class EngineStudioRepository(
     private val toggles: FeatureToggles,
     private val attachmentsCatalog: AttachmentsCatalog,
     private val switchHelpers: StudioEngineSwitchHelpers,
+    tools: Lazy<ProfileAgentTools>,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
@@ -236,6 +242,9 @@ internal class EngineStudioRepository(
     private val handlesLock = Mutex()
     private val handles = mutableMapOf<String, ActiveSession>()
     private val stopRequests = mutableSetOf<String>()
+    private val questionAuthority = StudioQuestionAuthority(store, lock, tools) { id ->
+        handlesLock.withLock { handles[id] }
+    }
     private val conversationLocks = StudioConversationLocks(handlesLock)
     private val carry = StudioContextCarry(
         conversationLocks,
@@ -402,6 +411,7 @@ internal class EngineStudioRepository(
             worktreeTaskId = id.takeIf { isWorktree },
             isSandbox = isSandbox.takeIf { isWorktree },
             executionWorkspace = executionWorkspace,
+            humanAuthority = StudioHumanAuthority(),
         )
         val admitted = organism?.let { organisms.admit(id, it, isWorktree, projectId).on(pending) } ?: pending
         val record = conversations.create(admitted, ::saveConversation)
@@ -424,13 +434,18 @@ internal class EngineStudioRepository(
         deliverStudioAction(id, action, worktrees, onFailure = { update(id) { copy(hasFailed = true) } }) {
             state.first { id !in it.running }
             val settings = hostRunSettings(record(id), state.value.configurations[id]?.applied, defaults())
-            launchRun(id, action.prompt, settings, action.kind, RequestId(action.operation), waitForIdle = true) {
-                worktrees.send(WorktreeIntent.Public.ActionDelivered(id, action.operation))
-                worktrees.await(id, failOnTaskError = false) {
-                    it.actionRequest == null && it.phase == WorktreePhase.ActionWorking &&
-                        it.expectedAction?.operation == action.operation
-                }
-            }
+            runs.run(
+                this,
+                studioTurnRequest(id, action.prompt, settings, action.kind, RequestId(action.operation)),
+                waitForIdle = true,
+                beforeExecute = {
+                    worktrees.send(WorktreeIntent.Public.ActionDelivered(id, action.operation))
+                    worktrees.await(id, failOnTaskError = false) {
+                        it.actionRequest == null && it.phase == WorktreePhase.ActionWorking &&
+                            it.expectedAction?.operation == action.operation
+                    }
+                },
+            )
         }
 
     override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome =
@@ -443,45 +458,29 @@ internal class EngineStudioRepository(
         attachments: List<ResourceRef>,
         submissionId: String,
         environment: StudioChatEnvironment?,
+        userInstruction: String?,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
         requireBrowserHostSupport(record(sessionId), environment)
         val organism = organisms.submit(record(sessionId), prompt, settings, attachments, submissionId, onAccepted)
-        return organism ?: launchRun(
-            sessionId,
-            prompt,
-            settings,
-            WorktreeRunKind.Coding,
-            RequestId(Uuid.random().toString()),
-            attachments = attachments,
-            onAccepted = onAccepted,
-            submissionId = submissionId,
-            environment = environment,
-            isUserPrompt = true,
+        return organism ?: runs.run(
+            this,
+            studioTurnRequest(
+                sessionId,
+                prompt,
+                settings,
+                WorktreeRunKind.Coding,
+                RequestId(Uuid.random().toString()),
+                attachments = attachments,
+                onAccepted = onAccepted,
+                submissionId = submissionId,
+                environment = environment,
+                isUserPrompt = true,
+                userInstruction = userInstruction,
+            ),
         )
     }
-
-    private suspend fun launchRun(
-        sessionId: String,
-        prompt: String,
-        settings: RunSettings,
-        kind: WorktreeRunKind,
-        request: RequestId,
-        waitForIdle: Boolean = false,
-        attachments: List<ResourceRef> = emptyList(),
-        submissionId: String = "",
-        onAccepted: suspend () -> Unit = {},
-        environment: StudioChatEnvironment? = null,
-        isUserPrompt: Boolean = false,
-        beforeExecute: suspend () -> Unit = {},
-    ): RunOutcome = runs.run(
-        this,
-        StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
-            .copy(submissionId = submissionId, environment = environment, isUserPrompt = isUserPrompt),
-        waitForIdle,
-        beforeExecute = beforeExecute,
-    )
 
     override suspend fun startedRun(id: String, at: Instant) {
         log.i { "Start profile-owned execution" }
@@ -534,15 +533,7 @@ internal class EngineStudioRepository(
         log.i { "Profile execution ended; clear local run state" }
         handlesLock.withLock {
             stopRequests.remove(id)
-            mutableState.update {
-                it.copy(
-                    running = it.running - id,
-                    runStartedAt = it.runStartedAt - id,
-                    stopFailures = it.stopFailures - id,
-                    uncancellable = it.uncancellable - id,
-                    permissions = it.permissions.filterNot { request -> request.sessionId == id },
-                )
-            }
+            mutableState.update { it.withoutFinishedRun(id) }
         }
     }
 
@@ -645,6 +636,15 @@ internal class EngineStudioRepository(
         val record = record(id)
         val applied = state.value.configurations[id]?.applied ?: return record
         return record.copy(configuration = applied, target = studioModelTarget(applied.modelId) ?: record.target)
+    }
+
+    override suspend fun captureUserInstructions(
+        id: String,
+        request: RequestId,
+        instruction: String?,
+    ): TrustedUserInstructions = lock.withLock {
+        log.v { "Capture durable human authority before native submission" }
+        captureStudioUserInstructions(store, id, request, instruction)
     }
 
     override suspend fun configurationSession(id: String, target: EngineTarget): ActiveSession {
@@ -754,12 +754,23 @@ internal class EngineStudioRepository(
         answer: StudioPermissionAnswer?,
     ) {
         log.i { "Respond to pending permission" }
-        handlesLock.withLock { handles[sessionId] }.respondStudioPermission(requestId, optionId, answer)
+        questionAuthority.respond(sessionId, requestId, optionId, answer)
     }
 
     override suspend fun respond(permission: StudioPermission, optionId: String, answer: StudioPermissionAnswer?) {
         log.i { "Respond to captured permission" }
-        handlesLock.withLock { handles[permission.sessionId] }.respondStudioPermission(permission, optionId, answer)
+        questionAuthority.respond(permission, optionId, answer)
+    }
+
+    override suspend fun invalidateUserInstructions(sessionId: String) {
+        log.v { "Invalidate authority of a restored questionnaire conversation" }
+        questionAuthority.invalidate(sessionId)
+    }
+
+    override suspend fun invalidateUserInstructions(ref: SessionRef) {
+        log.v { "Invalidate authority of a native questionnaire session" }
+        val id = checkNotNull(sessionIdOf(ref)) { "Native session is not owned by a studio conversation" }
+        questionAuthority.invalidate(id, ref)
     }
 
     /** Fails the answer so the machine shows the request again instead of hiding it forever. */

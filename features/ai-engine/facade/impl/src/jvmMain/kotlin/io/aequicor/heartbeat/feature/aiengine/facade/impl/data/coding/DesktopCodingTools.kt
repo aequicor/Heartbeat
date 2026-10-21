@@ -4,6 +4,7 @@ import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
@@ -14,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.security.ShellActionAnalyzer
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -52,6 +54,35 @@ internal class DesktopCodingTools(
             else -> AgentToolAction.Read
         }
         it.descriptor.specification(action)
+    }
+
+    override suspend fun analyze(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): ActionAnalysis {
+        val workspace = context.workspace ?: return ActionAnalysis.Unknown("A project is required")
+        if (workspaces.virtual(workspace) != null) return ActionAnalysis.Unknown("Virtual action needs confirmation")
+        val directory = workspaces.resolve(workspace) ?: return ActionAnalysis.Unknown("Project is unavailable")
+        val snapshot = if (spec.name in MUTATIONS) {
+            snapshots.snapshot(context, approval(spec, arguments), arguments)
+        } else {
+            null
+        }
+        return withContext(dispatchers.io) {
+            val root = ProjectRoot(Path.of(directory))
+            if (spec.name == SHELL_TOOL) {
+                val isWindows = System.getProperty("os.name").orEmpty().startsWith("Windows")
+                ShellActionAnalyzer(dispatchers.io).analyze(
+                    root,
+                    root.path,
+                    arguments.argText("command"),
+                    controlledCodingShell(isWindows),
+                )
+            } else {
+                codingFileAnalysis(root, spec.name, arguments, snapshot?.approval?.binding)
+            }
+        }
     }
 
     override suspend fun instructions(workspace: WorkspaceRef?): String = instructions(AgentToolScope(workspace))
@@ -185,7 +216,7 @@ internal class DesktopCodingTools(
         } else {
             currentCoroutineContext().ensureActive()
             val capturedTools = codingFileTools(snapshot.root, dispatchers.io) +
-                CodingShellTool(snapshot.root, dispatchers.io)
+                CodingShellTool(snapshot.root, dispatchers.io, isControlled = context.isActionAnalysisRequired)
             capturedTools.single { it.descriptor.name == tool.descriptor.name }.run(snapshot.arguments)
         }
     }

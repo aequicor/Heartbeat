@@ -69,6 +69,8 @@ public data class ResolvedToolPolicy(
     val nativeOff: Set<String> = emptySet(),
     val hostedDenied: Set<String> = emptySet(),
     val generation: Long = 0,
+    /** Text-only service isolation, including native capabilities absent from the user-facing catalog. */
+    val isToolFree: Boolean = false,
 )
 
 /** Tool identity and trust category for settings, including currently unavailable tools. */

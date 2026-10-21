@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -42,6 +43,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -78,6 +80,7 @@ class AskUserToolsTest {
         runCurrent()
         call.join()
 
+        assertEquals(listOf(context.session), fixture.chats.invalidations)
         val answers = fixture.answers()
         assertEquals(false, answers.getValue("ios").jsonObject.getValue("isConfirmed").jsonPrimitive.boolean)
         assertEquals(
@@ -89,6 +92,38 @@ class AskUserToolsTest {
             asked.map { QuestionnaireIntent.Public.Withdraw(it.questionnaire.id) },
             fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Withdraw>(),
         )
+    }
+
+    @Test
+    fun `fully skipped hosted batches do not revoke authority`() = runTest {
+        val fixture = Fixture(this)
+        fixture.chats.revocation = CompletableDeferred()
+        val call = launch { fixture.execute(arguments) }
+        repeat(ASK_SUBSCRIPTION_ROUNDS) { runCurrent() }
+        val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
+        asked.forEach { fixture.queue.outputs.emit(QuestionnaireOutput.Answered(it.questionnaire, Answer.Skipped)) }
+        runCurrent()
+        // A fully skipped batch contains no new human restriction.
+        assertTrue(fixture.chats.invalidations.isEmpty())
+        call.join()
+    }
+
+    @Test
+    fun `failed hosted revocation never returns substantive answers to the model`() = runTest {
+        val fixture = Fixture(this)
+        fixture.chats.revocation = CompletableDeferred()
+        val call = async {
+            assertFailsWith<IllegalStateException> { fixture.execute(arguments) }
+        }
+        repeat(ASK_SUBSCRIPTION_ROUNDS) { runCurrent() }
+        val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Confirmed(false)))
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[1].questionnaire, Answer.Skipped))
+        runCurrent()
+        assertEquals(listOf(context.session), fixture.chats.invalidations)
+        assertFalse(call.isCompleted)
+        fixture.chats.revocation.completeExceptionally(IllegalStateException("Revocation failed"))
+        call.await()
     }
 
     @Test
@@ -370,7 +405,13 @@ class AskUserToolsTest {
 }
 
 private class AskUserChats(var id: String? = "s1") : StudioChatResolver {
+    val invalidations = mutableListOf<SessionRef>()
+    var revocation = CompletableDeferred(Unit)
     override suspend fun sessionIdOf(ref: SessionRef): String? = id
+    override suspend fun invalidateUserInstructions(ref: SessionRef) {
+        invalidations += ref
+        revocation.await()
+    }
 }
 
 private class AskUserToggles(private val enabled: Boolean) : FeatureToggles {

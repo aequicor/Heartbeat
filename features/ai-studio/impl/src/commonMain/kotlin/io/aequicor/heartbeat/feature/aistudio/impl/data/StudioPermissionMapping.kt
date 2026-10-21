@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionInput
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionOption
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /** Projects a pending facade request of [sessionId] into the studio machine's permission. */
 internal fun PermissionRequest.toStudio(sessionId: String) = StudioPermission(
@@ -49,6 +51,7 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     optionId: String,
     answer: StudioPermissionAnswer?,
     expectedTurnId: String? = null,
+    beforeAnswer: suspend () -> Unit = { error("Human authority revocation is unavailable") },
 ) {
     Log.tag("EngineStudio").i { "Delivering native permission" }
     val active = this ?: rejectPermission("no open native session", requestId, optionId)
@@ -60,6 +63,8 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     val option = request.options.firstOrNull { it.id.value == optionId }
         ?: rejectPermission("the option is not offered", requestId, optionId)
     val decision = PermissionDecision(request.turn, request.id, option.id, answer?.toFacade())
+    if (!option.isSkip && (answer != null || request.input != null)) beforeAnswer()
+    currentCoroutineContext().ensureActive()
     deliverStudioPermission(active.state, decision) {
         active.features.requireFeature(RequestsPermissions).respond(decision)
     }
@@ -101,9 +106,10 @@ internal suspend fun ActiveSession?.respondStudioPermission(
     permission: StudioPermission,
     optionId: String,
     answer: StudioPermissionAnswer?,
+    beforeAnswer: suspend () -> Unit = { error("Human authority revocation is unavailable") },
 ) {
     val turn = requireNotNull(permission.turnId) { "Native permission has no turn identity" }
-    respondStudioPermission(permission.requestId, optionId, answer, expectedTurnId = turn)
+    respondStudioPermission(permission.requestId, optionId, answer, expectedTurnId = turn, beforeAnswer = beforeAnswer)
 }
 
 /** Projects one native handle without losing another session's pending actions or stop state. */

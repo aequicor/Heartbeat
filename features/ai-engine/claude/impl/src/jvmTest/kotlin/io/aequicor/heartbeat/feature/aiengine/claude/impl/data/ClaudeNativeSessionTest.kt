@@ -33,7 +33,8 @@ import kotlin.test.assertTrue
 internal class ClaudeNativeSessionTest {
     @Test
     fun `gated session establishes acceptance and keeps permission visible after late assistant frame`() = runTest {
-        for (isCancelled in listOf(false, true)) {
+        val modes = listOf(false, true).flatMap { cancelled -> listOf(false, true).map { cancelled to it } }
+        for ((isCancelled, isEnhanced) in modes) {
             val fixture = ClaudeFixture(backgroundScope)
             fixture.transport.versionValue = "2.1.285"
             lateinit var pipe: Pipe
@@ -45,7 +46,9 @@ internal class ClaudeNativeSessionTest {
             }
             var preflights = 0
             val tools = object : ProfileAgentTools by NoAgentTools {
+                override suspend fun requiresActionAnalysis() = isEnhanced
                 override suspend fun nativeTools(scope: ToolPolicyScope) = ResolvedToolPolicy(nativeOn = setOf("Bash"))
+                override suspend fun nativeToolsForExecution(scope: ToolPolicyScope) = nativeTools(scope)
                 override suspend fun prepareNative(context: AgentToolContext, call: NativeToolCall): NativePreparation {
                     preflights++
                     assertEquals(TrustLevel.Ask, context.trust)

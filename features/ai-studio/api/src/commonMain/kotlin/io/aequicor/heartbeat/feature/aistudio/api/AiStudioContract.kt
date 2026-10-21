@@ -172,6 +172,8 @@ public sealed interface AiStudioIntent : MachineIntent {
             val submissionId: String = "",
             /** Trusted host context captured with this input; never decoded from screen JSON. */
             val environment: StudioChatEnvironment? = null,
+            /** Original composer text from an explicit human send; generated and decoded prompts leave this null. */
+            val userInstruction: String? = null,
         ) : Public
 
         /** Asks the running agent of [sessionId] to stop. */
@@ -232,6 +234,8 @@ public sealed interface AiStudioIntent : MachineIntent {
             val submissionId: String = "",
             /** Trusted host context captured with this input; never decoded from screen JSON. */
             val environment: StudioChatEnvironment? = null,
+            /** Original human input carried through creation, never inferred from [prompt]. */
+            val userInstruction: String? = null,
         ) : Internal
 
         /** [requestId] failed; only its still-owning pane may restore [prompt]. */
@@ -351,6 +355,8 @@ public sealed interface AiStudioEffect : MachineEffect {
         val isPlanning: Boolean = false,
         /** Trusted host context captured with this input; never decoded from screen JSON. */
         val environment: StudioChatEnvironment? = null,
+        /** Original human input carried through creation, never inferred from [prompt]. */
+        val userInstruction: String? = null,
     ) : AiStudioEffect
 
     /** A turn of [sessionId] that the machine marks running until its `RunFinished`. */
@@ -369,6 +375,8 @@ public sealed interface AiStudioEffect : MachineEffect {
         val submissionId: String = "",
         /** Trusted host context captured with this input; never decoded from screen JSON. */
         val environment: StudioChatEnvironment? = null,
+        /** Host-captured direct human input; questionnaire and generated surface prompts leave this null. */
+        val userInstruction: String? = null,
     ) : Turn
 
     /** Applies [implementation] to the plan of [sessionId] and runs its first implementation turn. */

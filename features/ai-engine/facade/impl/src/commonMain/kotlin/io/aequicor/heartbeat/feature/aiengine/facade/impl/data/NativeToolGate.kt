@@ -26,6 +26,7 @@ internal class NativeToolGate(
     private val permissions: ToolPermissions,
     private val hostedNames: () -> Set<String>,
     private val isVirtual: suspend (AgentToolContext) -> Boolean = { false },
+    private val actionSafety: ActionSafetyGate? = null,
 ) {
     private val log = Log.tag("NativeToolGate")
 
@@ -47,6 +48,10 @@ internal class NativeToolGate(
     }
 
     private suspend fun prepareCurrent(context: AgentToolContext, call: NativeToolCall): NativePreflight {
+        if (actionSafety?.isEnabled() == true) {
+            val structured = NativeActionSafety(actionSafety, permissions, hooks, ::isEnabled)
+            return structured.prepare(context, call, approval(call))
+        }
         while (true) {
             val mode = permissions.mode()
             val isHookConfirmation = mode != SecurityMode.Trust && hookNeedsConfirmation(context, call)
@@ -105,7 +110,11 @@ internal class NativeToolGate(
 
     suspend fun confirm(context: AgentToolContext, call: NativeToolCall, checked: NativePreflight.Ask): NativeVerdict {
         val result = guarded {
-            confirmCurrent(context, call, checked)
+            if (checked.structured != null && actionSafety != null) {
+                NativeActionSafety(actionSafety, permissions, hooks, ::isEnabled).confirm(context, call, checked)
+            } else {
+                confirmCurrent(context, call, checked)
+            }
         }
         return (result as NativePreflight.Ready).verdict
     }
@@ -168,7 +177,11 @@ internal class NativeToolGate(
 /** Private preflight state; only the dispatcher may bind an approval to a registered invocation. */
 internal sealed interface NativePreflight {
     data class Ready(val verdict: NativeVerdict) : NativePreflight
-    data class Ask(val approval: AgentToolApproval, val isHookConfirmation: Boolean) : NativePreflight
+    data class Ask(
+        val approval: AgentToolApproval,
+        val isHookConfirmation: Boolean,
+        val structured: NativeActionSnapshot? = null,
+    ) : NativePreflight
 }
 
 private fun denied(reason: String): NativePreflight = NativePreflight.Ready(NativeVerdict.Deny(reason))

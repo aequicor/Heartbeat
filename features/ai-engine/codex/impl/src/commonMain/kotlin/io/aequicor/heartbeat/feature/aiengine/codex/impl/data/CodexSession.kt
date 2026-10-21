@@ -621,7 +621,7 @@ internal class CodexSession(
     )
 
     private suspend fun userInput(message: JsonObject, turn: Turn?) {
-        val active = turn?.takeIf { runtime.questionsEnabled() }?.takeIf {
+        val active = turn?.takeIf { questionsAllowed() }?.takeIf {
             !hostedJobs.isClosed(it.id) && message.obj("params").text("turnId") == nativeTurn && leases.isNotEmpty()
         }
         val parent = active?.let {
@@ -629,6 +629,17 @@ internal class CodexSession(
             if (currentTurn()?.id == it.id) hostedJobs.parent(it.id) else null
         }
         questions.request(message, active?.id, parent)
+    }
+
+    private suspend fun questionsAllowed(): Boolean = try {
+        runtime.questionsEnabled() && execution.questionsAllowed()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(IllegalStateException("Question policy unavailable (${error::class.simpleName.orEmpty()})")) {
+            "Codex user input refused because isolation policy is unavailable"
+        }
+        false
     }
 
     private suspend fun hostedApproval(turn: Turn, approval: AgentToolApproval): Boolean {

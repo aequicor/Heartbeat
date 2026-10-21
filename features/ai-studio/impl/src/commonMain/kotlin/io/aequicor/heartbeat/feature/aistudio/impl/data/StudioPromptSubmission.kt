@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -41,6 +42,8 @@ internal suspend fun ActiveSession.submitStudioPrompt(
     decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.AutomaticSafety,
     /** Model reviewing the turn's automatic safety decisions; null reviews on the turn's own model. */
     reviewTarget: EngineTarget? = null,
+    userInstruction: String? = null,
+    trustedUserInstructions: TrustedUserInstructions? = null,
 ): TurnId {
     // A compaction carries no input and no effort: it only summarizes the native context. It keeps the chat's trust,
     // which the engine would otherwise reset to its default and report back as the chat's configuration.
@@ -52,6 +55,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             compaction = supportedCompaction(compaction),
             decisionMode = decisionMode,
             reviewTarget = reviewTarget,
+            trustedUserInstructions = trustedUserInstructions,
         )
     } else {
         PromptRequest(
@@ -63,6 +67,8 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             trust = trust,
             decisionMode = decisionMode,
             reviewTarget = reviewTarget,
+            userInstruction = userInstruction,
+            trustedUserInstructions = trustedUserInstructions,
         )
     }
     val sender = features.requireFeature(SendsPrompts)

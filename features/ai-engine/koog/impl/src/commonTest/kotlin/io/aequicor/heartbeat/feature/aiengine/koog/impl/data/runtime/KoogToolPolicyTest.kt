@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -34,9 +35,52 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class KoogToolPolicyTest {
+    @Test
+    fun `search preserves provider identity through authorization and completion and rejects replay`() = runTest {
+        val call = ToolCallId("provider-search")
+        val contexts = mutableListOf<AgentToolContext>()
+        val completed = mutableListOf<AgentToolContext>()
+        val claimed = mutableSetOf<ToolCallId>()
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun authorizeHosted(
+                context: AgentToolContext,
+                name: String,
+                arguments: JsonObject,
+            ): NativeVerdict {
+                assertEquals(call, context.callId)
+                contexts += context
+                return if (claimed.add(checkNotNull(context.callId))) {
+                    NativeVerdict.Allow
+                } else {
+                    NativeVerdict.Deny("Replay")
+                }
+            }
+
+            override suspend fun afterHosted(
+                context: AgentToolContext,
+                name: String,
+                arguments: JsonObject,
+                result: AgentToolResult,
+            ): String? {
+                completed += context
+                return null
+            }
+        }
+        val search = PolicySearch()
+        val tool = koogSearchToolset(search, tools, Context).first()
+        assertFalse(tool.run(Arguments, call).isFailed)
+        val changed = JsonObject(mapOf("query" to JsonPrimitive("different query")))
+        assertTrue(tool.run(changed, call).isFailed)
+        assertEquals(1, search.calls)
+        assertEquals(2, contexts.size)
+        assertEquals(1, completed.size)
+        assertSame(contexts.first(), completed.single())
+    }
+
     @Test
     fun `search off filters declarations and a later refusal blocks already offered tools`() = runTest {
         val search = PolicySearch()

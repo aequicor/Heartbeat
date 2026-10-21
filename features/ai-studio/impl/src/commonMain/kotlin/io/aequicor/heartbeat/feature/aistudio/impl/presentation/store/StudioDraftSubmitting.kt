@@ -36,6 +36,7 @@ import kotlin.uuid.Uuid
 /**
  * Queues the exact draft snapshot before dispatch; only native acceptance may clear it. A new chat's harness choice
  * travels with the snapshot and leaves the pane; a refused dispatch returns both (chats keep their own choice).
+ * Only the explicit composer send sets [isDirectHumanSubmission]; automatic surface submissions keep it false.
  */
 internal suspend fun submitStudioDraft(
     pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
@@ -43,6 +44,7 @@ internal suspend fun submitStudioDraft(
     harnesses: StudioHarnesses,
     paneId: Int,
     environment: StudioChatEnvironment? = null,
+    isDirectHumanSubmission: Boolean = false,
     isCurrent: (AiStudioScreenState) -> Boolean = { true },
 ) = with(pipeline) {
     withState {
@@ -63,6 +65,7 @@ internal suspend fun submitStudioDraft(
                 pending.attachments.map { ResourceRef("attachment:${it.id}", it.mediaType) },
                 submissionId,
                 environment,
+                userInstruction = pending.text.takeIf { isDirectHumanSubmission },
             ),
         )
         if (result != SendResult.Accepted) {

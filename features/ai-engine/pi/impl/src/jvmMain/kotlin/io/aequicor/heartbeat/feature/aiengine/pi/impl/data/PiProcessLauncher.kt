@@ -280,7 +280,9 @@ internal class PiProcessLauncher(
                 val builder = ProcessBuilder(command).directory(workingDir.toFile())
                 val variables = builder.environment()
                 prepareEnvironment(variables, startup, agent, agentDir, plan)
+                val controlledShell = prepareControlledShell(startup, flags, plan, workingDir, variables)
                 extensions.forEach { installExtension(it.fileName.toString(), it) }
+                installExtension(PI_POWERSHELL_RESOURCE, agentDir.resolve(PI_POWERSHELL_RESOURCE))
                 modelsJson?.let { Files.writeString(agentDir.resolve("models.json"), it) }
                 writeAgentFiles(agentDir, agent)
                 val started = try {
@@ -292,7 +294,7 @@ internal class PiProcessLauncher(
                 }
                 process = started
                 started.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
-                val rpc = connect(started, workingDir, modelsJson, event, failed)
+                val rpc = connect(started, workingDir, modelsJson, event, failed, controlledShell)
                 rpc.closeWith(profile.onClose(rpc::close))
                 isConnected = true
                 rpc
@@ -310,6 +312,30 @@ internal class PiProcessLauncher(
                 }
             }
         }
+    }
+
+    private fun prepareControlledShell(
+        startup: PiStartup,
+        flags: PiFlags,
+        plan: PiLaunchPlan,
+        directory: Path,
+        environment: MutableMap<String, String>,
+    ): PiControlledPowerShell? {
+        val shell = piControlledPowerShell(
+            startup,
+            flags,
+            plan,
+            PiPowerShellHost(
+                distribution.executable(),
+                distribution.release?.version,
+                directory,
+                environment,
+                System.getenv("SystemRoot")?.let(Path::of),
+                System.getProperty("os.name").startsWith("Windows"),
+            ),
+        )
+        shell?.let { environment[PI_POWERSHELL_MANIFEST] = it.manifest }
+        return shell
     }
 
     /** Resolves trust before deriving resources, so trusted projects can discover their own extensions. */
@@ -396,6 +422,7 @@ internal class PiProcessLauncher(
         modelsJson: String?,
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
+        controlledShell: PiControlledPowerShell?,
     ): PiRpc = PiRpc(
         process,
         profile.coroutineScope,
@@ -404,6 +431,7 @@ internal class PiProcessLauncher(
         failed,
         workingDirectory = directory,
         contextWindows = piConfiguredContextWindows(modelsJson),
+        controlledPowerShell = controlledShell?.shell,
     )
 
     /**

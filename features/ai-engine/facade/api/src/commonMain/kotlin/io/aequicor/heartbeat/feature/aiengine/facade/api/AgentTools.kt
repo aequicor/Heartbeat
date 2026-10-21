@@ -83,13 +83,19 @@ public data class AgentToolContext(
     val historyTurn: TurnId? = null,
     /** Host-bound decision mode of the accepted request, independent of the session's trust level. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
-    /** Legacy host model metadata retained in exact call bindings; it does not run a permission review. */
+    /** Review model for enhanced automatic analysis; null falls back to [target]. Model choice grants no authority. */
     val reviewTarget: EngineTarget? = null,
+    /** Complete host-bound human originals; null is missing or incomplete authority. Adapter claims are discarded. */
+    val userInstruction: String? = null,
+    /** Dispatcher-owned executor selection; adapters and arguments cannot choose the legacy execution path. */
+    val isActionAnalysisRequired: Boolean = false,
+    /** Dispatcher-owned authority generation; final execution rejects evaluations captured before revocation. */
+    val userInstructionsRevision: Long? = null,
 ) {
     override fun toString(): String = "AgentToolContext"
 }
 
-/** Legacy host model identity retained for exact operation bindings. */
+/** Model for enhanced automatic action review; unused by the legacy authorization path. */
 public val AgentToolContext.reviewModel: EngineTarget? get() = reviewTarget ?: target
 
 /**
@@ -142,6 +148,14 @@ public data class AgentToolImage(val mimeType: String, val data: String) {
 // Declaration, authorization and turn cleanup belong to the same owner; compatibility overloads preserve consumers.
 @Suppress("TooManyFunctions")
 public interface AgentToolContribution {
+    /**
+     * Resolves the actual operation and resources using this owner's validated execution contract. A declaration,
+     * tool name, read-only hint or model-provided claim is not evidence. Unknown implementations require a decision.
+     * The dispatcher repeats this analysis before execution; the owner still enforces its atomic snapshot checks.
+     */
+    public suspend fun analyze(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject): ActionAnalysis =
+        ActionAnalysis.Unknown("This tool has no verified action contract")
+
     /**
      * Adapter-operated host tools publish policy metadata here but execute through their existing transport.
      * They are excluded from generic hosted declarations and execute; adapters must call
@@ -211,8 +225,9 @@ public interface AgentToolContribution {
         }
 
     /**
-     * Requires an explicit user decision beyond the [AgentToolAction] × [TrustLevel] table. It can only add a
-     * decision: returning false never skips one the table demands.
+     * Adds a user decision when no exact [existingAuthorization] covers the operation; false never grants permission.
+     * The legacy path checks this alongside the action rules in Ask/Automatic and ignores it in Trust. Enhanced
+     * analysis checks it before model review or a Trust verdict; explicit analysis and hook denials take priority.
      */
     public suspend fun requiresDecision(
         context: AgentToolContext,
@@ -266,10 +281,17 @@ public interface AgentToolContribution {
 @Suppress("TooManyFunctions")
 public interface ProfileAgentTools {
     /**
+     * Whether every agent operation needs the structured host gate. Adapters without per-call interception must
+     * disable those native operations before starting a turn; a read-only sandbox is not equivalent interception.
+     */
+    public suspend fun requiresActionAnalysis(): Boolean = false
+
+    /**
      * Binds a trusted request to its facade turn before native submission can invoke any hosted tools.
      * [target] is the engine and model the turn runs on; calls of the request see it as [AgentToolContext.target].
      * [decisionMode] is immutable legacy metadata; the live profile security mode decides authorization.
-     * [reviewTarget] is legacy host identity included in operation bindings, not an authorization source.
+     * [reviewTarget] selects enhanced automatic review, falling back to [target]; the legacy path does not use it.
+     * Model selection is included in exact operation bindings and never grants authority.
      */
     public suspend fun bindTurn(
         session: SessionRef,
@@ -279,6 +301,39 @@ public interface ProfileAgentTools {
         decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
         reviewTarget: EngineTarget? = null,
     ): Unit = Unit
+
+    /**
+     * Binds original human text before native submission, after [bindTurn]. It must originate from the host's
+     * human input boundary, never from transcript roles, attachments, tool results or generated plan prompts.
+     * The exact request/turn binding is immutable; an adapter cannot supply replacement authority in its context.
+     */
+    public suspend fun bindUserInstruction(
+        session: SessionRef,
+        request: RequestId,
+        turn: TurnId,
+        instruction: String,
+    ): Unit = Unit
+
+    /**
+     * Binds the host's durable logical conversation snapshot before native submission, after [bindTurn].
+     * [TrustedUserInstructions.Incomplete] explicitly revokes automatic authority for this request; a subsequent
+     * single human message cannot discard forgotten restrictions. Serialized or adapter-owned claims never enter here.
+     */
+    public suspend fun bindUserInstructions(
+        session: SessionRef,
+        request: RequestId,
+        turn: TurnId,
+        instructions: TrustedUserInstructions,
+    ): Unit = Unit
+
+    /**
+     * Revokes all captured human authority and pending evaluations for [session]. Only the trusted host calls this
+     * when a substantive answer may introduce restrictions that cannot be preserved with complete provenance.
+     * Later messages cannot repair this session; durable hosts also persist Incomplete for the logical chat.
+     * Unsupported dispatchers fail before the host delivers the answer. This grants no permission to tools.
+     */
+    public suspend fun invalidateUserInstructions(session: SessionRef): Unit =
+        error("Human authority revocation is unavailable")
 
     /** Available tool declarations for a session's immutable execution workspace. */
     public suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec>

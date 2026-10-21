@@ -75,6 +75,11 @@ interface StudioRepository {
 internal interface StudioChatResolver {
     /** The studio session whose native session is [ref], or null when no studio chat owns it. */
     suspend fun sessionIdOf(ref: SessionRef): String?
+
+    /** Revokes durable originals and the exact live session before returning substantive questionnaire answers. */
+    suspend fun invalidateUserInstructions(ref: SessionRef) {
+        error("Human authority revocation is unavailable")
+    }
 }
 
 /** Input of one agent run: the new [prompt] after the existing [history] of the session. */

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.security.shellProcessArguments
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
@@ -27,6 +28,7 @@ internal class CodingShellTool(
     private val root: ProjectRoot,
     private val io: CoroutineDispatcher,
     private val isWindows: Boolean = System.getProperty("os.name").orEmpty().startsWith("Windows"),
+    private val isControlled: Boolean = false,
 ) : CodingTool {
     private val log = Log.tag("CodingShellTool")
 
@@ -67,16 +69,11 @@ internal class CodingShellTool(
     }
 
     private suspend fun execute(command: String, timeout: Long): AgentToolResult = withContext(io) {
-        val shell = if (isWindows) {
-            listOf("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
-        } else {
-            listOf("/bin/sh", "-c", command)
-        }
-        val builder = ProcessBuilder(shell)
+        val environment = if (isControlled) controlledCodingEnvironment(isWindows) else codingCommandEnvironment()
+        val builder = ProcessBuilder(shellProcessArguments(commandLine(command, environment), isWindows))
             .directory(root.path.toFile())
             .redirectErrorStream(true)
             .redirectInput(ProcessBuilder.Redirect.from(File(if (isWindows) "NUL" else "/dev/null")))
-        val environment = codingCommandEnvironment()
         val removedCount = builder.environment().size - environment.size
         builder.environment().clear()
         builder.environment().putAll(environment)
@@ -108,6 +105,17 @@ internal class CodingShellTool(
                 true,
             )
         }
+    }
+
+    private fun commandLine(command: String, environment: Map<String, String>): List<String> = when {
+        isControlled -> {
+            val execution = controlledCodingShell(isWindows, environment)
+            listOf(execution.executable) + execution.argumentPrefix + (execution.initialization + command)
+        }
+
+        isWindows -> listOf("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
+
+        else -> listOf("/bin/sh", "-c", command)
     }
 
     private suspend fun kill(process: Process, children: List<ProcessHandle>) = withContext(NonCancellable) {
