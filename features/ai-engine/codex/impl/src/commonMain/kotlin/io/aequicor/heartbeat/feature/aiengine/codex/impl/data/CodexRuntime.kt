@@ -495,9 +495,12 @@ internal class CodexRuntime(
     }
 }
 
-/** Only model/list inputModalities confirms images; missing metadata is conservatively text-only. */
+/**
+ * Mirrors the native model/list default: legacy payloads without inputModalities accept text and images.
+ * An explicit list still narrows support; malformed metadata must not inherit the legacy default.
+ */
 internal fun codexInputSupport(model: JsonObject): PromptInputSupport = PromptInputSupport.TextDocuments.copy(
-    imageMediaTypes = if ((model["inputModalities"] as? JsonArray).orEmpty().any {
+    imageMediaTypes = if ("inputModalities" !in model || (model["inputModalities"] as? JsonArray).orEmpty().any {
             (it as? JsonPrimitive)?.contentOrNull == "image"
         }
     ) {
