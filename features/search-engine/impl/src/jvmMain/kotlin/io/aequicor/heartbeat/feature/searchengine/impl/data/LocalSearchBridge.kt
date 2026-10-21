@@ -27,6 +27,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -215,11 +216,12 @@ internal class LocalSearchBridge(
         job.invokeOnCompletion { error ->
             if (error != null) pending.completeExceptionally(BridgeUnavailableException(error))
         }
-        return await(pending, job)
+        return await(pending, job, isScoped = access is ScopedSearch)
     }
 
-    private fun await(pending: CompletableFuture<JsonObject>, job: Job): JsonObject = try {
-        pending.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+    private fun await(pending: CompletableFuture<JsonObject>, job: Job, isScoped: Boolean): JsonObject = try {
+        // Scoped authorization can wait for a person; only the search IO consumes its timeout budget.
+        if (isScoped) pending.get() else pending.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
     } catch (e: TimeoutException) {
         job.cancel()
         throw e
@@ -227,6 +229,9 @@ internal class LocalSearchBridge(
         // Unwraps the tool failure so logs show the real cause.
         // A cancelled scope already completes the future with BridgeUnavailableException (503).
         throw e.cause ?: e
+    } finally {
+        // An interrupted HTTP worker must not leave a detached authorization or search coroutine.
+        if (!pending.isDone) job.cancel()
     }
 
     private fun authorized(exchange: HttpExchange): SearchAccess? {
@@ -314,12 +319,7 @@ internal class LocalSearchBridge(
 
     private suspend fun tool(name: String, args: JsonObject, access: SearchAccess): Pair<String, Boolean> {
         val result = if (access is ScopedSearch) {
-            val invoked = AtomicBoolean()
-            val invocation = currentCoroutineContext()
-            val answer = access.guard.execute(name, args) {
-                invocation.ensureActive()
-                access.lifetime.ensureActive()
-                check(invoked.compareAndSet(false, true)) { "Search operation already consumed" }
+            val answer = executeScopedSearch(access.guard, name, args, access.lifetime) {
                 runTool(name, args, native = null).let { AgentToolResult(it.first, isError = !it.second) }
             }
             answer.text to !answer.isError
@@ -449,3 +449,22 @@ private class AttachedFeatures(private val owners: List<EngineFeatures>) : Engin
 private class BridgeUnavailableException(cause: Throwable) : Exception("Search bridge unavailable", cause)
 
 private fun invalidRequest(): Nothing = throw IllegalArgumentException("Invalid bridge request")
+
+/** Authorization has no IO deadline; a consumed operation has its own bounded search budget. */
+internal suspend fun executeScopedSearch(
+    guard: SearchBridgeGuard,
+    name: String,
+    arguments: JsonObject,
+    lifetime: Job,
+    timeoutMillis: Long = 60_000L,
+    operation: suspend () -> AgentToolResult,
+): AgentToolResult {
+    val invoked = AtomicBoolean()
+    val invocation = currentCoroutineContext()
+    return guard.execute(name, arguments) {
+        invocation.ensureActive()
+        lifetime.ensureActive()
+        check(invoked.compareAndSet(false, true)) { "Search operation already consumed" }
+        withTimeoutOrNull(timeoutMillis) { operation() } ?: AgentToolResult("Timeout", isError = true)
+    }
+}

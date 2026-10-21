@@ -61,6 +61,7 @@ class ServiceIsolationPermissionsTest {
                 permissions = AgentToolPermissions { error("Isolation must not request permission") },
             )
             isolation.restrict(context.session, listOf("bash"))
+            assertTrue(tools.nativeTools(ToolPolicyScope(session = context.session)).isToolFree)
             assertEquals(
                 setOf("web_search"),
                 tools.nativeTools(ToolPolicyScope(session = context.session)).hostedDenied,

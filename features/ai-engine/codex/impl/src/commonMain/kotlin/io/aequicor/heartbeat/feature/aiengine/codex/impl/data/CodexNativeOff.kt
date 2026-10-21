@@ -19,10 +19,14 @@ internal data class CodexNativeOff(
     val isVirtualWorkspace: Boolean = false,
     /** Native reads and provider tools have no shared per-call gate and must also be unavailable. */
     val isActionAnalysisRequired: Boolean = false,
+    /** Text-only service sessions close the same native catalog independently of the profile safety toggle. */
+    val isToolFree: Boolean = false,
 ) {
-    private val isExecutionOff get() = isShellDisabled || isActionAnalysisRequired
-    private val isSearchOff get() = isSearchDisabled || isActionAnalysisRequired
-    private val isLocalOff get() = isVirtualWorkspace || isActionAnalysisRequired
+    /** Both enhanced authorization and text-only isolation need an audited native inventory. */
+    val isVerifiedInventoryRequired get() = isActionAnalysisRequired || isToolFree
+    private val isExecutionOff get() = isShellDisabled || isVerifiedInventoryRequired
+    private val isSearchOff get() = isSearchDisabled || isVerifiedInventoryRequired
+    private val isLocalOff get() = isVirtualWorkspace || isVerifiedInventoryRequired
     val isRestricted: Boolean get() = isExecutionOff || isSearchOff || isLocalOff
 
     /** Appended after every user override and isolation flag without accepting arbitrary configuration keys. */
@@ -30,17 +34,18 @@ internal data class CodexNativeOff(
         if (isExecutionOff) executionFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
         if (isSearchOff) addAll(listOf("-c", "web_search=\"disabled\""))
         if (isLocalOff) virtualFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
-        if (isActionAnalysisRequired) enhancedFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
+        if (isVerifiedInventoryRequired) enhancedFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
+        if (isToolFree) addAll(listOf("-c", "features.default_mode_request_user_input=false"))
     }
 
     /**
-     * Enhanced execution accepts only a build whose actual model-facing tool inventory was checked. Its known
-     * flags are insufficient proof for any earlier, later or differently suffixed build. Legacy restrictions
+     * Enhanced execution and text-only isolation accept only a build whose model-facing inventory was checked.
+     * Its known flags are insufficient proof for any earlier, later or differently suffixed build. Legacy restrictions
      * retain their existing 0.160.0 protocol baseline and effective-config checks.
      */
     fun requireVersion(version: String?) {
         if (!isRestricted) return
-        if (isActionAnalysisRequired) {
+        if (isVerifiedInventoryRequired) {
             if (version !in verifiedEnhancedVersions) unsupportedPolicy()
         } else {
             val match = version?.let { Version.matchEntire(it) } ?: unsupportedPolicy()
@@ -65,7 +70,8 @@ internal data class CodexNativeOff(
         (config["features"] as? JsonObject).orEmpty().forEach { (key, value) -> put(key, value) }
         if (isExecutionOff) executionFeatures.forEach { put(it, false) }
         if (isLocalOff) virtualFeatures.forEach { put(it, false) }
-        if (isActionAnalysisRequired) enhancedFeatures.forEach { put(it, false) }
+        if (isVerifiedInventoryRequired) enhancedFeatures.forEach { put(it, false) }
+        if (isToolFree) put("default_mode_request_user_input", false)
     }
 
     /**
@@ -94,7 +100,8 @@ internal data class CodexNativeOff(
         val required = buildList {
             if (isExecutionOff) addAll(executionFeatures)
             if (isLocalOff) addAll(virtualFeatures)
-            if (isActionAnalysisRequired) addAll(enhancedFeatures)
+            if (isVerifiedInventoryRequired) addAll(enhancedFeatures)
+            if (isToolFree) add("default_mode_request_user_input")
         }
         return required.all { features?.get(it) == JsonPrimitive(false) } &&
             (!isSearchOff || config["web_search"] == JsonPrimitive("disabled"))
@@ -120,6 +127,9 @@ internal data class CodexNativeOff(
          * After these restrictions the fixture declares only the host-provided dynamic tool and native
          * request_user_input. The latter is a questionnaire routed to CodexSession.userInput, where the live
          * turn and host availability are checked; it is not an autonomous filesystem or network operation.
+         * Text-only isolation also sets default_mode_request_user_input=false, although this verified build
+         * retains its declaration. CodexSession refuses every such callback while the applied launch or current
+         * policy is tool-free, so no human form is published.
          * `native-inventory.test.mjs` repeats the capture without credentials or an external model service.
          */
         val verifiedEnhancedVersions = setOf("0.163.0-alpha.10.2")

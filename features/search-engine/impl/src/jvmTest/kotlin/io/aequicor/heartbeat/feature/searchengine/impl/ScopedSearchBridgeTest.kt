@@ -13,12 +13,20 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeGuard
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import io.aequicor.heartbeat.feature.searchengine.impl.data.LocalSearchBridge
+import io.aequicor.heartbeat.feature.searchengine.impl.data.executeScopedSearch
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.net.URI
@@ -36,7 +44,82 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ScopedSearchBridgeTest {
+    @Test
+    fun `approval can outlast the search IO budget without consuming it`() = runTest {
+        val approval = CompletableDeferred<Unit>()
+        var calls = 0
+        val access = Job()
+        try {
+            val pending = async {
+                executeScopedSearch(
+                    SearchBridgeGuard { _, _, operation ->
+                        approval.await()
+                        operation()
+                    },
+                    "web_search",
+                    SEARCH_ARGS,
+                    access,
+                    timeoutMillis = 60_000,
+                ) {
+                    calls++
+                    AgentToolResult("Completed")
+                }
+            }
+            runCurrent()
+            advanceTimeBy(120_000)
+            runCurrent()
+            assertFalse(pending.isCompleted)
+            assertEquals(0, calls)
+            approval.complete(Unit)
+            assertEquals(AgentToolResult("Completed"), pending.await())
+            assertEquals(1, calls)
+        } finally {
+            access.cancel()
+        }
+    }
+
+    @Test
+    fun `search IO remains bounded after a long authorization wait`() = runTest {
+        val approval = CompletableDeferred<Unit>()
+        var isCancelled = false
+        val access = Job()
+        try {
+            val pending = async {
+                executeScopedSearch(
+                    SearchBridgeGuard { _, _, operation ->
+                        approval.await()
+                        operation()
+                    },
+                    "web_search",
+                    SEARCH_ARGS,
+                    access,
+                    timeoutMillis = 60_000,
+                ) {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        isCancelled = true
+                    }
+                }
+            }
+            runCurrent()
+            advanceTimeBy(120_000)
+            approval.complete(Unit)
+            runCurrent()
+            advanceTimeBy(59_999)
+            runCurrent()
+            assertFalse(pending.isCompleted)
+            advanceTimeBy(1)
+            runCurrent()
+            assertEquals(AgentToolResult("Timeout", isError = true), pending.await())
+            assertTrue(isCancelled)
+        } finally {
+            access.cancel()
+        }
+    }
+
     @Test
     fun `wrong scoped token and a denied guard never reach search`() {
         val fixture = ScopedFixture()

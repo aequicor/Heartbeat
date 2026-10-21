@@ -84,13 +84,31 @@ internal class NativeActionSafety(
         captured: NativeActionSnapshot,
         expectedMode: SecurityMode,
     ): NativePreflight? {
+        val checked = permissions.validate(expectedMode) { ready(context, call, captured, expectedMode) }
+        return when (checked) {
+            is ModeValidation.Current -> checked.value
+            ModeValidation.Changed -> null
+        }
+    }
+
+    private suspend fun ready(
+        context: AgentToolContext,
+        call: NativeToolCall,
+        captured: NativeActionSnapshot,
+        expectedMode: SecurityMode,
+    ): NativePreflight {
         val reason = changed(context, call, captured)
-        val mode = permissions.mode()
         return when {
             reason != null -> refused(reason)
+
+            permissions.mode() != expectedMode -> refused("Native permission mode changed; request it again")
+
+            !gate.isEnabled() || !isEnabled(context, captured.input) ->
+                refused("Native action policy changed; request it again")
+
             call != captured.input -> refused(INPUT_CHANGED)
-            mode == expectedMode -> NativePreflight.Ready(NativeVerdict.Allow)
-            else -> null
+
+            else -> NativePreflight.Ready(NativeVerdict.Allow)
         }
     }
 

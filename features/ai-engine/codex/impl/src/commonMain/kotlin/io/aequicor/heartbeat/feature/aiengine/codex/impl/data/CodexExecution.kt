@@ -29,6 +29,7 @@ internal data class CodexThreadRequest(
         "web_search" in policy.nativeOff,
         isVirtualWorkspace,
         isActionAnalysisRequired,
+        policy.isToolFree,
     )
 }
 
@@ -158,6 +159,9 @@ internal class CodexExecution(
     private suspend fun isCurrent(request: CodexThreadRequest): Boolean =
         runtime.threads.policy(scope) == request.policy &&
             runtime.host.tools.requiresActionAnalysis() == request.isActionAnalysisRequired
+
+    /** A text-only launch cannot acquire questions after its isolation policy is released. */
+    suspend fun questionsAllowed(): Boolean = !applied.isToolFree && !runtime.threads.policy(scope).isToolFree
 
     private companion object {
         const val MAX_ATTEMPTS = 3

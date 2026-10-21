@@ -74,7 +74,7 @@ internal class LocalCodexTransport(
 
                 override suspend fun open(): CodexWire = openResolved(resolved, environment)
                 override suspend fun open(off: CodexNativeOff): CodexWire {
-                    if (off.isActionAnalysisRequired) {
+                    if (off.isVerifiedInventoryRequired) {
                         // Do not reuse the permissive legacy version parser for an exact-build contract.
                         val exact = withContext(dispatchers.io) { version(resolved, environment, isExact = true) }
                         off.requireVersion(exact)

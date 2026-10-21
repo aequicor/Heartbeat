@@ -290,10 +290,11 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
             path,
             CodexIsolationSettings(
                 isSearchEnabled = tools.isSearchEnabled,
-                areQuestionsEnabled = runtime.questionsEnabled(),
-                areSubagentsEnabled = !request.isVirtualWorkspace && tools.areSubagentsAllowed && toggles.get(
-                    io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled,
-                ),
+                areQuestionsEnabled = !policy.isToolFree && runtime.questionsEnabled(),
+                areSubagentsEnabled = !policy.isToolFree && !request.isVirtualWorkspace &&
+                    tools.areSubagentsAllowed && toggles.get(
+                        io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled,
+                    ),
                 off = request.off,
             ),
         )

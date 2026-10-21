@@ -308,6 +308,101 @@ internal class StructuredActionAuthorizationTest {
     }
 
     @Test
+    fun `disabling a tool during final analysis blocks every dispatch route`() = runTest {
+        for (route in DispatchRoute.entries) {
+            val fixture = ActionFixture(route)
+            fixture.bind("Read the selected project file")
+            val entered = CompletableDeferred<Unit>()
+            val analyzed = CompletableDeferred<Unit>()
+            fixture.inspecting = {
+                if (fixture.inspections.size == 2) {
+                    entered.complete(Unit)
+                    analyzed.await()
+                }
+            }
+            val pending = async { fixture.invoke() }
+            entered.await()
+            fixture.policy = ResolvedToolPolicy(hostedDenied = setOf(HOSTED_NAME), nativeOff = setOf(NATIVE_NAME))
+            analyzed.complete(Unit)
+            assertFalse(pending.await(), route.name)
+            assertEquals(0, fixture.executions, route.name)
+        }
+    }
+
+    @Test
+    fun `disabling a tool during the final mode read blocks every dispatch route`() = runTest {
+        for (route in DispatchRoute.entries) {
+            val fixture = ActionFixture(route)
+            fixture.bind("Read the selected project file")
+            val entered = CompletableDeferred<Unit>()
+            val modeRead = CompletableDeferred<Unit>()
+            fixture.inspecting = {
+                if (fixture.inspections.size == 2) {
+                    fixture.readingMode = {
+                        entered.complete(Unit)
+                        modeRead.await()
+                    }
+                }
+            }
+            val pending = async { fixture.invoke() }
+            entered.await()
+            fixture.policy = ResolvedToolPolicy(hostedDenied = setOf(HOSTED_NAME), nativeOff = setOf(NATIVE_NAME))
+            modeRead.complete(Unit)
+            assertFalse(pending.await(), route.name)
+            assertEquals(0, fixture.executions, route.name)
+        }
+    }
+
+    @Test
+    fun `changing mode during final availability lookup requires a fresh decision on every route`() = runTest {
+        for (route in DispatchRoute.entries) {
+            val fixture = ActionFixture(route)
+            fixture.bind("Read the selected project file")
+            val entered = CompletableDeferred<Unit>()
+            val resolved = CompletableDeferred<Unit>()
+            fixture.inspecting = {
+                if (fixture.inspections.size == 2) {
+                    fixture.resolvingPolicy = {
+                        entered.complete(Unit)
+                        resolved.await()
+                    }
+                }
+            }
+            val pending = async { fixture.invoke() }
+            entered.await()
+            fixture.settings.save(SecurityMode.Ask)
+            resolved.complete(Unit)
+            assertFalse(pending.await(), route.name)
+            assertEquals(0, fixture.executions, route.name)
+            assertEquals(1, fixture.approvals.size, route.name)
+        }
+    }
+
+    @Test
+    fun `disabling a hosted tool during its last approval snapshot blocks execution`() = runTest {
+        for (route in HOSTED_ROUTES) {
+            val fixture = ActionFixture(route)
+            fixture.bind("Read the selected project file")
+            val entered = CompletableDeferred<Unit>()
+            val approvalRead = CompletableDeferred<Unit>()
+            fixture.inspecting = {
+                if (fixture.inspections.size == 2) {
+                    fixture.approving = {
+                        entered.complete(Unit)
+                        approvalRead.await()
+                    }
+                }
+            }
+            val pending = async { fixture.invoke() }
+            entered.await()
+            fixture.policy = ResolvedToolPolicy(hostedDenied = setOf(HOSTED_NAME))
+            approvalRead.complete(Unit)
+            assertFalse(pending.await(), route.name)
+            assertEquals(0, fixture.executions, route.name)
+        }
+    }
+
+    @Test
     fun `new hard hook restriction during approval blocks every route`() = runTest {
         for (route in DispatchRoute.entries) {
             val fixture = ActionFixture(route, mutation())
@@ -403,6 +498,50 @@ internal class StructuredActionAuthorizationTest {
     }
 
     @Test
+    fun `new human restrictions revoke pending reviews on every dispatch route`() = runTest {
+        for (route in DispatchRoute.entries) {
+            val fixture = ActionFixture(route)
+            fixture.bind("Read the selected project file")
+            val entered = CompletableDeferred<Unit>()
+            fixture.reviewing = {
+                entered.complete(Unit)
+                awaitCancellation()
+            }
+            val pending = async { fixture.invoke() }
+            entered.await()
+            fixture.tools.invalidateUserInstructions(SESSION)
+            assertFailsWith<CancellationException>(route.name) { pending.await() }
+            assertEquals(0, fixture.executions, route.name)
+            fixture.reviewing = {}
+            val next = fixture.context.copy(callId = ToolCallId("after-revocation"))
+            assertFalse(fixture.invoke(next), route.name)
+            assertEquals(1, fixture.prompts.size, "Incomplete authority must not reach another model review")
+            assertEquals(1, fixture.approvals.size, route.name)
+        }
+    }
+
+    @Test
+    fun `authority revocation rejects a previously prepared native confirmation`() = runTest {
+        val fixture = ActionFixture(DispatchRoute.Native, mutation())
+        fixture.permission = { true }
+        val prepared = assertIs<NativePreparation.Ask>(
+            fixture.tools.prepareNative(fixture.context, fixture.nativeCall()),
+        )
+        fixture.tools.invalidateUserInstructions(SESSION)
+        assertIs<NativeVerdict.Deny>(prepared.confirmation.authorize())
+        assertTrue(fixture.approvals.isEmpty())
+    }
+
+    @Test
+    fun `a hosted questionnaire can revoke authority before returning its answer`() = runTest {
+        val fixture = ActionFixture(DispatchRoute.Hosted, mode = SecurityMode.Trust)
+        fixture.bind("Inspect the project")
+        fixture.executing = { fixture.tools.invalidateUserInstructions(SESSION) }
+        assertTrue(fixture.invoke())
+        assertEquals(1, fixture.executions)
+    }
+
+    @Test
     fun `a prepared structured native confirmation is consumed only once`() = runTest {
         val fixture = ActionFixture(DispatchRoute.Native, mutation())
         fixture.permission = { true }
@@ -476,9 +615,12 @@ private class ActionFixture(
     var arguments = EMPTY
     var paths: List<String> = emptyList()
     var shell: NativeShellExecution? = null
+    var executing: suspend () -> Unit = {}
     var reviewing: suspend () -> Unit = {}
     var inspecting: suspend () -> Unit = {}
+    var approving: suspend () -> Unit = {}
     var readingMode: suspend () -> Unit = {}
+    var resolvingPolicy: suspend () -> Unit = {}
     var permission: suspend (AgentToolApproval) -> Boolean = { false }
     var hook: ToolHookVerdict = ToolHookVerdict.Continue
     val context = AgentToolContext(
@@ -500,6 +642,14 @@ private class ActionFixture(
             AgentToolSpec(HOSTED_NAME, "Read the project", EMPTY, AgentToolAction.Read),
         )
         override suspend fun instructions(workspace: WorkspaceRef?): String = ""
+        override suspend fun approval(
+            context: AgentToolContext,
+            spec: AgentToolSpec,
+            arguments: JsonObject,
+        ): AgentToolApproval {
+            approving()
+            return super.approval(context, spec, arguments)
+        }
         override suspend fun analyze(
             context: AgentToolContext,
             spec: AgentToolSpec,
@@ -511,6 +661,7 @@ private class ActionFixture(
             return analysis ?: super.analyze(context, spec, arguments)
         }
         override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
+            executing()
             executions++
             return AgentToolResult("Executed")
         }
@@ -520,10 +671,14 @@ private class ActionFixture(
             SessionHookContext(session, WORKSPACE, request, turn, SessionOwner("owner"))
         override suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict = hook
     }
+    var policy = ResolvedToolPolicy(nativeOn = setOf(NATIVE_NAME))
     val tools = DefaultAgentTools(
         setOf(owner),
         hooks = hooks,
-        policies = ToolPolicyResolver { _, _, _ -> ResolvedToolPolicy(nativeOn = setOf(NATIVE_NAME)) },
+        policies = ToolPolicyResolver { _, _, _ ->
+            resolvingPolicy()
+            policy
+        },
         settings = object : AgentSecuritySettings by settings {
             override val modes = settings.modes.onStart { readingMode() }
         },

@@ -152,6 +152,17 @@ internal class DefaultAgentTools(
         }
     }
 
+    override suspend fun invalidateUserInstructions(session: SessionRef) {
+        val deliveringAnswer = currentCoroutineContext()[Job]
+        callsLock.withLock {
+            userInstructions.invalidate(session)
+            calls.filterKeys { it.first == session }.values.flatMap { it.toList() }.forEach {
+                if (it !== deliveringAnswer) it.cancel(CancellationException("Human authority changed"))
+            }
+        }
+        log.i { "Revoked human authority and pending tool evaluations" }
+    }
+
     override fun catalog(): List<ToolGroup> {
         val entries = contributions.flatMap { it.catalog }
         check(entries.map { it.name }.distinct().size == entries.size) { "Duplicate hosted catalog name" }
@@ -198,29 +209,49 @@ internal class DefaultAgentTools(
 
     override suspend fun prepareNative(context: AgentToolContext, call: NativeToolCall): NativePreparation =
         withInvocation(context, NativePreparation.Deny("Native turn has ended")) { trusted ->
-            when (val checked = nativeGate.prepare(trusted, call)) {
+            val checked = nativeGate.prepare(trusted, call)
+            if (!isAuthorityCurrent(trusted)) return@withInvocation NativePreparation.Deny(AUTHORITY_CHANGED)
+            when (checked) {
                 is NativePreflight.Ready -> when (val verdict = checked.verdict) {
                     NativeVerdict.Allow -> NativePreparation.Allow
                     is NativeVerdict.Deny -> NativePreparation.Deny(verdict.reason)
                 }
 
-                is NativePreflight.Ask -> {
-                    val consumed = kotlinx.coroutines.CompletableDeferred<Unit>()
-                    NativePreparation.Ask(
-                        NativeConfirmation {
-                            if (!consumed.complete(Unit)) {
-                                NativeVerdict.Deny("Native confirmation has already been consumed")
-                            } else {
-                                // Use the original native context so the facade binding is reapplied exactly once.
-                                withInvocation(context, NativeVerdict.Deny("Native turn has ended")) {
-                                    nativeGate.confirm(it, call, checked)
-                                }
-                            }
-                        },
-                    )
-                }
+                is NativePreflight.Ask -> nativeConfirmation(context, trusted, call, checked)
             }
         }
+
+    private fun nativeConfirmation(
+        context: AgentToolContext,
+        trusted: AgentToolContext,
+        call: NativeToolCall,
+        checked: NativePreflight.Ask,
+    ): NativePreparation.Ask {
+        val consumed = kotlinx.coroutines.CompletableDeferred<Unit>()
+        return NativePreparation.Ask(
+            NativeConfirmation {
+                if (!consumed.complete(Unit)) {
+                    NativeVerdict.Deny("Native confirmation has already been consumed")
+                } else {
+                    confirmNative(context, trusted.userInstructionsRevision, call, checked)
+                }
+            },
+        )
+    }
+
+    private suspend fun confirmNative(
+        context: AgentToolContext,
+        revision: Long?,
+        call: NativeToolCall,
+        checked: NativePreflight.Ask,
+    ): NativeVerdict = withInvocation(context, NativeVerdict.Deny("Native turn has ended")) {
+        if (it.userInstructionsRevision != revision) {
+            NativeVerdict.Deny(AUTHORITY_CHANGED)
+        } else {
+            val verdict = nativeGate.confirm(it, call, checked)
+            if (isAuthorityCurrent(it)) verdict else NativeVerdict.Deny(AUTHORITY_CHANGED)
+        }
+    }
 
     override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
         when (val prepared = prepareNative(context, call)) {
@@ -285,6 +316,7 @@ internal class DefaultAgentTools(
                     target = bound?.target ?: context.target,
                     authorization = null,
                     userInstruction = bound?.let { userInstructions.get(context.session, context.request) },
+                    userInstructionsRevision = userInstructions.revision(context.session),
                     isActionAnalysisRequired = isStructured,
                     trust = when (mode) {
                         SecurityMode.Ask -> TrustLevel.Ask
@@ -401,6 +433,8 @@ internal class DefaultAgentTools(
             )
             if (refusal != null) {
                 refusal
+            } else if (!isAuthorityCurrent(context)) {
+                AgentToolResult(AUTHORITY_CHANGED, isError = true)
             } else if (!input.isCurrent()) {
                 AgentToolResult(HOSTED_INPUT_CHANGED, isError = true)
             } else if (isAdapterOperated) {
@@ -432,6 +466,9 @@ internal class DefaultAgentTools(
             AgentToolResult("Tool failed (${e::class.simpleName.orEmpty()})", isError = true)
         }
     }
+
+    private fun isAuthorityCurrent(context: AgentToolContext): Boolean =
+        context.userInstructionsRevision == userInstructions.revision(context.session)
 
     /** A notification failure cannot turn a completed side effect into an apparent execution failure. */
     private suspend fun afterResult(
@@ -523,21 +560,18 @@ internal class DefaultAgentTools(
     private suspend fun changedOperation(context: AgentToolContext, operation: HostedApproval): String? {
         val owner = operation.owner
         val spec = operation.spec
+        if (operation.arguments.toString() != operation.argumentsSnapshot ||
+            owner.approval(context, spec, operation.arguments) != operation.approval
+        ) {
+            return "The action changed while awaiting approval; request it again"
+        }
+        // Owner callbacks may suspend; read the current policy after them at the execution boundary.
         val isAvailable = declarations(
             context.toolScope(),
             isExecuting = true,
             isAdapterOperated = owner.isAdapterOperated,
-        )
-            .any { it.first === owner && it.second == spec }
-        return when {
-            !isAvailable -> "Tool became unavailable"
-
-            operation.arguments.toString() != operation.argumentsSnapshot ||
-                owner.approval(context, spec, operation.arguments) != operation.approval ->
-                "The action changed while awaiting approval; request it again"
-
-            else -> null
-        }
+        ).any { it.first === owner && it.second == spec }
+        return if (isAvailable) null else "Tool became unavailable"
     }
 
     private suspend fun declarations(
@@ -631,3 +665,5 @@ private class HostedInput(private val original: JsonObject) {
 internal const val HOSTED_INPUT_CHANGED = "The action input changed; request it again"
 
 private val PROJECT_EDITS = setOf("write_file", "edit_file", "delete_file", "move_file")
+
+private const val AUTHORITY_CHANGED = "Human instructions changed; request the action again"

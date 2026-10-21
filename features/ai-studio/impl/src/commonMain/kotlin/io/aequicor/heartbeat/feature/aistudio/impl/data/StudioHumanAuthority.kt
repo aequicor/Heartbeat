@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstruction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructionBounds
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
@@ -60,4 +61,16 @@ internal suspend fun captureStudioUserInstructions(
         store.set(ChatsKey, records.map { if (it.id == id) it.copy(humanAuthority = next) else it })
     }
     return next.snapshot()
+}
+
+/** Caller holds the record mutex. Persist the loss of provenance before any answer reaches a native executor. */
+internal suspend fun invalidateStudioUserInstructions(store: KeyValueStore, id: String): SessionRef? {
+    val records = store.get(ChatsKey).orEmpty()
+    val current = records.singleOrNull { it.id == id } ?: error("Unknown studio conversation")
+    val previous = current.humanAuthority ?: StudioHumanAuthority(isComplete = false)
+    val next = previous.copy(isComplete = false)
+    if (next != current.humanAuthority) {
+        store.set(ChatsKey, records.map { if (it.id == id) it.copy(humanAuthority = next) else it })
+    }
+    return current.ref
 }

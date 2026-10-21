@@ -39,19 +39,40 @@ internal class HostedActionSafety(
             val accepted = permissions.authorizeAction(context, approval) { mode ->
                 decision(context, operation, analysis, hook, mode)
             }
-            val failure = when (accepted) {
-                is ToolAuthorization.Denied -> accepted.reason
+            when (accepted) {
+                is ToolAuthorization.Denied -> return accepted.reason
 
                 is ToolAuthorization.Allowed -> {
-                    currentCoroutineContext().ensureActive()
-                    revalidate() ?: changed(context, operation, analysis, hook)
+                    val checked = validate(
+                        context,
+                        HostedActionSnapshot(operation, analysis, hook),
+                        accepted.mode,
+                        isInputCurrent,
+                        revalidate,
+                    )
+                    when (checked) {
+                        is ModeValidation.Current -> return checked.value
+                        ModeValidation.Changed -> continue
+                    }
                 }
             }
-            if (failure != null) return failure
-            val mode = permissions.mode()
-            // Analyzer, hook and mode reads above may suspend after the earlier operation revalidation.
-            val inputFailure = if (isInputCurrent()) null else HOSTED_INPUT_CHANGED
-            if (inputFailure != null || mode == (accepted as ToolAuthorization.Allowed).mode) return inputFailure
+        }
+    }
+
+    private suspend fun validate(
+        context: AgentToolContext,
+        captured: HostedActionSnapshot,
+        mode: SecurityMode,
+        isInputCurrent: () -> Boolean,
+        revalidate: suspend () -> String?,
+    ): ModeValidation<String?> = permissions.validate(mode) {
+        currentCoroutineContext().ensureActive()
+        val (operation, analysis, hook) = captured
+        val failure = revalidate() ?: changed(context, operation, analysis, hook)
+        failure ?: if (permissions.mode() != mode) {
+            "Action permission mode changed; request it again"
+        } else {
+            revalidate() ?: if (isInputCurrent()) null else HOSTED_INPUT_CHANGED
         }
     }
 
@@ -118,3 +139,10 @@ internal fun ActionAnalysis.snapshot(): ActionAnalysis = when (this) {
 
     is ActionAnalysis.Unknown, is ActionAnalysis.Denied -> this
 }
+
+/** Immutable evidence and hook outcome retained through the final availability and mode barrier. */
+private data class HostedActionSnapshot(
+    val operation: HostedApproval,
+    val analysis: ActionAnalysis,
+    val hook: ToolHookVerdict,
+)

@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchException
@@ -49,13 +50,23 @@ internal suspend fun koogSearchToolset(
         object : KoogTool {
             override val descriptor = tool
 
-            override suspend fun run(args: JsonObject): KoogToolResult {
-                val verdict = tools.authorizeHosted(context, tool.name, args)
+            override suspend fun run(args: JsonObject): KoogToolResult = execute(context, args)
+
+            override suspend fun run(args: JsonObject, call: ToolCallId): KoogToolResult =
+                execute(context.copy(callId = call), args)
+
+            private suspend fun execute(callContext: AgentToolContext, args: JsonObject): KoogToolResult {
+                val verdict = tools.authorizeHosted(callContext, tool.name, args)
                 if (verdict is NativeVerdict.Deny) return KoogToolResult(verdict.reason, true)
-                context.lifetime?.ensureActive()
+                callContext.lifetime?.ensureActive()
                 currentCoroutineContext().ensureActive()
                 val result = executeKoogSearch(search, tool.name, args)
-                val note = tools.afterHosted(context, tool.name, args, AgentToolResult(result.text, result.isFailed))
+                val note = tools.afterHosted(
+                    callContext,
+                    tool.name,
+                    args,
+                    AgentToolResult(result.text, result.isFailed),
+                )
                 currentCoroutineContext().ensureActive()
                 return if (note.isNullOrBlank()) result else result.copy(text = note + "\n\n" + result.text)
             }

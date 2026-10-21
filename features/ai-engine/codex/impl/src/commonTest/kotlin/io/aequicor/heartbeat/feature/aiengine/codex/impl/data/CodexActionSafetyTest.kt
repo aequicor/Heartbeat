@@ -24,7 +24,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CodexActionSafetyTest {
@@ -39,6 +41,89 @@ class CodexActionSafetyTest {
         CodexNativeOff(isShellDisabled = true).requireVersion("0.160.0")
         CodexNativeOff(isShellDisabled = true).requireVersion("0.164.0")
         CodexNativeOff().requireVersion(null)
+    }
+
+    @Test
+    fun `tool free isolation requires the verified inventory and closes questions without action analysis`() {
+        val off = CodexNativeOff(isToolFree = true)
+        assertFalse(off.isActionAnalysisRequired)
+        assertTrue(off.isVerifiedInventoryRequired)
+        off.requireVersion("0.163.0-alpha.10.2")
+        assertFailsWith<EngineException> { off.requireVersion("0.164.0") }
+        val locked = off.applyTo(json())
+        assertEquals(JsonPrimitive(false), locked.obj("features")["default_mode_request_user_input"])
+        assertTrue("features.default_mode_request_user_input=false" in off.arguments())
+        val disabledFeatures = listOf(
+            "view_image",
+            "code_mode_only",
+            "multi_agent_v2",
+            "goals",
+            "default_mode_request_user_input",
+        )
+        for (name in disabledFeatures) {
+            assertEquals(JsonPrimitive(false), locked.obj("features")[name])
+            val enabled = JsonObject(
+                locked + ("features" to JsonObject(locked.obj("features") + (name to JsonPrimitive(true)))),
+            )
+            assertFailsWith<EngineException>(name) { off.validateConfig(configuration(enabled, locked)) }
+            assertFailsWith<EngineException>(name) { off.validateConfig(configuration(locked, enabled)) }
+        }
+        off.validateConfig(configuration(locked, locked))
+    }
+
+    @Test
+    fun `tool free sessions close the complete native catalog and reject unsolicited questions with the toggle off`() =
+        runTest {
+            val tools = SafetyTools().apply {
+                required = false
+                isToolFree = true
+            }
+            val fixture = Fixture(this, tools = tools)
+            val session = fixture.open()
+            val start = fixture.requests("thread/start").single().obj("params")
+            assertRestricted(start)
+            assertNull(start["dynamicTools"])
+            assertEquals(JsonPrimitive(false), start.obj("config").obj("features")["default_mode_request_user_input"])
+            assertTrue(fixture.wire.peers.single().off.isToolFree)
+            assertFalse(fixture.wire.peers.single().off.isActionAnalysisRequired)
+            session.feature(SendsPrompts).send(Prompt)
+            // Even release of the policy cannot grant a text-only native turn permission to open a form.
+            tools.isToolFree = false
+            fixture.unsolicitedQuestion()
+            runCurrent()
+            assertIs<ActiveSessionState.Running>(session.state.value)
+            assertEquals(JsonObject(emptyMap()), fixture.questionResponse().obj("answers"))
+            fixture.runtime.close()
+        }
+
+    @Test
+    fun `new tool free isolation cold resumes a legacy connection before submission`() = runTest {
+        val tools = SafetyTools().apply { required = false }
+        val fixture = Fixture(this, tools = tools)
+        val session = fixture.open()
+        tools.isToolFree = true
+        session.feature(SendsPrompts).send(Prompt)
+        assertEquals(2, fixture.wire.peers.size)
+        assertTrue(fixture.wire.peers.first().isClosed)
+        val resume = fixture.requests("thread/resume").single().obj("params")
+        assertRestricted(resume)
+        assertEquals(JsonPrimitive(false), resume.obj("config").obj("features")["default_mode_request_user_input"])
+        assertTrue(fixture.wire.origin(fixture.requests("turn/start").single()).off.isToolFree)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `an active legacy turn refuses native questions after tool free isolation is installed`() = runTest {
+        val tools = SafetyTools().apply { required = false }
+        val fixture = Fixture(this, tools = tools)
+        val session = fixture.open()
+        session.feature(SendsPrompts).send(Prompt)
+        tools.isToolFree = true
+        fixture.unsolicitedQuestion()
+        runCurrent()
+        assertIs<ActiveSessionState.Running>(session.state.value)
+        assertEquals(JsonObject(emptyMap()), fixture.questionResponse().obj("answers"))
+        fixture.runtime.close()
     }
 
     @Test
@@ -213,6 +298,18 @@ class CodexActionSafetyTest {
         assertEquals("read-only", params.text("sandbox"))
     }
 
+    private suspend fun Fixture.unsolicitedQuestion() = event(
+        "item/tool/requestUserInput",
+        "turnId" to "native-turn".json(),
+        "questions" to JsonArray(
+            listOf(json("id" to "question".json(), "question" to "May the reviewer use tools?".json())),
+        ),
+        id = JsonPrimitive(81),
+    )
+
+    private fun Fixture.questionResponse(): JsonObject =
+        wire.written.single { it["id"] == JsonPrimitive(81) }.obj("result")
+
     private fun Fixture.requests(method: String): List<JsonObject> = wire.written.filter { it.text("method") == method }
 
     private fun configuration(effective: JsonObject, flags: JsonObject): JsonObject = json(
@@ -223,15 +320,21 @@ class CodexActionSafetyTest {
     private class SafetyTools : ProfileAgentTools by NoAgentTools {
         var required = true
         var executions = 0
+        var isToolFree = false
         var beforePolicy: () -> Unit = {}
         override suspend fun requiresActionAnalysis(): Boolean = required
         override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy {
             beforePolicy()
-            return ResolvedToolPolicy()
+            return ResolvedToolPolicy(
+                hostedDenied = if (isToolFree) setOf("read_file", "web_search", "web_fetch") else emptySet(),
+                isToolFree = isToolFree,
+            )
         }
-        override suspend fun specifications(workspace: WorkspaceRef?) = listOf(
-            AgentToolSpec("read_file", "Read file through the host", json("type" to "object".json())),
-        )
+        override suspend fun specifications(workspace: WorkspaceRef?) = if (isToolFree) {
+            emptyList()
+        } else {
+            listOf(AgentToolSpec("read_file", "Read file through the host", json("type" to "object".json())))
+        }
         override suspend fun specifications(scope: io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope) =
             specifications(scope.workspace)
         override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {

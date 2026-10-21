@@ -61,6 +61,11 @@ interface StudioRuntime : StudioRuntimeConfiguration {
         return run(sessionId, prompt, settings)
     }
 
+    /** Revokes durable and live human authority before a generated questionnaire follow-up is submitted. */
+    suspend fun invalidateUserInstructions(sessionId: String) {
+        error("Human authority revocation is unavailable")
+    }
+
     /** Requests native interruption; only native terminal state completes the run. */
     suspend fun cancel(sessionId: String)
 

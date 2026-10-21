@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -207,6 +208,7 @@ internal class EngineStudioRepository(
     private val toggles: FeatureToggles,
     private val attachmentsCatalog: AttachmentsCatalog,
     private val switchHelpers: StudioEngineSwitchHelpers,
+    tools: Lazy<ProfileAgentTools>,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
@@ -240,6 +242,9 @@ internal class EngineStudioRepository(
     private val handlesLock = Mutex()
     private val handles = mutableMapOf<String, ActiveSession>()
     private val stopRequests = mutableSetOf<String>()
+    private val questionAuthority = StudioQuestionAuthority(store, lock, tools) { id ->
+        handlesLock.withLock { handles[id] }
+    }
     private val conversationLocks = StudioConversationLocks(handlesLock)
     private val carry = StudioContextCarry(
         conversationLocks,
@@ -749,12 +754,23 @@ internal class EngineStudioRepository(
         answer: StudioPermissionAnswer?,
     ) {
         log.i { "Respond to pending permission" }
-        handlesLock.withLock { handles[sessionId] }.respondStudioPermission(requestId, optionId, answer)
+        questionAuthority.respond(sessionId, requestId, optionId, answer)
     }
 
     override suspend fun respond(permission: StudioPermission, optionId: String, answer: StudioPermissionAnswer?) {
         log.i { "Respond to captured permission" }
-        handlesLock.withLock { handles[permission.sessionId] }.respondStudioPermission(permission, optionId, answer)
+        questionAuthority.respond(permission, optionId, answer)
+    }
+
+    override suspend fun invalidateUserInstructions(sessionId: String) {
+        log.v { "Invalidate authority of a restored questionnaire conversation" }
+        questionAuthority.invalidate(sessionId)
+    }
+
+    override suspend fun invalidateUserInstructions(ref: SessionRef) {
+        log.v { "Invalidate authority of a native questionnaire session" }
+        val id = checkNotNull(sessionIdOf(ref)) { "Native session is not owned by a studio conversation" }
+        questionAuthority.invalidate(id, ref)
     }
 
     /** Fails the answer so the machine shows the request again instead of hiding it forever. */

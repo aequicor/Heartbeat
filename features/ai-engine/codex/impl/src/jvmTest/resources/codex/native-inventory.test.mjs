@@ -30,7 +30,7 @@ const inventoryNames = tools => tools.flatMap(tool => tool.type === 'namespace'
 
 test('verified CLI closes actual image code mode delegation and goal ingress while preserving hosted tools', {
   skip: !executable && 'Pass the verified Codex executable path to run the offline native contract',
-  timeout: 60000,
+  timeout: 75000,
 }, async () => {
   const versionResult = await executeFile(executable, ['--version'], { windowsHide: true, timeout: 5000 });
   const version = versionResult.stdout.trim().replace(/^codex-cli /, '');
@@ -58,6 +58,18 @@ test('verified CLI closes actual image code mode delegation and goal ingress whi
   assert.deepEqual(locked.names.sort(), ['heartbeat_fixture_read', 'request_user_input']);
   for (const name of [...baseline, ...enhanced]) assert.equal(locked.features[name], false, name);
   assert.equal(locked.nativeCalls, 0);
+  const toolFree = await capture([
+    ...baseline.map(name => [name, false]),
+    ...enhanced.map(name => [name, false]),
+    ['default_mode_request_user_input', false],
+  ]);
+  // This verified build retains request_user_input even with its default-mode flag Off.
+  // CodexSession rejects its callbacks for tool-free launches/current policy; the JVM regression
+  // covers that refusal without publishing a human questionnaire. This capture must report reality.
+  assert.deepEqual(toolFree.names.sort(), ['heartbeat_fixture_read', 'request_user_input']);
+  assert.equal(toolFree.features.default_mode_request_user_input, false);
+  assert.equal(toolFree.nativeCalls, 0);
+
   console.log(`Verified offline tool inventory for ${version}: ${locked.names.join(', ')}`);
 });
 

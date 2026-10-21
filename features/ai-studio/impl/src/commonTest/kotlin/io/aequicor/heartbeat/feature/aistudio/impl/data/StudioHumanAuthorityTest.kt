@@ -2,11 +2,14 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.datastore.KeyValueReadPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructionBounds
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -92,6 +95,63 @@ class StudioHumanAuthorityTest {
             captureStudioUserInstructions(restarted, "chat", RequestId("later"), "Continue"),
         )
         assertEquals("Never read secrets", restarted.get(ChatsKey)?.single()?.humanAuthority?.messages?.single()?.text)
+    }
+
+    @Test
+    fun `questionnaire revocation survives restart and never promotes generated titles or later continue`() = runTest {
+        val store = store()
+        captureStudioUserInstructions(store, "chat", FIRST, "Never read private files")
+        invalidateStudioUserInstructions(store, "chat")
+        val restarted = ChecklistTestStore(ChatSpec).apply { values.value = store.values.value }
+        assertEquals(
+            TrustedUserInstructions.Incomplete,
+            captureStudioUserInstructions(restarted, "chat", SECOND, "Continue"),
+        )
+        assertEquals(
+            listOf("Never read private files"),
+            restarted.get(ChatsKey)?.single()?.humanAuthority?.messages?.map { it.text },
+        )
+    }
+
+    @Test
+    fun `failed questionnaire revocation persistence does not report success`() = runTest {
+        val store = store()
+        captureStudioUserInstructions(store, "chat", FIRST, "Inspect the project")
+        store.failWrites = true
+        assertFailsWith<IllegalStateException> { invalidateStudioUserInstructions(store, "chat") }
+        assertEquals(true, store.get(ChatsKey)?.single()?.humanAuthority?.isComplete)
+    }
+
+    @Test
+    fun `live revocation observes durable incomplete authority and covers the captured native ref`() = runTest {
+        val store = store()
+        captureStudioUserInstructions(store, "chat", FIRST, "Never read private files")
+        val revoked = mutableListOf<SessionRef>()
+        val replacement = ORIGINAL.copy(nativeId = "replacement")
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun invalidateUserInstructions(session: SessionRef) {
+                assertEquals(false, store.get(ChatsKey)?.single()?.humanAuthority?.isComplete)
+                revoked += session
+            }
+        }
+        val authority = StudioQuestionAuthority(store, Mutex(), lazyOf(tools)) { null }
+        authority.invalidate("chat", replacement)
+        assertEquals(listOf(replacement, ORIGINAL), revoked)
+    }
+
+    @Test
+    fun `failed durable revocation never reaches the live authority barrier`() = runTest {
+        val store = store()
+        store.failWrites = true
+        var revoked = false
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun invalidateUserInstructions(session: SessionRef) {
+                revoked = true
+            }
+        }
+        val authority = StudioQuestionAuthority(store, Mutex(), lazyOf(tools)) { null }
+        assertFailsWith<IllegalStateException> { authority.invalidate("chat") }
+        assertFalse(revoked)
     }
 
     @Test
