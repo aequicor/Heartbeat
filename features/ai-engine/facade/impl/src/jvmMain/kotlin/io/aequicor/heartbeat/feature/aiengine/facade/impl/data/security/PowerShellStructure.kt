@@ -16,16 +16,25 @@ import java.nio.file.Path
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-/** Uses the actual PowerShell parser, passing the proposed command only as stdin data, never executable source. */
-internal class PowerShellStructure(private val executable: Path, private val io: CoroutineDispatcher) {
+/**
+ * Uses the actual PowerShell parser, passing the proposed command only as stdin data, never executable source.
+ * The bounded budget includes cold Windows PowerShell startup, not just AST parsing. Exhaustion stays Unknown.
+ */
+internal class PowerShellStructure(
+    private val executable: Path,
+    private val io: CoroutineDispatcher,
+    private val timeoutMillis: Long = PARSER_TIMEOUT_MILLIS,
+) {
     private val log = Log.tag("PowerShellStructure")
 
     suspend fun parse(command: String): ShellParseResult {
         if (command.isBlank() || command.length > MAX_COMMAND_CHARS) return unknown()
         return try {
-            withTimeoutOrNull(PARSER_TIMEOUT_MILLIS) {
+            withTimeoutOrNull(timeoutMillis) {
                 withContext(io) { runParser(command) }
-            } ?: unknown()
+            } ?: ShellParseResult.Unknown("PowerShell parser exceeded its startup and analysis budget").also {
+                log.w { "PowerShell structural parser timed out" }
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -109,6 +118,6 @@ private data class PowerShellRedirection(val target: String, val kind: String, v
 private fun unknown(): ShellParseResult = ShellParseResult.Unknown("PowerShell syntax has no complete literal analysis")
 private const val MAX_COMMAND_CHARS = 32_768
 private const val MAX_OUTPUT_BYTES = 256 * 1024
-private const val PARSER_TIMEOUT_MILLIS = 5_000L
+private const val PARSER_TIMEOUT_MILLIS = 15_000L
 private const val POLL_MILLIS = 50L
 private val PARSER_ENVIRONMENT = setOf("SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP", "TMPDIR")

@@ -429,21 +429,18 @@ internal class EngineStudioRepository(
         deliverStudioAction(id, action, worktrees, onFailure = { update(id) { copy(hasFailed = true) } }) {
             state.first { id !in it.running }
             val settings = hostRunSettings(record(id), state.value.configurations[id]?.applied, defaults())
-            runs.launch(
+            runs.run(
                 this,
-                id,
-                action.prompt,
-                settings,
-                action.kind,
-                RequestId(action.operation),
+                studioTurnRequest(id, action.prompt, settings, action.kind, RequestId(action.operation)),
                 waitForIdle = true,
-            ) {
-                worktrees.send(WorktreeIntent.Public.ActionDelivered(id, action.operation))
-                worktrees.await(id, failOnTaskError = false) {
-                    it.actionRequest == null && it.phase == WorktreePhase.ActionWorking &&
-                        it.expectedAction?.operation == action.operation
-                }
-            }
+                beforeExecute = {
+                    worktrees.send(WorktreeIntent.Public.ActionDelivered(id, action.operation))
+                    worktrees.await(id, failOnTaskError = false) {
+                        it.actionRequest == null && it.phase == WorktreePhase.ActionWorking &&
+                            it.expectedAction?.operation == action.operation
+                    }
+                },
+            )
         }
 
     override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome =
@@ -462,19 +459,21 @@ internal class EngineStudioRepository(
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
         requireBrowserHostSupport(record(sessionId), environment)
         val organism = organisms.submit(record(sessionId), prompt, settings, attachments, submissionId, onAccepted)
-        return organism ?: runs.launch(
+        return organism ?: runs.run(
             this,
-            sessionId,
-            prompt,
-            settings,
-            WorktreeRunKind.Coding,
-            RequestId(Uuid.random().toString()),
-            attachments = attachments,
-            onAccepted = onAccepted,
-            submissionId = submissionId,
-            environment = environment,
-            isUserPrompt = true,
-            userInstruction = userInstruction,
+            studioTurnRequest(
+                sessionId,
+                prompt,
+                settings,
+                WorktreeRunKind.Coding,
+                RequestId(Uuid.random().toString()),
+                attachments = attachments,
+                onAccepted = onAccepted,
+                submissionId = submissionId,
+                environment = environment,
+                isUserPrompt = true,
+                userInstruction = userInstruction,
+            ),
         )
     }
 

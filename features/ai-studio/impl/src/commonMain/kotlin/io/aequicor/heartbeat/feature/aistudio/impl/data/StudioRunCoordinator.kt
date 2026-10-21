@@ -258,30 +258,22 @@ private class StudioPreparationDeferred : CancellationException("Scheduled prepa
 private class StudioPreparationDropped : CancellationException("Scheduled preparation dropped")
 
 /** Builds the exact turn envelope before reserving profile-owned execution. */
-internal suspend fun StudioRunCoordinator.launch(
-    host: StudioRunHost,
+internal fun studioTurnRequest(
     sessionId: String,
     prompt: String,
     settings: RunSettings,
     kind: WorktreeRunKind,
     request: RequestId,
-    waitForIdle: Boolean = false,
     attachments: List<ResourceRef> = emptyList(),
     submissionId: String = "",
     onAccepted: suspend () -> Unit = {},
     environment: StudioChatEnvironment? = null,
     isUserPrompt: Boolean = false,
     userInstruction: String? = null,
-    beforeExecute: suspend () -> Unit = {},
-): RunOutcome = run(
-    host,
-    StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
-        .copy(
-            submissionId = submissionId,
-            environment = environment,
-            isUserPrompt = isUserPrompt,
-            userInstruction = userInstruction,
-        ),
-    waitForIdle,
-    beforeExecute = beforeExecute,
-)
+): StudioTurnRequest = StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
+    .copy(
+        submissionId = submissionId,
+        environment = environment,
+        isUserPrompt = isUserPrompt,
+        userInstruction = userInstruction,
+    )

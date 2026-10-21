@@ -13,7 +13,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /** Private host configuration, delivered before any model request and removed from Pi's child environment. */
-internal class PiControlledPowerShell(val shell: NativeShellExecution, val manifest: String) {
+internal data class PiControlledPowerShell(val shell: NativeShellExecution, val manifest: String) {
     override fun toString(): String = "PiControlledPowerShell"
 }
 

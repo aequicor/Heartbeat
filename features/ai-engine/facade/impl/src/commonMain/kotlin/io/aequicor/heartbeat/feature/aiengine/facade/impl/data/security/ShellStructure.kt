@@ -55,7 +55,7 @@ private class ShellStructureParser(private val lexer: ShellLexer, private val di
     private val redirects = mutableListOf<ShellRedirection>()
     private var failure: String? = null
     private var pending: ShellToken.Redirect? = null
-    private var afterPipe = false
+    private var isAfterPipe = false
 
     fun parse(): ShellParseResult {
         while (failure == null) {
@@ -83,7 +83,7 @@ private class ShellStructureParser(private val lexer: ShellLexer, private val di
             }
             words += value
         }
-        afterPipe = false
+        isAfterPipe = false
     }
 
     private fun redirect(token: ShellToken.Redirect) {
@@ -92,11 +92,11 @@ private class ShellStructureParser(private val lexer: ShellLexer, private val di
     }
 
     private fun pipe() {
-        if (completeCommand()) afterPipe = true
+        if (completeCommand()) isAfterPipe = true
     }
 
     private fun separator() {
-        if (afterPipe || !completeCommand()) {
+        if (isAfterPipe || !completeCommand()) {
             failure = failure ?: "Empty pipeline command"
         } else {
             statements += ShellPipeline(commands.toList())
@@ -118,7 +118,7 @@ private class ShellStructureParser(private val lexer: ShellLexer, private val di
     }
 
     private fun finish(): ShellParseResult {
-        if (afterPipe || pending != null) return ShellParseResult.Unknown("Incomplete pipeline or redirection")
+        if (isAfterPipe || pending != null) return ShellParseResult.Unknown("Incomplete pipeline or redirection")
         if (words.isNotEmpty() || redirects.isNotEmpty()) {
             completeCommand()
         }
