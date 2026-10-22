@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
@@ -74,6 +75,37 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioConfiguredSubmissionTest {
+    @Test
+    fun `browser mention follows the current input host and preserves the visible prompt`() = runTest {
+        val fixture = SubmissionFixture(this)
+        val environment = object : StudioChatEnvironment {
+            override val preselected = mapOf("external_browser" to setOf("connection"))
+            override fun bind(session: SessionRef): AutoCloseable = AutoCloseable {}
+        }
+        val prompt = "@browser открой страницу"
+        fixture.submit("external", userInstruction = prompt, environment = environment)
+        val external = fixture.session.requests.last().text()
+        assertTrue(external.contains("Use ex_control_*"))
+        assertEquals(prompt, stripHostDirectives(external))
+        fixture.submit("embedded", userInstruction = prompt)
+        val embedded = fixture.session.requests.last().text()
+        assertTrue(embedded.contains("Use browser_*"))
+        assertFalse(embedded.contains("ex_control_*"))
+        assertEquals(prompt, stripHostDirectives(embedded))
+        assertEquals(AgentToolDecisionMode.AutomaticSafety, fixture.session.requests.last().decisionMode)
+        fixture.submit("plain", userInstruction = "Continue")
+        assertFalse(fixture.session.requests.last().text().contains("invoked @browser"))
+    }
+
+    @Test
+    fun `automatic prompts and compaction do not interpret browser mentions`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.submit("automatic", isUserPrompt = false, userInstruction = "@browser")
+        assertFalse(fixture.session.requests.last().text().contains("invoked @browser"))
+        fixture.submit("compact", compaction = ContextCompaction(), userInstruction = "@browser")
+        assertFalse(fixture.session.requests.last().text().contains("invoked @browser"))
+    }
+
     @Test
     fun `configured sender persists originals before send and automatic turns inherit them`() = runTest {
         val fixture = SubmissionFixture(this)
@@ -502,19 +534,21 @@ private class SubmissionFixture(
         compaction: ContextCompaction? = null,
         isUserPrompt: Boolean = true,
         userInstruction: String? = null,
+        environment: StudioChatEnvironment? = null,
     ): TurnId = submission.submit(
         submissionAccess,
         session,
         target,
         StudioTurnRequest(
             "chat",
-            prompt = if (compaction == null) "Hello" else "",
+            prompt = if (compaction == null) userInstruction ?: "Hello" else "",
             settings = DefaultRunSettings,
             kind = WorktreeRunKind.Coding,
             request = RequestId(request),
             compaction = compaction,
             isUserPrompt = isUserPrompt,
             userInstruction = userInstruction,
+            environment = environment,
         ),
         { listOf(StudioModel(target.studioModelId(), "Model", isTrustSupported = isTrustSupported)) },
         { access.states },

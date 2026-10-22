@@ -143,7 +143,7 @@ internal class StudioTurnExecutor(
                 request.environment?.preselected.orEmpty()
             progress.isIsolated = request.compaction == null && host.isWorktree(request.id)
             if (progress.isIsolated) prepare(host, request, progress, preselected)
-            val opened = host.openEnvironmentSession(request, preselected)
+            val opened = host.openEnvironmentSession(request, preselected, tools)
             val active = opened.active
             progress.active = active
             environment = opened.lease

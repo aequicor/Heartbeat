@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.browserMentionDirective
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
@@ -207,7 +208,10 @@ internal class StudioConfiguredSubmission(
     ): String {
         if (request.compaction != null) return ""
         val skills = skillDirectives(request.prompt, workspace)
-        val prepared = learning.prompt(request.id, request.prompt, request.directives + skills)
+        val browser = request.userInstruction?.takeIf { request.isUserPrompt }?.let {
+            browserMentionDirective(it, "external_browser" in request.environment?.preselected.orEmpty())
+        }
+        val prepared = learning.prompt(request.id, request.prompt, request.directives + skills + listOfNotNull(browser))
         val context = access.engineSwitchContext(request.id, prepared + "\n\n" + hostDirective(""))
         return if (context == null) prepared else prepared + "\n\n" + hostDirective(context)
     }

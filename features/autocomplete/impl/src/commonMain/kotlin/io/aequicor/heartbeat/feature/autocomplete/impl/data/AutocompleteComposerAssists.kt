@@ -77,12 +77,7 @@ internal class AutocompleteComposerAssists(
         if (!toggles.get(AutocompleteEnabled)) return@coroutineScope emptyList()
         val engine = async { scope.target?.let { engineAssists.assists(it, scope.workspace) } }
         val files = async { files(trigger, scope) }
-        val host = when (trigger) {
-            is ComposerTrigger.Command -> hostCommands.filter { it.matches(trigger.query) }
-                .map { hostCommand(it, trigger.query) } + learned(trigger, scope)
-
-            is ComposerTrigger.Mention -> learned(trigger, scope)
-        }
+        val host = hostItems(trigger, hostCommands) + learned(trigger, scope)
         val native = engine.await()
         merge(host + nativeItems(trigger, scope, native) + files.await(), native.hasNativeCatalog())
     }
@@ -96,12 +91,7 @@ internal class AutocompleteComposerAssists(
             emit(emptyList())
             return@flow
         }
-        val host = when (trigger) {
-            is ComposerTrigger.Command -> hostCommands.filter { it.matches(trigger.query) }
-                .map { hostCommand(it, trigger.query) } + learned(trigger, scope)
-
-            is ComposerTrigger.Mention -> learned(trigger, scope)
-        }
+        val host = hostItems(trigger, hostCommands) + learned(trigger, scope)
         emit(merge(host, hasNativeCatalog = scope.target != null))
         val target = scope.target
         val native: Flow<NativeAssists?> = if (target == null) {
@@ -146,6 +136,11 @@ internal class AutocompleteComposerAssists(
     }
 
     private fun HostCommand.matches(query: String): Boolean = queryRank(query, id) >= 0 || queryRank(query, label) >= 0
+
+    /** Host commands beginning with `@` complete mentions; slash commands stay in the command menu. */
+    private fun hostItems(trigger: ComposerTrigger, commands: List<HostCommand>): List<Ranked> = commands
+        .filter { it.insert.startsWith("@") == (trigger is ComposerTrigger.Mention) && it.matches(trigger.query) }
+        .map { hostCommand(it, trigger.query) }
 
     private fun hostCommand(command: HostCommand, query: String): Ranked = Ranked(
         ComposerSuggestion.Command(
