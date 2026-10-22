@@ -370,6 +370,12 @@ class AiStudioComponent(
         val files = scope.coroutineScope.launch {
             fileLinks.navigation.collect { filePreview.store.intent(StudioFilePreviewIntent.Open(it)) }
         }
+        val fileAvailability = scope.coroutineScope.launch {
+            fileLinks.availability.collect { isOn ->
+                val isOpen = filePreview.opening.value != null
+                if (!isOn && isOpen) filePreview.store.intent(StudioFilePreviewIntent.Close)
+            }
+        }
         val attachmentResults = scope.coroutineScope.launch {
             dialogs.navigator.results(AttachmentsPicked).collect { result ->
                 model.store.intent(
@@ -398,6 +404,7 @@ class AiStudioComponent(
             watching.cancel()
             attachments.cancel()
             files.cancel()
+            fileAvailability.cancel()
             attachmentResults.cancel()
             hostsWatch.cancel()
         }

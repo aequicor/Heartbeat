@@ -399,7 +399,7 @@
     <string name="file_preview_loading">Читаем файл…</string>
     <string name="file_preview_content">Содержимое файла</string>
     <string name="file_preview_unavailable">Файл не удаётся открыть</string>
-    <string name="file_preview_unavailable_hint">Возможно, он перемещён или удалён, либо ссылка ведёт за пределы проекта чата.</string>
+    <string name="file_preview_unavailable_hint">Возможно, он перемещён, удалён или недоступен для чтения.</string>
     <string name="file_preview_binary">Это не текстовый файл</string>
     <string name="file_preview_too_large">Файл больше 1 МБ</string>
 </resources>

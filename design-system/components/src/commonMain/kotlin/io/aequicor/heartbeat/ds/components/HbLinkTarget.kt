@@ -22,7 +22,9 @@ public sealed interface HbLinkTarget {
     /**
      * A local file: a `file:` URI, an absolute path, a `~/` path or a path relative to the conversation's project.
      * [path] is decoded and stripped of the line suffix (`:12`, `:12:5`) or fragment (`#L12`, `#L12-L20`);
-     * [line] is 1-based. Resolving and reading the file is the caller's job.
+     * [line] is 1-based. [path] is not normalized: it may contain `..`, be absolute or start with `~`, so the host
+     * decides which files may be read. Network paths (`//host`, `\\host` in any slash mix, also when
+     * percent-encoded) and paths with control characters never become file links.
      */
     public data class File(override val destination: String, val path: String, val line: Int? = null) :
         HbLinkTarget
@@ -37,22 +39,27 @@ public fun parseHbLink(destination: String): HbLinkTarget? {
     if (value.isEmpty() || value.length > MAX_LINK_LENGTH || value.any { it.isISOControl() }) return null
     if (value.startsWith('#')) return value.drop(1).takeIf { it.isNotBlank() }?.let { HbLinkTarget.Anchor(value, it) }
     val scheme = LinkScheme.find(value)?.groupValues?.get(1)?.lowercase()
-    // A single letter before ':' is a Windows drive; `Main.kt:42` is a line, not a scheme.
-    return if (scheme == null || scheme.length == 1 || LineSuffix.matches(value.substring(scheme.length))) {
-        pathLink(value)
-    } else {
-        schemeLink(value, scheme)
+    return when {
+        scheme == null -> pathLink(value)
+
+        scheme in KnownSchemes -> schemeLink(value, scheme)
+
+        scheme in ScriptSchemes -> null
+
+        // A single letter before ':' is a Windows drive; `Main.kt:42` is a line, not a scheme.
+        scheme.length == 1 || LineSuffix.matches(value.substring(scheme.length)) -> pathLink(value)
+
+        else -> null
     }
 }
 
 private fun schemeLink(value: String, scheme: String): HbLinkTarget? {
     val rest = value.substring(scheme.length + 1)
     return when (scheme) {
-        "http", "https" -> HbLinkTarget.Web(value).takeIf { rest.removePrefix("//").isNotBlank() }
+        "http", "https" -> HbLinkTarget.Web(value).takeIf { rest.startsWith("//") && rest.length > 2 }
         "mailto" -> HbLinkTarget.Mail(value).takeIf { rest.isNotBlank() }
         "tel" -> HbLinkTarget.Phone(value).takeIf { rest.isNotBlank() }
-        "file" -> fileUriLink(value)
-        else -> null
+        else -> fileUriLink(value)
     }
 }
 
@@ -65,9 +72,8 @@ internal fun autolinkDestination(value: String): String = when {
 }
 
 private fun pathLink(value: String): HbLinkTarget? {
-    if (value.startsWith("//") || value.startsWith("\\\\")) return null
     if (value.startsWith("www.", ignoreCase = true)) return HbLinkTarget.Web("https://$value")
-    return fileLink(value, decode(value.substringBefore('?')))
+    return fileLink(value, value.substringBefore('?'))
 }
 
 private fun fileUriLink(value: String): HbLinkTarget? {
@@ -80,24 +86,26 @@ private fun fileUriLink(value: String): HbLinkTarget? {
     }
     // file:///C:/dir keeps the drive without the leading slash.
     if (WindowsDrivePath.matches(rest)) rest = rest.drop(1)
-    return fileLink(value, decode(rest.substringBefore('?')))
+    return fileLink(value, rest.substringBefore('?'))
 }
 
+/** Splits the fragment and line off the encoded [raw] path first, so an escaped `#` or `:` stays in the name. */
 private fun fileLink(destination: String, raw: String): HbLinkTarget.File? {
     val fragment = raw.substringAfter('#', "")
-    var path = raw.substringBefore('#')
+    var encoded = raw.substringBefore('#')
     var line = LineFragment.matchEntire(fragment)?.groupValues?.get(1)?.toIntOrNull()
     if (line == null) {
-        LineSuffix.find(path)?.let { match ->
+        LineSuffix.find(encoded)?.let { match ->
             line = match.groupValues[1].toIntOrNull()
-            path = path.substring(0, match.range.first)
+            encoded = encoded.substring(0, match.range.first)
         }
     }
-    val start = line?.takeIf { number -> number > 0 }
-    return path.takeIf { it.isNotBlank() }?.let { HbLinkTarget.File(destination, it, start) }
+    val path = decode(encoded)
+    val isRejected = path.isBlank() || path.any { it.isISOControl() } || NetworkPath.containsMatchIn(path)
+    return if (isRejected) null else HbLinkTarget.File(destination, path, line?.takeIf { number -> number > 0 })
 }
 
-/** Percent-decodes UTF-8 escapes; a malformed escape leaves the text as written. */
+/** Percent-decodes UTF-8 escapes; a malformed escape stays as written, invalid UTF-8 becomes U+FFFD. */
 private fun decode(value: String): String {
     if ('%' !in value) return value
     val bytes = ArrayList<Byte>(value.length)
@@ -126,6 +134,13 @@ private fun decode(value: String): String {
 private const val MAX_LINK_LENGTH = 4096
 private const val PERCENT_ESCAPE_LENGTH = 3
 private const val HEX_RADIX = 16
+private val KnownSchemes = setOf("http", "https", "mailto", "tel", "file")
+
+/** Never a file name with a line, even when followed by digits. */
+private val ScriptSchemes = setOf("javascript", "vbscript", "data", "blob")
+
+/** Two leading separators in any mix: a UNC, device or network path. */
+private val NetworkPath = Regex("^[/\\\\]{2}")
 private val LinkScheme = Regex("^([a-zA-Z][a-zA-Z0-9+.-]*):")
 private val WindowsDrivePath = Regex("^/[a-zA-Z]:([/\\\\].*)?$")
 private val LineFragment = Regex("^L(\\d{1,7})(?:-L?\\d{1,7})?$")

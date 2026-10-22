@@ -28,12 +28,13 @@ internal class DesktopStudioFileReader(private val dispatchers: DispatcherProvid
         try {
             val file = Path.of(path)
             if (!Files.isRegularFile(file)) return@withContext StudioFileContent.Unavailable
-            val size = Files.size(file)
-            if (size > StudioFileReader.MAX_PREVIEW_BYTES) return@withContext StudioFileContent.TooLarge(size)
             val modifiedAt = Files.getLastModifiedTime(file).toMillis()
-            val bytes = Files.readAllBytes(file)
-            log.i { "Read file preview size=${bytes.size}" }
-            if (bytes.any { it == NUL }) {
+            // One byte over the limit tells a large file apart, even one growing or misreporting its size.
+            val bytes = Files.newInputStream(file).use { it.readNBytes(LIMIT + 1) }
+            log.v { "Read file preview size=${bytes.size}" }
+            if (bytes.size > LIMIT) {
+                StudioFileContent.TooLarge(bytes.size.toLong())
+            } else if (bytes.any { it == NUL }) {
                 StudioFileContent.Binary
             } else {
                 StudioFileContent.Text(bytes.decodeToString(), modifiedAt)
@@ -59,11 +60,15 @@ internal class DesktopStudioFileReader(private val dispatchers: DispatcherProvid
         } catch (e: InvalidPathException) {
             log.w(e) { "File preview path is invalid" }
             null
+        } catch (e: SecurityException) {
+            log.w(e) { "File preview modification time is not permitted" }
+            null
         }
     }
 
     private companion object {
         const val NUL: Byte = 0
+        const val LIMIT = StudioFileReader.MAX_PREVIEW_BYTES.toInt()
     }
 }
 

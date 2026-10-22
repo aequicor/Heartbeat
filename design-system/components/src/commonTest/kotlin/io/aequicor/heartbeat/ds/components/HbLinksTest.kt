@@ -33,6 +33,36 @@ class HbLinksTest {
     }
 
     @Test
+    fun `network paths and control characters never become file links in any encoding`() {
+        listOf(
+            "//host/share/a.md",
+            "\\\\host\\share",
+            "/\\host\\share",
+            "\\/host/share",
+            "%2F%2Fhost/share/a.md",
+            "%5C%5Chost%5Cshare",
+            "file:////host/share/x",
+            "file://localhost//host/share",
+            "a%00b.md",
+            "notes%0A.md",
+        ).forEach { assertNull(parseHbLink(it), it) }
+    }
+
+    @Test
+    fun `known schemes win over the line suffix of a file`() {
+        assertEquals(HbLinkTarget.Phone("tel:112"), parseHbLink("tel:112"))
+        assertEquals(null, parseHbLink("https:443"))
+        assertEquals(null, parseHbLink("javascript:1"))
+        assertEquals(HbLinkTarget.File("README:3", "README", 3), parseHbLink("README:3"))
+    }
+
+    @Test
+    fun `escaped separators stay in the file name`() {
+        assertEquals(HbLinkTarget.File("a%23b.md", "a#b.md"), parseHbLink("a%23b.md"))
+        assertEquals(HbLinkTarget.File("x%3A12", "x:12"), parseHbLink("x%3A12"))
+    }
+
+    @Test
     fun `relative and absolute paths are files with an optional line`() {
         assertEquals(HbLinkTarget.File("src/Main.kt", "src/Main.kt"), parseHbLink("src/Main.kt"))
         assertEquals(HbLinkTarget.File("src/Main.kt:42", "src/Main.kt", 42), parseHbLink("src/Main.kt:42"))

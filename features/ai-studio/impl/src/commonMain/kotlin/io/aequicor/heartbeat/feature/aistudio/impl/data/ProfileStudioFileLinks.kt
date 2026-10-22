@@ -41,13 +41,20 @@ internal class ProfileStudioFileLinks(
 
     override suspend fun modifiedAt(path: String): Long? = reader.modifiedAt(path)
 
-    /** A worktree chat reads its own checkout; a chat without a record (new or demo) falls back to its project. */
+    /**
+     * A worktree chat reads its own checkout; a chat without a record (new or demo) falls back to its project. A
+     * sandbox (virtual) workspace has no folder of its sources on the host, so its relative links do not resolve.
+     */
     private suspend fun checkout(sessionId: String?, projectId: String?): String? {
         val workspace = sessionId?.let { id -> record(id)?.resolvedExecutionWorkspace() }
             ?: projectId?.let(::WorkspaceRef)
         return workspace?.let { ref ->
             try {
-                if (workspaces.isAvailable) workspaces.executionDirectory(ref) else null
+                when {
+                    !workspaces.isAvailable -> null
+                    workspaces.virtual(ref) != null -> null
+                    else -> workspaces.resolve(ref)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

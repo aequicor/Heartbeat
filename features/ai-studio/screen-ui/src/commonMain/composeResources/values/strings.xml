@@ -405,7 +405,7 @@
     <string name="file_preview_loading">Reading the file…</string>
     <string name="file_preview_content">File content</string>
     <string name="file_preview_unavailable">The file cannot be opened</string>
-    <string name="file_preview_unavailable_hint">It may have been moved or deleted, or the link points outside the project of the chat.</string>
+    <string name="file_preview_unavailable_hint">It may have been moved or deleted, or it cannot be read.</string>
     <string name="file_preview_binary">This is not a text file</string>
     <string name="file_preview_too_large">The file is larger than 1 MB</string>
 </resources>

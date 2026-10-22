@@ -239,14 +239,14 @@ internal fun annotatedMarkdown(
     }
 }
 
-/** Active links: the link color with an underline, so color is never the only cue; hover adds a quiet fill. */
+/** Active links: the link color with an underline, so color is never the only cue; states add a quiet fill. */
 @Composable
 @androidx.compose.runtime.ReadOnlyComposable
 private fun markdownLinkStyles(): TextLinkStyles {
     val style = SpanStyle(color = HbTheme.colors.link, textDecoration = TextDecoration.Underline)
     return TextLinkStyles(
         style = style,
-        focusedStyle = style.copy(background = HbTheme.colors.selectionHighlight),
+        focusedStyle = style.copy(background = HbTheme.colors.primaryContainer),
         hoveredStyle = style.copy(background = HbTheme.colors.primaryContainer),
         pressedStyle = style.copy(background = HbTheme.colors.accentMuted),
     )

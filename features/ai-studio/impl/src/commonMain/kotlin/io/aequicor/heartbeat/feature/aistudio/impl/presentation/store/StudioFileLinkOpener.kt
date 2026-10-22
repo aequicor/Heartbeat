@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFileLinks
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -18,6 +19,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 class StudioFileLinkOpener(private val fileLinks: StudioFileLinks) {
     private val log = Log.tag("StudioFileLinks")
     private val requests = MutableSharedFlow<StudioFileRequest>(extraBufferCapacity = 8)
+
+    /** Whether file links preview at all; the window closes an open preview when this turns off. */
+    val availability: Flow<Boolean> = fileLinks.availability
 
     /** File links to show, executed by the lifecycle component. */
     val navigation: SharedFlow<StudioFileRequest> = requests.asSharedFlow()
@@ -35,7 +39,7 @@ class StudioFileLinkOpener(private val fileLinks: StudioFileLinks) {
         pipeline.withState { if (isFilePreviewEnabled) pane = panes.firstOrNull { it.id == intent.paneId } }
         val target = pane ?: return
         val path = fileLinks.resolve(intent.path, target.sessionId, target.projectId)
-        log.i { "Open chat file link resolved=${path != null}" }
+        log.d { "Chat file link resolved=${path != null}" }
         requests.emit(StudioFileRequest(path, intent.path, intent.line))
     }
 }

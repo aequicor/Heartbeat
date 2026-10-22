@@ -50,7 +50,8 @@ interface StudioFileLinks {
 
     /**
      * The absolute path a link of a chat points at. Relative links resolve against the checkout the chat's agent
-     * works in ([sessionId]'s worktree or project, else [projectId] of a new chat); null when they cannot.
+     * works in ([sessionId]'s worktree or project, else [projectId] of a new chat); null when they cannot, as in a
+     * sandbox chat, whose sources have no folder on the host.
      */
     suspend fun resolve(path: String, sessionId: String?, projectId: String?): String?
 

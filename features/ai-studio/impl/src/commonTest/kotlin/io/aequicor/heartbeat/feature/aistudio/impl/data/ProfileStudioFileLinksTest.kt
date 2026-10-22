@@ -6,6 +6,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualFileChange
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -47,6 +49,13 @@ class ProfileStudioFileLinksTest {
         access.records["chat"] = chat().copy(projectId = null)
         assertEquals(null, links().resolve("a.kt", "chat", null))
         assertEquals("/abs/a.kt", links().resolve("/abs/a.kt", "chat", null))
+    }
+
+    @Test
+    fun `sandbox chats resolve no relative links against the empty host folder`() = runTest {
+        access.records["chat"] = chat().copy(executionWorkspace = WorkspaceRef("sandbox-chat"))
+        assertEquals(null, links().resolve("src/a.kt", "chat", "project"))
+        assertEquals(null, reader.bases.single())
     }
 
     @Test
@@ -102,6 +111,27 @@ class ProfileStudioFileLinksTest {
         override suspend fun register(directory: String): LocalWorkspace = error("unused")
 
         override suspend fun resolve(ref: WorkspaceRef): String? = "/${ref.value}"
+
+        override suspend fun virtual(ref: WorkspaceRef): VirtualWorkspace? = if (ref.value.startsWith("sandbox-")) {
+            object : VirtualWorkspace {
+                override val ref = ref
+                override val processDirectory = "/empty-host-directory"
+
+                override suspend fun revision(): Long = 0L
+
+                override suspend fun paths(): List<String> = error("unused")
+
+                override suspend fun read(path: String): String? = error("unused")
+
+                override suspend fun change(expectedRevision: Long, changes: List<VirtualFileChange>): Long =
+                    error("unused")
+
+                override suspend fun move(expectedRevision: Long, path: String, destination: String): Long =
+                    error("unused")
+            }
+        } else {
+            null
+        }
     }
 
     private class Toggles(private val isEnabled: Boolean) : FeatureToggles {

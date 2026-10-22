@@ -147,7 +147,8 @@ private fun RevealLine(line: Int?, scroll: ScrollState, style: TextStyle) {
     val measurer = rememberTextMeasurer()
     LaunchedEffect(line, scroll) {
         if (line == null || line <= 1) return@LaunchedEffect
-        val lineHeight = measurer.measure("0", style).size.height
+        // The step between baselines: a single line may be trimmed of its leading.
+        val lineHeight = measurer.measure("0\n0", style).size.height - measurer.measure("0", style).size.height
         snapshotFlow { scroll.maxValue }.first { it in 1 until Int.MAX_VALUE }
         scroll.scrollTo((line - 1) * lineHeight)
         log.d { "Revealed a line of the code editor" }

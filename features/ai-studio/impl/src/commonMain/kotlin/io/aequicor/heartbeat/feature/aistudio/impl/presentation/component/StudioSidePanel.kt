@@ -81,8 +81,9 @@ private data class OpenPanels(val isBrowserOpen: Boolean, val isPanelOpen: Boole
 }
 
 /**
- * The side of a studio window: chooses between the browser and the interface panel of the window's dock, hosts that
- * panel while interfaces are on, and closes a shown interface panel on "back".
+ * The side of a studio window: chooses between the browser, the interface panel of the window's dock and the file
+ * preview, hosts the interface panel while interfaces are on, and closes a shown interface panel or file preview on
+ * "back".
  */
 @OptIn(ExperimentalDecomposeApi::class) // childItems hosts the panel only while interfaces are on.
 internal class StudioSidePanel(

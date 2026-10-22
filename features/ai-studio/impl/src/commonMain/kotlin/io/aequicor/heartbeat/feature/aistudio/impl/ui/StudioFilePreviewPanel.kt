@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -59,7 +60,8 @@ internal fun StudioFilePreviewPanel(model: StudioFilePreviewModel, modifier: Mod
     val state by produceState(StudioFilePreviewState(), model) {
         model.store.collect { states.collect { value = it } }
     }
-    StudioFilePreviewContent(state, model.store::intent, modifier)
+    val onIntent = remember(model) { model.store::intent }
+    StudioFilePreviewContent(state, onIntent, modifier)
 }
 
 /** Header with the file and its actions above the rendered Markdown, the read-only source or why it is not shown. */
@@ -72,35 +74,41 @@ internal fun StudioFilePreviewContent(
     HbColumn(modifier.fillMaxSize().testTag("studio-file-preview"), gap = HbTheme.spacing.none) {
         PreviewHeader(state, onIntent)
         HbDivider()
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (val content = state.content) {
-                null -> HbLoadingState(stringResource(Res.string.file_preview_loading))
+        // Each opening starts a fresh viewport: a new file never inherits the scroll of the previous one.
+        key(state.opening) { Box(Modifier.weight(1f).fillMaxWidth()) { PreviewBody(state, onIntent) } }
+    }
+}
 
-                is StudioFileView.Text -> if (state.isMarkdown && !state.isSource) {
-                    MarkdownFile(content.text, onIntent)
-                } else {
-                    HbCodeEditor(
-                        value = content.text,
-                        onValueChange = {},
-                        accessibleLabel = stringResource(Res.string.file_preview_content),
-                        modifier = Modifier.fillMaxSize().padding(HbTheme.spacing.s),
-                        language = previewLanguage(state.name),
-                        isReadOnly = true,
-                        revealLine = state.line,
-                    )
-                }
+@Composable
+private fun PreviewBody(state: StudioFilePreviewState, onIntent: (StudioFilePreviewIntent) -> Unit) {
+    when (val content = state.content) {
+        null -> HbLoadingState(stringResource(Res.string.file_preview_loading))
 
-                StudioFileView.Binary -> Unshown(stringResource(Res.string.file_preview_binary), state)
-
-                StudioFileView.TooLarge -> Unshown(stringResource(Res.string.file_preview_too_large), state)
-
-                StudioFileView.Unavailable -> Unshown(
-                    stringResource(Res.string.file_preview_unavailable),
-                    state,
-                    stringResource(Res.string.file_preview_unavailable_hint),
-                )
-            }
+        is StudioFileView.Text -> if (state.isMarkdown && !state.isSource) {
+            MarkdownFile(content.text, onIntent)
+        } else {
+            // Highlighting re-scans the whole text on every layout; very large files stay plain.
+            val language = previewLanguage(state.name).takeIf { content.text.length <= MAX_HIGHLIGHTED_CHARS }
+            HbCodeEditor(
+                value = content.text,
+                onValueChange = {},
+                accessibleLabel = stringResource(Res.string.file_preview_content),
+                modifier = Modifier.fillMaxSize().padding(HbTheme.spacing.s),
+                language = language,
+                isReadOnly = true,
+                revealLine = state.line,
+            )
         }
+
+        StudioFileView.Binary -> Unshown(stringResource(Res.string.file_preview_binary), state)
+
+        StudioFileView.TooLarge -> Unshown(stringResource(Res.string.file_preview_too_large), state)
+
+        StudioFileView.Unavailable -> Unshown(
+            stringResource(Res.string.file_preview_unavailable),
+            state,
+            stringResource(Res.string.file_preview_unavailable_hint),
+        )
     }
 }
 
@@ -156,6 +164,7 @@ private fun PreviewHeader(state: StudioFilePreviewState, onIntent: (StudioFilePr
 /** Rendered Markdown; its file links open beside the shown file, web links through the platform. */
 @Composable
 private fun MarkdownFile(text: String, onIntent: (StudioFilePreviewIntent) -> Unit) {
+    // Parsed again only when the text changes: polling that reads the same text keeps the blocks.
     val blocks = remember(text) { parseHbMarkdown(text) }
     val onLinkClick = rememberHbLinkHandler { file ->
         onIntent(StudioFilePreviewIntent.OpenLinked(file.path, file.line))
@@ -175,6 +184,8 @@ private fun Unshown(title: String, state: StudioFilePreviewState, hint: String? 
         description = listOfNotNull(hint, state.path ?: state.requested).joinToString("\n"),
     )
 }
+
+private const val MAX_HIGHLIGHTED_CHARS = 200_000
 
 /** Fence language of a file name for syntax highlighting; unknown extensions show plain text. */
 internal fun previewLanguage(name: String): String? = when (name.substringAfterLast('.', "").lowercase()) {

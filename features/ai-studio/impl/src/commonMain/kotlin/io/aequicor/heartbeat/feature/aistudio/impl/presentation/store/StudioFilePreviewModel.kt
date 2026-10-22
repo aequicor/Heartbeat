@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
@@ -29,8 +30,8 @@ data class StudioFileRequest(val path: String?, val requested: String, val line:
 
 /** What the preview shows of a file. */
 sealed interface StudioFileView {
-    /** The file text; [modifiedAt] tells the next poll whether it changed. */
-    data class Text(val text: String, val modifiedAt: Long) : StudioFileView {
+    /** The file text. */
+    data class Text(val text: String) : StudioFileView {
         override fun toString(): String = "StudioFileView.Text(length=${text.length})"
     }
 
@@ -46,7 +47,8 @@ sealed interface StudioFileView {
 
 /**
  * The side file preview of a studio window. [opening] numbers each opening and is null while closed; [content] is
- * null while loading. [isSource] shows Markdown as text, which a link to a line does from the start.
+ * null while loading. [isSource] shows Markdown as text, which a link to a line does from the start. [modifiedAt]
+ * is the modification time the content was read at, null while the file is unavailable.
  */
 @Immutable
 data class StudioFilePreviewState(
@@ -56,6 +58,7 @@ data class StudioFilePreviewState(
     val line: Int? = null,
     val content: StudioFileView? = null,
     val isSource: Boolean = false,
+    val modifiedAt: Long? = null,
 ) : MVIState {
     /** The file name shown in the header. */
     val name: String get() = (path ?: requested).trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\')
@@ -109,7 +112,8 @@ class StudioFilePreviewModel(
     val store = factory.create<StudioFilePreviewState, StudioFilePreviewIntent, StudioFilePreviewAction>(
         name = "StudioFilePreview",
         initial = StudioFilePreviewState(),
-        onError = { this },
+        // A failed read must not leave the preview loading forever.
+        onError = { if (opening != null && content == null) copy(content = StudioFileView.Unavailable) else this },
     ) {
         install {
             name = "opening"
@@ -170,28 +174,30 @@ class StudioFilePreviewModel(
         load(this)
     }
 
-    /** Reads the shown file; a result for a file replaced meanwhile is dropped. */
+    /** Reads the shown file; a result for a file replaced meanwhile is dropped. Also runs on every poll change. */
+    @HighFrequency
     private suspend fun load(pipeline: FilePipeline) = with(pipeline) {
-        var path: String? = null
-        withState { path = this.path }
-        val target = path ?: return@with
-        val content = files.read(target).toView()
-        log.d { "File preview read ${content::class.simpleName.orEmpty()}" }
-        updateState { if (this.path == target) copy(content = content) else this }
+        var target: String? = null
+        withState { target = path }
+        val path = target ?: return@with
+        val read = files.read(path)
+        val content = read.toView()
+        log.v { "File preview read ${content::class.simpleName.orEmpty()}" }
+        val modifiedAt = (read as? StudioFileContent.Text)?.modifiedAt
+        updateState { if (this.path == path) copy(content = content, modifiedAt = modifiedAt) else this }
     }
 
+    /** Reads the file again when its modification time changes, including when it appears or disappears. */
+    @HighFrequency
     private suspend fun watchChanges(pipeline: FilePipeline) = with(pipeline) {
         while (currentCoroutineContext().isActive) {
             delay(POLL_INTERVAL)
-            var shown: Pair<String, Long>? = null
-            withState {
-                val text = content as? StudioFileView.Text
-                shown = if (path != null && text != null) path to text.modifiedAt else null
-            }
+            var shown: Pair<String, Long?>? = null
+            withState { shown = if (path != null && content != null) path to modifiedAt else null }
             val (path, modifiedAt) = shown ?: continue
             val current = files.modifiedAt(path)
             log.v { "File preview poll changed=${current != modifiedAt}" }
-            if (current != null && current != modifiedAt) load(this)
+            if (current != modifiedAt) load(this)
         }
     }
 
@@ -201,7 +207,7 @@ class StudioFilePreviewModel(
 }
 
 private fun StudioFileContent.toView(): StudioFileView = when (this) {
-    is StudioFileContent.Text -> StudioFileView.Text(text, modifiedAt)
+    is StudioFileContent.Text -> StudioFileView.Text(text)
     is StudioFileContent.TooLarge -> StudioFileView.TooLarge
     StudioFileContent.Binary -> StudioFileView.Binary
     StudioFileContent.Unavailable -> StudioFileView.Unavailable
@@ -210,8 +216,8 @@ private fun StudioFileContent.toView(): StudioFileView = when (this) {
 private val MarkdownExtensions = listOf(".md", ".markdown", ".mdx")
 
 /** The folder of an absolute path, in either separator style. */
-private fun parentOf(path: String?): String? = if (path == null) {
-    null
-} else {
-    path.substring(0, maxOf(path.lastIndexOf('/'), path.lastIndexOf('\\')).coerceAtLeast(0)).takeIf { it.isNotEmpty() }
+private fun parentOf(path: String?): String? {
+    val separator = path?.let { maxOf(it.lastIndexOf('/'), it.lastIndexOf('\\')) } ?: -1
+    // A file in the root keeps the root itself.
+    return if (path == null || separator < 0) null else path.substring(0, maxOf(separator, 1))
 }

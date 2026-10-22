@@ -93,6 +93,37 @@ class StudioFilePreviewModelTest {
     }
 
     @Test
+    fun `a file that appears or disappears while watched is shown again`() = runTest {
+        val model = model()
+        val screen = model.subscribe(this)
+        model.store.intent(StudioFilePreviewIntent.Open(StudioFileRequest("/p/plan.md", "plan.md")))
+        runCurrent()
+        assertEquals(StudioFileView.Unavailable, screen.states.value.content)
+
+        files.texts["/p/plan.md"] = "created"
+        advanceTimeBy(3.seconds)
+        runCurrent()
+        assertEquals("created", assertIs<StudioFileView.Text>(screen.states.value.content).text)
+
+        files.texts.remove("/p/plan.md")
+        advanceTimeBy(3.seconds)
+        runCurrent()
+        assertEquals(StudioFileView.Unavailable, screen.states.value.content)
+    }
+
+    @Test
+    fun `links inside a file in the root resolve against the root`() = runTest {
+        files.texts["/plan.md"] = "[x](notes.md)"
+        files.texts["/notes.md"] = "notes"
+        val model = model()
+        val screen = model.subscribe(this)
+        model.store.intent(StudioFilePreviewIntent.Open(StudioFileRequest("/plan.md", "plan.md")))
+        model.store.intent(StudioFilePreviewIntent.OpenLinked("notes.md", null))
+        runCurrent()
+        assertEquals("notes", assertIs<StudioFileView.Text>(screen.states.value.content).text)
+    }
+
+    @Test
     fun `chat file links resolve against the pane chat and never come from a remote view`() = runTest {
         files.isAvailable.value = true
         val state = AiStudioState.Ready(
@@ -142,11 +173,11 @@ class StudioFilePreviewModelTest {
         override suspend fun resolve(path: String, sessionId: String?, projectId: String?): String? =
             sessionId?.let { "/$it/$path" }
 
-        override suspend fun resolveIn(path: String, directory: String): String? = "$directory/$path"
+        override suspend fun resolveIn(path: String, directory: String): String? = "${directory.trimEnd('/')}/$path"
 
         override suspend fun read(path: String): StudioFileContent =
             texts[path]?.let { StudioFileContent.Text(it, modified[path] ?: 1) } ?: StudioFileContent.Unavailable
 
-        override suspend fun modifiedAt(path: String): Long? = modified[path] ?: 1
+        override suspend fun modifiedAt(path: String): Long? = if (path in texts) modified[path] ?: 1 else null
     }
 }
