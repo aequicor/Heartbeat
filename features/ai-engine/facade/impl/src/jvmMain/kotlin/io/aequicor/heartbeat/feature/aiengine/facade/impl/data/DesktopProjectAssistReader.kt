@@ -75,7 +75,10 @@ internal class DesktopProjectAssistReader(
     }
 
     /** The sandbox tree lists regular Git entries; the workspace itself rejects links and binary content. */
-    private suspend fun scanVirtual(workspace: VirtualWorkspace, directories: List<AssistDirectory>): List<EngineAssist> {
+    private suspend fun scanVirtual(
+        workspace: VirtualWorkspace,
+        directories: List<AssistDirectory>,
+    ): List<EngineAssist> {
         val paths = workspace.paths()
         val budget = ScanBudget(ENTRY_LIMIT)
         val result = directories.flatMap { spec ->

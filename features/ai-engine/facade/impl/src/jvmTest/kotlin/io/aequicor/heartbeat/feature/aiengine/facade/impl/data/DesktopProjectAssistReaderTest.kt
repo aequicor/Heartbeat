@@ -159,14 +159,10 @@ class DesktopProjectAssistReaderTest {
     @Test
     fun `a sandbox of an untrusted or unknown source contributes nothing`() = runTest {
         val files = arrayOf(".claude/commands/check.md" to "body")
-        assertEquals(
-            emptyList(),
-            sandboxReader(sandbox(workspace, *files), ProjectTrust.Content).read(engine, WorkspaceRef("sandbox-1"), roots),
-        )
-        assertEquals(
-            emptyList(),
-            sandboxReader(sandbox(null, *files), ProjectTrust.Trusted).read(engine, WorkspaceRef("sandbox-1"), roots),
-        )
+        val untrusted = sandboxReader(sandbox(workspace, *files), ProjectTrust.Content)
+        assertEquals(emptyList(), untrusted.read(engine, WorkspaceRef("sandbox-1"), roots))
+        val unknown = sandboxReader(sandbox(null, *files), ProjectTrust.Trusted)
+        assertEquals(emptyList(), unknown.read(engine, WorkspaceRef("sandbox-1"), roots))
     }
 
     @Test
