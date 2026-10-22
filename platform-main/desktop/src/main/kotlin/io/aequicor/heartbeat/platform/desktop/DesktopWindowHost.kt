@@ -1,16 +1,20 @@
 package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.window.FrameWindowScope
+import androidx.compose.ui.window.LocalWindowExceptionHandlerFactory
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowExceptionHandlerFactory
 import androidx.compose.ui.window.WindowState
 
 /**
@@ -19,6 +23,7 @@ import androidx.compose.ui.window.WindowState
  * must therefore observe activity and release resources here, independently of the hidden content's frame clock.
  */
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 internal fun DesktopWindowHost(
     onCloseRequest: () -> Unit,
     state: WindowState,
@@ -30,23 +35,29 @@ internal fun DesktopWindowHost(
     content: @Composable FrameWindowScope.() -> Unit,
 ) {
     var nativeWindow by remember { mutableStateOf<ComposeWindow?>(null) }
-    Window(
-        onCloseRequest = onCloseRequest,
-        state = state,
-        visible = isVisible,
-        title = "Heartbeat",
-        icon = icon,
-        alwaysOnTop = isAlwaysOnTop,
-        onPreviewKeyEvent = onPreviewKeyEvent,
-    ) {
-        val currentWindow = window
-        DisposableEffect(currentWindow) {
-            nativeWindow = currentWindow
-            onDispose {
-                if (nativeWindow === currentWindow) nativeWindow = null
+    val delegate = LocalWindowExceptionHandlerFactory.current
+    val failures = remember(delegate) {
+        WindowExceptionHandlerFactory { window -> loggedWindowExceptionHandler(delegate.exceptionHandler(window)) }
+    }
+    CompositionLocalProvider(LocalWindowExceptionHandlerFactory provides failures) {
+        Window(
+            onCloseRequest = onCloseRequest,
+            state = state,
+            visible = isVisible,
+            title = "Heartbeat",
+            icon = icon,
+            alwaysOnTop = isAlwaysOnTop,
+            onPreviewKeyEvent = onPreviewKeyEvent,
+        ) {
+            val currentWindow = window
+            DisposableEffect(currentWindow) {
+                nativeWindow = currentWindow
+                onDispose {
+                    if (nativeWindow === currentWindow) nativeWindow = null
+                }
             }
+            content()
         }
-        content()
     }
     nativeWindow?.let { nativePresentation(it) }
 }
