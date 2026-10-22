@@ -71,6 +71,11 @@ internal class DesktopProjectFileIndex(
             .toList()
     }
 
+    override suspend fun readSkill(workspace: WorkspaceRef?, relativePath: String, name: String): String? {
+        val root = workspace?.let { workspaces.resolve(it) } ?: return null
+        return withContext(dispatchers.io) { readProjectSkillBody(Path.of(root), relativePath, name) }
+    }
+
     private suspend fun walk(ref: WorkspaceRef): List<ProjectFile> {
         val root = workspaces.resolve(ref) ?: return emptyList()
         return withContext(dispatchers.io) {

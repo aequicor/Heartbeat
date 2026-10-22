@@ -127,6 +127,30 @@ class DesktopProjectFileIndexTest {
         assertEquals(null, projectSkillMetadata("---\nname: invalid name\ndescription: Invalid\n---"))
     }
 
+    @Test
+    fun `skill bodies are read only from plain skill files declaring the linked name`() = runTest {
+        val root = temporary.newFolder("bodies").toPath()
+        val body = "---\nname: open-pr\ndescription: Open a draft\n---\nSteps"
+        write(root, ".agents/skills/open pr/SKILL.md", body)
+        write(root, ".agents/skills/large/SKILL.md", "---\nname: large\ndescription: Big\n---\n" + "x".repeat(70_000))
+        write(root, "outside/SKILL.md", "---\nname: outside\ndescription: Out\n---\n")
+        val index = index(root)
+        assertEquals(body, index.readSkill(workspace, ".agents/skills/open pr/SKILL.md", "open-pr"))
+        assertEquals(null, index.readSkill(workspace, ".agents/skills/open pr/SKILL.md", "other"))
+        assertEquals(null, index.readSkill(workspace, ".agents/skills/large/SKILL.md", "large"))
+        assertEquals(null, index.readSkill(workspace, ".agents/skills/../../outside/SKILL.md", "outside"))
+        assertEquals(null, index.readSkill(null, ".agents/skills/open pr/SKILL.md", "open-pr"))
+        val linked = root.resolve(".claude/skills/linked")
+        Files.createDirectories(linked.parent)
+        try {
+            Files.createSymbolicLink(linked, root.resolve(".agents/skills/open pr"))
+        } catch (e: FileSystemException) {
+            Log.tag("ProjectFileIndexTest").w(e) { "Symbolic links unavailable in this test environment" }
+            assumeNoException(e)
+        }
+        assertEquals(null, index.readSkill(workspace, ".claude/skills/linked/SKILL.md", "open-pr"))
+    }
+
     private fun index(root: Path) = DesktopProjectFileIndex(
         object : LocalWorkspaces {
             override val isAvailable = true

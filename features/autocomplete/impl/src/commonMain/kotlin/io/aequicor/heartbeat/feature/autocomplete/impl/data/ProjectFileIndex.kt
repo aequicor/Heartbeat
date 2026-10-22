@@ -25,6 +25,12 @@ internal interface ProjectFileIndex {
         limit: Int,
         skillsOnly: Boolean = false,
     ): List<ProjectFile>
+
+    /**
+     * Bounded body of the skill file at [relativePath] of [workspace], or null when it is not a project skill file
+     * declaring [name], is a link, leaves the workspace or cannot be read.
+     */
+    suspend fun readSkill(workspace: WorkspaceRef?, relativePath: String, name: String): String? = null
 }
 
 /** Literal metadata of an explicitly selectable project instruction, never executed by discovery. */

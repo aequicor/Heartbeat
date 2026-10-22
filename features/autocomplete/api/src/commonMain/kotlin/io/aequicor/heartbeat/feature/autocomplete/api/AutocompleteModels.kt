@@ -104,6 +104,18 @@ public data class ComposerDraft(
 )
 
 /**
+ * Instruction body of a project skill linked in a prompt (`[/name](path/SKILL.md)`). The host delivers [content]
+ * with the prompt, so a model without file tools still receives the instruction the short label stands for.
+ */
+public data class ComposerSkillContent(
+    public val label: String,
+    public val relativePath: String,
+    public val content: String,
+) {
+    override fun toString(): String = "ComposerSkillContent(path=$relativePath, length=${content.length})"
+}
+
+/**
  * Main-safe suggestion service of one profile. Suggest never starts processes on its own, ranks the merged
  * result by relevance across origins (Heartbeat wins ties), and returns an empty list to hide the popup.
  */
@@ -120,6 +132,13 @@ public interface ComposerAssists {
         scope: ComposerScope,
         hostCommands: List<HostCommand> = emptyList(),
     ): Flow<List<ComposerSuggestion>> = flow { emit(suggest(trigger, scope, hostCommands)) }
+
+    /**
+     * Bodies of the project skills linked in [text], read again from [workspace] at send time. A link that no longer
+     * resolves to a valid skill file of the workspace contributes nothing; the prompt itself keeps the link.
+     */
+    public suspend fun referencedSkills(text: String, workspace: WorkspaceRef?): List<ComposerSkillContent> =
+        emptyList()
 
     /** Suggestions for the active [trigger] in [scope], plus the host screen's own [hostCommands]. */
     public suspend fun suggest(

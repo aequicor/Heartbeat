@@ -9,6 +9,7 @@ import kotlin.coroutines.cancellation.CancellationException
 
 private val log = Log.tag("Autocomplete/SkillMetadata")
 private const val METADATA_BYTES = 16_384
+private const val BODY_BYTES = 65_536
 private val SKILL_PATH = Regex("(?:\\.agents|\\.claude|\\.pi)/skills/(?:[^/]+/)+SKILL\\.md")
 private val SKILL_NAME = Regex("[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
 
@@ -23,6 +24,35 @@ internal fun readProjectSkill(file: Path, relative: String, size: Long): Project
         throw e
     } catch (e: Exception) {
         log.w(e.redactedFailure()) { "project skill metadata unavailable" }
+        null
+    }
+}
+
+/**
+ * Reads a whole skill file of [root] for delivery with a prompt. Every path segment must be a plain name under the
+ * real root and no segment may be a link; oversized files and files declaring a different [name] are refused.
+ */
+internal fun readProjectSkillBody(root: Path, relative: String, name: String): String? {
+    val segments = relative.split('/')
+    val isPlain = segments.none { it.isEmpty() || it == "." || it == ".." || '\\' in it || ':' in it }
+    if (!SKILL_PATH.matches(relative) || !isPlain) return null
+    return try {
+        val file = segments.runningFold(root.toRealPath()) { parent, segment -> parent.resolve(segment) }
+            .drop(1)
+            .takeIf { path -> path.none(Files::isSymbolicLink) }
+            ?.last()
+            ?.takeIf { Files.isRegularFile(it, NOFOLLOW_LINKS) }
+        val bytes = file?.let { path ->
+            Files.newInputStream(path, NOFOLLOW_LINKS).use { it.readNBytes(BODY_BYTES + 1) }
+        }
+        if (bytes != null && bytes.size > BODY_BYTES) log.w { "project skill exceeds the delivered size limit" }
+        bytes?.takeIf { it.size <= BODY_BYTES }
+            ?.toString(Charsets.UTF_8)
+            ?.takeIf { projectSkillMetadata(it)?.name == name }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e.redactedFailure()) { "project skill body unavailable" }
         null
     }
 }

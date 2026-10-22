@@ -6,12 +6,14 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
 import io.aequicor.heartbeat.feature.attachments.api.attachmentMediaTypeFor
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSkillContent
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
@@ -24,7 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onStart
 
 /**
@@ -32,7 +34,8 @@ import kotlinx.coroutines.flow.onStart
  * A source that is off or unavailable contributes nothing — typing degrades to
  * fewer sections instead of blocking. Matching is prefix-then-substring over ids, titles and labels; a native
  * item that duplicates a Heartbeat item's visible name drops, because the host item owns the semantics the
- * composer can guarantee.
+ * composer can guarantee. Project skill files are offered only to a route without native discovery: an engine with
+ * its own catalog decides which skills are visible, and its exclusions are never replaced by a generic file row.
  */
 @Inject
 @ContributesBinding(ProfileScope::class)
@@ -45,9 +48,21 @@ internal class AutocompleteComposerAssists(
     override suspend fun isAvailable(suggestion: ComposerSuggestion, scope: ComposerScope): Boolean {
         val origin = suggestion.origin as? ComposerAssistOrigin.Engine ?: return true
         val target = scope.target?.takeIf { it.engine == origin.engine } ?: return false
-        return engineAssists.assists(target, scope.workspace).any {
+        return engineAssists.assists(target, scope.workspace).items.any {
             suggestion.id == "engine:${target.engine.value}:${it.id}"
         }
+    }
+
+    override suspend fun referencedSkills(text: String, workspace: WorkspaceRef?): List<ComposerSkillContent> {
+        if (workspace == null) return emptyList()
+        return SKILL_LINK.findAll(text)
+            .map { link -> link.groupValues[1] to decodedPath(link.groupValues[2]) }
+            .distinctBy { it.second }
+            .take(REFERENCED_SKILL_LIMIT)
+            .toList()
+            .mapNotNull { (label, path) ->
+                projectFiles.readSkill(workspace, path, label.drop(1))?.let { ComposerSkillContent(label, path, it) }
+            }
     }
 
     override suspend fun prewarm(scope: ComposerScope) {
@@ -60,7 +75,7 @@ internal class AutocompleteComposerAssists(
         hostCommands: List<HostCommand>,
     ): List<ComposerSuggestion> = coroutineScope {
         if (!toggles.get(AutocompleteEnabled)) return@coroutineScope emptyList()
-        val engine = async { native(trigger, scope) }
+        val engine = async { scope.target?.let { engineAssists.assists(it, scope.workspace) } }
         val files = async { files(trigger, scope) }
         val host = when (trigger) {
             is ComposerTrigger.Command -> hostCommands.filter { it.matches(trigger.query) }
@@ -68,7 +83,8 @@ internal class AutocompleteComposerAssists(
 
             is ComposerTrigger.Mention -> learned(trigger, scope)
         }
-        merge(host + engine.await() + files.await())
+        val native = engine.await()
+        merge(host + nativeItems(trigger, scope, native) + files.await(), native.hasNativeCatalog())
     }
 
     override fun observe(
@@ -86,25 +102,27 @@ internal class AutocompleteComposerAssists(
 
             is ComposerTrigger.Mention -> learned(trigger, scope)
         }
-        emit(merge(host))
-        val native = scope.target?.let { target ->
-            engineAssists.observe(target, scope.workspace).map { nativeItems(trigger, scope, it) }
-        } ?: flow { emit(emptyList()) }
+        emit(merge(host, hasNativeCatalog = scope.target != null))
+        val target = scope.target
+        val native: Flow<NativeAssists?> = if (target == null) {
+            flowOf(null)
+        } else {
+            engineAssists.observe(target, scope.workspace)
+        }
         val files = flow {
             emit(files(trigger, scope))
         }.onStart { emit(emptyList()) }
-        emitAll(combine(native, files) { engine, workspace -> merge(host + engine + workspace) })
+        emitAll(
+            combine(native, files) { engine, workspace ->
+                merge(host + nativeItems(trigger, scope, engine) + workspace, engine.hasNativeCatalog())
+            },
+        )
     }.distinctUntilChanged()
 
-    private fun merge(merged: List<Ranked>): List<ComposerSuggestion> {
-        val nativeSkillNames = merged.filter {
-            it.suggestion is ComposerSuggestion.Skill &&
-                it.suggestion.origin is ComposerAssistOrigin.Engine
-        }.map { it.suggestion.duplicateKey() }.toSet()
-        val candidates = merged.filterNot {
-            it.suggestion.id.startsWith("project-skill:") &&
-                it.suggestion.duplicateKey() in nativeSkillNames
-        }
+    private fun NativeAssists?.hasNativeCatalog(): Boolean = this?.hasNativeCatalog == true
+
+    private fun merge(merged: List<Ranked>, hasNativeCatalog: Boolean): List<ComposerSuggestion> {
+        val candidates = merged.filterNot { hasNativeCatalog && it.suggestion.id.startsWith(PROJECT_SKILL_PREFIX) }
         val heartbeatNames = candidates.asSequence()
             .filter { it.suggestion.origin == ComposerAssistOrigin.Heartbeat }
             .map { it.suggestion.duplicateKey() }
@@ -158,15 +176,20 @@ internal class AutocompleteComposerAssists(
         }
     }
 
-    private suspend fun native(trigger: ComposerTrigger, scope: ComposerScope): List<Ranked> {
+    private fun nativeItems(trigger: ComposerTrigger, scope: ComposerScope, native: NativeAssists?): List<Ranked> {
         val target = scope.target ?: return emptyList()
-        return nativeItems(trigger, scope, engineAssists.assists(target, scope.workspace))
-    }
-
-    private fun nativeItems(trigger: ComposerTrigger, scope: ComposerScope, assists: List<EngineAssist>): List<Ranked> {
-        val target = scope.target ?: return emptyList()
+        val assists = native?.items.orEmpty()
+        // A skill the engine also invokes as a command (Pi `/skill:name`) is offered after `/` only in that form.
+        val commandLabels = assists.filter { it.kind == EngineAssist.Kind.Command }.map { it.label.lowercase() }.toSet()
         return assists.asSequence()
-            .filter { trigger is ComposerTrigger.Command || it.kind == EngineAssist.Kind.Skill }
+            .filter {
+                when (trigger) {
+                    is ComposerTrigger.Command ->
+                        it.kind == EngineAssist.Kind.Command || it.label.lowercase() !in commandLabels
+
+                    is ComposerTrigger.Mention -> it.kind == EngineAssist.Kind.Skill
+                }
+            }
             .mapNotNull { assist -> rank(trigger.query, assist.label, assist.id)?.let { assist to it } }
             .map { (assist, rank) ->
                 val origin = ComposerAssistOrigin.Engine(target.engine)
@@ -227,17 +250,19 @@ internal class AutocompleteComposerAssists(
 
     private fun projectSkill(file: ProjectFile, skill: ProjectSkill, query: String): Ranked = Ranked(
         ComposerSuggestion.Skill(
-            id = "project-skill:${file.relativePath}",
+            id = PROJECT_SKILL_PREFIX + file.relativePath,
             label = skill.name,
             description = skill.description,
             origin = ComposerAssistOrigin.Heartbeat,
             // The path stays in the prompt so file-capable agents can read the exact instruction.
             // The editor displays only the label, without importing an attachment.
-            insert = "[/" + skill.name + "](" + file.relativePath.replace("%", "%25").replace(" ", "%20")
-                .replace("(", "%28").replace(")", "%29").replace("#", "%23") + ") ",
+            insert = "[/" + skill.name + "](" +
+                file.relativePath.replace(Regex("[% ()#]")) { ENCODED.getValue(it.value) } + ") ",
         ),
         rank(query, skill.name, file.relativePath) ?: 0,
     )
+
+    private fun decodedPath(path: String): String = path.replace(ENCODED_PATH_CHAR) { DECODED.getValue(it.value) }
 
     private fun describeSize(sizeBytes: Long): String = when {
         sizeBytes >= BYTES_PER_MB -> "${sizeBytes / BYTES_PER_MB} MB"
@@ -252,6 +277,14 @@ internal class AutocompleteComposerAssists(
 
     private companion object {
         const val SUGGESTION_LIMIT = 16
+        const val PROJECT_SKILL_PREFIX = "project-skill:"
+        const val REFERENCED_SKILL_LIMIT = 8
+
+        /** Same link form the composer editor shortens to its label. */
+        val SKILL_LINK = Regex("\\[([/@$][A-Za-z0-9_][A-Za-z0-9_.:-]*)]\\(([^\\s()]+/SKILL\\.md)\\)")
+        val ENCODED = mapOf("%" to "%25", " " to "%20", "(" to "%28", ")" to "%29", "#" to "%23")
+        val DECODED = ENCODED.entries.associate { (char, code) -> code to char }
+        val ENCODED_PATH_CHAR = Regex("%(?:25|20|28|29|23)")
         const val BYTES_PER_KB = 1_024L
         const val BYTES_PER_MB = 1_048_576L
     }

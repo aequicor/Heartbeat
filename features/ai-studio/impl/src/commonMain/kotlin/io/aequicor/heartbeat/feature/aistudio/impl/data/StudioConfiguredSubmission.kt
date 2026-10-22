@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
@@ -17,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
 import kotlinx.coroutines.CancellationException
@@ -29,6 +31,7 @@ internal class StudioConfiguredSubmission(
     private val efforts: EffortChoicesView,
     private val origins: StudioRequestOrigins,
     private val security: StudioSecurityPolicy,
+    private val assists: ComposerAssists,
     private val rollovers: StudioRolloverObserver = StudioRolloverObserver { _, _ -> },
     private val planning: StudioPlanning = StudioPlanning.None,
 ) {
@@ -149,7 +152,7 @@ internal class StudioConfiguredSubmission(
         val helper = request.submission as? StudioHelperSubmission
         val submit: suspend () -> SubmittedPrompt = {
             origins.record(active.ref, request.request, request.causes)
-            val prompt = preparePrompt(access, request)
+            val prompt = preparePrompt(access, request, active.route.workspace)
             val finalPolicy = if (helper != null) {
                 var latest: StudioPromptPolicy? = null
                 val trust = helper.begin { policy().also { latest = it }.trust }
@@ -197,11 +200,35 @@ internal class StudioConfiguredSubmission(
         }
     }
 
-    private suspend fun preparePrompt(access: StudioConfigurationAccess, request: StudioTurnRequest): String {
+    private suspend fun preparePrompt(
+        access: StudioConfigurationAccess,
+        request: StudioTurnRequest,
+        workspace: WorkspaceRef?,
+    ): String {
         if (request.compaction != null) return ""
-        val prepared = learning.prompt(request.id, request.prompt, request.directives)
+        val skills = skillDirectives(request.prompt, workspace)
+        val prepared = learning.prompt(request.id, request.prompt, request.directives + skills)
         val context = access.engineSwitchContext(request.id, prepared + "\n\n" + hostDirective(""))
         return if (context == null) prepared else prepared + "\n\n" + hostDirective(context)
+    }
+
+    /**
+     * A linked project skill shows only its label in the composer; its body travels as a host directive, so a model
+     * without file tools follows the same instruction while the transcript keeps what the user typed.
+     */
+    private suspend fun skillDirectives(prompt: String, workspace: WorkspaceRef?): List<String> {
+        val skills = try {
+            assists.referencedSkills(prompt, workspace)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "Linked project skills unavailable; the prompt keeps only their links" }
+            emptyList()
+        }
+        if (skills.isNotEmpty()) log.i { "Linked project skills delivered: ${skills.size}" }
+        return skills.map {
+            "The user invoked project skill ${it.label} (${it.relativePath}). Follow its instructions:\n\n${it.content}"
+        }
     }
 
     private data class StudioPromptPolicy(val mode: AgentToolDecisionMode, val trust: TrustLevel?)

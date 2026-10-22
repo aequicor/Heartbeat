@@ -46,6 +46,7 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSkillContent
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
@@ -357,7 +358,7 @@ class AutocompleteComposerAssistsTest {
             config,
         )
         val snapshots = mutableListOf<List<EngineAssist>>()
-        val job = launch { source.observe(target, project).collect { snapshots += it } }
+        val job = launch { source.observe(target, project).collect { snapshots += it.items } }
         runCurrent()
         assertEquals(1, calls)
         states.value = states.value.copy(isEnabled = false)
@@ -465,6 +466,73 @@ class AutocompleteComposerAssistsTest {
         assertEquals(listOf(ComposerAssistOrigin.Engine(pi)), rows.map { it.origin })
     }
 
+    @Test
+    fun `a native catalog hides project skill files even when it excludes them`() = runTest {
+        val files = skillFiles(ProjectSkill("open-pr", "Open a draft"))
+        val trigger = ComposerTrigger.Command(0..4, "open")
+        val closed = service(skills = emptyList(), files = files)
+            .suggest(trigger, ComposerScope(target, project))
+        assertEquals(emptyList(), closed)
+        val generic = service(skills = emptyList(), files = files, isNativeSupported = false)
+            .suggest(trigger, ComposerScope(target, project))
+        assertEquals(listOf("open-pr"), generic.map { it.label })
+    }
+
+    @Test
+    fun `slash offers a skill with a native command form only as that command`() = runTest {
+        val service = service(
+            skills = emptyList(),
+            assists = listOf(skill("res:verify", "verify"), command("/skill:verify ", "verify")),
+        )
+        val slash = service.suggest(ComposerTrigger.Command(0..3, "ver"), ComposerScope(target, project))
+        assertEquals(listOf("/skill:verify "), slash.map { assertIs<ComposerSuggestion.Command>(it).insert })
+        val mention = service.suggest(ComposerTrigger.Mention(0..3, "ver"), ComposerScope(target, project))
+        assertEquals(listOf("verify "), mention.map { assertIs<ComposerSuggestion.Skill>(it).insert })
+    }
+
+    @Test
+    fun `linked skills resolve their decoded paths once with the declared name`() = runTest {
+        val reads = mutableListOf<Pair<String, String>>()
+        val service = service(
+            files = object : ProjectFileIndex {
+                override suspend fun search(
+                    workspace: WorkspaceRef?,
+                    query: String,
+                    limit: Int,
+                    skillsOnly: Boolean,
+                ): List<ProjectFile> = emptyList()
+
+                override suspend fun readSkill(workspace: WorkspaceRef?, relativePath: String, name: String): String? {
+                    reads += relativePath to name
+                    return "body of $name".takeIf { relativePath.startsWith(".agents") }
+                }
+            },
+        )
+        val link = "[/my-skill](.agents/skills/my%20dir%28x%29/SKILL.md)"
+        val text = "$link and $link [/other](.pi/skills/other/README.md) [/gone](.claude/skills/gone/SKILL.md)"
+        val skills = service.referencedSkills(text, project)
+        assertEquals(
+            listOf(ComposerSkillContent("/my-skill", ".agents/skills/my dir(x)/SKILL.md", "body of my-skill")),
+            skills,
+        )
+        assertEquals(
+            listOf(".agents/skills/my dir(x)/SKILL.md" to "my-skill", ".claude/skills/gone/SKILL.md" to "gone"),
+            reads,
+        )
+        assertEquals(emptyList(), service.referencedSkills(text, null))
+    }
+
+    private fun skillFiles(skill: ProjectSkill) = object : ProjectFileIndex {
+        override suspend fun search(
+            workspace: WorkspaceRef?,
+            query: String,
+            limit: Int,
+            skillsOnly: Boolean,
+        ): List<ProjectFile> = listOf(
+            ProjectFile(".agents/skills/${skill.name}/SKILL.md", "/skill", 1, "text/markdown", skill),
+        )
+    }
+
     private fun command(insert: String, label: String, description: String = "") = EngineAssist(
         id = insert.removePrefix("/").removeSuffix(" "),
         label = label,
@@ -499,6 +567,7 @@ class AutocompleteComposerAssistsTest {
         ),
         failWith: Exception? = null,
         onRead: suspend () -> Unit = {},
+        isNativeSupported: Boolean = true,
         files: ProjectFileIndex = object : ProjectFileIndex {
             override suspend fun search(
                 workspace: WorkspaceRef?,
@@ -515,7 +584,11 @@ class AutocompleteComposerAssistsTest {
         LearnedSkillsSource(
             learningRegistry(MutableStateFlow<AgentLearningState>(AgentLearningState.Ready(instructions = skills))),
         ),
-        EngineAssistsSource(facade(assists, onRead = onRead, failure = failWith), FakeClock, TestSources()),
+        EngineAssistsSource(
+            facade(assists, onRead = onRead, failure = failWith, isSupported = isNativeSupported),
+            FakeClock,
+            TestSources(),
+        ),
         files,
     )
 
@@ -523,9 +596,11 @@ class AutocompleteComposerAssistsTest {
         assists: List<EngineAssist>,
         onRead: suspend () -> Unit,
         failure: Exception? = null,
+        isSupported: Boolean = true,
     ): EngineFacade {
         val features = object : EngineFeatures {
             override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> {
+                if (!isSupported) return FeatureAccess.Unsupported
                 @Suppress("UNCHECKED_CAST")
                 val feature = object : ListsComposerAssists {
                     override suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> {
