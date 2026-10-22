@@ -38,9 +38,10 @@ private class NativeSkillFields {
         isBlockDescription = false
         blockIndent = null
         val key = line.substringBefore(':')
-        val isSeparated = line.getOrNull(key.length + 1)?.isWhitespace() == true
+        val separator = line.getOrNull(key.length + 1)
+        val isSeparated = separator == ' ' || separator == '\t'
         if (!KEY.matches(key) || key in values || !isSeparated) return false
-        val raw = line.substringAfter(':', "").trim()
+        val raw = line.substringAfter(':', "").trim(' ', '\t')
         isBlockDescription = key == "description" && raw in BLOCK_MARKERS
         val value = if (isBlockDescription) NativeScalar("") else scalar(raw)
         return value?.takeIf { key !in setOf("name", "description") || it.isString }?.let {
@@ -54,7 +55,7 @@ private data class NativeScalar(val text: String, val isString: Boolean = true)
 
 private fun scalar(raw: String): NativeScalar? {
     if (raw.startsWith('"') || raw.startsWith('\'')) return quotedScalar(raw)
-    val value = raw.substringBefore(" #").trim()
+    val value = raw.substringBefore(" #").trim(' ', '\t')
     if (value.isEmpty() || value.first() in "[{}]&*!|>\"'@`#-?:" || ": " in value) return null
     return NativeScalar(value, value !in NON_STRINGS && value.toDoubleOrNull() == null)
 }

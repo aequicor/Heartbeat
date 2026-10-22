@@ -98,6 +98,9 @@ class DesktopProjectAssistReaderTest {
         val root = temporary.newFolder().toPath()
         val invalid = listOf(
             "Body without metadata",
+            "---\nname: \u00a0valid\ndescription: non ASCII name\n---\nBody",
+            "---\nname:\u00a0valid\ndescription: valid description\n---\nBody",
+            "---\nname: valid\ndescription:\u00a0valid description\n---\nBody",
             "---\nname:valid\ndescription: valid description\n---\nBody",
             "---\nname: valid\ndescription:valid description\n---\nBody",
             "---\nname: missing\n---\nBody",
