@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.browserMentionDirective
 
 /** Opens the chat's native context and carries incompatible frozen declarations across a proven idle boundary. */
 internal interface StudioSessionHost {
@@ -71,11 +72,17 @@ internal fun ActiveSession.canCarryEnvironment(): Boolean {
 
 private suspend fun StudioSessionHost.needsNewDeclarations(request: StudioTurnRequest, active: ActiveSession): Boolean {
     val isCarryPending = needsCarriedTools(request.id, active)
-    if (request.environment == null && !isCarryPending) return false
+    val isEmbeddedRequested = request.environment == null && request.isUserPrompt &&
+        request.userInstruction?.let { browserMentionDirective(it, isExternal = false) } != null
+    if (request.environment == null && !isCarryPending && !isEmbeddedRequested) return false
     return when (val access = active.features.resolve(FrozenHostedTools)) {
         is FeatureAccess.Available -> {
             val hasIncompatibleTools = access.feature.names.any { request.environment?.acceptsTool(it) == false }
-            isCarryPending || hasIncompatibleTools
+            // A chat opened in the extension may have permanently omitted embedded declarations. Carry it
+            // back only for an explicit local browser request, using the same idle/history barriers.
+            val hasExternalOnly = isEmbeddedRequested && access.feature.names.any { it.startsWith("ex_control_") } &&
+                access.feature.names.none { it.startsWith("browser_") }
+            isCarryPending || hasIncompatibleTools || hasExternalOnly
         }
 
         is FeatureAccess.Unavailable -> throw EngineException(access.reason)

@@ -813,6 +813,41 @@ class StudioDeferredHarnessContextTest {
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioBrowserEnvironmentTest {
     @Test
+    fun `local browser mention restores embedded declarations after an external only frozen chat`() = runTest {
+        val fixture = TurnFixture()
+        fixture.active.frozenNames = setOf("ex_control_tabs")
+        fixture.active.inspection = TurnInspection.Idle
+        val replacement = ExecutorSession(fixture.turn, "embedded").apply {
+            frozenNames = setOf("browser_tabs", "ex_control_tabs")
+        }
+        fixture.host.replacement = replacement
+        fixture.tools.release.complete(Unit)
+        val request = fixture.request.copy(
+            prompt = "@browser open page",
+            userInstruction = "@browser open page",
+            isUserPrompt = true,
+        )
+
+        assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, request))
+        assertEquals(listOf(fixture.active.ref), fixture.host.rollovers)
+        assertEquals(listOf(emptyMap(), emptyMap()), fixture.host.opened)
+        assertEquals(replacement.ref to fixture.turn.id, fixture.tools.finished)
+    }
+
+    @Test
+    fun `local browser mention cannot replace an uncertain external context`() = runTest {
+        val fixture = TurnFixture()
+        fixture.host.isIsolated = false
+        fixture.active.frozenNames = setOf("ex_control_tabs")
+        fixture.active.inspection = TurnInspection.Unknown
+        val request = fixture.request.copy(userInstruction = "@browser", isUserPrompt = true)
+
+        assertEquals(RunOutcome.Failed, fixture.executor.execute(fixture.host, request))
+        assertTrue(fixture.host.rollovers.isEmpty())
+        assertNull(fixture.host.submitted)
+    }
+
+    @Test
     fun `outside turn replaces frozen embedded declarations before sending and binds the new session`() = runTest {
         val fixture = TurnFixture()
         fixture.active.frozenNames = setOf("browser_tabs", "ex_control_tabs")
