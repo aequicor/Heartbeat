@@ -65,7 +65,7 @@ public object AgentToolsBindings {
     )
 }
 
-/** Mobile platforms have no native process analyzer. Missing contracts always retain manual confirmation. */
+/** Optional native analyzers supplement the shared policy; mobile platforms have no native process analyzer. */
 @ContributesTo(ProfileScope::class)
 public interface NativeActionAnalyzerBindings {
     /** Host-owned analyzers only; external tool declarations cannot register an analyzer. */

@@ -13,8 +13,8 @@ public enum class SecurityMode {
     Ask,
 
     /**
-     * Exact host rules approve ordinary operations. With [ActionSafetyEnabled], complete host evidence and
-     * original human authority enter two-stage model review; unknown evidence or unavailable review asks the user.
+     * Exact host rules approve ordinary operations. With [ActionSafetyEnabled], the complete proposed call and
+     * original human authority enter two-stage model review; ambiguity or unavailable review asks the user.
      */
     Automatic,
 

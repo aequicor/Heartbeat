@@ -45,7 +45,7 @@ class ActionSafetyPolicyTest {
     }
 
     @Test
-    fun `unknown evidence and hard denial never reach model review`() = runTest {
+    fun `missing invocation and hard denial never reach model review`() = runTest {
         val f = Fixture("ALLOW")
         assertEquals(
             ActionSafetyDecision.Ask,
@@ -143,8 +143,6 @@ class ActionSafetyPolicyTest {
         val invalid = listOf(
             "",
             "allow",
-            " ALLOW",
-            "ALLOW\n",
             "ALLOW because safe",
             "ASK",
             "DENY",
@@ -160,10 +158,21 @@ class ActionSafetyPolicyTest {
 
     @Test
     fun `unexpected detailed answers cannot grant permission`() = runTest {
-        for (answer in listOf("", "REVIEW", "ALLOW\n", "ALLOW and DENY", "```ALLOW```")) {
+        for (answer in listOf("", "REVIEW", "ALLOW and DENY", "```ALLOW```")) {
             val f = Fixture("REVIEW", answer)
             assertEquals(ActionSafetyDecision.Ask, f.evaluate(), answer)
             assertEquals(2, f.prompts.size)
+        }
+    }
+
+    @Test
+    fun `surrounding whitespace does not turn a valid verdict into a user prompt`() = runTest {
+        for (answer in listOf(" ALLOW", "ALLOW\n", "\r\nALLOW\t")) {
+            val fast = Fixture(answer)
+            assertEquals(ActionSafetyDecision.Allow, fast.evaluate())
+            val detailed = Fixture(" REVIEW\n", answer)
+            assertEquals(ActionSafetyDecision.Allow, detailed.evaluate())
+            assertEquals(2, detailed.prompts.size)
         }
     }
 
