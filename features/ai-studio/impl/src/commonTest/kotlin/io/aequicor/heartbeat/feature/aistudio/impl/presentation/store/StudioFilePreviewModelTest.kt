@@ -112,6 +112,37 @@ class StudioFilePreviewModelTest {
     }
 
     @Test
+    fun `a file that is not shown as text is not read again until it changes`() = runTest {
+        files.texts["/p/big.log"] = "big"
+        files.tooLarge += "/p/big.log"
+        val model = model()
+        val screen = model.subscribe(this)
+        model.store.intent(StudioFilePreviewIntent.Open(StudioFileRequest("/p/big.log", "big.log")))
+        runCurrent()
+        assertEquals(StudioFileView.TooLarge, screen.states.value.content)
+        advanceTimeBy(7.seconds)
+        runCurrent()
+        assertEquals(1, files.reads)
+
+        files.modified["/p/big.log"] = 5
+        advanceTimeBy(3.seconds)
+        runCurrent()
+        assertEquals(2, files.reads)
+    }
+
+    @Test
+    fun `links inside a file in a windows drive root keep the root`() = runTest {
+        files.texts["C:\\plan.md"] = "[x](notes.md)"
+        files.texts["C:\\notes.md"] = "notes"
+        val model = model()
+        val screen = model.subscribe(this)
+        model.store.intent(StudioFilePreviewIntent.Open(StudioFileRequest("C:\\plan.md", "plan.md")))
+        model.store.intent(StudioFilePreviewIntent.OpenLinked("notes.md", null))
+        runCurrent()
+        assertEquals("C:\\notes.md", screen.states.value.path)
+    }
+
+    @Test
     fun `links inside a file in the root resolve against the root`() = runTest {
         files.texts["/plan.md"] = "[x](notes.md)"
         files.texts["/notes.md"] = "notes"
@@ -166,6 +197,8 @@ class StudioFilePreviewModelTest {
 
     private class Files : StudioFileLinks {
         val texts = mutableMapOf<String, String>()
+        val tooLarge = mutableSetOf<String>()
+        var reads = 0
         val modified = mutableMapOf<String, Long>()
         val isAvailable = MutableStateFlow(false)
         override val availability: Flow<Boolean> = isAvailable
@@ -173,10 +206,18 @@ class StudioFilePreviewModelTest {
         override suspend fun resolve(path: String, sessionId: String?, projectId: String?): String? =
             sessionId?.let { "/$it/$path" }
 
-        override suspend fun resolveIn(path: String, directory: String): String? = "${directory.trimEnd('/')}/$path"
+        override suspend fun resolveIn(path: String, directory: String): String? =
+            if (directory.endsWith('/') || directory.endsWith('\\')) "$directory$path" else "$directory/$path"
 
-        override suspend fun read(path: String): StudioFileContent =
-            texts[path]?.let { StudioFileContent.Text(it, modified[path] ?: 1) } ?: StudioFileContent.Unavailable
+        override suspend fun read(path: String): StudioFileContent {
+            reads++
+            return when {
+                path in tooLarge -> StudioFileContent.TooLarge(2)
+
+                else -> texts[path]?.let { StudioFileContent.Text(it, modified[path] ?: 1) }
+                    ?: StudioFileContent.Unavailable
+            }
+        }
 
         override suspend fun modifiedAt(path: String): Long? = if (path in texts) modified[path] ?: 1 else null
     }

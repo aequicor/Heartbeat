@@ -180,10 +180,10 @@ class StudioFilePreviewModel(
         var target: String? = null
         withState { target = path }
         val path = target ?: return@with
-        val read = files.read(path)
-        val content = read.toView()
+        // Taken before reading for every outcome, so a large, binary or unreadable file is not read on every poll.
+        val modifiedAt = files.modifiedAt(path)
+        val content = files.read(path).toView()
         log.v { "File preview read ${content::class.simpleName.orEmpty()}" }
-        val modifiedAt = (read as? StudioFileContent.Text)?.modifiedAt
         updateState { if (this.path == path) copy(content = content, modifiedAt = modifiedAt) else this }
     }
 
@@ -218,6 +218,8 @@ private val MarkdownExtensions = listOf(".md", ".markdown", ".mdx")
 /** The folder of an absolute path, in either separator style. */
 private fun parentOf(path: String?): String? {
     val separator = path?.let { maxOf(it.lastIndexOf('/'), it.lastIndexOf('\\')) } ?: -1
-    // A file in the root keeps the root itself.
-    return if (path == null || separator < 0) null else path.substring(0, maxOf(separator, 1))
+    if (path == null || separator < 0) return null
+    val parent = path.substring(0, separator)
+    // A file in a root keeps the root itself: `/`, or `C:\` rather than the drive-relative `C:`.
+    return if (parent.isEmpty() || parent.endsWith(':')) path.substring(0, separator + 1) else parent
 }

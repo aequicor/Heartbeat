@@ -10,7 +10,7 @@ sealed interface StudioFileContent {
         override fun toString(): String = "StudioFileContent.Text(length=${text.length})"
     }
 
-    /** Larger than the preview reads. */
+    /** Larger than the preview reads; [sizeBytes] is what was read, at least one byte over the limit. */
     data class TooLarge(val sizeBytes: Long) : StudioFileContent
 
     /** Contains NUL bytes, so it is not text. */
