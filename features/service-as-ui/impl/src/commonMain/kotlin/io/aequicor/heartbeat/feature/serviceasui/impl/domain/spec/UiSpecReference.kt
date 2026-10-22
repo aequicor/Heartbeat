@@ -122,8 +122,8 @@ private fun nodesReference(): String = """
   file | folder, bind, label?, extensions?}: a date is written as YYYY-MM-DD, a file or folder as an absolute path
   (desktop only).
 - `web` {html, bridge?, data?, height?: compact | regular | tall | content}: an isolated page in library surfaces (including
-  `card` and `composer`) and in modals, one per surface, desktop only while web documents are enabled. Anonymous
-  cards may show it only inside modals and never get a bridge; editor previews never execute owner methods.
+  `card` and `composer`), in anonymous cards and in modals, one per surface, desktop only while web documents are
+  enabled. Anonymous cards never get a bridge; editor previews never execute owner methods.
   Saving a web surface or showing an anonymous web spec uses shared profile authorization. `height` is a bounded viewport:
   compact for a standalone status strip; regular (default) and tall are fixed presets. Content grows and shrinks to
   its body or `[data-heartbeat-root]` within host bounds. The full mini-app fills the start view; its modal follows

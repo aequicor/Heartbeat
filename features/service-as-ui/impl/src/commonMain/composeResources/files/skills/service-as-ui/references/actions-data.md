@@ -122,7 +122,7 @@ Library writes, showing surfaces and method calls use the shared profile securit
 
 ## Anonymous cards and previews
 
-Anonymous inline specs may render native content, local input/state, named modals, copy/save, links and draft prompts. They cannot use owner `call`, `reload`, data sources, `focusCard`, another owner's/library surface, `reveal`, sent prompts, or a WebView bridge. Their one WebView may appear only inside a named modal, not in the body. Editor previews never execute owner methods or bridges, even if an owner is selected.
+Anonymous inline specs may render native content, local input/state, named modals, copy/save, links and draft prompts. They cannot use owner `call`, `reload`, data sources, `focusCard`, another owner's/library surface, `reveal`, sent prompts, or a WebView bridge. Their one WebView (without a bridge) may appear in the body or a named modal. Editor previews never execute owner methods or bridges, even if an owner is selected.
 
 ## Current bounds
 
