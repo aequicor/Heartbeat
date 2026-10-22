@@ -153,8 +153,14 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         val hostApp = method.hostApp
         // The engine's current runtime may be missing (no CLI yet); the app's runtime replaces it once connected.
         if (hostApp != null) requireHostRuntime(engine) else requireAvailable(engine)
-        signInIfNeeded(engine, method, mayChangeRuntime = true)
-        val connection = write(engine, method, credential)
+        val switched = signInIfNeeded(engine, method, mayChangeRuntime = true)
+        var isWritten = false
+        val connection = try {
+            write(engine, method, credential).also { isWritten = true }
+        } finally {
+            // The runtime was switched only to sign in; without a connection it is not the user's choice.
+            if (!isWritten) switched?.let { withContext(NonCancellable) { restoreSettings(engine, it) } }
+        }
         if (hostApp != null) {
             var isApplied = false
             try {
@@ -209,17 +215,24 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
      * where the runtime already fits. A failed, cancelled or timed out sign-in, and any management refusal, are
      * left to the binding check, which then reports the missing credentials.
      */
-    private suspend fun signInIfNeeded(engine: EngineId, method: ConnectionMethod, mayChangeRuntime: Boolean) {
-        if (method !is ConnectionMethod.CliLogin || !services.management.state.value.isEnabled) return
-        if (services.management.state.value.engine(engine)?.spec?.login.isCliLogin() != true) return
+    private suspend fun signInIfNeeded(
+        engine: EngineId,
+        method: ConnectionMethod,
+        mayChangeRuntime: Boolean,
+    ): LaunchSettings? {
+        if (method !is ConnectionMethod.CliLogin || !services.management.state.value.isEnabled) return null
+        if (services.management.state.value.engine(engine)?.spec?.login.isCliLogin() != true) return null
+        var switched: LaunchSettings? = null
         try {
             var managed = inspect(engine)
             if (method.hostApp != null && !managed.isOnHostRuntime()) {
                 if (!mayChangeRuntime) {
                     log.i { "sign-in skipped, a check keeps the runtime engine=${engine.value}" }
-                    return
+                    return null
                 }
+                val previous = managed?.launch?.settings ?: LaunchSettings()
                 preferHostRuntime(engine)
+                switched = previous
                 managed = inspect(engine)
             }
             if (managed?.login == LoginState.SignedOut) signIn(engine, managed.job)
@@ -227,6 +240,13 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
             throw e
         } catch (e: EngineException) {
             log.w(e) { "sign-in not possible engine=${engine.value}" }
+        }
+        return switched
+    }
+
+    private suspend fun restoreSettings(engine: EngineId, settings: LaunchSettings) {
+        attempt("restore the launch settings changed for the sign-in") {
+            services.management.execute(engine, EngineCommand.Configure(settings))
         }
     }
 
@@ -243,7 +263,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         try {
             phase = withTimeoutOrNull(SIGN_IN_WAIT_MILLIS) {
                 management.state.map { it.engine(engine)?.job }
-                    .first { it != null && it != previous && it.phase.isFinished }
+                    .first { it != null && it != previous && it.action is EngineAction.Login && it.phase.isFinished }
                     ?.phase
             }
         } finally {
@@ -251,8 +271,13 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         }
         when (phase) {
             JobPhase.Succeeded -> log.i { "signed in engine=${engine.value}" }
+
             null -> log.w { "sign in timed out engine=${engine.value}" }
-            else -> log.w { "sign in did not complete engine=${engine.value} phase=${phase::class.simpleName}" }
+
+            else -> log.w {
+                "sign in did not complete engine=${engine.value} phase=${phase::class.simpleName} " +
+                    "failure=${(phase as? JobPhase.Failed)?.failure?.let { it::class.simpleName }}"
+            }
         }
         // The outcome is the wizard's own; the panel must not show it as a login the user started.
         withContext(NonCancellable) {

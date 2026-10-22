@@ -38,7 +38,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
@@ -204,6 +206,22 @@ class ConnectionEffectsTest {
         wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
 
         assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
+    }
+
+    @Test
+    fun `a runtime switched only to sign in is restored when the connection cannot be written`() = runTest {
+        val custom = LaunchSettings(executable = "/opt/claude")
+        management.state.value = claudeManagement(custom, LoginState.SignedOut)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        management.loginPhase = JobPhase.Failed(ManagementFailure.Login(LoginFailureReason.Rejected))
+        facade.connectFailure = EngineFailure.Request(RequestFailureReason.Invalid)
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+
+        assertEquals(custom, management.state.value.engines.single().launch.settings)
     }
 
     @Test
