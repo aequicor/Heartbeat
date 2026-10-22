@@ -72,7 +72,7 @@ internal class QuestionnaireModel(
                         return@handle
                     }
                     val answer: Answer? = when (intent) {
-                        is QuestionnaireScreenIntent.ToggleChoice -> {
+                        is QuestionnaireScreenIntent.ShowQuestion, is QuestionnaireScreenIntent.ToggleChoice -> {
                             updateState { predictDraft(intent) }
                             null
                         }
@@ -82,7 +82,14 @@ internal class QuestionnaireModel(
                             null
                         }
 
-                        is QuestionnaireScreenIntent.Confirm -> Answer.Confirmed(intent.isConfirmed)
+                        is QuestionnaireScreenIntent.Confirm -> {
+                            var comment: String? = null
+                            withState {
+                                comment = questions.firstOrNull { it.id == intent.questionId }
+                                    ?.takeIf { it.isFreeTextAllowed }?.text?.takeIf(String::isNotBlank)
+                            }
+                            Answer.Confirmed(intent.isConfirmed, comment)
+                        }
 
                         is QuestionnaireScreenIntent.Submit -> {
                             var draft: Answer? = null
@@ -144,15 +151,28 @@ internal fun QuestionnaireScreenState.reflectQueue(
 ): QuestionnaireScreenState {
     val asking = state as? QuestionnaireState.Asking ?: return copy(
         questions = emptyList<QuestionUi>().toImmutableList(),
+        activeQuestionId = null,
     )
     val drafts = questions.associateBy { it.id }
     val shown = asking.pending.filter { it.source == source }.map { questionnaire ->
         val draft = drafts[questionnaire.id.value]
         questionnaire.toUi(isSubmitting = questionnaire.id in asking.submitting).let { ui ->
-            if (draft == null) ui else ui.copy(selected = draft.selected, text = draft.text)
+            if (draft == null || draft.kind != ui.kind || draft.isFreeTextAllowed != ui.isFreeTextAllowed) {
+                ui
+            } else {
+                ui.copy(
+                    selected = draft.selected,
+                    text = draft.text,
+                )
+            }
         }
     }
-    return copy(questions = shown.toImmutableList())
+    val previousIndex = questions.indexOfFirst { it.id == activeQuestionId }.coerceAtLeast(0)
+    val active = shown.firstOrNull { it.id == activeQuestionId && !it.isSubmitting }
+        ?: shown.drop(previousIndex).firstOrNull { !it.isSubmitting }
+        ?: shown.firstOrNull { !it.isSubmitting }
+        ?: shown.firstOrNull()
+    return copy(questions = shown.toImmutableList(), activeQuestionId = active?.id)
 }
 
 private fun Questionnaire.toUi(isSubmitting: Boolean) = QuestionUi(
@@ -171,14 +191,24 @@ private fun Questionnaire.toUi(isSubmitting: Boolean) = QuestionUi(
     },
     isSkippable = isSkippable,
     isSubmitting = isSubmitting,
+    isFreeTextAllowed = isFreeTextAllowed,
 )
 
 private fun List<io.aequicor.heartbeat.feature.questionnaire.api.Choice>.toUi() =
     map { ChoiceUi(it.id, it.title) }.toImmutableList()
 
 internal fun QuestionUi.draftAnswer(): Answer? = when (val kind = kind) {
-    is QuestionKindUi.Confirm -> null
-    is QuestionKindUi.Choice -> Answer.Selected(kind.choices.map { it.id }.filter { it in selected })
+    is QuestionKindUi.Confirm -> Answer.Text(text)
+
+    is QuestionKindUi.Choice -> if (isFreeTextAllowed && selected.isEmpty() && text.isNotBlank()) {
+        Answer.Text(text)
+    } else {
+        Answer.Selected(
+            kind.choices.map { it.id }.filter { it in selected },
+            text.takeIf { isFreeTextAllowed && it.isNotBlank() },
+        )
+    }
+
     is QuestionKindUi.Text -> Answer.Text(text)
 }.takeIf { isAnswerReady }
 

@@ -114,6 +114,27 @@ class PermissionMachineTest {
     }
 
     @Test
+    fun `native text alternatives require explicit input capability and preserve decision guards`() {
+        val choice = TestPermission.copy(
+            input = PermissionInput.SingleChoice(
+                listOf(PermissionChoice("a", "A")),
+                isFreeTextAllowed = true,
+            ),
+        )
+        val answer = decision.copy(answer = PermissionAnswer.Text("A with details"))
+        val asking = waiting.copy(requests = listOf(choice))
+        spec.assertTransition(
+            asking,
+            ActiveSessionIntent.Public.Decide(answer),
+            asking.copy(responding = setOf(choice.id)),
+            effects = listOf(ActiveSessionEffect.Decide(answer)),
+        )
+        spec.assertIgnored(waiting, ActiveSessionIntent.Public.Decide(answer))
+        spec.assertIgnored(asking, ActiveSessionIntent.Public.Decide(answer.copy(turn = TurnId("foreign"))))
+        spec.assertIgnored(asking, ActiveSessionIntent.Public.Decide(answer.copy(answer = PermissionAnswer.Text(" "))))
+    }
+
+    @Test
     fun `multi choice respects bounds and free text accepts any text`() {
         val multi = TestPermission.copy(
             input = PermissionInput.MultiChoice(

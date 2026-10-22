@@ -28,6 +28,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -47,6 +48,7 @@ import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionKindUi
 import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionUi
 import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenIntent
 import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenState
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.predictDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import java.awt.image.BufferedImage
@@ -128,11 +130,21 @@ class QuestionnaireUiTest {
     @Test
     fun `choices confirmations and text are forwarded as intents`() = runSkikoComposeUiTest {
         val events = mutableListOf<QuestionnaireScreenIntent>()
-        setContent { HbTheme { QuestionnaireScreen(state, { events += it }) } }
+        var current by mutableStateOf(state)
+        setContent {
+            HbTheme {
+                QuestionnaireScreen(current, {
+                    events += it
+                    current = current.predictDraft(it)
+                })
+            }
+        }
         onNodeWithTag("question-choice-pick-a").performClick()
         onNodeWithTag("question-submit-pick").assertIsEnabled().performClick()
         onNodeWithTag("question-skip-pick").performClick()
+        onNodeWithTag("questionnaire-next").performClick()
         onNodeWithTag("question-yes-go").performClick()
+        onNodeWithTag("questionnaire-next").performClick()
         onNodeWithTag("question-submit-name").assertIsNotEnabled()
         onNodeWithTag("question-text-name").performTextInput("x")
         assertEquals(
@@ -140,11 +152,30 @@ class QuestionnaireUiTest {
                 QuestionnaireScreenIntent.ToggleChoice("pick", "a"),
                 QuestionnaireScreenIntent.Submit("pick"),
                 QuestionnaireScreenIntent.Skip("pick"),
+                QuestionnaireScreenIntent.ShowQuestion("go"),
                 QuestionnaireScreenIntent.Confirm("go", true),
+                QuestionnaireScreenIntent.ShowQuestion("name"),
                 QuestionnaireScreenIntent.TextChanged("name", "x"),
             ),
             events,
         )
+    }
+
+    @Test
+    fun `one visible page preserves typed choice details across keyboard navigation`() = runSkikoComposeUiTest {
+        val questions = persistentListOf(state.questions[0].copy(isFreeTextAllowed = true), state.questions[1])
+        var current by mutableStateOf(state.copy(questions = questions))
+        setContent { HbTheme { QuestionnaireScreen(current, { current = current.predictDraft(it) }) } }
+        onNodeWithTag("question-go").assertDoesNotExist()
+        onNodeWithTag("question-text-pick").performTextInput("Extra detail")
+        val next = onNodeWithTag("questionnaire-next")
+        next.performSemanticsAction(SemanticsActions.RequestFocus)
+        next.performKeyInput { pressKey(Key.Enter) }
+        onNodeWithTag("question-pick").assertDoesNotExist()
+        onNodeWithTag("question-go").assertIsDisplayed()
+        onNodeWithTag("questionnaire-previous").performClick()
+        onNodeWithTag("question-text-pick").assertTextContains("Extra detail")
+        onNodeWithTag("question-submit-pick").assertIsEnabled()
     }
 
     @Test
@@ -229,12 +260,19 @@ class QuestionnaireUiTest {
     private fun verifyQuestionnaireLayout(isDark: Boolean, width: Int) = runSkikoComposeUiTest(
         size = Size(width.toFloat(), 900f),
     ) {
+        var current by mutableStateOf(VisualState)
         setContent {
-            QuestionnaireTestHost(VisualState, isDark, motion = HbMotion(isReducedMotion = true))
+            QuestionnaireTestHost(
+                current,
+                isDark,
+                motion = HbMotion(isReducedMotion = true),
+                onIntent = { current = current.predictDraft(it) },
+            )
         }
         val colors = HbColors.forHost(isDark = isDark, isDesktop = true).forQuestionnaire()
-        val image = captureToImage().toAwtImage()
-        VisualState.questions.forEach { question ->
+        VisualState.questions.forEachIndexed { index, question ->
+            if (index > 0) onNodeWithTag("questionnaire-next").performClick()
+            val image = captureToImage().toAwtImage()
             val card = onNodeWithTag("question-${question.id}").fetchSemanticsNode().boundsInRoot
             assertTrue(card.left >= 0f && card.right <= width, "Question card must fit the viewport")
             assertTrue(card.top >= 0f && card.bottom <= image.height, "Question card must remain fully visible")
@@ -264,8 +302,8 @@ class QuestionnaireUiTest {
                     "Action $tag must remain inside its question card",
                 )
             }
+            saveQuestionnairePreview("${if (isDark) "dark" else "light"}-$width-$index", image)
         }
-        saveQuestionnairePreview("${if (isDark) "dark" else "light"}-$width", image)
     }
 }
 
@@ -285,6 +323,7 @@ private val VisualState = QuestionnaireScreenState(
             isSkippable = true,
             isSubmitting = false,
             selected = persistentSetOf("pg"),
+            isFreeTextAllowed = true,
         ),
         QuestionUi(
             id = "go",
@@ -307,13 +346,18 @@ private val VisualState = QuestionnaireScreenState(
 )
 
 @Composable
-private fun QuestionnaireTestHost(state: QuestionnaireScreenState, isDark: Boolean, motion: HbMotion = HbMotion()) {
+private fun QuestionnaireTestHost(
+    state: QuestionnaireScreenState,
+    isDark: Boolean,
+    motion: HbMotion = HbMotion(),
+    onIntent: (QuestionnaireScreenIntent) -> Unit = {},
+) {
     CompositionLocalProvider(LocalDensity provides Density(1f)) {
         HbTheme(darkTheme = isDark, dimensions = HbDimensions.Desktop, motion = motion) {
             Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop)) {
                 QuestionnaireScreen(
                     state,
-                    {},
+                    onIntent,
                     Modifier.align(Alignment.BottomCenter)
                         .widthIn(max = HbTheme.dimensions.messageMaxWidth)
                         .fillMaxWidth()

@@ -86,7 +86,8 @@ internal class AskUserAgentTools(
             "questions' section in the reply text; the call returns when the user answers them and its " +
             "result holds the answers, skipped ones carry none. Ask only what you cannot decide yourself. " +
             "Required questions and Confirm never time out. Optional clarifications get an automatic reading/answer " +
-            "budget; mark isImportant for optional questions that must wait indefinitely. A timedOut id has no " +
+            "budget; users can add a comment to a choice or supply their own text instead. " +
+            "Mark isImportant for optional questions that must wait indefinitely. A timedOut id has no " +
             "answer and grants no approval. Do not automatically ask the same expired question again."
     } else {
         ""
@@ -200,6 +201,7 @@ private data class PreparedQuestion(val args: QuestionArgs) {
         question = question(),
         description = args.description?.takeIf(String::isNotBlank),
         isSkippable = args.isOptional,
+        isFreeTextAllowed = true,
     )
 
     private fun question(): Question = when (args.kind) {
@@ -262,8 +264,8 @@ private fun List<PreparedQuestion>.timeoutMillis(): Long? {
 }
 
 private fun Answer.payload(): AnswerPayload = when (this) {
-    is Answer.Confirmed -> AnswerPayload(isConfirmed = isConfirmed)
-    is Answer.Selected -> AnswerPayload(selected = ids)
+    is Answer.Confirmed -> AnswerPayload(isConfirmed = isConfirmed, text = text)
+    is Answer.Selected -> AnswerPayload(selected = ids, text = text)
     is Answer.Text -> AnswerPayload(text = value)
     Answer.Skipped -> AnswerPayload(isSkipped = true)
 }
@@ -297,10 +299,7 @@ private data class ChoiceArgs(val id: String, val title: String)
 private enum class QuestionKind { Confirm, SingleChoice, MultiChoice, FreeText }
 
 @Serializable
-private data class AskAnswers(
-    val answers: Map<String, AnswerPayload> = emptyMap(),
-    val timedOut: List<String> = emptyList(),
-)
+private data class AskAnswers(val answers: Map<String, AnswerPayload>, val timedOut: List<String> = emptyList())
 
 @Serializable
 private data class AnswerPayload(

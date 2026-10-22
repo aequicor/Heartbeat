@@ -125,7 +125,8 @@ internal fun codexQuestions(params: JsonObject): List<CodexQuestion>? {
 /**
  * Converts the native batch into the existing structured permission inputs and returns the per-question answers.
  * Questions always wait for an explicit user decision, independently of the turn trust level; the Other choice opens
- * a free-text follow-up and a skip yields an empty list. When the form becomes unavailable mid-batch (lease released,
+ * a free-text follow-up; text-capable screens can submit the alternative or a commented label directly.
+ * A skip yields an empty list. When the form becomes unavailable mid-batch (lease released,
  * turn changed, request not accepted), the answers collected so far are returned and the rest stay unanswered.
  */
 internal suspend fun answerCodexQuestions(
@@ -154,7 +155,7 @@ private suspend fun CodexQuestion.answer(
     val input = if (choices.isEmpty()) {
         PermissionInput.FreeText(isMultiline = true)
     } else {
-        PermissionInput.SingleChoice(choices)
+        PermissionInput.SingleChoice(choices, isFreeTextAllowed = hasOther)
     }
     val decision = ask(request(turn, input))
     return if ((decision?.answer as? PermissionAnswer.Selected)?.ids == listOf(OTHER)) {

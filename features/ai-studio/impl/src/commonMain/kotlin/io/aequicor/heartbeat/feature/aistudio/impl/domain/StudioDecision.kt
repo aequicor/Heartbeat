@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.feature.questionnaire.api.Choice
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
+import io.aequicor.heartbeat.feature.questionnaire.api.accepts
+import io.aequicor.heartbeat.feature.questionnaire.api.comment
 
 /** Option chosen for a questionnaire answer and the structured answer sent with it. */
 internal data class StudioDecision(val optionId: String, val answer: StudioPermissionAnswer?)
@@ -62,12 +64,15 @@ internal fun StudioPermission.toQuestionnaire(): Questionnaire? {
         question = question,
         description = description,
         isSkippable = input != null && skipOption() != null,
+        isFreeTextAllowed = (input as? StudioPermissionInput.SingleChoice)?.isFreeTextAllowed == true,
     )
 }
 
 /** Maps a questionnaire answer back to an offered option; null when it does not fit this permission. */
-internal fun StudioPermission.decision(answer: Answer): StudioDecision? =
-    if (input == null) optionDecision(answer) else inputDecision(answer)
+internal fun StudioPermission.decision(answer: Answer): StudioDecision? {
+    if (toQuestionnaire()?.accepts(answer) != true) return null
+    return if (input == null) optionDecision(answer) else inputDecision(answer)
+}
 
 private fun StudioPermission.optionDecision(answer: Answer): StudioDecision? = when (answer) {
     is Answer.Confirmed -> options.getOrNull(if (answer.isConfirmed) 0 else 1)?.let { StudioDecision(it.id, null) }
@@ -82,11 +87,19 @@ private fun StudioPermission.optionDecision(answer: Answer): StudioDecision? = w
 private fun StudioPermission.inputDecision(answer: Answer): StudioDecision? {
     val structured = when (answer) {
         Answer.Skipped -> return skipOption()?.let { StudioDecision(it.id, null) }
-        is Answer.Selected -> StudioPermissionAnswer.Selected(answer.ids)
+        is Answer.Selected -> selectedAnswer(answer)
         is Answer.Text -> StudioPermissionAnswer.Text(answer.value)
         is Answer.Confirmed -> return null
     }
     return submitOption()?.let { StudioDecision(it.id, structured) }
+}
+
+/** Text-capable native inputs receive human-readable labels along with the supplementary text. */
+private fun StudioPermission.selectedAnswer(answer: Answer.Selected): StudioPermissionAnswer {
+    val comment = answer.text?.takeIf(String::isNotBlank) ?: return StudioPermissionAnswer.Selected(answer.ids)
+    val choices = (input as? StudioPermissionInput.SingleChoice)?.choices.orEmpty()
+    val selected = answer.ids.joinToString { id -> choices.first { it.id == id }.title }
+    return StudioPermissionAnswer.Text("$selected\n$comment")
 }
 
 private fun StudioPermission.submitOption() = options.firstOrNull { !it.isSkip }
@@ -114,5 +127,5 @@ internal fun Questionnaire.followUpText(answer: Answer): String {
 
         Answer.Skipped -> "—"
     }
-    return "$title\n$text"
+    return listOfNotNull(title, text, answer.comment()?.takeIf(String::isNotBlank)).joinToString("\n")
 }

@@ -97,6 +97,37 @@ class AskUserToolsTest {
     }
 
     @Test
+    fun `choice and confirmation comments are delivered alongside the selected answer`() = runTest {
+        val fixture = Fixture(this)
+        val call = launch { fixture.execute(arguments) }
+        runCurrent()
+        val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
+        assertTrue(asked.all { it.questionnaire.isFreeTextAllowed })
+        fixture.queue.outputs.emit(
+            QuestionnaireOutput.Answered(
+                asked[0].questionnaire,
+                Answer.Confirmed(false, "After review"),
+            ),
+        )
+        fixture.queue.outputs.emit(
+            QuestionnaireOutput.Answered(
+                asked[1].questionnaire,
+                Answer.Selected(listOf("user"), "From the desktop"),
+            ),
+        )
+        runCurrent()
+        call.join()
+        assertEquals(
+            "After review",
+            fixture.answers().getValue("ios").jsonObject.getValue("text").jsonPrimitive.content,
+        )
+        assertEquals(
+            "From the desktop",
+            fixture.answers().getValue("caller").jsonObject.getValue("text").jsonPrimitive.content,
+        )
+    }
+
+    @Test
     fun `fully skipped hosted batches do not revoke authority`() = runTest {
         val fixture = Fixture(this)
         fixture.chats.revocation = CompletableDeferred()
@@ -408,6 +439,29 @@ class AskUserToolsTest {
             fixture.queue.applied.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().map { it.id },
         )
         assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
+    }
+
+    @Test
+    fun `optional choice budget includes reading time and is capped at ten minutes`() = runTest {
+        for ((length, expectedMillis) in listOf(200 to 71_000L, 20_000 to 600_000L)) {
+            val fixture = Fixture(this)
+            val description = "x".repeat(length)
+            val args = Json.parseToJsonElement(
+                """{"key":"reading","questions":[{"id":"q","title":"1234567890",
+                    "kind":"SingleChoice","isOptional":true,"description":"$description",
+                    "choices":[{"id":"a","title":"12345678901234567890"}]}]}""",
+            ).jsonObject
+            val call = launch { fixture.execute(args) }
+            runCurrent()
+            advanceTimeBy(expectedMillis - 1)
+            assertFalse(call.isCompleted)
+            advanceTimeBy(1)
+            runCurrent()
+            assertTrue(call.isCompleted)
+            assertTrue(fixture.answers().isEmpty())
+            assertEquals(listOf("q"), fixture.timedOut())
+            assertEquals(1, fixture.queue.applied.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().size)
+        }
     }
 
     @Test

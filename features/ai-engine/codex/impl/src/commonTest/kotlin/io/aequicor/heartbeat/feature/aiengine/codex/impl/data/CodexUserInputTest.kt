@@ -131,6 +131,25 @@ class CodexUserInputTest {
     }
 
     @Test
+    fun `other capable input accepts text directly without a follow up card`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        session.feature(SendsPrompts).send(Prompt)
+        fixture.ask(question("links", other = true))
+        runCurrent()
+        val pending = session.question()
+        assertTrue(assertIs<PermissionInput.SingleChoice>(pending.input).isFreeTextAllowed)
+        session.answer(pending, PermissionAnswer.Text("Project files\nOnly Markdown"))
+        runCurrent()
+        assertEquals(
+            JsonArray(listOf("Project files\nOnly Markdown".json())),
+            checkNotNull(fixture.response()).obj("answers").obj("links")["answers"],
+        )
+        assertIs<ActiveSessionState.Running>(session.state.value)
+        fixture.runtime.close()
+    }
+
+    @Test
     fun `skip returns no answer instead of the first suggested option`() = runTest {
         val fixture = Fixture(this)
         val session = fixture.open()

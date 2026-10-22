@@ -53,12 +53,17 @@ data class QuestionUi(
     val isSubmitting: Boolean,
     val selected: ImmutableSet<String> = persistentSetOf(),
     val text: String = "",
+    val isFreeTextAllowed: Boolean = false,
 ) {
     /** Whether the draft is a complete answer. */
     val isAnswerReady: Boolean
         get() = !isSubmitting && when (kind) {
-            is QuestionKindUi.Confirm -> false
-            is QuestionKindUi.Choice -> selected.size in kind.min..kind.max
+            is QuestionKindUi.Confirm -> isFreeTextAllowed && text.isNotBlank()
+
+            is QuestionKindUi.Choice ->
+                selected.size in kind.min..kind.max ||
+                    (isFreeTextAllowed && selected.isEmpty() && text.isNotBlank())
+
             is QuestionKindUi.Text -> text.isNotBlank()
         }
 }
@@ -70,6 +75,8 @@ data class QuestionnaireScreenState(
     val questions: ImmutableList<QuestionUi> = persistentListOf(),
     /** Host-local commit revision; the remote handle sends it in its envelope. */
     @Transient val revision: Long = 0,
+    /** Stable identity of the visible page; drafts remain attached to all pending questions. */
+    val activeQuestionId: String? = null,
 ) : MVIState
 
 /** User input on the questionnaire screen. */
@@ -77,6 +84,10 @@ data class QuestionnaireScreenState(
 sealed interface QuestionnaireScreenIntent : MVIIntent {
     /** The question this input belongs to. */
     val questionId: String
+
+    /** Opens one pending question without submitting its draft. */
+    @Serializable
+    data class ShowQuestion(override val questionId: String) : QuestionnaireScreenIntent
 
     /** Selects or unselects [choiceId]; a single choice replaces the selection. */
     @Serializable

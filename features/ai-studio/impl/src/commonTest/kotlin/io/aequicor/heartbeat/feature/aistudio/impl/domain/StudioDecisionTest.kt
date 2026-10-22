@@ -66,6 +66,29 @@ class StudioDecisionTest {
     }
 
     @Test
+    fun `native free text capability preserves alternatives and selected labels with comments`() {
+        val open = select.copy(
+            input = StudioPermissionInput.SingleChoice(
+                listOf(StudioPermissionOption("0", "red")),
+                isFreeTextAllowed = true,
+            ),
+        )
+        assertTrue(assertNotNull(open.toQuestionnaire()).isFreeTextAllowed)
+        assertEquals(
+            StudioDecision("answer", StudioPermissionAnswer.Text("red\nOnly accents")),
+            open.decision(Answer.Selected(listOf("0"), "Only accents")),
+        )
+        assertEquals(
+            StudioDecision("answer", StudioPermissionAnswer.Text("blue")),
+            open.decision(Answer.Text("blue")),
+        )
+        assertNull(select.decision(Answer.Text("blue")))
+        assertNull(select.decision(Answer.Selected(listOf("0"), "Only accents")))
+        assertNull(approval.decision(Answer.Confirmed(true, "Only if safe")))
+        assertNull(open.decision(Answer.Selected(listOf("foreign"), "Notes")))
+    }
+
+    @Test
     fun `permissions without usable options ask nothing and never throw`() {
         val empty = approval.copy(options = emptyList())
         assertNull(empty.toQuestionnaire())

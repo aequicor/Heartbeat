@@ -99,6 +99,27 @@ class QuestionnaireMachineTest {
     }
 
     @Test
+    fun `free text is opt in and cannot grant a strict permission`() {
+        val alternative = Answer.Text("Use another database")
+        val comment = Answer.Selected(listOf("a"), "For the prototype")
+        val open = pick.copy(isFreeTextAllowed = true)
+        val openState = QuestionnaireState.Asking(listOf(open))
+        for (answer in listOf(alternative, comment)) {
+            spec.assertTransition(
+                openState,
+                QuestionnaireIntent.Public.Answer(open.id, answer),
+                openState.copy(submitting = setOf(open.id)),
+                outputs = listOf(QuestionnaireOutput.Answered(open, answer)),
+            )
+            spec.assertIgnored(asking, QuestionnaireIntent.Public.Answer(pick.id, answer))
+        }
+        assertFalse(open.accepts(Answer.Text("  ")))
+        assertFalse(open.accepts(Answer.Selected(listOf("unknown"), "Comment")))
+        assertFalse(confirm.accepts(Answer.Text("yes")))
+        assertFalse(confirm.accepts(Answer.Confirmed(true, "Only if tests pass")))
+    }
+
+    @Test
     fun `answers are validated against the question kind`() {
         val multi = Question.MultiChoice(listOf(Choice("a", "A"), Choice("b", "B"), Choice("c", "C")), 1, 2)
         assertTrue(Answer.Selected(listOf("a", "c")).validFor(multi))

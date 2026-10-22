@@ -26,7 +26,11 @@ import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.questionnaire.impl.resources.Res
 import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_attention
+import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_next
+import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_other_hint
+import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_page
 import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_pick_range
+import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_previous
 import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_selected
 import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_sending
 import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_skip
@@ -38,7 +42,7 @@ import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScre
 import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenState
 import org.jetbrains.compose.resources.stringResource
 
-/** Pending questions on dark oak attention surfaces; renders nothing when the source asks nothing. */
+/** One questionnaire panel with stable pages and independent drafts, shared by native and remote hosts. */
 @Composable
 fun QuestionnaireScreen(
     state: QuestionnaireScreenState,
@@ -52,12 +56,16 @@ fun QuestionnaireScreen(
         } else {
             HbTheme.dimensions.toolPayloadMaxHeight
         }
-        HbColumn(
-            Modifier.fillMaxWidth().hbVerticalScroll(rememberScrollState()).testTag("questionnaire"),
-            gap = HbTheme.spacing.m,
-        ) {
-            state.questions.forEach { question ->
-                key(question.id) { QuestionCard(question, descriptionHeight, onIntent) }
+        val index = state.questions.indexOfFirst { it.id == state.activeQuestionId }.coerceAtLeast(0)
+        val question = state.questions[index]
+        key(question.id) {
+            HbColumn(
+                Modifier.fillMaxWidth().hbVerticalScroll(rememberScrollState()).testTag("questionnaire"),
+                gap = HbTheme.spacing.m,
+            ) {
+                QuestionCard(question, descriptionHeight, onIntent) {
+                    if (state.questions.size > 1) QuestionPages(state, index, onIntent)
+                }
             }
         }
     }
@@ -69,6 +77,7 @@ private fun QuestionCard(
     descriptionHeight: Dp,
     onIntent: (QuestionnaireScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
+    navigation: @Composable () -> Unit = {},
 ) {
     HbQuestionnaireCard(
         questionId = question.id,
@@ -76,12 +85,20 @@ private fun QuestionCard(
         attentionLabel = stringResource(Res.string.questionnaire_attention),
         modifier = modifier,
     ) {
+        navigation()
+        if (question.isFreeTextAllowed && question.kind !is QuestionKindUi.Text) {
+            TextInput(
+                question,
+                QuestionKindUi.Text(stringResource(Res.string.questionnaire_other_hint), isMultiline = true),
+                onIntent,
+            )
+        }
         when (val kind = question.kind) {
             is QuestionKindUi.Confirm -> ConfirmActions(question, kind, onIntent)
             is QuestionKindUi.Choice -> ChoiceInput(question, kind, onIntent)
             is QuestionKindUi.Text -> TextInput(question, kind, onIntent)
         }
-        if (question.kind !is QuestionKindUi.Confirm) AnswerActions(question, onIntent)
+        if (question.kind !is QuestionKindUi.Confirm || question.isFreeTextAllowed) AnswerActions(question, onIntent)
         question.description?.takeIf { it.isNotBlank() }?.let {
             Box(
                 Modifier.fillMaxWidth().heightIn(max = descriptionHeight)
@@ -96,6 +113,31 @@ private fun QuestionCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun QuestionPages(state: QuestionnaireScreenState, index: Int, onIntent: (QuestionnaireScreenIntent) -> Unit) {
+    HbFlowRow(gap = HbTheme.spacing.m) {
+        HbButton(
+            stringResource(Res.string.questionnaire_previous),
+            onClick = { onIntent(QuestionnaireScreenIntent.ShowQuestion(state.questions[index - 1].id)) },
+            modifier = Modifier.testTag("questionnaire-previous"),
+            style = HbButtonStyle.Ghost,
+            enabled = index > 0,
+        )
+        HbText(
+            stringResource(Res.string.questionnaire_page, index + 1, state.questions.size),
+            modifier = Modifier.testTag("questionnaire-page"),
+            style = HbTheme.typography.caption,
+        )
+        HbButton(
+            stringResource(Res.string.questionnaire_next),
+            onClick = { onIntent(QuestionnaireScreenIntent.ShowQuestion(state.questions[index + 1].id)) },
+            modifier = Modifier.testTag("questionnaire-next"),
+            style = HbButtonStyle.Ghost,
+            enabled = index < state.questions.lastIndex,
+        )
     }
 }
 
