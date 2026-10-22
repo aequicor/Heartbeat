@@ -94,6 +94,13 @@ internal class EngineAssistsSource(
         }
     }
 
+    /**
+     * Whether [target]'s engine owns skill discovery, decided by its declared feature alone: no listing runs, and an
+     * engine whose feature is present but blocked still counts as a catalog.
+     */
+    internal fun hasNativeCatalog(target: EngineTarget): Boolean =
+        facade.engines.features(target.engine).resolve(ListsComposerAssists) != FeatureAccess.Unsupported
+
     private suspend fun read(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists =
         when (val resolved = facade.engines.features(target.engine).resolve(ListsComposerAssists)) {
             is FeatureAccess.Available -> try {

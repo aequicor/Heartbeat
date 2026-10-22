@@ -164,10 +164,7 @@ internal fun HbEditableText(
     val selectionColors = remember(colors) {
         TextSelectionColors(handleColor = colors.focusAccent, backgroundColor = colors.selectionHighlight)
     }
-    val platformClipboard = LocalClipboard.current
-    val editorClipboard = remember(state, platformClipboard, clipboard != null) {
-        clipboard?.invoke(state, platformClipboard) ?: platformClipboard
-    }
+    val editorClipboard = rememberEditorClipboard(state, clipboard)
     CompositionLocalProvider(
         LocalTextSelectionColors provides selectionColors,
         LocalClipboard provides editorClipboard,
@@ -200,6 +197,22 @@ internal fun HbEditableText(
             )
         }
     }
+}
+
+/** The platform clipboard, or the caller's wrapper of it, used by copy, cut and paste of [state]. */
+@Composable
+private fun rememberEditorClipboard(
+    state: TextFieldState,
+    clipboard: ((TextFieldState, Clipboard) -> Clipboard)?,
+): Clipboard {
+    val platformClipboard = LocalClipboard.current
+    val editorClipboard = remember(state, platformClipboard, clipboard != null) {
+        clipboard?.invoke(state, platformClipboard) ?: platformClipboard
+    }
+    if (editorClipboard is ComposerReferenceClipboard) {
+        LaunchedEffect(editorClipboard) { editorClipboard.watchSelection() }
+    }
+    return editorClipboard
 }
 
 /** Focus entry selects once; clicks inside an already focused field keep normal caret behavior. */

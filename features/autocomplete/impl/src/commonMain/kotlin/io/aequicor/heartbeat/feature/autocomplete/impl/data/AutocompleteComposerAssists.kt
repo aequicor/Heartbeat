@@ -78,8 +78,14 @@ internal class AutocompleteComposerAssists(
     }
 
     /** A native catalog decides which skills its engine runs; a link must not restore one it excluded. */
-    private suspend fun isLinkDeliveryAllowed(scope: ComposerScope): Boolean = toggles.get(AutocompleteEnabled) &&
-        scope.target?.let { engineAssists.assists(it, scope.workspace).hasNativeCatalog } != true
+    private suspend fun isLinkDeliveryAllowed(scope: ComposerScope): Boolean {
+        val isEnabled = toggles.get(AutocompleteEnabled)
+        val isNative = scope.target?.let(engineAssists::hasNativeCatalog) == true
+        if (!isEnabled || isNative) {
+            log.d { "Linked project skills not delivered: enabled=$isEnabled, native=$isNative" }
+        }
+        return isEnabled && !isNative
+    }
 
     override suspend fun prewarm(scope: ComposerScope) {
         suggest(ComposerTrigger.Mention(0..0, ""), scope, emptyList())

@@ -4,14 +4,17 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInputSelection
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.text.TextRange
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -67,6 +70,21 @@ class HbComposerReferenceClipboardUiTest {
             assertEquals(other, clipboard.text)
             assertEquals(link, draft)
         }
+    }
+
+    @Test
+    fun `copying after deleting a same-label skill keeps the remaining target`() = runSkikoComposeUiTest {
+        val clipboard = RecordingClipboard()
+        val other = "[/open-pr](.claude/skills/open-pr/SKILL.md)"
+        var draft by mutableStateOf("$link$other")
+        setContent { Composer(draft, { draft = it }, clipboard) }
+        val editor = onNodeWithContentDescription("Prompt")
+        editor.performTextInputSelection(TextRange(link.length, draft.length))
+        editor.performKeyInput { pressKey(Key.Delete) }
+        runOnIdle { assertEquals(link, draft) }
+        editor.performTextInputSelection(TextRange(0, draft.length))
+        editor.performSemanticsAction(SemanticsActions.CopyText)
+        runOnIdle { assertEquals(link, clipboard.text) }
     }
 
     @Test

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.ds.components
 
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
@@ -12,7 +13,9 @@ internal fun composerReferenceDisplay(text: CharSequence): String =
 
 /**
  * Raw text removed by the latest composer edit, widened to whole skill links whose labels it covers. Foundation
- * cuts the displayed text, so the clipboard needs the removed markup recorded before the edit lands.
+ * cuts the displayed text, so the clipboard needs the removed markup recorded before the edit lands. A record serves
+ * at most one clipboard write and is forgotten once the user selects text again: a later copy of the remaining draft
+ * can then never resolve to a link that was deleted earlier.
  */
 internal class ComposerReferenceRemovals {
     private var latest: Removal? = null
@@ -27,6 +30,10 @@ internal class ComposerReferenceRemovals {
             val until = maxOf(range.last, links.maxOfOrNull { it.range.last } ?: range.last) + 1
             Removal(original.subSequence(from, until).toString(), from, original.removeRange(from, until).toString())
         }
+    }
+
+    fun forget() {
+        latest = null
     }
 
     /** Raw text of the cut that produced exactly [text] with the caret at [caret], when it displays as [shown]. */
@@ -56,9 +63,15 @@ internal class ComposerReferenceClipboard(
 
     override suspend fun getClipEntry(): ClipEntry? = delegate.getClipEntry()
 
+    /** Forgets the last removal whenever the user selects text, which only a copy can follow. */
+    suspend fun watchSelection() {
+        snapshotFlow { state.selection.collapsed }.collect { isCollapsed -> if (!isCollapsed) removals.forget() }
+    }
+
     override suspend fun setClipEntry(clipEntry: ClipEntry?) {
         val shown = clipEntry?.let(::hbClipEntryPlainText)
         val raw = shown?.let(::rawText)
+        removals.forget()
         delegate.setClipEntry(if (raw == null || raw == shown) clipEntry else hbPlainTextClipEntry(raw))
     }
 

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assume.assumeNoException
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import java.nio.file.FileSystemException
@@ -149,6 +150,14 @@ class DesktopProjectFileIndexTest {
             assumeNoException(e)
         }
         assertEquals(null, index.readSkill(workspace, ".claude/skills/linked/SKILL.md", "open-pr"))
+    }
+
+    @Test
+    fun `skill bodies require the real spelling of their path`() = runTest {
+        val root = temporary.newFolder("spelling").toPath()
+        write(root, ".agents/skills/review/SKILL.md", "---\nname: review\ndescription: Review\n---\n")
+        assumeTrue(Files.exists(root.resolve(".agents/skills/REVIEW/SKILL.md")))
+        assertEquals(null, index(root).readSkill(workspace, ".agents/skills/REVIEW/SKILL.md", "review"))
     }
 
     private fun index(root: Path) = DesktopProjectFileIndex(

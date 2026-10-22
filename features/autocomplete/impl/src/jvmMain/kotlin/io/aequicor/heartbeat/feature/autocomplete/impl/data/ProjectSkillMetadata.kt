@@ -30,7 +30,9 @@ internal fun readProjectSkill(file: Path, relative: String, size: Long): Project
 
 /**
  * Reads a whole skill file of [root] for delivery with a prompt. Every path segment must be a plain name under the
- * real root and no segment may be a link; oversized files and files declaring a different [name] are refused.
+ * real root and no segment may be a link; the file must also be its own real path, which refuses Windows junctions
+ * and, on case-insensitive file systems, a path spelled differently from the disk. Oversized files and files
+ * declaring a different [name] are refused.
  */
 internal fun readProjectSkillBody(root: Path, relative: String, name: String): String? {
     val segments = relative.split('/')
