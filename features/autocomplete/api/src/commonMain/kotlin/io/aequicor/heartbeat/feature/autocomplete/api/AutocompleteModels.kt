@@ -103,7 +103,7 @@ public data class ComposerDraft(
 
 /**
  * Main-safe suggestion service of one profile. Suggest never starts processes on its own, ranks the merged
- * result with Heartbeat items before native engine ones, and returns an empty list to hide the popup.
+ * result by relevance across origins (Heartbeat wins ties), and returns an empty list to hide the popup.
  */
 public interface ComposerAssists {
     /** Suggestions for the active [trigger] in [scope], plus the host screen's own [hostCommands]. */

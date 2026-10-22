@@ -19,8 +19,8 @@ import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.queryRank
 
 /**
- * Profile service merging the suggestion sources of one composer token. Heartbeat items come first, native
- * engine ones after them, and a source that is off or unavailable contributes nothing — typing degrades to
+ * Profile service merging the suggestion sources of one composer token by relevance across origins.
+ * A source that is off or unavailable contributes nothing — typing degrades to
  * fewer sections instead of blocking. Matching is prefix-then-substring over ids, titles and labels; a native
  * item that duplicates a Heartbeat item's visible name drops, because the host item owns the semantics the
  * composer can guarantee.
@@ -41,7 +41,7 @@ internal class AutocompleteComposerAssists(
         if (!toggles.get(AutocompleteEnabled)) return emptyList()
         val merged = when (trigger) {
             is ComposerTrigger.Command -> buildList {
-                hostCommands.filter { it.matches(trigger.query) }.forEach { add(hostCommand(it)) }
+                hostCommands.filter { it.matches(trigger.query) }.forEach { add(hostCommand(it, trigger.query)) }
                 native(trigger, scope).forEach { add(it) }
             }
 
@@ -60,7 +60,7 @@ internal class AutocompleteComposerAssists(
                 it.suggestion.origin != ComposerAssistOrigin.Heartbeat &&
                     it.suggestion.label.lowercase() in heartbeatNames
             }
-            .sortedWith(compareBy({ it.suggestion.origin != ComposerAssistOrigin.Heartbeat }, { it.rank }))
+            .sortedWith(compareBy({ it.rank }, { it.suggestion.origin != ComposerAssistOrigin.Heartbeat }))
             .map { it.suggestion }
             .take(SUGGESTION_LIMIT)
             .toList()
@@ -68,7 +68,7 @@ internal class AutocompleteComposerAssists(
 
     private fun HostCommand.matches(query: String): Boolean = queryRank(query, id) >= 0 || queryRank(query, label) >= 0
 
-    private fun hostCommand(command: HostCommand): Ranked = Ranked(
+    private fun hostCommand(command: HostCommand, query: String): Ranked = Ranked(
         ComposerSuggestion.Command(
             id = "host:${command.id}",
             label = command.label,
@@ -76,7 +76,7 @@ internal class AutocompleteComposerAssists(
             origin = ComposerAssistOrigin.Heartbeat,
             insert = command.insert,
         ),
-        HOST_RANK,
+        rank(query, command.id, command.label) ?: 0,
     )
 
     private suspend fun learned(trigger: ComposerTrigger.Mention, scope: ComposerScope): List<Ranked> {
@@ -147,8 +147,9 @@ internal class AutocompleteComposerAssists(
                 Ranked(
                     ComposerSuggestion.File(
                         id = "file:${file.relativePath}",
-                        label = file.relativePath,
-                        description = describeSize(file.sizeBytes) + reason?.let { " · $it" }.orEmpty(),
+                        label = file.relativePath.substringAfterLast('/'),
+                        description = "${file.relativePath} · ${describeSize(file.sizeBytes)}" +
+                            reason?.let { " · $it" }.orEmpty(),
                         origin = ComposerAssistOrigin.Heartbeat,
                         relativePath = file.relativePath,
                         location = file.location,
@@ -173,8 +174,7 @@ internal class AutocompleteComposerAssists(
     private data class Ranked(val suggestion: ComposerSuggestion, val rank: Int)
 
     private companion object {
-        const val SUGGESTION_LIMIT = 8
-        const val HOST_RANK = -1
+        const val SUGGESTION_LIMIT = 16
         const val BYTES_PER_KB = 1_024L
         const val BYTES_PER_MB = 1_048_576L
     }

@@ -70,7 +70,8 @@ class AutocompleteComposerAssistsTest {
         )
         val file = assertIs<ComposerSuggestion.File>(suggestions.single())
         assertEquals("docs/readme.md", file.relativePath)
-        assertEquals("2 kB", file.description)
+        assertEquals("readme.md", file.label)
+        assertEquals("docs/readme.md · 2 kB", file.description)
         assertTrue(file.isSupported)
         val oversized = service.suggest(
             ComposerTrigger.Mention(0..4, "logo"),
@@ -234,13 +235,13 @@ class AutocompleteComposerAssistsTest {
     }
 
     @Test
-    fun `heartbeat substring match stays before a native prefix match`() = runTest {
+    fun `native prefix match precedes a heartbeat substring match`() = runTest {
         val service = service(assists = listOf(skill("erify", "erify")))
         val suggestions = service.suggest(
             ComposerTrigger.Mention(0..2, "er"),
             ComposerScope(target = target, workspace = project),
         )
-        assertEquals(listOf("verify", "erify"), suggestions.map { it.label })
+        assertEquals(listOf("erify", "verify"), suggestions.map { it.label })
     }
 
     @Test
@@ -267,6 +268,13 @@ class AutocompleteComposerAssistsTest {
         )
         assertEquals(listOf("verify"), suggestions.map { it.label })
         assertEquals<List<WorkspaceRef?>>(listOf(checkout), scopes)
+    }
+
+    @Test
+    fun `one ranked list is capped at sixteen suggestions`() = runTest {
+        val service = service(assists = (1..24).map { command("/task$it ", "task$it") })
+        val suggestions = service.suggest(ComposerTrigger.Command(0..0, ""), ComposerScope(target = target))
+        assertEquals(16, suggestions.size)
     }
 
     private fun command(insert: String, label: String, description: String = "") = EngineAssist(

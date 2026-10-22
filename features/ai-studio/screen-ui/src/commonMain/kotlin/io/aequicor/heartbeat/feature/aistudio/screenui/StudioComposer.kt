@@ -78,6 +78,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_helper_hin
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_settings_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_trust
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_unsupported
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestion_compact_description
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestion_remember_description
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_skills
@@ -278,7 +280,11 @@ private fun composerSuggestions(content: PaneContent): HbComposerSuggestions? {
         HbComposerSuggestion(
             id = suggestion.id,
             label = suggestion.label,
-            supportingText = suggestion.description.takeIf(String::isNotEmpty),
+            supportingText = when (suggestion.id) {
+                "host:remember" -> stringResource(Res.string.suggestion_remember_description)
+                "host:compact" -> stringResource(Res.string.suggestion_compact_description)
+                else -> suggestion.description.takeIf(String::isNotEmpty)
+            },
             sectionLabel = if (section != previousSection) sectionLabel(suggestion) else null,
             icon = when (suggestion.kind) {
                 SuggestionKindUi.Command -> HbIcons.Terminal
