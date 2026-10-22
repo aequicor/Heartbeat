@@ -4,9 +4,9 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
 import io.aequicor.heartbeat.feature.attachments.api.attachmentMediaTypeFor
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onStart
+
+private val log = Log.tag("Autocomplete/ComposerAssists")
 
 /**
  * Profile service merging the suggestion sources of one composer token by relevance across origins.
@@ -53,17 +55,31 @@ internal class AutocompleteComposerAssists(
         }
     }
 
-    override suspend fun referencedSkills(text: String, workspace: WorkspaceRef?): List<ComposerSkillContent> {
-        if (workspace == null) return emptyList()
-        return SKILL_LINK.findAll(text)
+    override suspend fun referencedSkills(text: String, scope: ComposerScope): List<ComposerSkillContent> {
+        val links = SKILL_LINK.findAll(text)
             .map { link -> link.groupValues[1] to decodedPath(link.groupValues[2]) }
             .distinctBy { it.second }
             .take(REFERENCED_SKILL_LIMIT)
             .toList()
-            .mapNotNull { (label, path) ->
-                projectFiles.readSkill(workspace, path, label.drop(1))?.let { ComposerSkillContent(label, path, it) }
-            }
+        val workspace = scope.workspace?.takeIf { links.isNotEmpty() && isLinkDeliveryAllowed(scope) }
+            ?: return emptyList()
+        val read = links.mapNotNull { (label, path) ->
+            projectFiles.readSkill(workspace, path, label.drop(1))?.let { ComposerSkillContent(label, path, it) }
+        }
+        var used = 0
+        val delivered = read.takeWhile { skill ->
+            used += skill.content.length
+            used <= REFERENCED_SKILL_CHARS
+        }
+        if (delivered.size < read.size) {
+            log.w { "Linked project skills over the size budget dropped: ${read.size - delivered.size}" }
+        }
+        return delivered
     }
+
+    /** A native catalog decides which skills its engine runs; a link must not restore one it excluded. */
+    private suspend fun isLinkDeliveryAllowed(scope: ComposerScope): Boolean = toggles.get(AutocompleteEnabled) &&
+        scope.target?.let { engineAssists.assists(it, scope.workspace).hasNativeCatalog } != true
 
     override suspend fun prewarm(scope: ComposerScope) {
         suggest(ComposerTrigger.Mention(0..0, ""), scope, emptyList())
@@ -274,6 +290,7 @@ internal class AutocompleteComposerAssists(
         const val SUGGESTION_LIMIT = 16
         const val PROJECT_SKILL_PREFIX = "project-skill:"
         const val REFERENCED_SKILL_LIMIT = 8
+        const val REFERENCED_SKILL_CHARS = 131_072
 
         /** Same link form the composer editor shortens to its label. */
         val SKILL_LINK = Regex("\\[([/@$][A-Za-z0-9_][A-Za-z0-9_.:-]*)]\\(([^\\s()]+/SKILL\\.md)\\)")

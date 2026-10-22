@@ -134,11 +134,12 @@ public interface ComposerAssists {
     ): Flow<List<ComposerSuggestion>> = flow { emit(suggest(trigger, scope, hostCommands)) }
 
     /**
-     * Bodies of the project skills linked in [text], read again from [workspace] at send time. A link that no longer
-     * resolves to a valid skill file of the workspace contributes nothing; the prompt itself keeps the link.
+     * Bodies of the project skills linked in [text], read again from the workspace of [scope] at send time, within a
+     * total size budget. Nothing is delivered while autocomplete is off or when the route's engine has its own skill
+     * catalog, whose exclusions a link must not override. A link that no longer resolves to a valid skill file
+     * contributes nothing; the prompt itself keeps the link.
      */
-    public suspend fun referencedSkills(text: String, workspace: WorkspaceRef?): List<ComposerSkillContent> =
-        emptyList()
+    public suspend fun referencedSkills(text: String, scope: ComposerScope): List<ComposerSkillContent> = emptyList()
 
     /** Suggestions for the active [trigger] in [scope], plus the host screen's own [hostCommands]. */
     public suspend fun suggest(

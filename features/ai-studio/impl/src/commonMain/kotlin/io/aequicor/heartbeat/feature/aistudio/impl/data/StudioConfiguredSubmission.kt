@@ -10,7 +10,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
@@ -20,6 +19,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.browserMentionDirective
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
 import kotlinx.coroutines.CancellationException
@@ -71,7 +71,7 @@ internal class StudioConfiguredSubmission(
         // A handoff retires configuration observation because its session is never reflected again.
         if (request.isHandoff) controller.retire(id, active)
         val reviewTarget = record.helper?.model?.reviewTarget
-        val submitted = send(access, active, constrained, effort, reviewTarget) {
+        val submitted = send(access, active, target, constrained, effort, reviewTarget) {
             turnPolicy(isTrustSupported)
         }
         consumeCarriedContext(access, record, request, carried)
@@ -144,6 +144,7 @@ internal class StudioConfiguredSubmission(
     private suspend fun send(
         access: StudioConfigurationAccess,
         active: ActiveSession,
+        target: EngineTarget,
         request: StudioTurnRequest,
         reasoningEffort: String?,
         reviewTarget: EngineTarget?,
@@ -153,7 +154,7 @@ internal class StudioConfiguredSubmission(
         val helper = request.submission as? StudioHelperSubmission
         val submit: suspend () -> SubmittedPrompt = {
             origins.record(active.ref, request.request, request.causes)
-            val prompt = preparePrompt(access, request, active.route.workspace)
+            val prompt = preparePrompt(access, request, ComposerScope(target, active.route.workspace))
             val finalPolicy = if (helper != null) {
                 var latest: StudioPromptPolicy? = null
                 val trust = helper.begin { policy().also { latest = it }.trust }
@@ -204,10 +205,12 @@ internal class StudioConfiguredSubmission(
     private suspend fun preparePrompt(
         access: StudioConfigurationAccess,
         request: StudioTurnRequest,
-        workspace: WorkspaceRef?,
+        scope: ComposerScope,
     ): String {
         if (request.compaction != null) return ""
-        val skills = skillDirectives(request.prompt, workspace)
+        // Only text the user typed invokes skills; a slash command would take the bodies as its arguments.
+        val isSkillInvocation = request.isUserPrompt && !request.prompt.trimStart().startsWith("/")
+        val skills = if (isSkillInvocation) skillDirectives(request.prompt, scope) else emptyList()
         val browser = request.userInstruction?.takeIf { request.isUserPrompt }?.let {
             browserMentionDirective(it, "external_browser" in request.environment?.preselected.orEmpty())
         }
@@ -218,11 +221,12 @@ internal class StudioConfiguredSubmission(
 
     /**
      * A linked project skill shows only its label in the composer; its body travels as a host directive, so a model
-     * without file tools follows the same instruction while the transcript keeps what the user typed.
+     * without file tools follows the same instruction while the transcript keeps what the user typed. The body is
+     * project content, deliberately kept out of the captured user instructions that action safety trusts.
      */
-    private suspend fun skillDirectives(prompt: String, workspace: WorkspaceRef?): List<String> {
+    private suspend fun skillDirectives(prompt: String, scope: ComposerScope): List<String> {
         val skills = try {
-            assists.referencedSkills(prompt, workspace)
+            assists.referencedSkills(prompt, scope)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

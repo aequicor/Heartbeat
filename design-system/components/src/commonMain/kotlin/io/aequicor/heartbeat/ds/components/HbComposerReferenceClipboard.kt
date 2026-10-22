@@ -15,8 +15,7 @@ internal fun composerReferenceDisplay(text: CharSequence): String =
  * cuts the displayed text, so the clipboard needs the removed markup recorded before the edit lands.
  */
 internal class ComposerReferenceRemovals {
-    var latest: String? = null
-        private set
+    private var latest: Removal? = null
 
     fun record(original: CharSequence, removed: IntRange?) {
         latest = removed?.let { range ->
@@ -26,9 +25,16 @@ internal class ComposerReferenceRemovals {
             }
             val from = minOf(range.first, links.minOfOrNull { it.range.first } ?: range.first)
             val until = maxOf(range.last, links.maxOfOrNull { it.range.last } ?: range.last) + 1
-            original.subSequence(from, until).toString()
+            Removal(original.subSequence(from, until).toString(), from, original.removeRange(from, until).toString())
         }
     }
+
+    /** Raw text of the cut that produced exactly [text] with the caret at [caret], when it displays as [shown]. */
+    fun cut(text: CharSequence, caret: Int, shown: String): String? = latest
+        ?.takeIf { it.at == caret && it.after.contentEquals(text) && composerReferenceDisplay(it.raw) == shown }
+        ?.raw
+
+    private class Removal(val raw: String, val at: Int, val after: String)
 }
 
 /**
@@ -56,22 +62,26 @@ internal class ComposerReferenceClipboard(
         delegate.setClipEntry(if (raw == null || raw == shown) clipEntry else hbPlainTextClipEntry(raw))
     }
 
-    /** Copy leaves the draft intact with the caret at the copied end; cut has already removed the copied text. */
+    /**
+     * A cut has already removed the copied text and left the caret where it was, so its exact recorded removal wins;
+     * copy leaves the draft intact with the caret at the copied end. If the user edits before a cut's clipboard
+     * write, neither matches and the displayed text is kept.
+     */
     private fun rawText(shown: String): String? {
         val text = state.text
         val caret = state.selection.max
+        removals.cut(text, caret, shown)?.let { return it }
         val ends = listOf(caret) + COMPOSER_SKILL_LINK.findAll(text)
             .filter { requireNotNull(it.groups[1]).range.last + 1 == caret }
             .map { it.range.last + 1 }
         // Hidden markup bounds how far before the visible length the raw start can lie; the widest match wins.
         val hidden = text.length - composerReferenceDisplay(text).length
-        val copied = ends.sortedDescending().firstNotNullOfOrNull { end ->
+        return ends.sortedDescending().firstNotNullOfOrNull { end ->
             val latest = end - shown.length
             if (latest < 0) return@firstNotNullOfOrNull null
             ((latest - hidden).coerceAtLeast(0)..latest).firstOrNull { start ->
                 composerReferenceDisplay(text.subSequence(start, end)) == shown
             }?.let { start -> text.subSequence(start, end).toString() }
         }
-        return copied ?: removals.latest?.takeIf { composerReferenceDisplay(it) == shown }
     }
 }

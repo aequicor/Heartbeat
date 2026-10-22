@@ -37,11 +37,13 @@ internal fun readProjectSkillBody(root: Path, relative: String, name: String): S
     val isPlain = segments.none { it.isEmpty() || it == "." || it == ".." || '\\' in it || ':' in it }
     if (!SKILL_PATH.matches(relative) || !isPlain) return null
     return try {
-        val file = segments.runningFold(root.toRealPath()) { parent, segment -> parent.resolve(segment) }
+        val base = root.toRealPath()
+        // Junctions are not symbolic links on Windows; the real path must still lie under the real root.
+        val file = segments.runningFold(base) { parent, segment -> parent.resolve(segment) }
             .drop(1)
             .takeIf { path -> path.none(Files::isSymbolicLink) }
             ?.last()
-            ?.takeIf { Files.isRegularFile(it, NOFOLLOW_LINKS) }
+            ?.takeIf { Files.isRegularFile(it, NOFOLLOW_LINKS) && it.toRealPath() == it }
         val bytes = file?.let { path ->
             Files.newInputStream(path, NOFOLLOW_LINKS).use { it.readNBytes(BODY_BYTES + 1) }
         }

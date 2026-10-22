@@ -55,6 +55,21 @@ class HbComposerReferenceClipboardUiTest {
     }
 
     @Test
+    fun `cutting the second of two same-label skills keeps its own target`() = runSkikoComposeUiTest {
+        val clipboard = RecordingClipboard()
+        val other = "[/open-pr](.claude/skills/open-pr/SKILL.md)"
+        var draft by mutableStateOf("$link$other")
+        setContent { Composer(draft, { draft = it }, clipboard) }
+        val editor = onNodeWithContentDescription("Prompt")
+        editor.performTextInputSelection(TextRange(link.length, draft.length))
+        editor.performSemanticsAction(SemanticsActions.CutText)
+        runOnIdle {
+            assertEquals(other, clipboard.text)
+            assertEquals(link, draft)
+        }
+    }
+
+    @Test
     fun `copying part of a skill label copies only the visible text`() = runSkikoComposeUiTest {
         val clipboard = RecordingClipboard()
         var draft by mutableStateOf("$link tail")

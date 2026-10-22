@@ -514,6 +514,7 @@ class AutocompleteComposerAssistsTest {
     fun `linked skills resolve their decoded paths once with the declared name`() = runTest {
         val reads = mutableListOf<Pair<String, String>>()
         val service = service(
+            isNativeSupported = false,
             files = object : ProjectFileIndex {
                 override suspend fun search(
                     workspace: WorkspaceRef?,
@@ -530,7 +531,7 @@ class AutocompleteComposerAssistsTest {
         )
         val link = "[/my-skill](.agents/skills/my%20dir%28x%29/SKILL.md)"
         val text = "$link and $link [/other](.pi/skills/other/README.md) [/gone](.claude/skills/gone/SKILL.md)"
-        val skills = service.referencedSkills(text, project)
+        val skills = service.referencedSkills(text, ComposerScope(target, project))
         assertEquals(
             listOf(ComposerSkillContent("/my-skill", ".agents/skills/my dir(x)/SKILL.md", "body of my-skill")),
             skills,
@@ -539,7 +540,29 @@ class AutocompleteComposerAssistsTest {
             listOf(".agents/skills/my dir(x)/SKILL.md" to "my-skill", ".claude/skills/gone/SKILL.md" to "gone"),
             reads,
         )
-        assertEquals(emptyList(), service.referencedSkills(text, null))
+        assertEquals(emptyList(), service.referencedSkills(text, ComposerScope(target)))
+    }
+
+    @Test
+    fun `linked skills are not delivered past a native catalog or with autocomplete off or over budget`() = runTest {
+        val body = "x".repeat(70_000)
+        val files = object : ProjectFileIndex {
+            override suspend fun search(
+                workspace: WorkspaceRef?,
+                query: String,
+                limit: Int,
+                skillsOnly: Boolean,
+            ): List<ProjectFile> = emptyList()
+
+            override suspend fun readSkill(workspace: WorkspaceRef?, relativePath: String, name: String) = body
+        }
+        val text = "[/a](.agents/skills/a/SKILL.md) [/b](.agents/skills/b/SKILL.md)"
+        val scope = ComposerScope(target, project)
+        assertEquals(emptyList(), service(files = files).referencedSkills(text, scope))
+        val off = service(toggles = mapOf(AutocompleteEnabled to false), files = files, isNativeSupported = false)
+        assertEquals(emptyList(), off.referencedSkills(text, scope))
+        val delivered = service(files = files, isNativeSupported = false).referencedSkills(text, scope)
+        assertEquals(listOf("/a"), delivered.map { it.label })
     }
 
     private fun skillFiles(skill: ProjectSkill) = object : ProjectFileIndex {

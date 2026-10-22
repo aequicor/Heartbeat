@@ -29,7 +29,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustedUserInstructions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
@@ -191,6 +190,19 @@ class StudioConfiguredSubmissionTest {
         assertTrue("Open a PR" in text && ".agents/skills/open-pr/SKILL.md" in text)
         assertEquals("Hello", stripHostDirectives(text))
         assertEquals(listOf("Hello"), fixture.linkedTexts)
+        assertEquals(fixture.session.route.engine, fixture.linkedScopes.single().target?.engine)
+    }
+
+    @Test
+    fun `skills are not linked for agent prompts or slash commands`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.skills = listOf(ComposerSkillContent("/open-pr", ".agents/skills/open-pr/SKILL.md", "Open a PR"))
+
+        fixture.submit("agent", isUserPrompt = false)
+        fixture.submit("command", userInstruction = "/compact [/open-pr](.agents/skills/open-pr/SKILL.md)")
+
+        assertEquals(emptyList(), fixture.linkedTexts)
+        assertTrue(fixture.session.requests.none { "Open a PR" in it.text() })
     }
 
     @Test
@@ -471,6 +483,7 @@ private class SubmissionFixture(
     var authorityStore: ChecklistTestStore? = null
     var skills: List<ComposerSkillContent> = emptyList()
     val linkedTexts = mutableListOf<String>()
+    val linkedScopes = mutableListOf<ComposerScope>()
     private val submissionAccess = object : StudioConfigurationAccess by access {
         override suspend fun captureUserInstructions(
             id: String,
@@ -504,8 +517,9 @@ private class SubmissionFixture(
             }
         },
         object : ComposerAssists {
-            override suspend fun referencedSkills(text: String, workspace: WorkspaceRef?): List<ComposerSkillContent> {
+            override suspend fun referencedSkills(text: String, scope: ComposerScope): List<ComposerSkillContent> {
                 linkedTexts += text
+                linkedScopes += scope
                 return skills
             }
 
