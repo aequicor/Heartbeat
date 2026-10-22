@@ -181,6 +181,14 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.CardFocusApplied")
     data class CardFocusApplied(val paneId: Int, val sequence: Long) : AiStudioScreenIntent
 
+    /**
+     * Opens a file link of the pane's chat in the side preview: [path] as written in the link (relative ones resolve
+     * against the chat's checkout), [line] 1-based.
+     */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.OpenFileLink")
+    data class OpenFileLink(val paneId: Int, val path: String, val line: Int? = null) : AiStudioScreenIntent
+
     /** Opens the native app viewer only if this surface still belongs to the pane's current context. */
     @Serializable
     @SerialName("AiStudioScreenIntent.OpenApp")

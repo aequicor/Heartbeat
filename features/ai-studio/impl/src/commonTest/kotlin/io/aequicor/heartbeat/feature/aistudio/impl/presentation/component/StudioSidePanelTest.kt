@@ -44,4 +44,28 @@ class StudioSidePanelTest {
         assertEquals(SidePanelUi.Browser, raised.next(BrowserPaneMode.Panel, panel = 1).shown)
         assertEquals(SidePanelUi.Interface, raised.next(BrowserPaneMode.Panel, panel = 2).shown)
     }
+
+    @Test
+    fun `a newly opened file covers the other panels and they return when it closes`() {
+        val covered = SideChoice().next(BrowserPaneMode.Panel, panel = 1)
+        val file = covered.next(BrowserPaneMode.Panel, panel = 1, file = 1)
+        assertEquals(SidePanelUi.File, file.shown)
+        assertEquals(SidePanelUi.File, file.next(BrowserPaneMode.Panel, panel = 1).shown, "nothing new opened")
+
+        val raised = file.next(BrowserPaneMode.Panel, panel = 1, raise = 1)
+        assertEquals(SidePanelUi.Browser, raised.shown)
+        assertEquals(SidePanelUi.File, raised.next(BrowserPaneMode.Panel, panel = 1, file = 2).shown)
+
+        assertEquals(SidePanelUi.Interface, file.next(BrowserPaneMode.Panel, panel = 1, file = null).shown)
+        val onlyFile = SideChoice().next(BrowserPaneMode.Hidden, null, file = 1)
+        assertEquals(SidePanelUi.None, onlyFile.next(BrowserPaneMode.Hidden, null, file = null).shown)
+    }
+
+    @Test
+    fun `an open file shows when the panel in front of it closes`() {
+        val file = SideChoice().next(BrowserPaneMode.Hidden, panel = null, file = 1)
+        val panel = file.next(BrowserPaneMode.Hidden, panel = 1)
+        assertEquals(SidePanelUi.Interface, panel.shown)
+        assertEquals(SidePanelUi.File, panel.next(BrowserPaneMode.Hidden, panel = null).shown)
+    }
 }

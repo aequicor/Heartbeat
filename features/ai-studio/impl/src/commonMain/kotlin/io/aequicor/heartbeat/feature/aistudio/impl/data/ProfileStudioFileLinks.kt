@@ -35,6 +35,8 @@ internal class ProfileStudioFileLinks(
         return resolved
     }
 
+    override suspend fun resolveIn(path: String, directory: String): String? = reader.resolve(path, directory)
+
     override suspend fun read(path: String): StudioFileContent = reader.read(path)
 
     override suspend fun modifiedAt(path: String): Long? = reader.modifiedAt(path)

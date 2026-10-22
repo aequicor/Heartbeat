@@ -34,6 +34,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioAttachmentNavigation
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioFileLinkOpener
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioFilePreviewIntent
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioFilePreviewModel
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioSurfaceBinding
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
@@ -87,6 +90,9 @@ class AiStudioComponent(
     private val machines: MachineRegistry,
     private val surfaces: StudioSurfaces,
     private val surfacePanes: StudioSurfaceBinding,
+    /** The side file preview opened by file links of the chats. */
+    val filePreview: StudioFilePreviewModel,
+    private val fileLinks: StudioFileLinkOpener,
 ) : ComponentContext by context {
     private val log = Log.tag("AiStudioComponent")
 
@@ -119,7 +125,16 @@ class AiStudioComponent(
     val browserMode: StateFlow<BrowserPaneMode> = browserPresentation
     private val browserBack = StudioBrowserBack(::hideBrowser)
 
-    private val side = StudioSidePanel(this, navigator, hosts, browserPresentation, surfaces, scope.coroutineScope)
+    private val side = StudioSidePanel(
+        this,
+        navigator,
+        hosts,
+        browserPresentation,
+        surfaces,
+        scope.coroutineScope,
+        files = filePreview.opening,
+        closeFile = { filePreview.store.intent(StudioFilePreviewIntent.Close) },
+    )
 
     /** The interface panel of this window's dock while interfaces are on; it shares the side with the browser. */
     val interfacePanel: StateFlow<StackHost?> = side.panel
@@ -352,6 +367,9 @@ class AiStudioComponent(
                 }
             }
         }
+        val files = scope.coroutineScope.launch {
+            fileLinks.navigation.collect { filePreview.store.intent(StudioFilePreviewIntent.Open(it)) }
+        }
         val attachmentResults = scope.coroutineScope.launch {
             dialogs.navigator.results(AttachmentsPicked).collect { result ->
                 model.store.intent(
@@ -379,6 +397,7 @@ class AiStudioComponent(
         lifecycle.doOnDestroy {
             watching.cancel()
             attachments.cancel()
+            files.cancel()
             attachmentResults.cancel()
             hostsWatch.cancel()
         }

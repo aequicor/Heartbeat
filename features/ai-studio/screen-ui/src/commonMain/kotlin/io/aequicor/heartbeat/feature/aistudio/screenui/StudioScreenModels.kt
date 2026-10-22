@@ -138,6 +138,8 @@ data class PaneContent(
     /** The chat's context is being compacted now: the indicator animates. */
     val isCompacting: Boolean = false,
     val isOrganismEnabled: Boolean = false,
+    /** File links of the chat open in the side preview; without it they stay inert. */
+    val isFilePreviewEnabled: Boolean = false,
     val harnesses: ImmutableList<HarnessChoiceUi> = persistentListOf(),
     val isHarnessSelectionReady: Boolean = true,
     val isHarnessLoadFailed: Boolean = false,
@@ -248,6 +250,7 @@ private fun AiStudioScreenState.projectPaneContent(
     isCompactEnabled = isCompactEnabled,
     isCompacting = pane.sessionId in compactingChats,
     isOrganismEnabled = isOrganismEnabled,
+    isFilePreviewEnabled = isFilePreviewEnabled,
     harnesses = harnessChoices(pane),
     isHarnessSelectionReady = isHarnessSelectionReady(pane),
     isHarnessLoadFailed = harnessChoices.isLoadFailed,

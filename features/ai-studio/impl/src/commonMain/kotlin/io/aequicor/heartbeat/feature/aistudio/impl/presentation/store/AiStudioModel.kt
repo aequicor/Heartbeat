@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPrevie
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFileLinks
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
@@ -135,6 +136,7 @@ class AiStudioModel(
     facade: EngineFacade,
     configuration: EngineConfiguration = UnavailableEngineConfiguration(),
     planning: StudioPlanning = StudioPlanning.None,
+    private val files: StudioFileLinkOpener = StudioFileLinkOpener(StudioFileLinks.None),
 ) {
     private val log = Log.tag("AiStudioModel")
     private val inputContexts = StudioInputContexts()
@@ -211,6 +213,7 @@ class AiStudioModel(
                     }
                 }
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
+                launch { files.observe(pipeline, host) }
                 launch { compactions.availability.collect { updateState { copy(isCompactEnabled = it) } } }
                 launch {
                     compactions.compacting.collect { updateState { copy(compactingChats = it.toImmutableSet()) } }
@@ -473,7 +476,7 @@ class AiStudioModel(
         when (intent) {
             is AiStudioScreenIntent.DismissNotice -> pipeline.updateState { dismissNotice(intent) }
             is AiStudioScreenIntent.CardFocusApplied -> pipeline.updateState { withCardFocusApplied(intent) }
-            is AiStudioScreenIntent.OpenApp -> surfaceBinding.openApp(pipeline, intent)
+            is AiStudioScreenIntent.OpenApp, is AiStudioScreenIntent.OpenFileLink -> beside(pipeline, intent)
             is AiStudioScreenIntent.Navigation -> navigate(pipeline, intent)
             is AiStudioScreenIntent.Composer -> compose(pipeline, intent, environment)
             is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent, environment)
@@ -486,6 +489,9 @@ class AiStudioModel(
             AiStudioScreenIntent.InstallAppUpdate -> installAppUpdate()
         }
     }
+
+    private suspend fun beside(pipeline: StudioPipeline, intent: AiStudioScreenIntent) =
+        openBeside(pipeline, intent, surfaceBinding, files)
 
     private suspend fun chatMode(pipeline: StudioPipeline, intent: AiStudioScreenIntent.ChatMode) = when (intent) {
         is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)

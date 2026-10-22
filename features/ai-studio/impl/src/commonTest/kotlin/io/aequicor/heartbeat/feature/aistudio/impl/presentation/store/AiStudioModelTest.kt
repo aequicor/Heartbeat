@@ -838,6 +838,8 @@ class AiStudioModelTest {
         securityLevels: kotlinx.coroutines.flow.Flow<StudioSecurityLevel> = flowOf(StudioSecurityLevel.Automatic),
         planning: io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning =
             io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning.None,
+        val fileLinks: StudioFileLinkOpener =
+            StudioFileLinkOpener(io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFileLinks.None),
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts(attachments)
@@ -876,6 +878,7 @@ class AiStudioModelTest {
             facade = EmptyStudioFacade(),
             configuration = configuration,
             planning = planning,
+            files = fileLinks,
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {
@@ -1002,7 +1005,7 @@ internal class FakeSchedulerMachine : Machine<SchedulerState, SchedulerIntent, S
     override suspend fun send(intent: SchedulerIntent): SendResult = SendResult.Accepted
 }
 
-private class TestDispatchers(dispatcher: kotlinx.coroutines.CoroutineDispatcher) : DispatcherProvider {
+internal class TestDispatchers(dispatcher: kotlinx.coroutines.CoroutineDispatcher) : DispatcherProvider {
     override val main = dispatcher
     override val default = dispatcher
     override val io = dispatcher

@@ -54,6 +54,9 @@ interface StudioFileLinks {
      */
     suspend fun resolve(path: String, sessionId: String?, projectId: String?): String?
 
+    /** The absolute path of a link inside a previewed file: relative ones resolve against its [directory]. */
+    suspend fun resolveIn(path: String, directory: String): String?
+
     /** Reads a resolved file for the preview. */
     suspend fun read(path: String): StudioFileContent
 
@@ -64,6 +67,7 @@ interface StudioFileLinks {
     object None : StudioFileLinks {
         override val availability: Flow<Boolean> = flowOf(false)
         override suspend fun resolve(path: String, sessionId: String?, projectId: String?): String? = null
+        override suspend fun resolveIn(path: String, directory: String): String? = null
         override suspend fun read(path: String): StudioFileContent = StudioFileContent.Unavailable
         override suspend fun modifiedAt(path: String): Long? = null
     }
