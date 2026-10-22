@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineActionKindUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineActionUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EnginePanelUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.HostAppUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.HostRuntimeUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.InstallSourceUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.InstallSupportUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.InstallationUi
@@ -18,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LaunchUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LoginMethodUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LoginUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.RuntimePreferenceUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.RuntimeUi
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -81,4 +84,56 @@ private fun EngineManagementPhonePreview() {
         job = JobUi(EngineActionUi.Login, JobPhaseUi.AwaitingCode("https://claude.ai/oauth/authorize")),
     )
     HbTheme(darkTheme = false) { EngineManagementSection(signingIn, "", isSaving = false, onIntent = {}) }
+}
+
+/** Claude Code on the Claude app's runtime, with a newer runtime the app is still installing. */
+private val PreviewHostAppPanel = PreviewPanel.copy(
+    id = "claude",
+    title = "Claude Code",
+    installation = InstallationUi(
+        support = InstallSupportUi.Managed,
+        source = InstallSourceUi.HostApp,
+        version = "2.1.304",
+        isChecked = true,
+    ),
+    job = null,
+    launch = PreviewPanel.launch?.copy(
+        options = persistentSetOf(LaunchOptionUi.Executable, LaunchOptionUi.Runtime, LaunchOptionUi.HomeDirectory),
+        homeVariable = "CLAUDE_CONFIG_DIR",
+        draft = LaunchDraftUi(runtime = RuntimePreferenceUi.HostApp, hostRuntimeVersion = "2.1.304"),
+        runtimes = persistentSetOf(
+            RuntimePreferenceUi.Managed,
+            RuntimePreferenceUi.HostApp,
+            RuntimePreferenceUi.System,
+        ),
+        hostApp = "Claude",
+        hostVersions = persistentListOf("2.1.304", "2.1.299"),
+    ),
+    actions = persistentSetOf(EngineActionKindUi.Inspect, EngineActionKindUi.Configure, EngineActionKindUi.OpenHostApp),
+    hostApp = HostAppUi(
+        title = "Claude",
+        isChecked = true,
+        isInstalled = true,
+        version = "3.1623.1",
+        path = "/Applications/Claude.app",
+        runtimes = persistentListOf(
+            HostRuntimeUi("2.1.305", "7c1d", isVerified = false),
+            HostRuntimeUi("2.1.304", "6bbb", isVerified = true),
+            HostRuntimeUi("2.1.299", "4fa9", isVerified = true),
+        ),
+        configDirectory = "/Users/me/.claude",
+        isInUse = true,
+    ),
+)
+
+@Preview
+@Composable
+private fun EngineHostAppLightPreview() {
+    HbTheme(darkTheme = false) { EngineManagementSection(PreviewHostAppPanel, "", isSaving = false, onIntent = {}) }
+}
+
+@Preview
+@Composable
+private fun EngineHostAppDarkPreview() {
+    HbTheme(darkTheme = true) { EngineManagementSection(PreviewHostAppPanel, "", isSaving = false, onIntent = {}) }
 }

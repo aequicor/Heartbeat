@@ -294,4 +294,25 @@
     <string name="control_resource_not_listed">Not listed in settings</string>
     <string name="control_resource_needs_trust">Requires project trust</string>
     <string name="control_resource_kind_off">Discovery disabled by profile settings</string>
+    <string name="engine_host_app_title">%1$s app</string>
+    <string name="engine_host_app_unchecked">Not checked yet. Check the engine to find the app.</string>
+    <string name="engine_host_app_missing">Not installed on this computer.</string>
+    <string name="engine_host_app_version">Installed, version %1$s</string>
+    <string name="engine_host_app_installed">Installed</string>
+    <string name="engine_host_app_in_use">In use</string>
+    <string name="engine_host_app_runtimes">Runtimes the app keeps</string>
+    <string name="engine_host_app_runtime">%1$s · build %2$s</string>
+    <string name="engine_host_app_runtime_pending">Being installed by the app</string>
+    <string name="engine_host_app_no_runtime">The app has no runtime yet. Open it once and it downloads one.</string>
+    <string name="engine_host_app_config">Shared configuration: %1$s</string>
+    <string name="engine_host_app_login_hint">Heartbeat never reads the app\'s own sign-in. The engine uses the CLI sign-in below, shared with the app\'s sessions through the configuration directory.</string>
+    <string name="engine_host_app_open">Open app</string>
+    <string name="engine_launch_runtime">Runtime</string>
+    <string name="engine_launch_runtime_custom">The custom executable above is used instead.</string>
+    <string name="engine_runtime_auto">Automatic</string>
+    <string name="engine_runtime_managed">Heartbeat\'s copy</string>
+    <string name="engine_runtime_host_app">%1$s app</string>
+    <string name="engine_runtime_system">Installed on this computer</string>
+    <string name="engine_runtime_version">App runtime version</string>
+    <string name="engine_runtime_version_newest">Newest</string>
 </resources>

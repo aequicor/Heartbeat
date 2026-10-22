@@ -18,6 +18,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
@@ -36,6 +39,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -234,6 +238,66 @@ class EngineManagementPresentationTest {
     }
 
     @Test
+    fun `a host application shows what the inspection found and can be opened`() {
+        val codex = managedCodex(installation = InstallationState(Installation(InstallSource.HostApp, "2.1.304")))
+        val hosted = codex.copy(spec = codex.spec.copy(hostApp = HostAppSpec("Claude")))
+        assertEquals(HostAppUi("Claude"), selected(hosted).panel!!.hostApp)
+        assertNull(selected(codex).panel!!.hostApp)
+
+        val inspected = hosted.copy(
+            hostApp = HostAppState(
+                isInstalled = true,
+                version = "3.1",
+                path = "/Applications/Claude.app",
+                runtimes = listOf(
+                    HostRuntime("2.1.305", "c", isVerified = false, path = "/r/c"),
+                    HostRuntime("2.1.304", "b", isVerified = true, path = "/r/b"),
+                ),
+                configDirectory = "/Users/me/.claude",
+            ),
+        )
+        val state = selected(inspected)
+        val hostApp = state.panel!!.hostApp!!
+
+        assertTrue(hostApp.isChecked && hostApp.isInstalled && hostApp.isInUse && hostApp.hasRuntime)
+        assertEquals(
+            listOf(HostRuntimeUi("2.1.305", "c", false), HostRuntimeUi("2.1.304", "b", true)),
+            hostApp.runtimes,
+        )
+        assertEquals(listOf("2.1.304"), state.panel!!.launch!!.hostVersions)
+        assertTrue(EngineActionKindUi.OpenHostApp in state.panel!!.actions)
+        assertEquals(EngineCommand.OpenHostApp, state.commandFor(EngineManagementIntent.OpenHostApp))
+    }
+
+    @Test
+    fun `the runtime choice round-trips and pins a version only for the host runtime`() {
+        val codex = managedCodex()
+        val spec = codex.spec.copy(
+            launch = codex.spec.launch.copy(runtimes = setOf(RuntimePreference.HostApp, RuntimePreference.System)),
+            hostApp = HostAppSpec("Claude"),
+        )
+        val state = selected(codex.copy(spec = spec))
+        assertEquals(
+            setOf(RuntimePreferenceUi.HostApp, RuntimePreferenceUi.System),
+            state.panel!!.launch!!.runtimes,
+        )
+
+        val pinned = LaunchDraftUi(runtime = RuntimePreferenceUi.HostApp, hostRuntimeVersion = " 2.1.299 ")
+        val settings = LaunchSettings(runtime = RuntimePreference.HostApp, hostRuntimeVersion = "2.1.299")
+        assertEquals(settings, pinned.toSettings())
+        assertEquals(pinned.copy(hostRuntimeVersion = "2.1.299"), settings.toDraft())
+        assertEquals(
+            LaunchSettings(runtime = RuntimePreference.System),
+            pinned.copy(runtime = RuntimePreferenceUi.System).toSettings(),
+        )
+        assertEquals(
+            EngineCommand.Configure(settings),
+            state.copy(launchDraft = pinned).observe(managedSnapshot(codex.copy(spec = spec)))
+                .commandFor(EngineManagementIntent.SaveLaunch),
+        )
+    }
+
+    @Test
     fun `every facade value has a panel counterpart`() {
         InstallFailureReason.entries.forEach { InstallFailureUi.valueOf(it.name) }
         LoginFailureReason.entries.forEach { LoginFailureUi.valueOf(it.name) }
@@ -244,6 +308,7 @@ class EngineManagementPresentationTest {
         Compatibility.entries.forEach { CompatibilityUi.valueOf(it.name) }
         EngineActionKind.entries.forEach { EngineActionKindUi.valueOf(it.name) }
         LoginMethod.entries.forEach { LoginMethodUi.valueOf(it.name) }
+        RuntimePreference.entries.forEach { RuntimePreferenceUi.valueOf(it.name) }
         assertEquals(DisabledReason.entries.size, DisabledReasonUi.Kind.entries.size)
     }
 

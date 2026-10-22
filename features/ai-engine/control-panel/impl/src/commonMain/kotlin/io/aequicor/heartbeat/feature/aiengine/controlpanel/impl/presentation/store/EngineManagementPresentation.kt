@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
@@ -19,11 +20,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.actions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.validateLaunchSettings
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
 
@@ -203,6 +206,33 @@ data class JobUi(val action: EngineActionUi, val phase: JobPhaseUi) {
         get() = phase !is JobPhaseUi.Succeeded && phase !is JobPhaseUi.Failed && phase !is JobPhaseUi.Cancelled
 }
 
+/** Which installation an engine runs while no custom executable is set. */
+enum class RuntimePreferenceUi { Auto, Managed, HostApp, System }
+
+/** One runtime the host application keeps; an unverified one is still being installed by the app. */
+@Immutable
+data class HostRuntimeUi(val version: String, val build: String, val isVerified: Boolean)
+
+/**
+ * The engine's host application (the Claude app for Claude Code); [isChecked] is false until an inspection.
+ * [isInUse] means the engine runs the application's runtime now. Paths are for display only.
+ */
+@Immutable
+data class HostAppUi(
+    val title: String,
+    val isChecked: Boolean = false,
+    val isInstalled: Boolean = false,
+    val version: String? = null,
+    val path: String? = null,
+    val runtimes: ImmutableList<HostRuntimeUi> = persistentListOf(),
+    val configDirectory: String? = null,
+    val isInUse: Boolean = false,
+    val failure: ManagementFailureUi? = null,
+) {
+    /** The application has a runtime the engine can run. */
+    val hasRuntime: Boolean get() = runtimes.any { it.isVerified }
+}
+
 /** Launch settings an engine accepts. */
 enum class LaunchOptionUi { Executable, HomeDirectory, ConfigOverrides, Environment, Runtime }
 
@@ -242,6 +272,9 @@ data class LaunchDraftUi(
     val homeDirectory: String = "",
     val configOverrides: ImmutableList<KeyValueUi> = persistentListOf(),
     val environment: ImmutableList<KeyValueUi> = persistentListOf(),
+    val runtime: RuntimePreferenceUi = RuntimePreferenceUi.Auto,
+    /** Pinned version of the host application's runtime; blank runs its newest one. */
+    val hostRuntimeVersion: String = "",
 ) {
     override fun toString(): String = "LaunchDraftUi(***)"
 }
@@ -260,6 +293,12 @@ data class LaunchUi(
     val errors: ImmutableList<LaunchProblemUi>,
     /** File checks of the saved settings; they never block saving. */
     val warnings: ImmutableList<LaunchProblemUi>,
+    /** Runtime preferences besides automatic the engine offers; empty hides the choice. */
+    val runtimes: ImmutableSet<RuntimePreferenceUi> = persistentSetOf(),
+    /** Title of the host application, for the host runtime choice. */
+    val hostApp: String? = null,
+    /** Versions of the host application's verified runtimes, newest first, to pin one. */
+    val hostVersions: ImmutableList<String> = persistentListOf(),
 )
 
 /** Management panel of the selected engine; null while engine management is off. */
@@ -279,6 +318,8 @@ data class EnginePanelUi(
     val runtime: RuntimeUi,
     val job: JobUi?,
     val actions: ImmutableSet<EngineActionKindUi>,
+    /** The engine's host application; null when it has none. */
+    val hostApp: HostAppUi? = null,
 )
 
 /** The panel of [engine] with the local launch [draft] (null: not editing). */
@@ -305,6 +346,14 @@ internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatfo
                 problem.copy(index = problem.index?.let { indices[it] })
             }.toUi(),
             warnings = launch.warnings.toUi(),
+            runtimes = if (LaunchOption.Runtime in spec.launch.options) {
+                spec.launch.runtimes.map { RuntimePreferenceUi.valueOf(it.name) }.toImmutableSet()
+            } else {
+                persistentSetOf()
+            },
+            hostApp = spec.hostApp?.title,
+            hostVersions = hostApp?.runtimes.orEmpty().asSequence().filter { it.isVerified }.map { it.version }
+                .distinct().toList().toImmutableList(),
         )
     }
     return EnginePanelUi(
@@ -331,6 +380,22 @@ internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatfo
         ),
         job = job?.toUi(),
         actions = actions().map { EngineActionKindUi.valueOf(it.name) }.toImmutableSet(),
+        hostApp = spec.hostApp?.let { hostAppUi(it.title) },
+    )
+}
+
+private fun ManagedEngine.hostAppUi(title: String): HostAppUi {
+    val state = hostApp ?: return HostAppUi(title)
+    return HostAppUi(
+        title = title,
+        isChecked = true,
+        isInstalled = state.isInstalled,
+        version = state.version,
+        path = state.path,
+        runtimes = state.runtimes.map { HostRuntimeUi(it.version, it.build, it.isVerified) }.toImmutableList(),
+        configDirectory = state.configDirectory,
+        isInUse = installation.current?.source == InstallSource.HostApp,
+        failure = state.failure?.toUi(),
     )
 }
 
@@ -340,6 +405,8 @@ internal fun LaunchDraftUi.toSettings(): LaunchSettings = LaunchSettings(
     homeDirectory = homeDirectory.trim().ifEmpty { null },
     configOverrides = configOverrides.filterNot { it.isBlank() }.map { ConfigOverride(it.key.trim(), it.value) },
     environment = environment.filterNot { it.isBlank() }.map { EnvironmentEntry(it.key.trim(), it.value) },
+    runtime = RuntimePreference.valueOf(runtime.name),
+    hostRuntimeVersion = hostRuntimeVersion.trim().ifEmpty { null }.takeIf { runtime == RuntimePreferenceUi.HostApp },
 )
 
 internal fun LaunchSettings.toDraft(): LaunchDraftUi = LaunchDraftUi(
@@ -347,6 +414,8 @@ internal fun LaunchSettings.toDraft(): LaunchDraftUi = LaunchDraftUi(
     homeDirectory = homeDirectory.orEmpty(),
     configOverrides = configOverrides.map { KeyValueUi(it.key, it.value) }.toImmutableList(),
     environment = environment.map { KeyValueUi(it.name, it.value) }.toImmutableList(),
+    runtime = RuntimePreferenceUi.valueOf(runtime.name),
+    hostRuntimeVersion = hostRuntimeVersion.orEmpty(),
 )
 
 /** The facade action of a panel [action]; a sign-in uses [method]. */

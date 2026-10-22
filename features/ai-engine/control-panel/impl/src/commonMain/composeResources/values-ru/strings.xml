@@ -296,4 +296,25 @@
     <string name="control_resource_not_listed">Не подключён настройками</string>
     <string name="control_resource_needs_trust">Ждёт доверия к проекту</string>
     <string name="control_resource_kind_off">Поиск отключён настройками профиля</string>
+    <string name="engine_host_app_title">Приложение %1$s</string>
+    <string name="engine_host_app_unchecked">Ещё не проверено. Проверьте движок, чтобы найти приложение.</string>
+    <string name="engine_host_app_missing">Не установлено на этом компьютере.</string>
+    <string name="engine_host_app_version">Установлено, версия %1$s</string>
+    <string name="engine_host_app_installed">Установлено</string>
+    <string name="engine_host_app_in_use">Используется</string>
+    <string name="engine_host_app_runtimes">Runtime в приложении</string>
+    <string name="engine_host_app_runtime">%1$s · сборка %2$s</string>
+    <string name="engine_host_app_runtime_pending">Устанавливается приложением</string>
+    <string name="engine_host_app_no_runtime">У приложения ещё нет runtime. Откройте его один раз — оно загрузит runtime.</string>
+    <string name="engine_host_app_config">Общая конфигурация: %1$s</string>
+    <string name="engine_host_app_login_hint">Heartbeat не читает вход самого приложения. Движок использует вход CLI ниже; он общий с сессиями приложения через каталог конфигурации.</string>
+    <string name="engine_host_app_open">Открыть приложение</string>
+    <string name="engine_launch_runtime">Runtime</string>
+    <string name="engine_launch_runtime_custom">Вместо него используется свой исполняемый файл выше.</string>
+    <string name="engine_runtime_auto">Автоматически</string>
+    <string name="engine_runtime_managed">Копия Heartbeat</string>
+    <string name="engine_runtime_host_app">Приложение %1$s</string>
+    <string name="engine_runtime_system">Установленный в системе</string>
+    <string name="engine_runtime_version">Версия runtime приложения</string>
+    <string name="engine_runtime_version_newest">Новейшая</string>
 </resources>

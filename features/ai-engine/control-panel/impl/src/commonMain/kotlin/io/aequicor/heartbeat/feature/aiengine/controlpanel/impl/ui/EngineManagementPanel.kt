@@ -67,8 +67,9 @@ import org.jetbrains.compose.resources.stringResource
 
 /**
  * Management of the selected engine, between the engine list and its connections: the profile switch with the
- * reasons that keep the engine off, the installation with its update and removal actions, the CLI sign-in, the
- * running job, the runtimes and the launch settings. Every action waits while another change or a job runs.
+ * reasons that keep the engine off, the installation with its update and removal actions, the host application, the
+ * CLI sign-in, the running job, the runtimes and the launch settings. Every action waits while another change or a
+ * job runs.
  */
 @Composable
 internal fun EngineManagementSection(
@@ -100,6 +101,10 @@ internal fun EngineManagementSection(
         EngineSwitchRow(panel, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         HbDivider()
         InstallationBlock(panel, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
+        panel.hostApp?.let { hostApp ->
+            HbDivider()
+            HostAppBlock(panel, hostApp, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
+        }
         panel.login?.let { login ->
             HbDivider()
             EngineLoginBlock(
@@ -193,7 +198,7 @@ private fun InstallationBlock(
 }
 
 @Composable
-private fun InstallationPath(path: String, modifier: Modifier = Modifier) {
+internal fun InstallationPath(path: String, modifier: Modifier = Modifier) {
     HbRow(modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m), gap = HbTheme.spacing.s) {
         HbText(
             path,
