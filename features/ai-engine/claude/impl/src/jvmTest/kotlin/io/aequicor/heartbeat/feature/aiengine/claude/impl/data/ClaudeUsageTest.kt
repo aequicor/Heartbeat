@@ -180,6 +180,31 @@ class ClaudeUsageTest {
     }
 
     @Test
+    fun `quota events without utilization fall back to threshold or rejection`() = runTest {
+        val provider = ClaudeProviderUsage { true }
+        provider.receive(
+            parseClaudeObject(
+                """{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"five_hour",
+                "status":"allowed_warning","surpassedThreshold":0.75,"resetsAt":100}}""",
+            ),
+        )
+        provider.receive(
+            parseClaudeObject(
+                """{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"seven_day",
+                "status":"rejected"}}""",
+            ),
+        )
+        provider.receive(
+            parseClaudeObject(
+                """{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"seven_day_opus",
+                "status":"allowed"}}""",
+            ),
+        )
+        val windows = provider.refresh().windows
+        assertEquals(listOf(75.0, 100.0), windows.map { it.usedPercent })
+    }
+
+    @Test
     fun `runtime publishes native telemetry without additional generation`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         fixture.transport.generation = { args, line ->
