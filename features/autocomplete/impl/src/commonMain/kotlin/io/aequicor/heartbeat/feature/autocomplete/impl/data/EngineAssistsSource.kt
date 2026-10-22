@@ -65,8 +65,15 @@ internal class EngineAssistsSource(
     ) { config, bindings, engines, auth ->
         listOf(config, bindings, engines, auth)
     }.transformLatest {
-        emit(NativeAssists.Closed)
+        // The last listing of this exact state shows at once, even past its TTL, while the fresh one loads.
+        emit(remembered(target, workspace) ?: NativeAssists.Closed)
         emit(assists(target, workspace))
+    }
+
+    private suspend fun remembered(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists? {
+        val route = Route(target.engine.value, target.binding.value, workspace?.value)
+        val stamp = stamp()
+        return mutex.withLock { cache[route]?.takeIf { it.stamp == stamp }?.assists }
     }
 
     private fun stamp(): List<Any> = listOf(
