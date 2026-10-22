@@ -511,7 +511,12 @@ private fun PaneNotices(
         PaneSessionNotices(content, descriptionMaxHeight, onIntent)
         val asked = content.session?.id?.let(questions::get)
         asked?.Content(
-            Modifier.heightIn(max = questionMaxHeight).padding(HbTheme.spacing.m).testTag("pane-questionnaire"),
+            Modifier.heightIn(max = questionMaxHeight)
+                .padding(
+                    horizontal = if (isCompact) HbTheme.spacing.m else HbTheme.spacing.xl,
+                    vertical = HbTheme.spacing.m,
+                )
+                .widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth().testTag("pane-questionnaire"),
         )
         content.permissions.takeIf { asked == null }.orEmpty().forEach { request ->
             key(request.requestId) {

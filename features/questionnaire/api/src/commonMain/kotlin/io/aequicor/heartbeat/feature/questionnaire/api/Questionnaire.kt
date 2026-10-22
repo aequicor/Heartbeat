@@ -28,6 +28,8 @@ public data class Questionnaire(
     val question: Question,
     val description: String? = null,
     val isSkippable: Boolean = true,
+    /** Allows a text alternative or a comment on a choice; never enabled for action permissions. */
+    val isFreeTextAllowed: Boolean = false,
 )
 
 /** Selectable value of a choice question. */
@@ -68,15 +70,15 @@ public sealed interface Question {
 /** The user's answer. */
 @Serializable
 public sealed interface Answer {
-    /** Answer to [Question.Confirm]. */
+    /** Answer to [Question.Confirm], optionally with the user's comment when allowed by the questionnaire. */
     @Serializable
-    public data class Confirmed(val isConfirmed: Boolean) : Answer
+    public data class Confirmed(val isConfirmed: Boolean, val text: String? = null) : Answer
 
-    /** Chosen [Choice.id]s of a choice question. */
+    /** Chosen [Choice.id]s of a choice question with an optional user comment. */
     @Serializable
-    public data class Selected(val ids: List<String>) : Answer
+    public data class Selected(val ids: List<String>, val text: String? = null) : Answer
 
-    /** Entered text of [Question.FreeText]. */
+    /** Entered text, also usable instead of choices when [Questionnaire.isFreeTextAllowed]. */
     @Serializable
     public data class Text(val value: String) : Answer
 
@@ -94,8 +96,19 @@ public fun Answer.validFor(question: Question): Boolean = when (question) {
 }
 
 /** True when [answer] resolves this questionnaire: a valid answer, or a skip when skipping is allowed. */
-public fun Questionnaire.accepts(answer: Answer): Boolean =
-    if (answer == Answer.Skipped) isSkippable else answer.validFor(question)
+public fun Questionnaire.accepts(answer: Answer): Boolean = when {
+    answer == Answer.Skipped -> isSkippable
+    answer is Answer.Text && isFreeTextAllowed -> answer.value.isNotBlank()
+    !isFreeTextAllowed && answer.comment() != null -> false
+    else -> answer.validFor(question)
+}
+
+/** The supplementary comment, without turning text into a selected option. */
+public fun Answer.comment(): String? = when (this) {
+    is Answer.Confirmed -> text
+    is Answer.Selected -> text
+    is Answer.Text, Answer.Skipped -> null
+}
 
 private fun Answer.Selected.withinBounds(question: Question.MultiChoice): Boolean =
     ids.size in question.min..question.max && ids.distinct().size == ids.size

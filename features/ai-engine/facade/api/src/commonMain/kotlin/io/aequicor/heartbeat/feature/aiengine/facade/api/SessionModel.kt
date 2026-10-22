@@ -237,7 +237,11 @@ public data class PermissionChoice(val id: String, val title: String)
 public sealed interface PermissionInput {
     /** Exactly one of [choices]. */
     @Serializable
-    public data class SingleChoice(val choices: List<PermissionChoice>) : PermissionInput {
+    public data class SingleChoice(
+        val choices: List<PermissionChoice>,
+        /** The adapter can receive a nonblank text alternative, including labels with a user comment. */
+        val isFreeTextAllowed: Boolean = false,
+    ) : PermissionInput {
         init {
             require(choices.isNotEmpty())
             require(choices.map { it.id }.distinct().size == choices.size)
@@ -296,8 +300,12 @@ public fun PermissionRequest.accepts(decision: PermissionDecision): Boolean {
 }
 
 private fun PermissionAnswer.fits(input: PermissionInput): Boolean = when (input) {
-    is PermissionInput.SingleChoice -> this is PermissionAnswer.Selected && ids.size == 1 && offered(input.choices)
+    is PermissionInput.SingleChoice ->
+        (this is PermissionAnswer.Selected && ids.size == 1 && offered(input.choices)) ||
+            (input.isFreeTextAllowed && this is PermissionAnswer.Text && value.isNotBlank())
+
     is PermissionInput.MultiChoice -> this is PermissionAnswer.Selected && withinBounds(input) && offered(input.choices)
+
     is PermissionInput.FreeText -> this is PermissionAnswer.Text
 }
 

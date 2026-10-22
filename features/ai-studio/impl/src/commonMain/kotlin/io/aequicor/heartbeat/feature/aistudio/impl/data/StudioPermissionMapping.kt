@@ -28,7 +28,10 @@ internal fun PermissionRequest.toStudio(sessionId: String) = StudioPermission(
     input = when (val input = input) {
         null -> null
 
-        is PermissionInput.SingleChoice -> StudioPermissionInput.SingleChoice(input.choices.toStudio())
+        is PermissionInput.SingleChoice -> StudioPermissionInput.SingleChoice(
+            input.choices.toStudio(),
+            input.isFreeTextAllowed,
+        )
 
         is PermissionInput.MultiChoice ->
             StudioPermissionInput.MultiChoice(input.choices.toStudio(), input.min, input.max)

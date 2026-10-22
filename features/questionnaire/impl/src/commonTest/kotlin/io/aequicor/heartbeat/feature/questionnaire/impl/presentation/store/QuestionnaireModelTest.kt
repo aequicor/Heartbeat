@@ -157,6 +157,86 @@ class QuestionnaireModelTest {
         assertFailsWith<CancellationException> { pending.await() }
     }
 
+    @Test
+    fun `choice comments and text alternatives reach the machine without losing drafts`() = runTest {
+        val fixture = Fixture(this, QuestionnaireState.Asking(listOf(multi.copy(isFreeTextAllowed = true), text)))
+        fixture.subscribe()
+        fixture.model.dispatch(QuestionnaireScreenIntent.ToggleChoice("m", "b"))
+        fixture.model.dispatch(QuestionnaireScreenIntent.TextChanged("m", "With details"))
+        val next = fixture.model.dispatch(QuestionnaireScreenIntent.ShowQuestion("t"))
+        assertEquals("t", next.activeQuestionId)
+        val previous = fixture.model.dispatch(QuestionnaireScreenIntent.ShowQuestion("m"))
+        assertEquals("With details", previous.questions.first().text)
+        fixture.model.dispatch(QuestionnaireScreenIntent.Submit("m"))
+        assertEquals(
+            Answer.Selected(listOf("b"), "With details"),
+            (fixture.machine.sent.last() as QuestionnaireIntent.Public.Answer).answer,
+        )
+        fixture.model.dispatch(QuestionnaireScreenIntent.ToggleChoice("m", "b"))
+        fixture.model.dispatch(QuestionnaireScreenIntent.Submit("m"))
+        assertEquals(
+            Answer.Text("With details"),
+            (fixture.machine.sent.last() as QuestionnaireIntent.Public.Answer).answer,
+        )
+    }
+
+    @Test
+    fun `withdrawing the active page selects its neighbor and rejects late input`() = runTest {
+        val fixture = Fixture(this, QuestionnaireState.Asking(listOf(multi, text)))
+        val screen = fixture.subscribe()
+        fixture.model.dispatch(QuestionnaireScreenIntent.ShowQuestion("t"))
+        fixture.machine.state.value = QuestionnaireState.Asking(listOf(multi))
+        runCurrent()
+        assertEquals("m", screen.states.value.activeQuestionId)
+        fixture.model.dispatch(QuestionnaireScreenIntent.Submit("t"))
+        assertTrue(fixture.machine.sent.isEmpty())
+        fixture.machine.state.value = QuestionnaireState.Idle
+        runCurrent()
+        assertTrue(screen.states.value.questions.isEmpty())
+        assertEquals(null, screen.states.value.activeQuestionId)
+    }
+
+    @Test
+    fun `confirmation carries its comment and submitting advances to the next draft`() = runTest {
+        val confirm = Questionnaire(
+            QuestionnaireId("c"),
+            "s1",
+            "Continue",
+            Question.Confirm("Yes", "No"),
+            isFreeTextAllowed = true,
+        )
+        val fixture = Fixture(this, QuestionnaireState.Asking(listOf(confirm, text)))
+        val screen = fixture.subscribe()
+        fixture.model.dispatch(QuestionnaireScreenIntent.TextChanged("t", "Next draft"))
+        fixture.model.dispatch(QuestionnaireScreenIntent.Confirm("c", false))
+        assertTrue(fixture.machine.sent.isEmpty())
+        fixture.model.dispatch(QuestionnaireScreenIntent.TextChanged("c", "Only locally"))
+        fixture.machine.state.value = QuestionnaireState.Asking(listOf(confirm, text, multi))
+        runCurrent()
+        assertEquals(false, screen.states.value.questions.first().isConfirmed)
+        fixture.model.dispatch(QuestionnaireScreenIntent.Submit("c"))
+        assertEquals(
+            Answer.Confirmed(false, "Only locally"),
+            (fixture.machine.sent.single() as QuestionnaireIntent.Public.Answer).answer,
+        )
+        fixture.machine.state.value = QuestionnaireState.Asking(listOf(confirm, text), setOf(confirm.id))
+        runCurrent()
+        assertEquals("t", screen.states.value.activeQuestionId)
+        assertEquals("Next draft", screen.states.value.questions.last().text)
+    }
+
+    @Test
+    fun `strict confirmation still submits immediately`() = runTest {
+        val confirm = foreign.copy(source = "s1")
+        val fixture = Fixture(this, QuestionnaireState.Asking(listOf(confirm)))
+        fixture.subscribe()
+        fixture.model.dispatch(QuestionnaireScreenIntent.Confirm("f", true))
+        assertEquals(
+            Answer.Confirmed(true),
+            (fixture.machine.sent.single() as QuestionnaireIntent.Public.Answer).answer,
+        )
+    }
+
     private class Fixture(private val scope: TestScope, initial: QuestionnaireState) {
         val owner = CoroutineScope(
             scope.backgroundScope.coroutineContext + SupervisorJob(scope.backgroundScope.coroutineContext.job),
