@@ -16,6 +16,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
@@ -35,7 +36,16 @@ internal suspend fun piResourceInventory(
     directory: String?,
     trust: ProjectTrust,
     timeLimit: Duration = RESOURCE_TIME_LIMIT,
-): ResourceInventory {
+): ResourceInventory = piComposerResources(home, profile, directory, trust, timeLimit).inventory
+
+/** The composer shares bounded settings/resource reads with the panel rather than opening editable documents. */
+internal suspend fun piComposerResources(
+    home: Path,
+    profile: EngineConfigValues,
+    directory: String?,
+    trust: ProjectTrust,
+    timeLimit: Duration = RESOURCE_TIME_LIMIT,
+): PiComposerResources {
     val limit = ResourceLimit(TimeSource.Monotonic.markNow() + timeLimit, currentCoroutineContext()[Job])
     val flags = piAgentConfig(profile, home, isProjectTrusted = directory != null && trust == ProjectTrust.Trusted) {
         null
@@ -53,15 +63,19 @@ internal suspend fun piResourceInventory(
         }
         add(ResourceRoot(profileRoot, ResourceOrigin.Profile, trust, flags, limit, globs))
     }
+    var isSkillCommandsEnabled = (profileSettings["enableSkillCommands"] as? JsonPrimitive)?.booleanOrNull != false
     val resources = roots.flatMap { root ->
         val settings = if (root.origin == ResourceOrigin.Profile) profileSettings else root.projectSettings()
+        if (root.origin == ResourceOrigin.Project) {
+            (settings["enableSkillCommands"] as? JsonPrimitive)?.booleanOrNull?.let { isSkillCommandsEnabled = it }
+        }
         root.inventory(settings, hasProject = directory != null)
     }
     val repeated = roots.sumOf { it.files.repeated }
     val skipped = roots.sumOf { it.files.skipped }
     if (repeated > 0) log.w { "Pi resource failures repeated count=$repeated skipped=$skipped" }
     if (limit.isReached) log.w { "Pi resource inventory stopped at its time limit or cancellation" }
-    return ResourceInventory(
+    val inventory = ResourceInventory(
         PiEngineId,
         null,
         // Stable: within a kind, project resources stay before profile resources.
@@ -69,6 +83,9 @@ internal suspend fun piResourceInventory(
         external = roots.sumOf { it.external },
         isTruncated = limit.isReached || globs.isIncomplete || roots.any { it.files.isTruncated },
     )
+    // Pi 0.87.1: explicit project, explicit profile, automatic project, automatic profile; first name wins.
+    val commands = roots.asSequence().flatMap { it.commands }.sortedBy { it.first }.map { it.second }.toList()
+    return PiComposerResources(inventory, isSkillCommandsEnabled, commands)
 }
 
 private class ResourceRoot(
@@ -80,6 +97,7 @@ private class ResourceRoot(
     private val globs: ResourceGlobs,
 ) {
     val files = PiResourceFiles(root, globs, limit)
+    val commands = mutableListOf<Pair<Int, EngineResource>>()
     var external = 0
         private set
     private val base = if (origin == ResourceOrigin.Project) root.resolve(".pi") else root
@@ -106,7 +124,7 @@ private class ResourceRoot(
             val matching = if (path in agents) agentPatterns else patterns
             val isSelected = matching.enabled(path, isAutomatic = path !in explicit)
             val selection = Selection(path in explicit, isSelected, path in automatic || path in agents)
-            resource(path, kind, state(kind, selection, hasProject))
+            resource(path, kind, state(kind, selection, hasProject), selection.isExplicit)
         }.toList()
     }
 
@@ -127,14 +145,15 @@ private class ResourceRoot(
         emptyList()
     }
 
-    private fun resource(path: Path, kind: ResourceKind, state: ResourceState): EngineResource {
+    private fun resource(path: Path, kind: ResourceKind, state: ResourceState, isExplicit: Boolean): EngineResource {
         val defaultName = if (kind == ResourceKind.Skill) {
             path.parent.fileName.toString()
         } else {
             path.fileName.toString().substringBeforeLast('.')
         }
-        val metadata = if (kind == ResourceKind.Extension) emptyMap() else metadata(files.text(path))
-        return EngineResource(
+        val text = if (kind == ResourceKind.Extension) null else files.text(path)
+        val metadata = metadata(text)
+        val resource = EngineResource(
             kind,
             origin,
             root.relativize(path).posix(),
@@ -142,6 +161,21 @@ private class ResourceRoot(
             state,
             metadata["description"],
         )
+        recordCommand(text, resource, defaultName, isExplicit)
+        return resource
+    }
+
+    private fun recordCommand(text: String?, resource: EngineResource, defaultName: String, isExplicit: Boolean) {
+        val literal = text?.let(::piLiteralMetadata) ?: return
+        val hasDescription = !literal["description"].isNullOrBlank()
+        if (resource.kind == ResourceKind.Prompt || hasDescription) {
+            val projectOffset = if (origin == ResourceOrigin.Project) 0 else 1
+            val priority = (if (isExplicit) 0 else AUTOMATIC_PRIORITY) + projectOffset
+            commands += priority to resource.copy(
+                name = if (resource.kind == ResourceKind.Skill) literal["name"] ?: defaultName else defaultName,
+                description = literal["description"],
+            )
+        }
     }
 
     private fun state(kind: ResourceKind, selection: Selection, hasProject: Boolean): ResourceState {
@@ -232,6 +266,8 @@ private fun metadata(text: String?): Map<String, String> {
 }
 
 private val log = Log.tag("PiResourceInventory")
+
+private const val AUTOMATIC_PRIORITY = 2
 
 private const val ENTRY_FAILURE = "Pi resource entry is not a valid path"
 private const val LINK_FAILURE = "Pi resource entry link not resolved"

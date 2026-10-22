@@ -6,17 +6,21 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineConfigurator
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiAuthOwner
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiDescriptor
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngine
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiAdapter
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiConfigSchema
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiConfigurator
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiEngineManager
@@ -53,6 +57,9 @@ public object PiRegistrationBindings {
         manager: Lazy<PiEngineManager>,
         configurator: Lazy<PiConfigurator>,
         platform: PlatformInfo,
+        workspaces: LocalWorkspaces,
+        dispatchers: DispatcherProvider,
+        launches: EngineLaunchConfig = EngineLaunchConfig.Default,
     ): EngineRegistration {
         val isDesktop = platform.host != HostPlatform.Android && platform.host != HostPlatform.Ios
         return EngineRegistration(
@@ -63,6 +70,8 @@ public object PiRegistrationBindings {
             management = PiManagementSpec,
             manager = lazy { manager.value },
             configuration = PiConfigSchema.takeIf { isDesktop },
+            composerAssists = lazy { PiComposerAssists(configurator.value, launches, workspaces, dispatchers) }
+                .takeIf { isDesktop },
             configurator = lazy<EngineConfigurator> { configurator.value }.takeIf { isDesktop },
         )
     }

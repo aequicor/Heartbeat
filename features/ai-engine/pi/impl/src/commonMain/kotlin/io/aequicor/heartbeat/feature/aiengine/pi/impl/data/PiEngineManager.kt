@@ -1,10 +1,14 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineResource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineConfigurator
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 
@@ -28,4 +32,17 @@ internal val PiManagementSpec = ManagementSpec(
 )
 
 /** Qualified configurator contract of Pi's files, like [PiEngineManager]. */
-internal interface PiConfigurator : EngineConfigurator
+internal interface PiConfigurator : EngineConfigurator {
+    /** Bounded resource selection and the effective command switch from the same settings snapshot. */
+    suspend fun composerResources(
+        profile: EngineConfigValues,
+        directory: String?,
+        trust: ProjectTrust,
+    ): PiComposerResources = throw UnsupportedOperationException("Composer resources are unavailable")
+}
+
+internal data class PiComposerResources(
+    val inventory: ResourceInventory,
+    val isSkillCommandsEnabled: Boolean,
+    val commands: List<EngineResource>,
+)

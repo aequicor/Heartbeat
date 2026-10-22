@@ -82,6 +82,14 @@ internal class DesktopPiConfigurator(
         piResourceInventory(home() ?: unsupported(), profile, directory, trust)
     }
 
+    override suspend fun composerResources(
+        profile: EngineConfigValues,
+        directory: String?,
+        trust: ProjectTrust,
+    ): PiComposerResources = files {
+        piComposerResources(home() ?: unsupported(), profile, directory, trust)
+    }
+
     override suspend fun previewNative(): ImportPreview = files { importer().preview() }
 
     override suspend fun readNative(selection: ImportSelection): NativeImport = files { importer().read(selection) }
