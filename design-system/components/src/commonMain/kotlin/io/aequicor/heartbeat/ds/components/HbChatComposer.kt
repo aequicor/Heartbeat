@@ -336,6 +336,8 @@ private fun ComposerEditor(
         modifier = modifier.semantics { if (accessibleLabel.isNotBlank()) contentDescription = accessibleLabel },
         enabled = enabled,
         singleLine = false,
+        outputTransformation = composerReferenceTransformation(HbTheme.colors.focusAccent),
+        inputFilter = composerReferenceEditing(),
         interactionSource = interactionSource,
         placeholder = placeholder,
         onCaretChange = onCaretChange,

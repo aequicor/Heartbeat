@@ -3,7 +3,8 @@ package io.aequicor.heartbeat.feature.autocomplete.api
 /**
  * The composer token the caret is editing, or null when the caret is outside any trigger.
  *
- * A command token is a `/` word at the start of a line; a mention is an `@` word that begins after whitespace
+ * A command token is a `/` word at line start or a `$` word after whitespace; a mention is an `@` word
+ * that begins after whitespace
  * or at the start of a line and carries at least one typed character. Words end at whitespace, so a `/` inside
  * a URL (`https://…`) or an address (`a@b`) never triggers. [ComposerTrigger.range] spans the whole word,
  * while [ComposerTrigger.query] is only what the user typed before the caret — accepting a suggestion replaces
@@ -25,6 +26,8 @@ public fun composerTrigger(text: String, caret: Int): ComposerTrigger? {
         } else {
             null
         }
+
+        '$' -> ComposerTrigger.Command(start..(end - 1), text.substring(start + 1, queryEnd))
 
         '@' -> if (queryEnd <= start + 1) {
             null

@@ -61,10 +61,10 @@ internal class AutocompleteComposerAssists(
     ): List<ComposerSuggestion> = coroutineScope {
         if (!toggles.get(AutocompleteEnabled)) return@coroutineScope emptyList()
         val engine = async { native(trigger, scope) }
-        val files = async { if (trigger is ComposerTrigger.Mention) files(trigger, scope) else emptyList() }
+        val files = async { files(trigger, scope) }
         val host = when (trigger) {
             is ComposerTrigger.Command -> hostCommands.filter { it.matches(trigger.query) }
-                .map { hostCommand(it, trigger.query) }
+                .map { hostCommand(it, trigger.query) } + learned(trigger, scope)
 
             is ComposerTrigger.Mention -> learned(trigger, scope)
         }
@@ -82,7 +82,7 @@ internal class AutocompleteComposerAssists(
         }
         val host = when (trigger) {
             is ComposerTrigger.Command -> hostCommands.filter { it.matches(trigger.query) }
-                .map { hostCommand(it, trigger.query) }
+                .map { hostCommand(it, trigger.query) } + learned(trigger, scope)
 
             is ComposerTrigger.Mention -> learned(trigger, scope)
         }
@@ -91,23 +91,32 @@ internal class AutocompleteComposerAssists(
             engineAssists.observe(target, scope.workspace).map { nativeItems(trigger, scope, it) }
         } ?: flow { emit(emptyList()) }
         val files = flow {
-            emit(if (trigger is ComposerTrigger.Mention) files(trigger, scope) else emptyList())
+            emit(files(trigger, scope))
         }.onStart { emit(emptyList()) }
         emitAll(combine(native, files) { engine, workspace -> merge(host + engine + workspace) })
     }.distinctUntilChanged()
 
     private fun merge(merged: List<Ranked>): List<ComposerSuggestion> {
-        val heartbeatNames = merged.asSequence()
+        val nativeSkillNames = merged.filter {
+            it.suggestion is ComposerSuggestion.Skill &&
+                it.suggestion.origin is ComposerAssistOrigin.Engine
+        }.map { it.suggestion.duplicateKey() }.toSet()
+        val candidates = merged.filterNot {
+            it.suggestion.id.startsWith("project-skill:") &&
+                it.suggestion.duplicateKey() in nativeSkillNames
+        }
+        val heartbeatNames = candidates.asSequence()
             .filter { it.suggestion.origin == ComposerAssistOrigin.Heartbeat }
             .map { it.suggestion.duplicateKey() }
             .toSet()
-        return merged.asSequence()
+        return candidates.asSequence()
             .filterNot {
                 it.suggestion.origin != ComposerAssistOrigin.Heartbeat &&
                     it.suggestion.duplicateKey() in heartbeatNames
             }
             .sortedWith(compareBy({ it.rank }, { it.suggestion.origin != ComposerAssistOrigin.Heartbeat }))
             .map { it.suggestion }
+            .distinctBy { it.duplicateKey() }
             .take(SUGGESTION_LIMIT)
             .toList()
     }
@@ -131,7 +140,7 @@ internal class AutocompleteComposerAssists(
         rank(query, command.id, command.label) ?: 0,
     )
 
-    private suspend fun learned(trigger: ComposerTrigger.Mention, scope: ComposerScope): List<Ranked> {
+    private suspend fun learned(trigger: ComposerTrigger, scope: ComposerScope): List<Ranked> {
         if (!toggles.get(AgentLearningEnabled)) return emptyList()
         return learnedSkills.skills(scope.project).mapNotNull { skill ->
             rank(trigger.query, skill.title)?.let {
@@ -141,7 +150,7 @@ internal class AutocompleteComposerAssists(
                         label = skill.title,
                         description = skill.description,
                         origin = ComposerAssistOrigin.Heartbeat,
-                        insert = "${skill.title} ",
+                        insert = "@${skill.title} ",
                     ),
                     it,
                 )
@@ -156,16 +165,12 @@ internal class AutocompleteComposerAssists(
 
     private fun nativeItems(trigger: ComposerTrigger, scope: ComposerScope, assists: List<EngineAssist>): List<Ranked> {
         val target = scope.target ?: return emptyList()
-        val kind = when (trigger) {
-            is ComposerTrigger.Command -> EngineAssist.Kind.Command
-            is ComposerTrigger.Mention -> EngineAssist.Kind.Skill
-        }
         return assists.asSequence()
-            .filter { it.kind == kind }
+            .filter { trigger is ComposerTrigger.Command || it.kind == EngineAssist.Kind.Skill }
             .mapNotNull { assist -> rank(trigger.query, assist.label, assist.id)?.let { assist to it } }
             .map { (assist, rank) ->
                 val origin = ComposerAssistOrigin.Engine(target.engine)
-                val suggestion = if (kind == EngineAssist.Kind.Command) {
+                val suggestion = if (assist.kind == EngineAssist.Kind.Command) {
                     ComposerSuggestion.Command(
                         id = "engine:${target.engine.value}:${assist.id}",
                         label = assist.label,
@@ -187,12 +192,14 @@ internal class AutocompleteComposerAssists(
             .toList()
     }
 
-    private suspend fun files(trigger: ComposerTrigger.Mention, scope: ComposerScope): List<Ranked> {
-        if (!toggles.get(AttachmentsEnabled)) return emptyList()
-        val support = scope.inputSupport ?: return emptyList()
-        if (support.allowedMediaTypes.isEmpty()) return emptyList()
-        return projectFiles.search(scope.workspace, trigger.query, SUGGESTION_LIMIT)
-            .map { file ->
+    private suspend fun files(trigger: ComposerTrigger, scope: ComposerScope): List<Ranked> {
+        val support = scope.inputSupport
+        val areFilesAllowed = trigger is ComposerTrigger.Mention && toggles.get(AttachmentsEnabled) &&
+            support != null && support.allowedMediaTypes.isNotEmpty()
+        return projectFiles.search(scope.workspace, trigger.query, SUGGESTION_LIMIT, skillsOnly = !areFilesAllowed)
+            .mapNotNull { file ->
+                file.skill?.let { return@mapNotNull projectSkill(file, it, trigger.query) }
+                if (!areFilesAllowed || support == null) return@mapNotNull null
                 val mediaType = file.mediaType ?: attachmentMediaTypeFor(file.relativePath)
                 // A file the current model cannot take stays visible with the reason instead of disappearing.
                 val reason = when {
@@ -217,6 +224,20 @@ internal class AutocompleteComposerAssists(
                 )
             }
     }
+
+    private fun projectSkill(file: ProjectFile, skill: ProjectSkill, query: String): Ranked = Ranked(
+        ComposerSuggestion.Skill(
+            id = "project-skill:${file.relativePath}",
+            label = skill.name,
+            description = skill.description,
+            origin = ComposerAssistOrigin.Heartbeat,
+            // The path stays in the prompt so file-capable agents can read the exact instruction.
+            // The editor displays only the label, without importing an attachment.
+            insert = "[/" + skill.name + "](" + file.relativePath.replace("%", "%25").replace(" ", "%20")
+                .replace("(", "%28").replace(")", "%29").replace("#", "%23") + ") ",
+        ),
+        rank(query, skill.name, file.relativePath) ?: 0,
+    )
 
     private fun describeSize(sizeBytes: Long): String = when {
         sizeBytes >= BYTES_PER_MB -> "${sizeBytes / BYTES_PER_MB} MB"

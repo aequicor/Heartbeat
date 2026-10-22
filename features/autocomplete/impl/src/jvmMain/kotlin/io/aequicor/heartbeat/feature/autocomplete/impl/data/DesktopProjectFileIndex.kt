@@ -39,7 +39,12 @@ internal class DesktopProjectFileIndex(
     private val mutex = Mutex()
     private val cache = mutableMapOf<String, Entry>()
 
-    override suspend fun search(workspace: WorkspaceRef?, query: String, limit: Int): List<ProjectFile> {
+    override suspend fun search(
+        workspace: WorkspaceRef?,
+        query: String,
+        limit: Int,
+        skillsOnly: Boolean,
+    ): List<ProjectFile> {
         val ref = workspace ?: return emptyList()
         val now = clock.now()
         val files = mutex.withLock {
@@ -52,7 +57,14 @@ internal class DesktopProjectFileIndex(
             fresh
         }
         return files.asSequence()
-            .mapNotNull { file -> fileRank(query, file.relativePath).takeIf { it >= 0 }?.let { file to it } }
+            .filter { !skillsOnly || it.skill != null }
+            .mapNotNull { file ->
+                val ranks = listOfNotNull(
+                    fileRank(query, file.relativePath),
+                    file.skill?.let { fileRank(query, it.name) },
+                )
+                ranks.filter { it >= 0 }.minOrNull()?.let { file to it }
+            }
             .sortedWith(compareBy({ it.second }, { it.first.relativePath }))
             .take(limit)
             .map { it.first }

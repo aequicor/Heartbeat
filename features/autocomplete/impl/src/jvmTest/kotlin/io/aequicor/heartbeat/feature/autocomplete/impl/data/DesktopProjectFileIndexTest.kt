@@ -103,6 +103,30 @@ class DesktopProjectFileIndexTest {
         assertEquals(emptyList(), walkProjectFiles(root, EmptyCoroutineContext))
     }
 
+    @Test
+    fun `skills match their declared names and command listings exclude ordinary files`() = runTest {
+        val root = temporary.newFolder("skills").toPath()
+        repeat(20) { write(root, "file$it.md", "ordinary") }
+        write(root, ".agents/skills/folder/SKILL.md", "---\nname: open-pr\ndescription: Open a draft\n---\nBody")
+        val index = index(root)
+        val row = index.search(workspace, "open", 16).single()
+        assertEquals(ProjectSkill("open-pr", "Open a draft"), row.skill)
+        assertEquals(listOf(row), index.search(workspace, "", 16, skillsOnly = true))
+    }
+
+    @Test
+    fun `literal metadata supports quotes and folded descriptions but requires a complete header`() {
+        assertEquals(
+            ProjectSkill("review", "Review changes carefully"),
+            projectSkillMetadata(
+                "---\nname: 'review'\ndescription: >-\n  Review changes\n  carefully\n---\nDo the work",
+            ),
+        )
+        assertEquals(null, projectSkillMetadata("---\nname: review\ndescription: incomplete"))
+        assertEquals(null, projectSkillMetadata("---\nname: review\ndescription: Hidden\nuser-invocable: false\n---"))
+        assertEquals(null, projectSkillMetadata("---\nname: invalid name\ndescription: Invalid\n---"))
+    }
+
     private fun index(root: Path) = DesktopProjectFileIndex(
         object : LocalWorkspaces {
             override val isAvailable = true

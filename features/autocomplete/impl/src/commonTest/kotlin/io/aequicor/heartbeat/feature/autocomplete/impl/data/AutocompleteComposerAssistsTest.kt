@@ -49,6 +49,8 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
+import io.aequicor.heartbeat.feature.autocomplete.api.applyComposerSuggestion
+import io.aequicor.heartbeat.feature.autocomplete.api.composerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
@@ -173,7 +175,7 @@ class AutocompleteComposerAssistsTest {
         assertEquals(2, suggestions.size)
         val learned = assertIs<ComposerSuggestion.Skill>(suggestions[0])
         assertEquals(ComposerAssistOrigin.Heartbeat, learned.origin)
-        assertEquals("verify ", learned.insert)
+        assertEquals("@verify ", learned.insert)
         val engine = assertIs<ComposerSuggestion.Skill>(suggestions[1])
         assertEquals(ComposerAssistOrigin.Engine(pi), engine.origin)
     }
@@ -271,7 +273,12 @@ class AutocompleteComposerAssistsTest {
         val service = service(
             toggles = mapOf(AutocompleteEnabled to true, AgentLearningEnabled to true, AttachmentsEnabled to true),
             files = object : ProjectFileIndex {
-                override suspend fun search(workspace: WorkspaceRef?, query: String, limit: Int): List<ProjectFile> {
+                override suspend fun search(
+                    workspace: WorkspaceRef?,
+                    query: String,
+                    limit: Int,
+                    skillsOnly: Boolean,
+                ): List<ProjectFile> {
                     scopes += workspace
                     return emptyList()
                 }
@@ -386,6 +393,78 @@ class AutocompleteComposerAssistsTest {
         job.cancelAndJoin()
     }
 
+    @Test
+    fun `project skills display metadata and insert a reference without an attachment`() = runTest {
+        val file = ProjectFile(
+            ".agents/skills/open-pr/SKILL.md",
+            "/project/skill",
+            200,
+            "text/markdown",
+            ProjectSkill("open-pr", "Open a draft pull request"),
+        )
+        val service = service(
+            skills = emptyList(),
+            files = object : ProjectFileIndex {
+                override suspend fun search(
+                    workspace: WorkspaceRef?,
+                    query: String,
+                    limit: Int,
+                    skillsOnly: Boolean,
+                ): List<ProjectFile> = listOf(file)
+            },
+        )
+        for (text in listOf("@open", "/open", "\$open")) {
+            val trigger = composerTrigger(text, text.length)!!
+            val row = assertIs<ComposerSuggestion.Skill>(
+                service.suggest(trigger, ComposerScope(workspace = project)).single(),
+            )
+            assertEquals("open-pr", row.label)
+            assertEquals("Open a draft pull request", row.description)
+            val draft = applyComposerSuggestion(text, trigger, row)
+            assertEquals("[/open-pr](.agents/skills/open-pr/SKILL.md) ", draft.text)
+            assertEquals(null, draft.attach)
+            assertEquals(draft.text.length, draft.caret)
+        }
+    }
+
+    @Test
+    fun `slash lists learned and native skills using their own insertion syntax`() = runTest {
+        val service = service(
+            assists = listOf(skill("verification", "verification").copy(insert = "/skill:verification ")),
+        )
+        val rows = service.suggest(ComposerTrigger.Command(0..3, "ver"), ComposerScope(target, project))
+        assertEquals(
+            listOf("@verify ", "/skill:verification "),
+            rows.map { assertIs<ComposerSuggestion.Skill>(it).insert },
+        )
+    }
+
+    @Test
+    fun `native skills take precedence over file metadata with the same name`() = runTest {
+        val service = service(
+            skills = emptyList(),
+            assists = listOf(skill("verify", "verify")),
+            files = object : ProjectFileIndex {
+                override suspend fun search(
+                    workspace: WorkspaceRef?,
+                    query: String,
+                    limit: Int,
+                    skillsOnly: Boolean,
+                ): List<ProjectFile> = listOf(
+                    ProjectFile(
+                        ".agents/skills/verify/SKILL.md",
+                        "/skill",
+                        1,
+                        "text/markdown",
+                        ProjectSkill("verify", "Checks"),
+                    ),
+                )
+            },
+        )
+        val rows = service.suggest(ComposerTrigger.Command(0..3, "ver"), ComposerScope(target, project))
+        assertEquals(listOf(ComposerAssistOrigin.Engine(pi)), rows.map { it.origin })
+    }
+
     private fun command(insert: String, label: String, description: String = "") = EngineAssist(
         id = insert.removePrefix("/").removeSuffix(" "),
         label = label,
@@ -421,11 +500,15 @@ class AutocompleteComposerAssistsTest {
         failWith: Exception? = null,
         onRead: suspend () -> Unit = {},
         files: ProjectFileIndex = object : ProjectFileIndex {
-            override suspend fun search(workspace: WorkspaceRef?, query: String, limit: Int): List<ProjectFile> =
-                listOf(
-                    ProjectFile("docs/readme.md", "C:\\p\\docs\\readme.md", 2_048, "text/markdown"),
-                    ProjectFile("assets/logo.png", "C:\\p\\assets\\logo.png", 90_000_000, "image/png"),
-                ).filter { fileRank(query, it.relativePath) >= 0 }
+            override suspend fun search(
+                workspace: WorkspaceRef?,
+                query: String,
+                limit: Int,
+                skillsOnly: Boolean,
+            ): List<ProjectFile> = listOf(
+                ProjectFile("docs/readme.md", "C:\\p\\docs\\readme.md", 2_048, "text/markdown"),
+                ProjectFile("assets/logo.png", "C:\\p\\assets\\logo.png", 90_000_000, "image/png"),
+            ).filter { fileRank(query, it.relativePath) >= 0 }
         },
     ) = AutocompleteComposerAssists(
         FakeToggles(toggles),

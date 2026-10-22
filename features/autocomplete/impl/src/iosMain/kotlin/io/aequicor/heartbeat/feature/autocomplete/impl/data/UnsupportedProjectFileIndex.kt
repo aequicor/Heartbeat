@@ -9,5 +9,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 @Inject
 @ContributesBinding(ProfileScope::class)
 internal class UnsupportedProjectFileIndex : ProjectFileIndex {
-    override suspend fun search(workspace: WorkspaceRef?, query: String, limit: Int): List<ProjectFile> = emptyList()
+    override suspend fun search(
+        workspace: WorkspaceRef?,
+        query: String,
+        limit: Int,
+        skillsOnly: Boolean,
+    ): List<ProjectFile> = emptyList()
 }

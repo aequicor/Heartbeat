@@ -88,7 +88,7 @@ public sealed interface ComposerTrigger {
     /** The text typed between the trigger character and the caret. */
     public val query: String
 
-    /** `/` at the start of a line; an empty query still lists every available command. */
+    /** `/` at line start or `$` after whitespace; offers commands and skills, including an empty query. */
     public data class Command(override val range: IntRange, override val query: String) : ComposerTrigger
 
     /** `@` after whitespace or at the start of a line; needs at least one typed character. */
