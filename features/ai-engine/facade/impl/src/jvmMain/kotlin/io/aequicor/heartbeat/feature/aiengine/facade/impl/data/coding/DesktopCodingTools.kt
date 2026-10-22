@@ -26,6 +26,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import okio.ByteString.Companion.encodeUtf8
 import java.nio.file.Path
 
 /** Files and commands share host-bound interactive or independent automatic decisions across local engines. */
