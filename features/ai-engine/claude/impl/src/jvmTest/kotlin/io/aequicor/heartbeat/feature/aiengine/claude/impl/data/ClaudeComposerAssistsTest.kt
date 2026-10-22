@@ -111,21 +111,25 @@ class ClaudeComposerAssistsTest {
             override suspend fun revision() = 1L
             override suspend fun paths() = listOf(".claude/skills/open-pr/SKILL.md")
             override suspend fun read(path: String) = body.takeIf { path == ".claude/skills/open-pr/SKILL.md" }
-            override suspend fun change(expectedRevision: Long, changes: List<VirtualFileChange>): Long = error("unused")
+            override suspend fun change(expectedRevision: Long, changes: List<VirtualFileChange>): Long =
+                error("unused")
             override suspend fun move(expectedRevision: Long, path: String, destination: String): Long = error("unused")
         }
         val assists = DesktopClaudeComposerAssists(
             object : ProjectAssistReader by ProjectAssistReader.None {
-                override suspend fun read(engine: EngineId, workspace: WorkspaceRef?, directories: List<AssistDirectory>) =
-                    listOf(
-                        EngineAssist(
-                            ".claude/skills:open-pr/SKILL.md",
-                            "open-pr",
-                            "",
-                            "/heartbeat-project:open-pr ",
-                            EngineAssist.Kind.Skill,
-                        ),
-                    )
+                override suspend fun read(
+                    engine: EngineId,
+                    workspace: WorkspaceRef?,
+                    directories: List<AssistDirectory>,
+                ) = listOf(
+                    EngineAssist(
+                        ".claude/skills:open-pr/SKILL.md",
+                        "open-pr",
+                        "",
+                        "/heartbeat-project:open-pr ",
+                        EngineAssist.Kind.Skill,
+                    ),
+                )
             },
             object : LocalWorkspaces {
                 override val isAvailable = true
