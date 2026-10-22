@@ -384,6 +384,11 @@ class ServiceUiAgentToolsTest {
         assertTrue(webCard.source is UiCardSource.Inline, webCard.source.toString())
         val webApproval = approval(ServiceUiTools.SHOW, show(spec = webSpec)).description.orEmpty()
         assertTrue(webApproval.startsWith("Contains a web document"), webApproval)
+        val webModal = """{"version":1,"modals":{"view":{"title":"V","body":{"type":"web","html":"<p>Hi</p>"}}},
+            "body":{"type":"button","label":"Open","action":{"type":"open","modal":"view"}}}"""
+        val modalApproval = approval(ServiceUiTools.SHOW, show(spec = webModal)).description.orEmpty()
+        assertTrue(modalApproval.startsWith("Contains a web document"), modalApproval)
+        assertFalse(call(ServiceUiTools.SHOW, show(spec = webModal)).isError)
         val textApproval = approval(ServiceUiTools.SHOW, show(spec = TEXT)).description.orEmpty()
         assertFalse("web document" in textApproval, textApproval)
 

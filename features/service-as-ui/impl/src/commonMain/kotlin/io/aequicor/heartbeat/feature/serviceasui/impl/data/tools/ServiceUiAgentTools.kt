@@ -137,7 +137,7 @@ internal class ServiceUiAgentTools(
                     "Show the card “${arguments.text("title").orEmpty()}”",
                     arguments["spec"]?.let { inline ->
                         val json = PrettyJson.encodeToString(JsonElement.serializer(), inline)
-                        // An anonymous page runs as soon as its card is drawn, without a click.
+                        // An anonymous page in the body runs as soon as its card is drawn, without a click.
                         if (inlineSpec(arguments).hasWeb()) "$INLINE_WEB_NOTICE\n\n$json" else json
                     },
                 )
@@ -664,7 +664,7 @@ internal class ServiceUiAgentTools(
         const val CALL_RESULT_CHARS = 16_000
         const val NOT_LOADED = "interfaces are turned off or not loaded yet"
         const val INLINE_WEB_NOTICE =
-            "Contains a web document: its scripts and public HTTPS assets load when the card is shown."
+            "Contains a web document: its scripts and public HTTPS assets load when the card or its modal is shown."
         val METHODS_TIMEOUT = 3.seconds
         val PrettyJson = Json { prettyPrint = true }
         val REVIEWED_TOOLS = setOf(ServiceUiTools.PUT, ServiceUiTools.DELETE, ServiceUiTools.SHOW, ServiceUiTools.CALL)
