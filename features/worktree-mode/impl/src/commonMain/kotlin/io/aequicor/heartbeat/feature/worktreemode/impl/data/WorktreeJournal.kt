@@ -89,7 +89,6 @@ internal class WorktreeJournal(
             find = ::record,
             change = ::update,
             settle = { commitTransition(it) },
-            finishTask = ::finishVirtual,
         ),
     )
 
@@ -391,13 +390,7 @@ internal class WorktreeJournal(
         } else {
             verified
         }
-        val ready = virtual.finish(released)
-        val captured = virtual.captureChild(ready, isMatching && command.outcome == TurnOutcome.Completed)
-        return captured
-    }
-
-    private suspend fun finishVirtual(chatId: String): WorktreeRecord? = upkeep.prepareRun(chatId) {
-        record(chatId)?.let { virtual.finish(it) }
+        return virtual.captureChild(released, isMatching && command.outcome == TurnOutcome.Completed)
     }
 
     private suspend fun rejectRun(command: WorktreeIntent.Public.RunRejected): WorktreeRecord? =
@@ -530,9 +523,17 @@ internal class WorktreeJournal(
             (command.action == WorktreeAction.Refine && command.refinement.isNullOrBlank())
         return when {
             !existing.task.canChooseAction() -> existing
+            command.action == WorktreeAction.HandOff -> handOff(existing)
             isSimpleChoice -> commitTransition(command)
             else -> actions.prepare(command, existing)
         }
+    }
+
+    /** Publishes the finished sandbox as an immutable local branch; only a sandbox root can be handed off. */
+    private suspend fun handOff(existing: WorktreeRecord): WorktreeRecord? {
+        if (existing.task.virtualSandbox == null || existing.parentWorkspace != null) return existing
+        val state = git.handoffVirtual(existing) ?: return existing
+        return update(existing.task.chatId) { it.copy(task = it.task.virtualChanged(state)) }
     }
 
     private suspend fun runBuild(command: WorktreeIntent.Public.RunBuild, emit: suspend (WorktreeTask) -> Unit) {
