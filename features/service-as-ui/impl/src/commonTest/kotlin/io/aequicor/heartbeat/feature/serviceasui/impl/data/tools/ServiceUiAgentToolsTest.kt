@@ -377,16 +377,15 @@ class ServiceUiAgentToolsTest {
 
         call(ServiceUiTools.PUT, put(SPEC))
         assertFalse(call(ServiceUiTools.SHOW, show(surface = "harness:h_1:start")).isError)
-        val web = show(
-            spec = """{"version":1,"modals":{"view":{"title":"V","body":{"type":"web","html":"<p>Hi</p>"}}},
-                "body":{"type":"button","label":"Open","action":{"type":"open","modal":"view"}}}""",
-        )
-        val spec = ServiceUiToolSpecs.first { it.name == ServiceUiTools.SHOW }
-        val webBody = call(
-            ServiceUiTools.SHOW,
-            show(spec = """{"version":1,"body":{"type":"web","html":"<p>Report</p>","height":"content"}}"""),
-        )
+        val webSpec = """{"version":1,"body":{"type":"web","html":"<p>Report</p>","height":"content"}}"""
+        val webBody = call(ServiceUiTools.SHOW, show(spec = webSpec))
         assertFalse(webBody.isError, webBody.text)
+        val webCard = cards.added.single { it.id == ServiceUiTools.shownCardId(ServiceUiTools.SHOW, webBody.text) }
+        assertTrue(webCard.source is UiCardSource.Inline, webCard.source.toString())
+        val webApproval = approval(ServiceUiTools.SHOW, show(spec = webSpec)).description.orEmpty()
+        assertTrue(webApproval.startsWith("Contains a web document"), webApproval)
+        val textApproval = approval(ServiceUiTools.SHOW, show(spec = TEXT)).description.orEmpty()
+        assertFalse("web document" in textApproval, textApproval)
 
         cards.isFull = true
         assertTrue("already shows 64 cards" in call(ServiceUiTools.SHOW, show(surface = "harness:h_1:start")).text)
