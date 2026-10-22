@@ -5,6 +5,10 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionAnalysis
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionEffect
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionEvidence
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionResourceKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
@@ -62,7 +66,12 @@ internal class DesktopCodingTools(
         arguments: JsonObject,
     ): ActionAnalysis {
         val workspace = context.workspace ?: return ActionAnalysis.Unknown("A project is required")
-        if (workspaces.virtual(workspace) != null) return ActionAnalysis.Unknown("Virtual action needs confirmation")
+        val virtual = workspaces.virtual(workspace)
+        if (virtual != null) {
+            return if (spec.name in VIRTUAL_READS) virtualReadAnalysis(virtual, spec.name, arguments) else {
+                ActionAnalysis.Unknown("Virtual action needs confirmation")
+            }
+        }
         val directory = workspaces.resolve(workspace) ?: return ActionAnalysis.Unknown("Project is unavailable")
         val snapshot = if (spec.name in MUTATIONS) {
             snapshots.snapshot(context, approval(spec, arguments), arguments)
@@ -257,7 +266,27 @@ internal class DesktopCodingTools(
     }
 }
 
-private fun unavailable() = AgentToolResult("Project tools are unavailable", isError = true)
+/** Virtual reads never touch the physical project, so the sandbox tree itself is the verified root. */
+private suspend fun virtualReadAnalysis(
+    virtual: io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace,
+    name: String,
+    arguments: JsonObject,
+): ActionAnalysis {
+    val revision = virtual.revision()
+    val binding = "${virtual.ref.value}:$revision:$name:$arguments".encodeUtf8().sha256().hex()
+    return ActionAnalysis.Known(
+        ActionEvidence(
+            "Virtual project read $name: $arguments",
+            listOf(ActionResource(ActionResourceKind.FileSystem, "virtual:${virtual.ref.value}", true)),
+            setOf(ActionEffect.Read),
+            binding,
+        ),
+    )
+}
+
+private val VIRTUAL_READS = setOf("read_file", "list_dir", "glob", "grep")
+
+private fun unavailable() =AgentToolResult("Project tools are unavailable", isError = true)
 
 private const val MAX_APPROVAL_CHARS = 4_000
 private const val SHELL_TOOL = "run_command"
