@@ -33,7 +33,8 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
         val state = workspaces.state(workspace)
         return "Integrate a finished child's virtual snapshot with sandbox_integrate using " +
             "the workspace and snapshot " +
-            "from its host result note. Never use git or shell to integrate. " +
+            "from its host result note. Never use git or shell to integrate. To commit the sandbox files into a " +
+            "branch of the real repository use sandbox_commit with a branch that is not checked out. " +
             if (state.isResolving) {
                 "The user authorized conflict resolution. Read conflict files and use sandbox_resolve_conflict for " +
                     "each resolved file; unresolved paths: ${state.conflicts.joinToString(
@@ -51,18 +52,22 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
     ): AgentToolApproval {
         val parent = checkNotNull(context.workspace)
         val state = workspaces.state(parent)
-        val child = if (spec.name == "sandbox_integrate") {
-            val ref = WorkspaceRef(checkNotNull(arguments["workspace"]).jsonPrimitive.content)
-            Json.encodeToString(workspaces.state(ref))
-        } else {
-            workspaces.find(parent)?.read(checkNotNull(arguments["path"]).jsonPrimitive.content).orEmpty()
+        val child = when (spec.name) {
+            "sandbox_integrate" -> Json.encodeToString(
+                workspaces.state(WorkspaceRef(checkNotNull(arguments["workspace"]).jsonPrimitive.content)),
+            )
+
+            "sandbox_commit" -> "Base=${state.baseCommit}"
+
+            else -> workspaces.find(parent)?.read(checkNotNull(arguments["path"]).jsonPrimitive.content).orEmpty()
         }
         val description = "Virtual revision=${state.revision}\nSnapshot=${state.snapshot}\n" +
             "Input=$arguments\nCurrent=$child"
         require(description.length <= MAX_VIRTUAL_ACTION_CHARS) { "SandboxActionTooLarge" }
+        val isCommit = spec.name == "sandbox_commit"
         return AgentToolApproval(
             spec.name,
-            "Изменить виртуальное состояние",
+            if (isCommit) COMMIT_TITLE else "Изменить виртуальное состояние",
             description,
             "${state.revision}:${state.snapshot}:$arguments",
         )
@@ -86,6 +91,16 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
                 workspaces.integrate(parent, child, expectedRevision, snapshot)
             }
 
+            "sandbox_commit" -> {
+                val branch = checkNotNull(arguments["branch"]).jsonPrimitive.content
+                val commit = workspaces.commitToBranch(
+                    parent,
+                    branch,
+                    checkNotNull(arguments["message"]).jsonPrimitive.content,
+                )
+                return AgentToolResult("Committed $commit to refs/heads/$branch")
+            }
+
             "sandbox_resolve_conflict" -> workspaces.resolve(
                 parent,
                 checkNotNull(arguments["path"]).jsonPrimitive.content,
@@ -99,7 +114,21 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
     }
 
     private companion object {
+        const val COMMIT_TITLE = "Записать снапшот песочницы в ветку реального репозитория"
         val specs = listOf(
+            AgentToolSpec(
+                "sandbox_commit",
+                "Commit the sandbox's current files to a local branch of the real repository, creating it or " +
+                    "fast-forwarding it. The branch must not be checked out; no shell or git is needed",
+                Json.parseToJsonElement(
+                    """
+                    {"type":"object","properties":{
+                      "branch":{"type":"string"},"message":{"type":"string"}},
+                      "required":["branch","message"],"additionalProperties":false}
+                    """.trimIndent(),
+                ).jsonObject,
+                AgentToolAction.Edit,
+            ),
             AgentToolSpec(
                 "sandbox_integrate",
                 "Integrate a completed child's immutable virtual result",

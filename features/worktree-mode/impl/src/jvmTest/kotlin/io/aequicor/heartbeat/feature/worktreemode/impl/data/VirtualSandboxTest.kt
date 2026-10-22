@@ -391,6 +391,48 @@ class VirtualSandboxTest {
     }
 
     @Test
+    fun `commit to branch creates and fast-forwards a branch without touching the source checkout`() = runTest {
+        val f = VirtualFixture()
+        try {
+            val ref = f.create("commit")
+            val files = assertNotNull(f.backend.find(ref))
+            files.change(0, listOf(VirtualFileChange("source.txt", "first")))
+            val head = f.cmd("rev-parse", "HEAD")
+            val first = f.backend.commitToBranch(ref, "feature/from-sandbox", "feat: first")
+            assertEquals(first, f.cmd("rev-parse", "feature/from-sandbox"))
+            assertEquals(head, f.cmd("rev-parse", "feature/from-sandbox^"))
+            assertEquals("first", f.cmd("show", "feature/from-sandbox:source.txt"))
+            assertEquals("main", f.cmd("branch", "--show-current"))
+            assertEquals("", f.cmd("status", "--porcelain"))
+            files.change(1, listOf(VirtualFileChange("source.txt", "second")))
+            val second = f.backend.commitToBranch(ref, "feature/from-sandbox", "feat: second")
+            assertEquals(first, f.cmd("rev-parse", "$second^"))
+            assertEquals("second", f.cmd("show", "feature/from-sandbox:source.txt"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
+    fun `commit to branch refuses checked out diverged and malformed branches`() = runTest {
+        val f = VirtualFixture()
+        try {
+            val ref = f.create("refuse")
+            assertNotNull(f.backend.find(ref)).change(0, listOf(VirtualFileChange("source.txt", "x")))
+            assertFailsWith<IllegalStateException> { f.backend.commitToBranch(ref, "main", "m") }
+            assertFailsWith<IllegalStateException> { f.backend.commitToBranch(ref, "bad..name", "m") }
+            assertFailsWith<IllegalArgumentException> { f.backend.commitToBranch(ref, "-d", "m") }
+            assertFailsWith<IllegalArgumentException> { f.backend.commitToBranch(ref, "ok", " ") }
+            val other = f.cmd("commit-tree", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "-m", "other")
+            f.cmd("branch", "diverged", other)
+            assertFailsWith<IllegalStateException> { f.backend.commitToBranch(ref, "diverged", "m") }
+            assertEquals(other, f.cmd("rev-parse", "diverged"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
     fun `arbitrary ecosystems need no caches and slots roll back while preserving warm outputs`() = runTest {
         val f = VirtualFixture()
         try {

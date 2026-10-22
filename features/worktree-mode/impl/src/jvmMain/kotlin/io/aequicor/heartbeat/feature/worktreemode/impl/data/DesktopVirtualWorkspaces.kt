@@ -304,6 +304,53 @@ internal class DesktopVirtualWorkspaces(
         ).state
     }
 
+    /**
+     * Publishes the current snapshot as one commit on a local branch of the real repository. The branch is created
+     * at the sandbox base or fast-forwarded; it is never moved sideways and never touches a checked-out branch,
+     * the index or any file of the source checkout.
+     */
+    override suspend fun commitToBranch(ref: WorkspaceRef, branch: String, message: String): String = lock.withLock {
+        val current = accessible(ref)
+        require(message.isNotBlank() && message.length <= MAX_COMMIT_MESSAGE) { "InvalidCommitMessage" }
+        require(!branch.startsWith("-") && branch.length <= MAX_BRANCH_NAME) { "InvalidBranchName" }
+        check(git.call(current.source, "check-ref-format", "--branch", branch, allowFailure = true).code == 0) {
+            "InvalidBranchName"
+        }
+        val full = "refs/heads/$branch"
+        val checkedOut = git.text(current.source, "worktree", "list", "--porcelain").lineSequence()
+            .any { it.trim() == "branch $full" }
+        check(!checkedOut) { "SandboxBranchCheckedOut" }
+        val snapshot = current.state.snapshot
+        val existing = git.call(current.source, "rev-parse", "--verify", full, allowFailure = true)
+        val tip = existing.text.trim().takeIf { existing.code == 0 }
+        // A branch this sandbox already committed to advances again; anything else must be an ancestor of the snapshot.
+        check(
+            tip == null || tip == current.branchCommits[branch] || git.call(
+                current.source,
+                "merge-base",
+                "--is-ancestor",
+                tip,
+                snapshot,
+                allowFailure = true,
+            ).code == 0,
+        ) { "SandboxBranchDiverged" }
+        val tree = git.text(current.source, "rev-parse", "$snapshot^{tree}")
+        val commit = git.text(
+            current.source,
+            "commit-tree",
+            "--no-gpg-sign",
+            tree,
+            "-p",
+            tip ?: current.state.baseCommit,
+            "-m",
+            message,
+        )
+        git.call(current.source, "update-ref", full, commit, tip.orEmpty())
+        save(current.copy(branchCommits = current.branchCommits + (branch to commit)))
+        log.i { "Virtual sandbox snapshot committed to a branch" }
+        commit
+    }
+
     /** A child's immutable result merges relative to the exact parent snapshot it inherited. */
     override suspend fun integrate(
         parent: WorkspaceRef,
@@ -525,6 +572,8 @@ internal class DesktopVirtualWorkspaces(
     companion object {
         private val KEY = stringKey("records")
         private const val MAX_CACHE_CHARS = 32 * 1024 * 1024
+        private const val MAX_COMMIT_MESSAGE = 8 * 1024
+        private const val MAX_BRANCH_NAME = 200
         fun workspace(record: WorktreeRecord): WorkspaceRef = WorkspaceRef("sandbox-${record.provisioning}")
         fun safePath(value: String): String {
             require(
@@ -563,6 +612,7 @@ private data class VirtualRecord(
     val pendingBase: String? = null,
     val pendingSnapshot: String? = null,
     val isResolving: Boolean = false,
+    val branchCommits: Map<String, String> = emptyMap(),
 ) {
     override fun toString(): String = "VirtualRecord(id=$id, revision=${state.revision}, phase=${state.phase})"
 }
@@ -577,6 +627,7 @@ internal interface VirtualSandboxStore : VirtualWorkspaceProvider {
     suspend fun resume(ref: WorkspaceRef, explicit: Boolean, resolveConflicts: Boolean = false): VirtualSandboxState
     suspend fun snapshot(ref: WorkspaceRef): String
     suspend fun handoff(record: WorktreeRecord): VirtualSandboxState
+    suspend fun commitToBranch(ref: WorkspaceRef, branch: String, message: String): String
     suspend fun integrate(
         parent: WorkspaceRef,
         child: WorkspaceRef,
