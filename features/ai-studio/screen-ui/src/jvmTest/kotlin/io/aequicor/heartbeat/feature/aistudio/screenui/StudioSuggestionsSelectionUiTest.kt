@@ -32,18 +32,16 @@ import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableMap
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
-import kotlin.test.assertTrue
 
 /**
  * Selection movement of the composer suggestions as the store publishes it: an owner-side state
- * change must move the highlight of the already composed rows, not rebuild them. A rebuilt popup
- * subtree would restart every row animation and read as a blink of the whole list.
+ * change must move the highlight immediately, including arrow repeats faster than the hover animation.
+ * Unchanged rows retain their position while the editor keeps focus.
  */
 @OptIn(ExperimentalTestApi::class)
 class StudioSuggestionsSelectionUiTest {
     @Test
-    fun `moving the selection animates the highlight of the composed rows`() =
+    fun `rapid selection changes immediately highlight the selected row`() =
         runSkikoComposeUiTest(size = Size(1200f, 800f)) {
             val pane = PaneUi(0)
             var selectedFill = 0
@@ -71,20 +69,19 @@ class StudioSuggestionsSelectionUiTest {
             assertEquals(surface, fill(), "an unselected row keeps the popup surface")
 
             mainClock.autoAdvance = false
-            state = state.copy(composerSuggestions = suggestions(state, pane.id, 1))
-            val frames = List(FRAME_COUNT) {
+            repeat(3) {
+                state = state.copy(composerSuggestions = suggestions(state, pane.id, 1))
                 mainClock.advanceTimeByFrame()
-                fill()
+                mainClock.advanceTimeByFrame()
+                assertEquals(selectedFill, fill(), "keyboard selection does not wait for hover animation")
+                state = state.copy(composerSuggestions = suggestions(state, pane.id, 0))
+                mainClock.advanceTimeByFrame()
+                mainClock.advanceTimeByFrame()
+                assertEquals(surface, fill(), "previous selection leaves no fading highlight")
             }
             mainClock.autoAdvance = true
             waitForIdle()
 
-            assertEquals(selectedFill, fill(), "the moved row settles on the selection fill")
-            assertTrue(
-                frames.any { it != surface && it != selectedFill },
-                "the highlight must pass through intermediate frames instead of jumping: $frames",
-            )
-            assertNotEquals(selectedFill, frames.first(), "the first frame after the move is not the settled fill")
             assertEquals(firstTop, onNodeWithText(FIRST_LABEL).fetchSemanticsNode().boundsInWindow.top)
             moved.assertIsDisplayed()
         }
@@ -92,7 +89,6 @@ class StudioSuggestionsSelectionUiTest {
     private companion object {
         const val FIRST_LABEL = "Remember a lesson"
         const val MOVED_LABEL = "Verify the change"
-        const val FRAME_COUNT = 6
 
         fun suggestions(state: AiStudioScreenState, paneId: Int, selected: Int) = persistentMapOf(
             state.draftKey(paneId) to ComposerSuggestionsUi(
