@@ -40,6 +40,25 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class HbComposerPopupsUiTest {
     @Test
+    fun `in-window popup preserves an offset zero-size anchor`() = runSkikoComposeUiTest(size = Size(WIDTH, HEIGHT)) {
+        setContent {
+            HbTheme {
+                HbInWindowPopupHost {
+                    Box(Modifier.offset(x = 300.dp, y = 500.dp).size(32.dp)) {
+                        HbNonFocusablePopup(
+                            ComposerPopupPosition(null, gutter = 0, gap = 0),
+                            onDismissRequest = {},
+                        ) { HbText("Sheet") }
+                    }
+                }
+            }
+        }
+        val sheet = onNodeWithText("Sheet").fetchSemanticsNode().boundsInWindow
+        assertEquals(300f, sheet.left)
+        assertEquals(500f, sheet.bottom)
+    }
+
+    @Test
     fun `outside clicks dismiss the composer menu without reaching the content beneath`() {
         assertOutsideClicks { onDismiss ->
             ComposerMenuPopup(persistentListOf(HbComposerAction("attach", "Attach")), "Actions", onDismiss, {})

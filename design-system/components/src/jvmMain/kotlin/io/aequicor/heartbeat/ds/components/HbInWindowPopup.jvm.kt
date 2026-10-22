@@ -15,7 +15,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -61,8 +60,8 @@ internal fun HbNonFocusablePopup(
     var anchor by remember { mutableStateOf<IntRect?>(null) }
     Box(
         Modifier.onGloballyPositioned {
-            val bounds = it.boundsInWindow()
-            anchor = IntRect(bounds.topLeft.round(), bounds.bottomRight.round())
+            // boundsInWindow clips a zero-size marker to Rect.Zero; keep its actual window position.
+            anchor = IntRect(it.positionInWindow().round(), it.size)
         },
     )
     val locals by rememberUpdatedState(currentCompositionLocalContext)
