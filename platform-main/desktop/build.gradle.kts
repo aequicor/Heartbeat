@@ -364,12 +364,10 @@ afterEvaluate {
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
         if (targetFormat == TargetFormat.Dmg) {
-            // Compose passes --icon only while creating the app image; jpackage then takes the DMG volume icon
-            // (.VolumeIcon.icns, shown in the Finder window title and path bar) from its own Java default.
-            freeArgs.addAll("--icon", layout.projectDirectory.file("icons/heartbeat.icns").asFile.absolutePath)
-            inputs.file(layout.projectDirectory.file("icons/heartbeat.icns"))
-                .withPropertyName("volumeIcon")
-                .withPathSensitivity(PathSensitivity.NONE)
+            // Compose omits --icon when packaging from an existing --app-image, as it does for a DMG; jpackage then
+            // takes the volume icon (.VolumeIcon.icns, the Finder window title and path bar) from its Java default.
+            // Compose's argfile keeps free arguments verbatim, so the path is quoted like its own paths.
+            freeArgs.addAll(iconFile.map { icon -> listOf("--icon", "\"${icon.asFile.absolutePath}\"") })
             if (name.contains("Release")) {
                 doLast(objects.newInstance<CompressReleaseDmg>().apply { imageDirectory.set(destinationDir) })
             }
