@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
@@ -127,7 +128,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         log.i { "check connection engine=${effect.engine.value} method=${effect.method.id.value}" }
         // A check never changes the engine's runtime, but a host application method still needs the app's runtime.
         if (effect.method.hostApp != null) requireHostRuntime(effect.engine) else requireAvailable(effect.engine)
-        signInIfNeeded(effect.engine, effect.method)
+        signInIfNeeded(effect.engine, effect.method, mayChangeRuntime = false)
         var created: NewConnection? = null
         try {
             val connection = withContext(NonCancellable) {
@@ -152,7 +153,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         val hostApp = method.hostApp
         // The engine's current runtime may be missing (no CLI yet); the app's runtime replaces it once connected.
         if (hostApp != null) requireHostRuntime(engine) else requireAvailable(engine)
-        signInIfNeeded(engine, method)
+        signInIfNeeded(engine, method, mayChangeRuntime = true)
         val connection = write(engine, method, credential)
         if (hostApp != null) {
             var isApplied = false
@@ -202,35 +203,60 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
     /**
      * Signs the engine's CLI in when the method uses its login and the inspection found it signed out, so a connection
      * to an engine whose app is signed in needs no detour through the engine panel: the CLI opens the sign-in page
-     * itself and the wizard waits for the outcome. A host application connection runs on the app's runtime from here
-     * on, so that runtime does the sign-in. A sign-in that fails, is cancelled, times out or needs a pasted code is
-     * left to the binding check, which then reports the missing credentials; a code is entered in the engine panel.
+     * itself and the wizard waits for its outcome (a prompt for a pasted code is normal there, the callback still
+     * completes the sign-in). A host application connection runs on the app's runtime from here on, so that runtime
+     * is switched to and inspected first; a check ([mayChangeRuntime] false) never switches it and signs in only
+     * where the runtime already fits. A failed, cancelled or timed out sign-in, and any management refusal, are
+     * left to the binding check, which then reports the missing credentials.
      */
-    private suspend fun signInIfNeeded(engine: EngineId, method: ConnectionMethod) {
+    private suspend fun signInIfNeeded(engine: EngineId, method: ConnectionMethod, mayChangeRuntime: Boolean) {
+        if (method !is ConnectionMethod.CliLogin || !services.management.state.value.isEnabled) return
+        if (services.management.state.value.engine(engine)?.spec?.login.isCliLogin() != true) return
+        try {
+            var managed = inspect(engine)
+            if (method.hostApp != null && !managed.isOnHostRuntime()) {
+                if (!mayChangeRuntime) {
+                    log.i { "sign-in skipped, a check keeps the runtime engine=${engine.value}" }
+                    return
+                }
+                preferHostRuntime(engine)
+                managed = inspect(engine)
+            }
+            if (managed?.login == LoginState.SignedOut) signIn(engine, managed.job)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: EngineException) {
+            log.w(e) { "sign-in not possible engine=${engine.value}" }
+        }
+    }
+
+    private fun ManagedEngine?.isOnHostRuntime(): Boolean {
+        val settings = this?.launch?.settings ?: return false
+        return settings.runtime == RuntimePreference.HostApp && settings.executable.isNullOrBlank()
+    }
+
+    private suspend fun signIn(engine: EngineId, previous: EngineJob?) {
         val management = services.management
-        if (method !is ConnectionMethod.CliLogin || !management.state.value.isEnabled) return
-        if (management.state.value.engine(engine)?.spec?.login.isCliLogin() != true) return
-        val managed = inspect(engine)
-        if (managed == null || managed.login != LoginState.SignedOut) return
-        if (method.hostApp != null) preferHostRuntime(engine)
         log.i { "sign in engine=${engine.value}" }
-        val previous = managed.job?.startedAt
         management.execute(engine, EngineCommand.Start(EngineAction.Login()))
         var phase: JobPhase? = null
         try {
             phase = withTimeoutOrNull(SIGN_IN_WAIT_MILLIS) {
                 management.state.map { it.engine(engine)?.job }
-                    .first { it != null && it.startedAt != previous && it.phase.isWaitedFor() }
+                    .first { it != null && it != previous && it.phase.isFinished }
                     ?.phase
             }
         } finally {
-            if (phase?.isFinished != true) cancelSignIn(engine)
+            if (phase == null) cancelSignIn(engine)
         }
         when (phase) {
             JobPhase.Succeeded -> log.i { "signed in engine=${engine.value}" }
             null -> log.w { "sign in timed out engine=${engine.value}" }
-            is JobPhase.AwaitingCode -> log.w { "sign in needs a pasted code engine=${engine.value}" }
             else -> log.w { "sign in did not complete engine=${engine.value} phase=${phase::class.simpleName}" }
+        }
+        // The outcome is the wizard's own; the panel must not show it as a login the user started.
+        withContext(NonCancellable) {
+            attempt("dismiss the sign-in outcome") { management.execute(engine, EngineCommand.Dismiss) }
         }
     }
 
@@ -343,9 +369,6 @@ internal fun EngineAvailability.failure(): EngineFailure? = when (this) {
 }
 
 private fun LoginSupport?.isCliLogin() = this == LoginSupport.Cli || this == LoginSupport.CliWithDeviceCode
-
-/** The wizard stops waiting at an outcome, or at a pasted code it cannot take. */
-private fun JobPhase.isWaitedFor() = isFinished || this is JobPhase.AwaitingCode
 
 private val ConnectionMethod.hostApp get() = (this as? ConnectionMethod.CliLogin)?.hostApp
 

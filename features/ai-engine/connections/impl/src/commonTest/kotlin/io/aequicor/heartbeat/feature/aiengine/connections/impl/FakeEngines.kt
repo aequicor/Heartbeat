@@ -257,6 +257,7 @@ internal class FakeEngineManagement : EngineManagement {
 
     /** The phase a started sign-in reaches; AwaitingCode stays until cancelled. */
     var loginPhase: JobPhase = JobPhase.Succeeded
+    var startFailure: EngineException? = null
     private var logins = 0L
 
     /** Publishes inspections later in this scope, like the real service's state flow; null publishes at once. */
@@ -288,10 +289,13 @@ internal class FakeEngineManagement : EngineManagement {
             }
 
             is EngineCommand.Start -> {
+                startFailure?.let { throw it }
                 check(command.action is EngineAction.Login) { "unexpected action ${command.action}" }
                 val job = EngineJob(command.action, loginPhase, Instant.fromEpochSeconds(LOGIN_EPOCH + ++logins))
                 change(engine) { it.copy(job = job) }
             }
+
+            EngineCommand.Dismiss -> change(engine) { it.copy(job = null) }
 
             EngineCommand.Cancel -> change(engine) { it.copy(job = it.job?.copy(phase = JobPhase.Cancelled)) }
 
