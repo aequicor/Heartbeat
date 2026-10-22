@@ -92,6 +92,7 @@ public object ClaudeBindings {
             ),
             isLocalWorkspaceSupported = true,
             isVirtualWorkspaceSupported = true,
+            areVirtualWorkspaceAssistsNative = true,
             nativeTools = ClaudeNativeCatalog,
             areInstructionsRefreshedPerTurn = true,
             declaredFeatures = setOf(

@@ -38,6 +38,8 @@ private val log = Log.tag("Autocomplete/ComposerAssists")
  * item that duplicates a Heartbeat item's visible name drops, because the host item owns the semantics the
  * composer can guarantee. Project skill files are offered only to a route without native discovery: an engine with
  * its own catalog decides which skills are visible, and its exclusions are never replaced by a generic file row.
+ * In a virtual workspace a native process sees no project, so there only an engine importing the sandbox tree
+ * keeps its catalog.
  */
 @Inject
 @ContributesBinding(ProfileScope::class)
@@ -80,7 +82,7 @@ internal class AutocompleteComposerAssists(
     /** A native catalog decides which skills its engine runs; a link must not restore one it excluded. */
     private suspend fun isLinkDeliveryAllowed(scope: ComposerScope): Boolean {
         val isEnabled = toggles.get(AutocompleteEnabled)
-        val isNative = scope.target?.let(engineAssists::hasNativeCatalog) == true
+        val isNative = scope.target?.let { engineAssists.hasNativeCatalog(it, scope.workspace) } == true
         if (!isEnabled || isNative) {
             log.d { "Linked project skills not delivered: enabled=$isEnabled, native=$isNative" }
         }

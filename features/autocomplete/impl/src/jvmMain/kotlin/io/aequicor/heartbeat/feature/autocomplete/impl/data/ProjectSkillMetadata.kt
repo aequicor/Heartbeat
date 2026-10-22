@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.autocomplete.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
+import io.aequicor.heartbeat.feature.attachments.api.attachmentMediaTypeFor
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
@@ -11,6 +13,7 @@ private val log = Log.tag("Autocomplete/SkillMetadata")
 private const val METADATA_BYTES = 16_384
 private const val BODY_BYTES = 65_536
 private val SKILL_PATH = Regex("(?:\\.agents|\\.claude|\\.pi)/skills/(?:[^/]+/)+SKILL\\.md")
+private const val VIRTUAL_SKILL_LIMIT = 128
 private val SKILL_NAME = Regex("[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
 
 /** Reads a bounded literal header, without loading the instruction body or evaluating YAML. */
@@ -59,6 +62,43 @@ internal fun readProjectSkillBody(root: Path, relative: String, name: String): S
         log.w(e.redactedFailure()) { "project skill body unavailable" }
         null
     }
+}
+
+/**
+ * Skill files of a virtual workspace. It has no local location, so its other files never become attachments;
+ * entries the workspace refuses to read, such as links and binary files, are skipped.
+ */
+internal suspend fun virtualProjectSkills(workspace: VirtualWorkspace): List<ProjectFile> = try {
+    workspace.paths().asSequence().filter(SKILL_PATH::matches).take(VIRTUAL_SKILL_LIMIT).toList()
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    log.w(e.redactedFailure()) { "virtual workspace skills unavailable" }
+    emptyList()
+}.mapNotNull { path ->
+    val text = readVirtual(workspace, path) ?: return@mapNotNull null
+    val skill = projectSkillMetadata(text.take(METADATA_BYTES)) ?: return@mapNotNull null
+    ProjectFile(path, location = "", text.encodeToByteArray().size.toLong(), attachmentMediaTypeFor(path), skill)
+}
+
+/** [readProjectSkillBody] for a virtual workspace, which itself keeps paths inside its root and rejects links. */
+internal suspend fun readVirtualSkillBody(workspace: VirtualWorkspace, relative: String, name: String): String? {
+    if (!SKILL_PATH.matches(relative)) return null
+    val text = readVirtual(workspace, relative) ?: return null
+    if (text.encodeToByteArray().size > BODY_BYTES) {
+        log.w { "project skill exceeds the delivered size limit" }
+        return null
+    }
+    return text.takeIf { projectSkillMetadata(it)?.name == name }
+}
+
+private suspend fun readVirtual(workspace: VirtualWorkspace, path: String): String? = try {
+    workspace.read(path)
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    log.w(e.redactedFailure()) { "project skill unavailable" }
+    null
 }
 
 /** Supports literal quoted scalars and folded/literal descriptions; incomplete headers are not skills. */
