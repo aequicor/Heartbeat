@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assume.assumeNoException
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import java.nio.file.FileSystemException
@@ -101,6 +102,62 @@ class DesktopProjectFileIndexTest {
             assumeNoException(e)
         }
         assertEquals(emptyList(), walkProjectFiles(root, EmptyCoroutineContext))
+    }
+
+    @Test
+    fun `skills match their declared names and command listings exclude ordinary files`() = runTest {
+        val root = temporary.newFolder("skills").toPath()
+        repeat(20) { write(root, "file$it.md", "ordinary") }
+        write(root, ".agents/skills/folder/SKILL.md", "---\nname: open-pr\ndescription: Open a draft\n---\nBody")
+        val index = index(root)
+        val row = index.search(workspace, "open", 16).single()
+        assertEquals(ProjectSkill("open-pr", "Open a draft"), row.skill)
+        assertEquals(listOf(row), index.search(workspace, "", 16, skillsOnly = true))
+    }
+
+    @Test
+    fun `literal metadata supports quotes and folded descriptions but requires a complete header`() {
+        assertEquals(
+            ProjectSkill("review", "Review changes carefully"),
+            projectSkillMetadata(
+                "---\nname: 'review'\ndescription: >-\n  Review changes\n  carefully\n---\nDo the work",
+            ),
+        )
+        assertEquals(null, projectSkillMetadata("---\nname: review\ndescription: incomplete"))
+        assertEquals(null, projectSkillMetadata("---\nname: review\ndescription: Hidden\nuser-invocable: false\n---"))
+        assertEquals(null, projectSkillMetadata("---\nname: invalid name\ndescription: Invalid\n---"))
+    }
+
+    @Test
+    fun `skill bodies are read only from plain skill files declaring the linked name`() = runTest {
+        val root = temporary.newFolder("bodies").toPath()
+        val body = "---\nname: open-pr\ndescription: Open a draft\n---\nSteps"
+        write(root, ".agents/skills/open pr/SKILL.md", body)
+        write(root, ".agents/skills/large/SKILL.md", "---\nname: large\ndescription: Big\n---\n" + "x".repeat(70_000))
+        write(root, "outside/SKILL.md", "---\nname: outside\ndescription: Out\n---\n")
+        val index = index(root)
+        assertEquals(body, index.readSkill(workspace, ".agents/skills/open pr/SKILL.md", "open-pr"))
+        assertEquals(null, index.readSkill(workspace, ".agents/skills/open pr/SKILL.md", "other"))
+        assertEquals(null, index.readSkill(workspace, ".agents/skills/large/SKILL.md", "large"))
+        assertEquals(null, index.readSkill(workspace, ".agents/skills/../../outside/SKILL.md", "outside"))
+        assertEquals(null, index.readSkill(null, ".agents/skills/open pr/SKILL.md", "open-pr"))
+        val linked = root.resolve(".claude/skills/linked")
+        Files.createDirectories(linked.parent)
+        try {
+            Files.createSymbolicLink(linked, root.resolve(".agents/skills/open pr"))
+        } catch (e: FileSystemException) {
+            Log.tag("ProjectFileIndexTest").w(e) { "Symbolic links unavailable in this test environment" }
+            assumeNoException(e)
+        }
+        assertEquals(null, index.readSkill(workspace, ".claude/skills/linked/SKILL.md", "open-pr"))
+    }
+
+    @Test
+    fun `skill bodies require the real spelling of their path`() = runTest {
+        val root = temporary.newFolder("spelling").toPath()
+        write(root, ".agents/skills/review/SKILL.md", "---\nname: review\ndescription: Review\n---\n")
+        assumeTrue(Files.exists(root.resolve(".agents/skills/REVIEW/SKILL.md")))
+        assertEquals(null, index(root).readSkill(workspace, ".agents/skills/REVIEW/SKILL.md", "review"))
     }
 
     private fun index(root: Path) = DesktopProjectFileIndex(

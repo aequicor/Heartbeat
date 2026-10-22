@@ -46,6 +46,97 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class HbComposerSuggestionsUiTest {
+
+    @Test
+    fun `extending a skill name at the visible end detaches its old target`() = runSkikoComposeUiTest {
+        var draft by mutableStateOf("[/open-pr](.agents/skills/open-pr/SKILL.md) tail")
+        setContent { SuggestionsComposer(draft, { draft = it }, {}, null, {}) }
+        val editor = onNodeWithContentDescription("Prompt")
+        editor.performTextInputSelection(TextRange(draft.length))
+        editor.performKeyInput { repeat(5) { pressKey(Key.DirectionLeft) } }
+        typeAwtText("X")
+        runOnIdle { assertEquals("/open-prX tail", draft) }
+    }
+
+    @Test
+    fun `backspace at a visible skill boundary leaves plain text without markdown debris`() = runSkikoComposeUiTest {
+        var draft by mutableStateOf("[/open-pr](.agents/skills/open-pr/SKILL.md) tail")
+        setContent { SuggestionsComposer(draft, { draft = it }, {}, null, {}) }
+        val editor = onNodeWithContentDescription("Prompt")
+        editor.performTextInputSelection(TextRange(draft.length))
+        editor.performKeyInput {
+            repeat(5) { pressKey(Key.DirectionLeft) }
+            pressKey(Key.Backspace)
+        }
+        runOnIdle { assertEquals("/open-p tail", draft) }
+    }
+
+    @Test
+    fun `editing a skill label detaches the previous instruction path`() = runSkikoComposeUiTest {
+        var draft by mutableStateOf("[/open-pr](.agents/skills/open-pr/SKILL.md) tail")
+        setContent { SuggestionsComposer(draft, { draft = it }, {}, null, {}) }
+        val editor = onNodeWithContentDescription("Prompt")
+        editor.performTextInputSelection(TextRange(draft.length))
+        editor.performKeyInput { repeat(7) { pressKey(Key.DirectionLeft) } }
+        typeAwtText("new-")
+        runOnIdle { assertEquals("/open-new-pr tail", draft) }
+    }
+
+    @Test
+    fun `forward delete at the start of a skill detaches the path`() = runSkikoComposeUiTest {
+        var draft by mutableStateOf("[/open-pr](.agents/skills/open-pr/SKILL.md) tail")
+        setContent { SuggestionsComposer(draft, { draft = it }, {}, null, {}) }
+        val editor = onNodeWithContentDescription("Prompt")
+        editor.performTextInputSelection(TextRange(0))
+        editor.performKeyInput { pressKey(Key.Delete) }
+        runOnIdle { assertEquals("open-pr tail", draft) }
+    }
+
+    @Test
+    fun `skill reference is a coloured label and keeps its target when submitting`() {
+        for (width in listOf(420f, 1280f)) {
+            for (dark in listOf(false, true)) {
+                runSkikoComposeUiTest(size = Size(width, 700f)) {
+                    val raw = "[/open-pr](.agents/skills/open-pr/SKILL.md) @read_file "
+                    var draft by mutableStateOf(raw)
+                    var sent = ""
+                    setContent {
+                        SuggestionsComposer(draft, { draft = it }, { sent = draft }, null, {}, darkTheme = dark)
+                    }
+                    val editor = onNodeWithContentDescription("Prompt")
+                    val layouts = mutableListOf<TextLayoutResult>()
+                    editor.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                    val displayed = layouts.last().layoutInput.text
+                    assertEquals("/open-pr @read_file ", displayed.text)
+                    assertEquals(listOf(0, 9), displayed.spanStyles.map { it.start })
+                    editor.performTextInputSelection(TextRange(raw.length))
+                    typeAwtText("next")
+                    runOnIdle { assertEquals(raw + "next", draft) }
+                    editor.performKeyInput { pressKey(Key.Enter) }
+                    runOnIdle { assertEquals(raw + "next", sent) }
+                    val directory = File("build/composer-suggestions-ui").apply { mkdirs() }
+                    check(
+                        ImageIO.write(
+                            captureToImage().toAwtImage(),
+                            "png",
+                            File(directory, "skill-reference-${width.toInt()}-$dark.png"),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `selecting a whole inline skill removes its hidden target too`() = runSkikoComposeUiTest {
+        var draft by mutableStateOf("[/open-pr](.agents/skills/open-pr/SKILL.md) tail")
+        setContent { SuggestionsComposer(draft, { draft = it }, {}, null, {}) }
+        val editor = onNodeWithContentDescription("Prompt")
+        editor.performTextInputSelection(TextRange(0, draft.indexOf(" tail")))
+        editor.performKeyInput { pressKey(Key.Backspace) }
+        runOnIdle { assertEquals(" tail", draft) }
+    }
+
     @Test
     fun `single section heading shares the close row without a blank header`() =
         runSkikoComposeUiTest(size = Size(420f, 700f)) {

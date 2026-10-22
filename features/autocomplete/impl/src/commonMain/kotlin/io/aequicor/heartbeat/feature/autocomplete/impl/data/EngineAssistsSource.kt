@@ -25,6 +25,20 @@ import kotlin.time.Duration.Companion.seconds
 private val log = Log.tag("Autocomplete/EngineAssists")
 
 /**
+ * Native listing of one route. [hasNativeCatalog] is true whenever the engine owns skill discovery, including an
+ * empty, blocked, failed or still-loading listing: only an engine without the feature leaves discovery to the host.
+ */
+internal data class NativeAssists(val items: List<EngineAssist>, val hasNativeCatalog: Boolean) {
+    internal companion object {
+        /** Unknown or closed listing; the host must not substitute its own skills for it. */
+        val Closed = NativeAssists(emptyList(), hasNativeCatalog = true)
+
+        /** The engine has no native discovery. */
+        val Unsupported = NativeAssists(emptyList(), hasNativeCatalog = false)
+    }
+}
+
+/**
  * Native engine assists of the composer, resolved through the facade without starting a session. Listings are
  * cached per engine route and workspace for a short time: typing must not hammer a native runtime, and a
  * failure degrades to the Heartbeat-only sections instead of blocking the popup.
@@ -41,7 +55,7 @@ internal class EngineAssistsSource(
 
     /** Drops stale rows before reloading when trust, engine availability or binding permissions change. */
     @OptIn(ExperimentalCoroutinesApi::class)
-    internal fun observe(target: EngineTarget, workspace: WorkspaceRef?): Flow<List<EngineAssist>> = combine(
+    internal fun observe(target: EngineTarget, workspace: WorkspaceRef?): Flow<NativeAssists> = combine(
         configuration.state,
         facade.bindings.state,
         facade.engines.state,
@@ -49,7 +63,7 @@ internal class EngineAssistsSource(
     ) { config, bindings, engines, auth ->
         listOf(config, bindings, engines, auth)
     }.transformLatest {
-        emit(emptyList())
+        emit(NativeAssists.Closed)
         emit(assists(target, workspace))
     }
 
@@ -61,7 +75,7 @@ internal class EngineAssistsSource(
     )
 
     /** Native assists visible on [target]; a null [workspace] is a chat without a project. */
-    internal suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> {
+    internal suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists {
         val route = Route(target.engine.value, target.binding.value, workspace?.value)
         val now = clock.now()
         val stamp = stamp()
@@ -71,7 +85,7 @@ internal class EngineAssistsSource(
         val assists = read(target, workspace)
         return mutex.withLock {
             if (stamp() != stamp) {
-                emptyList()
+                NativeAssists.Closed
             } else {
                 if (cache.size >= CACHE_LIMIT) cache.remove(cache.keys.first())
                 cache[route] = Entry(now, assists, stamp)
@@ -80,28 +94,35 @@ internal class EngineAssistsSource(
         }
     }
 
-    private suspend fun read(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> =
+    /**
+     * Whether [target]'s engine owns skill discovery, decided by its declared feature alone: no listing runs, and an
+     * engine whose feature is present but blocked still counts as a catalog.
+     */
+    internal fun hasNativeCatalog(target: EngineTarget): Boolean =
+        facade.engines.features(target.engine).resolve(ListsComposerAssists) != FeatureAccess.Unsupported
+
+    private suspend fun read(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists =
         when (val resolved = facade.engines.features(target.engine).resolve(ListsComposerAssists)) {
             is FeatureAccess.Available -> try {
-                resolved.feature.assists(target, workspace)
+                NativeAssists(resolved.feature.assists(target, workspace), hasNativeCatalog = true)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 log.w(e) { "native composer assists unavailable for engine=${target.engine.value}" }
-                emptyList()
+                NativeAssists.Closed
             }
 
             is FeatureAccess.Unavailable -> {
                 log.w { "native composer assists blocked for engine=${target.engine.value}" }
-                emptyList()
+                NativeAssists.Closed
             }
 
-            FeatureAccess.Unsupported -> emptyList()
+            FeatureAccess.Unsupported -> NativeAssists.Unsupported
         }
 
     private data class Route(val engine: String, val binding: String, val workspace: String?)
 
-    private data class Entry(val fetchedAt: kotlin.time.Instant, val assists: List<EngineAssist>, val stamp: List<Any>)
+    private data class Entry(val fetchedAt: kotlin.time.Instant, val assists: NativeAssists, val stamp: List<Any>)
 
     private companion object {
         const val CACHE_LIMIT = 32

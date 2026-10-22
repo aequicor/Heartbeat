@@ -6,6 +6,12 @@ import kotlin.test.assertNull
 
 class ComposerTokensTest {
     @Test
+    fun `dollar invokes skills at a word boundary`() {
+        assertEquals(ComposerTrigger.Command(4..7, "ver"), composerTrigger("use $" + "ver", 8))
+        assertNull(composerTrigger("cost$" + "value", 10))
+    }
+
+    @Test
     fun `slash at line start is a command trigger`() {
         val trigger = composerTrigger("/rem", 4)
         assertEquals(ComposerTrigger.Command(0..3, "rem"), trigger)

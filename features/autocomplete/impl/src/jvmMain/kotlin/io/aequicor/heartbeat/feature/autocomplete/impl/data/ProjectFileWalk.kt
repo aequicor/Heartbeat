@@ -14,6 +14,7 @@ private val IGNORED_DIRECTORIES = setOf(
 )
 private const val ENTRY_LIMIT = 20_000
 private const val DEPTH_LIMIT = 16
+private const val SKILL_METADATA_LIMIT = 128
 
 /** Bounds all visited entries, including empty directories, and only returns regular files without following links. */
 internal fun walkProjectFiles(
@@ -35,6 +36,7 @@ private class ProjectFileVisitor(
 ) : SimpleFileVisitor<Path>() {
     val files = mutableListOf<ProjectFile>()
     private var visited = 0
+    private var skillFilesRead = 0
 
     private fun visit(): Boolean {
         context.ensureActive()
@@ -57,7 +59,13 @@ private class ProjectFileVisitor(
         // walkFileTree also reports symlinks and directories at its depth limit through visitFile.
         if (attrs.isRegularFile) {
             val relative = root.relativize(file).toString().replace('\\', '/')
-            files += ProjectFile(relative, file.toString(), attrs.size(), attachmentMediaTypeFor(relative))
+            val skill = if (file.fileName.toString() == "SKILL.md" && skillFilesRead < SKILL_METADATA_LIMIT) {
+                skillFilesRead++
+                readProjectSkill(file, relative, attrs.size())
+            } else {
+                null
+            }
+            files += ProjectFile(relative, file.toString(), attrs.size(), attachmentMediaTypeFor(relative), skill)
         }
         return FileVisitResult.CONTINUE
     }

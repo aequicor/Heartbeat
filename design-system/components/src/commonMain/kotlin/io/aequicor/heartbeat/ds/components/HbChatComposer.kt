@@ -326,6 +326,7 @@ private fun ComposerEditor(
     caretRequest: HbComposerCaretRequest? = null,
     onCaretRequestApply: (Long) -> Unit = {},
 ) {
+    val removals = remember { ComposerReferenceRemovals() }
     HbEditableText(
         value = value,
         onValueChange = {
@@ -336,6 +337,9 @@ private fun ComposerEditor(
         modifier = modifier.semantics { if (accessibleLabel.isNotBlank()) contentDescription = accessibleLabel },
         enabled = enabled,
         singleLine = false,
+        outputTransformation = composerReferenceTransformation(HbTheme.colors.focusAccent),
+        inputFilter = composerReferenceEditing(removals),
+        clipboard = { state, platform -> ComposerReferenceClipboard(platform, state, removals) },
         interactionSource = interactionSource,
         placeholder = placeholder,
         onCaretChange = onCaretChange,

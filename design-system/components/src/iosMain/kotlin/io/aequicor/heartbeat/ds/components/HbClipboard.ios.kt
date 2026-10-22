@@ -5,3 +5,6 @@ import androidx.compose.ui.platform.ClipEntry
 
 @OptIn(ExperimentalComposeUiApi::class)
 internal actual fun hbPlainTextClipEntry(text: String): ClipEntry = ClipEntry.withPlainText(text)
+
+@OptIn(ExperimentalComposeUiApi::class)
+internal actual fun hbClipEntryPlainText(entry: ClipEntry): String? = entry.getPlainText()
