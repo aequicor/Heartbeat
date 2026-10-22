@@ -15,6 +15,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
@@ -189,7 +190,7 @@ private fun StudioComposerInput(
         placeholder = stringResource(Res.string.composer_placeholder),
         isStreaming = session?.isRunning == true,
         enabled = content.isComposerEnabled(),
-        inputModifier = Modifier.focusRequester(focus),
+        inputModifier = composerFocusModifier(focus, pane.id, onIntent),
         suggestions = composerSuggestions(content),
         suggestionsLabel = stringResource(Res.string.composer_suggestions),
         suggestionsCloseLabel = stringResource(Res.string.composer_suggestions_close),
@@ -237,6 +238,17 @@ private fun StudioComposerInput(
 }
 
 /** Menus and inserted diagram prompts restore focus after their transient surface has closed. */
+@Composable
+private fun composerFocusModifier(focus: FocusRequester, paneId: Int, onIntent: (StudioIntent) -> Unit): Modifier {
+    var isEditorFocused by remember(paneId) { mutableStateOf(false) }
+    return Modifier.focusRequester(focus).onFocusChanged {
+        if (isEditorFocused != it.isFocused) {
+            isEditorFocused = it.isFocused
+            onIntent(StudioIntent.Suggestions.FocusChanged(paneId, it.isFocused))
+        }
+    }
+}
+
 @Composable
 private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, () -> Unit> {
     val focus = remember { FocusRequester() }

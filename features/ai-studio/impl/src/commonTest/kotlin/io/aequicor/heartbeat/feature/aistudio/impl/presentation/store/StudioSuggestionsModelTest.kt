@@ -40,7 +40,27 @@ class StudioSuggestionsModelTest {
     )
 
     @Test
-    fun `editing the token invalidates acceptance before the next debounce`() = runTest {
+    fun `focus prewarms the effective workspace and route changes warm again`() = runTest {
+        val source = TestComposerAssists()
+        val initial = ready.copy(panes = listOf(StudioPane(0, projectId = "first")))
+        val fixture = Fixture(this, initial, assists = source)
+        fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.FocusChanged(0, true))
+        runCurrent()
+        assertEquals(WorkspaceRef("first"), source.warmed.last().workspace)
+        fixture.machine.state.value = initial.copy(panes = listOf(StudioPane(0, projectId = "second")))
+        runCurrent()
+        assertEquals(WorkspaceRef("second"), source.warmed.last().workspace)
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.FocusChanged(0, false))
+        runCurrent()
+        val count = source.warmed.size
+        fixture.machine.state.value = initial
+        runCurrent()
+        assertEquals(count, source.warmed.size)
+    }
+
+    @Test
+    fun `editing the token invalidates acceptance before the next source result`() = runTest {
         val fixture = Fixture(this, ready, assists = TestComposerAssists())
         val screen = fixture.subscribe()
         fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "/old"))
@@ -145,12 +165,18 @@ private class TestComposerAssists(
     private val resolve: suspend (ComposerTrigger) -> List<ComposerSuggestion> = { listOf(testCommand(it.query)) },
 ) : ComposerAssists {
     val scopes = mutableListOf<ComposerScope>()
+    val warmed = mutableListOf<ComposerScope>()
+
+    override suspend fun prewarm(scope: ComposerScope) {
+        warmed += scope
+    }
 
     override suspend fun suggest(
         trigger: ComposerTrigger,
         scope: ComposerScope,
         hostCommands: List<HostCommand>,
     ): List<ComposerSuggestion> {
+        kotlinx.coroutines.delay(1) // Simulate an asynchronous source on the virtual test clock.
         scopes += scope
         return resolve(trigger)
     }

@@ -231,7 +231,7 @@ class StudioWorktreeUiTest {
             onNodeWithTag(decision("Merge")).assertDoesNotExist()
             onNodeWithTag(action("worktree:chat", RECHECK_ID)).performClick()
             runOnIdle {
-                assertEquals(listOf<StudioIntent>(StudioIntent.RecheckWorktree("chat")), events)
+                assertEquals(listOf<StudioIntent>(StudioIntent.RecheckWorktree("chat")), events.withoutFocus())
             }
         }
 
@@ -317,7 +317,7 @@ class StudioWorktreeUiTest {
                 saveImage(captureToImage(), "composer-focus-520-$dark")
                 editor.performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.Enter) } }
                 runOnIdle {
-                    assertEquals(listOf<StudioIntent>(StudioIntent.Submit(7)), events)
+                    assertEquals(listOf<StudioIntent>(StudioIntent.Submit(7)), events.withoutFocus())
                     assertEquals("Inspect isolation", state.draft(7))
                 }
             }
@@ -342,7 +342,7 @@ class StudioWorktreeUiTest {
             }
             onNodeWithTag("worktree-mode-7").performClick()
             runOnIdle {
-                assertEquals(listOf<StudioIntent>(StudioIntent.SelectWorktree(7, true)), events)
+                assertEquals(listOf<StudioIntent>(StudioIntent.SelectWorktree(7, true)), events.withoutFocus())
                 state = state.copy(repositoryProjects = persistentSetOf())
             }
             onNodeWithTag("worktree-mode-7").assertDoesNotExist()
@@ -382,7 +382,7 @@ class StudioWorktreeUiTest {
                     runOnIdle {
                         assertEquals<List<StudioIntent>>(
                             WorktreeActionUi.entries.map { StudioIntent.DecideWorktree("chat", it) },
-                            events,
+                            events.withoutFocus(),
                         )
                     }
                     saveImage(captureToImage(), "result-${width.toInt()}-$dark")
@@ -438,7 +438,7 @@ class StudioWorktreeUiTest {
             WorktreeActionUi.entries.forEach { onNodeWithTag(decision(it.name)).assertDoesNotExist() }
             onNodeWithTag(action(JOURNAL_ERROR_ID, JOURNAL_RETRY_ID)).performClick()
             runOnIdle {
-                assertEquals(listOf<StudioIntent>(StudioIntent.RetryWorktreeJournal), events)
+                assertEquals(listOf<StudioIntent>(StudioIntent.RetryWorktreeJournal), events.withoutFocus())
                 isShown = false
                 journal = WorktreeJournalUi.Ready
             }
@@ -465,7 +465,7 @@ class StudioWorktreeUiTest {
             runOnIdle {
                 assertEquals(
                     listOf<StudioIntent>(StudioIntent.CancelWorktreeBuild("chat", "queued")),
-                    events,
+                    events.withoutFocus(),
                 )
                 journal = WorktreeJournalUi.Error
             }
@@ -585,3 +585,5 @@ private fun saveImage(image: ImageBitmap, name: String) {
     val directory = File("build/worktree-ui").apply { mkdirs() }
     check(ImageIO.write(image.toAwtImage(), "png", File(directory, "$name.png")))
 }
+
+private fun List<StudioIntent>.withoutFocus() = filterNot { it is StudioIntent.Suggestions.FocusChanged }

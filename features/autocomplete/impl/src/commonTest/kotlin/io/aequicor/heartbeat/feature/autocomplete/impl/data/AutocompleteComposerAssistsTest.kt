@@ -35,8 +35,11 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -277,6 +280,41 @@ class AutocompleteComposerAssistsTest {
         assertEquals(16, suggestions.size)
     }
 
+    @Test
+    fun `host results arrive before a slow engine`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val service = service(assists = listOf(command("/review ", "review")), onRead = { gate.await() })
+        val snapshots = mutableListOf<List<ComposerSuggestion>>()
+        val job = launch {
+            service.observe(
+                ComposerTrigger.Command(0..0, ""),
+                ComposerScope(target = target),
+                listOf(HostCommand("remember", "remember", insert = "/remember ")),
+            ).collect { snapshots += it }
+        }
+        runCurrent()
+        assertEquals(listOf("remember"), snapshots.last().map { it.label })
+        gate.complete(Unit)
+        job.join()
+        assertEquals(listOf("remember", "review"), snapshots.last().map { it.label })
+    }
+
+    @Test
+    fun `native skills are not hidden by an identically named file`() = runTest {
+        val service = service(
+            toggles = mapOf(AutocompleteEnabled to true, AttachmentsEnabled to true),
+            skills = emptyList(),
+            assists = listOf(skill("readme.md", "readme.md")),
+        )
+        val rows = service.suggest(
+            ComposerTrigger.Mention(0..4, "read"),
+            ComposerScope(target, project, PromptInputSupport(resourceMediaTypes = setOf("text/markdown"))),
+        )
+        assertEquals(2, rows.size)
+        assertTrue(rows.any { it is ComposerSuggestion.Skill })
+        assertTrue(rows.any { it is ComposerSuggestion.File })
+    }
+
     private fun command(insert: String, label: String, description: String = "") = EngineAssist(
         id = insert.removePrefix("/").removeSuffix(" "),
         label = label,
@@ -310,6 +348,7 @@ class AutocompleteComposerAssistsTest {
             ),
         ),
         failWith: Exception? = null,
+        onRead: suspend () -> Unit = {},
         files: ProjectFileIndex = object : ProjectFileIndex {
             override suspend fun search(workspace: WorkspaceRef?, query: String, limit: Int): List<ProjectFile> =
                 listOf(
@@ -322,19 +361,23 @@ class AutocompleteComposerAssistsTest {
         LearnedSkillsSource(
             learningRegistry(MutableStateFlow<AgentLearningState>(AgentLearningState.Ready(instructions = skills))),
         ),
-        EngineAssistsSource(facade(assists, onRead = {}, failure = failWith), FakeClock),
+        EngineAssistsSource(facade(assists, onRead = onRead, failure = failWith), FakeClock),
         files,
     )
 
-    private fun facade(assists: List<EngineAssist>, onRead: () -> Unit, failure: Exception? = null): EngineFacade {
+    private fun facade(
+        assists: List<EngineAssist>,
+        onRead: suspend () -> Unit,
+        failure: Exception? = null,
+    ): EngineFacade {
         val features = object : EngineFeatures {
             override fun <F : io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature> resolve(
                 key: EngineFeatureKey<F>,
             ): FeatureAccess<F> {
-                onRead()
                 @Suppress("UNCHECKED_CAST")
                 val feature = object : ListsComposerAssists {
                     override suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> {
+                        onRead()
                         failure?.let { throw it }
                         return assists
                     }

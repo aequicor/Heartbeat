@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 /** Composer context of one pane: engine route, effective workspace and input limits of its model. */
 public data class ComposerScope(
@@ -106,6 +108,16 @@ public data class ComposerDraft(
  * result by relevance across origins (Heartbeat wins ties), and returns an empty list to hide the popup.
  */
 public interface ComposerAssists {
+    /** Warms bounded source caches when the editor gains focus or its route changes; cancellation stops the work. */
+    public suspend fun prewarm(scope: ComposerScope): Unit = Unit
+
+    /** Progressive snapshots for one token; sources run independently and the caller cancels obsolete requests. */
+    public fun observe(
+        trigger: ComposerTrigger,
+        scope: ComposerScope,
+        hostCommands: List<HostCommand> = emptyList(),
+    ): Flow<List<ComposerSuggestion>> = flow { emit(suggest(trigger, scope, hostCommands)) }
+
     /** Suggestions for the active [trigger] in [scope], plus the host screen's own [hostCommands]. */
     public suspend fun suggest(
         trigger: ComposerTrigger,

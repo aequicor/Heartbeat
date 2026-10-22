@@ -235,6 +235,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @Serializable
     @SerialName("AiStudioScreenIntent.Suggestions")
     sealed interface Suggestions : Composer {
+        /** Editor focus controls cancellable cache warming for its current route. */
+        @Serializable
+        @SerialName("AiStudioScreenIntent.Suggestions.FocusChanged")
+        data class FocusChanged(val paneId: Int, val isFocused: Boolean) : Suggestions
+
         /** The composer text of a pane changed. */
         @Serializable
         @SerialName("AiStudioScreenIntent.Suggestions.DraftChanged")

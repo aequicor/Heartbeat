@@ -22,7 +22,7 @@ import kotlin.time.Instant
 private val log = Log.tag("Autocomplete/ProjectFiles")
 
 /** A fresh walk replaces a cached one at most this often while the user keeps typing. */
-private val INDEX_TTL: Duration = 10.seconds
+private val INDEX_TTL: Duration = 60.seconds
 
 /**
  * Desktop index of one workspace directory: a bounded walk without symbolic links, cached per workspace for

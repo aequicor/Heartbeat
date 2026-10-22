@@ -17,6 +17,13 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.queryRank
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.last
+import kotlinx.coroutines.flow.onStart
 
 /**
  * Profile service merging the suggestion sources of one composer token by relevance across origins.
@@ -33,37 +40,59 @@ internal class AutocompleteComposerAssists(
     private val engineAssists: EngineAssistsSource,
     private val projectFiles: ProjectFileIndex,
 ) : ComposerAssists {
+    override suspend fun prewarm(scope: ComposerScope) {
+        suggest(ComposerTrigger.Mention(0..0, ""), scope, emptyList())
+    }
+
     override suspend fun suggest(
         trigger: ComposerTrigger,
         scope: ComposerScope,
         hostCommands: List<HostCommand>,
-    ): List<ComposerSuggestion> {
-        if (!toggles.get(AutocompleteEnabled)) return emptyList()
-        val merged = when (trigger) {
-            is ComposerTrigger.Command -> buildList {
-                hostCommands.filter { it.matches(trigger.query) }.forEach { add(hostCommand(it, trigger.query)) }
-                native(trigger, scope).forEach { add(it) }
-            }
+    ): List<ComposerSuggestion> = observe(trigger, scope, hostCommands).last()
 
-            is ComposerTrigger.Mention -> buildList {
-                learned(trigger, scope).forEach { add(it) }
-                native(trigger, scope).forEach { add(it) }
-                files(trigger, scope).forEach { add(it) }
-            }
+    override fun observe(
+        trigger: ComposerTrigger,
+        scope: ComposerScope,
+        hostCommands: List<HostCommand>,
+    ): Flow<List<ComposerSuggestion>> = flow {
+        if (!toggles.get(AutocompleteEnabled)) {
+            emit(emptyList())
+            return@flow
         }
+        val host = when (trigger) {
+            is ComposerTrigger.Command -> hostCommands.filter { it.matches(trigger.query) }
+                .map { hostCommand(it, trigger.query) }
+
+            is ComposerTrigger.Mention -> learned(trigger, scope)
+        }
+        emit(merge(host))
+        val native = flow { emit(native(trigger, scope)) }.onStart { emit(emptyList()) }
+        val files = flow {
+            emit(if (trigger is ComposerTrigger.Mention) files(trigger, scope) else emptyList())
+        }.onStart { emit(emptyList()) }
+        emitAll(combine(native, files) { engine, workspace -> merge(host + engine + workspace) })
+    }.distinctUntilChanged()
+
+    private fun merge(merged: List<Ranked>): List<ComposerSuggestion> {
         val heartbeatNames = merged.asSequence()
             .filter { it.suggestion.origin == ComposerAssistOrigin.Heartbeat }
-            .map { it.suggestion.label.lowercase() }
+            .map { it.suggestion.duplicateKey() }
             .toSet()
         return merged.asSequence()
             .filterNot {
                 it.suggestion.origin != ComposerAssistOrigin.Heartbeat &&
-                    it.suggestion.label.lowercase() in heartbeatNames
+                    it.suggestion.duplicateKey() in heartbeatNames
             }
             .sortedWith(compareBy({ it.rank }, { it.suggestion.origin != ComposerAssistOrigin.Heartbeat }))
             .map { it.suggestion }
             .take(SUGGESTION_LIMIT)
             .toList()
+    }
+
+    private fun ComposerSuggestion.duplicateKey(): String = when (this) {
+        is ComposerSuggestion.Command -> "command:${label.lowercase()}"
+        is ComposerSuggestion.Skill -> "skill:${label.lowercase()}"
+        is ComposerSuggestion.File -> "file:$relativePath"
     }
 
     private fun HostCommand.matches(query: String): Boolean = queryRank(query, id) >= 0 || queryRank(query, label) >= 0

@@ -85,6 +85,7 @@ private fun isAllowedPlan(intent: AiStudioScreenIntent.Plan): Boolean = when (in
 
 /** Remote input may edit the draft and navigate its suggestions; new suggestion actions stay explicit. */
 private fun isAllowedSuggestion(intent: AiStudioScreenIntent.Suggestions): Boolean = when (intent) {
+    is AiStudioScreenIntent.Suggestions.FocusChanged,
     is AiStudioScreenIntent.Suggestions.DraftChanged,
     is AiStudioScreenIntent.Suggestions.CaretMoved,
     is AiStudioScreenIntent.Suggestions.CaretRequestApplied,

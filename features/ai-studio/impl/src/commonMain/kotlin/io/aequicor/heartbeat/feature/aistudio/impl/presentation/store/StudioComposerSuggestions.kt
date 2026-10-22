@@ -47,7 +47,7 @@ internal fun AiStudioScreenState.composerScope(paneId: Int): ComposerScope {
     )
 }
 
-/** A suggestion query queued for the debounced resolve; [token] identifies the dismissed state. */
+/** A suggestion query for progressive resolution; [token] identifies the dismissed state. */
 internal data class SuggestionQuery(
     val draftKey: String,
     val trigger: ComposerTrigger,
@@ -78,18 +78,18 @@ internal fun AiStudioScreenState.withSuggestionItems(
     query: SuggestionQuery,
     items: List<ComposerSuggestion>,
     requestId: Long,
-): AiStudioScreenState = copy(
-    composerSuggestions = (
-        composerSuggestions + (
-            query.draftKey to ComposerSuggestionsUi(
-                items.map { it.toUi() }.toImmutableList(),
-                0,
-                query.token,
-                requestId,
-            )
-        )
-    ).toImmutableMap(),
-)
+): AiStudioScreenState {
+    val previous = composerSuggestions[query.draftKey]?.takeIf { it.requestId == requestId }
+    val selectedId = previous?.items?.getOrNull(previous.selectedIndex)?.id
+    val selected = items.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+    val updated = ComposerSuggestionsUi(
+        items.map { it.toUi() }.toImmutableList(),
+        selected,
+        query.token,
+        requestId,
+    )
+    return copy(composerSuggestions = (composerSuggestions + (query.draftKey to updated)).toImmutableMap())
+}
 
 /** Moves the selection cyclically within the pane's list. */
 internal fun AiStudioScreenState.withMovedSuggestion(paneId: Int, delta: Int): AiStudioScreenState {
