@@ -38,7 +38,8 @@ private class NativeSkillFields {
         isBlockDescription = false
         blockIndent = null
         val key = line.substringBefore(':')
-        if (!KEY.matches(key) || key in values) return false
+        val isSeparated = line.getOrNull(key.length + 1)?.isWhitespace() == true
+        if (!KEY.matches(key) || key in values || !isSeparated) return false
         val raw = line.substringAfter(':', "").trim()
         isBlockDescription = key == "description" && raw in BLOCK_MARKERS
         val value = if (isBlockDescription) NativeScalar("") else scalar(raw)
