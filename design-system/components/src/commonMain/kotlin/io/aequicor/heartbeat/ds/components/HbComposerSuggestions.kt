@@ -5,6 +5,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -34,6 +35,7 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
@@ -111,6 +113,10 @@ internal fun ComposerSuggestionsPopup(
                 .width(listWidth)
                 .heightIn(max = listHeight)
                 .semantics { paneTitle = label }
+                .pointerInput(Unit) {
+                    // Only the sheet absorbs empty-area taps; the outer shadow gutter stays click-through.
+                    detectTapGestures { }
+                }
                 .background(HbTheme.colors.surfaceElevated, HbTheme.shapes.large)
                 .hbPopupSurface(HbTheme.colors.surface, HbTheme.shapes.medium)
                 .padding(HbTheme.spacing.s),

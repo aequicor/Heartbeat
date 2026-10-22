@@ -3,16 +3,19 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FrozenHostedTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.browserMentionDirective
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 
 /** Opens the chat's native context and carries incompatible frozen declarations across a proven idle boundary. */
 internal interface StudioSessionHost {
@@ -36,13 +39,14 @@ internal data class StudioEnvironmentSession(val active: ActiveSession, val leas
 internal suspend fun StudioSessionHost.openEnvironmentSession(
     request: StudioTurnRequest,
     preselected: ToolChoices,
+    tools: ProfileAgentTools,
 ): StudioEnvironmentSession {
     var active = openTurn(request.id, request.settings, preselected)
     val environment = request.environment
     var lease: AutoCloseable? = environment?.bind(active.ref)
     var isTransferred = false
     try {
-        if (needsNewDeclarations(request, active)) {
+        if (needsNewDeclarations(request, active, preselected, tools)) {
             check(request.recoveryRequests.isEmpty()) { "A recovering request cannot replace its native session" }
             check(active.canCarryEnvironment()) { "The previous native turn is still active or uncertain" }
             val inspection = active.features.requireFeature(RestoresSessionTurns).inspect(null)
@@ -55,7 +59,9 @@ internal suspend fun StudioSessionHost.openEnvironmentSession(
             lease = null
             active = openTurn(request.id, request.settings, preselected)
             lease = environment?.bind(active.ref)
-            check(!needsNewDeclarations(request, active)) { "New native session has incompatible hosted tools" }
+            check(
+                !needsNewDeclarations(request, active, preselected, tools),
+            ) { "New native session has incompatible hosted tools" }
         }
         isTransferred = true
         return StudioEnvironmentSession(active, lease)
@@ -70,7 +76,12 @@ internal fun ActiveSession.canCarryEnvironment(): Boolean {
     return ready.lastTurn?.outcome != TurnOutcome.Unknown
 }
 
-private suspend fun StudioSessionHost.needsNewDeclarations(request: StudioTurnRequest, active: ActiveSession): Boolean {
+private suspend fun StudioSessionHost.needsNewDeclarations(
+    request: StudioTurnRequest,
+    active: ActiveSession,
+    preselected: ToolChoices,
+    tools: ProfileAgentTools,
+): Boolean {
     val isCarryPending = needsCarriedTools(request.id, active)
     val isEmbeddedRequested = request.environment == null && request.isUserPrompt &&
         request.userInstruction?.let { browserMentionDirective(it, isExternal = false) } != null
@@ -78,11 +89,18 @@ private suspend fun StudioSessionHost.needsNewDeclarations(request: StudioTurnRe
     return when (val access = active.features.resolve(FrozenHostedTools)) {
         is FeatureAccess.Available -> {
             val hasIncompatibleTools = access.feature.names.any { request.environment?.acceptsTool(it) == false }
-            // A chat opened in the extension may have permanently omitted embedded declarations. Carry it
-            // back only for an explicit local browser request, using the same idle/history barriers.
-            val hasExternalOnly = isEmbeddedRequested && access.feature.names.any { it.startsWith("ex_control_") } &&
-                access.feature.names.none { it.startsWith("browser_") }
-            isCarryPending || hasIncompatibleTools || hasExternalOnly
+            // Missing declarations can also mean disabled tools. Check what a new local context can actually
+            // expose, without the old session's external binding or frozen manifest. Recheck after carry so
+            // disabling the browser during rollover leaves a usable chat with an unavailable-browser response.
+            val isEmbeddedMissing = isEmbeddedRequested && access.feature.names.none { it.startsWith("browser_") } &&
+                tools.specifications(
+                    AgentToolScope(
+                        active.route.workspace,
+                        studioModelTarget(request.settings.modelId),
+                        preselected = preselected,
+                    ),
+                ).any { it.name.startsWith("browser_") }
+            isCarryPending || hasIncompatibleTools || isEmbeddedMissing
         }
 
         is FeatureAccess.Unavailable -> throw EngineException(access.reason)

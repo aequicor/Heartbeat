@@ -15,6 +15,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -89,6 +91,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Clock
@@ -813,6 +816,60 @@ class StudioDeferredHarnessContextTest {
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioBrowserEnvironmentTest {
     @Test
+    fun `browser disabled during rollover does not reject the local prompt`() = runTest {
+        val fixture = TurnFixture()
+        fixture.active.frozenNames = setOf("ex_control_tabs")
+        fixture.active.inspection = TurnInspection.Idle
+        val replacement = ExecutorSession(fixture.turn, "disabled").apply {
+            frozenNames = setOf("ex_control_tabs")
+        }
+        fixture.host.replacement = replacement
+        fixture.host.afterRollover = { fixture.tools.availableNames = setOf("ex_control_tabs") }
+        fixture.tools.release.complete(Unit)
+        val request = fixture.request.copy(userInstruction = "@browser", isUserPrompt = true)
+
+        assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, request))
+        assertEquals(listOf(fixture.active.ref), fixture.host.rollovers)
+        assertEquals(replacement.ref to fixture.turn.id, fixture.tools.finished)
+        assertTrue(fixture.tools.specificationScopes.all { it.session == null && it.declared == null })
+        assertEquals(
+            listOf(fixture.active.route.workspace, replacement.route.workspace),
+            fixture.tools.specificationScopes.map { it.workspace },
+        )
+    }
+
+    @Test
+    fun `local browser mention keeps the current session when embedded tools are disabled`() = runTest {
+        val fixture = TurnFixture()
+        fixture.active.frozenNames = setOf("ex_control_tabs")
+        fixture.active.inspection = TurnInspection.Idle
+        fixture.tools.availableNames = setOf("ex_control_tabs")
+        fixture.tools.release.complete(Unit)
+        val request = fixture.request.copy(userInstruction = "@browser", isUserPrompt = true)
+
+        assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, request))
+        assertTrue(fixture.host.rollovers.isEmpty())
+        assertNotNull(fixture.host.submitted)
+    }
+
+    @Test
+    fun `local browser mention restores declarations even when the old session has no browser tools`() = runTest {
+        val fixture = TurnFixture()
+        fixture.active.frozenNames = emptySet()
+        fixture.active.inspection = TurnInspection.Idle
+        val replacement = ExecutorSession(fixture.turn, "embedded").apply {
+            frozenNames = setOf("browser_tabs")
+        }
+        fixture.host.replacement = replacement
+        fixture.tools.release.complete(Unit)
+        val request = fixture.request.copy(userInstruction = "@browser", isUserPrompt = true)
+
+        assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, request))
+        assertEquals(listOf(fixture.active.ref), fixture.host.rollovers)
+        assertEquals(replacement.ref to fixture.turn.id, fixture.tools.finished)
+    }
+
+    @Test
     fun `local browser mention restores embedded declarations after an external only frozen chat`() = runTest {
         val fixture = TurnFixture()
         fixture.active.frozenNames = setOf("ex_control_tabs")
@@ -1362,6 +1419,16 @@ private class RecordingHarnessAttach : StudioHarnessAttach {
 }
 
 private class ExecutorTools(private val events: MutableList<String>) : ProfileAgentTools by NoAgentTools {
+    var availableNames = setOf("browser_tabs", "ex_control_tabs")
+    val specificationScopes = mutableListOf<AgentToolScope>()
+    override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> {
+        specificationScopes += scope
+        return specifications(scope.workspace)
+    }
+    override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = availableNames.map {
+        AgentToolSpec(it, it, kotlinx.serialization.json.JsonObject(emptyMap()))
+    }
+
     val release = CompletableDeferred<Unit>()
     var finished: Pair<SessionRef, TurnId>? = null
     override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
@@ -1383,6 +1450,7 @@ private class ExecutorHost(
     var carriedRecord: StudioChatRecord? = null
     var carriedHarnesses: StudioHarnessAttach = NoStudioHarnessAttach
     var rolloverFailure: Exception? = null
+    var afterRollover: () -> Unit = {}
     val rollovers = mutableListOf<SessionRef>()
     var stopCheckFailure: Exception? = null
     var isNativeSubmissionEnabled = false
@@ -1459,6 +1527,7 @@ private class ExecutorHost(
         active.close()
         this.active = checkNotNull(replacement)
         carriedRecord = carriedRecord?.rolledOver("previous context")
+        afterRollover()
     }
     override suspend fun shouldStop(id: String): Boolean {
         stopCheckFailure?.let { throw it }

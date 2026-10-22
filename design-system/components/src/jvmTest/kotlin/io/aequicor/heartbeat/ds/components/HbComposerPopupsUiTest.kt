@@ -16,7 +16,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SkikoComposeUiTest
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -39,6 +41,42 @@ import kotlin.test.assertEquals
  */
 @OptIn(ExperimentalTestApi::class)
 class HbComposerPopupsUiTest {
+    @Test
+    fun `in-window suggestion heading does not click through to underlying content`() =
+        runSkikoComposeUiTest(size = Size(WIDTH, HEIGHT)) {
+            var underlyingClicks = 0
+            setContent {
+                HbTheme {
+                    HbInWindowPopupHost {
+                        Box(Modifier.fillMaxSize().clickable { underlyingClicks++ }) {
+                            Box(Modifier.offset(x = 300.dp, y = 500.dp).size(32.dp)) {
+                                ComposerSuggestionsPopup(
+                                    HbComposerSuggestions(
+                                        persistentListOf(
+                                            HbComposerSuggestion("browser", "@browser", sectionLabel = "Commands"),
+                                        ),
+                                    ),
+                                    "Suggestions",
+                                    "Close suggestions",
+                                    {},
+                                    {},
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            val heading = onNodeWithText("Commands").fetchSemanticsNode().boundsInWindow
+            clickInScene(heading.center)
+            runOnIdle { assertEquals(0, underlyingClicks) }
+            val sheet = onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Suggestions"))
+                .fetchSemanticsNode().boundsInWindow
+            clickInScene(Offset(sheet.left - 1f, sheet.center.y))
+            runOnIdle { assertEquals(1, underlyingClicks) }
+            clickInScene(Offset(1f, 1f))
+            runOnIdle { assertEquals(2, underlyingClicks) }
+        }
+
     @Test
     fun `in-window popup preserves an offset zero-size anchor`() = runSkikoComposeUiTest(size = Size(WIDTH, HEIGHT)) {
         setContent {
