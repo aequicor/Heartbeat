@@ -30,7 +30,8 @@ private val log = Log.tag("DS/MenuPopup")
  * its transparent backdrop absorbs the outside click and dismisses, while the sheet keeps [position].
  *
  * A non-[focusable] popup (suggestions under a focused editor) gets no backdrop: it is a plain anchored layer
- * and outside clicks, drags and wheel scrolls reach the window beneath (caret placement, Send, the chat feed).
+ * inside the window portal when available. Outside clicks, drags and wheel scrolls reach the content beneath
+ * (caret placement, Send, the chat feed).
  * Its owner closes it when the editor loses focus; Compose releases focus when the window content loses
  * permanent AWT focus, which is what a click on a focus-taking native child (Chromium) does.
  */
@@ -42,7 +43,7 @@ internal actual fun HbMenuPopup(
     content: @Composable () -> Unit,
 ) {
     if (!focusable) {
-        Popup(position, onDismissRequest, PopupProperties(focusable = false), content)
+        HbNonFocusablePopup(position, onDismissRequest, content)
         return
     }
     val anchor = remember { HbMenuAnchor() }

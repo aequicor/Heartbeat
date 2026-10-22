@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -22,7 +21,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -75,6 +76,7 @@ public data class HbComposerSuggestions(
  * Outside clicks and scrolls reach the editor and the content beneath; the composer hides the list once
  * the editor loses focus. A heavyweight native surface (an embedded browser page) may not take that focus,
  * so the list always shows a close button labelled [closeLabel] as well.
+ * The first section shares its heading row with that button; no separate title row precedes the list.
  */
 @Composable
 internal fun ComposerSuggestionsPopup(
@@ -96,6 +98,7 @@ internal fun ComposerSuggestionsPopup(
     ) { (anchor?.top ?: window.height).toDp() } - gutter - dimensions.composerMenuOffset
     val listWidth = minOf(dimensions.composerMenuMaxWidth, availableWidth.coerceAtLeast(dimensions.touchTarget))
     val listHeight = minOf(dimensions.composerMenuMaxHeight, availableHeight.coerceAtLeast(dimensions.touchTarget))
+    val firstSection = suggestions.items.firstOrNull()?.sectionLabel
     val position = with(density) {
         remember(anchor, gutter, dimensions.composerMenuOffset, this) {
             ComposerPopupPosition(anchor, gutter.roundToPx(), dimensions.composerMenuOffset.roundToPx())
@@ -113,28 +116,45 @@ internal fun ComposerSuggestionsPopup(
                 .padding(HbTheme.spacing.s),
             gap = HbTheme.spacing.xs,
         ) {
-            HbRow(modifier = Modifier.fillMaxWidth()) {
-                Spacer(Modifier.weight(1f))
-                HbIconButton(HbIcons.Close, closeLabel, onDismiss)
+            if (firstSection != null) {
+                HbRow(modifier = Modifier.fillMaxWidth()) {
+                    ComposerSectionLabel(firstSection, modifier = Modifier.weight(1f))
+                    SuggestionsCloseButton(closeLabel, onDismiss)
+                }
             }
-            HbColumn(
-                modifier = Modifier.weight(1f, fill = false).hbVerticalScroll(rememberScrollState()),
+            HbRow(
+                modifier = Modifier.weight(1f, fill = false),
                 gap = HbTheme.spacing.xs,
+                verticalAlignment = Alignment.Top,
             ) {
-                suggestions.items.forEachIndexed { index, item ->
-                    key(item.id) {
-                        if (item.sectionLabel != null) ComposerSectionLabel(item.sectionLabel)
-                        SuggestionRow(
-                            item,
-                            index,
-                            onClick = { onSelect(index) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                HbColumn(
+                    modifier = Modifier.weight(1f).hbVerticalScroll(rememberScrollState()),
+                    gap = HbTheme.spacing.xs,
+                ) {
+                    suggestions.items.forEachIndexed { index, item ->
+                        key(item.id) {
+                            if (item.sectionLabel != null && index != 0) {
+                                ComposerSectionLabel(item.sectionLabel)
+                            }
+                            SuggestionRow(
+                                item,
+                                index,
+                                onClick = { onSelect(index) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
+                if (firstSection == null) SuggestionsCloseButton(closeLabel, onDismiss)
             }
         }
     }
+}
+
+/** A pointer action: keyboard dismissal remains in the focused editor. */
+@Composable
+private fun SuggestionsCloseButton(label: String, onDismiss: () -> Unit) {
+    HbIconButton(HbIcons.Close, label, onDismiss, modifier = Modifier.focusProperties { canFocus = false })
 }
 
 @Composable
@@ -150,6 +170,7 @@ private fun SuggestionRow(item: HbComposerSuggestion, index: Int, onClick: () ->
     val pointerBackground = suggestionPointerBackground(interactions, item.isEnabled)
     HbRow(
         modifier = modifier
+            .focusProperties { canFocus = false }
             .heightIn(min = HbTheme.dimensions.touchTarget)
             .bringIntoViewRequester(bringIntoView)
             .semantics { selected = item.isSelected }
