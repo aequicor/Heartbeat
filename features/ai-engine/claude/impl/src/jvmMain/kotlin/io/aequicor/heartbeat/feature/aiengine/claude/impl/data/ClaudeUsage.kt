@@ -110,8 +110,13 @@ internal class ClaudeProviderUsage(private val validate: suspend () -> Boolean) 
         if (message.text("type") != "rate_limit_event") return
         val value = message["rate_limit_info"] as? JsonObject ?: return
         val id = value.text("rateLimitType")?.takeIf { it.isNotBlank() } ?: return
-        val fraction = (value["utilization"] as? JsonPrimitive)?.doubleOrNull
-            ?.takeIf { it.isFinite() && it >= 0 } ?: return
+        val fraction = value.fraction("utilization")
+            ?: value.fraction("surpassedThreshold")
+            ?: if (value.text("status") == "rejected" && (id == "five_hour" || id.startsWith("seven_day"))) {
+                1.0
+            } else {
+                return
+            }
         val seconds = (value["resetsAt"] as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 }
         val window = ProviderUsageWindow(
             id = id,
@@ -176,6 +181,10 @@ private fun JsonObject.activeModel(model: String): JsonObject? {
     }
     return (matches.singleOrNull()?.value as? JsonObject)
 }
+
+/** Events without `utilization` still carry the warning threshold or a rejection; clamp to a valid fraction. */
+private fun JsonObject.fraction(key: String): Double? =
+    (get(key) as? JsonPrimitive)?.doubleOrNull?.takeIf { it.isFinite() && it >= 0 }
 
 private fun JsonObject.nonnegativeLong(key: String): Long? =
     (get(key) as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 }
