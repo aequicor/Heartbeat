@@ -450,7 +450,10 @@ internal class WorktreeAgentTools(
         val toolSpecs = listOf(
             AgentToolSpec(
                 "configure_build",
-                "Declare the actual foreground build commands, shared caches and exclusive resources.",
+                "Declare the actual foreground build commands, shared caches and exclusive resources. " +
+                    "Every declared cache must be referenced as {cache:<id>} in the arguments or environment " +
+                    "of at least one command (e.g. GRADLE_USER_HOME={cache:gradle}), otherwise the call fails " +
+                    "with UnusedBuildCache; omit caches you do not use.",
                 Json.parseToJsonElement(
                     """{
                         "type":"object","properties":{
