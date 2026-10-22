@@ -54,11 +54,13 @@ data class QuestionUi(
     val selected: ImmutableSet<String> = persistentSetOf(),
     val text: String = "",
     val isFreeTextAllowed: Boolean = false,
+    /** A yes/no draft for text-enabled questions; null leaves room for a text-only answer. */
+    val isConfirmed: Boolean? = null,
 ) {
     /** Whether the draft is a complete answer. */
     val isAnswerReady: Boolean
         get() = !isSubmitting && when (kind) {
-            is QuestionKindUi.Confirm -> isFreeTextAllowed && text.isNotBlank()
+            is QuestionKindUi.Confirm -> isFreeTextAllowed && (isConfirmed != null || text.isNotBlank())
 
             is QuestionKindUi.Choice ->
                 selected.size in kind.min..kind.max ||
@@ -97,7 +99,7 @@ sealed interface QuestionnaireScreenIntent : MVIIntent {
     @Serializable
     data class TextChanged(override val questionId: String, val text: String) : QuestionnaireScreenIntent
 
-    /** Answers a yes/no question. */
+    /** Selects a yes/no draft when text is allowed; otherwise sends the strict confirmation immediately. */
     @Serializable
     data class Confirm(override val questionId: String, val isConfirmed: Boolean) : QuestionnaireScreenIntent
 

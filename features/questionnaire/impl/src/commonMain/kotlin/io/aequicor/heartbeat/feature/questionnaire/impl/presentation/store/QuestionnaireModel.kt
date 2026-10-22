@@ -83,12 +83,17 @@ internal class QuestionnaireModel(
                         }
 
                         is QuestionnaireScreenIntent.Confirm -> {
-                            var comment: String? = null
+                            var isEditable = false
                             withState {
-                                comment = questions.firstOrNull { it.id == intent.questionId }
-                                    ?.takeIf { it.isFreeTextAllowed }?.text?.takeIf(String::isNotBlank)
+                                isEditable =
+                                    questions.firstOrNull { it.id == intent.questionId }?.isFreeTextAllowed == true
                             }
-                            Answer.Confirmed(intent.isConfirmed, comment)
+                            if (isEditable) {
+                                updateState { predictDraft(intent) }
+                                null
+                            } else {
+                                Answer.Confirmed(intent.isConfirmed)
+                            }
                         }
 
                         is QuestionnaireScreenIntent.Submit -> {
@@ -163,6 +168,7 @@ internal fun QuestionnaireScreenState.reflectQueue(
                 ui.copy(
                     selected = draft.selected,
                     text = draft.text,
+                    isConfirmed = draft.isConfirmed,
                 )
             }
         }
@@ -198,7 +204,8 @@ private fun List<io.aequicor.heartbeat.feature.questionnaire.api.Choice>.toUi() 
     map { ChoiceUi(it.id, it.title) }.toImmutableList()
 
 internal fun QuestionUi.draftAnswer(): Answer? = when (val kind = kind) {
-    is QuestionKindUi.Confirm -> Answer.Text(text)
+    is QuestionKindUi.Confirm -> isConfirmed?.let { Answer.Confirmed(it, text.takeIf(String::isNotBlank)) }
+        ?: Answer.Text(text)
 
     is QuestionKindUi.Choice -> if (isFreeTextAllowed && selected.isEmpty() && text.isNotBlank()) {
         Answer.Text(text)

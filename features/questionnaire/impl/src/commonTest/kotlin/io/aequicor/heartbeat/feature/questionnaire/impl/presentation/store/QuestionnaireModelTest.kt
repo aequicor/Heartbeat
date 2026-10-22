@@ -208,8 +208,13 @@ class QuestionnaireModelTest {
         val fixture = Fixture(this, QuestionnaireState.Asking(listOf(confirm, text)))
         val screen = fixture.subscribe()
         fixture.model.dispatch(QuestionnaireScreenIntent.TextChanged("t", "Next draft"))
-        fixture.model.dispatch(QuestionnaireScreenIntent.TextChanged("c", "Only locally"))
         fixture.model.dispatch(QuestionnaireScreenIntent.Confirm("c", false))
+        assertTrue(fixture.machine.sent.isEmpty())
+        fixture.model.dispatch(QuestionnaireScreenIntent.TextChanged("c", "Only locally"))
+        fixture.machine.state.value = QuestionnaireState.Asking(listOf(confirm, text, multi))
+        runCurrent()
+        assertEquals(false, screen.states.value.questions.first().isConfirmed)
+        fixture.model.dispatch(QuestionnaireScreenIntent.Submit("c"))
         assertEquals(
             Answer.Confirmed(false, "Only locally"),
             (fixture.machine.sent.single() as QuestionnaireIntent.Public.Answer).answer,
@@ -218,6 +223,18 @@ class QuestionnaireModelTest {
         runCurrent()
         assertEquals("t", screen.states.value.activeQuestionId)
         assertEquals("Next draft", screen.states.value.questions.last().text)
+    }
+
+    @Test
+    fun `strict confirmation still submits immediately`() = runTest {
+        val confirm = foreign.copy(source = "s1")
+        val fixture = Fixture(this, QuestionnaireState.Asking(listOf(confirm)))
+        fixture.subscribe()
+        fixture.model.dispatch(QuestionnaireScreenIntent.Confirm("f", true))
+        assertEquals(
+            Answer.Confirmed(true),
+            (fixture.machine.sent.single() as QuestionnaireIntent.Public.Answer).answer,
+        )
     }
 
     private class Fixture(private val scope: TestScope, initial: QuestionnaireState) {

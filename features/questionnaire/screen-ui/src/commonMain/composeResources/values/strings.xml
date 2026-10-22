@@ -1,13 +1,13 @@
 <resources>
     <string name="questionnaire_attention">Your answer is needed</string>
-    <string name="questionnaire_submit">Answer</string>
+    <string name="questionnaire_submit">Done</string>
     <string name="questionnaire_skip">Skip</string>
     <string name="questionnaire_text_hint">Your answer</string>
     <string name="questionnaire_selected">Selected: %1$s</string>
     <string name="questionnaire_pick_range">Choose %1$d–%2$d</string>
     <string name="questionnaire_sending">Sending…</string>
     <string name="questionnaire_previous">Previous</string>
-    <string name="questionnaire_next">Next</string>
+    <string name="questionnaire_continue">Next</string>
     <string name="questionnaire_page">%1$d of %2$d</string>
     <string name="questionnaire_other_hint">Add details or write your own answer</string>
 </resources>

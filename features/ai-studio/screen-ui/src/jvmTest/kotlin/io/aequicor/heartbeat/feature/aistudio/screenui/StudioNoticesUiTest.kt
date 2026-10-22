@@ -264,6 +264,32 @@ class StudioNoticesUiTest {
             }
         }
 
+    @Test
+    fun `questionnaire edges align with the composer in compact and wide panes`() {
+        for (width in listOf(420f, 1280f)) {
+            runSkikoComposeUiTest(size = Size(width, 800f)) {
+                val questions = object : StudioEmbed {
+                    @Composable
+                    override fun Content(modifier: Modifier) {
+                        HbColumn(modifier) { HbButton("Answer", {}) }
+                    }
+                }
+                setContent {
+                    NoticePane(
+                        noticeWorkspace(),
+                        compact = width < 720f,
+                        questions = persistentMapOf("chat" to questions),
+                        onIntent = {},
+                    )
+                }
+                val panel = onNodeWithTag("pane-questionnaire").fetchSemanticsNode().boundsInRoot
+                val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+                assertEquals(composer.left, panel.left)
+                assertEquals(composer.right, panel.right)
+            }
+        }
+    }
+
     private fun renderNotices(width: Float, dark: Boolean) = runSkikoComposeUiTest(size = Size(width, 800f)) {
         var state by mutableStateOf(noticeWorkspace())
         setContent {

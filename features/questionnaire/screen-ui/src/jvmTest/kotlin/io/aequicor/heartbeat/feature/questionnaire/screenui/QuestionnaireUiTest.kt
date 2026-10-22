@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -30,6 +31,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -142,9 +144,10 @@ class QuestionnaireUiTest {
         onNodeWithTag("question-choice-pick-a").performClick()
         onNodeWithTag("question-submit-pick").assertIsEnabled().performClick()
         onNodeWithTag("question-skip-pick").performClick()
-        onNodeWithTag("questionnaire-next").performClick()
+        runOnIdle { current = current.copy(activeQuestionId = "go") }
+        onNodeWithTag("question-skip-go").assertIsNotEnabled()
         onNodeWithTag("question-yes-go").performClick()
-        onNodeWithTag("questionnaire-next").performClick()
+        runOnIdle { current = current.copy(activeQuestionId = "name") }
         onNodeWithTag("question-submit-name").assertIsNotEnabled()
         onNodeWithTag("question-text-name").performTextInput("x")
         assertEquals(
@@ -152,9 +155,7 @@ class QuestionnaireUiTest {
                 QuestionnaireScreenIntent.ToggleChoice("pick", "a"),
                 QuestionnaireScreenIntent.Submit("pick"),
                 QuestionnaireScreenIntent.Skip("pick"),
-                QuestionnaireScreenIntent.ShowQuestion("go"),
                 QuestionnaireScreenIntent.Confirm("go", true),
-                QuestionnaireScreenIntent.ShowQuestion("name"),
                 QuestionnaireScreenIntent.TextChanged("name", "x"),
             ),
             events,
@@ -168,23 +169,49 @@ class QuestionnaireUiTest {
         setContent { HbTheme { QuestionnaireScreen(current, { current = current.predictDraft(it) }) } }
         onNodeWithTag("question-go").assertDoesNotExist()
         onNodeWithTag("question-text-pick").performTextInput("Extra detail")
-        val next = onNodeWithTag("questionnaire-next")
-        next.performSemanticsAction(SemanticsActions.RequestFocus)
-        next.performKeyInput { pressKey(Key.Enter) }
+        runOnIdle { current = current.copy(activeQuestionId = "go") }
         onNodeWithTag("question-pick").assertDoesNotExist()
         onNodeWithTag("question-go").assertIsDisplayed()
-        onNodeWithTag("questionnaire-previous").performClick()
+        val previous = onNodeWithTag("questionnaire-previous")
+        previous.performSemanticsAction(SemanticsActions.RequestFocus)
+        previous.performKeyInput { pressKey(Key.Enter) }
         onNodeWithTag("question-text-pick").assertTextContains("Extra detail")
         onNodeWithTag("question-submit-pick").assertIsEnabled()
     }
 
     @Test
+    fun `choice rows expose radio and checkbox roles and final submit says Done`() = runSkikoComposeUiTest {
+        var current by mutableStateOf(state.copy(questions = persistentListOf(state.questions.first())))
+        val events = mutableListOf<QuestionnaireScreenIntent>()
+        setContent { HbTheme { QuestionnaireScreen(current, events::add) } }
+        onNodeWithTag("question-choice-pick-a").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton),
+        )
+        onNodeWithTag("question-submit-pick").assert(hasText("Done") or hasText("Готово"))
+        onNodeWithTag("question-skip-pick").performClick()
+        assertEquals(listOf<QuestionnaireScreenIntent>(QuestionnaireScreenIntent.Skip("pick")), events)
+        runOnIdle {
+            val question = current.questions.single()
+            current = current.copy(
+                questions = persistentListOf(
+                    question.copy(kind = (question.kind as QuestionKindUi.Choice).copy(isMultiple = true)),
+                ),
+            )
+        }
+        onNodeWithTag("question-choice-pick-a").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox),
+        )
+    }
+
+    @Test
     fun `light desktop questionnaire keeps long Russian actions visible at compact width`() {
+        verifyQuestionnaireLayout(isDark = false, width = 320)
         verifyQuestionnaireLayout(isDark = false, width = 420)
     }
 
     @Test
     fun `dark desktop questionnaire keeps long Russian actions visible at compact width`() {
+        verifyQuestionnaireLayout(isDark = true, width = 320)
         verifyQuestionnaireLayout(isDark = true, width = 420)
     }
 
@@ -271,7 +298,7 @@ class QuestionnaireUiTest {
         }
         val colors = HbColors.forHost(isDark = isDark, isDesktop = true).forQuestionnaire()
         VisualState.questions.forEachIndexed { index, question ->
-            if (index > 0) onNodeWithTag("questionnaire-next").performClick()
+            if (index > 0) runOnIdle { current = current.copy(activeQuestionId = question.id) }
             val image = captureToImage().toAwtImage()
             val card = onNodeWithTag("question-${question.id}").fetchSemanticsNode().boundsInRoot
             assertTrue(card.left >= 0f && card.right <= width, "Question card must fit the viewport")
@@ -285,14 +312,7 @@ class QuestionnaireUiTest {
                 SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite) and
                     SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading),
             )
-            val actions = when (val kind = question.kind) {
-                is QuestionKindUi.Confirm -> listOf("question-yes-${question.id}", "question-no-${question.id}")
-
-                is QuestionKindUi.Choice -> kind.choices.map { "question-choice-${question.id}-${it.id}" } +
-                    listOf("question-submit-${question.id}", "question-skip-${question.id}")
-
-                is QuestionKindUi.Text -> listOf("question-text-${question.id}", "question-submit-${question.id}")
-            }
+            val actions = question.actionTags()
             actions.forEach { tag ->
                 val node = onNodeWithTag(tag).assertIsDisplayed()
                 val bounds = node.getUnclippedBoundsInRoot()
@@ -300,6 +320,15 @@ class QuestionnaireUiTest {
                     bounds.left.value >= card.left && bounds.right.value <= card.right &&
                         bounds.top.value >= card.top && bounds.bottom.value <= card.bottom,
                     "Action $tag must remain inside its question card",
+                )
+            }
+            if (question.isFreeTextAllowed && question.text.isEmpty()) {
+                val field = onNodeWithTag("question-text-${question.id}").getUnclippedBoundsInRoot()
+                val submit = onNodeWithTag("question-submit-${question.id}").getUnclippedBoundsInRoot()
+                assertEquals(
+                    field.bottom - field.top,
+                    submit.bottom - submit.top,
+                    "Empty field and submit button must have equal heights",
                 )
             }
             saveQuestionnairePreview("${if (isDark) "dark" else "light"}-$width-$index", image)
@@ -332,6 +361,8 @@ private val VisualState = QuestionnaireScreenState(
             kind = QuestionKindUi.Confirm("Разрешить запуск миграций", "Отложить до проверки изменений"),
             isSkippable = false,
             isSubmitting = false,
+            isFreeTextAllowed = true,
+            isConfirmed = false,
         ),
         QuestionUi(
             id = "name",
@@ -380,4 +411,13 @@ private fun saveQuestionnairePreview(name: String, image: BufferedImage) {
     val directory = File("build/previews")
     check(directory.isDirectory || directory.mkdirs()) { "Cannot create questionnaire preview directory" }
     check(ImageIO.write(image, "png", File(directory, "questionnaire-$name.png"))) { "PNG encoder is unavailable" }
+}
+
+private fun QuestionUi.actionTags(): List<String> = when (val kind = kind) {
+    is QuestionKindUi.Confirm -> listOf("question-yes-$id", "question-no-$id")
+
+    is QuestionKindUi.Choice -> kind.choices.map { "question-choice-$id-${it.id}" } +
+        listOf("question-submit-$id", "question-skip-$id")
+
+    is QuestionKindUi.Text -> listOf("question-text-$id", "question-submit-$id")
 }

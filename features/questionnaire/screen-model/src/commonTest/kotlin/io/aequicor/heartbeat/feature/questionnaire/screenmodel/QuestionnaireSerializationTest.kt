@@ -10,6 +10,27 @@ class QuestionnaireSerializationTest {
     private val json = Json { classDiscriminator = "@type" }
 
     @Test
+    fun `confirmation draft can be cleared and survives the remote wire`() {
+        val question = QuestionUi(
+            "q",
+            "Q",
+            null,
+            QuestionKindUi.Confirm("Yes", "No"),
+            false,
+            false,
+            isFreeTextAllowed = true,
+        )
+        val initial = QuestionnaireScreenState(persistentListOf(question))
+        val selected = initial.predictDraft(QuestionnaireScreenIntent.Confirm("q", false))
+        assertEquals(false, selected.questions.single().isConfirmed)
+        assertEquals(true, selected.questions.single().isAnswerReady)
+        assertEquals(selected, json.decodeFromString<QuestionnaireScreenState>(json.encodeToString(selected)))
+        val cleared = selected.predictDraft(QuestionnaireScreenIntent.Confirm("q", false))
+        assertEquals(null, cleared.questions.single().isConfirmed)
+        assertEquals(false, cleared.questions.single().isAnswerReady)
+    }
+
+    @Test
     fun `single choice can be cleared for a text alternative and pages preserve drafts`() {
         val question = QuestionUi(
             "q",

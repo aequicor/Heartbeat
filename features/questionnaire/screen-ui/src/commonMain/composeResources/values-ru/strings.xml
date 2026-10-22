@@ -1,13 +1,13 @@
 <resources>
     <string name="questionnaire_attention">Нужен ваш ответ</string>
-    <string name="questionnaire_submit">Ответить</string>
+    <string name="questionnaire_submit">Готово</string>
     <string name="questionnaire_skip">Пропустить</string>
     <string name="questionnaire_text_hint">Ваш ответ</string>
     <string name="questionnaire_selected">Выбрано: %1$s</string>
     <string name="questionnaire_pick_range">Выберите %1$d–%2$d</string>
     <string name="questionnaire_sending">Отправка…</string>
     <string name="questionnaire_previous">Назад</string>
-    <string name="questionnaire_next">Далее</string>
+    <string name="questionnaire_continue">Далее</string>
     <string name="questionnaire_page">%1$d из %2$d</string>
     <string name="questionnaire_other_hint">Дополнение или свой вариант ответа</string>
 </resources>

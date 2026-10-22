@@ -30,7 +30,13 @@ private fun QuestionUi.predictDraft(intent: QuestionnaireScreenIntent): Question
 
     is QuestionnaireScreenIntent.ToggleChoice -> toggled(intent.choiceId)
 
-    is QuestionnaireScreenIntent.Confirm, is QuestionnaireScreenIntent.Submit, is QuestionnaireScreenIntent.Skip -> this
+    is QuestionnaireScreenIntent.Confirm -> if (kind is QuestionKindUi.Confirm && isFreeTextAllowed) {
+        copy(isConfirmed = intent.isConfirmed.takeUnless { it == isConfirmed })
+    } else {
+        this
+    }
+
+    is QuestionnaireScreenIntent.Submit, is QuestionnaireScreenIntent.Skip -> this
 }
 
 private fun QuestionUi.toggled(id: String): QuestionUi {
