@@ -57,12 +57,14 @@ import io.aequicor.heartbeat.ds.components.HbDiagramActionKind
 import io.aequicor.heartbeat.ds.components.HbDiagramActionsProvider
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.HbLinkTarget
 import io.aequicor.heartbeat.ds.components.HbMenuButton
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.components.HbTooltip
 import io.aequicor.heartbeat.ds.components.HbTranscriptFocus
 import io.aequicor.heartbeat.ds.components.HbWindowDragArea
+import io.aequicor.heartbeat.ds.components.rememberHbLinkHandler
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
@@ -329,6 +331,11 @@ private fun PaneConversation(
                     attachmentPreviews = content.attachmentPreviews,
                     isAttachmentOpeningAvailable = content.host.isAttachmentOpeningAvailable,
                     onIntent = onIntent,
+                    onFileLink = if (content.isFilePreviewEnabled) {
+                        { file -> onIntent(StudioIntent.OpenFileLink(pane.id, file.path, file.line)) }
+                    } else {
+                        null
+                    },
                     planCard = { proposal, isLatest ->
                         StudioPlanCard(
                             proposal,
@@ -877,6 +884,7 @@ private fun SessionTranscript(
     attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi>,
     isAttachmentOpeningAvailable: Boolean,
     onIntent: (StudioIntent) -> Unit,
+    onFileLink: ((HbLinkTarget.File) -> Unit)?,
     modifier: Modifier = Modifier,
     planCard: (@Composable (proposal: PlanProposalUi, isLatest: Boolean) -> Unit)? = null,
 ) {
@@ -899,6 +907,7 @@ private fun SessionTranscript(
         worktree.retained,
     )
     val links = LocalUriHandler.current
+    val onLinkClick = rememberHbLinkHandler(onFileLink)
     // Only the last card of a revision shows the full plan and its decisions; repeated proposals only open it.
     val latestPlans = remember(messages) { latestPlanProposals(messages) }
     HbDiagramActionsProvider(onDiagramAction) {
@@ -910,6 +919,7 @@ private fun SessionTranscript(
             focusRequest = focusTarget?.let { HbTranscriptFocus(it.messageId, it.sequence, isEmbedded = true) },
             onFocus = { preparedFocus = it },
             toolLabels = studioToolLabels(),
+            onLinkClick = onLinkClick,
             contentPadding = contentPadding,
             overlapInsets = overlapInsets,
             showSectionHeaders = true,

@@ -93,6 +93,8 @@ data class AiStudioScreenState(
     val feedCollapse: FeedCollapseUi = FeedCollapseUi(),
     /** Whether a new chat may be started as an organic AI organism. */
     val isOrganismEnabled: Boolean = false,
+    /** Whether file links of chats open in the side preview of this window. */
+    val isFilePreviewEnabled: Boolean = false,
     /** Harnesses offered in the "+" menu, chat connections and choices of new chats. */
     val harnessChoices: HarnessChoicesUi = HarnessChoicesUi(),
     /** Whether chats can develop a plan in planning mode. */

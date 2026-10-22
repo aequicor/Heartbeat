@@ -30,44 +30,60 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** What the right side of the studio shows. */
-enum class SidePanelUi { None, Browser, Interface }
+enum class SidePanelUi { None, Browser, Interface, File }
 
-/** The side panel, the browser mode, the interface panel sequence and the browser raise it was chosen from. */
+/**
+ * The side panel, the browser mode, the interface panel sequence, the browser raise and the file preview opening it
+ * was chosen from.
+ */
 internal data class SideChoice(
     val shown: SidePanelUi = SidePanelUi.None,
     val browser: BrowserPaneMode = BrowserPaneMode.Hidden,
     val panel: Long? = null,
     val raise: Long = 0,
+    val file: Long? = null,
 )
 
 /**
- * The next side panel: the one opened last wins; when the shown one closes, the other one shows if it is still
- * open. The user raising an open browser ([raise] grows) wins over everything; a new interface panel (a new opening
- * [panel] sequence) wins over the browser opened at the same moment.
+ * The next side panel: the one opened last wins; when the shown one closes, another one shows if it is still
+ * open. The user raising an open browser ([raise] grows) wins over everything; a newly opened file (a new [file]
+ * opening) wins over a new interface panel, which wins over the browser opened at the same moment.
  */
-internal fun SideChoice.next(browser: BrowserPaneMode, panel: Long?, raise: Long = this.raise): SideChoice {
+internal fun SideChoice.next(
+    browser: BrowserPaneMode,
+    panel: Long?,
+    raise: Long = this.raise,
+    file: Long? = this.file,
+): SideChoice {
     val isBrowserOpen = browser != BrowserPaneMode.Hidden
     val wanted = when {
         raise != this.raise && isBrowserOpen -> SidePanelUi.Browser
+        file != null && file != this.file -> SidePanelUi.File
         panel != null && panel != this.panel -> SidePanelUi.Interface
         isBrowserOpen && this.browser == BrowserPaneMode.Hidden -> SidePanelUi.Browser
         else -> shown
     }
-    return SideChoice(shownOf(wanted, isBrowserOpen, isPanelOpen = panel != null), browser, panel, raise)
+    val open = OpenPanels(isBrowserOpen, isPanelOpen = panel != null, isFileOpen = file != null)
+    return SideChoice(open.shown(wanted), browser, panel, raise, file)
 }
 
-/** [wanted] while it is open, else the other panel that is open, else nothing. */
-private fun shownOf(wanted: SidePanelUi, isBrowserOpen: Boolean, isPanelOpen: Boolean): SidePanelUi = when {
-    wanted == SidePanelUi.Interface && isPanelOpen -> SidePanelUi.Interface
-    wanted == SidePanelUi.Browser && isBrowserOpen -> SidePanelUi.Browser
-    isPanelOpen -> SidePanelUi.Interface
-    isBrowserOpen -> SidePanelUi.Browser
-    else -> SidePanelUi.None
+private data class OpenPanels(val isBrowserOpen: Boolean, val isPanelOpen: Boolean, val isFileOpen: Boolean) {
+    /** [wanted] while it is open, else another panel that is open, else nothing. */
+    fun shown(wanted: SidePanelUi): SidePanelUi = when {
+        wanted == SidePanelUi.File && isFileOpen -> SidePanelUi.File
+        wanted == SidePanelUi.Interface && isPanelOpen -> SidePanelUi.Interface
+        wanted == SidePanelUi.Browser && isBrowserOpen -> SidePanelUi.Browser
+        isPanelOpen -> SidePanelUi.Interface
+        isBrowserOpen -> SidePanelUi.Browser
+        isFileOpen -> SidePanelUi.File
+        else -> SidePanelUi.None
+    }
 }
 
 /**
- * The side of a studio window: chooses between the browser and the interface panel of the window's dock, hosts that
- * panel while interfaces are on, and closes a shown interface panel on "back".
+ * The side of a studio window: chooses between the browser, the interface panel of the window's dock and the file
+ * preview, hosts the interface panel while interfaces are on, and closes a shown interface panel or file preview on
+ * "back".
  */
 @OptIn(ExperimentalDecomposeApi::class) // childItems hosts the panel only while interfaces are on.
 internal class StudioSidePanel(
@@ -77,6 +93,8 @@ internal class StudioSidePanel(
     browser: StateFlow<BrowserPaneMode>,
     surfaces: StudioSurfaces,
     scope: CoroutineScope,
+    files: StateFlow<Long?> = MutableStateFlow(null),
+    closeFile: () -> Unit = {},
 ) {
     private val log = Log.tag("StudioSidePanel")
     private val raises = MutableStateFlow(0L)
@@ -101,18 +119,21 @@ internal class StudioSidePanel(
     /** The host of the interface panel while interfaces are on. */
     val panel: StateFlow<StackHost?> = host.asStateFlow()
 
-    /** Registered after the browser's: a shown interface panel handles "back" first. */
+    private var shownNow = SidePanelUi.None
+
+    /** Registered after the browser's: a shown interface panel or file preview handles "back" first. */
     val back: BackCallback = BackCallback(isEnabled = false) {
-        scope.launch { surfaces.closePanel() }
+        if (shownNow == SidePanelUi.File) closeFile() else scope.launch { surfaces.closePanel() }
     }
 
     /** The side panel shown now. */
-    val shown: StateFlow<SidePanelUi> = combine(browser, surfaces.panel, raises) { mode, panel, raise ->
-        Triple(mode, panel, raise)
+    val shown: StateFlow<SidePanelUi> = combine(browser, surfaces.panel, raises, files) { mode, panel, raise, file ->
+        Inputs(mode, panel, raise, file)
     }
-        .runningFold(SideChoice()) { choice, (mode, panel, raise) -> choice.next(mode, panel, raise) }
+        .runningFold(SideChoice()) { choice, input -> choice.next(input.mode, input.panel, input.raise, input.file) }
         .onEach { choice ->
-            back.isEnabled = choice.shown == SidePanelUi.Interface
+            shownNow = choice.shown
+            back.isEnabled = choice.shown == SidePanelUi.Interface || choice.shown == SidePanelUi.File
             log.v { "Side panel ${choice.shown}" }
         }
         .map { it.shown }
@@ -141,6 +162,8 @@ internal class StudioSidePanel(
         log.i { "Raise the browser over the interface panel" }
         raises.value += 1
     }
+
+    private data class Inputs(val mode: BrowserPaneMode, val panel: Long?, val raise: Long, val file: Long?)
 
     private companion object {
         const val PANEL = "panel"

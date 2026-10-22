@@ -388,4 +388,18 @@
     <string name="usage_context_unavailable">Движок не передал статистику контекста.</string>
     <string name="suggestion_remember_description">Сохранить инструкцию для будущих чатов</string>
     <string name="suggestion_compact_description">Сжать беседу и освободить контекст</string>
+    <string name="file_preview_title">Предпросмотр файла</string>
+    <string name="file_preview_close">Закрыть предпросмотр</string>
+    <string name="file_preview_reload">Перечитать файл</string>
+    <string name="file_preview_copy_path">Копировать путь</string>
+    <string name="file_preview_path_copied">Путь скопирован</string>
+    <string name="file_preview_copy_failed">Не удалось скопировать путь</string>
+    <string name="file_preview_show_source">Показать исходник</string>
+    <string name="file_preview_show_formatted">Показать с оформлением</string>
+    <string name="file_preview_loading">Читаем файл…</string>
+    <string name="file_preview_content">Содержимое файла</string>
+    <string name="file_preview_unavailable">Файл не удаётся открыть</string>
+    <string name="file_preview_unavailable_hint">Возможно, он перемещён, удалён или недоступен для чтения.</string>
+    <string name="file_preview_binary">Это не текстовый файл</string>
+    <string name="file_preview_too_large">Файл больше 1 МБ</string>
 </resources>

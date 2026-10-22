@@ -106,7 +106,7 @@ private class InlineWriter(private val source: String) {
         val value = node.raw(source).removePrefix("<").removeSuffix(">")
         val start = text.length
         text.append(value)
-        safeMarkdownDestination(value)?.let { addSpan(start, HbMarkdownStyle.Link, it) }
+        safeMarkdownDestination(autolinkDestination(value))?.let { addSpan(start, HbMarkdownStyle.Link, it) }
     }
 
     private fun addSpan(start: Int, style: HbMarkdownStyle, destination: String? = null) {
@@ -114,13 +114,9 @@ private class InlineWriter(private val source: String) {
     }
 }
 
-internal fun safeMarkdownDestination(destination: String?): String? {
-    val value = destination?.trim()?.removeSurrounding("<", ">") ?: return null
-    val scheme = value.substringBefore(':', "").lowercase()
-    return value.takeIf { it.isNotBlank() && (scheme in SafeLinkSchemes || it.startsWith('#') || it.startsWith('/')) }
-}
+/** The normalized destination of a supported link target ([parseHbLink]); unsupported schemes stay inert. */
+internal fun safeMarkdownDestination(destination: String?): String? = destination?.let(::parseHbLink)?.destination
 
-private val SafeLinkSchemes = setOf("https", "http", "mailto")
 private val MarkdownEscape = Regex("\\\\([!\"#$%&'()*+,\\-./:;<=>?@\\[\\]\\\\^_`{|}~])")
 
 private fun unescapeMarkdown(text: String): String = MarkdownEscape.replace(text) { it.groupValues[1] }

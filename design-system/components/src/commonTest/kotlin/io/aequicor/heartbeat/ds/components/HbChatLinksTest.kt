@@ -15,10 +15,25 @@ class HbChatLinksTest {
                 opened += uri
             }
         }
-        val external = listOf("https://example.test", "http://example.test", "mailto:test@example.test")
+        val external = listOf("https://example.test", "http://example.test", "mailto:test@example.test", "tel:+1555")
         (external + listOf("/project/main.kt", "#heading", "javascript:alert(1)", "file:///project/main.kt"))
             .forEach { openChatLink(handler, it) }
         assertEquals(external, opened)
+    }
+
+    @Test
+    fun `file links go to the host preview and never to the platform`() {
+        val opened = mutableListOf<String>()
+        val handler = object : UriHandler {
+            override fun openUri(uri: String) {
+                opened += uri
+            }
+        }
+        val files = mutableListOf<HbLinkTarget.File>()
+        listOf("src/main.kt:3", "file:///project/plan.md", "https://example.test")
+            .forEach { openChatLink(handler, it) { file -> files += file } }
+        assertEquals(listOf("src/main.kt" to 3, "/project/plan.md" to null), files.map { it.path to it.line })
+        assertEquals(listOf("https://example.test"), opened)
     }
 
     @Test

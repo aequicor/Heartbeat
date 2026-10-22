@@ -394,4 +394,18 @@
     <string name="usage_context_unavailable">The engine has not reported context usage.</string>
     <string name="suggestion_remember_description">Save an instruction for future chats</string>
     <string name="suggestion_compact_description">Summarize the conversation to free context</string>
+    <string name="file_preview_title">File preview</string>
+    <string name="file_preview_close">Close preview</string>
+    <string name="file_preview_reload">Reload file</string>
+    <string name="file_preview_copy_path">Copy path</string>
+    <string name="file_preview_path_copied">Path copied</string>
+    <string name="file_preview_copy_failed">Could not copy the path</string>
+    <string name="file_preview_show_source">Show source</string>
+    <string name="file_preview_show_formatted">Show formatted</string>
+    <string name="file_preview_loading">Reading the file…</string>
+    <string name="file_preview_content">File content</string>
+    <string name="file_preview_unavailable">The file cannot be opened</string>
+    <string name="file_preview_unavailable_hint">It may have been moved or deleted, or it cannot be read.</string>
+    <string name="file_preview_binary">This is not a text file</string>
+    <string name="file_preview_too_large">The file is larger than 1 MB</string>
 </resources>
