@@ -44,7 +44,7 @@ internal class ClaudeContextUsage : SessionContextUsage {
 
             "result" -> {
                 val models = message["modelUsage"] as? JsonObject
-                val active = model?.let { models?.get(it) as? JsonObject }
+                val active = model?.let { models?.activeModel(it) }
                 capacity = active?.positiveLong("contextWindow")
                 publish()
             }
@@ -166,6 +166,15 @@ private fun claudeRequestTokens(usage: JsonObject?): Long? {
         if (value > Long.MAX_VALUE - total) return null
         total + value
     }
+}
+
+/** The CLI may key usage by an alias such as `claude-opus-4-7[1m]`, while the request reports the bare id. */
+private fun JsonObject.activeModel(model: String): JsonObject? {
+    (get(model) as? JsonObject)?.let { return it }
+    val matches = entries.filter { (key, value) ->
+        value is JsonObject && (key.substringBefore('[') == model.substringBefore('['))
+    }
+    return (matches.singleOrNull()?.value as? JsonObject)
 }
 
 private fun JsonObject.nonnegativeLong(key: String): Long? =

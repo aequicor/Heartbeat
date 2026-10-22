@@ -125,6 +125,27 @@ class ClaudeUsageTest {
     }
 
     @Test
+    fun `aliased model usage key still provides capacity`() {
+        val usage = ClaudeContextUsage()
+        usage.receive(
+            parseClaudeObject(
+                """
+                {"type": "assistant", "message": {"model": "claude-opus-4-7", "usage": {"input_tokens": 10,
+                "output_tokens": 5}}}
+                """,
+            ),
+        )
+        usage.receive(
+            parseClaudeObject(
+                """
+                {"type": "result", "modelUsage": {"claude-opus-4-7[1m]": {"contextWindow": 1000000}}}
+                """,
+            ),
+        )
+        assertEquals(1_000_000L, usage.state.value?.capacityTokens)
+    }
+
+    @Test
     fun `quota events normalize fractions and preserve independent windows`() = runTest {
         val provider = ClaudeProviderUsage { true }
         provider.receive(
