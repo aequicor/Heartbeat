@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety.ProposedAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -26,18 +27,24 @@ internal class HostedActionSafety(
         isInputCurrent: () -> Boolean,
         revalidate: suspend () -> String?,
     ): String? {
+        val proposed = ProposedAction.hosted(
+            context,
+            operation.spec,
+            operation.arguments,
+            operation.approval,
+            operation.owner.isAdapterOperated,
+        )
         val analysis = operation.owner.analyze(context, operation.spec, operation.arguments).snapshot()
         val hook = hook(context, operation)
         val approval = operation.approval.copy(
             description = listOfNotNull(
                 operation.approval.description,
-                (analysis as? ActionAnalysis.Unknown)?.reason,
                 "Arguments: ${operation.argumentsSnapshot}",
             ).joinToString("\n\n"),
         )
         while (true) {
             val accepted = permissions.authorizeAction(context, approval) { mode ->
-                decision(context, operation, analysis, hook, mode)
+                decision(context, HostedActionSnapshot(operation, analysis, hook), mode, proposed)
             }
             when (accepted) {
                 is ToolAuthorization.Denied -> return accepted.reason
@@ -78,18 +85,17 @@ internal class HostedActionSafety(
 
     private suspend fun decision(
         context: AgentToolContext,
-        operation: HostedApproval,
-        analysis: ActionAnalysis,
-        hook: ToolHookVerdict,
+        captured: HostedActionSnapshot,
         mode: SecurityMode,
+        proposed: ProposedAction,
     ): ActionSafetyDecision {
+        val (operation, analysis, hook) = captured
         val existing = operation.owner.existingAuthorization(context, operation.spec, operation.arguments)
         return when {
             analysis is ActionAnalysis.Denied || hook is ToolHookVerdict.Deny -> ActionSafetyDecision.Deny
             hook is ToolHookVerdict.Ask -> ActionSafetyDecision.Ask
             !existing?.binding.isNullOrBlank() && existing == operation.approval -> ActionSafetyDecision.Allow
-            operation.owner.requiresDecision(context, operation.spec, operation.arguments) -> ActionSafetyDecision.Ask
-            else -> gate.evaluate(context, analysis, mode)
+            else -> gate.evaluate(context, analysis, mode, proposed)
         }
     }
 

@@ -2,7 +2,8 @@ package io.aequicor.heartbeat.feature.aiengine.facade.api
 
 /**
  * Host-owned analysis of an exact operation. Tool names, action labels, model arguments and third-party
- * read-only annotations cannot establish [Known]. Only an authoritative analyzer that knows the actual
+ * read-only annotations cannot establish [Known]. Optional structural facts supplement the shared review of
+ * the complete invocation; [Unknown] does not by itself require confirmation. Only an analyzer that knows the actual
  * executor and has accounted for every effect and resource may produce it. An incomplete parse is [Unknown].
  */
 public sealed interface ActionAnalysis {
@@ -11,7 +12,10 @@ public sealed interface ActionAnalysis {
         override fun toString(): String = "ActionAnalysis.Known"
     }
 
-    /** No automatic permission can be inferred; [reason] is presentation data and never logged. */
+    /**
+     * No structural proof is available. The shared policy may review the full call;
+     * [reason] is data, never authority.
+     */
     public data class Unknown(val reason: String) : ActionAnalysis {
         override fun toString(): String = "ActionAnalysis.Unknown"
     }
