@@ -36,8 +36,9 @@ internal fun AiStudioScreenState.composerScope(paneId: Int): ComposerScope {
         ?: session(sessionId)?.modelId?.takeIf(String::isNotBlank) ?: settings.modelId
     val project = (pane?.projectId ?: session(sessionId)?.projectId)?.takeIf(String::isNotEmpty)?.let(::WorkspaceRef)
     val execution = session(sessionId)?.executionWorkspace?.let(::WorkspaceRef)
+    // A sandbox snapshots its project, so before its first turn the project's own commands and skills apply.
     val workspace = if (pane?.isWorktree == true || session(sessionId)?.isWorktree == true) {
-        execution
+        execution ?: project.takeIf { pane?.isSandbox == true }
     } else {
         execution ?: project
     }
