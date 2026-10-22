@@ -7,10 +7,12 @@ import io.aequicor.heartbeat.core.bundles.BundleHealth
 import io.aequicor.heartbeat.core.bundles.BundleId
 import io.aequicor.heartbeat.core.bundles.BundleRegistry
 import io.aequicor.heartbeat.core.bundles.BundleUnavailableException
+import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
+import kotlin.reflect.KClass
 
 /**
  * Starts bundles and lets them reach each other without compile-time links.
@@ -23,14 +25,18 @@ import java.lang.reflect.Proxy
  * Rules checked at [seal]: a non-set key has exactly one exporter; a bundle never both imports and exports the
  * same set (it would count its own contribution twice); a bundle importing a key nobody exports is
  * [BundleHealth.Degraded].
+ *
+ * Profiles: [openProfile] repeats the same for the per-profile graphs of the bundles that have one. Profile
+ * exports are visible only inside that profile and take precedence over app exports of the same key.
  */
 public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
     private val log = Log.tag("BundleHost")
     private val entries: List<BundleEntry> = entries.sortedBy { it.id }
     private val healthById = LinkedHashMap<BundleId, BundleHealth>()
     private val graphs = HashMap<BundleId, Any>()
-    private val exporters = HashMap<BindingKey, MutableList<Exporter>>()
+    private val appView = View()
     private val resolving = ThreadLocal.withInitial { ArrayList<BindingKey>() }
+    private val lifecycleLock = Any()
 
     @Volatile
     private var isSealed = false
@@ -61,65 +67,133 @@ public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
         check(!isSealed) { "Host is already sealed" }
         for (entry in entries) {
             if (healthById[entry.id] != BundleHealth.Healthy) continue
-            runCatching { checkSetOwnership(entry) }.onFailure { e ->
+            runCatching { checkSetOwnership(entry, entry.importsType, entry.exportTypes) }.onFailure { e ->
                 log.e(e) { "Bundle ${entry.id} violates the wiring rules" }
                 markFailed(entry.id, e)
             }
         }
         for (entry in entries) {
-            if (healthById[entry.id] == BundleHealth.Healthy) markMissingImports(entry)
+            if (healthById[entry.id] == BundleHealth.Healthy) {
+                markMissingImports(entry.id, appView, entry.importsType)?.let { degraded ->
+                    synchronized(healthById) { healthById[entry.id] = degraded }
+                }
+            }
         }
         isSealed = true
         log.i { "Bundles sealed: ${health.entries.joinToString { "${it.key}=${it.value::class.simpleName}" }}" }
     }
 
-    override fun resolve(key: BindingKey): Any = resolveFor(key, null)
-
-    override fun collect(key: BindingKey, excluding: BundleId?): Set<Any> = collectFor(key, excluding)
-
-    private fun startBundle(entry: BundleEntry) {
-        val imports: Any = entry.importsType?.let { type -> importsProxy(entry.id, type.java) } ?: Unit
-        val graph = entry.createGraph(imports)
-        val own = entry.exportTypes.flatMap { type ->
-            accessorsOf(
-                type.java,
-            ).map { method -> Exporter(entry.id, bindingKeyOf(method.genericReturnType), method, graph) }
-        }
-        synchronized(exporters) {
-            val conflict = own.firstOrNull { new ->
-                !new.method.isSetAccessor() && exporters[new.key].orEmpty().isNotEmpty()
+    /** [start] and [seal] once; later calls (and concurrent ones) only wait for the first. */
+    public fun ensureStarted() {
+        synchronized(lifecycleLock) {
+            if (!isSealed) {
+                start()
+                seal()
             }
-            check(conflict == null) {
-                "${entry.id} exports ${conflict?.key}, already exported by " +
-                    exporters[conflict?.key].orEmpty().joinToString { it.owner.value }
-            }
-            own.forEach { exporters.getOrPut(it.key) { ArrayList() }.add(it) }
         }
-        synchronized(graphs) { graphs[entry.id] = graph }
-        synchronized(healthById) { healthById[entry.id] = BundleHealth.Healthy }
-        log.i { "Bundle ${entry.id} started: ${own.size} exports" }
     }
 
-    private fun checkSetOwnership(entry: BundleEntry) {
-        val imported = entry.importsType?.let { accessorsOf(it.java) }.orEmpty()
-        val exportedSets = exporters.values.flatten().filter { it.owner == entry.id && it.method.isSetAccessor() }
-            .map { it.key }.toSet()
+    /**
+     * Creates the per-profile graphs of the bundles on top of the [foundation] profile graph and ties their
+     * lifetime to [scope]. A bundle that failed at app level gets no profile graph. Returns the health by bundle.
+     */
+    public fun openProfile(foundation: Any, scope: ScopeHandle): Map<BundleId, BundleHealth> {
+        ensureStarted()
+        val view = View().apply { isOpen = false }
+        val profileHealth = LinkedHashMap<BundleId, BundleHealth>()
+        val members = entries.filter { it.hasProfileGraph && healthById[it.id] != null }
+        for (entry in members) {
+            if (healthById[entry.id] is BundleHealth.Failed) continue
+            val failure = runCatching { startProfileBundle(entry, foundation, view) }.exceptionOrNull()
+            profileHealth[entry.id] = if (failure == null) {
+                BundleHealth.Healthy
+            } else {
+                log.e(failure) { "Bundle ${entry.id} failed to create its profile graph" }
+                removeOwnedBy(entry.id, view)
+                BundleHealth.Failed(failure)
+            }
+        }
+        for (entry in members) {
+            if (profileHealth[entry.id] != BundleHealth.Healthy) continue
+            val failure = runCatching {
+                checkSetOwnership(entry, entry.profileImportsType, entry.profileExportTypes)
+            }.exceptionOrNull()
+            if (failure != null) {
+                log.e(failure) { "Bundle ${entry.id} violates the profile wiring rules" }
+                removeOwnedBy(entry.id, view)
+                profileHealth[entry.id] = BundleHealth.Failed(failure)
+            }
+        }
+        for (entry in members) {
+            if (profileHealth[entry.id] == BundleHealth.Healthy) {
+                markMissingImports(entry.id, view, entry.profileImportsType)?.let { profileHealth[entry.id] = it }
+            }
+        }
+        view.isOpen = true
+        scope.onClose { view.close() }
+        val summary = profileHealth.entries.joinToString { "${it.key}=${it.value::class.simpleName}" }
+        log.i { "Profile graphs of bundles: $summary" }
+        return profileHealth
+    }
+
+    override fun resolve(key: BindingKey): Any = resolveFor(key, null, null)
+
+    override fun collect(key: BindingKey, excluding: BundleId?): Set<Any> = collectFor(key, excluding, null)
+
+    private fun startBundle(entry: BundleEntry) {
+        val imports: Any = entry.importsType?.let { type -> importsProxy(entry.id, type.java, null) } ?: Unit
+        val graph = entry.createGraph(imports)
+        val count = register(entry.id, graph, entry.exportTypes, appView, parent = null)
+        synchronized(graphs) { graphs[entry.id] = graph }
+        synchronized(healthById) { healthById[entry.id] = BundleHealth.Healthy }
+        log.i { "Bundle ${entry.id} started: $count exports" }
+    }
+
+    private fun startProfileBundle(entry: BundleEntry, foundation: Any, view: View) {
+        val appGraph = checkNotNull(graph(entry.id)) { "No app graph of ${entry.id}" }
+        val imports: Any = entry.profileImportsType?.let { type -> importsProxy(entry.id, type.java, view) } ?: Unit
+        val graph = entry.createProfileGraph(appGraph, foundation, imports)
+        register(entry.id, graph, entry.profileExportTypes, view, parent = appView)
+    }
+
+    /** Registers the accessors of [types] implemented by [graph]; a single-binding clash fails the whole bundle. */
+    private fun register(id: BundleId, graph: Any, types: List<KClass<*>>, view: View, parent: View?): Int {
+        val own = types.flatMap { type ->
+            accessorsOf(type.java).map { method ->
+                Exporter(id, bindingKeyOf(method.genericReturnType), method, graph)
+            }
+        }
+        synchronized(view.exporters) {
+            fun existing(key: BindingKey) = view.exporters[key].orEmpty() + parent?.exporters?.get(key).orEmpty()
+            val conflict = own.firstOrNull { new -> !new.method.isSetAccessor() && existing(new.key).isNotEmpty() }
+            check(conflict == null) {
+                "$id exports ${conflict?.key}, already exported by " +
+                    existing(conflict!!.key).joinToString { it.owner.value }
+            }
+            own.forEach { view.exporters.getOrPut(it.key) { ArrayList() }.add(it) }
+        }
+        return own.size
+    }
+
+    private fun checkSetOwnership(entry: BundleEntry, importsType: KClass<*>?, exportTypes: List<KClass<*>>) {
+        val imported = importsType?.let { accessorsOf(it.java) }.orEmpty()
+        val exportedSets = exportTypes.flatMap { accessorsOf(it.java) }.filter { it.isSetAccessor() }
+            .map { bindingKeyOf(it.genericReturnType) }.toSet()
         val doubled = imported.filter { it.isSetAccessor() }.map { bindingKeyOf(it.genericReturnType) }
             .filter { it in exportedSets }
         check(doubled.isEmpty()) { "${entry.id} both imports and exports sets $doubled" }
     }
 
-    private fun markMissingImports(entry: BundleEntry) {
-        val imported = entry.importsType?.let { accessorsOf(it.java) }.orEmpty()
+    private fun markMissingImports(id: BundleId, view: View, importsType: KClass<*>?): BundleHealth? {
+        val imported = importsType?.let { accessorsOf(it.java) }.orEmpty()
         val missing = imported.filterNot { it.isSetAccessor() }.map { bindingKeyOf(it.genericReturnType) }
-            .filter { exporters[it].orEmpty().isEmpty() }
-        if (missing.isNotEmpty()) {
-            synchronized(healthById) { healthById[entry.id] = BundleHealth.Degraded(missing) }
-            log.w { "Bundle ${entry.id} is degraded, nobody exports $missing" }
-        }
+            .filter { view.find(it, appView).isEmpty() }
+        if (missing.isEmpty()) return null
+        log.w { "Bundle $id is degraded, nobody exports $missing" }
+        return BundleHealth.Degraded(missing)
     }
 
-    private fun importsProxy(owner: BundleId, type: Class<*>): Any = Proxy.newProxyInstance(
+    private fun importsProxy(owner: BundleId, type: Class<*>, view: View?): Any = Proxy.newProxyInstance(
         type.classLoader,
         arrayOf(type),
     ) { proxy, method, _ ->
@@ -132,20 +206,24 @@ public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
 
             else -> {
                 val key = bindingKeyOf(method.genericReturnType)
-                if (method.isSetAccessor()) collectFor(key, owner) else resolveFor(key, owner)
+                if (method.isSetAccessor()) collectFor(key, owner, view) else resolveFor(key, owner, view)
             }
         }
     }
 
-    private fun resolveFor(key: BindingKey, requestedBy: BundleId?): Any {
+    private fun resolveFor(key: BindingKey, requestedBy: BundleId?, view: View?): Any {
         check(isSealed) { "Bundle registry is not sealed yet; imports cannot be resolved while graphs are created" }
-        val exporter = exporters[key].orEmpty().firstOrNull() ?: throw BundleUnavailableException(key, requestedBy)
+        check(view == null || view.isOpen) { "The profile graphs of the bundles are still being created or are closed" }
+        val exporter = (view ?: appView).find(key, appView).firstOrNull()
+            ?: throw BundleUnavailableException(key, requestedBy)
         return guarded(key) { exporter.read() }
     }
 
-    private fun collectFor(key: BindingKey, excluding: BundleId?): Set<Any> {
+    private fun collectFor(key: BindingKey, excluding: BundleId?, view: View?): Set<Any> {
         check(isSealed) { "Bundle registry is not sealed yet; imports cannot be resolved while graphs are created" }
-        return exporters[key].orEmpty().filter { it.owner != excluding }
+        check(view == null || view.isOpen) { "The profile graphs of the bundles are still being created or are closed" }
+        val found = view?.exporters?.get(key).orEmpty() + appView.exporters[key].orEmpty()
+        return found.filter { it.owner != excluding }
             .flatMapTo(LinkedHashSet()) { exporter ->
                 guarded(key) { exporter.read() as Set<*> }.filterNotNull()
             }
@@ -164,7 +242,28 @@ public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
 
     private fun markFailed(id: BundleId, cause: Throwable) {
         synchronized(healthById) { healthById[id] = BundleHealth.Failed(cause) }
-        synchronized(exporters) { exporters.values.forEach { list -> list.removeAll { it.owner == id } } }
+        removeOwnedBy(id, appView)
+    }
+
+    private fun removeOwnedBy(id: BundleId, view: View) {
+        synchronized(view.exporters) { view.exporters.values.forEach { list -> list.removeAll { it.owner == id } } }
+    }
+
+    /** Exporters visible at one level: the app, or one profile (which is consulted before the app). */
+    private class View {
+        val exporters = HashMap<BindingKey, MutableList<Exporter>>()
+
+        @Volatile
+        var isOpen: Boolean = true
+
+        fun find(key: BindingKey, parent: View): List<Exporter> =
+            synchronized(exporters) { exporters[key].orEmpty().toList() }
+                .ifEmpty { synchronized(parent.exporters) { parent.exporters[key].orEmpty().toList() } }
+
+        fun close() {
+            isOpen = false
+            synchronized(exporters) { exporters.clear() }
+        }
     }
 
     private class Exporter(val owner: BundleId, val key: BindingKey, val method: Method, val graph: Any) {

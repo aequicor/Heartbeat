@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ActiveProfileStorage
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
+import io.aequicor.heartbeat.core.profilefacade.ProfileGraphAttachment
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
@@ -37,6 +38,7 @@ internal class ProfileSessionsImpl(
     private val scopes: ScopeFactory,
     @ForScope(AppScope::class) private val appScope: ScopeHandle,
     private val storage: ActiveProfileStorage,
+    private val attachments: Set<ProfileGraphAttachment>,
 ) : ProfileSessions {
 
     private val log = Log.tag("ProfileSessions")
@@ -88,6 +90,7 @@ internal class ProfileSessionsImpl(
         val scope = scopes.child(appScope, PROFILE_SCOPE_NAME)
         return try {
             val graph = graphs.create(id, scope)
+            attach(id, graph, scope)
             val startups = (graph as? ProfileStartupAccess)?.profileStartups.orEmpty()
             ProfileSession(id, graph, startServices(startups), startups) to scope
         } catch (e: CancellationException) {
@@ -97,6 +100,18 @@ internal class ProfileSessionsImpl(
             log.e(e) { "failed to create the graph of profile ${id.value}" }
             scope.close()
             throw e
+        }
+    }
+
+    private fun attach(id: ProfileId, graph: ProfileGraph, scope: ScopeHandle) {
+        attachments.forEach { attachment ->
+            try {
+                attachment.attach(id, graph, scope)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.e(e) { "failed to attach to the graph of profile ${id.value}" }
+            }
         }
     }
 

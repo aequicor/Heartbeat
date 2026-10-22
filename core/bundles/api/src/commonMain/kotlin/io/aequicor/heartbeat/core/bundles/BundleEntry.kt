@@ -28,4 +28,20 @@ public interface BundleEntry {
 
     /** Creates the bundle graph; [imports] is an instance of [importsType] (or `Unit` when there is none). */
     public fun createGraph(imports: Any): Any
+
+    /** `true` when the bundle has a per-profile graph; the rest of the profile members apply only then. */
+    public val hasProfileGraph: Boolean get() = false
+
+    /** Interface of cross-bundle accessors the profile graph consumes, or `null`. */
+    public val profileImportsType: KClass<*>? get() = null
+
+    /** Interfaces implemented by the profile graph whose accessors are published for the profile. */
+    public val profileExportTypes: List<KClass<*>> get() = emptyList()
+
+    /**
+     * Creates the profile graph from the [appGraph] of this bundle and the [foundation] profile graph (the host's
+     * `ProfileGraph`); [imports] is an instance of [profileImportsType] (or `Unit`).
+     */
+    public fun createProfileGraph(appGraph: Any, foundation: Any, imports: Any): Any =
+        error("Bundle $id has no profile graph")
 }

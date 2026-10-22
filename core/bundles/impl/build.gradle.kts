@@ -12,7 +12,7 @@ kotlin {
             implementation(projects.core.di.api)
             implementation(projects.core.common)
         }
-        jvmTest.dependencies {
+        jvmMain.dependencies {
             implementation(projects.core.profileFacade.api)
         }
     }

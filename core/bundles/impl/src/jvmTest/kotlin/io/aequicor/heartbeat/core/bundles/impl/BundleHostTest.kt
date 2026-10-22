@@ -5,6 +5,10 @@ import io.aequicor.heartbeat.core.bundles.BundleEntry
 import io.aequicor.heartbeat.core.bundles.BundleHealth
 import io.aequicor.heartbeat.core.bundles.BundleId
 import io.aequicor.heartbeat.core.bundles.BundleUnavailableException
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.di.ScopeSavedState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DisposableHandle
 import kotlin.reflect.KClass
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -210,5 +214,119 @@ class BundleHostTest {
         )
         assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("a")))
         assertFailsWith<BundleCycleException> { aImports?.opener }
+    }
+
+    private class FakeScope : ScopeHandle {
+        private val actions = ArrayList<() -> Unit>()
+        override val name = "profile"
+        override val coroutineScope: CoroutineScope get() = error("unused")
+        override val savedState: ScopeSavedState get() = error("unused")
+        override var isClosed = false
+
+        override fun onClose(action: () -> Unit): DisposableHandle {
+            actions += action
+            return DisposableHandle { actions -= action }
+        }
+
+        fun close() {
+            isClosed = true
+            actions.reversed().forEach { it() }
+        }
+    }
+
+    private interface ProfileExports {
+        val opener: Opener
+    }
+
+    private interface ProfileImports {
+        val renderer: Renderer
+    }
+
+    private fun profileEntry(
+        name: String,
+        opener: Opener,
+        onProfile: (foundation: Any, imports: ProfileImports) -> Unit = { _, _ -> },
+    ) = object : BundleEntry {
+        override val id = BundleId(name)
+        override val importsType: KClass<*>? = null
+        override val exportTypes = listOf(WebExports::class)
+        override fun createGraph(imports: Any): Any = Web()
+        override val hasProfileGraph = true
+        override val profileImportsType: KClass<*> = ProfileImports::class
+        override val profileExportTypes = listOf(ProfileExports::class)
+        override fun createProfileGraph(appGraph: Any, foundation: Any, imports: Any): Any {
+            onProfile(foundation, imports as ProfileImports)
+            return object : ProfileExports {
+                override val opener = opener
+            }
+        }
+    }
+
+    @Test
+    fun `profile graph sees app exports and is dropped with the profile scope`() {
+        val foundation = Any()
+        var seenFoundation: Any? = null
+        var imports: ProfileImports? = null
+        val host = BundleHost(
+            listOf(
+                profileEntry("web", object : Opener {}) { f, i ->
+                    seenFoundation = f
+                    imports = i
+                },
+            ),
+        )
+        val scope = FakeScope()
+        val health = host.openProfile(foundation, scope)
+        assertEquals(BundleHealth.Healthy, health.getValue(BundleId("web")))
+        assertSame(foundation, seenFoundation)
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("web")))
+        assertIs<Renderer>(imports?.renderer)
+        scope.close()
+        assertFailsWith<IllegalStateException> { imports?.renderer }
+    }
+
+    @Test
+    fun `profile exports are private to their profile and win over app exports`() {
+        val first = FakeScope()
+        val second = FakeScope()
+        val openerA = object : Opener {}
+        val host = BundleHost(listOf(profileEntry("web", openerA)))
+        host.openProfile(Any(), first)
+        host.openProfile(Any(), second)
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("web")))
+        first.close()
+        host.openProfile(Any(), FakeScope())
+    }
+
+    @Test
+    fun `ensureStarted is idempotent and start and seal run once`() {
+        var created = 0
+        val host = BundleHost(
+            listOf(
+                entry("a", exports = listOf(WebExports::class)) {
+                    created++
+                    Web()
+                },
+            ),
+        )
+        host.ensureStarted()
+        host.ensureStarted()
+        assertEquals(1, created)
+    }
+
+    @Test
+    fun `failing profile graph is isolated and reported`() {
+        val failing = object : BundleEntry {
+            override val id = BundleId("bad")
+            override val importsType: KClass<*>? = null
+            override val exportTypes = emptyList<KClass<*>>()
+            override fun createGraph(imports: Any): Any = Any()
+            override val hasProfileGraph = true
+            override fun createProfileGraph(appGraph: Any, foundation: Any, imports: Any): Any = error("boom")
+        }
+        val host = BundleHost(listOf(failing, profileEntry("web", object : Opener {})))
+        val health = host.openProfile(Any(), FakeScope())
+        assertIs<BundleHealth.Failed>(health.getValue(BundleId("bad")))
+        assertEquals(BundleHealth.Healthy, health.getValue(BundleId("web")))
     }
 }

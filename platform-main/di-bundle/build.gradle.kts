@@ -101,6 +101,10 @@ kotlin {
             implementation(projects.core.stateMachine.impl)
             implementation(projects.core.featureToggles.impl)
         }
+        // Desktop bundles: discovered at runtime through ServiceLoader; the assemblers (:bundles:*) come with the desktop app.
+        jvmMain.dependencies {
+            implementation(projects.core.bundles.impl)
+        }
         jvmTest.dependencies {
             implementation(projects.features.aiStudio.screenModel)
             implementation(projects.core.navigation.compose)
