@@ -33,8 +33,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -380,6 +382,73 @@ class AskUserToolsTest {
         assertTrue(fixture.errorText().contains("disabled"))
     }
 
+    @Test
+    fun `optional timeout keeps partial answers and withdraws every remaining question`() = runTest {
+        val fixture = Fixture(this)
+        val optional = Json.parseToJsonElement(
+            """{"key":"notes","questions":[
+                {"id":"one","title":"One","kind":"FreeText","isOptional":true},
+                {"id":"two","title":"Two","kind":"FreeText","isOptional":true}
+            ]}""",
+        ).jsonObject
+        val call = launch { fixture.execute(optional) }
+        runCurrent()
+        val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Text("Keep this")))
+        runCurrent()
+        advanceTimeBy(239_999)
+        assertFalse(call.isCompleted)
+        advanceTimeBy(1)
+        runCurrent()
+        assertTrue(call.isCompleted)
+        assertEquals(setOf("one"), fixture.answers().keys)
+        assertEquals(listOf("two"), fixture.timedOut())
+        assertEquals(
+            asked.map { it.questionnaire.id },
+            fixture.queue.applied.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().map { it.id },
+        )
+        assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
+    }
+
+    @Test
+    fun `important optional and required questions and confirmations never expire`() = runTest {
+        val variants = listOf(
+            "\"kind\":\"FreeText\"",
+            "\"kind\":\"FreeText\",\"isOptional\":true,\"isImportant\":true",
+            "\"kind\":\"Confirm\",\"isOptional\":true",
+        )
+        for (fields in variants) {
+            val fixture = Fixture(this)
+            val args = Json.parseToJsonElement(
+                """{"key":"important","questions":[{"id":"q","title":"Q",$fields}]}""",
+            ).jsonObject
+            val call = launch { fixture.execute(args) }
+            runCurrent()
+            advanceTimeBy(86_400_000)
+            runCurrent()
+            assertFalse(call.isCompleted)
+            assertTrue(fixture.queue.applied.none { it is QuestionnaireIntent.Public.Withdraw })
+            call.cancelAndJoin()
+        }
+    }
+
+    @Test
+    fun `outer timeout withdraws unanswered cards without returning an answer`() = runTest {
+        val fixture = Fixture(this)
+        val call = launch { withTimeoutOrNull(1000) { fixture.execute(arguments) } }
+        runCurrent()
+        val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
+        advanceTimeBy(1000)
+        runCurrent()
+        assertTrue(call.isCompleted)
+        assertEquals(
+            asked.map { it.questionnaire.id },
+            fixture.queue.applied.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().map { it.id },
+        )
+        assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
+        assertTrue(fixture.chats.invalidations.isEmpty())
+    }
+
     private inner class Fixture(scope: TestScope, enabled: Boolean = true) {
         val queue = AskUserQueue()
         val chats = AskUserChats()
@@ -395,6 +464,9 @@ class AskUserToolsTest {
             assertFalse(result.isError, result.text)
             return Json.parseToJsonElement(result.text).jsonObject.getValue("answers").jsonObject
         }
+
+        fun timedOut(): List<String> = Json.parseToJsonElement(results.single().text).jsonObject
+            .getValue("timedOut").jsonArray.map { it.jsonPrimitive.content }
 
         fun errorText(): String {
             val result = results.single()

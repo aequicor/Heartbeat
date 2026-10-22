@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -55,6 +56,10 @@ import kotlin.uuid.Uuid
  * questions whose withdrawal has not completed. Each invocation owns a distinct id namespace, so concurrent
  * batches (including retries with the same key) cannot replace or withdraw one another's cards.
  * Confirm questions use «Да»/«Нет» when a label is absent or blank; custom labels are preserved.
+ * Required questions, confirmations and explicitly important optional questions have no deadline. Other batches
+ * receive 60 seconds per choice question or 120 per text question, plus reading time at 20 characters/second,
+ * capped at ten minutes per batch. The timer starts after publication; expiration returns partial answers and
+ * explicit unanswered ids, never an inferred answer. Cleanup also runs on an outer transport timeout.
  * Invalid specifications return the validation reason before any cards are published.
  */
 @ContributesIntoSet(ProfileScope::class)
@@ -79,7 +84,10 @@ internal class AskUserAgentTools(
         "questionnaire_ask asks the user questions that block your work: clarifications before starting, " +
             "open decisions, approvals. Put all blocking questions into one call instead of an 'open " +
             "questions' section in the reply text; the call returns when the user answers them and its " +
-            "result holds the answers, skipped ones carry none. Ask only what you cannot decide yourself."
+            "result holds the answers, skipped ones carry none. Ask only what you cannot decide yourself. " +
+            "Required questions and Confirm never time out. Optional clarifications get an automatic reading/answer " +
+            "budget; mark isImportant for optional questions that must wait indefinitely. A timedOut id has no " +
+            "answer and grants no approval. Do not automatically ask the same expired question again."
     } else {
         ""
     }
@@ -103,6 +111,7 @@ internal class AskUserAgentTools(
         val asked = questions.associateWith { it.questionnaire(sessionId, owner) }
         val answers = HashMap<String, Answer>()
         val withdrawn = mutableSetOf<QuestionnaireId>()
+        var isTimedOut = false
         try {
             // The queue runs from the profile start while the toggle is on; wait for it before asking.
             val machine = registry.observe(QuestionnaireMachineKey).filterNotNull().first()
@@ -120,7 +129,15 @@ internal class AskUserAgentTools(
                         if (result != SendResult.Accepted) return@coroutineScope false
                     }
                     log.i { "Asked the user count=${asked.size}" }
-                    collector.join()
+                    val timeout = questions.timeoutMillis()
+                    if (timeout == null) {
+                        collector.join()
+                    } else {
+                        isTimedOut = withTimeoutOrNull(timeout) {
+                            collector.join()
+                            true
+                        } == null
+                    }
                     true
                 } finally {
                     collector.cancel()
@@ -129,7 +146,7 @@ internal class AskUserAgentTools(
             if (!isAccepted) {
                 return AgentToolResult("The question queue refused the questions; retry with the same key", true)
             }
-            log.i { "User answered count=${answers.size}/${asked.size}" }
+            log.i { "User answered count=${answers.size}/${asked.size} timedOut=$isTimedOut" }
         } finally {
             // A cancelled call (the turn ended) leaves no unanswered question behind.
             withContext(NonCancellable) {
@@ -142,7 +159,8 @@ internal class AskUserAgentTools(
             chats.value.invalidateUserInstructions(context.session)
         }
         currentCoroutineContext().ensureActive()
-        return AgentToolResult(Json.encodeToString(AskAnswers(answers.mapValues { (_, answer) -> answer.payload() })))
+        val expired = if (isTimedOut) questions.map { it.id }.filterNot { it in answers } else emptyList()
+        return AgentToolResult(Json.encodeToString(AskAnswers(answers.mapValues { it.value.payload() }, expired)))
     }
 
     /** Waits until every question of the batch is answered; an answer is withdrawn as soon as it arrives. */
@@ -231,6 +249,18 @@ private fun specification(arguments: JsonObject): List<PreparedQuestion> {
     }
 }
 
+/** No deadline may decide a required answer or confirmation on the user's behalf. */
+private fun List<PreparedQuestion>.timeoutMillis(): Long? {
+    if (any { !it.args.isOptional || it.args.isImportant || it.args.kind == QuestionKind.Confirm }) return null
+    return sumOf { question ->
+        val args = question.args
+        val reading = args.title.length.toLong() + (args.description?.length ?: 0) +
+            args.choices.sumOf { it.title.length.toLong() }
+        val answering = if (args.kind == QuestionKind.FreeText) TEXT_ANSWER_SECONDS else CHOICE_ANSWER_SECONDS
+        answering + reading / READING_CHARACTERS_PER_SECOND
+    }.coerceIn(CHOICE_ANSWER_SECONDS, MAX_WAIT_SECONDS) * MILLIS_PER_SECOND
+}
+
 private fun Answer.payload(): AnswerPayload = when (this) {
     is Answer.Confirmed -> AnswerPayload(isConfirmed = isConfirmed)
     is Answer.Selected -> AnswerPayload(selected = ids)
@@ -248,6 +278,7 @@ private data class QuestionArgs(
     val kind: QuestionKind,
     val description: String? = null,
     val isOptional: Boolean = false,
+    val isImportant: Boolean = false,
     val yes: String? = null,
     val no: String? = null,
     val choices: List<ChoiceArgs> = emptyList(),
@@ -266,7 +297,10 @@ private data class ChoiceArgs(val id: String, val title: String)
 private enum class QuestionKind { Confirm, SingleChoice, MultiChoice, FreeText }
 
 @Serializable
-private data class AskAnswers(val answers: Map<String, AnswerPayload> = emptyMap())
+private data class AskAnswers(
+    val answers: Map<String, AnswerPayload> = emptyMap(),
+    val timedOut: List<String> = emptyList(),
+)
 
 @Serializable
 private data class AnswerPayload(
@@ -287,6 +321,11 @@ private const val MAX_KEY = 128
 private const val MAX_TITLE = 2000
 private const val MAX_QUESTIONS = 8
 private const val MAX_CHOICES = 64
+private const val CHOICE_ANSWER_SECONDS = 60L
+private const val TEXT_ANSWER_SECONDS = 120L
+private const val MAX_WAIT_SECONDS = 600L
+private const val READING_CHARACTERS_PER_SECOND = 20L
+private const val MILLIS_PER_SECOND = 1000L
 
 private const val SCHEMA = """
 {
@@ -338,6 +377,11 @@ private const val SCHEMA = """
             "type": "boolean",
             "default": false,
             "description": "The user may skip the question; a skipped one carries no answer"
+          },
+          "isImportant": {
+            "type": "boolean",
+            "default": false,
+            "description": "Keep an optional question open without a timeout. Required questions and Confirm already wait indefinitely."
           },
           "yes": {
             "type": "string",
