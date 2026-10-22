@@ -241,8 +241,9 @@ class EngineManagementPresentationTest {
     fun `a host application shows what the inspection found and can be opened`() {
         val codex = managedCodex(installation = InstallationState(Installation(InstallSource.HostApp, "2.1.304")))
         val hosted = codex.copy(spec = codex.spec.copy(hostApp = HostAppSpec("Claude")))
-        assertEquals(HostAppUi("Claude"), selected(hosted).panel!!.hostApp)
+        assertEquals(HostAppUi("Claude", isInUse = true), selected(hosted).panel!!.hostApp)
         assertNull(selected(codex).panel!!.hostApp)
+        assertNull(selected(hosted).commandFor(EngineManagementIntent.OpenHostApp))
 
         val inspected = hosted.copy(
             hostApp = HostAppState(
@@ -295,6 +296,22 @@ class EngineManagementPresentationTest {
             state.copy(launchDraft = pinned).observe(managedSnapshot(codex.copy(spec = spec)))
                 .commandFor(EngineManagementIntent.SaveLaunch),
         )
+    }
+
+    @Test
+    fun `saved runtime values a draft would drop do not make an untouched draft dirty`() {
+        val codex = managedCodex()
+        val leftovers = listOf(
+            LaunchSettings(runtime = RuntimePreference.HostApp, hostRuntimeVersion = ""),
+            LaunchSettings(runtime = RuntimePreference.System, hostRuntimeVersion = "2.1.299"),
+        )
+        leftovers.forEach { settings ->
+            val state = selected(codex.copy(launch = LaunchState(settings)))
+            val untouched = state.copy(launchDraft = state.panel!!.launch!!.draft).observe(
+                managedSnapshot(codex.copy(launch = LaunchState(settings))),
+            )
+            assertFalse(untouched.panel!!.launch!!.isDirty, settings.toString())
+        }
     }
 
     @Test

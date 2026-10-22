@@ -116,6 +116,38 @@ class ConnectionEffectsTest {
     }
 
     @Test
+    fun `a host application connection waits for the inspection management publishes later`() = runTest {
+        management.state.value = claudeManagement(LaunchSettings(runtime = RuntimePreference.HostApp))
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        management.publisher = backgroundScope
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+
+        // Already on the host runtime: nothing to save, and the engine's availability is not probed first.
+        assertEquals(listOf<EngineCommand>(EngineCommand.Inspect), management.commands)
+        assertEquals(listOf("connect"), facade.calls)
+        assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
+    }
+
+    @Test
+    fun `checking a host application connection needs the app's runtime and keeps the engine's runtime`() = runTest {
+        management.state.value = claudeManagement()
+        management.inspectedHostApp = HostAppState(isInstalled = true)
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+        val missing = assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.CheckConnection(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), missing.failure)
+
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        wizard.handle(ConnectWizardEffect.CheckConnection(ClaudeId, DesktopMethod, credential), wizardScope)
+
+        assertTrue(management.commands.none { it is EngineCommand.Configure })
+        assertTrue(facade.bindingsState.value.isEmpty())
+    }
+
+    @Test
     fun `a host application connection without the app's runtime or management creates nothing`() = runTest {
         val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
         val off = assertFailsWith<EngineException> {

@@ -334,7 +334,8 @@ internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatfo
             homeVariable = spec.launch.homeVariable,
             draft = edited,
             isEditing = draft != null,
-            isDirty = edited.toSettings() != launch.settings,
+            // Compared in the form a draft saves, so values a draft drops (a blank or unused version) are not edits.
+            isDirty = edited.toSettings() != saved.toSettings(),
             isCustomized = !launch.settings.isDefault,
             errors = validateLaunchSettings(edited.toSettings(), spec.launch, platform).map { problem ->
                 val rows = when (problem.option) {
@@ -385,7 +386,8 @@ internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatfo
 }
 
 private fun ManagedEngine.hostAppUi(title: String): HostAppUi {
-    val state = hostApp ?: return HostAppUi(title)
+    val isInUse = installation.current?.source == InstallSource.HostApp
+    val state = hostApp ?: return HostAppUi(title, isInUse = isInUse)
     return HostAppUi(
         title = title,
         isChecked = true,
@@ -394,7 +396,7 @@ private fun ManagedEngine.hostAppUi(title: String): HostAppUi {
         path = state.path,
         runtimes = state.runtimes.map { HostRuntimeUi(it.version, it.build, it.isVerified) }.toImmutableList(),
         configDirectory = state.configDirectory,
-        isInUse = installation.current?.source == InstallSource.HostApp,
+        isInUse = isInUse,
         failure = state.failure?.toUi(),
     )
 }

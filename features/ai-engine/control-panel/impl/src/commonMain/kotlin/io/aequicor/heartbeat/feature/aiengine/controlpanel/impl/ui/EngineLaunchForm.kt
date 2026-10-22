@@ -74,6 +74,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_system
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_version
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_version_newest
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_source_host_app
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
@@ -139,8 +140,13 @@ private fun LaunchEditor(
     val edit: (LaunchDraftUi) -> Unit = { onIntent(EngineManagementIntent.EditLaunch(it)) }
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
         LaunchPaths(launch, edit)
-        if (LaunchOptionUi.Runtime in launch.options && launch.runtimes.isNotEmpty()) {
+        // Also shown for a saved choice the engine no longer offers, so its error can be seen and changed back.
+        val hasRuntimeChoice = launch.runtimes.isNotEmpty() || draft.runtime != RuntimePreferenceUi.Auto ||
+            draft.hostRuntimeVersion.isNotBlank()
+        if (LaunchOptionUi.Runtime in launch.options && hasRuntimeChoice) {
             RuntimeChoice(launch, edit, isIdle)
+        } else {
+            Problems(launch.errors.of(LaunchOptionUi.Runtime))
         }
         if (LaunchOptionUi.ConfigOverrides in launch.options) {
             EntryList(
@@ -220,7 +226,9 @@ private fun RuntimeChoice(
     modifier: Modifier = Modifier,
 ) {
     val draft = launch.draft
-    val choices = listOf(RuntimePreferenceUi.Auto) + RuntimePreferenceUi.entries.filter { it in launch.runtimes }
+    val choices = RuntimePreferenceUi.entries.filter {
+        it == RuntimePreferenceUi.Auto || it in launch.runtimes || it == draft.runtime
+    }
     val title = stringResource(Res.string.engine_launch_runtime)
     HbColumn(modifier.fillMaxWidth().testTag("engine-launch-runtime"), gap = HbTheme.spacing.xs) {
         HbText(title, style = HbTheme.typography.label)
@@ -295,8 +303,12 @@ private fun HostRuntimeVersion(
 @Composable
 private fun runtimeLabel(choice: RuntimePreferenceUi, hostApp: String?): String = when (choice) {
     RuntimePreferenceUi.Auto -> stringResource(Res.string.engine_runtime_auto)
+
     RuntimePreferenceUi.Managed -> stringResource(Res.string.engine_runtime_managed)
-    RuntimePreferenceUi.HostApp -> stringResource(Res.string.engine_runtime_host_app, hostApp.orEmpty())
+
+    RuntimePreferenceUi.HostApp -> hostApp?.let { stringResource(Res.string.engine_runtime_host_app, it) }
+        ?: stringResource(Res.string.engine_source_host_app)
+
     RuntimePreferenceUi.System -> stringResource(Res.string.engine_runtime_system)
 }
 

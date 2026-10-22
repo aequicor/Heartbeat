@@ -138,7 +138,8 @@ private fun isTranscript(path: Path): Boolean =
 
 /**
  * File checks of launch settings; they never block saving, the panel shows them. A preferred desktop app runtime
- * that is not there (no verified build, or not the pinned version) is reported while [isHostAppEnabled].
+ * that is not there (no verified build, or not the pinned version) is reported, and so is the preference itself while
+ * [isHostAppEnabled] is off, because it then runs as the automatic choice.
  */
 internal fun claudeLaunchProblems(
     settings: LaunchSettings,
@@ -164,8 +165,16 @@ internal fun claudeLaunchProblems(
     }
     val isHostApp = settings.runtime == RuntimePreference.HostApp && settings.executable.isNullOrBlank()
     val version = settings.hostRuntimeVersion?.takeIf { it.isNotBlank() }
-    if (isHostApp && isHostAppEnabled && claudeDesktopRuntime(host, version) == null) {
-        add(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.NotFound))
+    when {
+        !isHostApp -> Unit
+
+        // Switched off, the preference runs as the automatic choice; the panel says so instead of hiding it.
+        !isHostAppEnabled -> add(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.Unsupported))
+
+        claudeDesktopRuntime(
+            host,
+            version,
+        ) == null -> add(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.NotFound))
     }
 }
 
@@ -242,7 +251,8 @@ private val MissingClaude = FoundClaude(DEFAULT_COMMAND, InstallSource.Missing, 
 private fun readSmallText(file: File): String? = try {
     file.takeIf { it.isFile && it.length() <= MAX_TEXT_BYTES }?.readText()
 } catch (e: IOException) {
-    Log.tag("ClaudeStartup").w(e) { "A Claude desktop file could not be read" }
+    // The message names the file's path, which never reaches the logs.
+    Log.tag("ClaudeStartup").w(e.redacted()) { "A Claude desktop file could not be read" }
     null
 }
 

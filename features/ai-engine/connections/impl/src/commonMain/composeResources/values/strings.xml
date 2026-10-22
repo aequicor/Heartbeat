@@ -49,7 +49,7 @@
     <string name="wizard_base_url_hint">You may enter the full API base URL including its path, e.g. https://openrouter.ai/api/v1.</string>
     <string name="wizard_host_fixed">The address is fixed for this provider.</string>
     <string name="wizard_field_label">Connection name</string>
-    <string name="wizard_host_app_hint">Claude Code runs on the runtime that the %1$s app installs and updates, with its shared settings and history. The app must be installed; if its CLI is not signed in, sign in from the engine panel. Heartbeat never reads the app\'s own sign-in.</string>
+    <string name="wizard_host_app_hint">The engine runs on the runtime that the %1$s app installs and updates, with its shared settings and history. This switches the engine\'s runtime for all its connections and replaces a custom executable. The app must be installed; if its CLI is not signed in, sign in from the engine panel. Heartbeat never reads the app\'s own sign-in.</string>
     <string name="wizard_cli_hint">Uses the sign-in of the engine\'s own CLI. Heartbeat never reads, copies or refreshes its tokens.</string>
     <string name="wizard_no_auth_hint">The endpoint needs no credentials, for example a local model server.</string>
     <string name="wizard_error_missing_key">Enter the API key</string>

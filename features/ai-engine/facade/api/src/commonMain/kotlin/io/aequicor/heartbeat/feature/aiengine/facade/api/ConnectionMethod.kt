@@ -66,7 +66,8 @@ public sealed interface ConnectionMethod {
      * An existing login of the engine's own CLI; Heartbeat never reads, imports or refreshes its tokens. With
      * [hostApp] the connection runs the engine on the runtime of that host application
      * ([RuntimePreference.HostApp]): connecting needs engine management and an installed runtime of the application,
-     * and saves the preference in the engine's launch settings.
+     * and saves the preference in the engine's launch settings. The runtime is a setting of the whole engine, so the
+     * engine's other connections run on it too, and a custom executable is cleared; removing the connection keeps it.
      */
     public data class CliLogin(
         override val id: ConnectionMethodId,

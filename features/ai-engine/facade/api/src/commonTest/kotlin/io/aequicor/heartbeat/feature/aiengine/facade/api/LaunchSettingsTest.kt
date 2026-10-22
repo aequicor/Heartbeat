@@ -202,6 +202,10 @@ class LaunchSettingsTest {
             listOf(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.InvalidVersion)),
             validateLaunchSettings(pinned.copy(hostRuntimeVersion = "../2.1"), runtimes, mac),
         )
+        listOf("..", ".2", "2..1").forEach { version ->
+            val problems = validateLaunchSettings(pinned.copy(hostRuntimeVersion = version), runtimes, mac)
+            assertEquals(listOf(LaunchProblemReason.InvalidVersion), problems.map { it.reason }, version)
+        }
     }
 
     @Test

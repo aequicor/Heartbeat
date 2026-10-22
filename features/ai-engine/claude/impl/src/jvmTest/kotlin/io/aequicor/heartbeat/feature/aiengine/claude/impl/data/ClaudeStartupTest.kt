@@ -345,7 +345,10 @@ class ClaudeStartupTest {
             listOf(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.NotFound)),
             claudeLaunchProblems(hostApp, host()),
         )
-        assertEquals(emptyList(), claudeLaunchProblems(hostApp, host(), isHostAppEnabled = false))
+        assertEquals(
+            listOf(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.Unsupported)),
+            claudeLaunchProblems(hostApp, host(), isHostAppEnabled = false),
+        )
         assertEquals(emptyList(), claudeLaunchProblems(LaunchSettings(), host()))
     }
 

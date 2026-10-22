@@ -46,6 +46,7 @@ internal class JvmClaudeManager(
     private val configuration: ClaudeConfiguration = ClaudeConfiguration(),
     private val desktop: ClaudeDesktopSwitch = ClaudeDesktopSwitch.On,
     private val host: ClaudeHost = ClaudeHost(),
+    private val launcher: ClaudeAppLauncher = ClaudeAppLauncher.Default,
 ) : ClaudeEngineManager {
     private val log = Log.tag("ClaudeManager")
 
@@ -68,7 +69,7 @@ internal class JvmClaudeManager(
     override suspend fun inspectHostApp(): HostAppState {
         if (!desktop.isEnabled()) return HostAppState()
         val state = withContext(dispatchers.io) { inspectClaudeDesktop(host, configuration.configDirectory) }
-        log.i { "Claude desktop app inspected installed=${state.isInstalled} runtimes=${state.runtimes.size}" }
+        log.d { "Claude desktop app inspected installed=${state.isInstalled} runtimes=${state.runtimes.size}" }
         return state
     }
 
@@ -81,10 +82,11 @@ internal class JvmClaudeManager(
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
         try {
-            withContext(dispatchers.io) { ProcessBuilder(command).redirectErrorStream(true).start() }
+            withContext(dispatchers.io) { launcher.launch(command) }
             log.i { "Claude desktop app opened" }
         } catch (e: IOException) {
-            log.w(e) { "Claude desktop app could not be opened" }
+            // The message names the app's path, which never reaches the logs.
+            log.w(e.redacted()) { "Claude desktop app could not be opened" }
             throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
         }
     }

@@ -226,6 +226,39 @@ class EngineManagementServiceTest {
 
         service.execute(cliId, EngineCommand.OpenHostApp)
         assertEquals(1, hosted.opened)
+
+        hosted.openFailure = IllegalStateException("launcher broke")
+        val crashed = assertFailsWith<EngineException> { service.execute(cliId, EngineCommand.OpenHostApp) }
+        assertEquals(EngineFailure.Unknown(), crashed.failure)
+        val missing = EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        hosted.openFailure = missing
+        assertEquals(
+            missing.failure,
+            assertFailsWith<EngineException> { service.execute(cliId, EngineCommand.OpenHostApp) }.failure,
+        )
+    }
+
+    @Test
+    fun `a failing host application inspection is recorded with the installation`() = runTest {
+        val hosted = FakeManager().apply {
+            hostFailure = EngineException(
+                EngineFailure.Engine(EngineFailureReason.Unavailable),
+            )
+        }
+        val spec = cliSpec.copy(hostApp = HostAppSpec("Host"))
+        val hostedRegistry = EngineRegistry(
+            listOf(registration(id = cliId, owner = AuthOwnerId("cli")).withManagement(spec, hosted)),
+            EnginePlatform.DesktopMacOs,
+        )
+        val service = service(hostedRegistry)
+        runCurrent()
+
+        service.execute(cliId, EngineCommand.Inspect)
+        runCurrent()
+
+        val hostApp = assertNotNull(service.state.value.engine(cliId).hostApp)
+        assertEquals(ManagementFailure.Engine(EngineFailure.Engine(EngineFailureReason.Unavailable)), hostApp.failure)
+        assertFalse(hostApp.isInstalled)
     }
 
     @Test
@@ -486,9 +519,17 @@ private class FakeManager : EngineManager {
     var hostInspections = 0
     var opened = 0
 
-    override suspend fun inspectHostApp(): HostAppState = hostApp.also { hostInspections++ }
+    var hostFailure: EngineException? = null
+    var openFailure: Exception? = null
+
+    override suspend fun inspectHostApp(): HostAppState {
+        hostInspections++
+        hostFailure?.let { throw it }
+        return hostApp
+    }
 
     override suspend fun openHostApp() {
+        openFailure?.let { throw it }
         opened++
     }
 

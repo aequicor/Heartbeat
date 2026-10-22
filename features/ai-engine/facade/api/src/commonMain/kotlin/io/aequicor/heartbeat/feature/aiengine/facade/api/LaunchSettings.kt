@@ -137,7 +137,7 @@ public enum class LaunchProblemReason {
     /** The path is not a directory. */
     NotADirectory,
 
-    /** The version is not `[0-9A-Za-z.+-]{1,64}`. */
+    /** The version is not `[0-9A-Za-z.+-]{1,64}` starting with a letter or digit, or contains `..`. */
     InvalidVersion,
 }
 
@@ -243,9 +243,14 @@ private fun runtimeProblems(settings: LaunchSettings, spec: LaunchSpec): List<La
         (settings.runtime == RuntimePreference.Auto || settings.runtime in spec.runtimes)
     return when {
         !isSupported -> listOf(LaunchProblem(option, LaunchProblemReason.Unsupported))
+
         version == null -> emptyList()
+
         settings.runtime != RuntimePreference.HostApp -> listOf(LaunchProblem(option, LaunchProblemReason.Unsupported))
-        !RuntimeVersion.matches(version) -> listOf(LaunchProblem(option, LaunchProblemReason.InvalidVersion))
+
+        !RuntimeVersion.matches(version) || ".." in version ->
+            listOf(LaunchProblem(option, LaunchProblemReason.InvalidVersion))
+
         else -> emptyList()
     }
 }
@@ -258,7 +263,7 @@ private fun isAbsolutePath(path: String): Boolean =
 
 private val WindowsDrive = Regex("""^[A-Za-z]:[\\/]""")
 private val VariableName = Regex("[A-Za-z_][A-Za-z0-9_]*")
-private val RuntimeVersion = Regex("[0-9A-Za-z.+-]{1,64}")
+private val RuntimeVersion = Regex("[0-9A-Za-z][0-9A-Za-z.+-]{0,63}")
 private val ConfigKey = Regex("[A-Za-z0-9_][A-Za-z0-9_.-]*")
 private const val RESERVED_PREFIX = "HEARTBEAT_"
 private val SecretNames = setOf("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")

@@ -36,8 +36,8 @@ internal fun claudeDesktopLayout(host: ClaudeHost): ClaudeDesktopLayout? = when 
 
     host.isWindows -> {
         val appData = File(host.userHome, "AppData")
-        val local = host.environment["LOCALAPPDATA"] ?: File(appData, "Local").path
-        val roaming = host.environment["APPDATA"] ?: File(appData, "Roaming").path
+        val local = host.environment["LOCALAPPDATA"]?.takeIf { it.isNotBlank() } ?: File(appData, "Local").path
+        val roaming = host.environment["APPDATA"]?.takeIf { it.isNotBlank() } ?: File(appData, "Roaming").path
         val installer = File(local, "AnthropicClaude")
         ClaudeDesktopLayout(
             applications = listOf(File(installer, "claude.exe")),
@@ -120,3 +120,23 @@ private const val VERSION_PARTS = 3
 private const val DESKTOP_VERIFIED_MARKER = ".verified"
 private val InstallerFolder = Regex("""app-(\d+\.\d+\.\d+)""")
 private val BundleVersion = Regex("""<key>CFBundleShortVersionString</key>\s*<string>([0-9A-Za-z.+-]{1,64})</string>""")
+
+/**
+ * Starts the Claude desktop app and lets it go: its output is discarded and its input closed, so no pipe ties the
+ * long-lived app (on Windows the app's own executable) to Heartbeat. Throws [java.io.IOException] when it cannot
+ * start.
+ */
+internal fun interface ClaudeAppLauncher {
+    fun launch(command: List<String>)
+
+    companion object {
+        val Default = ClaudeAppLauncher { command ->
+            ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .start()
+                .outputStream
+                .close()
+        }
+    }
+}

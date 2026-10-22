@@ -145,10 +145,17 @@ class EngineManagementService(
         }
     }
 
+    /**
+     * Opens the host application within the adapter time limit, like every adapter call ([bounded]); a failure
+     * reaches the caller as an [EngineException].
+     */
     private suspend fun openHostApp(engine: ManagedEngine) {
         val id = engine.descriptor.id
         val manager = registry.require(id).manager?.value ?: refuse("no host application engine=${id.value}")
-        withContext(context.io) { manager.openHostApp() }
+        val failure = bounded("host application opening") { manager.openHostApp() }.failure
+        if (failure != null) {
+            throw EngineException((failure as? ManagementFailure.Engine)?.failure ?: EngineFailure.Unknown())
+        }
         log.i { "host application opened engine=${id.value}" }
     }
 

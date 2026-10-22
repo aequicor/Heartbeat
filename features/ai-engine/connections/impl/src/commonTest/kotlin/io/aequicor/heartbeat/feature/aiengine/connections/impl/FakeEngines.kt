@@ -58,10 +58,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlin.time.Instant
 
 internal val OpenAi = ProviderInfo(ProviderId("openai"), "OpenAI", "https://platform.openai.com/api-keys")
 internal val ApiKeyMethod =
@@ -246,10 +250,28 @@ internal class FakeEngineManagement : EngineManagement {
     var inspectedHostApp: HostAppState? = null
     var configureFailure: EngineException? = null
 
+    /** Publishes inspections later in this scope, like the real service's state flow; null publishes at once. */
+    var publisher: CoroutineScope? = null
+    private var inspections = 0L
+
     override suspend fun execute(engine: EngineId, command: EngineCommand) {
         commands += command
         when (command) {
-            EngineCommand.Inspect -> change(engine) { it.copy(hostApp = inspectedHostApp) }
+            EngineCommand.Inspect -> {
+                val checkedAt = Instant.fromEpochSeconds(++inspections)
+                val publish = {
+                    change(engine) {
+                        it.copy(
+                            hostApp = inspectedHostApp,
+                            installation = it.installation.copy(checkedAt = checkedAt),
+                        )
+                    }
+                }
+                publisher?.launch {
+                    delay(PUBLISH_DELAY_MILLIS)
+                    publish()
+                } ?: publish()
+            }
 
             is EngineCommand.Configure -> {
                 configureFailure?.let { throw it }
@@ -297,3 +319,5 @@ internal fun claudeManagement(settings: LaunchSettings = LaunchSettings()) = Eng
         ),
     ),
 )
+
+private const val PUBLISH_DELAY_MILLIS = 50L
