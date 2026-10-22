@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.claudeManagement
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
@@ -35,7 +36,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
@@ -145,6 +148,45 @@ class ConnectionEffectsTest {
 
         assertTrue(management.commands.none { it is EngineCommand.Configure })
         assertTrue(facade.bindingsState.value.isEmpty())
+    }
+
+    @Test
+    fun `a signed out CLI is signed in on the host runtime before the connection is written`() = runTest {
+        management.state.value = claudeManagement(login = LoginState.SignedOut)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+
+        val saved = LaunchSettings(runtime = RuntimePreference.HostApp)
+        val commands = management.commands.filterNot { it == EngineCommand.Inspect }
+        assertEquals(listOf(EngineCommand.Configure(saved), EngineCommand.Start(EngineAction.Login())), commands)
+        assertEquals(1, facade.bindingsState.value.size)
+        assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
+    }
+
+    @Test
+    fun `a signed in CLI is not signed in again`() = runTest {
+        management.state.value = claudeManagement(login = LoginState.SignedIn("me"))
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        wizard.handle(ConnectWizardEffect.CheckConnection(ClaudeId, DesktopMethod, credential), wizardScope)
+
+        assertTrue(management.commands.none { it is EngineCommand.Start })
+    }
+
+    @Test
+    fun `a sign-in that needs a pasted code is cancelled and left to the connection check`() = runTest {
+        management.state.value = claudeManagement(login = LoginState.SignedOut)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        management.loginPhase = JobPhase.AwaitingCode("https://claude.ai/oauth/authorize")
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+
+        assertTrue(management.commands.contains(EngineCommand.Cancel))
+        assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
     }
 
     @Test

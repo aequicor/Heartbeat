@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
@@ -24,7 +25,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.create
@@ -34,6 +39,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -121,6 +127,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         log.i { "check connection engine=${effect.engine.value} method=${effect.method.id.value}" }
         // A check never changes the engine's runtime, but a host application method still needs the app's runtime.
         if (effect.method.hostApp != null) requireHostRuntime(effect.engine) else requireAvailable(effect.engine)
+        signInIfNeeded(effect.engine, effect.method)
         var created: NewConnection? = null
         try {
             val connection = withContext(NonCancellable) {
@@ -145,6 +152,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         val hostApp = method.hostApp
         // The engine's current runtime may be missing (no CLI yet); the app's runtime replaces it once connected.
         if (hostApp != null) requireHostRuntime(engine) else requireAvailable(engine)
+        signInIfNeeded(engine, method)
         val connection = write(engine, method, credential)
         if (hostApp != null) {
             var isApplied = false
@@ -169,20 +177,65 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
             log.w { "host application connection needs engine management engine=${engine.value}" }
             throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
         }
+        if (inspect(engine)?.hostApp?.hasRuntime != true) {
+            log.w { "host application runtime not found engine=${engine.value}" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
+    }
+
+    /** Inspects the engine and waits (bounded) for management to publish that inspection; the last state otherwise. */
+    private suspend fun inspect(engine: EngineId): ManagedEngine? {
+        val management = services.management
         val before = management.state.value.engine(engine)?.installation?.checkedAt
-        log.i { "inspect host application engine=${engine.value}" }
+        log.i { "inspect engine=${engine.value}" }
         management.execute(engine, EngineCommand.Inspect)
         val inspected = withTimeoutOrNull(INSPECTION_WAIT_MILLIS) {
             management.state.first { state ->
                 val managed = state.engine(engine)
-                managed?.hostApp != null && managed.installation.checkedAt != before
+                managed != null && managed.installation.checkedAt != before &&
+                    (managed.spec.hostApp == null || managed.hostApp != null)
             }
         } ?: management.state.value
-        val hostApp = inspected.engine(engine)?.hostApp
-        if (hostApp?.hasRuntime != true) {
-            log.w { "host application runtime not found engine=${engine.value}" }
-            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        return inspected.engine(engine)
+    }
+
+    /**
+     * Signs the engine's CLI in when the method uses its login and the inspection found it signed out, so a connection
+     * to an engine whose app is signed in needs no detour through the engine panel: the CLI opens the sign-in page
+     * itself and the wizard waits for the outcome. A host application connection runs on the app's runtime from here
+     * on, so that runtime does the sign-in. A sign-in that fails, is cancelled, times out or needs a pasted code is
+     * left to the binding check, which then reports the missing credentials; a code is entered in the engine panel.
+     */
+    private suspend fun signInIfNeeded(engine: EngineId, method: ConnectionMethod) {
+        val management = services.management
+        if (method !is ConnectionMethod.CliLogin || !management.state.value.isEnabled) return
+        if (management.state.value.engine(engine)?.spec?.login.isCliLogin() != true) return
+        val managed = inspect(engine)
+        if (managed == null || managed.login != LoginState.SignedOut) return
+        if (method.hostApp != null) preferHostRuntime(engine)
+        log.i { "sign in engine=${engine.value}" }
+        val previous = managed.job?.startedAt
+        management.execute(engine, EngineCommand.Start(EngineAction.Login()))
+        var phase: JobPhase? = null
+        try {
+            phase = withTimeoutOrNull(SIGN_IN_WAIT_MILLIS) {
+                management.state.map { it.engine(engine)?.job }
+                    .first { it != null && it.startedAt != previous && it.phase.isWaitedFor() }
+                    ?.phase
+            }
+        } finally {
+            if (phase?.isFinished != true) cancelSignIn(engine)
         }
+        when (phase) {
+            JobPhase.Succeeded -> log.i { "signed in engine=${engine.value}" }
+            null -> log.w { "sign in timed out engine=${engine.value}" }
+            is JobPhase.AwaitingCode -> log.w { "sign in needs a pasted code engine=${engine.value}" }
+            else -> log.w { "sign in did not complete engine=${engine.value} phase=${phase::class.simpleName}" }
+        }
+    }
+
+    private suspend fun cancelSignIn(engine: EngineId) = withContext(NonCancellable) {
+        attempt("cancel the sign-in job") { services.management.execute(engine, EngineCommand.Cancel) }
     }
 
     /**
@@ -289,9 +342,17 @@ internal fun EngineAvailability.failure(): EngineFailure? = when (this) {
     is EngineAvailability.Unavailable -> failure
 }
 
+private fun LoginSupport?.isCliLogin() = this == LoginSupport.Cli || this == LoginSupport.CliWithDeviceCode
+
+/** The wizard stops waiting at an outcome, or at a pasted code it cannot take. */
+private fun JobPhase.isWaitedFor() = isFinished || this is JobPhase.AwaitingCode
+
 private val ConnectionMethod.hostApp get() = (this as? ConnectionMethod.CliLogin)?.hostApp
 
 private fun EngineManagementState.engine(id: EngineId) = engines.firstOrNull { it.descriptor.id == id }
 
 /** How long the wizard waits for engine management to publish the inspection it asked for. */
 private const val INSPECTION_WAIT_MILLIS = 15_000L
+
+/** How long the wizard waits for the user to finish the sign-in page. */
+private const val SIGN_IN_WAIT_MILLIS = 300_000L

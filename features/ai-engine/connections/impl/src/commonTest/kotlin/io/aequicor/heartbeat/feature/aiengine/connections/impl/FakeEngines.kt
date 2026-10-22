@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.BindingCheck
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -37,14 +38,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
@@ -250,6 +255,10 @@ internal class FakeEngineManagement : EngineManagement {
     var inspectedHostApp: HostAppState? = null
     var configureFailure: EngineException? = null
 
+    /** The phase a started sign-in reaches; AwaitingCode stays until cancelled. */
+    var loginPhase: JobPhase = JobPhase.Succeeded
+    private var logins = 0L
+
     /** Publishes inspections later in this scope, like the real service's state flow; null publishes at once. */
     var publisher: CoroutineScope? = null
     private var inspections = 0L
@@ -278,6 +287,14 @@ internal class FakeEngineManagement : EngineManagement {
                 change(engine) { it.copy(launch = LaunchState(command.settings)) }
             }
 
+            is EngineCommand.Start -> {
+                check(command.action is EngineAction.Login) { "unexpected action ${command.action}" }
+                val job = EngineJob(command.action, loginPhase, Instant.fromEpochSeconds(LOGIN_EPOCH + ++logins))
+                change(engine) { it.copy(job = job) }
+            }
+
+            EngineCommand.Cancel -> change(engine) { it.copy(job = it.job?.copy(phase = JobPhase.Cancelled)) }
+
             else -> error("unexpected command $command")
         }
     }
@@ -299,7 +316,10 @@ internal val DesktopMethod = ConnectionMethod.CliLogin(
 )
 
 /** Management that knows the Claude engine with [settings] and a host application. */
-internal fun claudeManagement(settings: LaunchSettings = LaunchSettings()) = EngineManagementState(
+internal fun claudeManagement(
+    settings: LaunchSettings = LaunchSettings(),
+    login: LoginState = LoginState.NotApplicable,
+) = EngineManagementState(
     isEnabled = true,
     platform = EnginePlatform.DesktopMacOs,
     engines = listOf(
@@ -312,12 +332,17 @@ internal fun claudeManagement(settings: LaunchSettings = LaunchSettings()) = Eng
                 AiEngines,
                 connectionMethods = listOf(DesktopMethod),
             ),
-            ManagementSpec(hostApp = ClaudeApp),
+            ManagementSpec(
+                login = if (login == LoginState.NotApplicable) LoginSupport.None else LoginSupport.Cli,
+                hostApp = ClaudeApp,
+            ),
             EngineEnablement(),
             EngineAvailability.Available,
+            login = login,
             launch = LaunchState(settings),
         ),
     ),
 )
 
 private const val PUBLISH_DELAY_MILLIS = 50L
+private const val LOGIN_EPOCH = 1_000L
