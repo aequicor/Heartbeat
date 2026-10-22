@@ -108,6 +108,9 @@ public data class ComposerDraft(
  * result by relevance across origins (Heartbeat wins ties), and returns an empty list to hide the popup.
  */
 public interface ComposerAssists {
+    /** Revalidates a displayed item and its native discovery permissions before acceptance. */
+    public suspend fun isAvailable(suggestion: ComposerSuggestion, scope: ComposerScope): Boolean = true
+
     /** Warms bounded source caches when the editor gains focus or its route changes; cancellation stops the work. */
     public suspend fun prewarm(scope: ComposerScope): Unit = Unit
 

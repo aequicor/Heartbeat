@@ -12,11 +12,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigSchema
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -58,6 +60,8 @@ public class EngineRegistration(
     public val configuration: EngineConfigSchema? = null,
     /** File side of [configuration]; required exactly when a schema is declared. */
     public val configurator: Lazy<EngineConfigurator>? = null,
+    /** File-only composer discovery, available without constructing an engine runtime or starting a process. */
+    public val composerAssists: Lazy<ListsComposerAssists>? = null,
 ) {
     init {
         require((configuration == null) == (configurator == null)) { "A configuration schema needs a configurator" }
@@ -107,7 +111,7 @@ public interface EngineFactory {
      * implementation, after [EngineRegistration.accepts] and toggle gates passed, before the binding is saved;
      * it is also repeated when an existing binding is reconnected, so it must be idempotent.
      * Replacing a binding's source retires runtimes of the previous source that no other binding uses.
-     * Throws [io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException] when the adapter rejects the route.
+     * Throws [EngineException] when the adapter rejects the route.
      * Abstract on purpose: an adapter without route state (for example a CLI login) states that explicitly.
      */
     public suspend fun bind(binding: EngineBindingId, source: AuthSource)

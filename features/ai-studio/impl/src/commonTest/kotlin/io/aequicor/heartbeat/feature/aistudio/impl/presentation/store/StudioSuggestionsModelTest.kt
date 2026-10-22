@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -38,6 +39,27 @@ class StudioSuggestionsModelTest {
         settings = DefaultRunSettings,
         defaultProjectId = "p-heartbeat",
     )
+
+    @Test
+    fun `pending native acceptance does not block typing and cannot overwrite a newer draft`() = runTest {
+        val permission = CompletableDeferred<Boolean>()
+        val source = TestComposerAssists().also { it.availability = { permission.await() } }
+        val fixture = Fixture(this, ready, assists = source)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "/plan"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertNotNull(screen.states.value.suggestions(0))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.AcceptSuggestion(0))
+        runCurrent()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "new draft"))
+        runCurrent()
+        assertEquals("new draft", screen.states.value.draft(0))
+        permission.complete(true)
+        runCurrent()
+        assertEquals("new draft", screen.states.value.draft(0))
+        assertNull(screen.states.value.caretRequest(0))
+    }
 
     @Test
     fun `focus prewarms the effective workspace and route changes warm again`() = runTest {
@@ -164,6 +186,9 @@ class StudioSuggestionsModelTest {
 private class TestComposerAssists(
     private val resolve: suspend (ComposerTrigger) -> List<ComposerSuggestion> = { listOf(testCommand(it.query)) },
 ) : ComposerAssists {
+    var availability: suspend () -> Boolean = { true }
+    override suspend fun isAvailable(suggestion: ComposerSuggestion, scope: ComposerScope): Boolean = availability()
+
     val scopes = mutableListOf<ComposerScope>()
     val warmed = mutableListOf<ComposerScope>()
 

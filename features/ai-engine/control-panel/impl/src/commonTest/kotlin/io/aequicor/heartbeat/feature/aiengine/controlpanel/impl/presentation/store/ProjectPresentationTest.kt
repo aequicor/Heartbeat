@@ -176,9 +176,21 @@ class ProjectPresentationTest {
     @Test
     fun `an engine that configures nothing in projects lists no projects`() {
         val profileOnly = config.copy(
-            schema = schema.copy(documents = schema.documents.map { it.copy(scopes = setOf(ConfigScope.Profile)) }),
+            schema = schema.copy(
+                documents = schema.documents.map { it.copy(scopes = setOf(ConfigScope.Profile)) },
+                capabilities = emptySet(),
+            ),
         )
         assertEquals(emptyList(), profileOnly.projectItems(listOf(LocalWorkspace(workspace, "Web"))))
+    }
+
+    @Test
+    fun `trust only schemas expose projects without native configuration editors`() {
+        val trustOnly = config.copy(schema = schema.copy(documents = emptyList(), pages = emptyList()))
+        assertEquals(
+            listOf(ProjectItemUi("web", "Web", ProjectTrustUi.Trusted)),
+            trustOnly.projectItems(listOf(LocalWorkspace(workspace, "Web"))),
+        )
     }
 
     private fun at(vararg path: String) = ConfigBinding.JsonPath(settings, path.toList())

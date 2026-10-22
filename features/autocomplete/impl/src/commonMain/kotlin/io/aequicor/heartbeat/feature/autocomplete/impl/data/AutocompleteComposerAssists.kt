@@ -17,12 +17,14 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.queryRank
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.last
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 
 /**
@@ -40,6 +42,14 @@ internal class AutocompleteComposerAssists(
     private val engineAssists: EngineAssistsSource,
     private val projectFiles: ProjectFileIndex,
 ) : ComposerAssists {
+    override suspend fun isAvailable(suggestion: ComposerSuggestion, scope: ComposerScope): Boolean {
+        val origin = suggestion.origin as? ComposerAssistOrigin.Engine ?: return true
+        val target = scope.target?.takeIf { it.engine == origin.engine } ?: return false
+        return engineAssists.assists(target, scope.workspace).any {
+            suggestion.id == "engine:${target.engine.value}:${it.id}"
+        }
+    }
+
     override suspend fun prewarm(scope: ComposerScope) {
         suggest(ComposerTrigger.Mention(0..0, ""), scope, emptyList())
     }
@@ -48,7 +58,18 @@ internal class AutocompleteComposerAssists(
         trigger: ComposerTrigger,
         scope: ComposerScope,
         hostCommands: List<HostCommand>,
-    ): List<ComposerSuggestion> = observe(trigger, scope, hostCommands).last()
+    ): List<ComposerSuggestion> = coroutineScope {
+        if (!toggles.get(AutocompleteEnabled)) return@coroutineScope emptyList()
+        val engine = async { native(trigger, scope) }
+        val files = async { if (trigger is ComposerTrigger.Mention) files(trigger, scope) else emptyList() }
+        val host = when (trigger) {
+            is ComposerTrigger.Command -> hostCommands.filter { it.matches(trigger.query) }
+                .map { hostCommand(it, trigger.query) }
+
+            is ComposerTrigger.Mention -> learned(trigger, scope)
+        }
+        merge(host + engine.await() + files.await())
+    }
 
     override fun observe(
         trigger: ComposerTrigger,
@@ -66,7 +87,9 @@ internal class AutocompleteComposerAssists(
             is ComposerTrigger.Mention -> learned(trigger, scope)
         }
         emit(merge(host))
-        val native = flow { emit(native(trigger, scope)) }.onStart { emit(emptyList()) }
+        val native = scope.target?.let { target ->
+            engineAssists.observe(target, scope.workspace).map { nativeItems(trigger, scope, it) }
+        } ?: flow { emit(emptyList()) }
         val files = flow {
             emit(if (trigger is ComposerTrigger.Mention) files(trigger, scope) else emptyList())
         }.onStart { emit(emptyList()) }
@@ -128,12 +151,16 @@ internal class AutocompleteComposerAssists(
 
     private suspend fun native(trigger: ComposerTrigger, scope: ComposerScope): List<Ranked> {
         val target = scope.target ?: return emptyList()
+        return nativeItems(trigger, scope, engineAssists.assists(target, scope.workspace))
+    }
+
+    private fun nativeItems(trigger: ComposerTrigger, scope: ComposerScope, assists: List<EngineAssist>): List<Ranked> {
+        val target = scope.target ?: return emptyList()
         val kind = when (trigger) {
             is ComposerTrigger.Command -> EngineAssist.Kind.Command
             is ComposerTrigger.Mention -> EngineAssist.Kind.Skill
         }
-        return engineAssists.assists(target, scope.workspace)
-            .asSequence()
+        return assists.asSequence()
             .filter { it.kind == kind }
             .mapNotNull { assist -> rank(trigger.query, assist.label, assist.id)?.let { assist to it } }
             .map { (assist, rank) ->

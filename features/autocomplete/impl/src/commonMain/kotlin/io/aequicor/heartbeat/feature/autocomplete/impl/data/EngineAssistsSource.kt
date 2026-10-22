@@ -2,12 +2,19 @@ package io.aequicor.heartbeat.feature.autocomplete.impl.data
 
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.cancellation.CancellationException
@@ -23,22 +30,54 @@ private val log = Log.tag("Autocomplete/EngineAssists")
  * failure degrades to the Heartbeat-only sections instead of blocking the popup.
  */
 @Inject
-internal class EngineAssistsSource(private val facade: EngineFacade, private val clock: Clock) {
+internal class EngineAssistsSource(
+    private val facade: EngineFacade,
+    private val clock: Clock,
+    private val sources: AuthSources,
+    private val configuration: EngineConfiguration = UnavailableEngineConfiguration(),
+) {
     private val mutex = Mutex()
     private val cache = mutableMapOf<Route, Entry>()
+
+    /** Drops stale rows before reloading when trust, engine availability or binding permissions change. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    internal fun observe(target: EngineTarget, workspace: WorkspaceRef?): Flow<List<EngineAssist>> = combine(
+        configuration.state,
+        facade.bindings.state,
+        facade.engines.state,
+        sources.state,
+    ) { config, bindings, engines, auth ->
+        listOf(config, bindings, engines, auth)
+    }.transformLatest {
+        emit(emptyList())
+        emit(assists(target, workspace))
+    }
+
+    private fun stamp(): List<Any> = listOf(
+        configuration.state.value,
+        facade.bindings.state.value,
+        facade.engines.state.value,
+        sources.state.value,
+    )
 
     /** Native assists visible on [target]; a null [workspace] is a chat without a project. */
     internal suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> {
         val route = Route(target.engine.value, target.binding.value, workspace?.value)
         val now = clock.now()
+        val stamp = stamp()
         mutex.withLock {
-            cache[route]?.takeIf { now - it.fetchedAt < TTL }?.let { return it.assists }
+            cache[route]?.takeIf { now - it.fetchedAt < TTL && it.stamp == stamp }?.let { return it.assists }
         }
         val assists = read(target, workspace)
-        mutex.withLock {
-            cache[route] = Entry(now, assists)
+        return mutex.withLock {
+            if (stamp() != stamp) {
+                emptyList()
+            } else {
+                if (cache.size >= CACHE_LIMIT) cache.remove(cache.keys.first())
+                cache[route] = Entry(now, assists, stamp)
+                assists
+            }
         }
-        return assists
     }
 
     private suspend fun read(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> =
@@ -62,9 +101,10 @@ internal class EngineAssistsSource(private val facade: EngineFacade, private val
 
     private data class Route(val engine: String, val binding: String, val workspace: String?)
 
-    private data class Entry(val fetchedAt: kotlin.time.Instant, val assists: List<EngineAssist>)
+    private data class Entry(val fetchedAt: kotlin.time.Instant, val assists: List<EngineAssist>, val stamp: List<Any>)
 
     private companion object {
+        const val CACHE_LIMIT = 32
         val TTL: Duration = 60.seconds
     }
 }

@@ -99,7 +99,9 @@ internal class StudioSuggestions(
                     withMovedSuggestion(intent.paneId, intent.delta)
                 }
 
-                is AiStudioScreenIntent.Suggestions.AcceptSuggestion -> accept(pipeline, intent.paneId, intent.index)
+                is AiStudioScreenIntent.Suggestions.AcceptSuggestion -> launch {
+                    accept(pipeline, intent.paneId, intent.index)
+                }
 
                 is AiStudioScreenIntent.Suggestions.DismissSuggestions -> withState {
                     val key = draftKey(intent.paneId)
@@ -163,30 +165,53 @@ internal class StudioSuggestions(
     }
 
     private suspend fun accept(pipeline: SuggestionsPipeline, paneId: Int, index: Int?) {
+        var candidate: Pair<Request, ComposerSuggestion>? = null
         with(pipeline) {
             withState {
-                val key = draftKey(paneId)
-                val request = requests.value[key] ?: return@withState
-                if (query(paneId) != request.query) return@withState
-                val list = composerSuggestions[key]?.takeIf { it.requestId == request.id } ?: return@withState
-                val suggestion = list.items.getOrNull(index ?: list.selectedIndex)
-                    ?.takeIf { it.kind != SuggestionKindUi.File || (isFileInputAllowed && it.isSupported) }
-                    ?: return@withState
-                val applied = applyComposerSuggestion(draft(paneId), request.query.trigger, suggestion.toCompletion())
-                val caretRequest = ComposerCaretRequestUi(++nextCaretRequest, applied.text, applied.caret)
-                log.i { "composer suggestion accepted kind=${suggestion.kind}" }
-                updateState {
-                    copy(
-                        drafts = (drafts + (key to applied.text)).toImmutableMap(),
-                        draftCarets = (draftCarets + (key to applied.caret)).toImmutableMap(),
-                        draftCaretRequests = (draftCaretRequests + (key to caretRequest)).toImmutableMap(),
-                        composerSuggestions = (composerSuggestions - key).toImmutableMap(),
-                    )
-                }
-                val file = applied.attach
-                if (file != null) onAttachFile(paneId, file.location)
+                candidate = acceptanceCandidate(paneId, index)
             }
+            val (request, suggestion) = candidate ?: return
+            if (!isAvailable(request, suggestion)) return
+            var attachment: ComposerSuggestion.File? = null
+            updateState {
+                val key = draftKey(paneId)
+                val list = composerSuggestions[key]
+                if (requests.value[key] != request || query(paneId) != request.query) return@updateState this
+                if (list?.requestId != request.id || list.items.none { it.toCompletion() == suggestion }) {
+                    return@updateState this
+                }
+                val applied = applyComposerSuggestion(draft(paneId), request.query.trigger, suggestion)
+                val caretRequest = ComposerCaretRequestUi(++nextCaretRequest, applied.text, applied.caret)
+                attachment = applied.attach
+                copy(
+                    drafts = (drafts + (key to applied.text)).toImmutableMap(),
+                    draftCarets = (draftCarets + (key to applied.caret)).toImmutableMap(),
+                    draftCaretRequests = (draftCaretRequests + (key to caretRequest)).toImmutableMap(),
+                    composerSuggestions = (composerSuggestions - key).toImmutableMap(),
+                )
+            }
+            val file = attachment
+            if (file != null) onAttachFile(paneId, file.location)
         }
+    }
+
+    private fun AiStudioScreenState.acceptanceCandidate(paneId: Int, index: Int?): Pair<Request, ComposerSuggestion>? {
+        val key = draftKey(paneId)
+        val request = requests.value[key] ?: return null
+        if (query(paneId) != request.query) return null
+        val list = composerSuggestions[key]?.takeIf { it.requestId == request.id } ?: return null
+        val suggestion = list.items.getOrNull(index ?: list.selectedIndex)
+            ?.takeIf { it.kind != SuggestionKindUi.File || (isFileInputAllowed && it.isSupported) } ?: return null
+        return request to suggestion.toCompletion()
+    }
+
+    private suspend fun isAvailable(request: Request, suggestion: ComposerSuggestion): Boolean = try {
+        assists.isAvailable(suggestion, request.query.scope)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "composer acceptance check failed" }
+        false
     }
 
     @HighFrequency

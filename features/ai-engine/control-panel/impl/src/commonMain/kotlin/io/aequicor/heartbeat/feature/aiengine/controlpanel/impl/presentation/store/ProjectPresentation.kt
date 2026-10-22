@@ -42,7 +42,9 @@ data class ProjectDraft(
 
 /** The [projects] with the trust decided for each; none when the engine configures nothing in projects. */
 internal fun EngineConfigState.projectItems(projects: List<LocalWorkspace>): List<ProjectItemUi> =
-    if (schema.documents.none { ConfigScope.Project in it.scopes }) {
+    if (schema.documents.none { ConfigScope.Project in it.scopes } &&
+        ConfigCapability.ProjectTrust !in schema.capabilities
+    ) {
         emptyList()
     } else {
         projects.map { ProjectItemUi(it.ref.value, it.name, trustOf(it.ref)) }

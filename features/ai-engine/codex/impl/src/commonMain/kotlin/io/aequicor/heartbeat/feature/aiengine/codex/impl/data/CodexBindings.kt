@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FrozenHostedTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -37,6 +38,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectAssistReader
 
 /** 2: legacy model metadata preserves the native default image support instead of caching text-only support. */
 private const val CODEX_MODEL_CATALOG_REVISION = 2
@@ -60,6 +62,7 @@ public object CodexBindings {
         factory: Lazy<CodexEngineFactory>,
         manager: Lazy<CodexEngineManager>,
         config: CodexLocalConfiguration,
+        reader: ProjectAssistReader = ProjectAssistReader.None,
     ): EngineRegistration = EngineRegistration(
         descriptor = EngineDescriptor(
             CodexEngine.Id,
@@ -85,6 +88,7 @@ public object CodexBindings {
                 ),
             ),
             declaredFeatures = setOf(
+                ListsComposerAssists.id,
                 ReportsProviderUsage.id,
                 SessionContextUsage.id,
                 CreatesSessions.id,
@@ -106,6 +110,9 @@ public object CodexBindings {
         modelCatalogRevision = CODEX_MODEL_CATALOG_REVISION,
         management = CodexManagementSpec,
         manager = lazy { manager.value },
+        configuration = ProjectAssistReader.Schema,
+        configurator = lazy { reader },
+        composerAssists = lazy { CodexComposerAssists(reader) },
     )
 }
 
