@@ -44,6 +44,11 @@ public data class EngineDescriptor(
     val areInstructionsRefreshedPerTurn: Boolean = false,
     /** Supports hosted-only project IO and an isolated process cwd for virtual Git workspaces. */
     val isVirtualWorkspaceSupported: Boolean = false,
+    /**
+     * Native composer assists also run in a virtual workspace because the adapter imports them from its tree.
+     * Otherwise the native process starts there in an empty directory, and the host delivers project skills itself.
+     */
+    val areVirtualWorkspaceAssistsNative: Boolean = false,
 ) {
     init {
         require(nativeTools.map { it.name }.distinct().size == nativeTools.size) { "Duplicate native tool name" }
