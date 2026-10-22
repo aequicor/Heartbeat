@@ -25,6 +25,8 @@ import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFileAttributeView
+import java.nio.file.attribute.PosixFilePermissions
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -71,6 +73,29 @@ class ClaudeComposerAssistsTest {
         trust = ProjectTrust.Content
         assertTrue(source.assists(target, workspace).isEmpty())
         assertNull(source.prepare(workspace))
+    }
+
+    @Test
+    fun `unreadable plugin subtree does not abort cleanup of other operation resources`() = runTest {
+        val root = temporary.newFolder().toPath()
+        if (Files.getFileAttributeView(root, PosixFileAttributeView::class.java) == null) return@runTest
+        val path = root.resolve(".claude/commands/frontend/check.md")
+        Files.createDirectories(path.parent)
+        Files.writeString(path, "Check frontend")
+        val plugin = assertNotNull(source(root) { ProjectTrust.Trusted }.prepare(workspace))
+        val directory = Path.of(plugin.directory)
+        val unreadable = Files.createDirectory(directory.resolve("unreadable"))
+        try {
+            Files.setPosixFilePermissions(unreadable, emptySet())
+            // Files.walk discovers this failure lazily through its iterator, as UncheckedIOException.
+            plugin.close()
+        } finally {
+            if (Files.exists(unreadable)) {
+                Files.setPosixFilePermissions(unreadable, PosixFilePermissions.fromString("rwx------"))
+            }
+            plugin.close()
+        }
+        assertFalse(Files.exists(directory))
     }
 
     private fun source(root: Path, trust: () -> ProjectTrust) = DesktopClaudeComposerAssists(

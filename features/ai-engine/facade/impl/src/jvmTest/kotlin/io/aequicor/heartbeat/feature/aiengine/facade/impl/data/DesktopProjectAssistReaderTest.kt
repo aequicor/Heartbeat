@@ -93,6 +93,51 @@ class DesktopProjectAssistReaderTest {
         assertEquals(listOf("/back:check ", "/front:check "), items.map { it.insert })
     }
 
+    @Test
+    fun `native skills omit missing invalid and ambiguous metadata without renaming`() = runTest {
+        val root = temporary.newFolder().toPath()
+        val invalid = listOf(
+            "Body without metadata",
+            "---\nname: missing\n---\nBody",
+            "---\ndescription: missing name\n---\nBody",
+            "---\nname: missing\ndescription: unclosed",
+            "---\nname: ../../outside\ndescription: unsafe name\n---",
+            "---\nname: false\ndescription: non string name\n---",
+            "---\nname: valid\ndescription: [unclosed\n---",
+            "---\nname: valid\nname: duplicate\ndescription: ambiguous\n---",
+            "---\nname: \"\"\ndescription: empty name\n---",
+            "---\nname: valid\ndescription: \" \"\n---",
+            "---\nname: valid\ndescription: description\nmetadata:\n  nested: unsupported\n---",
+            "---\nname: valid\ndescription: >\n    first\n  invalid dedent\n---",
+        )
+        invalid.forEachIndexed { index, body -> write(root, ".agents/skills/fallback$index/SKILL.md", body) }
+        val items = reader(root).read(engine, workspace, nativeRoots)
+        assertTrue(items.isEmpty(), "invalid native entries must not become folder-named mentions: $items")
+    }
+
+    @Test
+    fun `native skills preserve quoted strings and accept block descriptions`() = runTest {
+        val root = temporary.newFolder().toPath()
+        write(
+            root,
+            ".agents/skills/folder/SKILL.md",
+            "---\nname: 'actual' # native name\ndescription: \"Checks, including # tags\" # comment\n---\nBody",
+        )
+        write(
+            root,
+            ".agents/skills/block/SKILL.md",
+            "---\nname: block\ndescription: >-\n  Run checks\n  and report results\n---\nBody",
+        )
+        val items = reader(root).read(engine, workspace, nativeRoots)
+        assertEquals(listOf("actual", "block"), items.map { it.label })
+        assertEquals(listOf("\$actual ", "\$block "), items.map { it.insert })
+        assertEquals(listOf("Checks, including # tags", "Run checks and report results"), items.map { it.description })
+    }
+
+    private val nativeRoots = listOf(
+        AssistDirectory(".agents/skills", EngineAssist.Kind.Skill, true, "$", isNativeSkillMetadataRequired = true),
+    )
+
     private fun reader(root: Path, trust: ProjectTrust = ProjectTrust.Trusted, onResolve: () -> Unit = {}) =
         DesktopProjectAssistReader(
             workspaces(root, onResolve),

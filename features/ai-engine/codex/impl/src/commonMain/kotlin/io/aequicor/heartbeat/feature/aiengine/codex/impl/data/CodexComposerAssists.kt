@@ -13,6 +13,14 @@ internal class CodexComposerAssists(private val reader: ProjectAssistReader) : L
     override suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> = reader.read(
         CodexEngine.Id,
         workspace,
-        listOf(AssistDirectory(".agents/skills", EngineAssist.Kind.Skill, isSkill = true, prefix = "$")),
+        listOf(
+            AssistDirectory(
+                ".agents/skills",
+                EngineAssist.Kind.Skill,
+                isSkill = true,
+                prefix = "$",
+                isNativeSkillMetadataRequired = true,
+            ),
+        ),
     )
 }

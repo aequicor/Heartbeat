@@ -19,6 +19,8 @@ public data class AssistDirectory(
     val isSkill: Boolean,
     val prefix: String,
     val isLiteralOnly: Boolean = false,
+    /** Native skills require explicit literal name and description; imported commands may use directory names. */
+    val isNativeSkillMetadataRequired: Boolean = false,
 )
 
 /**

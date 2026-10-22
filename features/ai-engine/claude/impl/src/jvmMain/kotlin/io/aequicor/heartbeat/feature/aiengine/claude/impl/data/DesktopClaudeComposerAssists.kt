@@ -21,6 +21,7 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.io.UncheckedIOException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
@@ -113,9 +114,9 @@ internal class DesktopClaudeComposerAssists(
 
     private fun writePlugin(entries: List<Entry>): ClaudePreparedAssists {
         val root = Files.createTempDirectory(claudeMcpDirectory(), "heartbeat-project-")
-        restrictToOwner(root, directory = true)
         val plugin = Prepared(root)
         try {
+            restrictToOwner(root, directory = true)
             val manifest = Files.createDirectory(root.resolve(".claude-plugin")).resolve("plugin.json")
             val descriptor = buildJsonObject {
                 put("name", "heartbeat-project")
@@ -154,6 +155,8 @@ internal class DesktopClaudeComposerAssists(
         override fun close() {
             try {
                 Files.walk(path).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
+            } catch (e: UncheckedIOException) {
+                Log.tag("Claude/ProjectAssists").w(e.redactedFailure()) { "temporary commands could not be removed" }
             } catch (e: java.io.IOException) {
                 Log.tag("Claude/ProjectAssists").w(e.redactedFailure()) { "temporary commands could not be removed" }
             }

@@ -108,15 +108,21 @@ internal class DesktopProjectAssistReader(
         val text = Files.newInputStream(file, NOFOLLOW_LINKS).use { input ->
             input.readNBytes(if (spec.isLiteralOnly) CONTENT_BYTES + 1 else FRONTMATTER_BYTES).toString(Charsets.UTF_8)
         }
-        val fields = frontmatter(text)
+        assist(text, file, directory, spec)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e.redactedFailure()) { "project assist file not readable" }
+        null
+    }
+
+    private fun assist(text: String, file: Path, directory: Path, spec: AssistDirectory): EngineAssist? {
+        val fields = if (spec.isNativeSkillMetadataRequired) nativeSkillMetadata(text) else frontmatter(text)
+        if (fields == null) return null
         val isLiteral = !spec.isLiteralOnly || (text.toByteArray().size <= CONTENT_BYTES && "!`" !in text)
-        val name = if (spec.isSkill) {
-            fields["name"]?.takeIf { NAME.matches(it) } ?: file.parent.fileName.toString()
-        } else {
-            directory.relativize(file).joinToString(":").removeSuffix(".md")
-        }
+        val name = assistName(file, directory, spec, fields)
         val isNameValid = name.split(':').all { NAME.matches(it) }
-        if (!isLiteral || !isNameValid || fields["user-invocable"] == "false") {
+        return if (!isLiteral || !isNameValid || fields["user-invocable"] == "false") {
             null
         } else {
             EngineAssist(
@@ -127,12 +133,14 @@ internal class DesktopProjectAssistReader(
                 kind = spec.kind,
             )
         }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        log.w(e.redactedFailure()) { "project assist file not readable" }
-        null
     }
+
+    private fun assistName(file: Path, directory: Path, spec: AssistDirectory, fields: Map<String, String>): String =
+        when {
+            !spec.isSkill -> directory.relativize(file).joinToString(":").removeSuffix(".md")
+            spec.isNativeSkillMetadataRequired -> fields["name"].orEmpty()
+            else -> fields["name"]?.takeIf { NAME.matches(it) } ?: file.parent.fileName.toString()
+        }
 
     private fun isUnlinked(root: Path, path: Path): Boolean {
         var current = root

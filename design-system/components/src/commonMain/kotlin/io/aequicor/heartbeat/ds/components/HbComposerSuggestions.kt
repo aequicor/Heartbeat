@@ -124,7 +124,12 @@ internal fun ComposerSuggestionsPopup(
                 suggestions.items.forEachIndexed { index, item ->
                     key(item.id) {
                         if (item.sectionLabel != null) ComposerSectionLabel(item.sectionLabel)
-                        SuggestionRow(item, onClick = { onSelect(index) }, modifier = Modifier.fillMaxWidth())
+                        SuggestionRow(
+                            item,
+                            index,
+                            onClick = { onSelect(index) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
@@ -133,9 +138,10 @@ internal fun ComposerSuggestionsPopup(
 }
 
 @Composable
-private fun SuggestionRow(item: HbComposerSuggestion, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun SuggestionRow(item: HbComposerSuggestion, index: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val bringIntoView = remember { BringIntoViewRequester() }
-    LaunchedEffect(item.id, item.isSelected) {
+    // Progressive sources can move the same selected item beyond the visible viewport.
+    LaunchedEffect(item.id, item.isSelected, index) {
         if (item.isSelected) bringIntoView.bringIntoView()
     }
     val interactions = remember { MutableInteractionSource() }
@@ -161,9 +167,15 @@ private fun SuggestionRow(item: HbComposerSuggestion, onClick: () -> Unit, modif
                 text = item.label,
                 style = HbTheme.typography.label,
                 color = if (item.isEnabled) colors.textPrimary else colors.textSecondary,
+                maxLines = 1,
             )
             if (item.supportingText != null) {
-                HbText(item.supportingText, style = HbTheme.typography.caption, color = colors.textSecondary)
+                HbText(
+                    item.supportingText,
+                    style = HbTheme.typography.caption,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                )
             }
         }
     }
