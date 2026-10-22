@@ -382,6 +382,11 @@ class ServiceUiAgentToolsTest {
                 "body":{"type":"button","label":"Open","action":{"type":"open","modal":"view"}}}""",
         )
         val spec = ServiceUiToolSpecs.first { it.name == ServiceUiTools.SHOW }
+        val webBody = call(
+            ServiceUiTools.SHOW,
+            show(spec = """{"version":1,"body":{"type":"web","html":"<p>Report</p>","height":"content"}}"""),
+        )
+        assertFalse(webBody.isError, webBody.text)
 
         cards.isFull = true
         assertTrue("already shows 64 cards" in call(ServiceUiTools.SHOW, show(surface = "harness:h_1:start")).text)

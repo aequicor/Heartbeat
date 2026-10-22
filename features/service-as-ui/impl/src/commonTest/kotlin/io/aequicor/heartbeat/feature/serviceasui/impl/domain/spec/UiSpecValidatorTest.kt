@@ -147,7 +147,7 @@ class UiSpecValidatorTest {
     }
 
     @Test
-    fun `web documents work in library placements but anonymous cards cannot obtain a bridge`() {
+    fun `web documents work in every body and modal but anonymous cards cannot obtain a bridge`() {
         val web = """{"type":"web","html":"<p>x</p>","bridge":true,"height":"content"}"""
         val inline = spec(web)
         val inModal = spec("""{"type":"divider"}""", modals = """{"view":{"title":"V","body":$web}}""")
@@ -156,10 +156,8 @@ class UiSpecValidatorTest {
         UiPlacement.entries.forEach { placement ->
             assertEquals(emptyList(), problems(inline, library.copy(placement = placement)))
         }
-        assertEquals(
-            listOf("$.body" to UiSpecProblem.PlacementForbidden, "$.body.bridge" to UiSpecProblem.OriginForbidden),
-            problems(inline, card),
-        )
+        assertEquals(listOf("$.body.bridge" to UiSpecProblem.OriginForbidden), problems(inline, card))
+        assertEquals(emptyList(), problems(spec("""{"type":"web","html":"<p>x</p>"}"""), card))
         assertEquals(emptyList(), problems(inline, library.copy(placement = UiPlacement.Panel)))
         assertEquals(emptyList(), problems(inModal, library))
         assertEquals(

@@ -108,9 +108,6 @@ internal enum class UiSpecProblem(val message: String) {
     /** `item` or `index` outside list items and table cells. */
     OutOfScope("item and index exist only inside list items and table rows"),
 
-    /** A web document in the body of an anonymous response card. */
-    PlacementForbidden("web documents require a library surface or a modal"),
-
     /** Methods, data sources, sending prompts, reveal or a web bridge in a card without an owner. */
     OriginForbidden("not allowed in a card without an owner"),
 

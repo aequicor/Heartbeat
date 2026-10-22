@@ -6,7 +6,7 @@ Load with `ui_reference(topic="service-as-ui/webview")`. Use this mode for custo
 
 A `web` node contains `html`, optional `bridge` (default false), optional `data` (exact binding), and `height` (`compact`, `regular`, `tall`, `content`; default regular). Only one is allowed in the whole spec, counting its body and all named modals.
 
-Owner-backed library surfaces may use WebView in their body or a modal, including `card` and `composer` placements. Anonymous specs may include it only inside a modal and never with a bridge. Editor previews do not execute the owner bridge. Desktop and enabled web documents are required; otherwise the host shows an unavailable note.
+Owner-backed library surfaces may use WebView in their body or a modal, including `card` and `composer` placements. Anonymous `ui_show` specs may use it in their body or a modal, never with a bridge. Editor previews do not execute the owner bridge. Desktop and enabled web documents are required; otherwise the host shows an unavailable note.
 
 A document has an isolated origin and in-memory browser context. Inline CSS/JavaScript/SVG/canvas and `data:` images/fonts work. Public HTTPS scripts, stylesheets, fonts, images and media may load, including CDN dependencies. No framework or icon library is preinstalled. Use versioned dependencies and the required CSS.
 
