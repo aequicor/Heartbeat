@@ -10,25 +10,24 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SuggestionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraftCaret
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.applyComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.composerTrigger
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.PipelineContext
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.time.Duration.Companion.milliseconds
 
 private typealias SuggestionsPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
 
 /**
  * Screen-owned completion requests. Every state publication synchronously invalidates suggestions whose text,
  * caret or effective route changed, including changes coming from the machine rather than editor intents.
- * Debouncing delays only the new lookup. A generation identifies its result and the user's acceptance, so a
+ * Sources publish independently. A generation identifies each result and the user's acceptance, so a
  * late source result cannot revive a dismissed token or attach a file from a previous workspace.
  */
 internal class StudioSuggestions(
@@ -38,6 +37,8 @@ internal class StudioSuggestions(
 ) {
     private val log = Log.tag("StudioSuggestions")
     private val requests = MutableStateFlow<Map<String, Request>>(emptyMap())
+    private val focused = mutableSetOf<Int>()
+    private val warmScopes = MutableStateFlow<List<ComposerScope>>(emptyList())
     private val dismissed = mutableMapOf<String, SuggestionQuery>()
     private var nextRequest = 0L
     private var nextCaretRequest = 0L
@@ -45,6 +46,8 @@ internal class StudioSuggestions(
     /** Runs inside the store's state publication hook, before obsolete rows can reach the editor. */
     @HighFrequency
     internal fun onState(state: AiStudioScreenState): AiStudioScreenState {
+        warmScopes.value = state.panes.asSequence().filter { it.id in focused }
+            .map { state.composerScope(it.id) }.distinct().toList()
         val desired = state.panes.mapNotNull { pane -> state.query(pane.id) }.associateBy { it.draftKey }
         dismissed.keys.retainAll(desired.keys)
         val previous = requests.value
@@ -70,6 +73,11 @@ internal class StudioSuggestions(
     internal suspend fun handle(pipeline: SuggestionsPipeline, intent: AiStudioScreenIntent.Suggestions) {
         with(pipeline) {
             when (intent) {
+                is AiStudioScreenIntent.Suggestions.FocusChanged -> {
+                    if (intent.isFocused) focused.add(intent.paneId) else focused.remove(intent.paneId)
+                    withState { onState(this) }
+                }
+
                 is AiStudioScreenIntent.Suggestions.DraftChanged -> updateState {
                     withDraft(intent.paneId, intent.text).withDraftCaret(intent.paneId, intent.text.length)
                 }
@@ -91,7 +99,9 @@ internal class StudioSuggestions(
                     withMovedSuggestion(intent.paneId, intent.delta)
                 }
 
-                is AiStudioScreenIntent.Suggestions.AcceptSuggestion -> accept(pipeline, intent.paneId, intent.index)
+                is AiStudioScreenIntent.Suggestions.AcceptSuggestion -> launch {
+                    accept(pipeline, intent.paneId, intent.index)
+                }
 
                 is AiStudioScreenIntent.Suggestions.DismissSuggestions -> withState {
                     val key = draftKey(intent.paneId)
@@ -103,70 +113,105 @@ internal class StudioSuggestions(
         }
     }
 
-    /** Cancels stale lookups immediately; each replacement lookup waits for a pause in editing. */
-    internal suspend fun observe(pipeline: SuggestionsPipeline) {
-        requests.collectLatest { current ->
-            coroutineScope {
-                current.values.forEach { request ->
-                    launch {
-                        delay(SUGGESTION_DEBOUNCE)
-                        resolve(pipeline, request)
-                    }
+    /** Cancels obsolete work, warming focused routes separately from individual typed tokens. */
+    internal suspend fun observe(pipeline: SuggestionsPipeline): Unit = coroutineScope {
+        launch {
+            warmScopes.collectLatest { scopes ->
+                coroutineScope {
+                    scopes.forEach { scope -> launch { prewarm(scope) } }
                 }
             }
+        }
+        requests.collectLatest { current ->
+            coroutineScope {
+                current.values.forEach { request -> launch { resolve(pipeline, request) } }
+            }
+        }
+    }
+
+    private suspend fun prewarm(scope: ComposerScope) {
+        try {
+            assists.prewarm(scope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "composer prewarm failed" }
         }
     }
 
     private suspend fun resolve(pipeline: SuggestionsPipeline, request: Request) {
         val query = request.query
-        val items = try {
-            assists.suggest(query.trigger, query.scope, query.hostCommands)
+        try {
+            assists.observe(query.trigger, query.scope, query.hostCommands).collect { items ->
+                with(pipeline) {
+                    updateState {
+                        if (requests.value[query.draftKey] == request) {
+                            withSuggestionItems(
+                                query,
+                                items.filter { isFileInputAllowed || it !is ComposerSuggestion.File },
+                                request.id,
+                            )
+                        } else {
+                            this
+                        }
+                    }
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             log.w(e) { "composer suggestions failed" }
-            emptyList()
-        }
-        with(pipeline) {
-            updateState {
-                if (requests.value[query.draftKey] == request) {
-                    withSuggestionItems(
-                        query,
-                        items.filter { isFileInputAllowed || it !is ComposerSuggestion.File },
-                        request.id,
-                    )
-                } else {
-                    this
-                }
-            }
         }
     }
 
     private suspend fun accept(pipeline: SuggestionsPipeline, paneId: Int, index: Int?) {
+        var candidate: Pair<Request, ComposerSuggestion>? = null
         with(pipeline) {
             withState {
-                val key = draftKey(paneId)
-                val request = requests.value[key] ?: return@withState
-                if (query(paneId) != request.query) return@withState
-                val list = composerSuggestions[key]?.takeIf { it.requestId == request.id } ?: return@withState
-                val suggestion = list.items.getOrNull(index ?: list.selectedIndex)
-                    ?.takeIf { it.kind != SuggestionKindUi.File || (isFileInputAllowed && it.isSupported) }
-                    ?: return@withState
-                val applied = applyComposerSuggestion(draft(paneId), request.query.trigger, suggestion.toCompletion())
-                val caretRequest = ComposerCaretRequestUi(++nextCaretRequest, applied.text, applied.caret)
-                log.i { "composer suggestion accepted kind=${suggestion.kind}" }
-                updateState {
-                    copy(
-                        drafts = (drafts + (key to applied.text)).toImmutableMap(),
-                        draftCarets = (draftCarets + (key to applied.caret)).toImmutableMap(),
-                        draftCaretRequests = (draftCaretRequests + (key to caretRequest)).toImmutableMap(),
-                        composerSuggestions = (composerSuggestions - key).toImmutableMap(),
-                    )
-                }
-                val file = applied.attach
-                if (file != null) onAttachFile(paneId, file.location)
+                candidate = acceptanceCandidate(paneId, index)
             }
+            val (request, suggestion) = candidate ?: return
+            if (!isAvailable(request, suggestion)) return
+            var attachment: ComposerSuggestion.File? = null
+            updateState {
+                val key = draftKey(paneId)
+                val list = composerSuggestions[key]
+                if (requests.value[key] != request || query(paneId) != request.query) return@updateState this
+                if (list?.requestId != request.id || list.items.none { it.toCompletion() == suggestion }) {
+                    return@updateState this
+                }
+                val applied = applyComposerSuggestion(draft(paneId), request.query.trigger, suggestion)
+                val caretRequest = ComposerCaretRequestUi(++nextCaretRequest, applied.text, applied.caret)
+                attachment = applied.attach
+                copy(
+                    drafts = (drafts + (key to applied.text)).toImmutableMap(),
+                    draftCarets = (draftCarets + (key to applied.caret)).toImmutableMap(),
+                    draftCaretRequests = (draftCaretRequests + (key to caretRequest)).toImmutableMap(),
+                    composerSuggestions = (composerSuggestions - key).toImmutableMap(),
+                )
+            }
+            val file = attachment
+            if (file != null) onAttachFile(paneId, file.location)
         }
+    }
+
+    private fun AiStudioScreenState.acceptanceCandidate(paneId: Int, index: Int?): Pair<Request, ComposerSuggestion>? {
+        val key = draftKey(paneId)
+        val request = requests.value[key] ?: return null
+        if (query(paneId) != request.query) return null
+        val list = composerSuggestions[key]?.takeIf { it.requestId == request.id } ?: return null
+        val suggestion = list.items.getOrNull(index ?: list.selectedIndex)
+            ?.takeIf { it.kind != SuggestionKindUi.File || (isFileInputAllowed && it.isSupported) } ?: return null
+        return request to suggestion.toCompletion()
+    }
+
+    private suspend fun isAvailable(request: Request, suggestion: ComposerSuggestion): Boolean = try {
+        assists.isAvailable(suggestion, request.query.scope)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "composer acceptance check failed" }
+        false
     }
 
     @HighFrequency
@@ -178,8 +223,4 @@ internal class StudioSuggestions(
     }
 
     private data class Request(val id: Long, val query: SuggestionQuery)
-
-    private companion object {
-        val SUGGESTION_DEBOUNCE = 200.milliseconds
-    }
 }

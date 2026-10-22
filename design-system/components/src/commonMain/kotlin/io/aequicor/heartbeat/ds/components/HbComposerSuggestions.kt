@@ -122,8 +122,15 @@ internal fun ComposerSuggestionsPopup(
                 gap = HbTheme.spacing.xs,
             ) {
                 suggestions.items.forEachIndexed { index, item ->
-                    if (item.sectionLabel != null) ComposerSectionLabel(item.sectionLabel)
-                    SuggestionRow(item, onClick = { onSelect(index) }, modifier = Modifier.fillMaxWidth())
+                    key(item.id) {
+                        if (item.sectionLabel != null) ComposerSectionLabel(item.sectionLabel)
+                        SuggestionRow(
+                            item,
+                            index,
+                            onClick = { onSelect(index) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
         }
@@ -131,38 +138,24 @@ internal fun ComposerSuggestionsPopup(
 }
 
 @Composable
-private fun SuggestionRow(item: HbComposerSuggestion, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun SuggestionRow(item: HbComposerSuggestion, index: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val bringIntoView = remember { BringIntoViewRequester() }
-    LaunchedEffect(item.id, item.isSelected) {
+    // Progressive sources can move the same selected item beyond the visible viewport.
+    LaunchedEffect(item.id, item.isSelected, index) {
         if (item.isSelected) bringIntoView.bringIntoView()
     }
     val interactions = remember { MutableInteractionSource() }
-    val isHovered by interactions.collectIsHoveredAsState()
-    val isPressed by interactions.collectIsPressedAsState()
     val colors = HbTheme.colors
-    val motion = HbTheme.motion
     val shape = HbTheme.shapes.medium
-    val targetBackground = when {
-        item.isSelected -> colors.selectedContainer
-        !item.isEnabled -> Color.Transparent
-        isPressed -> colors.pressedOverlay
-        isHovered -> colors.interactionHoverOverlay
-        else -> Color.Transparent
-    }
-    val background = key(colors, item.isEnabled) {
-        animateColorAsState(
-            targetBackground,
-            animationSpec = if (motion.isReducedMotion) snap() else tween(motion.fastMillis),
-            label = "composerSuggestionRow",
-        ).value
-    }
+    val pointerBackground = suggestionPointerBackground(interactions, item.isEnabled)
     HbRow(
         modifier = modifier
             .heightIn(min = HbTheme.dimensions.touchTarget)
             .bringIntoViewRequester(bringIntoView)
             .semantics { selected = item.isSelected }
             .clickable(interactions, indication = null, enabled = item.isEnabled, role = Role.Button, onClick = onClick)
-            .background(background, shape)
+            // Keyboard selection must not trail rapid arrow repeats; pointer feedback stays animated.
+            .background(if (item.isSelected) colors.selectedContainer else pointerBackground, shape)
             .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.s),
         gap = HbTheme.spacing.s,
     ) {
@@ -174,11 +167,39 @@ private fun SuggestionRow(item: HbComposerSuggestion, onClick: () -> Unit, modif
                 text = item.label,
                 style = HbTheme.typography.label,
                 color = if (item.isEnabled) colors.textPrimary else colors.textSecondary,
+                maxLines = 1,
             )
             if (item.supportingText != null) {
-                HbText(item.supportingText, style = HbTheme.typography.caption, color = colors.textSecondary)
+                HbText(
+                    item.supportingText,
+                    style = HbTheme.typography.caption,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                )
             }
         }
+    }
+}
+
+/** Animates pointer feedback independently of the instantaneous keyboard selection. */
+@Composable
+private fun suggestionPointerBackground(interactions: MutableInteractionSource, isEnabled: Boolean): Color {
+    val isHovered by interactions.collectIsHoveredAsState()
+    val isPressed by interactions.collectIsPressedAsState()
+    val colors = HbTheme.colors
+    val motion = HbTheme.motion
+    val targetBackground = when {
+        !isEnabled -> Color.Transparent
+        isPressed -> colors.pressedOverlay
+        isHovered -> colors.interactionHoverOverlay
+        else -> Color.Transparent
+    }
+    return key(colors, isEnabled) {
+        animateColorAsState(
+            targetBackground,
+            animationSpec = if (motion.isReducedMotion) snap() else tween(motion.fastMillis),
+            label = "composerSuggestionRow",
+        ).value
     }
 }
 

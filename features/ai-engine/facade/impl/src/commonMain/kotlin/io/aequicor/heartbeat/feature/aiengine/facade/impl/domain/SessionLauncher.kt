@@ -135,7 +135,11 @@ class SessionLauncher(
     /** Native composer assists of the engine's runtime; never creates or attaches a session. */
     suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> {
         val resolved = routes.resolve(target.engine, target.binding, workspace, target.model)
-        return pool.runtime(resolved).features.resolve(ListsComposerAssists).orFail().assists(target, workspace)
+        val feature = resolved.registration.composerAssists?.value
+            ?: pool.runtime(resolved).features.resolve(ListsComposerAssists).orFail()
+        val items = feature.assists(target, workspace)
+        routes.recheck(resolved.route, target.model)
+        return items
     }
 
     private suspend fun open(

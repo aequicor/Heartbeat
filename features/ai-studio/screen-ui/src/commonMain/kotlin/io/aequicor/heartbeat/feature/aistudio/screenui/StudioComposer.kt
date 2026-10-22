@@ -15,6 +15,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
@@ -78,6 +79,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_helper_hin
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_settings_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_trust
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_unsupported
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestion_compact_description
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestion_remember_description
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_skills
@@ -187,7 +190,7 @@ private fun StudioComposerInput(
         placeholder = stringResource(Res.string.composer_placeholder),
         isStreaming = session?.isRunning == true,
         enabled = content.isComposerEnabled(),
-        inputModifier = Modifier.focusRequester(focus),
+        inputModifier = composerFocusModifier(focus, pane.id, onIntent),
         suggestions = composerSuggestions(content),
         suggestionsLabel = stringResource(Res.string.composer_suggestions),
         suggestionsCloseLabel = stringResource(Res.string.composer_suggestions_close),
@@ -236,6 +239,17 @@ private fun StudioComposerInput(
 
 /** Menus and inserted diagram prompts restore focus after their transient surface has closed. */
 @Composable
+private fun composerFocusModifier(focus: FocusRequester, paneId: Int, onIntent: (StudioIntent) -> Unit): Modifier {
+    var isEditorFocused by remember(paneId) { mutableStateOf(false) }
+    return Modifier.focusRequester(focus).onFocusChanged {
+        if (isEditorFocused != it.isFocused) {
+            isEditorFocused = it.isFocused
+            onIntent(StudioIntent.Suggestions.FocusChanged(paneId, it.isFocused))
+        }
+    }
+}
+
+@Composable
 private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, () -> Unit> {
     val focus = remember { FocusRequester() }
     var inputFocusRequests by remember { mutableIntStateOf(0) }
@@ -278,7 +292,11 @@ private fun composerSuggestions(content: PaneContent): HbComposerSuggestions? {
         HbComposerSuggestion(
             id = suggestion.id,
             label = suggestion.label,
-            supportingText = suggestion.description.takeIf(String::isNotEmpty),
+            supportingText = when (suggestion.id) {
+                "host:remember" -> stringResource(Res.string.suggestion_remember_description)
+                "host:compact" -> stringResource(Res.string.suggestion_compact_description)
+                else -> suggestion.description.takeIf(String::isNotEmpty)
+            },
             sectionLabel = if (section != previousSection) sectionLabel(suggestion) else null,
             icon = when (suggestion.kind) {
                 SuggestionKindUi.Command -> HbIcons.Terminal

@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.data.ClaudeComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.data.ClaudeNativeCatalog
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeEngineManager
@@ -24,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -38,6 +40,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectAssistReader
 
 /**
  * 1: a discovered model reports the image and document formats it accepts.
@@ -52,52 +55,60 @@ public object ClaudeBindings {
     /** Contributes the adapter without constructing its native runtime. */
     @Provides
     @IntoSet
-    public fun registration(backend: Lazy<ClaudeBackend>, manager: Lazy<ClaudeEngineManager>): EngineRegistration =
-        EngineRegistration(
-            descriptor = EngineDescriptor(
-                ClaudeEngine.Id,
-                "Claude Code",
-                EngineFamily.Vendor,
-                setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows, EnginePlatform.DesktopLinux),
-                ClaudeEngine.Enabled,
-                requirements = listOf(
-                    EngineRequirement("claude-cli", "Native Claude Code CLI with stream-json support"),
-                ),
-                connectionMethods = listOf(
-                    ConnectionMethod.CliLogin(
-                        ConnectionMethodId("cli"),
-                        ProviderInfo(ProviderId("anthropic"), "Anthropic"),
-                        EndpointOrigin("https://api.anthropic.com"),
-                        ClaudeEngine.AuthOwner,
-                        ClaudeEngine.AuthLocation,
-                    ),
-                ),
-                isLocalWorkspaceSupported = true,
-                isVirtualWorkspaceSupported = true,
-                nativeTools = ClaudeNativeCatalog,
-                areInstructionsRefreshedPerTurn = true,
-                declaredFeatures = setOf(
-                    ReportsProviderUsage.id,
-                    SessionContextUsage.id,
-                    CreatesSessions.id,
-                    AttachesSessions.id,
-                    SendsPrompts.id,
-                    SessionHistory.id,
-                    SessionTrees.id,
-                    ReconcilesSession.id,
-                    CancelsTurns.id,
-                    RequestsPermissions.id,
-                    AppliesTrustLevels.id,
-                    CompactsContext.id,
+    internal fun registration(
+        backend: Lazy<ClaudeBackend>,
+        manager: Lazy<ClaudeEngineManager>,
+        reader: ProjectAssistReader = ProjectAssistReader.None,
+        assists: ClaudeComposerAssists = ClaudeComposerAssists.None,
+    ): EngineRegistration = EngineRegistration(
+        descriptor = EngineDescriptor(
+            ClaudeEngine.Id,
+            "Claude Code",
+            EngineFamily.Vendor,
+            setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows, EnginePlatform.DesktopLinux),
+            ClaudeEngine.Enabled,
+            requirements = listOf(
+                EngineRequirement("claude-cli", "Native Claude Code CLI with stream-json support"),
+            ),
+            connectionMethods = listOf(
+                ConnectionMethod.CliLogin(
+                    ConnectionMethodId("cli"),
+                    ProviderInfo(ProviderId("anthropic"), "Anthropic"),
+                    EndpointOrigin("https://api.anthropic.com"),
+                    ClaudeEngine.AuthOwner,
+                    ClaudeEngine.AuthLocation,
                 ),
             ),
-            authOwner = ClaudeEngine.AuthOwner,
-            factory = lazy { backend.value },
-            modelCatalogRevision = CLAUDE_MODEL_CATALOG_REVISION,
-            sessionSources = listOf(ClaudeSessionSource(backend)),
-            management = ClaudeManagementSpec,
-            manager = lazy { manager.value },
-        )
+            isLocalWorkspaceSupported = true,
+            isVirtualWorkspaceSupported = true,
+            nativeTools = ClaudeNativeCatalog,
+            areInstructionsRefreshedPerTurn = true,
+            declaredFeatures = setOf(
+                ListsComposerAssists.id,
+                ReportsProviderUsage.id,
+                SessionContextUsage.id,
+                CreatesSessions.id,
+                AttachesSessions.id,
+                SendsPrompts.id,
+                SessionHistory.id,
+                SessionTrees.id,
+                ReconcilesSession.id,
+                CancelsTurns.id,
+                RequestsPermissions.id,
+                AppliesTrustLevels.id,
+                CompactsContext.id,
+            ),
+        ),
+        authOwner = ClaudeEngine.AuthOwner,
+        factory = lazy { backend.value },
+        modelCatalogRevision = CLAUDE_MODEL_CATALOG_REVISION,
+        sessionSources = listOf(ClaudeSessionSource(backend)),
+        management = ClaudeManagementSpec,
+        manager = lazy { manager.value },
+        configuration = ProjectAssistReader.Schema,
+        configurator = lazy { reader },
+        composerAssists = lazy { assists },
+    )
 }
 
 /** Registers the adapter toggle in the application panel. */

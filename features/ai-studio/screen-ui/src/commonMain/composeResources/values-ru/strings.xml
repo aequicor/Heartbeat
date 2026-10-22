@@ -386,4 +386,6 @@
     <string name="usage_limit_unknown">Лимит неизвестен</string>
     <string name="usage_tokens_unknown_limit">%1$s токенов · лимит неизвестен</string>
     <string name="usage_context_unavailable">Движок не передал статистику контекста.</string>
+    <string name="suggestion_remember_description">Сохранить инструкцию для будущих чатов</string>
+    <string name="suggestion_compact_description">Сжать беседу и освободить контекст</string>
 </resources>

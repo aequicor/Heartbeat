@@ -17,10 +17,19 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.queryRank
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 
 /**
- * Profile service merging the suggestion sources of one composer token. Heartbeat items come first, native
- * engine ones after them, and a source that is off or unavailable contributes nothing — typing degrades to
+ * Profile service merging the suggestion sources of one composer token by relevance across origins.
+ * A source that is off or unavailable contributes nothing — typing degrades to
  * fewer sections instead of blocking. Matching is prefix-then-substring over ids, titles and labels; a native
  * item that duplicates a Heartbeat item's visible name drops, because the host item owns the semantics the
  * composer can guarantee.
@@ -33,42 +42,85 @@ internal class AutocompleteComposerAssists(
     private val engineAssists: EngineAssistsSource,
     private val projectFiles: ProjectFileIndex,
 ) : ComposerAssists {
+    override suspend fun isAvailable(suggestion: ComposerSuggestion, scope: ComposerScope): Boolean {
+        val origin = suggestion.origin as? ComposerAssistOrigin.Engine ?: return true
+        val target = scope.target?.takeIf { it.engine == origin.engine } ?: return false
+        return engineAssists.assists(target, scope.workspace).any {
+            suggestion.id == "engine:${target.engine.value}:${it.id}"
+        }
+    }
+
+    override suspend fun prewarm(scope: ComposerScope) {
+        suggest(ComposerTrigger.Mention(0..0, ""), scope, emptyList())
+    }
+
     override suspend fun suggest(
         trigger: ComposerTrigger,
         scope: ComposerScope,
         hostCommands: List<HostCommand>,
-    ): List<ComposerSuggestion> {
-        if (!toggles.get(AutocompleteEnabled)) return emptyList()
-        val merged = when (trigger) {
-            is ComposerTrigger.Command -> buildList {
-                hostCommands.filter { it.matches(trigger.query) }.forEach { add(hostCommand(it)) }
-                native(trigger, scope).forEach { add(it) }
-            }
+    ): List<ComposerSuggestion> = coroutineScope {
+        if (!toggles.get(AutocompleteEnabled)) return@coroutineScope emptyList()
+        val engine = async { native(trigger, scope) }
+        val files = async { if (trigger is ComposerTrigger.Mention) files(trigger, scope) else emptyList() }
+        val host = when (trigger) {
+            is ComposerTrigger.Command -> hostCommands.filter { it.matches(trigger.query) }
+                .map { hostCommand(it, trigger.query) }
 
-            is ComposerTrigger.Mention -> buildList {
-                learned(trigger, scope).forEach { add(it) }
-                native(trigger, scope).forEach { add(it) }
-                files(trigger, scope).forEach { add(it) }
-            }
+            is ComposerTrigger.Mention -> learned(trigger, scope)
         }
+        merge(host + engine.await() + files.await())
+    }
+
+    override fun observe(
+        trigger: ComposerTrigger,
+        scope: ComposerScope,
+        hostCommands: List<HostCommand>,
+    ): Flow<List<ComposerSuggestion>> = flow {
+        if (!toggles.get(AutocompleteEnabled)) {
+            emit(emptyList())
+            return@flow
+        }
+        val host = when (trigger) {
+            is ComposerTrigger.Command -> hostCommands.filter { it.matches(trigger.query) }
+                .map { hostCommand(it, trigger.query) }
+
+            is ComposerTrigger.Mention -> learned(trigger, scope)
+        }
+        emit(merge(host))
+        val native = scope.target?.let { target ->
+            engineAssists.observe(target, scope.workspace).map { nativeItems(trigger, scope, it) }
+        } ?: flow { emit(emptyList()) }
+        val files = flow {
+            emit(if (trigger is ComposerTrigger.Mention) files(trigger, scope) else emptyList())
+        }.onStart { emit(emptyList()) }
+        emitAll(combine(native, files) { engine, workspace -> merge(host + engine + workspace) })
+    }.distinctUntilChanged()
+
+    private fun merge(merged: List<Ranked>): List<ComposerSuggestion> {
         val heartbeatNames = merged.asSequence()
             .filter { it.suggestion.origin == ComposerAssistOrigin.Heartbeat }
-            .map { it.suggestion.label.lowercase() }
+            .map { it.suggestion.duplicateKey() }
             .toSet()
         return merged.asSequence()
             .filterNot {
                 it.suggestion.origin != ComposerAssistOrigin.Heartbeat &&
-                    it.suggestion.label.lowercase() in heartbeatNames
+                    it.suggestion.duplicateKey() in heartbeatNames
             }
-            .sortedWith(compareBy({ it.suggestion.origin != ComposerAssistOrigin.Heartbeat }, { it.rank }))
+            .sortedWith(compareBy({ it.rank }, { it.suggestion.origin != ComposerAssistOrigin.Heartbeat }))
             .map { it.suggestion }
             .take(SUGGESTION_LIMIT)
             .toList()
     }
 
+    private fun ComposerSuggestion.duplicateKey(): String = when (this) {
+        is ComposerSuggestion.Command -> "command:${label.lowercase()}"
+        is ComposerSuggestion.Skill -> "skill:${label.lowercase()}"
+        is ComposerSuggestion.File -> "file:$relativePath"
+    }
+
     private fun HostCommand.matches(query: String): Boolean = queryRank(query, id) >= 0 || queryRank(query, label) >= 0
 
-    private fun hostCommand(command: HostCommand): Ranked = Ranked(
+    private fun hostCommand(command: HostCommand, query: String): Ranked = Ranked(
         ComposerSuggestion.Command(
             id = "host:${command.id}",
             label = command.label,
@@ -76,7 +128,7 @@ internal class AutocompleteComposerAssists(
             origin = ComposerAssistOrigin.Heartbeat,
             insert = command.insert,
         ),
-        HOST_RANK,
+        rank(query, command.id, command.label) ?: 0,
     )
 
     private suspend fun learned(trigger: ComposerTrigger.Mention, scope: ComposerScope): List<Ranked> {
@@ -99,12 +151,16 @@ internal class AutocompleteComposerAssists(
 
     private suspend fun native(trigger: ComposerTrigger, scope: ComposerScope): List<Ranked> {
         val target = scope.target ?: return emptyList()
+        return nativeItems(trigger, scope, engineAssists.assists(target, scope.workspace))
+    }
+
+    private fun nativeItems(trigger: ComposerTrigger, scope: ComposerScope, assists: List<EngineAssist>): List<Ranked> {
+        val target = scope.target ?: return emptyList()
         val kind = when (trigger) {
             is ComposerTrigger.Command -> EngineAssist.Kind.Command
             is ComposerTrigger.Mention -> EngineAssist.Kind.Skill
         }
-        return engineAssists.assists(target, scope.workspace)
-            .asSequence()
+        return assists.asSequence()
             .filter { it.kind == kind }
             .mapNotNull { assist -> rank(trigger.query, assist.label, assist.id)?.let { assist to it } }
             .map { (assist, rank) ->
@@ -147,8 +203,9 @@ internal class AutocompleteComposerAssists(
                 Ranked(
                     ComposerSuggestion.File(
                         id = "file:${file.relativePath}",
-                        label = file.relativePath,
-                        description = describeSize(file.sizeBytes) + reason?.let { " · $it" }.orEmpty(),
+                        label = file.relativePath.substringAfterLast('/'),
+                        description = "${file.relativePath} · ${describeSize(file.sizeBytes)}" +
+                            reason?.let { " · $it" }.orEmpty(),
                         origin = ComposerAssistOrigin.Heartbeat,
                         relativePath = file.relativePath,
                         location = file.location,
@@ -173,8 +230,7 @@ internal class AutocompleteComposerAssists(
     private data class Ranked(val suggestion: ComposerSuggestion, val rank: Int)
 
     private companion object {
-        const val SUGGESTION_LIMIT = 8
-        const val HOST_RANK = -1
+        const val SUGGESTION_LIMIT = 16
         const val BYTES_PER_KB = 1_024L
         const val BYTES_PER_MB = 1_048_576L
     }

@@ -100,6 +100,7 @@ internal class ProcessClaudeTransport(
     private val searchBridge: SearchBridge,
     private val workspaces: LocalWorkspaces,
     private val launches: EngineLaunchConfig = EngineLaunchConfig.Default,
+    private val assists: ClaudeComposerAssists = ClaudeComposerAssists.None,
 ) : ClaudeTransport {
     private val log = Log.tag("ClaudeProcess")
     override val nativeStore: String by lazy { claudeNativeStore(configuration.configDirectory) }
@@ -227,6 +228,7 @@ internal class ProcessClaudeTransport(
         }
         var bridgeConfig: Path? = null
         var instructionFile: Path? = null
+        var projectAssists: ClaudePreparedAssists? = null
         try {
             val searchEndpoint = if (isScopedSearchRequired) {
                 checkNotNull(searchAccess).endpoint
@@ -242,7 +244,14 @@ internal class ProcessClaudeTransport(
             }
             instructionFile = hosted?.takeIf { endpoint != null || it.instructions.isNotBlank() }
                 ?.let { instructionFile(it.instructions) }
-            val effectiveArguments = configuredArguments(arguments, endpoint, bridgeConfig, instructionFile)
+            if ("--print" in arguments) projectAssists = assists.prepare(workspace)
+            val pluginArguments = projectAssists?.let { listOf("--plugin-dir", it.directory) }.orEmpty()
+            val effectiveArguments = configuredArguments(
+                arguments,
+                endpoint,
+                bridgeConfig,
+                instructionFile,
+            ) + pluginArguments
             val process = start(processBuilder(startup, effectiveArguments, workspace))
             try {
                 return operation(process)
@@ -251,6 +260,7 @@ internal class ProcessClaudeTransport(
                 closeInput(process)
             }
         } finally {
+            projectAssists?.close()
             searchAccess?.close()
             bridgeConfig?.let(Files::deleteIfExists)
             instructionFile?.let(Files::deleteIfExists)

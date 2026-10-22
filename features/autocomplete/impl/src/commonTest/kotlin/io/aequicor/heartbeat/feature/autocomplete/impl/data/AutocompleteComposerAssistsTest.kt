@@ -2,18 +2,32 @@ package io.aequicor.heartbeat.feature.autocomplete.impl.data
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningState
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionId
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceDraft
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -26,6 +40,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
@@ -35,8 +50,12 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -70,7 +89,8 @@ class AutocompleteComposerAssistsTest {
         )
         val file = assertIs<ComposerSuggestion.File>(suggestions.single())
         assertEquals("docs/readme.md", file.relativePath)
-        assertEquals("2 kB", file.description)
+        assertEquals("readme.md", file.label)
+        assertEquals("docs/readme.md · 2 kB", file.description)
         assertTrue(file.isSupported)
         val oversized = service.suggest(
             ComposerTrigger.Mention(0..4, "logo"),
@@ -207,6 +227,7 @@ class AutocompleteComposerAssistsTest {
         val source = EngineAssistsSource(
             facade(listOf(command("/plan", "Plan")), onRead = { calls++ }),
             clock,
+            TestSources(),
         )
         val target1 = EngineTarget(EngineId("pi"), EngineBindingId("b1"), ModelId("m"))
         val target2 = EngineTarget(EngineId("pi"), EngineBindingId("b2"), ModelId("m"))
@@ -234,13 +255,13 @@ class AutocompleteComposerAssistsTest {
     }
 
     @Test
-    fun `heartbeat substring match stays before a native prefix match`() = runTest {
+    fun `native prefix match precedes a heartbeat substring match`() = runTest {
         val service = service(assists = listOf(skill("erify", "erify")))
         val suggestions = service.suggest(
             ComposerTrigger.Mention(0..2, "er"),
             ComposerScope(target = target, workspace = project),
         )
-        assertEquals(listOf("verify", "erify"), suggestions.map { it.label })
+        assertEquals(listOf("erify", "verify"), suggestions.map { it.label })
     }
 
     @Test
@@ -267,6 +288,102 @@ class AutocompleteComposerAssistsTest {
         )
         assertEquals(listOf("verify"), suggestions.map { it.label })
         assertEquals<List<WorkspaceRef?>>(listOf(checkout), scopes)
+    }
+
+    @Test
+    fun `one ranked list is capped at sixteen suggestions`() = runTest {
+        val service = service(assists = (1..24).map { command("/task$it ", "task$it") })
+        val suggestions = service.suggest(ComposerTrigger.Command(0..0, ""), ComposerScope(target = target))
+        assertEquals(16, suggestions.size)
+    }
+
+    @Test
+    fun `host results arrive before a slow engine`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val service = service(assists = listOf(command("/review ", "review")), onRead = { gate.await() })
+        val snapshots = mutableListOf<List<ComposerSuggestion>>()
+        val job = launch {
+            service.observe(
+                ComposerTrigger.Command(0..0, ""),
+                ComposerScope(target = target),
+                listOf(HostCommand("remember", "remember", insert = "/remember ")),
+            ).collect { snapshots += it }
+        }
+        runCurrent()
+        assertEquals(listOf("remember"), snapshots.last().map { it.label })
+        gate.complete(Unit)
+        runCurrent()
+        job.cancelAndJoin()
+        assertEquals(listOf("remember", "review"), snapshots.last().map { it.label })
+    }
+
+    @Test
+    fun `native skills are not hidden by an identically named file`() = runTest {
+        val service = service(
+            toggles = mapOf(AutocompleteEnabled to true, AttachmentsEnabled to true),
+            skills = emptyList(),
+            assists = listOf(skill("readme.md", "readme.md")),
+        )
+        val rows = service.suggest(
+            ComposerTrigger.Mention(0..4, "read"),
+            ComposerScope(target, project, PromptInputSupport(resourceMediaTypes = setOf("text/markdown"))),
+        )
+        assertEquals(2, rows.size)
+        assertTrue(rows.any { it is ComposerSuggestion.Skill })
+        assertTrue(rows.any { it is ComposerSuggestion.File })
+    }
+
+    @Test
+    fun `configuration changes invalidate cached native metadata and refresh an open list`() = runTest {
+        val states = MutableStateFlow(
+            EngineConfigurationState(isEnabled = true),
+        )
+        val config = object : EngineConfiguration by
+        UnavailableEngineConfiguration() {
+            override val state = states
+        }
+        var calls = 0
+        val source = EngineAssistsSource(
+            facade(listOf(command("/plan", "plan")), onRead = { calls++ }),
+            FakeClock,
+            TestSources(),
+            config,
+        )
+        val snapshots = mutableListOf<List<EngineAssist>>()
+        val job = launch { source.observe(target, project).collect { snapshots += it } }
+        runCurrent()
+        assertEquals(1, calls)
+        states.value = states.value.copy(isEnabled = false)
+        runCurrent()
+        assertEquals(2, calls)
+        assertEquals(emptyList(), snapshots[snapshots.lastIndex - 1])
+        job.cancelAndJoin()
+    }
+
+    @Test
+    fun `source revision and forgetting invalidate native rows without changing bindings`() = runTest {
+        val auth = TestSources()
+        val original = AuthSource.NoAuth(
+            AuthSourceInfo(AuthSourceId("s"), "source", AuthRevision.Known("v1")),
+            AuthScope(ProviderId("test"), EndpointOrigin("https://example.com")),
+        )
+        auth.state.value = listOf(original)
+        var calls = 0
+        val source = EngineAssistsSource(
+            facade(listOf(command("/plan", "plan")), onRead = { calls++ }),
+            FakeClock,
+            auth,
+        )
+        val job = launch { source.observe(target, project).collect {} }
+        runCurrent()
+        assertEquals(1, calls)
+        auth.state.value = listOf(original.copy(info = original.info.copy(revision = AuthRevision.Known("v2"))))
+        runCurrent()
+        assertEquals(2, calls)
+        auth.forget(original.info.id)
+        runCurrent()
+        assertEquals(3, calls)
+        job.cancelAndJoin()
     }
 
     private fun command(insert: String, label: String, description: String = "") = EngineAssist(
@@ -302,6 +419,7 @@ class AutocompleteComposerAssistsTest {
             ),
         ),
         failWith: Exception? = null,
+        onRead: suspend () -> Unit = {},
         files: ProjectFileIndex = object : ProjectFileIndex {
             override suspend fun search(workspace: WorkspaceRef?, query: String, limit: Int): List<ProjectFile> =
                 listOf(
@@ -314,19 +432,21 @@ class AutocompleteComposerAssistsTest {
         LearnedSkillsSource(
             learningRegistry(MutableStateFlow<AgentLearningState>(AgentLearningState.Ready(instructions = skills))),
         ),
-        EngineAssistsSource(facade(assists, onRead = {}, failure = failWith), FakeClock),
+        EngineAssistsSource(facade(assists, onRead = onRead, failure = failWith), FakeClock, TestSources()),
         files,
     )
 
-    private fun facade(assists: List<EngineAssist>, onRead: () -> Unit, failure: Exception? = null): EngineFacade {
+    private fun facade(
+        assists: List<EngineAssist>,
+        onRead: suspend () -> Unit,
+        failure: Exception? = null,
+    ): EngineFacade {
         val features = object : EngineFeatures {
-            override fun <F : io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature> resolve(
-                key: EngineFeatureKey<F>,
-            ): FeatureAccess<F> {
-                onRead()
+            override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> {
                 @Suppress("UNCHECKED_CAST")
                 val feature = object : ListsComposerAssists {
                     override suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> {
+                        onRead()
                         failure?.let { throw it }
                         return assists
                     }
@@ -341,7 +461,7 @@ class AutocompleteComposerAssistsTest {
         }
         return object : EngineFacade {
             override val engines = catalog
-            override val bindings: EngineBindings get() = error("unused")
+            override val bindings: EngineBindings = TestBindings()
             override val models: ModelCatalog get() = error("unused")
             override val sessions: SessionCatalog get() = error("unused")
             override val providerUsage: ProviderUsageCatalog get() = error("unused")
@@ -373,5 +493,25 @@ internal class FakeToggles(private val values: Map<FeatureToggle.Flag, Boolean>)
         val flag = toggle as? FeatureToggle.Flag ?: error("Only flags are supported")
         @Suppress("UNCHECKED_CAST")
         return (values[flag] ?: flag.default) as T
+    }
+}
+
+private class TestBindings : EngineBindings {
+    override val state = MutableStateFlow<List<EngineBinding>>(emptyList())
+    override suspend fun connect(engine: EngineId, source: AuthSourceId, priority: Int): Nothing = error("unused")
+    override suspend fun setEnabled(binding: EngineBindingId, enabled: Boolean): Nothing = error("unused")
+    override suspend fun disconnect(binding: EngineBindingId): Nothing = error("unused")
+    override suspend fun check(target: EngineTarget, workspace: WorkspaceRef?): Nothing = error("unused")
+}
+
+private class TestSources : AuthSources {
+    override val state = MutableStateFlow<List<AuthSource>>(emptyList())
+    override suspend fun get(id: AuthSourceId) = state.value.firstOrNull { it.info.id == id }
+    override suspend fun addManagedKey(label: String, scope: AuthScope, key: Secret): Nothing = error("unused")
+    override suspend fun replaceManagedKey(id: AuthSourceId, key: Secret): Nothing = error("unused")
+    override suspend fun register(draft: AuthSourceDraft): Nothing = error("unused")
+    override suspend fun updateRevision(id: AuthSourceId, revision: AuthRevision): Nothing = error("unused")
+    override suspend fun forget(id: AuthSourceId) {
+        state.value = state.value.filterNot { it.info.id == id }
     }
 }

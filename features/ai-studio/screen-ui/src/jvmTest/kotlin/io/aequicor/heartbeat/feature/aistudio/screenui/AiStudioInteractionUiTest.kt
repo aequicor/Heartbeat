@@ -130,7 +130,7 @@ class AiStudioInteractionUiTest {
             runOnIdle {
                 assertEquals(
                     listOf(StudioIntent.SetDrawerOpen(true), StudioIntent.Stop("active")),
-                    events,
+                    events.withoutFocus(),
                 )
             }
         }
@@ -208,7 +208,7 @@ class AiStudioInteractionUiTest {
                         StudioIntent.Suggestions.CaretMoved(1, "Test the redesigned studio".length),
                         StudioIntent.Submit(1),
                     ),
-                    events,
+                    events.withoutFocus(),
                 )
                 assertEquals("Keep the first draft", state.draft(0))
                 assertEquals("Test the redesigned studio", state.draft(1))
@@ -244,7 +244,7 @@ class AiStudioInteractionUiTest {
             onNode(hasAnyAncestor(hasTestTag("composer-0")) and hasContentDescription(inputLabel))
                 .assertIsNotEnabled()
             runOnIdle {
-                assertEquals(listOf<StudioIntent>(StudioIntent.Stop("active")), events)
+                assertEquals(listOf<StudioIntent>(StudioIntent.Stop("active")), events.withoutFocus())
                 assertEquals("Keep this follow-up", state.draft(0))
             }
         }
@@ -319,3 +319,5 @@ class AiStudioInteractionUiTest {
         )
     }.toImmutableList()
 }
+
+private fun List<StudioIntent>.withoutFocus() = filterNot { it is StudioIntent.Suggestions.FocusChanged }

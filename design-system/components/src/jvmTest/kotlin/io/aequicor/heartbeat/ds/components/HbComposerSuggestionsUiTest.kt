@@ -15,6 +15,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SkikoComposeUiTest
@@ -26,15 +27,19 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInputSelection
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import java.io.File
+import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -218,6 +223,62 @@ class HbComposerSuggestionsUiTest {
             onNodeWithText("File 29").assertIsSelected().assertIsDisplayed()
             editor.assertIsFocused()
         }
+
+    @Test
+    fun `progressive insertion keeps the selected row visible without changing its identity`() =
+        runSkikoComposeUiTest(size = Size(1280f, 700f)) {
+            val selected = HbComposerSuggestion("selected", "Selected host match", isSelected = true)
+            var suggestions by mutableStateOf(HbComposerSuggestions(persistentListOf(selected)))
+            var accepted by mutableIntStateOf(-1)
+            setContent { SuggestionsComposer("/", {}, {}, suggestions, onAccept = { accepted = it }) }
+            val editor = onNodeWithContentDescription("Prompt")
+            editor.performMouseInput { click() }
+            onNodeWithText(selected.label).assertIsSelected().assertIsDisplayed()
+            runOnIdle {
+                val arrived = (0 until 15).map { HbComposerSuggestion("native-$it", "Native match $it") }
+                suggestions = HbComposerSuggestions((arrived + selected).toImmutableList(), arrived.size)
+            }
+            onNodeWithText(selected.label).assertIsSelected().assertIsDisplayed()
+            editor.assertIsFocused().performKeyInput { pressKey(Key.Tab) }
+            runOnIdle { assertEquals(15, accepted) }
+        }
+
+    @Test
+    fun `long titles and descriptions stay on one line across themes and widths`() {
+        for (width in listOf(420f, 1280f)) {
+            for (dark in listOf(false, true)) {
+                runSkikoComposeUiTest(size = Size(width, 700f)) {
+                    val title = "Проверить длинное название навыка и все изменения проекта ".repeat(8)
+                    val description = "features/project/src/main/very-long-resource-name/".repeat(8)
+                    val items = persistentListOf(
+                        HbComposerSuggestion("long", title, description, isSelected = true),
+                        HbComposerSuggestion("next", "Next suggestion", "Another useful description"),
+                    )
+                    setContent {
+                        SuggestionsComposer("/", {}, {}, HbComposerSuggestions(items), {}, darkTheme = dark)
+                    }
+                    val editor = onNodeWithContentDescription("Prompt")
+                    editor.performMouseInput { click() }
+                    for (text in listOf(title, description)) {
+                        val layouts = mutableListOf<TextLayoutResult>()
+                        onNodeWithText(text, useUnmergedTree = true)
+                            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                        assertEquals(1, layouts.single().lineCount)
+                    }
+                    onNodeWithText("Next suggestion").assertIsDisplayed()
+                    editor.assertIsFocused()
+                    val directory = File("build/composer-suggestions-ui").apply { mkdirs() }
+                    check(
+                        ImageIO.write(
+                            captureToImage().toAwtImage(),
+                            "png",
+                            File(directory, "long-rows-${width.toInt()}-$dark.png"),
+                        ),
+                    )
+                }
+            }
+        }
+    }
 
     @Test
     fun `keyboard selection has a visible fill in both themes`() {

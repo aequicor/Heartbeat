@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -40,7 +41,48 @@ class StudioSuggestionsModelTest {
     )
 
     @Test
-    fun `editing the token invalidates acceptance before the next debounce`() = runTest {
+    fun `pending native acceptance does not block typing and cannot overwrite a newer draft`() = runTest {
+        val permission = CompletableDeferred<Boolean>()
+        val source = TestComposerAssists().also { it.availability = { permission.await() } }
+        val fixture = Fixture(this, ready, assists = source)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "/plan"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertNotNull(screen.states.value.suggestions(0))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.AcceptSuggestion(0))
+        runCurrent()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "new draft"))
+        runCurrent()
+        assertEquals("new draft", screen.states.value.draft(0))
+        permission.complete(true)
+        runCurrent()
+        assertEquals("new draft", screen.states.value.draft(0))
+        assertNull(screen.states.value.caretRequest(0))
+    }
+
+    @Test
+    fun `focus prewarms the effective workspace and route changes warm again`() = runTest {
+        val source = TestComposerAssists()
+        val initial = ready.copy(panes = listOf(StudioPane(0, projectId = "first")))
+        val fixture = Fixture(this, initial, assists = source)
+        fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.FocusChanged(0, true))
+        runCurrent()
+        assertEquals(WorkspaceRef("first"), source.warmed.last().workspace)
+        fixture.machine.state.value = initial.copy(panes = listOf(StudioPane(0, projectId = "second")))
+        runCurrent()
+        assertEquals(WorkspaceRef("second"), source.warmed.last().workspace)
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.FocusChanged(0, false))
+        runCurrent()
+        val count = source.warmed.size
+        fixture.machine.state.value = initial
+        runCurrent()
+        assertEquals(count, source.warmed.size)
+    }
+
+    @Test
+    fun `editing the token invalidates acceptance before the next source result`() = runTest {
         val fixture = Fixture(this, ready, assists = TestComposerAssists())
         val screen = fixture.subscribe()
         fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "/old"))
@@ -144,13 +186,22 @@ class StudioSuggestionsModelTest {
 private class TestComposerAssists(
     private val resolve: suspend (ComposerTrigger) -> List<ComposerSuggestion> = { listOf(testCommand(it.query)) },
 ) : ComposerAssists {
+    var availability: suspend () -> Boolean = { true }
+    override suspend fun isAvailable(suggestion: ComposerSuggestion, scope: ComposerScope): Boolean = availability()
+
     val scopes = mutableListOf<ComposerScope>()
+    val warmed = mutableListOf<ComposerScope>()
+
+    override suspend fun prewarm(scope: ComposerScope) {
+        warmed += scope
+    }
 
     override suspend fun suggest(
         trigger: ComposerTrigger,
         scope: ComposerScope,
         hostCommands: List<HostCommand>,
     ): List<ComposerSuggestion> {
+        kotlinx.coroutines.delay(1) // Simulate an asynchronous source on the virtual test clock.
         scopes += scope
         return resolve(trigger)
     }

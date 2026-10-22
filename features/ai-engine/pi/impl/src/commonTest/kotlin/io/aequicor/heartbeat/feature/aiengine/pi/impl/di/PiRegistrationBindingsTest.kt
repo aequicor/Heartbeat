@@ -1,16 +1,21 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.di
 
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.validateLaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiAdapter
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiConfigSchema
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiConfigurator
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiEngineManager
+import kotlinx.coroutines.Dispatchers
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -62,6 +67,17 @@ class PiRegistrationBindingsTest {
         lazy<PiConfigurator> { error("Must stay lazy") },
         object : PlatformInfo {
             override val host = host
+        },
+        object : LocalWorkspaces {
+            override val isAvailable = false
+            override fun observe() = kotlinx.coroutines.flow.flowOf(emptyList<LocalWorkspace>())
+            override suspend fun register(directory: String): Nothing = error("unused")
+            override suspend fun resolve(ref: WorkspaceRef): String? = null
+        },
+        object : DispatcherProvider {
+            override val main = Dispatchers.Unconfined
+            override val default = Dispatchers.Unconfined
+            override val io = Dispatchers.Unconfined
         },
     )
 }
