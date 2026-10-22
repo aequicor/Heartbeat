@@ -47,6 +47,28 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class HbComposerSuggestionsUiTest {
     @Test
+    fun `single section heading shares the close row without a blank header`() =
+        runSkikoComposeUiTest(size = Size(420f, 700f)) {
+            setContent {
+                SuggestionsComposer(
+                    "@br",
+                    {},
+                    {},
+                    HbComposerSuggestions(
+                        persistentListOf(HbComposerSuggestion("browser", "@browser", sectionLabel = "Commands")),
+                    ),
+                    onAccept = {},
+                )
+            }
+            onNodeWithContentDescription("Prompt").performMouseInput { click() }
+            val heading = onNodeWithText("Commands").fetchSemanticsNode().boundsInWindow
+            val close = onNodeWithContentDescription("Close suggestions").fetchSemanticsNode().boundsInWindow
+            val row = onNodeWithText("@browser").fetchSemanticsNode().boundsInWindow
+            assertTrue(heading.center.y in close.top..close.bottom)
+            assertTrue(row.top >= heading.bottom)
+        }
+
+    @Test
     fun `enter accepts the selected suggestion instead of sending`() = runSkikoComposeUiTest(size = Size(1200f, 700f)) {
         var draft by mutableStateOf("")
         var sends by mutableIntStateOf(0)
@@ -63,6 +85,10 @@ class HbComposerSuggestionsUiTest {
         editor.performMouseInput { click() }
         editor.assertIsFocused()
         onNodeWithText("Remember a lesson").assertExists()
+        onNodeWithText("Suggestions").assertDoesNotExist()
+        val heading = onNodeWithText("Commands").fetchSemanticsNode().boundsInWindow
+        val close = onNodeWithContentDescription("Close suggestions").fetchSemanticsNode().boundsInWindow
+        assertTrue(heading.center.y in close.top..close.bottom)
         editor.performKeyInput { pressKey(Key.Enter) }
         runOnIdle {
             assertEquals("chosen:0", draft)
@@ -311,6 +337,23 @@ class HbComposerSuggestionsUiTest {
     }
 
     @Test
+    fun `outside clicks reach Send and release the suggestion editor focus`() =
+        runSkikoComposeUiTest(size = Size(1200f, 700f)) {
+            var sends by mutableIntStateOf(0)
+            setContent {
+                SuggestionsComposer("@", {}, { sends++ }, sampleSuggestions(), onAccept = {})
+            }
+            onNodeWithContentDescription("Prompt").performMouseInput { click() }
+            onNodeWithText("Remember a lesson").assertExists()
+            onNodeWithContentDescription("Send").performMouseInput {
+                moveTo(center)
+                click()
+            }
+            runOnIdle { assertEquals(1, sends) }
+            onNodeWithText("Remember a lesson").assertDoesNotExist()
+        }
+
+    @Test
     fun `clicking a suggestion takes it and keeps the draft unsent`() =
         runSkikoComposeUiTest(size = Size(1200f, 700f)) {
             var draft by mutableStateOf("@")
@@ -325,7 +368,12 @@ class HbComposerSuggestionsUiTest {
                 )
             }
             onNodeWithContentDescription("Prompt").performMouseInput { click() }
-            onNodeWithText("Read UTF-8 files").performMouseInput { click() }
+            onNodeWithText("Read UTF-8 files").performMouseInput {
+                moveTo(center)
+                press()
+            }
+            onNodeWithContentDescription("Prompt").assertIsFocused()
+            onNodeWithText("Read UTF-8 files").performMouseInput { release() }
             runOnIdle {
                 assertEquals("clicked:2", draft)
                 assertEquals(0, sends)
@@ -375,26 +423,29 @@ private fun SuggestionsComposer(
     darkTheme: Boolean = false,
 ) {
     HbTheme(darkTheme = darkTheme) {
-        Box(Modifier.fillMaxSize().background(HbTheme.colors.background)) {
-            HbColumn(Modifier.align(Alignment.BottomCenter).padding(16.dp)) {
-                HbChatComposer(
-                    value = draft,
-                    onValueChange = onDraft,
-                    onSend = onSend,
-                    onStop = {},
-                    sendLabel = "Send",
-                    stopLabel = "Stop",
-                    layout = HbComposerLayout.Panel,
-                    placeholder = "Prompt",
-                    suggestions = suggestions,
-                    suggestionsLabel = "Suggestions",
-                    onSuggestionMove = onMove,
-                    onSuggestionAccept = onAccept,
-                    onSuggestionsDismiss = onDismiss,
-                    onCaretChange = onCaret,
-                    caretRequest = caretRequest,
-                    onCaretRequestApply = onCaretRequestApply,
-                )
+        HbInWindowPopupHost {
+            Box(Modifier.fillMaxSize().background(HbTheme.colors.background)) {
+                HbColumn(Modifier.align(Alignment.BottomCenter).padding(16.dp)) {
+                    HbChatComposer(
+                        value = draft,
+                        onValueChange = onDraft,
+                        onSend = onSend,
+                        onStop = {},
+                        sendLabel = "Send",
+                        stopLabel = "Stop",
+                        layout = HbComposerLayout.Panel,
+                        placeholder = "Prompt",
+                        suggestions = suggestions,
+                        suggestionsLabel = "Suggestions",
+                        suggestionsCloseLabel = "Close suggestions",
+                        onSuggestionMove = onMove,
+                        onSuggestionAccept = onAccept,
+                        onSuggestionsDismiss = onDismiss,
+                        onCaretChange = onCaret,
+                        caretRequest = caretRequest,
+                        onCaretRequestApply = onCaretRequestApply,
+                    )
+                }
             }
         }
     }

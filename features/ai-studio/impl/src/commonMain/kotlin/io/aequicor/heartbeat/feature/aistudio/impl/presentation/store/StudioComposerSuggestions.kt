@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.BROWSER_MENTION
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.COMPACT_COMMAND
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
@@ -21,6 +22,7 @@ import kotlinx.collections.immutable.toImmutableMap
 /** Host commands the composer offers; the semantics of each stay with the studio. */
 @HighFrequency
 internal fun AiStudioScreenState.hostCommands(): List<HostCommand> = listOfNotNull(
+    HostCommand("browser", BROWSER_MENTION, "", "$BROWSER_MENTION "),
     HostCommand("remember", "/remember", "", "/remember ").takeIf { isRememberEnabled },
     HostCommand("compact", COMPACT_COMMAND, "", "$COMPACT_COMMAND ").takeIf { isCompactEnabled },
 )

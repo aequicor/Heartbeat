@@ -18,7 +18,8 @@ private val LocalHbInWindowDialogs = compositionLocalOf<InWindowDialogs?> { null
 
 /**
  * The window's modal portal: dialogs opting into in-window presentation share its Compose canvas and native window.
- * Place once around the application content. Other popups keep their normal rendering strategy.
+ * Place once around the application content. Non-focusable composer suggestions share this canvas too;
+ * focusable menus retain native layers above Chromium.
  * [onActiveChange] lets the window defer global shortcuts while a modal owns keyboard input.
  */
 @Composable
@@ -56,7 +57,7 @@ internal fun HbInWindowDialogPortal(
         LocalHbInWindowDialogs provides dialogs,
         LocalHbActiveNativeModalOwner provides active?.owner,
     ) {
-        HbDialogFocusLayer(active != null, content, modifier) {
+        HbDialogFocusLayer(active != null, { HbInWindowPopupHost(content = content) }, modifier) {
             active?.render()
         }
     }
@@ -81,7 +82,7 @@ internal fun hbInWindowDialog(onDismissRequest: () -> Unit, content: @Composable
                     LocalHbNativeModalOwner provides owner,
                     LocalHbActiveNativeModalOwner provides owner,
                 ) {
-                    HbDesktopDialogContent(dismiss, content = body)
+                    HbInWindowPopupHost { HbDesktopDialogContent(dismiss, content = body) }
                 }
             }
         }

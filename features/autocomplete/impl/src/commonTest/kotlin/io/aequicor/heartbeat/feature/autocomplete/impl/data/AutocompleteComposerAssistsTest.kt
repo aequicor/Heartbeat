@@ -54,6 +54,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -70,6 +71,25 @@ class AutocompleteComposerAssistsTest {
     private val pi = EngineId("pi")
     private val target = EngineTarget(pi, EngineBindingId("b1"), ModelId("m1"))
     private val project = WorkspaceRef("project")
+
+    @Test
+    fun `host browser mention is immediate without a project and stays out of slash commands`() = runTest {
+        val service = service()
+        val commands = listOf(
+            HostCommand("browser", "@browser", insert = "@browser "),
+            HostCommand("remember", "/remember", insert = "/remember "),
+        )
+        val trigger = ComposerTrigger.Mention(0..2, "br")
+        val scope = ComposerScope()
+        val immediate = service.observe(trigger, scope, commands).first()
+        val item = assertIs<ComposerSuggestion.Command>(immediate.single())
+        assertEquals("@browser ", item.insert)
+        assertEquals("host:browser", item.id)
+        assertEquals(immediate, service.suggest(trigger, scope, commands))
+        assertTrue(service.suggest(ComposerTrigger.Command(0..2, "br"), scope, commands).isEmpty())
+        assertTrue(service.suggest(ComposerTrigger.Mention(0..2, "rem"), scope, commands).isEmpty())
+        assertTrue(service.suggest(ComposerTrigger.Mention(0..2, "other"), scope, commands).isEmpty())
+    }
 
     @Test
     fun `files complete mentions with support reasons`() = runTest {
