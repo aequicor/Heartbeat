@@ -6,6 +6,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualFileChange
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AssistDirectory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
@@ -139,6 +141,47 @@ class DesktopProjectAssistReaderTest {
         assertEquals(listOf("Checks, including # tags", "Run checks and report results"), items.map { it.description })
     }
 
+    @Test
+    fun `a sandbox lists the tree it snapshots under its source project trust`() = runTest {
+        val sandbox = sandbox(
+            source = workspace,
+            ".claude/commands/check.md" to "---\ndescription: checks\n---\nbody",
+            ".agents/skills/verify/SKILL.md" to "---\nname: verify\ndescription: tests\n---\nbody",
+            ".agents/skills/verify/notes.md" to "not a skill",
+            "src/Main.kt" to "fun main() = Unit",
+        )
+        val items = sandboxReader(sandbox, ProjectTrust.Trusted).read(engine, sandbox.ref, roots)
+        assertEquals(listOf("check", "verify"), items.map { it.label })
+        assertEquals(listOf(".claude/commands:check.md", ".agents/skills:verify/SKILL.md"), items.map { it.id })
+        assertEquals(listOf("/check ", "verify "), items.map { it.insert })
+    }
+
+    @Test
+    fun `a sandbox of an untrusted or unknown source contributes nothing`() = runTest {
+        val files = arrayOf(".claude/commands/check.md" to "body")
+        assertEquals(
+            emptyList(),
+            sandboxReader(sandbox(workspace, *files), ProjectTrust.Content).read(engine, WorkspaceRef("sandbox-1"), roots),
+        )
+        assertEquals(
+            emptyList(),
+            sandboxReader(sandbox(null, *files), ProjectTrust.Trusted).read(engine, WorkspaceRef("sandbox-1"), roots),
+        )
+    }
+
+    @Test
+    fun `unreadable sandbox entries are skipped and literal mode still omits shell expansion`() = runTest {
+        val sandbox = sandbox(
+            workspace,
+            ".claude/commands/link.md" to null,
+            ".claude/commands/dynamic.md" to "!`echo hidden`",
+            ".claude/commands/plain.md" to "plain",
+        )
+        val items = sandboxReader(sandbox, ProjectTrust.Trusted)
+            .read(engine, sandbox.ref, roots.map { it.copy(isLiteralOnly = true) })
+        assertEquals(listOf("plain"), items.map { it.label })
+    }
+
     private val nativeRoots = listOf(
         AssistDirectory(".agents/skills", EngineAssist.Kind.Skill, true, "$", isNativeSkillMetadataRequired = true),
     )
@@ -159,6 +202,31 @@ class DesktopProjectAssistReaderTest {
             return root.toString()
         }
     }
+
+    /** A null file body stands for an entry the sandbox refuses to read, such as a link. */
+    private fun sandbox(source: WorkspaceRef?, vararg files: Pair<String, String?>) = object : VirtualWorkspace {
+        override val ref = WorkspaceRef("sandbox-1")
+        override val processDirectory = "unused"
+        override suspend fun sourceProject() = source
+        override suspend fun revision() = 1L
+        override suspend fun paths() = files.map { it.first }.sorted()
+        override suspend fun read(path: String) =
+            files.first { it.first == path }.second ?: error("SandboxLinkUnsupported")
+        override suspend fun change(expectedRevision: Long, changes: List<VirtualFileChange>): Long = error("unused")
+        override suspend fun move(expectedRevision: Long, path: String, destination: String): Long = error("unused")
+    }
+
+    private fun sandboxReader(sandbox: VirtualWorkspace, trust: ProjectTrust) = DesktopProjectAssistReader(
+        object : LocalWorkspaces {
+            override val isAvailable = true
+            override fun observe() = flowOf(emptyList<LocalWorkspace>())
+            override suspend fun register(directory: String): Nothing = error("unused")
+            override suspend fun resolve(ref: WorkspaceRef): String = error("a sandbox has no project directory")
+            override suspend fun virtual(ref: WorkspaceRef) = sandbox.takeIf { ref == it.ref }
+        },
+        EngineLaunchConfig { LaunchContext(trust = mapOf(workspace to trust, sandbox.ref to ProjectTrust.Trusted)) },
+        dispatchers,
+    )
 
     private fun write(root: Path, relative: String, text: String) {
         val path = root.resolve(relative)

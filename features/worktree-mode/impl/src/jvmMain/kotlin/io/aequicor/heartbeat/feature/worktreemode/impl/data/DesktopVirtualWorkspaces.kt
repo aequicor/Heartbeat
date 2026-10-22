@@ -39,6 +39,7 @@ internal class DesktopVirtualWorkspaces(
     private val settings: ProjectBuildSettings,
     private val dispatchers: DispatcherProvider,
     private val clock: Clock = Clock.System,
+    private val tasks: Lazy<WorktreeJournal>? = null,
 ) : VirtualSandboxStore {
     private val store = stores.keyValue(KeyValueSpec("virtual_sandboxes", readPolicy = KeyValueReadPolicy.Strict))
     private val processes = Path.of(stores.filesDirectory("virtual_sandboxes"))
@@ -373,6 +374,8 @@ internal class DesktopVirtualWorkspaces(
     private inner class Handle(override val ref: WorkspaceRef, override val processDirectory: String) :
         VirtualWorkspace {
         override suspend fun revision(): Long = lock.withLock { accessible(ref).state.revision }
+
+        override suspend fun sourceProject(): WorkspaceRef? = tasks?.value?.find(ref)?.project
 
         override suspend fun paths(): List<String> = lock.withLock {
             val record = accessible(ref)
