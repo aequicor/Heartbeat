@@ -84,10 +84,10 @@ class BundleHostTest {
         override val id = BundleId(name)
         override val importsType = imports
         override val exportTypes = exports
-        override fun createGraph(imports: Any): Any = create(imports)
+        override fun createGraph(foundation: Any, imports: Any): Any = create(imports)
     }
 
-    private fun started(vararg entries: BundleEntry): BundleHost = BundleHost(entries.toList()).also {
+    private fun started(vararg entries: BundleEntry): BundleHost = BundleHost(entries.toList()) { Unit }.also {
         it.start()
         it.seal()
     }
@@ -250,7 +250,7 @@ class BundleHostTest {
         override val id = BundleId(name)
         override val importsType: KClass<*>? = null
         override val exportTypes = listOf(WebExports::class)
-        override fun createGraph(imports: Any): Any = Web()
+        override fun createGraph(foundation: Any, imports: Any): Any = Web()
         override val hasProfileGraph = true
         override val profileImportsType: KClass<*> = ProfileImports::class
         override val profileExportTypes = listOf(ProfileExports::class)
@@ -274,8 +274,9 @@ class BundleHostTest {
                     imports = i
                 },
             ),
-        )
+        ) { Unit }
         val scope = FakeScope()
+        host.ensureStarted()
         val health = host.openProfile(foundation, scope)
         assertEquals(BundleHealth.Healthy, health.getValue(BundleId("web")))
         assertSame(foundation, seenFoundation)
@@ -290,7 +291,8 @@ class BundleHostTest {
         val first = FakeScope()
         val second = FakeScope()
         val openerA = object : Opener {}
-        val host = BundleHost(listOf(profileEntry("web", openerA)))
+        val host = BundleHost(listOf(profileEntry("web", openerA))) { Unit }
+        host.ensureStarted()
         host.openProfile(Any(), first)
         host.openProfile(Any(), second)
         assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("web")))
@@ -308,7 +310,7 @@ class BundleHostTest {
                     Web()
                 },
             ),
-        )
+        ) { Unit }
         host.ensureStarted()
         host.ensureStarted()
         assertEquals(1, created)
@@ -320,11 +322,12 @@ class BundleHostTest {
             override val id = BundleId("bad")
             override val importsType: KClass<*>? = null
             override val exportTypes = emptyList<KClass<*>>()
-            override fun createGraph(imports: Any): Any = Any()
+            override fun createGraph(foundation: Any, imports: Any): Any = Any()
             override val hasProfileGraph = true
             override fun createProfileGraph(appGraph: Any, foundation: Any, imports: Any): Any = error("boom")
         }
-        val host = BundleHost(listOf(failing, profileEntry("web", object : Opener {})))
+        val host = BundleHost(listOf(failing, profileEntry("web", object : Opener {}))) { Unit }
+        host.ensureStarted()
         val health = host.openProfile(Any(), FakeScope())
         assertIs<BundleHealth.Failed>(health.getValue(BundleId("bad")))
         assertEquals(BundleHealth.Healthy, health.getValue(BundleId("web")))

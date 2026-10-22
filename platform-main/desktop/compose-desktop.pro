@@ -23,3 +23,10 @@
 
 # SLF4J discovers the application logging backend through its service descriptor.
 -keep class io.aequicor.heartbeat.core.logging.Slf4jProvider { public <init>(); }
+
+# Runtime-loaded bundles: entries are found by ServiceLoader and their accessor interfaces are called reflectively
+# by the bundle host (the foundation's own import interface is proxied), so neither may be shrunk or renamed.
+-keep class * implements io.aequicor.heartbeat.core.bundles.BundleEntry { public <init>(); }
+-keep interface io.aequicor.heartbeat.bundles.** { *; }
+-keep interface io.aequicor.heartbeat.platform.dibundle.FoundationBundleImports { *; }
+-adaptresourcefilecontents META-INF/services/io.aequicor.heartbeat.core.bundles.BundleEntry

@@ -70,7 +70,6 @@ kotlin {
             implementation(projects.features.organicAi.api)
             implementation(projects.features.organicAi.impl)
             api(projects.features.plantUmlSupport.api)
-            implementation(projects.features.plantUmlSupport.impl)
             implementation(projects.features.scheduler.api)
             implementation(projects.features.scheduler.impl)
             api(projects.features.appUpdate.api)
@@ -104,8 +103,10 @@ kotlin {
         // Desktop bundles: discovered at runtime through ServiceLoader; the assemblers (:bundles:*) come with the desktop app.
         jvmMain.dependencies {
             implementation(projects.core.bundles.impl)
+            implementation(projects.core.bundles.api)
         }
         jvmTest.dependencies {
+            runtimeOnly(projects.bundles.web)
             implementation(projects.features.aiStudio.screenModel)
             implementation(projects.core.navigation.compose)
             implementation(projects.designSystem.theme)

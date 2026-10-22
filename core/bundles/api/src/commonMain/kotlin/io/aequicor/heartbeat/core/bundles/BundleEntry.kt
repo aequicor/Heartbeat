@@ -26,8 +26,11 @@ public interface BundleEntry {
     /** Interfaces implemented by the bundle graph whose accessors are published to other bundles. */
     public val exportTypes: List<KClass<*>>
 
-    /** Creates the bundle graph; [imports] is an instance of [importsType] (or `Unit` when there is none). */
-    public fun createGraph(imports: Any): Any
+    /**
+     * Creates the bundle graph. [foundation] is the foundation graph (an implementation of `FoundationAppBindings`);
+     * [imports] is an instance of [importsType] (or `Unit` when there is none).
+     */
+    public fun createGraph(foundation: Any, imports: Any): Any
 
     /** `true` when the bundle has a per-profile graph; the rest of the profile members apply only then. */
     public val hasProfileGraph: Boolean get() = false

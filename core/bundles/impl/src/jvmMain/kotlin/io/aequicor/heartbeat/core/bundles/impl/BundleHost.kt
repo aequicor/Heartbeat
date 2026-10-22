@@ -29,7 +29,7 @@ import kotlin.reflect.KClass
  * Profiles: [openProfile] repeats the same for the per-profile graphs of the bundles that have one. Profile
  * exports are visible only inside that profile and take precedence over app exports of the same key.
  */
-public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
+public class BundleHost(entries: Collection<BundleEntry>, private val foundation: () -> Any) : BundleRegistry {
     private val log = Log.tag("BundleHost")
     private val entries: List<BundleEntry> = entries.sortedBy { it.id }
     private val healthById = LinkedHashMap<BundleId, BundleHealth>()
@@ -40,6 +40,7 @@ public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
 
     @Volatile
     private var isSealed = false
+    private var isStarting = false
 
     init {
         val duplicates = this.entries.groupBy { it.id }.filterValues { it.size > 1 }.keys
@@ -51,14 +52,19 @@ public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
     /** Graph of a started bundle, for platform code that needs an accessor (`registry.accessor<X>()` successor). */
     public fun graph(id: BundleId): Any? = synchronized(graphs) { graphs[id] }
 
-    /** Creates the bundle graphs in id order; a failing bundle does not stop the others. */
+    /** Creates the bundle graphs in id order over the foundation; a failing bundle does not stop the others. */
     public fun start() {
         check(!isSealed) { "Host is already sealed" }
-        for (entry in entries) {
-            runCatching { startBundle(entry) }.onFailure { e ->
-                log.e(e) { "Bundle ${entry.id} failed to start" }
-                markFailed(entry.id, e)
+        isStarting = true
+        try {
+            for (entry in entries) {
+                runCatching { startBundle(entry) }.onFailure { e ->
+                    log.e(e) { "Bundle ${entry.id} failed to start" }
+                    markFailed(entry.id, e)
+                }
             }
+        } finally {
+            isStarting = false
         }
     }
 
@@ -83,13 +89,17 @@ public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
         log.i { "Bundles sealed: ${health.entries.joinToString { "${it.key}=${it.value::class.simpleName}" }}" }
     }
 
-    /** [start] and [seal] once; later calls (and concurrent ones) only wait for the first. */
+    /**
+     * [start] and [seal] once; later calls (and concurrent ones) only wait for the first. Resolving an import starts
+     * the bundles on demand, so every application graph works without calling this. Starting is not re-entrant:
+     * a bundle graph must not resolve imports while it is being created.
+     */
     public fun ensureStarted() {
         synchronized(lifecycleLock) {
-            if (!isSealed) {
-                start()
-                seal()
-            }
+            if (isSealed) return
+            check(!isStarting) { "Bundles are being created; imports cannot be resolved while graphs are created" }
+            start()
+            seal()
         }
     }
 
@@ -136,13 +146,20 @@ public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
         return profileHealth
     }
 
+    /**
+     * Cross-bundle accessors of the [type] interface for the foundation itself (it is not a bundle, so it keeps its
+     * own list of what it takes from bundles). Resolved lazily like the imports of a bundle.
+     */
+    public fun <T : Any> foundationImports(type: KClass<T>): T =
+        type.java.cast(importsProxy(FOUNDATION_ID, type.java, null))
+
     override fun resolve(key: BindingKey): Any = resolveFor(key, null, null)
 
     override fun collect(key: BindingKey, excluding: BundleId?): Set<Any> = collectFor(key, excluding, null)
 
     private fun startBundle(entry: BundleEntry) {
         val imports: Any = entry.importsType?.let { type -> importsProxy(entry.id, type.java, null) } ?: Unit
-        val graph = entry.createGraph(imports)
+        val graph = entry.createGraph(foundation(), imports)
         val count = register(entry.id, graph, entry.exportTypes, appView, parent = null)
         synchronized(graphs) { graphs[entry.id] = graph }
         synchronized(healthById) { healthById[entry.id] = BundleHealth.Healthy }
@@ -212,7 +229,7 @@ public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
     }
 
     private fun resolveFor(key: BindingKey, requestedBy: BundleId?, view: View?): Any {
-        check(isSealed) { "Bundle registry is not sealed yet; imports cannot be resolved while graphs are created" }
+        ensureStarted()
         check(view == null || view.isOpen) { "The profile graphs of the bundles are still being created or are closed" }
         val exporter = (view ?: appView).find(key, appView).firstOrNull()
             ?: throw BundleUnavailableException(key, requestedBy)
@@ -220,7 +237,7 @@ public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
     }
 
     private fun collectFor(key: BindingKey, excluding: BundleId?, view: View?): Set<Any> {
-        check(isSealed) { "Bundle registry is not sealed yet; imports cannot be resolved while graphs are created" }
+        ensureStarted()
         check(view == null || view.isOpen) { "The profile graphs of the bundles are still being created or are closed" }
         val found = view?.exporters?.get(key).orEmpty() + appView.exporters[key].orEmpty()
         return found.filter { it.owner != excluding }
@@ -247,6 +264,10 @@ public class BundleHost(entries: Collection<BundleEntry>) : BundleRegistry {
 
     private fun removeOwnedBy(id: BundleId, view: View) {
         synchronized(view.exporters) { view.exporters.values.forEach { list -> list.removeAll { it.owner == id } } }
+    }
+
+    private companion object {
+        val FOUNDATION_ID = BundleId("foundation")
     }
 
     /** Exporters visible at one level: the app, or one profile (which is consulted before the app). */
