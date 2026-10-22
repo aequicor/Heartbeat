@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
@@ -140,7 +141,15 @@ class EngineManagementService(
             EngineCommand.Cancel -> jobs.cancel(engine)
             EngineCommand.Dismiss -> jobs.dismiss(engine)
             is EngineCommand.AnswerLogin -> jobs.answer(engine, command.code)
+            EngineCommand.OpenHostApp -> openHostApp(current.requireAction(EngineActionKind.OpenHostApp))
         }
+    }
+
+    private suspend fun openHostApp(engine: ManagedEngine) {
+        val id = engine.descriptor.id
+        val manager = registry.require(id).manager?.value ?: refuse("no host application engine=${id.value}")
+        withContext(context.io) { manager.openHostApp() }
+        log.i { "host application opened engine=${id.value}" }
     }
 
     private suspend fun setEnabled(engine: EngineId, isEnabled: Boolean) {
@@ -154,8 +163,10 @@ class EngineManagementService(
     private suspend fun inspect(engine: ManagedEngine) {
         val id = engine.descriptor.id
         runtimes.prune()
-        val manager = registry.require(id).manager?.value
-        val inspected = if (manager == null) builtIn() else inspectWith(manager, launch.context(id))
+        val registration = registry.require(id)
+        val manager = registration.manager?.value
+        val hasHostApp = registration.management.hostApp != null
+        val inspected = if (manager == null) builtIn() else inspectWith(manager, launch.context(id), hasHostApp)
         if (engine.enablement.isEnabled) refreshAvailability(id)
         inspections.update { all ->
             val previous = all[id]
@@ -174,12 +185,23 @@ class EngineManagementService(
         if (current.enablement.reasons.all { it == DisabledReason.DisabledByUser }) inspect(current)
     }
 
-    private suspend fun inspectWith(manager: EngineManager, launchContext: LaunchContext): Inspection {
+    private suspend fun inspectWith(
+        manager: EngineManager,
+        launchContext: LaunchContext,
+        hasHostApp: Boolean,
+    ): Inspection {
         val now = context.clock.now()
         val installation = bounded("inspect") { manager.inspect(launchContext) }
         val login = bounded("login status") { manager.loginStatus(launchContext) }
         val warnings = bounded("launch check") { manager.check(launchContext.settings) }
         val bundled = bounded("bundled version") { manager.bundledVersion() }
+        val hostApp = if (hasHostApp) {
+            bounded(
+                "host application",
+            ) { manager.inspectHostApp() }.let { it.value ?: HostAppState(failure = it.failure) }
+        } else {
+            null
+        }
         val current = installation.value
         val compatibility = current?.version?.let(manager::compatibility)
         return Inspection(
@@ -192,6 +214,7 @@ class EngineManagementService(
             ),
             login.value ?: LoginState.Unknown,
             warnings.value.orEmpty(),
+            hostApp,
         )
     }
 
@@ -352,6 +375,7 @@ class EngineManagementService(
             login = inspection?.login ?: defaultLogin(registration),
             launch = LaunchState(settings, inspection?.warnings.orEmpty()),
             runtime = runtimeOf(id, inputs, inputs.contextOf(id)),
+            hostApp = inspection?.hostApp?.takeIf { registration.management.hostApp != null },
         )
     }
 
@@ -442,6 +466,7 @@ class EngineManagementService(
         val installation: InstallationState = InstallationState(),
         val login: LoginState? = null,
         val warnings: List<LaunchProblem> = emptyList(),
+        val hostApp: HostAppState? = null,
     )
 
     private data class Inputs(

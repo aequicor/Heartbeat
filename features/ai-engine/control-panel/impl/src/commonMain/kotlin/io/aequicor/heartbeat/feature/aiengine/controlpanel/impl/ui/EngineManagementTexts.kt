@@ -83,6 +83,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_source_builtin
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_source_bundled
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_source_custom
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_source_host_app
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_source_managed
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_source_missing
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_source_system
@@ -221,6 +222,7 @@ private fun sourceText(source: InstallSourceUi): StringResource = when (source) 
     InstallSourceUi.Bundled -> Res.string.engine_source_bundled
     InstallSourceUi.Managed -> Res.string.engine_source_managed
     InstallSourceUi.System -> Res.string.engine_source_system
+    InstallSourceUi.HostApp -> Res.string.engine_source_host_app
     InstallSourceUi.Custom -> Res.string.engine_source_custom
     InstallSourceUi.Missing -> Res.string.engine_source_missing
 }

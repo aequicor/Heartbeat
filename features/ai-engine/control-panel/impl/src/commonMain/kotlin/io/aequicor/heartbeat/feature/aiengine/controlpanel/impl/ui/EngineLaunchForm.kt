@@ -50,6 +50,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_duplicate
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_invalid_key
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_invalid_name
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_invalid_version
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_not_absolute
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_not_directory
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_not_exe
@@ -301,4 +302,5 @@ internal val ProblemTexts: Map<LaunchProblemReasonUi, StringResource> = mapOf(
     LaunchProblemReasonUi.NotFound to Res.string.engine_problem_not_found,
     LaunchProblemReasonUi.NotExecutable to Res.string.engine_problem_not_executable,
     LaunchProblemReasonUi.NotADirectory to Res.string.engine_problem_not_directory,
+    LaunchProblemReasonUi.InvalidVersion to Res.string.engine_problem_invalid_version,
 )

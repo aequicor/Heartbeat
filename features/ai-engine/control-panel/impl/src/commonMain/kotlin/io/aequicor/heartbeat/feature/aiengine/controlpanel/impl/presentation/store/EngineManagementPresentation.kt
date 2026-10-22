@@ -38,7 +38,7 @@ data class DisabledReasonUi(val kind: Kind, val flag: String? = null) {
 enum class InstallSupportUi { BuiltIn, Managed, Bundled }
 
 /** Where the executable an engine runs comes from. */
-enum class InstallSourceUi { BuiltIn, Bundled, Managed, System, Custom, Missing }
+enum class InstallSourceUi { BuiltIn, Bundled, Managed, System, HostApp, Custom, Missing }
 
 /** Whether a version was verified with this Heartbeat build. */
 enum class CompatibilityUi { Verified, Unverified, Unknown }
@@ -139,6 +139,7 @@ enum class EngineActionKindUi {
     Restart,
     Configure,
     Packages,
+    OpenHostApp,
 }
 
 /** Progress of a job; [progress] is the downloaded share when the size is known. */
@@ -203,7 +204,7 @@ data class JobUi(val action: EngineActionUi, val phase: JobPhaseUi) {
 }
 
 /** Launch settings an engine accepts. */
-enum class LaunchOptionUi { Executable, HomeDirectory, ConfigOverrides, Environment }
+enum class LaunchOptionUi { Executable, HomeDirectory, ConfigOverrides, Environment, Runtime }
 
 /** Why a launch setting is rejected or questionable. */
 enum class LaunchProblemReasonUi {
@@ -221,6 +222,7 @@ enum class LaunchProblemReasonUi {
     NotFound,
     NotExecutable,
     NotADirectory,
+    InvalidVersion,
 }
 
 /** A problem of one setting; [index] points into a list setting. */
@@ -297,7 +299,7 @@ internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatfo
                 val rows = when (problem.option) {
                     LaunchOption.ConfigOverrides -> edited.configOverrides
                     LaunchOption.Environment -> edited.environment
-                    LaunchOption.Executable, LaunchOption.HomeDirectory -> emptyList()
+                    LaunchOption.Executable, LaunchOption.HomeDirectory, LaunchOption.Runtime -> emptyList()
                 }
                 val indices = rows.indices.filter { !rows[it].isBlank() }
                 problem.copy(index = problem.index?.let { indices[it] })

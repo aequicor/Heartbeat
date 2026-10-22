@@ -32,6 +32,7 @@
     <string name="engine_source_bundled">Bundled with Heartbeat</string>
     <string name="engine_source_managed">Installed by Heartbeat</string>
     <string name="engine_source_system">Found on this computer</string>
+    <string name="engine_source_host_app">From the host application</string>
     <string name="engine_source_custom">Custom executable</string>
     <string name="engine_source_missing">Not installed</string>
     <string name="engine_not_runnable">Cannot be started safely</string>
@@ -148,6 +149,7 @@
     <string name="engine_problem_control">Control characters, including line breaks, are not allowed.</string>
     <string name="engine_problem_not_found">Not found on this computer.</string>
     <string name="engine_problem_not_executable">Not an executable file.</string>
+    <string name="engine_problem_invalid_version">Use digits, letters, ., + and -.</string>
     <string name="engine_problem_not_directory">Not a directory.</string>
     <string name="engine_job_status">%1$s · %2$s</string>
     <string name="engine_path_copy">Copy the path</string>

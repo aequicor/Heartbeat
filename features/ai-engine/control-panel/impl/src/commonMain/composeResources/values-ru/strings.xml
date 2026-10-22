@@ -32,6 +32,7 @@
     <string name="engine_source_bundled">Поставляется с Heartbeat</string>
     <string name="engine_source_managed">Установлен Heartbeat</string>
     <string name="engine_source_system">Найден на компьютере</string>
+    <string name="engine_source_host_app">Из приложения-хоста</string>
     <string name="engine_source_custom">Свой исполняемый файл</string>
     <string name="engine_source_missing">Не установлен</string>
     <string name="engine_not_runnable">Нельзя безопасно запустить</string>
@@ -148,6 +149,7 @@
     <string name="engine_problem_control">Управляющие символы, включая переводы строк, недопустимы.</string>
     <string name="engine_problem_not_found">Не найден на этом компьютере.</string>
     <string name="engine_problem_not_executable">Не исполняемый файл.</string>
+    <string name="engine_problem_invalid_version">Используйте цифры, буквы, ., + и -.</string>
     <string name="engine_problem_not_directory">Не каталог.</string>
     <string name="engine_job_status">%1$s · %2$s</string>
     <string name="engine_path_copy">Скопировать путь</string>
