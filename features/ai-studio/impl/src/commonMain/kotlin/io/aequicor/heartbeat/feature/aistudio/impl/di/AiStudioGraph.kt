@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineSwitching
+import io.aequicor.heartbeat.feature.aistudio.api.StudioFilePreview
 import io.aequicor.heartbeat.feature.aistudio.api.StudioLocalProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.data.MachineStudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioWorkspaceToggle
@@ -114,6 +115,11 @@ object AiStudioToggleBindings {
     @Provides
     @IntoSet
     fun localProjects(): FeatureToggle<*> = StudioLocalProjects
+
+    /** Side preview of files linked from chat Markdown. */
+    @Provides
+    @IntoSet
+    fun filePreview(): FeatureToggle<*> = StudioFilePreview
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

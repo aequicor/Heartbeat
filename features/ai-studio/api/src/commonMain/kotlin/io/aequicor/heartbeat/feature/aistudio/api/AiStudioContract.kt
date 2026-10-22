@@ -36,6 +36,16 @@ public val StudioLocalProjects: FeatureToggle.Flag = FeatureToggle.Flag(
     default = true,
 )
 
+/**
+ * File links of chat Markdown open a read-only preview at the side of the studio (Desktop). Relative paths resolve
+ * against the chat's project or worktree. Off: file links stay inert; web, mail and phone links still open.
+ */
+public val StudioFilePreview: FeatureToggle.Flag = FeatureToggle.Flag(
+    key = "ai_studio.file_preview",
+    description = "Предпросмотр файлов по ссылкам из чата в боковой панели",
+    default = true,
+)
+
 /** Studio workflow: workspace loading, open panes, model preferences and running agent sessions. */
 public sealed interface AiStudioState : MachineState {
     /** The component has not started the workflow yet. */
