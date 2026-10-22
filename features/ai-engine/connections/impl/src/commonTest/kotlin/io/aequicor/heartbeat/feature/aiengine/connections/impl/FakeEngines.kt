@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthLocationId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSecretId
@@ -27,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineEnablement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -38,6 +41,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -227,10 +236,64 @@ internal class RecordingScope<I : MachineIntent> : EffectScope<I> {
     }
 }
 
-/** Publishes the state a test sets; the settings space only observes engine management. */
+/**
+ * Publishes the state a test sets and records commands; a configuration replaces the engine's launch settings, an
+ * inspection shows [inspectedHostApp].
+ */
 internal class FakeEngineManagement : EngineManagement {
     override val state = MutableStateFlow(EngineManagementState.Off)
+    val commands = mutableListOf<EngineCommand>()
+    var inspectedHostApp: HostAppState? = null
+    var configureFailure: EngineException? = null
 
-    override suspend fun execute(engine: EngineId, command: EngineCommand) =
-        error("the settings space does not manage engines")
+    override suspend fun execute(engine: EngineId, command: EngineCommand) {
+        commands += command
+        when (command) {
+            EngineCommand.Inspect -> change(engine) { it.copy(hostApp = inspectedHostApp) }
+
+            is EngineCommand.Configure -> {
+                configureFailure?.let { throw it }
+                change(engine) { it.copy(launch = LaunchState(command.settings)) }
+            }
+
+            else -> error("unexpected command $command")
+        }
+    }
+
+    private fun change(engine: EngineId, block: (ManagedEngine) -> ManagedEngine) = state.update { current ->
+        current.copy(engines = current.engines.map { if (it.descriptor.id == engine) block(it) else it })
+    }
 }
+
+internal val ClaudeId = EngineId("claude")
+internal val ClaudeApp = HostAppSpec("Claude")
+internal val DesktopMethod = ConnectionMethod.CliLogin(
+    ConnectionMethodId("desktop"),
+    ProviderInfo(ProviderId("anthropic"), "Anthropic"),
+    EndpointOrigin("https://api.anthropic.com"),
+    AuthOwnerId("claude.code"),
+    AuthLocationId("claude.local"),
+    ClaudeApp,
+)
+
+/** Management that knows the Claude engine with [settings] and a host application. */
+internal fun claudeManagement(settings: LaunchSettings = LaunchSettings()) = EngineManagementState(
+    isEnabled = true,
+    platform = EnginePlatform.DesktopMacOs,
+    engines = listOf(
+        ManagedEngine(
+            EngineDescriptor(
+                ClaudeId,
+                "Claude Code",
+                EngineFamily.Vendor,
+                setOf(EnginePlatform.DesktopMacOs),
+                AiEngines,
+                connectionMethods = listOf(DesktopMethod),
+            ),
+            ManagementSpec(hostApp = ClaudeApp),
+            EngineEnablement(),
+            EngineAvailability.Available,
+            launch = LaunchState(settings),
+        ),
+    ),
+)

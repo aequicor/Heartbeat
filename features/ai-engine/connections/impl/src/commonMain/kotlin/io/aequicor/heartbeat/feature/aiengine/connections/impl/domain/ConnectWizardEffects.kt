@@ -12,15 +12,19 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import kotlinx.coroutines.CancellationException
@@ -134,8 +138,52 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         credential: CredentialInput,
     ): NewConnection {
         log.i { "connect engine=${engine.value} method=${method.id.value}" }
+        val hostApp = (method as? ConnectionMethod.CliLogin)?.hostApp
+        if (hostApp != null) requireHostRuntime(engine)
         requireAvailable(engine)
-        return write(engine, method, credential)
+        val connection = write(engine, method, credential)
+        if (hostApp != null) {
+            var isApplied = false
+            try {
+                preferHostRuntime(engine)
+                isApplied = true
+            } finally {
+                if (!isApplied) withContext(NonCancellable) { rollback(connection) }
+            }
+        }
+        return connection
+    }
+
+    /**
+     * A host application connection needs engine management, which saves the runtime preference, and a runtime of
+     * the application to run; the installation is inspected first, so the wizard sees the current state.
+     */
+    private suspend fun requireHostRuntime(engine: EngineId) {
+        if (!services.management.state.value.isEnabled) {
+            log.w { "host application connection needs engine management engine=${engine.value}" }
+            throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+        }
+        services.management.execute(engine, EngineCommand.Inspect)
+        val hostApp = services.management.state.value.engines.firstOrNull { it.descriptor.id == engine }?.hostApp
+        if (hostApp?.hasRuntime != true) {
+            log.w { "host application runtime not found engine=${engine.value}" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
+    }
+
+    /**
+     * Saves the host application runtime as the engine's runtime instead of a custom executable; a pinned version
+     * and the other settings stay.
+     */
+    private suspend fun preferHostRuntime(engine: EngineId) {
+        val managed = services.management.state.value.engines.firstOrNull { it.descriptor.id == engine }
+        val settings = managed?.launch?.settings ?: LaunchSettings()
+        if (settings.runtime == RuntimePreference.HostApp && settings.executable.isNullOrBlank()) return
+        services.management.execute(
+            engine,
+            EngineCommand.Configure(settings.copy(executable = null, runtime = RuntimePreference.HostApp)),
+        )
+        log.i { "host application runtime preferred engine=${engine.value}" }
     }
 
     private suspend fun requireAvailable(engine: EngineId) {

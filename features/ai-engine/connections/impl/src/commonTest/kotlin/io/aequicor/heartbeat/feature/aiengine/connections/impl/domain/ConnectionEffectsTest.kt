@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsE
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.ClaudeId
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.DesktopMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeAuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeEngineFacade
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeEngineManagement
@@ -19,16 +21,24 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeModelSelectio
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.OllamaMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.RecordingScope
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.claudeManagement
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -88,6 +98,54 @@ class ConnectionEffectsTest {
         )
         assertEquals(listOf("refresh", "connect"), facade.calls)
         assertFailsWith<IllegalStateException> { key.reveal { } }
+    }
+
+    @Test
+    fun `a host application connection saves the host runtime once the binding exists`() = runTest {
+        val custom = LaunchSettings(executable = "/opt/claude", hostRuntimeVersion = "2.1.299")
+        management.state.value = claudeManagement(custom)
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+
+        val saved = LaunchSettings(runtime = RuntimePreference.HostApp, hostRuntimeVersion = "2.1.299")
+        assertEquals(listOf(EngineCommand.Inspect, EngineCommand.Configure(saved)), management.commands)
+        assertEquals(1, facade.bindingsState.value.size)
+        assertTrue(wizardScope.intents.single() is ConnectWizardIntent.Internal.Connected)
+    }
+
+    @Test
+    fun `a host application connection without the app's runtime or management creates nothing`() = runTest {
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+        val off = assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        assertEquals(EngineFailure.Access(AccessFailureReason.OperationNotAllowed), off.failure)
+
+        management.state.value = claudeManagement()
+        management.inspectedHostApp = HostAppState(isInstalled = true)
+        val missing = assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), missing.failure)
+        assertTrue(sources.state.value.isEmpty())
+        assertTrue(facade.bindingsState.value.isEmpty())
+    }
+
+    @Test
+    fun `a host runtime that cannot be saved rolls the new connection back`() = runTest {
+        management.state.value = claudeManagement()
+        management.inspectedHostApp = HostAppState(true, runtimes = listOf(HostRuntime("2.1.299", "b", true, "/c")))
+        management.configureFailure = EngineException(EngineFailure.Request(RequestFailureReason.Invalid))
+        val credential = CredentialInput.Existing("Claude", DesktopMethod.origin)
+
+        assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.Connect(ClaudeId, DesktopMethod, credential), wizardScope)
+        }
+
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
     }
 
     @Test

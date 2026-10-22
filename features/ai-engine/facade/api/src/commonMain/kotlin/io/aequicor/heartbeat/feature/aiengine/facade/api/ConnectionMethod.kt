@@ -62,7 +62,12 @@ public sealed interface ConnectionMethod {
         }
     }
 
-    /** An existing login of the engine's own CLI; Heartbeat never reads, imports or refreshes its tokens. */
+    /**
+     * An existing login of the engine's own CLI; Heartbeat never reads, imports or refreshes its tokens. With
+     * [hostApp] the connection runs the engine on the runtime of that host application
+     * ([RuntimePreference.HostApp]): connecting needs engine management and an installed runtime of the application,
+     * and saves the preference in the engine's launch settings.
+     */
     public data class CliLogin(
         override val id: ConnectionMethodId,
         override val provider: ProviderInfo,
@@ -71,6 +76,8 @@ public sealed interface ConnectionMethod {
         val owner: AuthOwnerId,
         /** CLI profile the source refers to. */
         val location: AuthLocationId,
+        /** Host application whose runtime the connection uses; null keeps the engine's own choice. */
+        val hostApp: HostAppSpec? = null,
     ) : ConnectionMethod {
         override val isOriginEditable: Boolean get() = false
     }

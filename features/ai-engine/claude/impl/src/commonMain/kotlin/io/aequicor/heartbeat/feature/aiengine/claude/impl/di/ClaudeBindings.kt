@@ -80,6 +80,15 @@ public object ClaudeBindings {
                     ClaudeEngine.AuthOwner,
                     ClaudeEngine.AuthLocation,
                 ),
+                // The same CLI login, run by the Claude Code runtime the Claude desktop app keeps and updates.
+                ConnectionMethod.CliLogin(
+                    ConnectionMethodId("desktop"),
+                    ProviderInfo(ProviderId("anthropic"), "Anthropic"),
+                    EndpointOrigin("https://api.anthropic.com"),
+                    ClaudeEngine.AuthOwner,
+                    ClaudeEngine.AuthLocation,
+                    ClaudeManagementSpec.hostApp,
+                ),
             ),
             isLocalWorkspaceSupported = true,
             isVirtualWorkspaceSupported = true,

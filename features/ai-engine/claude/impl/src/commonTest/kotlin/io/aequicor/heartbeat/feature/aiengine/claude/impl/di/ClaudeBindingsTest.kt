@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.di
 
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeEngineManager
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
@@ -38,6 +39,8 @@ class ClaudeBindingsTest {
             spec.launch.options,
         )
         assertEquals("Claude", spec.hostApp?.title)
+        val methods = registration.descriptor.connectionMethods.filterIsInstance<ConnectionMethod.CliLogin>()
+        assertEquals(listOf("cli" to null, "desktop" to spec.hostApp), methods.map { it.id.value to it.hostApp })
         assertEquals(
             setOf(RuntimePreference.Managed, RuntimePreference.HostApp, RuntimePreference.System),
             spec.launch.runtimes,
