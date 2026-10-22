@@ -57,9 +57,9 @@ public enum class WorktreePhase {
 @Serializable
 public enum class WorktreeRunKind { Coding, CreatePr, Merge }
 
-/** User choice after an explicitly completed coding task. */
+/** User choice after an explicitly completed coding task; [HandOff] publishes a virtual sandbox as a local branch. */
 @Serializable
-public enum class WorktreeAction { CreatePr, Merge, Refine, Leave }
+public enum class WorktreeAction { CreatePr, HandOff, Merge, Refine, Leave }
 
 /** Trusted host correlation captured before queueing a hosted build/configuration effect. */
 public data class WorktreeRunIdentity(val request: RequestId, val session: SessionRef, val turn: TurnId)

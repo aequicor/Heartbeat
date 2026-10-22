@@ -30,7 +30,7 @@ internal class WorktreeActionRunner(
             WorktreeAction.CreatePr -> WorktreeRunKind.CreatePr
             WorktreeAction.Merge -> WorktreeRunKind.Merge
             WorktreeAction.Refine -> WorktreeRunKind.Coding
-            WorktreeAction.Leave -> error("InvalidCompletionAction")
+            WorktreeAction.Leave, WorktreeAction.HandOff -> error("InvalidCompletionAction")
         }
         val operation = Uuid.random().toString()
         val expected = WorktreeExpectedAction(operation, kind)
