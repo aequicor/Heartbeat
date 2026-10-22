@@ -12,15 +12,20 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import kotlinx.coroutines.CancellationException
@@ -28,8 +33,10 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Engine-side services of the connection screens; [management] is off unless engine management is enabled. */
 data class EngineServices(
@@ -112,7 +119,8 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
      */
     private suspend fun check(effect: ConnectWizardEffect.CheckConnection): Int {
         log.i { "check connection engine=${effect.engine.value} method=${effect.method.id.value}" }
-        requireAvailable(effect.engine)
+        // A check never changes the engine's runtime, but a host application method still needs the app's runtime.
+        if (effect.method.hostApp != null) requireHostRuntime(effect.engine) else requireAvailable(effect.engine)
         var created: NewConnection? = null
         try {
             val connection = withContext(NonCancellable) {
@@ -134,8 +142,65 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         credential: CredentialInput,
     ): NewConnection {
         log.i { "connect engine=${engine.value} method=${method.id.value}" }
-        requireAvailable(engine)
-        return write(engine, method, credential)
+        val hostApp = method.hostApp
+        // The engine's current runtime may be missing (no CLI yet); the app's runtime replaces it once connected.
+        if (hostApp != null) requireHostRuntime(engine) else requireAvailable(engine)
+        val connection = write(engine, method, credential)
+        if (hostApp != null) {
+            var isApplied = false
+            try {
+                preferHostRuntime(engine)
+                isApplied = true
+            } finally {
+                if (!isApplied) withContext(NonCancellable) { rollback(connection) }
+            }
+        }
+        return connection
+    }
+
+    /**
+     * A host application connection needs engine management, which saves the runtime preference, and a runtime of
+     * the application to run. The installation is inspected first; management publishes the inspection
+     * asynchronously, so the wizard waits until the state shows it (bounded) before judging the app.
+     */
+    private suspend fun requireHostRuntime(engine: EngineId) {
+        val management = services.management
+        if (!management.state.value.isEnabled) {
+            log.w { "host application connection needs engine management engine=${engine.value}" }
+            throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+        }
+        val before = management.state.value.engine(engine)?.installation?.checkedAt
+        log.i { "inspect host application engine=${engine.value}" }
+        management.execute(engine, EngineCommand.Inspect)
+        val inspected = withTimeoutOrNull(INSPECTION_WAIT_MILLIS) {
+            management.state.first { state ->
+                val managed = state.engine(engine)
+                managed?.hostApp != null && managed.installation.checkedAt != before
+            }
+        } ?: management.state.value
+        val hostApp = inspected.engine(engine)?.hostApp
+        if (hostApp?.hasRuntime != true) {
+            log.w { "host application runtime not found engine=${engine.value}" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
+    }
+
+    /**
+     * Saves the host application runtime as the engine's runtime instead of a custom executable; a pinned version
+     * and the other settings stay. The runtime is a setting of the whole engine, so every connection of the engine
+     * runs on it from now on (the wizard says so); removing the connection does not restore the previous choice.
+     */
+    private suspend fun preferHostRuntime(engine: EngineId) {
+        val settings = services.management.state.value.engine(engine)?.launch?.settings ?: LaunchSettings()
+        if (settings.runtime == RuntimePreference.HostApp && settings.executable.isNullOrBlank()) return
+        services.management.execute(
+            engine,
+            EngineCommand.Configure(settings.copy(executable = null, runtime = RuntimePreference.HostApp)),
+        )
+        log.i {
+            "host application runtime preferred engine=${engine.value} previous=${settings.runtime} " +
+                "replacedExecutable=${!settings.executable.isNullOrBlank()}"
+        }
     }
 
     private suspend fun requireAvailable(engine: EngineId) {
@@ -223,3 +288,10 @@ internal fun EngineAvailability.failure(): EngineFailure? = when (this) {
     EngineAvailability.UnsupportedPlatform -> EngineFailure.Engine(EngineFailureReason.Unavailable)
     is EngineAvailability.Unavailable -> failure
 }
+
+private val ConnectionMethod.hostApp get() = (this as? ConnectionMethod.CliLogin)?.hostApp
+
+private fun EngineManagementState.engine(id: EngineId) = engines.firstOrNull { it.descriptor.id == id }
+
+/** How long the wizard waits for engine management to publish the inspection it asked for. */
+private const val INSPECTION_WAIT_MILLIS = 15_000L

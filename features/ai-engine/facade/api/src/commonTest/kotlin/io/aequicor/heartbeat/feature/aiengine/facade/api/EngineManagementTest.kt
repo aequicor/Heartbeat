@@ -74,6 +74,34 @@ class EngineManagementTest {
     }
 
     @Test
+    fun `an installed host application can be opened while the engine can run`() {
+        val spec = cli.copy(hostApp = HostAppSpec("Claude"))
+        val installed = HostAppState(isInstalled = true)
+        assertTrue(EngineActionKind.OpenHostApp in engine(spec).copy(hostApp = installed).actions())
+        assertFalse(EngineActionKind.OpenHostApp in engine(spec).copy(hostApp = HostAppState()).actions())
+        assertFalse(EngineActionKind.OpenHostApp in engine(spec).actions())
+        assertFalse(EngineActionKind.OpenHostApp in engine(cli).copy(hostApp = installed).actions())
+        val flagged = engine(spec, reasons = setOf(DisabledReason.EngineFlagOff)).copy(hostApp = installed)
+        assertFalse(EngineActionKind.OpenHostApp in flagged.actions())
+    }
+
+    @Test
+    fun `the host runtime is the newest verified one and paths never print`() {
+        val state = HostAppState(
+            isInstalled = true,
+            path = "/Applications/Claude.app",
+            runtimes = listOf(
+                HostRuntime("2.1.305", "b3", isVerified = false, path = "/data/2.1.305/b3/claude"),
+                HostRuntime("2.1.304", "b2", isVerified = true, path = "/data/2.1.304/b2/claude"),
+            ),
+        )
+        assertEquals("2.1.304", state.newest?.version)
+        assertTrue(state.hasRuntime)
+        assertFalse(HostAppState(isInstalled = true).hasRuntime)
+        assertFalse(state.toString().contains("/Applications") || state.newest.toString().contains("/data"))
+    }
+
+    @Test
     fun `a running job or a running turn blocks the actions it would disturb`() {
         val job = EngineJob(EngineAction.Install, JobPhase.Downloading(10, 100), Instant.fromEpochSeconds(1))
         assertEquals(emptySet(), engine(cli, job = job).actions())

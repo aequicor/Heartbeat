@@ -73,6 +73,8 @@ public data class ManagedEngine(
     val runtime: RuntimeSummary = RuntimeSummary(),
     /** Running job, or the outcome of the last one until it is dismissed. */
     val job: EngineJob? = null,
+    /** What the last inspection found of the host application ([ManagementSpec.hostApp]); null before it. */
+    val hostApp: HostAppState? = null,
 )
 
 /**
@@ -109,7 +111,54 @@ public data class ManagementSpec(
     val launch: LaunchSpec = LaunchSpec(),
     /** The engine installs packages its configuration lists ([EngineAction.SyncPackages]). */
     val hasPackages: Boolean = false,
+    /** A desktop application that keeps its own runtime of the engine; null when there is none. */
+    val hostApp: HostAppSpec? = null,
 )
+
+/**
+ * A desktop application that ships and updates its own runtime of the engine and shares its configuration directory
+ * with it (the Claude app keeps Claude Code). Heartbeat may run that runtime ([RuntimePreference.HostApp]) and open
+ * the application, but never reads the application's own data or credentials. [title] names the application.
+ */
+public data class HostAppSpec(val title: String) {
+    init {
+        require(title.isNotBlank()) { "Empty host application title" }
+    }
+}
+
+/**
+ * The host application as the last inspection found it. Paths are for display only and are never logged;
+ * [runtimes] are newest first.
+ */
+public data class HostAppState(
+    val isInstalled: Boolean = false,
+    /** Version of the application itself, when it reports one. */
+    val version: String? = null,
+    val path: String? = null,
+    /** Runtimes the application keeps, newest first. */
+    val runtimes: List<HostRuntime> = emptyList(),
+    /** Configuration directory the application's runtime uses by default (sessions, settings, login). */
+    val configDirectory: String? = null,
+    /** Why the inspection failed. */
+    val failure: ManagementFailure? = null,
+) {
+    /** The runtime [RuntimePreference.HostApp] runs without a pinned version: the newest verified one. */
+    val newest: HostRuntime? get() = runtimes.firstOrNull { it.isVerified }
+
+    /** Whether there is anything the engine can run. */
+    val hasRuntime: Boolean get() = newest != null
+
+    override fun toString(): String =
+        "HostAppState(isInstalled=$isInstalled, version=${version ?: "null"}, runtimes=${runtimes.size})"
+}
+
+/**
+ * One runtime the host application keeps: its engine [version], the application's [build] id and whether the
+ * application finished and marked it as verified. [path] is for display only and is never logged.
+ */
+public data class HostRuntime(val version: String, val build: String, val isVerified: Boolean, val path: String) {
+    override fun toString(): String = "HostRuntime(version=$version, build=$build, isVerified=$isVerified)"
+}
 
 /** How an engine reaches the device. */
 public enum class InstallSupport {
@@ -151,6 +200,9 @@ public enum class InstallSource {
 
     /** Found on the system: PATH, a package manager or another application. */
     System,
+
+    /** The runtime the engine's host application keeps ([ManagementSpec.hostApp]). */
+    HostApp,
 
     /** The executable set in the launch settings. */
     Custom,
@@ -269,6 +321,9 @@ public sealed interface EngineCommand {
 
     /** Passes the code a sign-in page shows to the CLI that asked for it. */
     public data class AnswerLogin(val code: LoginCode) : EngineCommand
+
+    /** Opens the host application ([ManagementSpec.hostApp]) found by the last inspection. */
+    public data object OpenHostApp : EngineCommand
 }
 
 /** A long operation of an engine. */
@@ -325,6 +380,7 @@ public enum class EngineActionKind {
     Restart,
     Configure,
     Packages,
+    OpenHostApp,
 }
 
 /** A running or finished job. */
@@ -481,7 +537,16 @@ public fun ManagedEngine.actions(): Set<EngineActionKind> {
     val configure = if (spec.launch.options.isEmpty()) emptySet() else setOf(EngineActionKind.Configure)
     val isRunnable = enablement.reasons.all { it == DisabledReason.DisabledByUser }
     val packages = if (spec.hasPackages) setOf(EngineActionKind.Packages) else emptySet()
-    return if (isRunnable) configure + installActions() + loginActions() + runtimeActions() + packages else configure
+    val hostApp = if (spec.hostApp != null && hostApp?.isInstalled == true) {
+        setOf(EngineActionKind.OpenHostApp)
+    } else {
+        emptySet()
+    }
+    return if (isRunnable) {
+        configure + installActions() + loginActions() + runtimeActions() + packages + hostApp
+    } else {
+        configure
+    }
 }
 
 private fun ManagedEngine.installActions(): Set<EngineActionKind> = buildSet {

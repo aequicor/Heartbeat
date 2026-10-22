@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.AvailabilityUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.MethodKindUi
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.MethodRowUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_availability_available
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_availability_unavailable
@@ -40,6 +41,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_fa
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_unknown
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_kind_api_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_kind_cli
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_kind_host_app
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_kind_no_auth
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_retry
 import kotlinx.coroutines.CancellationException
@@ -104,6 +106,11 @@ internal fun AvailabilityBadge(availability: AvailabilityUi, modifier: Modifier 
     }
     HbBadge(stringResource(text), modifier, tone)
 }
+
+/** Localized name of [method]: its kind, or the host application whose runtime and sign-in it uses. */
+@Composable
+internal fun methodLabel(method: MethodRowUi): String =
+    method.hostApp?.let { stringResource(Res.string.conn_kind_host_app, it) } ?: methodKindLabel(method.kind)
 
 /** Localized name of an authentication method kind. */
 @Composable

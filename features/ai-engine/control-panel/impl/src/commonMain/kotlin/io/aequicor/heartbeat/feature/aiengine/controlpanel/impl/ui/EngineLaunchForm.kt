@@ -2,11 +2,15 @@ package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
+import io.aequicor.heartbeat.ds.components.HbChoiceRow
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
@@ -24,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LaunchProblemReasonUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LaunchProblemUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LaunchUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.RuntimePreferenceUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_launch_add_override
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_launch_add_variable
@@ -41,6 +46,8 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_launch_overrides
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_launch_remove
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_launch_reset
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_launch_runtime
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_launch_runtime_custom
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_launch_save
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_launch_title
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_launch_unsaved
@@ -50,6 +57,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_duplicate
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_invalid_key
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_invalid_name
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_invalid_version
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_not_absolute
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_not_directory
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_not_exe
@@ -60,6 +68,13 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_secret
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_too_long
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_problem_unsupported
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_auto
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_host_app
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_managed
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_system
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_version
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_runtime_version_newest
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_source_host_app
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
@@ -125,6 +140,14 @@ private fun LaunchEditor(
     val edit: (LaunchDraftUi) -> Unit = { onIntent(EngineManagementIntent.EditLaunch(it)) }
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
         LaunchPaths(launch, edit)
+        // Also shown for a saved choice the engine no longer offers, so its error can be seen and changed back.
+        val hasRuntimeChoice = launch.runtimes.isNotEmpty() || draft.runtime != RuntimePreferenceUi.Auto ||
+            draft.hostRuntimeVersion.isNotBlank()
+        if (LaunchOptionUi.Runtime in launch.options && hasRuntimeChoice) {
+            RuntimeChoice(launch, edit, isIdle)
+        } else {
+            Problems(launch.errors.of(LaunchOptionUi.Runtime))
+        }
         if (LaunchOptionUi.ConfigOverrides in launch.options) {
             EntryList(
                 stringResource(Res.string.engine_launch_overrides),
@@ -189,6 +212,104 @@ private fun LaunchPaths(launch: LaunchUi, edit: (LaunchDraftUi) -> Unit) {
             launch.errors.of(LaunchOptionUi.HomeDirectory),
         )
     }
+}
+
+/**
+ * Which installation the engine runs: automatic, Heartbeat's copy, the host application's runtime (newest or a pinned
+ * version) or a system installation. A custom executable wins over the choice; the hint says so.
+ */
+@Composable
+private fun RuntimeChoice(
+    launch: LaunchUi,
+    edit: (LaunchDraftUi) -> Unit,
+    isEnabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val draft = launch.draft
+    val choices = RuntimePreferenceUi.entries.filter {
+        it == RuntimePreferenceUi.Auto || it in launch.runtimes || it == draft.runtime
+    }
+    val title = stringResource(Res.string.engine_launch_runtime)
+    HbColumn(modifier.fillMaxWidth().testTag("engine-launch-runtime"), gap = HbTheme.spacing.xs) {
+        HbText(title, style = HbTheme.typography.label)
+        HbColumn(
+            Modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = title },
+            gap = HbTheme.spacing.none,
+        ) {
+            choices.forEach { choice ->
+                HbChoiceRow(
+                    runtimeLabel(choice, launch.hostApp),
+                    selected = draft.runtime == choice,
+                    isMultiple = false,
+                    onClick = { edit(draft.copy(runtime = choice)) },
+                    modifier = Modifier.testTag("engine-runtime:${choice.name}"),
+                    enabled = isEnabled,
+                )
+            }
+        }
+        if (draft.executable.isNotBlank()) {
+            HbText(
+                stringResource(Res.string.engine_launch_runtime_custom),
+                style = HbTheme.typography.caption,
+                color = HbTheme.colors.textSecondary,
+            )
+        }
+        if (draft.runtime == RuntimePreferenceUi.HostApp) HostRuntimeVersion(launch, edit, isEnabled)
+        Problems(launch.errors.of(LaunchOptionUi.Runtime))
+    }
+}
+
+/** The pinned version of the host application's runtime: the newest one, or one of the versions it keeps. */
+@Composable
+private fun HostRuntimeVersion(
+    launch: LaunchUi,
+    edit: (LaunchDraftUi) -> Unit,
+    isEnabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val draft = launch.draft
+    // A pinned version the app no longer keeps stays selectable, so saving never drops it silently.
+    val versions = (launch.hostVersions + listOfNotNull(draft.hostRuntimeVersion.takeIf { it.isNotBlank() }))
+        .distinct()
+    val title = stringResource(Res.string.engine_runtime_version)
+    HbColumn(modifier.fillMaxWidth().testTag("engine-runtime-version"), gap = HbTheme.spacing.xs) {
+        HbText(title, style = HbTheme.typography.label)
+        HbColumn(
+            Modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = title },
+            gap = HbTheme.spacing.none,
+        ) {
+            HbChoiceRow(
+                stringResource(Res.string.engine_runtime_version_newest),
+                selected = draft.hostRuntimeVersion.isBlank(),
+                isMultiple = false,
+                onClick = { edit(draft.copy(hostRuntimeVersion = "")) },
+                modifier = Modifier.testTag("engine-runtime-version:newest"),
+                enabled = isEnabled,
+            )
+            versions.forEach { version ->
+                HbChoiceRow(
+                    version,
+                    selected = draft.hostRuntimeVersion == version,
+                    isMultiple = false,
+                    onClick = { edit(draft.copy(hostRuntimeVersion = version)) },
+                    modifier = Modifier.testTag("engine-runtime-version:$version"),
+                    enabled = isEnabled,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun runtimeLabel(choice: RuntimePreferenceUi, hostApp: String?): String = when (choice) {
+    RuntimePreferenceUi.Auto -> stringResource(Res.string.engine_runtime_auto)
+
+    RuntimePreferenceUi.Managed -> stringResource(Res.string.engine_runtime_managed)
+
+    RuntimePreferenceUi.HostApp -> hostApp?.let { stringResource(Res.string.engine_runtime_host_app, it) }
+        ?: stringResource(Res.string.engine_source_host_app)
+
+    RuntimePreferenceUi.System -> stringResource(Res.string.engine_runtime_system)
 }
 
 @Composable
@@ -301,4 +422,5 @@ internal val ProblemTexts: Map<LaunchProblemReasonUi, StringResource> = mapOf(
     LaunchProblemReasonUi.NotFound to Res.string.engine_problem_not_found,
     LaunchProblemReasonUi.NotExecutable to Res.string.engine_problem_not_executable,
     LaunchProblemReasonUi.NotADirectory to Res.string.engine_problem_not_directory,
+    LaunchProblemReasonUi.InvalidVersion to Res.string.engine_problem_invalid_version,
 )

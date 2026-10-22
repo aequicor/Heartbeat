@@ -174,5 +174,46 @@ class LaunchSettingsTest {
         assertFalse(settings.isDefault)
     }
 
+    @Test
+    fun `a runtime preference applies only where the engine offers it`() {
+        val runtimes = spec.copy(runtimes = setOf(RuntimePreference.Managed, RuntimePreference.HostApp))
+        val host = LaunchSettings(runtime = RuntimePreference.HostApp)
+        assertFalse(host.isDefault)
+        assertEquals(emptyList(), validateLaunchSettings(host, runtimes, EnginePlatform.DesktopMacOs))
+        val unsupported = listOf(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.Unsupported))
+        assertEquals(unsupported, validateLaunchSettings(host, spec, EnginePlatform.DesktopMacOs))
+        val noOption = runtimes.copy(options = setOf(LaunchOption.Executable))
+        assertEquals(unsupported, validateLaunchSettings(host, noOption, EnginePlatform.DesktopMacOs))
+        val system = LaunchSettings(runtime = RuntimePreference.System)
+        assertEquals(unsupported, validateLaunchSettings(system, runtimes, EnginePlatform.DesktopMacOs))
+    }
+
+    @Test
+    fun `a pinned host runtime version needs the host runtime and a plain version`() {
+        val runtimes = spec.copy(runtimes = setOf(RuntimePreference.HostApp))
+        val pinned = LaunchSettings(runtime = RuntimePreference.HostApp, hostRuntimeVersion = "2.1.304")
+        val mac = EnginePlatform.DesktopMacOs
+        assertEquals(emptyList(), validateLaunchSettings(pinned, runtimes, mac))
+        assertEquals(
+            listOf(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.Unsupported)),
+            validateLaunchSettings(pinned.copy(runtime = RuntimePreference.Auto), runtimes, mac),
+        )
+        assertEquals(
+            listOf(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.InvalidVersion)),
+            validateLaunchSettings(pinned.copy(hostRuntimeVersion = "../2.1"), runtimes, mac),
+        )
+        listOf("..", ".2", "2..1").forEach { version ->
+            val problems = validateLaunchSettings(pinned.copy(hostRuntimeVersion = version), runtimes, mac)
+            assertEquals(listOf(LaunchProblemReason.InvalidVersion), problems.map { it.reason }, version)
+        }
+    }
+
+    @Test
+    fun `settings saved before runtime preferences still decode`() {
+        val decoded = Json.decodeFromString(LaunchSettings.serializer(), """{"executable":"/opt/claude"}""")
+        assertEquals(RuntimePreference.Auto, decoded.runtime)
+        assertEquals(null, decoded.hostRuntimeVersion)
+    }
+
     private fun problems(settings: LaunchSettings) = validateLaunchSettings(settings, spec, EnginePlatform.DesktopMacOs)
 }
