@@ -21,7 +21,11 @@ public data class StudioPermission(
 /** Structured input of a permission; its options stay the submit and skip ([StudioPermissionOption.isSkip]) actions. */
 public sealed interface StudioPermissionInput {
     /** Exactly one of [choices]. */
-    public data class SingleChoice(val choices: List<StudioPermissionOption>) : StudioPermissionInput
+    public data class SingleChoice(
+        val choices: List<StudioPermissionOption>,
+        /** The native input accepts a text alternative or a comment with a selected label. */
+        val isFreeTextAllowed: Boolean = false,
+    ) : StudioPermissionInput
 
     /** Between [min] and [max] of [choices]. */
     public data class MultiChoice(val choices: List<StudioPermissionOption>, val min: Int, val max: Int) :

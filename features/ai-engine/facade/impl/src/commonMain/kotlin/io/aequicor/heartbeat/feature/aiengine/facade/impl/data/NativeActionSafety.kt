@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety.ProposedAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -37,11 +38,12 @@ internal class NativeActionSafety(
     ): NativePreflight {
         // Capture before the first suspension: even Unknown evidence must bind the entire proposed call.
         val input = call.immutableSnapshot()
+        val proposed = ProposedAction.native(context, input)
         while (true) {
             val mode = permissions.mode()
             val analysis = gate.native.analyze(context, input).snapshot()
             val hook = hook(context, input)
-            val decision = decision(context, analysis, hook, mode)
+            val decision = decision(context, analysis, hook, mode, proposed)
             if (permissions.mode() != mode) continue
             if (call != input) return refused(INPUT_CHANGED)
             val captured = NativeActionSnapshot(mode, analysis, hook, input)
@@ -67,7 +69,13 @@ internal class NativeActionSafety(
                 if (mode == captured.mode) {
                     ActionSafetyDecision.Ask
                 } else {
-                    decision(context, captured.analysis, captured.hook, mode)
+                    decision(
+                        context,
+                        captured.analysis,
+                        captured.hook,
+                        mode,
+                        ProposedAction.native(context, captured.input),
+                    )
                 }
             }
             val prepared = when (result) {
@@ -117,10 +125,11 @@ internal class NativeActionSafety(
         analysis: ActionAnalysis,
         hook: ToolHookVerdict,
         mode: SecurityMode,
+        proposed: ProposedAction,
     ): ActionSafetyDecision = when {
         analysis is ActionAnalysis.Denied || hook is ToolHookVerdict.Deny -> ActionSafetyDecision.Deny
         hook is ToolHookVerdict.Ask -> ActionSafetyDecision.Ask
-        else -> gate.evaluate(context, analysis, mode)
+        else -> gate.evaluate(context, analysis, mode, proposed)
     }
 
     private suspend fun changed(

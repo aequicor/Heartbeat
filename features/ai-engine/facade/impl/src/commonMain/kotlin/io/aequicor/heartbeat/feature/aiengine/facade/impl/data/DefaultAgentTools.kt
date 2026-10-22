@@ -422,7 +422,11 @@ internal class DefaultAgentTools(
         val declaration = declarations(context.toolScope(), isExecuting = true, isAdapterOperated = isAdapterOperated)
             .singleOrNull { it.second.name == name }
             ?: return AgentToolResult("Tool is unavailable for this session", isError = true)
-        val (owner, spec) = declaration
+        val (owner, declaredSpec) = declaration
+        // Schemas may wrap mutable maps. Review and the final declaration check must share a detached snapshot.
+        val spec = declaredSpec.copy(
+            inputSchema = Json.parseToJsonElement(declaredSpec.inputSchema.toString()).jsonObject,
+        )
         log.i { "Hosted tool requested name=${spec.name} action=${spec.action}" }
         return try {
             val approval = owner.approval(context, spec, arguments)

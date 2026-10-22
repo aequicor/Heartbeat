@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
  * Foundation layout and Hb controls keep the same treatment across platform kits. The host supplies localized
  * [attentionLabel], [title] and answer controls in [content], and owns all answer state and delivery.
  * [questionId] identifies the request: changing it restarts the finite entrance signal, unless motion is reduced.
+ * Optional [headerActions] sit at the trailing edge of the attention header.
  * Only the title is announced; long reviewed content belongs in a bounded, scrollable area inside [content].
  */
 @Composable
@@ -40,6 +41,7 @@ fun HbQuestionnaireCard(
     title: String,
     attentionLabel: String,
     modifier: Modifier = Modifier,
+    headerActions: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     HbQuestionnaireTheme {
@@ -80,16 +82,21 @@ fun HbQuestionnaireCard(
                     .testTag("question-accent-$questionId"),
             ) {}
             HbColumn(Modifier.padding(HbTheme.spacing.l), gap = HbTheme.spacing.m) {
-                HbRow(
-                    Modifier.testTag("question-attention-$questionId"),
-                    gap = HbTheme.spacing.s,
-                ) {
-                    HbIcon(HbIcons.Chat, contentDescription = null, tint = colors.primary)
-                    HbText(
-                        attentionLabel,
-                        style = HbTheme.typography.caption,
-                        color = colors.primary,
-                    )
+                HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
+                    HbRow(
+                        Modifier.weight(1f).testTag("question-attention-$questionId"),
+                        gap = HbTheme.spacing.s,
+                    ) {
+                        HbIcon(HbIcons.Chat, contentDescription = null, tint = colors.primary)
+                        HbText(
+                            attentionLabel,
+                            modifier = Modifier.weight(1f),
+                            style = HbTheme.typography.caption,
+                            color = colors.primary,
+                            maxLines = 1,
+                        )
+                    }
+                    headerActions()
                 }
                 HbText(
                     title,

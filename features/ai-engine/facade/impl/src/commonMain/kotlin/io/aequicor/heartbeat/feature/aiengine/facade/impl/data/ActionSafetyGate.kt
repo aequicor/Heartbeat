@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SecurityMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety.ActionSafetyPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety.ProposedAction
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -28,10 +29,11 @@ internal class ActionSafetyGate(
         context: AgentToolContext,
         analysis: ActionAnalysis,
         mode: SecurityMode,
+        proposed: ProposedAction,
     ): ActionSafetyDecision = when {
         analysis is ActionAnalysis.Denied -> ActionSafetyDecision.Deny
         mode == SecurityMode.Trust -> ActionSafetyDecision.Allow
         mode == SecurityMode.Ask -> ActionSafetyDecision.Ask
-        else -> policy.evaluate(analysis, context.userInstruction, context.reviewModel)
+        else -> policy.evaluate(analysis, context.userInstruction, context.reviewModel, proposed)
     }
 }

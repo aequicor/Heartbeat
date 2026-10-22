@@ -27,7 +27,7 @@ import java.util.Locale
 /**
  * Structural parsing precedes semantics. Only complete implemented command contracts produce evidence:
  * bounded PowerShell directory listings and name projections, literal POSIX system listings and cmd dir.
- * Unrecognized syntax, effects or launchers retain manual confirmation; this is not a general shell interpreter.
+ * Unrecognized syntax, effects or launchers leave the full call to policy review; this is not a shell interpreter.
  * Resource identities are checked again by the gate. This preflight does not create an OS sandbox or lock the
  * filesystem against unrelated processes replacing resources after the last check.
  */

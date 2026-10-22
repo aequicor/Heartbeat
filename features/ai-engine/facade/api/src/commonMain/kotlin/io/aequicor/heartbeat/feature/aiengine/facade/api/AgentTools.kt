@@ -150,11 +150,12 @@ public data class AgentToolImage(val mimeType: String, val data: String) {
 public interface AgentToolContribution {
     /**
      * Resolves the actual operation and resources using this owner's validated execution contract. A declaration,
-     * tool name, read-only hint or model-provided claim is not evidence. Unknown implementations require a decision.
+     * tool name, read-only hint or model-provided claim is not evidence. This optional analysis supplements the
+     * shared policy: an unknown implementation is reviewed using its complete declaration and invocation.
      * The dispatcher repeats this analysis before execution; the owner still enforces its atomic snapshot checks.
      */
     public suspend fun analyze(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject): ActionAnalysis =
-        ActionAnalysis.Unknown("This tool has no verified action contract")
+        ActionAnalysis.Unknown("No specialized structural analysis is available")
 
     /**
      * Adapter-operated host tools publish policy metadata here but execute through their existing transport.
@@ -226,8 +227,9 @@ public interface AgentToolContribution {
 
     /**
      * Adds a user decision when no exact [existingAuthorization] covers the operation; false never grants permission.
-     * The legacy path checks this alongside the action rules in Ask/Automatic and ignores it in Trust. Enhanced
-     * analysis checks it before model review or a Trust verdict; explicit analysis and hook denials take priority.
+     * The legacy path checks this alongside the action rules in Ask/Automatic and ignores it in Trust.
+     * The central action-safety policy does not use this legacy hint: it reviews the complete invocation itself.
+     * Ownership, resource boundaries and operation freshness must always be enforced by the executor.
      */
     public suspend fun requiresDecision(
         context: AgentToolContext,
