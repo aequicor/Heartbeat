@@ -304,7 +304,7 @@
     <string name="engine_host_app_in_use">Используется</string>
     <string name="engine_host_app_runtimes">Runtime в приложении</string>
     <string name="engine_host_app_runtime">%1$s · сборка %2$s</string>
-    <string name="engine_host_app_runtime_pending">Устанавливается приложением</string>
+    <string name="engine_host_app_runtime_pending">%1$s · сборка %2$s — устанавливается приложением</string>
     <string name="engine_host_app_no_runtime">У приложения ещё нет runtime. Откройте его один раз — оно загрузит runtime.</string>
     <string name="engine_host_app_config">Общая конфигурация: %1$s</string>
     <string name="engine_host_app_login_hint">Heartbeat не читает вход самого приложения. Движок использует вход CLI ниже; он общий с сессиями приложения через каталог конфигурации.</string>
@@ -317,4 +317,5 @@
     <string name="engine_runtime_system">Установленный в системе</string>
     <string name="engine_runtime_version">Версия runtime приложения</string>
     <string name="engine_runtime_version_newest">Новейшая</string>
+    <string name="engine_host_app_path_copy">Скопировать путь к приложению %1$s</string>
 </resources>

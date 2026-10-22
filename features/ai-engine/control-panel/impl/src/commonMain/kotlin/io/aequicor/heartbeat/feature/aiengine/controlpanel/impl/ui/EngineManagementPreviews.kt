@@ -137,3 +137,16 @@ private fun EngineHostAppLightPreview() {
 private fun EngineHostAppDarkPreview() {
     HbTheme(darkTheme = true) { EngineManagementSection(PreviewHostAppPanel, "", isSaving = false, onIntent = {}) }
 }
+
+@Preview(widthDp = 360)
+@Composable
+private fun EngineHostAppPhonePreview() {
+    val waiting = PreviewHostAppPanel.copy(
+        hostApp = PreviewHostAppPanel.hostApp?.copy(
+            runtimes = persistentListOf(HostRuntimeUi("2.1.305", "7c1d", isVerified = false)),
+            configDirectory = "/Users/me/Library/Application Support/Work profiles/claude-config",
+            isInUse = false,
+        ),
+    )
+    HbTheme(darkTheme = false) { EngineManagementSection(waiting, "", isSaving = false, onIntent = {}) }
+}

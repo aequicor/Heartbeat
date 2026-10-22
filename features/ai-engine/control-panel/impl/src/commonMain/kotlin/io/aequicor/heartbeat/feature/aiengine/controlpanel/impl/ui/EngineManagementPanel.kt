@@ -198,17 +198,22 @@ private fun InstallationBlock(
 }
 
 @Composable
-internal fun InstallationPath(path: String, modifier: Modifier = Modifier) {
+internal fun InstallationPath(
+    path: String,
+    modifier: Modifier = Modifier,
+    tag: String = "engine-path",
+    copyLabel: String = stringResource(Res.string.engine_path_copy),
+) {
     HbRow(modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m), gap = HbTheme.spacing.s) {
         HbText(
             path,
-            Modifier.weight(1f).testTag("engine-path"),
+            Modifier.weight(1f).testTag(tag),
             style = HbTheme.typography.caption,
             color = HbTheme.colors.textSecondary,
         )
         HbCopyButton(
             path,
-            stringResource(Res.string.engine_path_copy),
+            copyLabel,
             stringResource(Res.string.engine_path_copied),
             stringResource(Res.string.engine_copy_failed),
         )

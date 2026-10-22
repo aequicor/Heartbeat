@@ -6,6 +6,8 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbChoiceRow
@@ -138,7 +140,7 @@ private fun LaunchEditor(
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
         LaunchPaths(launch, edit)
         if (LaunchOptionUi.Runtime in launch.options && launch.runtimes.isNotEmpty()) {
-            RuntimeChoice(launch, edit)
+            RuntimeChoice(launch, edit, isIdle)
         }
         if (LaunchOptionUi.ConfigOverrides in launch.options) {
             EntryList(
@@ -211,12 +213,21 @@ private fun LaunchPaths(launch: LaunchUi, edit: (LaunchDraftUi) -> Unit) {
  * version) or a system installation. A custom executable wins over the choice; the hint says so.
  */
 @Composable
-private fun RuntimeChoice(launch: LaunchUi, edit: (LaunchDraftUi) -> Unit, modifier: Modifier = Modifier) {
+private fun RuntimeChoice(
+    launch: LaunchUi,
+    edit: (LaunchDraftUi) -> Unit,
+    isEnabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val draft = launch.draft
     val choices = listOf(RuntimePreferenceUi.Auto) + RuntimePreferenceUi.entries.filter { it in launch.runtimes }
+    val title = stringResource(Res.string.engine_launch_runtime)
     HbColumn(modifier.fillMaxWidth().testTag("engine-launch-runtime"), gap = HbTheme.spacing.xs) {
-        HbText(stringResource(Res.string.engine_launch_runtime), style = HbTheme.typography.label)
-        HbColumn(Modifier.fillMaxWidth().selectableGroup(), gap = HbTheme.spacing.none) {
+        HbText(title, style = HbTheme.typography.label)
+        HbColumn(
+            Modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = title },
+            gap = HbTheme.spacing.none,
+        ) {
             choices.forEach { choice ->
                 HbChoiceRow(
                     runtimeLabel(choice, launch.hostApp),
@@ -224,6 +235,7 @@ private fun RuntimeChoice(launch: LaunchUi, edit: (LaunchDraftUi) -> Unit, modif
                     isMultiple = false,
                     onClick = { edit(draft.copy(runtime = choice)) },
                     modifier = Modifier.testTag("engine-runtime:${choice.name}"),
+                    enabled = isEnabled,
                 )
             }
         }
@@ -234,35 +246,48 @@ private fun RuntimeChoice(launch: LaunchUi, edit: (LaunchDraftUi) -> Unit, modif
                 color = HbTheme.colors.textSecondary,
             )
         }
-        if (draft.runtime == RuntimePreferenceUi.HostApp) HostRuntimeVersion(launch, edit)
+        if (draft.runtime == RuntimePreferenceUi.HostApp) HostRuntimeVersion(launch, edit, isEnabled)
         Problems(launch.errors.of(LaunchOptionUi.Runtime))
     }
 }
 
 /** The pinned version of the host application's runtime: the newest one, or one of the versions it keeps. */
 @Composable
-private fun HostRuntimeVersion(launch: LaunchUi, edit: (LaunchDraftUi) -> Unit) {
+private fun HostRuntimeVersion(
+    launch: LaunchUi,
+    edit: (LaunchDraftUi) -> Unit,
+    isEnabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val draft = launch.draft
     // A pinned version the app no longer keeps stays selectable, so saving never drops it silently.
     val versions = (launch.hostVersions + listOfNotNull(draft.hostRuntimeVersion.takeIf { it.isNotBlank() }))
         .distinct()
-    HbText(stringResource(Res.string.engine_runtime_version), style = HbTheme.typography.label)
-    HbColumn(Modifier.fillMaxWidth().selectableGroup(), gap = HbTheme.spacing.none) {
-        HbChoiceRow(
-            stringResource(Res.string.engine_runtime_version_newest),
-            selected = draft.hostRuntimeVersion.isBlank(),
-            isMultiple = false,
-            onClick = { edit(draft.copy(hostRuntimeVersion = "")) },
-            modifier = Modifier.testTag("engine-runtime-version:newest"),
-        )
-        versions.forEach { version ->
+    val title = stringResource(Res.string.engine_runtime_version)
+    HbColumn(modifier.fillMaxWidth().testTag("engine-runtime-version"), gap = HbTheme.spacing.xs) {
+        HbText(title, style = HbTheme.typography.label)
+        HbColumn(
+            Modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = title },
+            gap = HbTheme.spacing.none,
+        ) {
             HbChoiceRow(
-                version,
-                selected = draft.hostRuntimeVersion == version,
+                stringResource(Res.string.engine_runtime_version_newest),
+                selected = draft.hostRuntimeVersion.isBlank(),
                 isMultiple = false,
-                onClick = { edit(draft.copy(hostRuntimeVersion = version)) },
-                modifier = Modifier.testTag("engine-runtime-version:$version"),
+                onClick = { edit(draft.copy(hostRuntimeVersion = "")) },
+                modifier = Modifier.testTag("engine-runtime-version:newest"),
+                enabled = isEnabled,
             )
+            versions.forEach { version ->
+                HbChoiceRow(
+                    version,
+                    selected = draft.hostRuntimeVersion == version,
+                    isMultiple = false,
+                    onClick = { edit(draft.copy(hostRuntimeVersion = version)) },
+                    modifier = Modifier.testTag("engine-runtime-version:$version"),
+                    enabled = isEnabled,
+                )
+            }
         }
     }
 }

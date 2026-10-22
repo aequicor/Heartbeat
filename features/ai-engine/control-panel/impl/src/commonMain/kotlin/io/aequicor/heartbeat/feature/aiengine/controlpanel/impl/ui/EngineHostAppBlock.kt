@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_host_app_missing
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_host_app_no_runtime
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_host_app_open
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_host_app_path_copy
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_host_app_runtime
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_host_app_runtime_pending
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_host_app_runtimes
@@ -63,13 +64,24 @@ internal fun HostAppBlock(
             }
         }
         if (hostApp.isInUse) {
-            HbFlowRow(Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m)) {
+            HbFlowRow(
+                Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m).testTag("engine-host-app-in-use"),
+            ) {
                 HbBadge(stringResource(Res.string.engine_host_app_in_use), tone = HbTone.Brand)
             }
         }
-        hostApp.path?.let { InstallationPath(it) }
+        hostApp.path?.let {
+            InstallationPath(
+                it,
+                tag = "engine-host-app-path",
+                copyLabel = stringResource(Res.string.engine_host_app_path_copy, hostApp.title),
+            )
+        }
         hostApp.failure?.let {
-            HbBanner(failureText(it), Modifier.padding(horizontal = HbTheme.spacing.m))
+            HbBanner(
+                failureText(it),
+                Modifier.padding(horizontal = HbTheme.spacing.m).testTag("engine-host-app-failure"),
+            )
         }
         if (hostApp.isChecked) HostAppDetails(hostApp, Modifier.padding(horizontal = HbTheme.spacing.m))
     }
@@ -81,10 +93,17 @@ private fun HostAppDetails(hostApp: HostAppUi, modifier: Modifier = Modifier) {
         if (hostApp.runtimes.isNotEmpty()) {
             HbText(stringResource(Res.string.engine_host_app_runtimes), style = HbTheme.typography.label)
             hostApp.runtimes.forEach { runtime ->
-                val line = stringResource(Res.string.engine_host_app_runtime, runtime.version, runtime.build)
-                val pending = stringResource(Res.string.engine_host_app_runtime_pending)
+                val line = stringResource(
+                    if (runtime.isVerified) {
+                        Res.string.engine_host_app_runtime
+                    } else {
+                        Res.string.engine_host_app_runtime_pending
+                    },
+                    runtime.version,
+                    runtime.build,
+                )
                 HbText(
-                    if (runtime.isVerified) line else "$line — $pending",
+                    line,
                     Modifier.testTag("engine-host-runtime:${runtime.version}:${runtime.build}"),
                     style = HbTheme.typography.caption,
                     color = HbTheme.colors.textSecondary,
