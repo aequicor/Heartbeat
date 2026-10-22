@@ -6,7 +6,14 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
+import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeDesktopSwitch
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeEngineManager
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
@@ -26,6 +33,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import java.io.IOException
 
 /** [ClaudeEngineManager] over the process transport, which knows how this host finds and starts the CLI. */
 @Inject
@@ -35,6 +43,9 @@ internal class JvmClaudeManager(
     private val transport: ClaudeTransport,
     private val signIn: ClaudeSignIn,
     private val dispatchers: DispatcherProvider,
+    private val configuration: ClaudeConfiguration = ClaudeConfiguration(),
+    private val desktop: ClaudeDesktopSwitch = ClaudeDesktopSwitch.On,
+    private val host: ClaudeHost = ClaudeHost(),
 ) : ClaudeEngineManager {
     private val log = Log.tag("ClaudeManager")
 
@@ -48,8 +59,35 @@ internal class JvmClaudeManager(
 
     override suspend fun logout(launch: LaunchContext): LoginState = signIn.logout(launch)
 
-    override suspend fun check(settings: LaunchSettings): List<LaunchProblem> =
-        withContext(dispatchers.io) { claudeLaunchProblems(settings) }
+    override suspend fun check(settings: LaunchSettings): List<LaunchProblem> {
+        val isHostAppEnabled = desktop.isEnabled()
+        return withContext(dispatchers.io) { claudeLaunchProblems(settings, host, isHostAppEnabled) }
+    }
+
+    /** The Claude desktop app and its runtimes; nothing while [ClaudeEngine.DesktopApp] is off. */
+    override suspend fun inspectHostApp(): HostAppState {
+        if (!desktop.isEnabled()) return HostAppState()
+        val state = withContext(dispatchers.io) { inspectClaudeDesktop(host, configuration.configDirectory) }
+        log.i { "Claude desktop app inspected installed=${state.isInstalled} runtimes=${state.runtimes.size}" }
+        return state
+    }
+
+    /** Starts the installed Claude desktop app without waiting for it; the app outlives Heartbeat. */
+    override suspend fun openHostApp() {
+        val isEnabled = desktop.isEnabled()
+        val command = if (isEnabled) withContext(dispatchers.io) { claudeDesktopOpenCommand(host) } else null
+        if (command == null) {
+            log.w { "Claude desktop app is not installed or switched off enabled=$isEnabled" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
+        try {
+            withContext(dispatchers.io) { ProcessBuilder(command).redirectErrorStream(true).start() }
+            log.i { "Claude desktop app opened" }
+        } catch (e: IOException) {
+            log.w(e) { "Claude desktop app could not be opened" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+        }
+    }
 
     override suspend fun resolveRelease(feeds: ReleaseFeeds): InstallPlan {
         val platform = claudeReleasePlatform() ?: run {

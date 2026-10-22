@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.validateLaunchSettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -33,8 +34,13 @@ class ClaudeBindingsTest {
         val spec = registration.management
         assertEquals(InstallSupport.Managed, spec.install)
         assertEquals(
-            setOf(LaunchOption.Executable, LaunchOption.HomeDirectory, LaunchOption.Environment),
+            setOf(LaunchOption.Executable, LaunchOption.Runtime, LaunchOption.HomeDirectory, LaunchOption.Environment),
             spec.launch.options,
+        )
+        assertEquals("Claude", spec.hostApp?.title)
+        assertEquals(
+            setOf(RuntimePreference.Managed, RuntimePreference.HostApp, RuntimePreference.System),
+            spec.launch.runtimes,
         )
 
         val settings = LaunchSettings(

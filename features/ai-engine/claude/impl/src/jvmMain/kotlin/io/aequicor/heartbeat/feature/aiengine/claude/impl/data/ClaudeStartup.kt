@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
@@ -7,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import java.io.File
 import java.io.IOException
@@ -20,8 +22,8 @@ import java.util.HexFormat
 /**
  * How the CLI starts: [executable] and where it came from, the config directory (`CLAUDE_CONFIG_DIR`, null keeps
  * the CLI's default) and the user's environment entries. A non-runnable executable (a Windows `.cmd` shim) is
- * reported, never started. [isDesktopBundle] marks the CLI that the Claude Code desktop app ships: its updates
- * belong to that app, so the CLI never updates itself.
+ * reported, never started. The runtime of the Claude desktop app ([InstallSource.HostApp]) is updated by that app,
+ * so it never updates itself.
  */
 internal data class ClaudeStartup(
     val executable: String,
@@ -29,7 +31,6 @@ internal data class ClaudeStartup(
     val isRunnable: Boolean,
     val configDirectory: String? = null,
     val environment: List<EnvironmentEntry> = emptyList(),
-    val isDesktopBundle: Boolean = false,
 ) {
     override fun toString(): String = "ClaudeStartup(source=$source, isRunnable=$isRunnable)"
 }
@@ -42,46 +43,41 @@ internal data class ClaudeHost(
     val userHome: String = System.getProperty("user.home").orEmpty(),
     val entries: (File) -> List<File> = { it.listFiles()?.toList().orEmpty() },
     val isExecutable: (File) -> Boolean = { it.isFile && it.canExecute() },
+    val environment: Map<String, String> = System.getenv(),
+    val exists: (File) -> Boolean = File::exists,
+    val readText: (File) -> String? = ::readSmallText,
 ) {
     val isWindows: Boolean get() = osName.startsWith("Windows")
 }
 
 /**
- * The startup of [context]: the custom executable of its settings, else Heartbeat's managed copy, else the host
- * configuration's explicit executable, else a system installation (PATH, the native installer's `~/.local/bin`
- * and Homebrew), else, on macOS only, the CLI of the Claude Code desktop app, which shares that app's login.
- * A custom config directory wins over the host configuration's.
+ * The startup of [context]. A custom executable of its settings always wins. Otherwise the runtime preference
+ * decides: [RuntimePreference.Managed] runs only Heartbeat's copy, [RuntimePreference.HostApp] only a verified
+ * runtime of the Claude desktop app (the pinned version, else the newest) and [RuntimePreference.System] only a
+ * system installation; a preferred installation that is missing is reported, never replaced by another one.
+ * [RuntimePreference.Auto] tries Heartbeat's copy, the host configuration's explicit executable, a system
+ * installation (PATH, the native installer's `~/.local/bin` and Homebrew) and finally the desktop app's runtime.
+ * While [isHostAppEnabled] is off the desktop app's runtime is only that last resort. A custom config directory wins
+ * over the host configuration's.
  */
 internal fun resolveClaudeStartup(
     context: LaunchContext,
     configuration: ClaudeConfiguration,
     host: ClaudeHost = ClaudeHost(),
+    isHostAppEnabled: Boolean = true,
 ): ClaudeStartup {
     val settings = context.settings
     val custom = settings.executable?.takeIf { it.isNotBlank() }
     val managed = context.managed?.executable
-    val found = when {
-        custom != null -> FoundClaude(custom, InstallSource.Custom, !custom.isScriptWrapper())
-
-        managed != null -> FoundClaude(managed, InstallSource.Managed, true)
-
-        configuration.executable != DEFAULT_COMMAND -> FoundClaude(
-            configuration.executable,
-            InstallSource.System,
-            !configuration.executable.isScriptWrapper(),
-        )
-
-        else -> systemClaude(host)
+    val preference = settings.runtime.takeIf { isHostAppEnabled || it != RuntimePreference.HostApp }
+        ?: RuntimePreference.Auto
+    val found = if (custom != null) {
+        FoundClaude(custom, InstallSource.Custom, !custom.isScriptWrapper())
+    } else {
+        preferredClaude(preference, settings.hostRuntimeVersion, managed, configuration, host)
     }
     val configDirectory = settings.homeDirectory?.takeIf { it.isNotBlank() } ?: configuration.configDirectory
-    return ClaudeStartup(
-        found.executable,
-        found.source,
-        found.isRunnable,
-        configDirectory,
-        settings.environment,
-        found.isDesktopBundle,
-    )
+    return ClaudeStartup(found.executable, found.source, found.isRunnable, configDirectory, settings.environment)
 }
 
 /**
@@ -94,7 +90,7 @@ internal fun claudeEnvironment(host: Map<String, String>, startup: ClaudeStartup
     putAll(host.filterKeys { it.uppercase() in HOST_ENVIRONMENT })
     startup.environment.forEach { put(it.name, it.value) }
     startup.configDirectory?.let { put("CLAUDE_CONFIG_DIR", it) }
-    if (startup.source == InstallSource.Managed || startup.isDesktopBundle) {
+    if (startup.source == InstallSource.Managed || startup.source == InstallSource.HostApp) {
         put("DISABLE_AUTOUPDATER", "1")
         put("DISABLE_UPDATES", "1")
     }
@@ -140,30 +136,38 @@ private fun isDirectory(path: Path): Boolean =
 private fun isTranscript(path: Path): Boolean =
     !Files.notExists(path) && Files.readAttributes(path, BasicFileAttributes::class.java).isRegularFile
 
-/** File checks of launch settings; they never block saving, the panel shows them. */
-internal fun claudeLaunchProblems(settings: LaunchSettings, host: ClaudeHost = ClaudeHost()): List<LaunchProblem> =
-    buildList {
-        settings.executable?.takeIf { it.isNotBlank() }?.let { path ->
-            val file = File(path)
-            when {
-                !file.exists() -> add(LaunchProblem(LaunchOption.Executable, LaunchProblemReason.NotFound))
-
-                !host.isExecutable(
-                    file,
-                ) -> add(LaunchProblem(LaunchOption.Executable, LaunchProblemReason.NotExecutable))
-            }
-        }
-        settings.homeDirectory?.takeIf { it.isNotBlank() }?.let { path ->
-            val directory = File(path)
-            when {
-                !directory.exists() -> add(LaunchProblem(LaunchOption.HomeDirectory, LaunchProblemReason.NotFound))
-
-                !directory.isDirectory -> add(
-                    LaunchProblem(LaunchOption.HomeDirectory, LaunchProblemReason.NotADirectory),
-                )
-            }
+/**
+ * File checks of launch settings; they never block saving, the panel shows them. A preferred desktop app runtime
+ * that is not there (no verified build, or not the pinned version) is reported while [isHostAppEnabled].
+ */
+internal fun claudeLaunchProblems(
+    settings: LaunchSettings,
+    host: ClaudeHost = ClaudeHost(),
+    isHostAppEnabled: Boolean = true,
+): List<LaunchProblem> = buildList {
+    settings.executable?.takeIf { it.isNotBlank() }?.let { path ->
+        val file = File(path)
+        when {
+            !file.exists() -> add(LaunchProblem(LaunchOption.Executable, LaunchProblemReason.NotFound))
+            !host.isExecutable(file) -> add(LaunchProblem(LaunchOption.Executable, LaunchProblemReason.NotExecutable))
         }
     }
+    settings.homeDirectory?.takeIf { it.isNotBlank() }?.let { path ->
+        val directory = File(path)
+        when {
+            !directory.exists() -> add(LaunchProblem(LaunchOption.HomeDirectory, LaunchProblemReason.NotFound))
+
+            !directory.isDirectory -> add(
+                LaunchProblem(LaunchOption.HomeDirectory, LaunchProblemReason.NotADirectory),
+            )
+        }
+    }
+    val isHostApp = settings.runtime == RuntimePreference.HostApp && settings.executable.isNullOrBlank()
+    val version = settings.hostRuntimeVersion?.takeIf { it.isNotBlank() }
+    if (isHostApp && isHostAppEnabled && claudeDesktopRuntime(host, version) == null) {
+        add(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.NotFound))
+    }
+}
 
 /** The release platform on macOS, Windows or glibc Linux, or null where Claude Code publishes none. */
 internal fun claudeReleasePlatform(host: ClaudeHost = ClaudeHost()): String? {
@@ -183,7 +187,33 @@ internal fun claudeReleasePlatform(host: ClaudeHost = ClaudeHost()): String? {
 /** The version `claude --version` prints (`2.1.3 (Claude Code)`), or null. */
 internal fun parseClaudeVersion(output: String): String? = VersionPattern.find(output)?.groupValues?.get(1)
 
-private fun systemClaude(host: ClaudeHost): FoundClaude {
+private fun preferredClaude(
+    preference: RuntimePreference,
+    version: String?,
+    managed: String?,
+    configuration: ClaudeConfiguration,
+    host: ClaudeHost,
+): FoundClaude = when (preference) {
+    RuntimePreference.Managed -> managed?.let { FoundClaude(it, InstallSource.Managed, true) } ?: MissingClaude
+
+    RuntimePreference.HostApp -> hostAppClaude(host, version?.takeIf { it.isNotBlank() }) ?: MissingClaude
+
+    RuntimePreference.System -> configuredClaude(configuration) ?: systemClaude(host, withHostApp = false)
+
+    RuntimePreference.Auto -> managed?.let { FoundClaude(it, InstallSource.Managed, true) }
+        ?: configuredClaude(configuration)
+        ?: systemClaude(host, withHostApp = true)
+}
+
+private fun configuredClaude(configuration: ClaudeConfiguration): FoundClaude? =
+    configuration.executable.takeIf { it != DEFAULT_COMMAND }?.let {
+        FoundClaude(it, InstallSource.System, !it.isScriptWrapper())
+    }
+
+private fun hostAppClaude(host: ClaudeHost, version: String?): FoundClaude? =
+    claudeDesktopRuntime(host, version)?.let { FoundClaude(it.path, InstallSource.HostApp, true) }
+
+private fun systemClaude(host: ClaudeHost, withHostApp: Boolean): FoundClaude {
     val name = if (host.isWindows) "claude.exe" else DEFAULT_COMMAND
     val directories = pathEntries(host) + listOfNotNull(
         File(File(host.userHome, ".local"), "bin").path,
@@ -193,50 +223,28 @@ private fun systemClaude(host: ClaudeHost): FoundClaude {
     val found = directories.map { File(it, name) }.firstOrNull(host.isExecutable)
     // npm installs only a `.cmd` shim on Windows: arguments passed through cmd.exe are not safe to start.
     val shim = if (host.isWindows) pathEntries(host).map { File(it, "claude.cmd") }.firstOrNull { it.isFile } else null
-    val desktop = if (found == null && shim == null) desktopClaude(host) else null
+    // Only on macOS: the desktop app's runtime on Windows is chosen explicitly until its layout is confirmed there.
+    val isFallback = withHostApp && host.osName.startsWith("Mac")
+    val desktop = if (found == null && shim == null && isFallback) hostAppClaude(host, null) else null
     return when {
         found != null -> FoundClaude(found.path, InstallSource.System, true)
         shim != null -> FoundClaude(shim.path, InstallSource.System, false)
-        desktop != null -> FoundClaude(desktop.path, InstallSource.System, true, isDesktopBundle = true)
-        else -> FoundClaude(DEFAULT_COMMAND, InstallSource.Missing, false)
+        desktop != null -> desktop
+        else -> MissingClaude
     }
 }
 
-/**
- * The CLI the Claude Code desktop app keeps on macOS, `claude-code/<version>/<build>/claude.app/Contents/MacOS/claude`
- * in the app's data directory: the newest version whose build carries the desktop's `.verified` marker (only its
- * presence is checked; the binary is trusted like any CLI the user installed). It reads the same login as every
- * Claude Code CLI, so a desktop user needs no second installation or sign-in.
- */
-private fun desktopClaude(host: ClaudeHost): File? {
-    if (!host.osName.startsWith("Mac")) return null
-    val root = File(host.userHome, "Library/Application Support/Claude/claude-code")
-    return host.entries(root)
-        .mapNotNull { directory -> directory.name.toVersionParts()?.let { it to directory } }
-        .sortedWith(compareByDescending<Pair<List<Int>, File>, List<Int>>(VersionOrder) { it.first })
-        .asSequence()
-        // Lazy: the builds of an older version are listed only when no newer one qualified.
-        .flatMap { (_, version) -> host.entries(version).sortedByDescending(File::getName) }
-        .firstOrNull { build ->
-            host.entries(build).any { it.name == DESKTOP_VERIFIED_MARKER } &&
-                host.isExecutable(File(build, DESKTOP_EXECUTABLE))
-        }
-        ?.let { File(it, DESKTOP_EXECUTABLE) }
+private data class FoundClaude(val executable: String, val source: InstallSource, val isRunnable: Boolean)
+
+private val MissingClaude = FoundClaude(DEFAULT_COMMAND, InstallSource.Missing, false)
+
+/** A text file of at most [MAX_TEXT_BYTES], or null when it is absent, larger or unreadable. */
+private fun readSmallText(file: File): String? = try {
+    file.takeIf { it.isFile && it.length() <= MAX_TEXT_BYTES }?.readText()
+} catch (e: IOException) {
+    Log.tag("ClaudeStartup").w(e) { "A Claude desktop file could not be read" }
+    null
 }
-
-private fun String.toVersionParts(): List<Int>? =
-    split('.').map { it.toIntOrNull() ?: return null }.takeIf { it.size == VERSION_PARTS }
-
-private val VersionOrder = Comparator<List<Int>> { a, b ->
-    a.zip(b).firstNotNullOfOrNull { (x, y) -> x.compareTo(y).takeIf { it != 0 } } ?: a.size.compareTo(b.size)
-}
-
-private data class FoundClaude(
-    val executable: String,
-    val source: InstallSource,
-    val isRunnable: Boolean,
-    val isDesktopBundle: Boolean = false,
-)
 
 private fun pathEntries(host: ClaudeHost): List<String> =
     host.path.orEmpty().split(if (host.isWindows) ';' else ':').filter(String::isNotBlank)
@@ -247,9 +255,7 @@ private fun String.isScriptWrapper(): Boolean = endsWith(
 ) || endsWith(".bat", ignoreCase = true)
 
 private const val DEFAULT_COMMAND = "claude"
-private const val VERSION_PARTS = 3
-private const val DESKTOP_VERIFIED_MARKER = ".verified"
-private const val DESKTOP_EXECUTABLE = "claude.app/Contents/MacOS/claude"
+private const val MAX_TEXT_BYTES = 1_048_576L
 private val VersionPattern = Regex("""(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)""")
 private val HOST_ENVIRONMENT = setOf(
     "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",

@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RuntimePreference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import org.junit.Assume.assumeTrue
 import java.io.File
@@ -150,12 +151,11 @@ class ClaudeStartupTest {
         val startup = resolveClaudeStartup(LaunchContext(), config, desktop)
 
         assertEquals(executable("2.1.299", "4fa"), startup.executable)
-        assertEquals(InstallSource.System, startup.source)
+        assertEquals(InstallSource.HostApp, startup.source)
         assertTrue(startup.isRunnable)
-        assertTrue(startup.isDesktopBundle)
         val withLocal = desktop.copy(isExecutable = { it.path == localClaude || desktop.isExecutable(it) })
         val preferred = resolveClaudeStartup(LaunchContext(), config, withLocal)
-        assertEquals(localClaude to false, preferred.executable to preferred.isDesktopBundle)
+        assertEquals(localClaude to InstallSource.System, preferred.executable to preferred.source)
         assertEquals(InstallSource.Missing, resolveClaudeStartup(LaunchContext(), config, host()).source)
         assertEquals(
             InstallSource.Missing,
@@ -165,7 +165,7 @@ class ClaudeStartupTest {
 
     @Test
     fun `the desktop CLI never updates itself`() {
-        val startup = ClaudeStartup("/desktop/claude", InstallSource.System, isRunnable = true, isDesktopBundle = true)
+        val startup = ClaudeStartup("/desktop/claude", InstallSource.HostApp, isRunnable = true)
 
         assertEquals(
             mapOf("DISABLE_AUTOUPDATER" to "1", "DISABLE_UPDATES" to "1"),
@@ -287,6 +287,68 @@ class ClaudeStartupTest {
         assertNull(parseClaudeVersion("command not found"))
     }
 
+    @Test
+    fun `a runtime preference runs only that installation and reports it missing otherwise`() {
+        val root = "/Users/test/Library/Application Support/Claude/claude-code"
+        val desktopExe = File("$root/2.1.304/b2/claude.app/Contents/MacOS/claude").path
+        val pinnedExe = File("$root/2.1.299/b1/claude.app/Contents/MacOS/claude").path
+        val mac = host(
+            directories = mapOf(
+                root to listOf("2.1.299", "2.1.304"),
+                "$root/2.1.304" to listOf("b2"),
+                "$root/2.1.304/b2" to listOf(".verified", "claude.app"),
+                "$root/2.1.299" to listOf("b1"),
+                "$root/2.1.299/b1" to listOf(".verified", "claude.app"),
+            ),
+            available = setOf(localClaude, desktopExe, pinnedExe),
+        )
+        fun resolve(settings: LaunchSettings, managedCopy: ManagedInstall? = managed, enabled: Boolean = true) =
+            resolveClaudeStartup(LaunchContext(settings, managedCopy), config, mac, enabled)
+                .let { it.executable to it.source }
+
+        val hostApp = LaunchSettings(runtime = RuntimePreference.HostApp)
+        assertEquals(desktopExe to InstallSource.HostApp, resolve(hostApp))
+        assertEquals(pinnedExe to InstallSource.HostApp, resolve(hostApp.copy(hostRuntimeVersion = "2.1.299")))
+        assertEquals(InstallSource.Missing, resolve(hostApp.copy(hostRuntimeVersion = "2.0.0")).second)
+        assertEquals(localClaude to InstallSource.System, resolve(LaunchSettings(runtime = RuntimePreference.System)))
+        assertEquals(
+            InstallSource.Missing,
+            resolve(LaunchSettings(runtime = RuntimePreference.Managed), managedCopy = null).second,
+        )
+        assertEquals(InstallSource.Managed, resolve(LaunchSettings(runtime = RuntimePreference.Managed)).second)
+        assertEquals(InstallSource.Custom, resolve(hostApp.copy(executable = "/custom/claude")).second)
+        // Switched off, the desktop preference falls back to the automatic order.
+        assertEquals(InstallSource.Managed, resolve(hostApp, enabled = false).second)
+    }
+
+    @Test
+    fun `a system preference never falls back to the desktop app`() {
+        val root = "/Users/test/Library/Application Support/Claude/claude-code"
+        val desktopExe = File("$root/2.1.304/b2/claude.app/Contents/MacOS/claude").path
+        val mac = host(
+            directories = mapOf(
+                root to listOf("2.1.304"),
+                "$root/2.1.304" to listOf("b2"),
+                "$root/2.1.304/b2" to listOf(".verified"),
+            ),
+            available = setOf(desktopExe),
+        )
+        val system = LaunchContext(LaunchSettings(runtime = RuntimePreference.System))
+        assertEquals(InstallSource.Missing, resolveClaudeStartup(system, config, mac).source)
+        assertEquals(InstallSource.HostApp, resolveClaudeStartup(LaunchContext(), config, mac).source)
+    }
+
+    @Test
+    fun `a preferred desktop runtime that is missing is a launch warning`() {
+        val hostApp = LaunchSettings(runtime = RuntimePreference.HostApp)
+        assertEquals(
+            listOf(LaunchProblem(LaunchOption.Runtime, LaunchProblemReason.NotFound)),
+            claudeLaunchProblems(hostApp, host()),
+        )
+        assertEquals(emptyList(), claudeLaunchProblems(hostApp, host(), isHostAppEnabled = false))
+        assertEquals(emptyList(), claudeLaunchProblems(LaunchSettings(), host()))
+    }
+
     private fun host(
         osName: String = "Mac OS X",
         osArch: String = "aarch64",
@@ -294,16 +356,34 @@ class ClaudeStartupTest {
         userHome: String = "/Users/test",
         available: Set<String> = emptySet(),
         directories: Map<String, List<String>> = emptyMap(),
-    ): ClaudeHost {
-        // The keys are written with `/`; the host looks files up by the platform's own spelling of the path.
-        val listed = directories.mapKeys { File(it.key).path }
-        val executables = available.map { File(it).path }.toSet()
-        return ClaudeHost(
-            osName,
-            osArch,
-            path,
-            userHome,
-            { directory -> listed[directory.path].orEmpty().map { File(directory, it) } },
-        ) { it.path in executables }
-    }
+    ): ClaudeHost = testClaudeHost(osName, osArch, path, userHome, available, directories)
+}
+
+/** A host whose files exist only as listed: [directories] by `/`-spelled path, [files] with their text. */
+@Suppress("LongParameterList") // Every host fact a test may vary.
+internal fun testClaudeHost(
+    osName: String = "Mac OS X",
+    osArch: String = "aarch64",
+    path: String? = null,
+    userHome: String = "/Users/test",
+    available: Set<String> = emptySet(),
+    directories: Map<String, List<String>> = emptyMap(),
+    files: Map<String, String> = emptyMap(),
+    environment: Map<String, String> = emptyMap(),
+): ClaudeHost {
+    // The keys are written with `/`; the host looks files up by the platform's own spelling of the path.
+    val listed = directories.mapKeys { File(it.key).path }
+    val executables = available.map { File(it).path }.toSet()
+    val texts = files.mapKeys { File(it.key).path }
+    return ClaudeHost(
+        osName = osName,
+        osArch = osArch,
+        path = path,
+        userHome = userHome,
+        entries = { directory -> listed[directory.path].orEmpty().map { File(directory, it) } },
+        isExecutable = { it.path in executables },
+        environment = environment,
+        exists = { it.path in listed || it.path in executables || it.path in texts },
+        readText = { texts[it.path] },
+    )
 }
