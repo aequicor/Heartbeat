@@ -198,8 +198,9 @@ internal fun MarkdownRichText(
 ) {
     val codeStyle = HbTheme.typography.code.toSpanStyle().copy(background = HbTheme.colors.primaryContainer)
     val emphasis = markdownEmphasisWeight()
-    val annotated = remember(content, codeStyle, emphasis, onLinkClick) {
-        annotatedMarkdown(content, codeStyle, emphasis, onLinkClick)
+    val links = markdownLinkStyles()
+    val annotated = remember(content, codeStyle, emphasis, links, onLinkClick) {
+        annotatedMarkdown(content, codeStyle, emphasis, onLinkClick, links)
     }
     BasicText(text = annotated, modifier = modifier, style = style.copy(color = foreground))
 }
@@ -209,6 +210,7 @@ internal fun annotatedMarkdown(
     codeStyle: SpanStyle,
     emphasis: FontWeight,
     onLinkClick: ((String) -> Unit)?,
+    links: TextLinkStyles = TextLinkStyles(),
 ): AnnotatedString = buildAnnotatedString {
     append(content.text)
     content.spans.forEach { span ->
@@ -224,7 +226,7 @@ internal fun annotatedMarkdown(
             addLink(
                 LinkAnnotation.Clickable(
                     tag = span.destination,
-                    styles = TextLinkStyles(style = style),
+                    styles = links,
                     linkInteractionListener = {
                         log.i { "Markdown link activated" }
                         onLinkClick(span.destination)
@@ -235,6 +237,19 @@ internal fun annotatedMarkdown(
             )
         }
     }
+}
+
+/** Active links: the link color with an underline, so color is never the only cue; hover adds a quiet fill. */
+@Composable
+@androidx.compose.runtime.ReadOnlyComposable
+private fun markdownLinkStyles(): TextLinkStyles {
+    val style = SpanStyle(color = HbTheme.colors.link, textDecoration = TextDecoration.Underline)
+    return TextLinkStyles(
+        style = style,
+        focusedStyle = style.copy(background = HbTheme.colors.selectionHighlight),
+        hoveredStyle = style.copy(background = HbTheme.colors.primaryContainer),
+        pressedStyle = style.copy(background = HbTheme.colors.accentMuted),
+    )
 }
 
 @Composable
