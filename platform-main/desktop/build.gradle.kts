@@ -363,8 +363,16 @@ afterEvaluate {
         jdkHome.set(desktopJavaHome)
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
-        if (targetFormat == TargetFormat.Dmg && name.contains("Release")) {
-            doLast(objects.newInstance<CompressReleaseDmg>().apply { imageDirectory.set(destinationDir) })
+        if (targetFormat == TargetFormat.Dmg) {
+            // Compose passes --icon only while creating the app image; jpackage then takes the DMG volume icon
+            // (.VolumeIcon.icns, shown in the Finder window title and path bar) from its own Java default.
+            freeArgs.addAll("--icon", layout.projectDirectory.file("icons/heartbeat.icns").asFile.absolutePath)
+            inputs.file(layout.projectDirectory.file("icons/heartbeat.icns"))
+                .withPropertyName("volumeIcon")
+                .withPathSensitivity(PathSensitivity.NONE)
+            if (name.contains("Release")) {
+                doLast(objects.newInstance<CompressReleaseDmg>().apply { imageDirectory.set(destinationDir) })
+            }
         }
         launcherJvmArgs.set(launcherJvmArgs.get().map { argument ->
             if (argument.startsWith("--limit-modules=")) {
