@@ -128,7 +128,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         log.i { "check connection engine=${effect.engine.value} method=${effect.method.id.value}" }
         // A check never changes the engine's runtime, but a host application method still needs the app's runtime.
         if (effect.method.hostApp != null) requireHostRuntime(effect.engine) else requireAvailable(effect.engine)
-        signInIfNeeded(effect.engine, effect.method, mayChangeRuntime = false)
+        signInIfNeeded(effect.engine, effect.method, mayChangeRuntime = false, RuntimeSwitch())
         var created: NewConnection? = null
         try {
             val connection = withContext(NonCancellable) {
@@ -153,13 +153,15 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         val hostApp = method.hostApp
         // The engine's current runtime may be missing (no CLI yet); the app's runtime replaces it once connected.
         if (hostApp != null) requireHostRuntime(engine) else requireAvailable(engine)
-        val switched = signInIfNeeded(engine, method, mayChangeRuntime = true)
+        val switch = RuntimeSwitch()
         var isWritten = false
         val connection = try {
+            signInIfNeeded(engine, method, mayChangeRuntime = true, switch)
             write(engine, method, credential).also { isWritten = true }
         } finally {
-            // The runtime was switched only to sign in; without a connection it is not the user's choice.
-            if (!isWritten) switched?.let { withContext(NonCancellable) { restoreSettings(engine, it) } }
+            // The runtime was switched only to sign in; without a connection (also when the wizard is closed
+            // while signing in) it is not the user's choice.
+            if (!isWritten) switch.previous?.let { withContext(NonCancellable) { restoreSettings(engine, it) } }
         }
         if (hostApp != null) {
             var isApplied = false
@@ -219,20 +221,20 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         engine: EngineId,
         method: ConnectionMethod,
         mayChangeRuntime: Boolean,
-    ): LaunchSettings? {
-        if (method !is ConnectionMethod.CliLogin || !services.management.state.value.isEnabled) return null
-        if (services.management.state.value.engine(engine)?.spec?.login.isCliLogin() != true) return null
-        var switched: LaunchSettings? = null
+        switch: RuntimeSwitch,
+    ) {
+        if (method !is ConnectionMethod.CliLogin || !services.management.state.value.isEnabled) return
+        if (services.management.state.value.engine(engine)?.spec?.login.isCliLogin() != true) return
         try {
             var managed = inspect(engine)
             if (method.hostApp != null && !managed.isOnHostRuntime()) {
                 if (!mayChangeRuntime) {
                     log.i { "sign-in skipped, a check keeps the runtime engine=${engine.value}" }
-                    return null
+                    return
                 }
                 val previous = managed?.launch?.settings ?: LaunchSettings()
+                switch.previous = previous
                 preferHostRuntime(engine)
-                switched = previous
                 managed = inspect(engine)
             }
             if (managed?.login == LoginState.SignedOut) signIn(engine, managed.job)
@@ -241,7 +243,6 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         } catch (e: EngineException) {
             log.w(e) { "sign-in not possible engine=${engine.value}" }
         }
-        return switched
     }
 
     private suspend fun restoreSettings(engine: EngineId, settings: LaunchSettings) {
@@ -391,6 +392,11 @@ internal fun EngineAvailability.failure(): EngineFailure? = when (this) {
     EngineAvailability.Available, EngineAvailability.Unknown -> null
     EngineAvailability.UnsupportedPlatform -> EngineFailure.Engine(EngineFailureReason.Unavailable)
     is EngineAvailability.Unavailable -> failure
+}
+
+/** The launch settings a sign-in replaced, kept outside the sign-in so a cancelled wizard can still restore them. */
+private class RuntimeSwitch {
+    var previous: LaunchSettings? = null
 }
 
 private fun LoginSupport?.isCliLogin() = this == LoginSupport.Cli || this == LoginSupport.CliWithDeviceCode
