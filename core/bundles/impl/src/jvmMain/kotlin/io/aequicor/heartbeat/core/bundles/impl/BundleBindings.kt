@@ -31,8 +31,11 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -86,6 +89,9 @@ internal class DefaultFoundationProfileBindings(
     private val search: Provider<SearchEngine>,
     private val attachments: Provider<AttachmentsCatalog>,
     private val resolver: Provider<ResourceResolver>,
+    private val tools: Provider<Set<AgentToolContribution>>,
+    private val analyzers: Provider<Set<NativeActionAnalysis>>,
+    private val offloads: Provider<Set<ToolOutputOffload>>,
 ) : FoundationProfileBindings {
     override val profileId: ProfileId get() = id()
     override val profileScope: ScopeHandle get() = scope()
@@ -95,6 +101,9 @@ internal class DefaultFoundationProfileBindings(
     override val searchEngine: SearchEngine get() = search()
     override val attachmentsCatalog: AttachmentsCatalog get() = attachments()
     override val resourceResolver: ResourceResolver get() = resolver()
+    override val agentTools: Set<AgentToolContribution> get() = tools()
+    override val nativeActionAnalyzers: Set<NativeActionAnalysis> get() = analyzers()
+    override val toolOutputOffloads: Set<ToolOutputOffload> get() = offloads()
 }
 
 /**

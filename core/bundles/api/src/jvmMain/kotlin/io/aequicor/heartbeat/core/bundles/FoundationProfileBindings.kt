@@ -5,8 +5,11 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -42,4 +45,16 @@ public interface FoundationProfileBindings {
 
     /** Reads the bytes of attachments and other prompt resources of the profile. */
     public val resourceResolver: ResourceResolver
+
+    /**
+     * Agent tools the foundation graph assembles: the contributions of the features that stay in it plus the parts
+     * that other bundles export to it. A bundle that owns the set merges them with its own contributions.
+     */
+    public val agentTools: Set<AgentToolContribution>
+
+    /** Native action analyzers contributed by the features of the foundation. */
+    public val nativeActionAnalyzers: Set<NativeActionAnalysis>
+
+    /** Tool output offloads contributed by the features of the foundation. */
+    public val toolOutputOffloads: Set<ToolOutputOffload>
 }
