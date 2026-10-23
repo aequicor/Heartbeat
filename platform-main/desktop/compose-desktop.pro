@@ -29,4 +29,8 @@
 -keep class * implements io.aequicor.heartbeat.core.bundles.BundleEntry { public <init>(); }
 -keep interface io.aequicor.heartbeat.bundles.** { *; }
 -keep interface io.aequicor.heartbeat.platform.dibundle.FoundationBundleImports { *; }
+-keep interface io.aequicor.heartbeat.platform.dibundle.FoundationProfileBundleImports { *; }
+-keep interface io.aequicor.heartbeat.core.bundles.FoundationAppBindings { *; }
+-keep interface io.aequicor.heartbeat.core.bundles.FoundationProfileBindings { *; }
+-keep interface io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess { *; }
 -adaptresourcefilecontents META-INF/services/io.aequicor.heartbeat.core.bundles.BundleEntry
