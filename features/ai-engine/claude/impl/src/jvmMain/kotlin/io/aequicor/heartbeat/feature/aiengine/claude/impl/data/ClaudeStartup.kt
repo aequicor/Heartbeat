@@ -84,10 +84,13 @@ internal fun resolveClaudeStartup(
  * Host variables passed to the CLI: no API keys or endpoint overrides, then the user's entries. `CLAUDE_CONFIG_DIR`
  * is set only when configured, because an explicit value changes where the CLI looks up its default login.
  * Heartbeat's own copy never updates itself: Heartbeat installs and verifies its updates; the Claude Code desktop
- * app's CLI is updated by that app.
+ * app's CLI is updated by that app. Tool search stays off unless the user's entries turn it on: deferred MCP tools
+ * hide their full `mcp__<server>__` names, so the model guessed the prefix of Heartbeat's tools and called ones
+ * that do not exist.
  */
 internal fun claudeEnvironment(host: Map<String, String>, startup: ClaudeStartup): Map<String, String> = buildMap {
     putAll(host.filterKeys { it.uppercase() in HOST_ENVIRONMENT })
+    put(TOOL_SEARCH_VARIABLE, "false")
     startup.environment.forEach { put(it.name, it.value) }
     startup.configDirectory?.let { put("CLAUDE_CONFIG_DIR", it) }
     if (startup.source == InstallSource.Managed || startup.source == InstallSource.HostApp) {
@@ -265,6 +268,7 @@ private fun String.isScriptWrapper(): Boolean = endsWith(
 ) || endsWith(".bat", ignoreCase = true)
 
 private const val DEFAULT_COMMAND = "claude"
+private const val TOOL_SEARCH_VARIABLE = "ENABLE_TOOL_SEARCH"
 private const val MAX_TEXT_BYTES = 1_048_576L
 private val VersionPattern = Regex("""(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)""")
 private val HOST_ENVIRONMENT = setOf(
