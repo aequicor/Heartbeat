@@ -7,6 +7,8 @@ import dev.zacsweers.metro.ElementsIntoSet
 import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.bundles.BundleUnavailableException
 import io.aequicor.heartbeat.core.bundles.impl.BundleHost
+import io.aequicor.heartbeat.core.datastore.ProfileStorageCleaner
+import io.aequicor.heartbeat.core.di.AppShutdownParticipant
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
@@ -26,6 +28,12 @@ internal interface FoundationBundleImports {
 
     /** Feature toggles contributed by every bundle. */
     val featureToggles: Set<FeatureToggle<*>>
+
+    /** Native runtimes of the bundles to finish before the process exits. */
+    val shutdownParticipants: Set<AppShutdownParticipant>
+
+    /** Wipes of the data a bundle keeps for a removed profile. */
+    val profileStorageCleaners: Set<ProfileStorageCleaner>
 }
 
 /** Renderer of a diagram while the `web` bundle is not running: the feature reports itself as unavailable. */
@@ -53,4 +61,14 @@ internal object BundleImportBindings {
     @ElementsIntoSet
     fun bundleToggles(host: BundleHost): Set<FeatureToggle<*>> =
         host.foundationImports(FoundationBundleImports::class).featureToggles
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleShutdown(host: BundleHost): Set<AppShutdownParticipant> =
+        host.foundationImports(FoundationBundleImports::class).shutdownParticipants
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleProfileCleaners(host: BundleHost): Set<ProfileStorageCleaner> =
+        host.foundationImports(FoundationBundleImports::class).profileStorageCleaners
 }

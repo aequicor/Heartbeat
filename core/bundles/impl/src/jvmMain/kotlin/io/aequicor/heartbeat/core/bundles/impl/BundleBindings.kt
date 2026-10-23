@@ -12,13 +12,23 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.bundles.BundleEntry
 import io.aequicor.heartbeat.core.bundles.BundleRegistry
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
+import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
+import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
+import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraphAttachment
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
+import io.ktor.client.HttpClient
 import java.util.ServiceLoader
 
 /** Discovers the bundles on the class path (`META-INF/services/…BundleEntry`); none is a valid, empty set. */
@@ -45,8 +55,30 @@ public object BundleBindings {
 @Inject
 internal class BundleProfileAttachment(private val host: BundleHost) : ProfileGraphAttachment {
     override fun attach(id: ProfileId, graph: ProfileGraph, scope: ScopeHandle) {
-        host.openProfile(graph, scope)
+        host.openProfile((graph as FoundationProfileAccess).bundleBindings, scope)
     }
+}
+
+/** Accessor of the profile graph: what the bundles' profile graphs receive as their foundation. */
+@ContributesTo(ProfileScope::class)
+public interface FoundationProfileAccess {
+    /** Profile-level bindings of the foundation for bundle graphs. */
+    public val bundleBindings: FoundationProfileBindings
+}
+
+/** Stateful foundation services of one profile handed to the profile graphs of bundles. */
+@ContributesBinding(ProfileScope::class)
+@Inject
+internal class DefaultFoundationProfileBindings(
+    private val id: Provider<ProfileId>,
+    @ForScope(ProfileScope::class) private val scope: Provider<ScopeHandle>,
+    @ForScope(ProfileScope::class) private val stores: Provider<DataStores>,
+    private val external: Provider<ExternalBrowser>,
+) : FoundationProfileBindings {
+    override val profileId: ProfileId get() = id()
+    override val profileScope: ScopeHandle get() = scope()
+    override val dataStores: DataStores get() = stores()
+    override val externalBrowser: ExternalBrowser get() = external()
 }
 
 /**
@@ -60,8 +92,22 @@ internal class DefaultFoundationBindings(
     private val toggles: Provider<FeatureToggles>,
     private val artifacts: Provider<VerifiedArtifactCache>,
     @ForScope(AppScope::class) private val scope: Provider<ScopeHandle>,
+    @ForScope(AppScope::class) private val stores: Provider<DataStores>,
+    private val root: Provider<StorageRoot>,
+    private val downloader: Provider<VerifiedReleaseDownloader>,
+    private val scopes: Provider<ScopeFactory>,
+    private val launcher: Provider<MachineLauncher>,
+    private val registry: Provider<MachineRegistry>,
+    private val client: Provider<HttpClient>,
 ) : FoundationAppBindings {
     override val featureToggles: FeatureToggles get() = toggles()
     override val verifiedArtifacts: VerifiedArtifactCache get() = artifacts()
     override val appScope: ScopeHandle get() = scope()
+    override val dataStores: DataStores get() = stores()
+    override val storageRoot: StorageRoot get() = root()
+    override val releaseDownloader: VerifiedReleaseDownloader get() = downloader()
+    override val scopeFactory: ScopeFactory get() = scopes()
+    override val machineLauncher: MachineLauncher get() = launcher()
+    override val machineRegistry: MachineRegistry get() = registry()
+    override val httpClient: HttpClient get() = client()
 }

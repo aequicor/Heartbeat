@@ -11,6 +11,10 @@ kotlin {
             api(projects.core.di.api)
             api(projects.core.featureToggles.api)
             api(projects.core.network.api)
+            api(projects.core.profileFacade.api)
+            api(projects.core.datastore.api)
+            api(projects.core.stateMachine.api)
+            api(projects.features.chromiumBridge.api)
         }
     }
 }

@@ -42,8 +42,8 @@ public interface BundleEntry {
     public val profileExportTypes: List<KClass<*>> get() = emptyList()
 
     /**
-     * Creates the profile graph from the [appGraph] of this bundle and the [foundation] profile graph (the host's
-     * `ProfileGraph`); [imports] is an instance of [profileImportsType] (or `Unit`).
+     * Creates the profile graph from the [appGraph] of this bundle and the [foundation] profile bindings (an
+     * implementation of `FoundationProfileBindings`); [imports] is an instance of [profileImportsType] (or `Unit`).
      */
     public fun createProfileGraph(appGraph: Any, foundation: Any, imports: Any): Any =
         error("Bundle $id has no profile graph")

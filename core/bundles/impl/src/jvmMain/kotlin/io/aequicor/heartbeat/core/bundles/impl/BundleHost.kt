@@ -105,7 +105,8 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
     }
 
     /**
-     * Creates the per-profile graphs of the bundles on top of the [foundation] profile graph and ties their
+     * Creates the per-profile graphs of the bundles on top of the [foundation] profile bindings (the host passes
+     * `FoundationProfileBindings` of the profile) and ties their
      * lifetime to [scope]. A bundle that failed at app level gets no profile graph. Returns the health by bundle.
      */
     public fun openProfile(foundation: Any, scope: ScopeHandle): Map<BundleId, BundleHealth> {
@@ -226,29 +227,25 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
         return BundleHealth.Degraded(missing)
     }
 
-    private fun importsProxy(
-        owner: BundleId,
-        type: Class<*>,
-        view: View?,
-        viewOf: (() -> View?)? = null,
-    ): Any = Proxy.newProxyInstance(
-        type.classLoader,
-        arrayOf(type),
-    ) { proxy, method, _ ->
-        when (method.name) {
-            "toString" -> "imports of $owner"
+    private fun importsProxy(owner: BundleId, type: Class<*>, view: View?, viewOf: (() -> View?)? = null): Any =
+        Proxy.newProxyInstance(
+            type.classLoader,
+            arrayOf(type),
+        ) { proxy, method, _ ->
+            when (method.name) {
+                "toString" -> "imports of $owner"
 
-            "hashCode" -> System.identityHashCode(proxy)
+                "hashCode" -> System.identityHashCode(proxy)
 
-            "equals" -> false
+                "equals" -> false
 
-            else -> {
-                val key = bindingKeyOf(method.genericReturnType)
-                val target = if (viewOf == null) view else viewOf() ?: throw BundleUnavailableException(key, owner)
-                if (method.isSetAccessor()) collectFor(key, owner, target) else resolveFor(key, owner, target)
+                else -> {
+                    val key = bindingKeyOf(method.genericReturnType)
+                    val target = if (viewOf == null) view else viewOf() ?: throw BundleUnavailableException(key, owner)
+                    if (method.isSetAccessor()) collectFor(key, owner, target) else resolveFor(key, owner, target)
+                }
             }
         }
-    }
 
     private fun resolveFor(key: BindingKey, requestedBy: BundleId?, view: View?): Any {
         ensureStarted()
