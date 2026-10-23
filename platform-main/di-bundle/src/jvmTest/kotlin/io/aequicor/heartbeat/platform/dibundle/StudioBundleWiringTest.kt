@@ -3,13 +3,17 @@ package io.aequicor.heartbeat.platform.dibundle
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.bundles.BundleHealth
 import io.aequicor.heartbeat.core.bundles.BundleId
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionEngineTransfer
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackEnabled
@@ -59,6 +63,7 @@ class StudioBundleWiringTest {
             PlanningModeEnabled,
             AutocompleteEnabled,
             SessionEngineTransfer,
+            ContextOptimizationEnabled,
         ).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
@@ -96,6 +101,18 @@ class StudioBundleWiringTest {
         val groups = (session.graph as TestStudioProfileAccessors).studioAgentTools.catalog().map { it.id }
         assertTrue("planning" in groups, groups.toString())
     }
+
+    @Test
+    fun `the context optimization of the bundle reaches the foundation and its hooks reach the facade`() = runTest {
+        val session = app.profileSessions.open(ProfileId("studio-context"))
+        val accessors = session.graph as TestStudioProfileAccessors
+        assertNotNull(accessors.studioContextOptimization)
+        val host = (app as BundleHostAccess).bundleHost
+        val hooks = host.foundationProfileImports(TestBundleSessionHooks::class, accessors.studioProfileScope)
+            .sessionHooks.map { it::class.simpleName }
+        assertTrue("ContextLedgerHook" in hooks, hooks.toString())
+        assertTrue("ContextHandoffHook" in hooks, hooks.toString())
+    }
 }
 
 /** Test access to what the foundation profile graph takes from the `studio` bundle. */
@@ -105,4 +122,8 @@ interface TestStudioProfileAccessors {
     val studioPlanningView: PlanningView
     val studioComposerAssists: ComposerAssists
     val studioAgentTools: ProfileAgentTools
+    val studioContextOptimization: ContextOptimizationView
+
+    @ForScope(ProfileScope::class)
+    val studioProfileScope: ScopeHandle
 }

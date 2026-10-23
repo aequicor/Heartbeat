@@ -33,7 +33,10 @@ public interface EnginesProfileImports {
     /** Virtual workspaces of the `agent-runtime` bundle (sandboxes of worktree tasks). */
     public val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider>
 
-    /** Session hooks of the `agent-runtime` bundle (harnesses watch and feed sessions through them). */
+    /**
+     * Session hooks of the `agent-runtime` bundle (harnesses watch and feed sessions through them) and of the `studio`
+     * bundle (context ledger and handoff).
+     */
     public val sessionHooks: Set<SessionHook>
 }
 

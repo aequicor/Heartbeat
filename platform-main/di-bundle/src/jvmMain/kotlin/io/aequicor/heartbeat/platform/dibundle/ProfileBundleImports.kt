@@ -51,6 +51,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocuments
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
@@ -195,6 +196,9 @@ internal interface FoundationProfileBundleImports {
 
     /** Engine hand-over machine of the `studio` bundle. */
     val sessionTransfer: Machine<SessionTransferState, SessionTransferIntent, SessionTransferOutput>
+
+    /** Context compaction state of the `studio` bundle. */
+    val contextOptimization: ContextOptimizationView
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -445,6 +449,10 @@ internal object StudioServiceImportBindings {
     fun sessionTransfer(
         imports: FoundationProfileBundleImports,
     ): Machine<SessionTransferState, SessionTransferIntent, SessionTransferOutput> = imports.sessionTransfer
+
+    @Provides
+    fun contextOptimization(imports: FoundationProfileBundleImports): ContextOptimizationView =
+        imports.contextOptimization
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */

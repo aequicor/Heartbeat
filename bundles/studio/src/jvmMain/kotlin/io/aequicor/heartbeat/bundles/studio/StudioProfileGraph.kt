@@ -4,7 +4,9 @@ import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Includes
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
@@ -12,6 +14,7 @@ import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransfer
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferOutput
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferState
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
 
@@ -37,6 +40,13 @@ public interface StudioProfileExports {
 
     /** Session hooks of the bundle's features; `engines` merges them into the set its facade runs. */
     public val sessionHooks: Set<SessionHook>
+
+    /** Navigation entries of the bundle's screens; the foundation merges them into the profile routes. */
+    @ForScope(ProfileScope::class)
+    public val profileRoutes: Set<RouteEntry<*>>
+
+    /** State of context compaction and rollover; the studio of the foundation reads it. */
+    public val contextOptimization: ContextOptimizationView
 }
 
 /** Profile-level graph of the `studio` bundle: the profile contributions of its member features. */
