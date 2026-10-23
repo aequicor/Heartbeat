@@ -17,14 +17,14 @@ internal data class GitHubPullOperation(
     val expected: String?,
     val payload: JsonObject,
 ) {
-    val isRead: Boolean get() = name == "github_pr_read" || name == "github_pr_context"
+    val isRead: Boolean get() = name == "github_pr_read"
 
     override fun toString(): String = "GitHubPullOperation($name)"
 
     companion object {
         fun parse(name: String, arguments: JsonObject): GitHubPullOperation {
             val fields = when (name) {
-                "github_pr_read", "github_pr_context" -> setOf("number")
+                "github_pr_read" -> setOf("number")
                 "github_pr_create" -> setOf("title", "body", "head", "base")
                 "github_pr_update" -> setOf("number", "expected_revision", "title", "body")
                 "github_pr_ready" -> setOf("number", "expected_revision")
