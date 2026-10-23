@@ -124,6 +124,18 @@ class WorktreeAgentToolsTest {
     }
 
     @Test
+    fun `a build is still cancellable after the shared project configuration moved on`() = runTest {
+        val fixture = Fixture()
+        fixture.queue(WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build", listOf("OWN_BUILD")))))
+        fixture.git.previewFailure = "ProjectBuildConfigurationChanged"
+        val approval = fixture.approval("cancel_build", operationArguments())
+        val description = checkNotNull(approval.description)
+        assertTrue("Operation: \"operation\"" in description)
+        assertTrue("Configuration revision=1" in description)
+        assertEquals("operation:1", approval.binding)
+    }
+
+    @Test
     fun `another operation or native turn cannot produce a cancellation approval`() = runTest {
         val fixture = Fixture()
         fixture.queue(WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))))
@@ -330,7 +342,9 @@ private class PreviewGit : WorktreeGit {
         failure?.let { throw it }
         rejection?.let { throw IllegalArgumentException(it) }
     }
-    override suspend fun build(record: WorktreeRecord, id: String, command: String) = BuildExecution(
+    var previewFailure: String? = null
+    override suspend fun build(record: WorktreeRecord, id: String, command: String) = previewFailure
+        ?.takeIf { id == "approval" }?.let { error(it) } ?: BuildExecution(
         id,
         checkNotNull(record.task.buildPlan).commands.single { it.id == command },
         record.directory,

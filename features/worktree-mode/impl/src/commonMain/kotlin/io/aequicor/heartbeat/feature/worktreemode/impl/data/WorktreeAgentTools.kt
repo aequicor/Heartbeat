@@ -183,17 +183,31 @@ internal class WorktreeAgentTools(
         val operation = arguments["operation"]?.jsonPrimitive?.content ?: error("MissingOperation")
         val task = journal.authenticated(context) ?: error("TurnUnavailable")
         val known = task.builds[operation] ?: error("UnknownBuildOperation")
-        val execution = journal.buildPreview(context, known.command) ?: error("BuildConfigurationUnavailable")
-        check(execution.configurationRevision == known.configurationRevision) { "BuildConfigurationChanged" }
+        // Cancelling only stops the task's own build, so it is never refused because the shared project
+        // configuration moved on since the build started: the build's own record then describes it.
+        val execution = try {
+            journal.buildPreview(context, known.command)
+                ?.takeIf { it.configurationRevision == known.configurationRevision }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: IllegalStateException) {
+            log.w(error) { "Build preview unavailable for a cancellation; describing the build record" }
+            null
+        }
+        val details = if (execution == null) {
+            "Command: ${approvalJson.encodeToString(known.command)}\n" +
+                "Configuration revision=${known.configurationRevision}"
+        } else {
+            "Configuration revision=${execution.configurationRevision}\n" +
+                "Working directory: ${approvalJson.encodeToString(execution.directory)}\n" +
+                "Command: ${approvalJson.encodeToString(execution.command)}\n" +
+                "Exclusive resources: ${approvalJson.encodeToString(execution.resources)}"
+        }
         return reviewableApproval(
             spec,
             "Cancel build",
             "Stop this build operation and its process tree:\n" +
-                "Operation: ${approvalJson.encodeToString(operation)}\n" +
-                "Configuration revision=${execution.configurationRevision}\n" +
-                "Working directory: ${approvalJson.encodeToString(execution.directory)}\n" +
-                "Command: ${approvalJson.encodeToString(execution.command)}\n" +
-                "Exclusive resources: ${approvalJson.encodeToString(execution.resources)}",
+                "Operation: ${approvalJson.encodeToString(operation)}\n" + details,
             binding = "$operation:${known.configurationRevision}",
         )
     }
