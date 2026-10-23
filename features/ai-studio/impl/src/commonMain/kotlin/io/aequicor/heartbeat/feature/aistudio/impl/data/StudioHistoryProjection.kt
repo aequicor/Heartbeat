@@ -237,7 +237,7 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
         val output = if (learning == null && plan == null) item.arguments else ""
         return StudioToolRun(
             item.call.value,
-            item.name,
+            hostedToolName(item.name),
             item.status.toStudio(),
             output,
             learning = learning,
