@@ -4,7 +4,6 @@
     <string name="sandbox_continue">Continue</string>
     <string name="sandbox_resolve">Ask the agent to resolve and continue (recommended)</string>
     <string name="sandbox_leave_paused">Leave paused</string>
-    <string name="sandbox_hand_off">Hand off to branch %1$s</string>
     <string name="sandbox_handed_off">Result branch saved and handed to you</string>
 
     <string name="miniapp_open">Open %1$s</string>

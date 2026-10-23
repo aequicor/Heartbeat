@@ -13,7 +13,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_SEARCH_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
@@ -250,7 +249,7 @@ internal class ProcessClaudeTransport(
                 else -> null
             }
             instructionFile = hosted?.takeIf { endpoint != null || it.instructions.isNotBlank() }
-                ?.let { instructionFile(claudeToolNames(endpoint != null, searchEndpoint != null) + it.instructions) }
+                ?.let { instructionFile(it.instructions) }
             if ("--print" in arguments) projectAssists = assists.prepare(workspace)
             val pluginArguments = projectAssists?.let { listOf("--plugin-dir", it.directory) }.orEmpty()
             val effectiveArguments = configuredArguments(
@@ -525,26 +524,6 @@ internal fun claudeHostedArguments(
         instructions.toString(),
     )
 
-/**
- * How Heartbeat's tools are named in this CLI. Instructions name tools briefly, and the model otherwise put the
- * prefix of most host tools before search tools that live on their own server.
- */
-internal fun claudeToolNames(isHosted: Boolean, isSearch: Boolean): String {
-    if (!isHosted && !isSearch) return ""
-    val hosted = if (isHosted) {
-        "Heartbeat host tools named briefly in these instructions are MCP tools mcp__${HOSTED_TOOLS_SERVER}__<name>. "
-    } else {
-        ""
-    }
-    val search = if (isSearch) {
-        "Web search and page reading are on a separate server: mcp__${HOSTED_SEARCH_SERVER}__web_search and " +
-            "mcp__${HOSTED_SEARCH_SERVER}__web_fetch, never mcp__${HOSTED_TOOLS_SERVER}__web_fetch. "
-    } else {
-        ""
-    }
-    return hosted + search + "\n\n"
-}
-
 /** Hosted coding and optional public web search share one strict MCP configuration. */
 internal fun claudeHostedConfig(
     endpoint: AgentToolBridgeEndpoint,
@@ -556,7 +535,7 @@ internal fun claudeHostedConfig(
             "mcpServers",
             buildJsonObject {
                 put(HOSTED_TOOLS_SERVER, mcpServer(endpoint.url, endpoint.token))
-                search?.let { put(HOSTED_SEARCH_SERVER, mcpServer(it.origin, it.token)) }
+                search?.let { put("heartbeat_search", mcpServer(it.origin, it.token)) }
             },
         )
     }
@@ -585,7 +564,7 @@ internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint, directory: Path)
             "mcpServers",
             buildJsonObject {
                 put(
-                    HOSTED_SEARCH_SERVER,
+                    "heartbeat_search",
                     buildJsonObject {
                         put("type", "http")
                         put("url", "${endpoint.origin}/mcp")

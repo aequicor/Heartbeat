@@ -8,7 +8,7 @@ import dev.detekt.api.RuleSetProvider
  * Heartbeat rule set `heartbeat`: logging policy and error handling —
  * every action, state change, network/storage access and configuration change is logged,
  * no error is ignored (except `CancellationException`, which is rethrown); plus architecture checks
- * (feature layers) and names that Kotlin/Native rejects.
+ * (feature layers, the bundle registry border) and names that Kotlin/Native rejects.
  */
 class HeartbeatRuleSetProvider : RuleSetProvider {
 
@@ -30,6 +30,7 @@ class HeartbeatRuleSetProvider : RuleSetProvider {
             ::FeatureLayerPlacement,
             ::FeatureLayerDependency,
             ::NativeIllegalName,
+            ::BundleBoundary,
         ),
     )
 }

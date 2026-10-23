@@ -2,10 +2,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
@@ -102,19 +99,5 @@ class FacadeCellReleaseTest {
         assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Lyse))
         assertEquals(1, native.closes)
         assertFalse(cells.hasPendingRelease(ORGANISM))
-    }
-
-    @Test
-    fun `a cell moved to another engine gets a new session and its old one is closed`() = runTest {
-        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own"))
-        val fallback = FakeSession(session("fallback"))
-        val facade = FakeFacade(ArrayDeque(listOf(own, fallback)))
-        val cells = FacadeCellSessions(facade)
-        val ownRoute = route.copy(target = TARGET.copy(engine = EngineId("koog")))
-        cells.open(key, ownRoute, existing = null, generation = 1)
-        val moved = cells.open(key, route, existing = null, generation = 2)
-        assertEquals(fallback.ref, moved.session)
-        assertEquals(2, facade.creations.size)
-        assertEquals(1, own.closes)
     }
 }

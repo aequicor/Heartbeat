@@ -3,16 +3,12 @@ package io.aequicor.heartbeat.platform.dibundle
 import com.arkivanov.essenty.instancekeeper.InstanceKeeperDispatcher
 import com.arkivanov.essenty.statekeeper.SerializableContainer
 import com.arkivanov.essenty.statekeeper.StateKeeperDispatcher
-import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
-import io.aequicor.heartbeat.core.di.AppShutdownParticipant
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ext.retainedGraph
 import io.aequicor.heartbeat.core.di.ext.retainedShared
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RuntimePoolShutdown
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -119,17 +115,16 @@ class ScopesIntegrationTest {
     }
 
     @Test
-    fun `profile pool registration and application shutdown share one owner`() = runTest {
+    fun `the runtime pool of the engines bundle shuts down with the application exactly once`() = runTest {
+        // That profile pool registration and this participant share one owner is a binding of the engines bundle;
+        // the registry type is internal to it, so the application graph can only see the single participant.
         val app = newProcess(PersistedProfile())
-        val registry = (app as TestRuntimePoolShutdownAccessors).runtimePoolShutdown
-        val participant = (app as AppShutdownAccessors).shutdownParticipants
-            .filterIsInstance<RuntimePoolShutdown>().single()
+        val pools = (app as AppShutdownAccessors).shutdownParticipants
+            .filter { it::class.simpleName == "DefaultRuntimePoolShutdown" }
 
-        assertSame(registry, participant)
-        var closes = 0
-        registry.register { closes++ }
-        (participant as AppShutdownParticipant).shutdown()
-        assertEquals(1, closes)
+        assertEquals(1, pools.size, pools.toString())
+        pools.single().shutdown()
+        pools.single().shutdown()
     }
 
     @Test
@@ -263,10 +258,4 @@ class ScopesIntegrationTest {
         second.close()
         assertTrue(second.value.scope.isClosed)
     }
-}
-
-/** Resolves the same pool shutdown owner used by profile bindings through its explicit registration contract. */
-@ContributesTo(AppScope::class)
-interface TestRuntimePoolShutdownAccessors {
-    val runtimePoolShutdown: RuntimePoolShutdown
 }

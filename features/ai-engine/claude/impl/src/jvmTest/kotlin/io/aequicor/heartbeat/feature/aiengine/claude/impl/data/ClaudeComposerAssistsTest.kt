@@ -10,8 +10,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
-import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualFileChange
-import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AssistDirectory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
@@ -100,63 +98,6 @@ class ClaudeComposerAssistsTest {
         assertFalse(Files.exists(directory))
     }
 
-    @Test
-    fun `a sandbox imports commands from its tree under the source project trust`() = runTest {
-        val body = "---\nname: open-pr\nallowed-tools: Bash\n---\nOpen a pull request"
-        var source: WorkspaceRef? = workspace
-        val sandbox = object : VirtualWorkspace {
-            override val ref = WorkspaceRef("sandbox-1")
-            override val processDirectory = "unused"
-            override suspend fun sourceProject() = source
-            override suspend fun revision() = 1L
-            override suspend fun paths() = listOf(".claude/skills/open-pr/SKILL.md")
-            override suspend fun read(path: String) = body.takeIf { path == ".claude/skills/open-pr/SKILL.md" }
-            override suspend fun change(expectedRevision: Long, changes: List<VirtualFileChange>): Long =
-                error("unused")
-            override suspend fun move(expectedRevision: Long, path: String, destination: String): Long = error("unused")
-        }
-        val assists = DesktopClaudeComposerAssists(
-            object : ProjectAssistReader by ProjectAssistReader.None {
-                override suspend fun read(
-                    engine: EngineId,
-                    workspace: WorkspaceRef?,
-                    directories: List<AssistDirectory>,
-                ) = listOf(
-                    EngineAssist(
-                        ".claude/skills:open-pr/SKILL.md",
-                        "open-pr",
-                        "",
-                        "/heartbeat-project:open-pr ",
-                        EngineAssist.Kind.Skill,
-                    ),
-                )
-            },
-            object : LocalWorkspaces {
-                override val isAvailable = true
-                override fun observe() = flowOf(emptyList<LocalWorkspace>())
-                override suspend fun register(directory: String): Nothing = error("unused")
-                override suspend fun resolve(ref: WorkspaceRef): String = error("a sandbox has no project directory")
-                override suspend fun virtual(ref: WorkspaceRef) = sandbox.takeIf { ref == it.ref }
-            },
-            EngineLaunchConfig { LaunchContext(trust = mapOf(workspace to ProjectTrust.Trusted)) },
-            dispatchers,
-        )
-        val plugin = assertNotNull(assists.prepare(sandbox.ref))
-        val directory = Path.of(plugin.directory)
-        val manifest = Json.parseToJsonElement(
-            Files.readString(directory.resolve(".claude-plugin/plugin.json")),
-        ).jsonObject
-        val command = manifest.getValue("commands").jsonObject.getValue("open-pr").jsonObject
-        val imported = Files.readString(directory.resolve(command.getValue("source").jsonPrimitive.content))
-        assertTrue(imported.startsWith("Source directory: .claude/skills/open-pr\n"))
-        assertTrue(imported.endsWith("Open a pull request"))
-        assertFalse("allowed-tools" in imported)
-        plugin.close()
-        source = null
-        assertNull(assists.prepare(sandbox.ref))
-        assertTrue(assists.assists(target, sandbox.ref).isEmpty())
-    }
-
     private fun source(root: Path, trust: () -> ProjectTrust) = DesktopClaudeComposerAssists(
         object : ProjectAssistReader by ProjectAssistReader.None {
             override suspend fun read(engine: EngineId, workspace: WorkspaceRef?, directories: List<AssistDirectory>) =
@@ -177,12 +118,10 @@ class ClaudeComposerAssistsTest {
             override suspend fun resolve(ref: WorkspaceRef) = root.toString()
         },
         EngineLaunchConfig { LaunchContext(trust = mapOf(workspace to trust())) },
-        dispatchers,
+        object : DispatcherProvider {
+            override val main = Dispatchers.Unconfined
+            override val default = Dispatchers.Unconfined
+            override val io = Dispatchers.Unconfined
+        },
     )
-
-    private val dispatchers = object : DispatcherProvider {
-        override val main = Dispatchers.Unconfined
-        override val default = Dispatchers.Unconfined
-        override val io = Dispatchers.Unconfined
-    }
 }

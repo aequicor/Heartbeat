@@ -21,7 +21,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_conflicted
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_continue
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_engine_unsupported
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_git_required
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_hand_off
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_handed_off
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_head_required
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_leave_paused
@@ -109,7 +108,6 @@ internal data class WorktreeLabels(
     val sandboxResolve: String = "",
     val sandboxLeavePaused: String = "",
     val sandboxHandedOff: String = "",
-    val sandboxHandOffTemplate: String = "",
 )
 
 /** Build copy beyond the shared tool status: queue details and the cancel action. */
@@ -306,7 +304,6 @@ internal fun worktreeLabels(): WorktreeLabels = WorktreeLabels(
     sandboxResolve = stringResource(Res.string.sandbox_resolve),
     sandboxLeavePaused = stringResource(Res.string.sandbox_leave_paused),
     sandboxHandedOff = stringResource(Res.string.sandbox_handed_off),
-    sandboxHandOffTemplate = stringResource(Res.string.sandbox_hand_off),
 )
 
 /** A card action and what it does. */
@@ -425,10 +422,8 @@ private fun WorktreeUi.pausedVirtualCard(id: String, session: String, labels: Wo
     } else {
         null
     }
-    // Its own id joins the transcript where the pause happens, next to the composer, instead of updating the task
-    // card that stays where the chat started.
     return worktreeCard(
-        "$id$PAUSED_SUFFIX",
+        id,
         if (isConflicted) labels.sandboxConflicted else labels.sandboxPaused,
         HbToolStatus.Pending,
         sandboxConflicts.joinToString("\n"),
@@ -490,25 +485,14 @@ private fun WorktreeUi.phaseCard(
 /** Explicit result decisions; local merge needs the branch the task started from. */
 private fun decisions(session: String, task: WorktreeUi, labels: WorktreeLabels): List<CardCommand> =
     WorktreeActionUi.entries.mapNotNull { action ->
-        // A sandbox has no checkout to merge or open a pull request from: its result leaves as a local branch.
-        val isSandbox = task.sandboxPhase != null
         val label = when (action) {
-            WorktreeActionUi.CreatePr -> labels.createPr.takeUnless { isSandbox }
-
-            WorktreeActionUi.Merge -> task.sourceBranch?.takeUnless { isSandbox }?.let {
-                fill(labels.mergeTemplate, it)
-            }
-
-            WorktreeActionUi.HandOff -> task.branch?.takeIf { isSandbox }?.let {
-                fill(labels.sandboxHandOffTemplate, it)
-            }
-
+            WorktreeActionUi.CreatePr -> labels.createPr
+            WorktreeActionUi.Merge -> task.sourceBranch?.let { fill(labels.mergeTemplate, it) }
             WorktreeActionUi.Refine -> labels.refine
-
             WorktreeActionUi.Leave -> labels.leave
         } ?: return@mapNotNull null
         val style = when (action) {
-            WorktreeActionUi.CreatePr, WorktreeActionUi.HandOff -> HbButtonStyle.Primary
+            WorktreeActionUi.CreatePr -> HbButtonStyle.Primary
             WorktreeActionUi.Leave -> HbButtonStyle.Ghost
             WorktreeActionUi.Merge, WorktreeActionUi.Refine -> HbButtonStyle.Secondary
         }
@@ -593,5 +577,3 @@ internal const val OPEN_PR_ID = "worktree-open-pr"
 private const val MAX_BUILDS = 3
 private const val BUILD_OUTPUT_CHARS = 4000
 private const val BUILD_OUTPUT_LINES = 40
-
-private const val PAUSED_SUFFIX = ":paused"

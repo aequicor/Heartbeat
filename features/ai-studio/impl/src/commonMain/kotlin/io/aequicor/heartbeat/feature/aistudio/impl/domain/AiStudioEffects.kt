@@ -230,7 +230,7 @@ internal fun StudioMessage.Reply.apply(event: AgentEvent): StudioMessage.Reply {
         }
 
         is AgentEvent.ToolStarted -> {
-            val tool = StudioToolRun(event.id, hostedToolName(event.title))
+            val tool = StudioToolRun(event.id, event.title)
             copy(tools = tools + tool, parts = ordered + StudioReplyPart.Tool(tool))
         }
 
@@ -238,7 +238,7 @@ internal fun StudioMessage.Reply.apply(event: AgentEvent): StudioMessage.Reply {
 
         is AgentEvent.ToolFinished -> updateTool(event.id, ordered) {
             copy(
-                title = hostedToolName(event.title),
+                title = event.title,
                 status = if (event.isSuccess) ToolRunStatus.Done else ToolRunStatus.Failed,
                 diff = event.diff ?: diff,
                 // A live tool streams only its result as output, never the agent's arguments.

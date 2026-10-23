@@ -19,7 +19,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
-import io.aequicor.heartbeat.feature.aiengine.facade.api.hostedToolName
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -128,7 +127,7 @@ internal class ClaudeTurnObserver(
                     SessionItem.ToolCall(
                         it,
                         ToolCallId(call),
-                        hostedToolName(part.text("name").orEmpty()),
+                        part.text("name").orEmpty(),
                         part["input"]?.toString().orEmpty(),
                         ToolCallStatus.Running,
                     )

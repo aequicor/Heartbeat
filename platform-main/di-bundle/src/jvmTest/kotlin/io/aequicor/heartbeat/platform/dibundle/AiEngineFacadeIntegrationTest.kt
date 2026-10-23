@@ -1,9 +1,6 @@
 package io.aequicor.heartbeat.platform.dibundle
 
-import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
-import dev.zacsweers.metro.IntoSet
-import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
@@ -88,7 +85,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnginePreferences
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
@@ -126,26 +122,10 @@ interface AiEngineTestAccessors {
     val localWorkspaces: LocalWorkspaces
     val modelSelections: ModelSelections
     val engineRegistrations: Set<EngineRegistration>
-    val enginePreferences: EnginePreferences
     val engineManagement: EngineManagement
 }
 
-/** A scripted adapter bundled only into the test graph, registered like a real adapter. */
-@ContributesTo(ProfileScope::class)
-interface FacadeTestEngineContribution {
-    @Provides
-    @IntoSet
-    fun testEngine(): EngineRegistration = TestAdapter.registration
-}
-
-/** The adapter's own toggle. */
-@ContributesTo(AppScope::class)
-interface TestEngineToggleContribution {
-    @Provides
-    @IntoSet
-    fun testEngineToggle(): FeatureToggle<*> = TestAdapter.toggle
-}
-
+/** A scripted adapter that [TestEngineBundle] brings to the `engines` bundle, registered like a real adapter. */
 object TestAdapter {
     val engine = EngineId("itest")
     val toggle = FeatureToggle.Flag("itest.engine", "Integration test engine")
@@ -439,23 +419,24 @@ class AiEngineFacadeIntegrationTest {
     }
 
     @Test
-    fun `an engine switched off in the profile leaves the catalog only while engine management is on`() = runTest {
+    fun `an engine switched off in the profile leaves the catalog and refuses refresh`() = runTest {
+        // That the switch is ignored while engine management is off is covered by EngineManagementStorageTest.
         val toggles = app as TestToggleAccessors
         toggles.toggleControl.setOverride(AiEngines, true)
         toggles.toggleControl.setOverride(TestAdapter.toggle, true)
+        toggles.toggleControl.setOverride(EngineManagementEnabled, true)
         val accessors = app.profileSessions.open(ProfileId("switched-off")).graph as AiEngineTestAccessors
         val catalog = accessors.engineFacade.engines.state
         catalog.first { list -> list.any { it.descriptor.id == TestAdapter.engine } }
 
-        accessors.enginePreferences.update { it.copy(disabled = setOf(TestAdapter.engine)) }
-        assertTrue(catalog.value.any { it.descriptor.id == TestAdapter.engine }, "ignored while management is off")
-
-        toggles.toggleControl.setOverride(EngineManagementEnabled, true)
+        val management = accessors.engineManagement
+        management.state.first { state -> state.engines.any { it.descriptor.id == TestAdapter.engine } }
+        management.execute(TestAdapter.engine, EngineCommand.SetEnabled(false))
         catalog.first { list -> list.none { it.descriptor.id == TestAdapter.engine } }
         val refused = assertFailsWith<EngineException> { accessors.engineFacade.engines.refresh(TestAdapter.engine) }
         assertEquals(EngineFailure.Engine(EngineFailureReason.Unavailable), refused.failure)
 
-        accessors.enginePreferences.update { it.copy(disabled = emptySet()) }
+        management.execute(TestAdapter.engine, EngineCommand.SetEnabled(true))
         catalog.first { list -> list.any { it.descriptor.id == TestAdapter.engine } }
     }
 

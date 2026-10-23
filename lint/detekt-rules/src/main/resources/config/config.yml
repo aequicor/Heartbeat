@@ -32,6 +32,9 @@ heartbeat:
   FeatureLayerDependency:
     active: true
     excludes: ['**/test/**', '**/*Test/**']
+  BundleBoundary:
+    active: true
+    excludes: ['**/test/**', '**/*Test/**']
   SensitiveDataLogged:
     active: true
   NativeIllegalName:

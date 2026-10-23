@@ -53,16 +53,15 @@ class FeatureLayerDependency(config: Config) : Rule(config, "Feature dependencie
     }
 
     private fun checkReference(element: KtElement, reference: String) {
-        val reason = if (ENGINE_SPI_PACKAGES.any(reference::isInPackage) &&
-            !sourcePackage.isInPackage("io.aequicor.heartbeat.feature.aiengine") &&
-            !sourcePackage.isInPackage("io.aequicor.heartbeat.platform.dibundle")
-        ) {
-            "Engine SPI is private to ai-engine adapters and the application bundle"
+        val reason = if (ENGINE_SPI_PACKAGES.any(reference::isInPackage) && !isSpiUser()) {
+            "Engine SPI is private to ai-engine adapters, the engines bundle and the application bundle"
         } else {
             source?.violation(reference)
         }
         reason?.let { report(Finding(Entity.from(element), "$it: $reference.")) }
     }
+
+    private fun isSpiUser(): Boolean = SPI_USERS.any(sourcePackage::isInPackage)
 
     private fun KtUserType.qualifiedName(): String =
         listOfNotNull(qualifier?.qualifiedName(), referencedName).joinToString(".")
@@ -86,6 +85,13 @@ class FeatureLayerDependency(config: Config) : Rule(config, "Feature dependencie
         val ENGINE_SPI_PACKAGES = listOf(
             "io.aequicor.heartbeat.feature.aiengine.facade.api.spi",
             "io.aequicor.heartbeat.feature.aiengine.authenticator.api.spi",
+        )
+
+        /** Packages that may use the SPI: the adapters, the bundle that assembles them and the application graph. */
+        val SPI_USERS = listOf(
+            "io.aequicor.heartbeat.feature.aiengine",
+            "io.aequicor.heartbeat.platform.dibundle",
+            "io.aequicor.heartbeat.bundles.engines",
         )
     }
 }

@@ -62,16 +62,23 @@ class StudioSuggestionsModelTest {
     }
 
     @Test
-    fun `open panes are indexed without focus and route changes warm again`() = runTest {
+    fun `focus prewarms the effective workspace and route changes warm again`() = runTest {
         val source = TestComposerAssists()
         val initial = ready.copy(panes = listOf(StudioPane(0, projectId = "first")))
         val fixture = Fixture(this, initial, assists = source)
         fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.FocusChanged(0, true))
         runCurrent()
         assertEquals(WorkspaceRef("first"), source.warmed.last().workspace)
         fixture.machine.state.value = initial.copy(panes = listOf(StudioPane(0, projectId = "second")))
         runCurrent()
         assertEquals(WorkspaceRef("second"), source.warmed.last().workspace)
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.FocusChanged(0, false))
+        runCurrent()
+        val count = source.warmed.size
+        fixture.machine.state.value = initial
+        runCurrent()
+        assertEquals(count, source.warmed.size)
     }
 
     @Test

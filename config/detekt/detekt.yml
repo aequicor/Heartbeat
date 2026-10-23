@@ -213,6 +213,10 @@ heartbeat:
   FeatureLayerDependency:
     active: true
     excludes: ['**/test/**', '**/*Test/**']
+  # runtime bundle registry (core:bundles) and bundle classes never in features/*; no casts to graph types in platform code
+  BundleBoundary:
+    active: true
+    excludes: ['**/test/**', '**/*Test/**']
   # API keys, tokens, passwords, Authorization, cookies in log calls
   SensitiveDataLogged:
     active: true

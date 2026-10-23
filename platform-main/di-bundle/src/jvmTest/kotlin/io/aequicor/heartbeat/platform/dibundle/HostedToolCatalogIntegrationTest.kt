@@ -101,7 +101,7 @@ class HostedToolCatalogIntegrationTest {
 @ContributesTo(ProfileScope::class)
 interface HostedToolCatalogAccessors {
     val agentTools: ProfileAgentTools
-    val toolContributions: Set<AgentToolContribution>
+    val toolContributions: List<AgentToolContribution>
     val localWorkspaces: LocalWorkspaces
 }
 
