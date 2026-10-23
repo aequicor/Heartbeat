@@ -32,7 +32,6 @@ kotlin {
             api(projects.features.computerUse.api)
             implementation(projects.features.feedback.api)
             implementation(projects.features.attachments.api)
-            implementation(projects.features.attachments.impl)
             implementation(projects.features.harness.api)
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.adaptiveSubagents.api)
@@ -96,6 +95,7 @@ kotlin {
         // Studio (`studio` group): the mobile hosts keep these impls in the static graph; on desktop the `studio`
         // bundle owns them.
         val studioImpls: KotlinDependencyHandler.() -> Unit = {
+            implementation(projects.features.attachments.impl)
             implementation(projects.features.aiSessionEngineTransfer.impl)
             implementation(projects.features.autocomplete.impl)
             implementation(projects.features.computerUse.impl)

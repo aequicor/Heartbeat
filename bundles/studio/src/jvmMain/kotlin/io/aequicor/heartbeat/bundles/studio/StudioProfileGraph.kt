@@ -13,11 +13,13 @@ import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferIntent
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferOutput
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferState
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistRemoteScreens
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
@@ -73,6 +75,12 @@ public interface StudioProfileExports {
 
     /** Project configuration sections of the bundle's features; `agent-runtime`, which owns the tree, merges them. */
     public val configSectionPart: ConfigSectionPart
+
+    /** Catalog of the profile's attachments; the foundation studio and the research chat of `web` read it. */
+    public val attachmentsCatalog: AttachmentsCatalog
+
+    /** Reads the bytes of attachments; the foundation hands it to the facade of `engines`. */
+    public val resourceResolver: ResourceResolver
 }
 
 /** Profile-level graph of the `studio` bundle: the profile contributions of its member features. */

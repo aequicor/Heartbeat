@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeInteractionDemand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
@@ -44,6 +45,7 @@ import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngine
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferIntent
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferOutput
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferState
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
@@ -203,6 +205,12 @@ internal interface FoundationProfileBundleImports {
 
     /** Checklist screens of the `studio` bundle. */
     val checklistScreens: ChecklistRemoteScreens
+
+    /** Attachments catalog of the `studio` bundle. */
+    val attachmentsCatalog: AttachmentsCatalog
+
+    /** Resolver of attachment resources of the `studio` bundle. */
+    val resourceResolver: ResourceResolver
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -459,6 +467,12 @@ internal object StudioServiceImportBindings {
 
     @Provides
     fun checklistScreens(imports: FoundationProfileBundleImports): ChecklistRemoteScreens = imports.checklistScreens
+
+    @Provides
+    fun attachmentsCatalog(imports: FoundationProfileBundleImports): AttachmentsCatalog = imports.attachmentsCatalog
+
+    @Provides
+    fun resourceResolver(imports: FoundationProfileBundleImports): ResourceResolver = imports.resourceResolver
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */

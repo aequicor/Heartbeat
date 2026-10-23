@@ -59,9 +59,6 @@ public interface FoundationProfileBindings {
     /** Credentials of the profile. */
     public val secrets: SecretStore
 
-    /** Catalog of the profile's attachments (stays in the foundation for now). */
-    public val attachmentsCatalog: AttachmentsCatalog
-
     /**
      * Parts of the sets that the `engines` bundle owns. They sit behind one holder instead of plain `Set` accessors:
      * a graph that includes this interface would otherwise bind each `Set` twice, as an accessor and as a multibinding,
@@ -135,7 +132,7 @@ public interface FoundationEngineSets {
  * Services of the AI engines the foundation hands to the profile graphs of the bundles that only use them (`web`).
  * They are a separate interface because the `engines` bundle owns the facade and the search: its own profile graph must
  * not receive them from the foundation, or each would have two bindings. The foundation backs them with the lazy
- * imports from `engines` (the resource resolver is the foundation's own, over its attachments).
+ * imports from `engines`.
  */
 public interface FoundationProfileEngineBindings {
     /** Sessions and models of the AI engines. */
@@ -143,9 +140,6 @@ public interface FoundationProfileEngineBindings {
 
     /** Web search that research runs use. */
     public val searchEngine: SearchEngine
-
-    /** Reads the bytes of attachments and other prompt resources of the profile. */
-    public val resourceResolver: ResourceResolver
 
     /** Engine configuration of the profile (the composer lists the commands an engine offers by it). */
     public val engineConfiguration: EngineConfiguration
@@ -166,6 +160,20 @@ public interface FoundationProfileEngineBindings {
      * Tools of the profile's agents; harnesses list their catalogs. Read lazily: the bundle's own tools are part of it.
      */
     public val profileAgentTools: ProfileAgentTools
+}
+
+/**
+ * The attachments of the profile, for the bundles that only read them (`web`: the research chat attaches files).
+ * Apart from [FoundationProfileBindings] because the `studio` bundle owns the attachments: its own graph must not
+ * receive them from the foundation, or each would have two bindings. The foundation backs them with the lazy import
+ * from `studio`.
+ */
+public interface FoundationProfileAttachmentBindings {
+    /** Catalog of the profile's attachments. */
+    public val attachmentsCatalog: AttachmentsCatalog
+
+    /** Reads the bytes of attachments and other prompt resources of the profile. */
+    public val resourceResolver: ResourceResolver
 }
 
 /**

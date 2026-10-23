@@ -7,6 +7,8 @@ plugins {
 kotlin {
     sourceSets {
         jvmMain.dependencies {
+            implementation(projects.features.attachments.api)
+            implementation(projects.features.attachments.impl)
             implementation(projects.features.effortConfiguration.api)
             implementation(projects.features.effortConfiguration.impl)
             implementation(projects.features.autocomplete.api)
