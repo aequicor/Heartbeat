@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.navigation.NavHostFactory
 import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
 import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
@@ -27,7 +28,11 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileGraphAttachment
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.ktor.client.HttpClient
 import java.util.ServiceLoader
 
@@ -74,11 +79,19 @@ internal class DefaultFoundationProfileBindings(
     @ForScope(ProfileScope::class) private val scope: Provider<ScopeHandle>,
     @ForScope(ProfileScope::class) private val stores: Provider<DataStores>,
     private val studio: Provider<StudioRemoteScreens>,
+    private val facade: Provider<EngineFacade>,
+    private val search: Provider<SearchEngine>,
+    private val attachments: Provider<AttachmentsCatalog>,
+    private val resolver: Provider<ResourceResolver>,
 ) : FoundationProfileBindings {
     override val profileId: ProfileId get() = id()
     override val profileScope: ScopeHandle get() = scope()
     override val dataStores: DataStores get() = stores()
     override val studioRemoteScreens: StudioRemoteScreens get() = studio()
+    override val engineFacade: EngineFacade get() = facade()
+    override val searchEngine: SearchEngine get() = search()
+    override val attachmentsCatalog: AttachmentsCatalog get() = attachments()
+    override val resourceResolver: ResourceResolver get() = resolver()
 }
 
 /**
@@ -96,6 +109,7 @@ internal class DefaultFoundationBindings(
     private val root: Provider<StorageRoot>,
     private val downloader: Provider<VerifiedReleaseDownloader>,
     private val scopes: Provider<ScopeFactory>,
+    private val hosts: Provider<NavHostFactory>,
     private val launcher: Provider<MachineLauncher>,
     private val registry: Provider<MachineRegistry>,
     private val client: Provider<HttpClient>,
@@ -107,6 +121,7 @@ internal class DefaultFoundationBindings(
     override val storageRoot: StorageRoot get() = root()
     override val releaseDownloader: VerifiedReleaseDownloader get() = downloader()
     override val scopeFactory: ScopeFactory get() = scopes()
+    override val navHostFactory: NavHostFactory get() = hosts()
     override val machineLauncher: MachineLauncher get() = launcher()
     override val machineRegistry: MachineRegistry get() = registry()
     override val httpClient: HttpClient get() = client()

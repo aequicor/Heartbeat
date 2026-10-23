@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.navigation.NavHostFactory
 import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
 import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
@@ -41,6 +42,9 @@ public interface FoundationAppBindings {
 
     /** Creates child scopes of retained screens and sessions. */
     public val scopeFactory: ScopeFactory
+
+    /** Builds the navigation hosts (stacks, panels) of retained screens. */
+    public val navHostFactory: NavHostFactory
 
     /** Launches state machines in the application's machine runtime. */
     public val machineLauncher: MachineLauncher

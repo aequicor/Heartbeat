@@ -5,7 +5,11 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 
 /**
  * Stateful profile-level bindings the foundation hands to the profile graph of a bundle (`@Includes`). Read lazily:
@@ -26,4 +30,16 @@ public interface FoundationProfileBindings {
 
     /** Studio screens that the Chromium side panel opens and drives (the studio stays in the foundation for now). */
     public val studioRemoteScreens: StudioRemoteScreens
+
+    /** Sessions and models of the AI engines (the engine facade stays in the foundation for now). */
+    public val engineFacade: EngineFacade
+
+    /** Web search that research runs use (stays in the foundation for now). */
+    public val searchEngine: SearchEngine
+
+    /** Catalog of the profile's attachments (stays in the foundation for now). */
+    public val attachmentsCatalog: AttachmentsCatalog
+
+    /** Reads the bytes of attachments and other prompt resources of the profile. */
+    public val resourceResolver: ResourceResolver
 }
