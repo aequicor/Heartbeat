@@ -34,9 +34,11 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
         return "Integrate a finished child's virtual snapshot with sandbox_integrate using " +
             "the workspace and snapshot " +
             "from its host result note. Never use git or shell to integrate. To commit the sandbox files into a " +
-            "branch of the real repository use sandbox_commit with a branch that is not checked out. To continue work " +
-            "that lives on another branch (a pull request) load it with sandbox_checkout, fetch=true if it is not " +
-            "local yet. " +
+            "branch of the real repository use sandbox_commit with a branch that is not checked out. " +
+            "To continue work that lives on another branch (a pull request) load it with sandbox_checkout, " +
+            "fetch=true if it is not local yet. Merge another branch (for example the pull request base) into " +
+            "the sandbox with sandbox_merge; " +
+            "the next sandbox_commit records it as a merge. Read branch history with sandbox_log. " +
             if (state.isResolving) {
                 "The user authorized conflict resolution. Read conflict files and use sandbox_resolve_conflict for " +
                     "each resolved file; unresolved paths: ${state.conflicts.joinToString(
@@ -63,6 +65,10 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
 
             "sandbox_checkout" -> "Base=${state.baseCommit}\nAll sandbox files are replaced"
 
+            "sandbox_merge" -> "Base=${state.baseCommit}\nThe branch is merged into the sandbox files"
+
+            "sandbox_log" -> "Read-only branch history"
+
             else -> workspaces.find(parent)?.read(checkNotNull(arguments["path"]).jsonPrimitive.content).orEmpty()
         }
         val description = "Virtual revision=${state.revision}\nSnapshot=${state.snapshot}\n" +
@@ -72,17 +78,41 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
         val isPush = isCommit && arguments["push"]?.jsonPrimitive?.content == "true"
         return AgentToolApproval(
             spec.name,
-            if (isPush) PUSH_TITLE else if (isCommit) COMMIT_TITLE else "Изменить виртуальное состояние",
+            when {
+                isPush -> PUSH_TITLE
+                isCommit -> COMMIT_TITLE
+                else -> "Изменить виртуальное состояние"
+            },
             description,
             "${state.revision}:${state.snapshot}:$arguments",
         )
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
-        val bound = approval(context, specs.single { it.name == name }, arguments)
-        check(context.authorization == bound) { "SandboxAuthorizationChanged" }
         checkNotNull(journal.authenticated(context)) { "TurnUnavailable" }
         val parent = checkNotNull(context.workspace)
+        return if (name == "sandbox_log") {
+            AgentToolResult(
+                workspaces.history(
+                    parent,
+                    checkNotNull(arguments["branch"]).jsonPrimitive.content,
+                    checkNotNull(arguments["base"]).jsonPrimitive.content,
+                    arguments["stat"]?.jsonPrimitive?.content == "true",
+                ),
+            )
+        } else {
+            change(context, parent, name, arguments)
+        }
+    }
+
+    private suspend fun change(
+        context: AgentToolContext,
+        parent: WorkspaceRef,
+        name: String,
+        arguments: JsonObject,
+    ): AgentToolResult {
+        val bound = approval(context, specs.single { it.name == name }, arguments)
+        check(context.authorization == bound) { "SandboxAuthorizationChanged" }
         val expectedRevision = checkNotNull(bound.binding).substringBefore(':').toLong()
         val result = when (name) {
             "sandbox_integrate" -> {
@@ -111,6 +141,12 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
             }
 
             "sandbox_checkout" -> workspaces.checkoutRef(
+                parent,
+                checkNotNull(arguments["branch"]).jsonPrimitive.content,
+                arguments["fetch"]?.jsonPrimitive?.content == "true",
+            )
+
+            "sandbox_merge" -> workspaces.mergeRef(
                 parent,
                 checkNotNull(arguments["branch"]).jsonPrimitive.content,
                 arguments["fetch"]?.jsonPrimitive?.content == "true",
@@ -160,6 +196,34 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
                     """.trimIndent(),
                 ).jsonObject,
                 AgentToolAction.Edit,
+            ),
+            AgentToolSpec(
+                "sandbox_merge",
+                "Three-way merge a branch of the real repository (for example the pull request base, fetch=true " +
+                    "for its latest origin state) into the sandbox files. The next sandbox_commit records the merged " +
+                    "tip as a second parent. Conflicts leave the files unchanged until the user authorizes resolving",
+                Json.parseToJsonElement(
+                    """
+                    {"type":"object","properties":{
+                      "branch":{"type":"string"},"fetch":{"type":"boolean"}},
+                      "required":["branch"],"additionalProperties":false}
+                    """.trimIndent(),
+                ).jsonObject,
+                AgentToolAction.Edit,
+            ),
+            AgentToolSpec(
+                "sandbox_log",
+                "Read-only history of a branch since a base branch in the real repository: full SHA, author, " +
+                    "subject and body per commit, oldest first; stat=true adds the diff stat. Fetch with " +
+                    "sandbox_checkout or sandbox_merge first if origin may be newer",
+                Json.parseToJsonElement(
+                    """
+                    {"type":"object","properties":{
+                      "branch":{"type":"string"},"base":{"type":"string"},"stat":{"type":"boolean"}},
+                      "required":["branch","base"],"additionalProperties":false}
+                    """.trimIndent(),
+                ).jsonObject,
+                AgentToolAction.Read,
             ),
             AgentToolSpec(
                 "sandbox_integrate",
