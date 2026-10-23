@@ -173,7 +173,7 @@ class VirtualSandboxBranchTest {
     }
 
     @Test
-    fun `a sandbox with a loaded branch follows a moved source without pausing or merging its files`() = runTest {
+    fun `a loaded branch is never paused and follows a moved source without merging its files`() = runTest {
         val f = VirtualFixture()
         try {
             f.cmd("switch", "-c", "pr/loaded")
@@ -185,6 +185,7 @@ class VirtualSandboxBranchTest {
             Files.writeString(f.project.resolve("source.txt"), "main version")
             f.cmd("commit", "-am", "main work")
             val head = f.cmd("rev-parse", "HEAD")
+            assertEquals(VirtualSandboxPhase.Ready, f.backend.pause(ref).phase)
             val resumed = f.backend.inspect(ref)
             assertEquals(VirtualSandboxPhase.Ready, resumed.phase)
             assertEquals(head, resumed.baseCommit)

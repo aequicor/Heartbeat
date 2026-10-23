@@ -109,13 +109,7 @@ internal class DesktopVirtualWorkspaces(
     override suspend fun inspect(ref: WorkspaceRef): VirtualSandboxState = lock.withLock {
         val record = history(known(ref))
         if (record.state.phase == VirtualSandboxPhase.HandedOff) return@withLock record.state
-        // A loaded branch's files never follow the source, so a clean moved source only re-anchors them in place.
-        val head = git.text(record.source, "rev-parse", "HEAD")
-        val isStale = head != record.state.baseCommit || record.pendingSnapshot != null || record.isHistoryChanged
-        if (record.branch != null && isStale && sourceCleanRecord(record)) {
-            log.i { "Virtual sandbox with a loaded branch re-anchored on the source" }
-            return@withLock save(branches.reanchor(record, head)).state
-        }
+        detached(record)?.let { return@withLock it }
         val expected = record.pendingBase ?: record.state.baseCommit
         val isChanged = record.isHistoryChanged || !sourceCleanRecord(
             record,
@@ -130,8 +124,28 @@ internal class DesktopVirtualWorkspaces(
     }
 
     override suspend fun pause(ref: WorkspaceRef): VirtualSandboxState = lock.withLock {
-        val record = known(ref)
-        if (record.state.isReady || record.isResolving) pauseRecord(record).state else record.state
+        val record = history(known(ref))
+        when {
+            record.state.phase != VirtualSandboxPhase.HandedOff && record.branch != null ->
+                detached(record) ?: record.state
+
+            record.state.isReady || record.isResolving -> pauseRecord(record).state
+
+            else -> record.state
+        }
+    }
+
+    /**
+     * A loaded branch's files never follow the source, so it never pauses for it: a clean source re-anchors a stale
+     * or paused one in place. Null when the record has no loaded branch or its source is dirty.
+     */
+    private suspend fun detached(record: VirtualRecord): VirtualSandboxState? {
+        if (record.branch == null || !sourceCleanRecord(record)) return null
+        val head = git.text(record.source, "rev-parse", "HEAD")
+        val isStale = head != record.state.baseCommit || record.pendingSnapshot != null || record.isHistoryChanged
+        if (!isStale && record.state.isReady) return save(record).state
+        log.i { "Virtual sandbox with a loaded branch re-anchored on the source" }
+        return save(branches.reanchor(record, head)).state
     }
 
     override suspend fun sourceClean(ref: WorkspaceRef): Boolean = lock.withLock { sourceCleanRecord(known(ref)) }
