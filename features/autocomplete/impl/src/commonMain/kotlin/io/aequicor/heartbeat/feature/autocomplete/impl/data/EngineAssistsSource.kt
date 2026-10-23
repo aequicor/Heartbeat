@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
-import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -50,7 +49,6 @@ internal class EngineAssistsSource(
     private val clock: Clock,
     private val sources: AuthSources,
     private val configuration: EngineConfiguration = UnavailableEngineConfiguration(),
-    private val workspaces: LocalWorkspaces? = null,
 ) {
     private val mutex = Mutex()
     private val cache = mutableMapOf<Route, Entry>()
@@ -65,15 +63,8 @@ internal class EngineAssistsSource(
     ) { config, bindings, engines, auth ->
         listOf(config, bindings, engines, auth)
     }.transformLatest {
-        // The last listing of this exact state shows at once, even past its TTL, while the fresh one loads.
-        emit(remembered(target, workspace) ?: NativeAssists.Closed)
+        emit(NativeAssists.Closed)
         emit(assists(target, workspace))
-    }
-
-    private suspend fun remembered(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists? {
-        val route = Route(target.engine.value, target.binding.value, workspace?.value)
-        val stamp = stamp()
-        return mutex.withLock { cache[route]?.takeIf { it.stamp == stamp }?.assists }
     }
 
     private fun stamp(): List<Any> = listOf(
@@ -107,33 +98,10 @@ internal class EngineAssistsSource(
      * Whether [target]'s engine owns skill discovery, decided by its declared feature alone: no listing runs, and an
      * engine whose feature is present but blocked still counts as a catalog.
      */
-    internal suspend fun hasNativeCatalog(target: EngineTarget, workspace: WorkspaceRef?): Boolean =
-        !isHostDelivered(target, workspace) &&
-            facade.engines.features(target.engine).resolve(ListsComposerAssists) != FeatureAccess.Unsupported
-
-    /**
-     * A native process of a virtual workspace starts in an empty directory and sees no project skills unless its
-     * adapter imports them from the virtual tree; elsewhere the host delivers them like for an engine without a
-     * catalog. An unreadable workspace keeps the native route, which then fails closed.
-     */
-    private suspend fun isHostDelivered(target: EngineTarget, workspace: WorkspaceRef?): Boolean {
-        val ref = workspace ?: return false
-        val isVirtual = try {
-            workspaces?.virtual(ref) != null
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "workspace kind unknown for composer assists" }
-            false
-        }
-        val descriptor = facade.engines.state.value.firstOrNull { it.descriptor.id == target.engine }?.descriptor
-        return isVirtual && descriptor?.areVirtualWorkspaceAssistsNative != true
-    }
+    internal fun hasNativeCatalog(target: EngineTarget): Boolean =
+        facade.engines.features(target.engine).resolve(ListsComposerAssists) != FeatureAccess.Unsupported
 
     private suspend fun read(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists =
-        if (isHostDelivered(target, workspace)) NativeAssists.Unsupported else readNative(target, workspace)
-
-    private suspend fun readNative(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists =
         when (val resolved = facade.engines.features(target.engine).resolve(ListsComposerAssists)) {
             is FeatureAccess.Available -> try {
                 NativeAssists(resolved.feature.assists(target, workspace), hasNativeCatalog = true)

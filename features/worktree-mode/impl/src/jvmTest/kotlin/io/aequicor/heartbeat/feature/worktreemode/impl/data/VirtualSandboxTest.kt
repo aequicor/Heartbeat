@@ -17,7 +17,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -392,28 +391,6 @@ class VirtualSandboxTest {
     }
 
     @Test
-    fun `a reopened sandbox edits again and its next handoff moves its own result branch`() = runTest {
-        val f = VirtualFixture()
-        try {
-            val ref = f.create("reopen")
-            val files = assertNotNull(f.backend.find(ref))
-            files.change(0, listOf(VirtualFileChange("source.txt", "first")))
-            val first = f.backend.handoff(f.record("reopen"))
-            val reopened = f.backend.reopen(ref)
-            assertEquals(VirtualSandboxPhase.Ready, reopened.phase)
-            assertEquals(null, reopened.resultCommit)
-            assertEquals(reopened, f.backend.reopen(ref))
-            files.change(reopened.revision, listOf(VirtualFileChange("source.txt", "second")))
-            val second = f.backend.handoff(f.record("reopen"))
-            assertNotEquals(first.resultCommit, second.resultCommit)
-            assertEquals(second.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-reopen"))
-            assertEquals("second", f.cmd("show", "heartbeat/worktree-reopen:source.txt"))
-        } finally {
-            f.close()
-        }
-    }
-
-    @Test
     fun `arbitrary ecosystems need no caches and slots roll back while preserving warm outputs`() = runTest {
         val f = VirtualFixture()
         try {
@@ -469,7 +446,7 @@ class VirtualSandboxTest {
     }
 }
 
-internal class VirtualFixture {
+private class VirtualFixture {
     private val root = Files.createTempDirectory("heartbeat-virtual-test-").toRealPath()
     val project: Path = Files.createDirectory(root.resolve("project"))
     private val stores = SettingsStores(root.resolve("state"))

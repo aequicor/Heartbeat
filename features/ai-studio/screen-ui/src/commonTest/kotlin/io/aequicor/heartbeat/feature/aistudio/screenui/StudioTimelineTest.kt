@@ -11,8 +11,6 @@ import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FailureUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ReplyPartUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlin.test.Test
@@ -351,41 +349,6 @@ class StudioTimelineTest {
         val translated = cache.update(emptyList(), grouped.copy(section = "Сессия"), cards)
         assertNotSame(timeline, translated)
         assertEquals(cards, translated.messages)
-    }
-
-    @Test
-    fun `a build card follows the run_build call that started it inside the reply`() {
-        val cache = TimelineCache()
-        fun tool(id: String, title: String, output: String) =
-            ReplyPartUi.Tool(ToolUi(id, title, ToolStatusUi.Done, output, null))
-        val turn = reply("", isStreaming = true).copy(
-            parts = persistentListOf(
-                tool("t1", "run_build", "{\"id\":\"op1\",\"command\":\"verify\"}"),
-                tool("t2", "build_status", "{\"id\":\"op1\",\"phase\":\"Running\"}"),
-            ),
-        )
-        val running = card("build:op1")
-        val timeline = cache.update(
-            listOf(prompt, turn),
-            labels,
-            persistentListOf(running),
-            persistentSetOf("build:op1"),
-        )
-        assertEquals(listOf("m1", "m2"), timeline.messages.map { it.id })
-        val ids = timeline.messages.last().parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
-        assertEquals(listOf("t1", "build:op1", "t2"), ids)
-
-        val finished = running.copy(
-            parts = persistentListOf(HbMessagePart.Tool(HbToolCall("build:op1", "done", kind = HbToolKind.Worktree))),
-        )
-        val updated = cache.update(
-            listOf(prompt, turn),
-            labels,
-            persistentListOf(finished),
-            persistentSetOf("build:op1"),
-        )
-        val call = assertIs<HbMessagePart.Tool>(updated.messages.last().parts[1]).call
-        assertEquals("done", call.title)
     }
 
     private fun card(id: String) = HbChatMessage(

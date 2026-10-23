@@ -571,12 +571,6 @@ internal class DesktopWorktreeGit(
     override suspend fun handoffVirtual(record: WorktreeRecord) =
         if (record.task.virtualSandbox != null) virtual.value.handoff(record) else null
 
-    override suspend fun reopenVirtual(record: WorktreeRecord) = if (record.task.virtualSandbox != null) {
-        virtual.value.reopen(DesktopVirtualWorkspaces.workspace(record))
-    } else {
-        null
-    }
-
     private suspend fun git(
         directory: String,
         vararg arguments: String,

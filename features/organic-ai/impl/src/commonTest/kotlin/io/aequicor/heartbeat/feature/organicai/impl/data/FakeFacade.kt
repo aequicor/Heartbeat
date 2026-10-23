@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.organicai.impl.data
 
-import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
@@ -93,8 +92,7 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
     var closes = 0
     var closeFailure: Throwable? = null
 
-    override val route: ExecutionRoute =
-        ExecutionRoute(ref.engine, TARGET.binding, AuthSourceId("auth"), AuthRevision.Known("1"))
+    override val route: ExecutionRoute get() = error("unused")
     override val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
 
     override suspend fun close() {

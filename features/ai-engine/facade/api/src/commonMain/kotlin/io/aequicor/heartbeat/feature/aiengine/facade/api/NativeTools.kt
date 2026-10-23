@@ -13,8 +13,6 @@ public data class NativeToolCall(
     val workingDirectory: String? = null,
     /** Exact host-controlled shell launcher, absent for engines/extensions whose executor cannot be attested. */
     val shell: NativeShellExecution? = null,
-    /** Set by the adapter from [NativeToolSpec.isWorkspaceFree]; honoured only for a call with no path or command. */
-    val isWorkspaceFree: Boolean = false,
 ) {
     override fun toString(): String = "NativeToolCall"
 }

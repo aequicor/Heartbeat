@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_SEARCH_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 
@@ -72,6 +71,6 @@ private fun List<String>.flagNames(prefix: String): Set<String> = singleOrNull {
 internal val ClaudeProviderTools: Set<String> = setOf("WebSearch")
 
 internal val ClaudeSearchTools = linkedMapOf(
-    "web_search" to "mcp__${HOSTED_SEARCH_SERVER}__web_search",
-    "web_fetch" to "mcp__${HOSTED_SEARCH_SERVER}__web_fetch",
+    "web_search" to "mcp__heartbeat_search__web_search",
+    "web_fetch" to "mcp__heartbeat_search__web_fetch",
 )

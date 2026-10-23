@@ -11,7 +11,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
-import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AssistDirectory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
@@ -35,7 +34,6 @@ import kotlin.time.Duration.Companion.seconds
  * hidden from suggestions. Relative supporting references keep their original project directory; access to
  * those files and execution of scripts still go through the turn's normal tool policy.
  * Claude namespaces imported commands as `/heartbeat-project:name`; suggestions use that exact spelling.
- * A sandbox has no project directory: its entries come from the sandbox tree.
  */
 @Inject
 @ContributesBinding(ProfileScope::class)
@@ -69,22 +67,15 @@ internal class DesktopClaudeComposerAssists(
     private suspend fun entries(workspace: WorkspaceRef?): List<Entry> {
         val project = workspace ?: return emptyList()
         val before = launches.context(ClaudeEngine.Id)
-        // A sandbox imports from the tree it snapshots, under its source project's trust.
-        val virtual = workspaces.virtual(project)
-        val trusted = if (virtual == null) project else virtual.sourceProject() ?: return emptyList()
-        if (before.trust[trusted] != ProjectTrust.Trusted) return emptyList()
+        if (before.trust[project] != ProjectTrust.Trusted) return emptyList()
         val candidates = reader.read(ClaudeEngine.Id, project, DIRECTORIES)
         if (candidates.isEmpty()) return emptyList()
-        val directory = if (virtual == null) workspaces.resolve(project) ?: return emptyList() else null
+        val directory = workspaces.resolve(project) ?: return emptyList()
         val entries = try {
             withTimeoutOrNull(2.seconds) {
-                if (directory == null) {
-                    readVirtualEntries(checkNotNull(virtual), candidates)
-                } else {
-                    val context = currentCoroutineContext()
-                    runInterruptible(dispatchers.io) {
-                        readEntries(Path.of(directory).toRealPath(), candidates, context)
-                    }
+                val context = currentCoroutineContext()
+                runInterruptible(dispatchers.io) {
+                    readEntries(Path.of(directory).toRealPath(), candidates, context)
                 }
             }.orEmpty()
         } catch (e: CancellationException) {
@@ -106,23 +97,6 @@ internal class DesktopClaudeComposerAssists(
             context.ensureActive()
             if (remaining <= 0) return@mapNotNull null
             val entry = readEntry(root, assist) ?: return@mapNotNull null
-            remaining -= entry.content.toByteArray().size
-            entry.takeIf { remaining >= 0 }
-        }
-    }
-
-    /**
-     * The CLI of a sandbox starts in an empty directory, so supporting references resolve against the
-     * project-relative directory that the sandbox file tools accept.
-     */
-    private suspend fun readVirtualEntries(workspace: VirtualWorkspace, candidates: List<EngineAssist>): List<Entry> {
-        var remaining = TOTAL_BYTES
-        return candidates.distinctBy { it.label }.mapNotNull { assist ->
-            if (remaining <= 0) return@mapNotNull null
-            val path = assist.id.replaceFirst(':', '/')
-            val text = workspace.read(path)?.takeIf { it.toByteArray().size <= FILE_BYTES }
-            val entry = text?.let { literalClaudeContent(it, path.substringBeforeLast('/')) }?.let { Entry(assist, it) }
-                ?: return@mapNotNull null
             remaining -= entry.content.toByteArray().size
             entry.takeIf { remaining >= 0 }
         }

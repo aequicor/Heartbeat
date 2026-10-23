@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
-import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
 import kotlinx.serialization.json.JsonObject
 
 /** Captures the trusted project path before the process starts; unsupported adapters cannot enable native tools. */
@@ -24,21 +23,12 @@ internal object MissingClaudeNativeSupport : ClaudeNativeSupport {
 internal class DesktopClaudeNativeSupport(private val workspaces: LocalWorkspaces) : ClaudeNativeSupport {
     override suspend fun open(workspace: WorkspaceRef): ClaudeNativeWorkspace? =
         workspaces.resolve(workspace)?.let { ClaudeNativeWorkspace(it) }
-            // A virtual workspace has no real directory: only workspace-free tools may run natively there.
-            ?: workspaces.virtual(workspace)?.let { ClaudeNativeWorkspace(null) }
 }
 
 /** Classification never trusts a model-provided workspace or substitutes a different path for relative edits. */
-internal class ClaudeNativeWorkspace(private val path: String?) {
-    /** The gated tools this workspace can run: a virtual one has no directory, so only workspace-free tools qualify. */
-    fun supported(gated: Set<String>): Set<String> =
-        if (path == null) gated.filter { name -> specOf(name)?.isWorkspaceFree == true }.toSet() else gated
-
+internal class ClaudeNativeWorkspace(private val path: String) {
     fun classify(name: String, input: JsonObject): NativeToolCall? {
-        val spec = specOf(name) ?: return null
-        if (path == null && !spec.isWorkspaceFree) return null
-        // A workspace-free tool reaches out from this device: only a public address may reach the profile gate.
-        if (spec.isWorkspaceFree && !isPublicWebUrl(input.text("url").orEmpty())) return null
+        val spec = ClaudeNativeCatalog.singleOrNull { it.name == name && it.isGated } ?: return null
         val file = input.text("file_path") ?: input.text("path")
         val command = input.text("command")
         if (spec.action == AgentToolAction.Edit && file.isNullOrBlank()) return null
@@ -50,12 +40,10 @@ internal class ClaudeNativeWorkspace(private val path: String?) {
             command = command,
             arguments = input,
             workingDirectory = path,
-            isWorkspaceFree = spec.isWorkspaceFree,
+
         )
     }
 }
-
-private fun specOf(name: String) = ClaudeNativeCatalog.singleOrNull { it.name == name && it.isGated }
 
 /** 2.1.285 passed the real macOS CLI initialize, hook deny and ask/allow/deny protocol probe. */
 internal fun supportsClaudeNativeGate(version: String?): Boolean {

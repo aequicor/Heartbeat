@@ -125,27 +125,6 @@ class ClaudeUsageTest {
     }
 
     @Test
-    fun `aliased model usage key still provides capacity`() {
-        val usage = ClaudeContextUsage()
-        usage.receive(
-            parseClaudeObject(
-                """
-                {"type": "assistant", "message": {"model": "claude-opus-4-7", "usage": {"input_tokens": 10,
-                "output_tokens": 5}}}
-                """,
-            ),
-        )
-        usage.receive(
-            parseClaudeObject(
-                """
-                {"type": "result", "modelUsage": {"claude-opus-4-7[1m]": {"contextWindow": 1000000}}}
-                """,
-            ),
-        )
-        assertEquals(1_000_000L, usage.state.value?.capacityTokens)
-    }
-
-    @Test
     fun `quota events normalize fractions and preserve independent windows`() = runTest {
         val provider = ClaudeProviderUsage { true }
         provider.receive(
@@ -177,31 +156,6 @@ class ClaudeUsageTest {
         assertEquals(25.0, snapshot.windows.first().usedPercent)
         assertEquals(Instant.fromEpochSeconds(100), snapshot.windows.first().resetsAt)
         assertEquals(0.0, snapshot.windows.last().usedPercent)
-    }
-
-    @Test
-    fun `quota events without utilization fall back to threshold or rejection`() = runTest {
-        val provider = ClaudeProviderUsage { true }
-        provider.receive(
-            parseClaudeObject(
-                """{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"five_hour",
-                "status":"allowed_warning","surpassedThreshold":0.75,"resetsAt":100}}""",
-            ),
-        )
-        provider.receive(
-            parseClaudeObject(
-                """{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"seven_day",
-                "status":"rejected"}}""",
-            ),
-        )
-        provider.receive(
-            parseClaudeObject(
-                """{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"seven_day_opus",
-                "status":"allowed"}}""",
-            ),
-        )
-        val windows = provider.refresh().windows
-        assertEquals(listOf(75.0, 100.0), windows.map { it.usedPercent })
     }
 
     @Test

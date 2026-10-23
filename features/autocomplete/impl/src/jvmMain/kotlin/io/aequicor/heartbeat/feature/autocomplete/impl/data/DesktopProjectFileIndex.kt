@@ -72,26 +72,11 @@ internal class DesktopProjectFileIndex(
     }
 
     override suspend fun readSkill(workspace: WorkspaceRef?, relativePath: String, name: String): String? {
-        val ref = workspace ?: return null
-        val virtual = workspaces.virtual(ref)
-        val root = if (virtual == null) workspaces.resolve(ref) else null
-        return when {
-            virtual != null -> readVirtualSkillBody(virtual, relativePath, name)
-            root != null -> withContext(dispatchers.io) { readProjectSkillBody(Path.of(root), relativePath, name) }
-            else -> null
-        }
+        val root = workspace?.let { workspaces.resolve(it) } ?: return null
+        return withContext(dispatchers.io) { readProjectSkillBody(Path.of(root), relativePath, name) }
     }
 
     private suspend fun walk(ref: WorkspaceRef): List<ProjectFile> {
-        val virtual = try {
-            workspaces.virtual(ref)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "workspace kind unknown for the file walk" }
-            return emptyList()
-        }
-        if (virtual != null) return virtualProjectSkills(virtual)
         val root = workspaces.resolve(ref) ?: return emptyList()
         return withContext(dispatchers.io) {
             try {

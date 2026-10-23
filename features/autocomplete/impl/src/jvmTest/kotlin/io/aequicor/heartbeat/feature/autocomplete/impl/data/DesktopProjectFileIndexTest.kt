@@ -3,8 +3,6 @@ package io.aequicor.heartbeat.feature.autocomplete.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
-import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualFileChange
-import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -160,45 +158,6 @@ class DesktopProjectFileIndexTest {
         write(root, ".agents/skills/review/SKILL.md", "---\nname: review\ndescription: Review\n---\n")
         assumeTrue(Files.exists(root.resolve(".agents/skills/REVIEW/SKILL.md")))
         assertEquals(null, index(root).readSkill(workspace, ".agents/skills/REVIEW/SKILL.md", "review"))
-    }
-
-    @Test
-    fun `a sandbox offers only its skill files and reads their bodies from the sandbox tree`() = runTest {
-        val skill = "---\nname: open-pr\ndescription: Open a PR\n---\nOpen a pull request"
-        val files = mapOf(
-            ".claude/skills/open-pr/SKILL.md" to skill,
-            ".claude/skills/linked/SKILL.md" to null,
-            "README.md" to "hello",
-        )
-        val sandbox = object : VirtualWorkspace {
-            override val ref = WorkspaceRef("sandbox-1")
-            override val processDirectory = "unused"
-            override suspend fun revision() = 1L
-            override suspend fun paths() = files.keys.sorted()
-            override suspend fun read(path: String) = files.getValue(path) ?: error("SandboxLinkUnsupported")
-            override suspend fun change(expectedRevision: Long, changes: List<VirtualFileChange>): Long =
-                error("unused")
-            override suspend fun move(expectedRevision: Long, path: String, destination: String): Long = error("unused")
-        }
-        val index = DesktopProjectFileIndex(
-            object : LocalWorkspaces {
-                override val isAvailable = true
-                override fun observe(): Flow<List<LocalWorkspace>> = flowOf(emptyList())
-                override suspend fun register(directory: String): LocalWorkspace = throw UnsupportedOperationException()
-                override suspend fun resolve(ref: WorkspaceRef): String = error("a sandbox has no project directory")
-                override suspend fun virtual(ref: WorkspaceRef) = sandbox.takeIf { ref == it.ref }
-            },
-            TestDispatchers,
-            object : Clock {
-                override fun now(): Instant = Instant.parse("2026-01-01T00:00:00Z")
-            },
-        )
-        val found = index.search(sandbox.ref, "", 10)
-        assertEquals(listOf(".claude/skills/open-pr/SKILL.md"), found.map { it.relativePath })
-        assertEquals("open-pr", found.single().skill?.name)
-        assertEquals(skill, index.readSkill(sandbox.ref, ".claude/skills/open-pr/SKILL.md", "open-pr"))
-        assertEquals(null, index.readSkill(sandbox.ref, ".claude/skills/open-pr/SKILL.md", "other"))
-        assertEquals(null, index.readSkill(sandbox.ref, "README.md", "open-pr"))
     }
 
     private fun index(root: Path) = DesktopProjectFileIndex(

@@ -9,9 +9,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSeal
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.continueVirtual
+import io.aequicor.heartbeat.feature.worktreemode.api.hasActiveBuilds
 import io.aequicor.heartbeat.feature.worktreemode.api.sealed
 import io.aequicor.heartbeat.feature.worktreemode.api.virtualChanged
 import kotlinx.coroutines.CancellationException
@@ -72,6 +74,9 @@ internal class VirtualTaskLifecycle(
     private suspend fun tick(record: WorktreeRecord) {
         try {
             refresh(record, explicit = false)
+            related(record.commonDirectory).forEach { current ->
+                access.finishTask(current.task.chatId)?.let { projection?.invoke(it.task) }
+            }
             failedProjects.remove(record.commonDirectory)
         } catch (error: CancellationException) {
             throw error
@@ -96,6 +101,17 @@ internal class VirtualTaskLifecycle(
         } else {
             record
         }
+    }
+
+    suspend fun finish(record: WorktreeRecord): WorktreeRecord {
+        if (record.parentWorkspace != null) return record
+        if (record.task.virtualSandbox == null || record.task.phase != WorktreePhase.AwaitingDecision ||
+            record.task.hasActiveBuilds()
+        ) {
+            return record
+        }
+        val state = git.handoffVirtual(record) ?: return record
+        return access.change(record.task.chatId) { it.copy(task = it.task.virtualChanged(state)) } ?: record
     }
 
     /** The durable barrier precedes cancellation; no new base is published until every owner confirms exit. */
@@ -261,4 +277,5 @@ internal data class VirtualTaskAccess(
     val find: suspend (String) -> WorktreeRecord?,
     val change: suspend (String, (WorktreeRecord) -> WorktreeRecord) -> WorktreeRecord?,
     val settle: suspend (WorktreeIntent.Public.RunSettled) -> WorktreeRecord?,
+    val finishTask: suspend (String) -> WorktreeRecord?,
 )

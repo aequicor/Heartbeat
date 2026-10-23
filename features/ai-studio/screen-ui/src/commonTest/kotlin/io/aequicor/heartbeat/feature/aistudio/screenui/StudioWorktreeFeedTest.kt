@@ -62,7 +62,7 @@ class StudioWorktreeFeedTest {
             call.actions.map { it.label },
         )
         assertEquals(HbButtonStyle.Primary, call.actions.first().style)
-        WorktreeActionUi.entries.filter { it != WorktreeActionUi.HandOff }.forEach { action ->
+        WorktreeActionUi.entries.forEach { action ->
             assertEquals(
                 StudioIntent.DecideWorktree("chat", action),
                 result.press("worktree:chat", "worktree-action-${action.name}"),
@@ -72,26 +72,6 @@ class StudioWorktreeFeedTest {
         val detached = timeline(task(WorktreePhaseUi.AwaitingDecision, sourceBranch = null)).card("worktree:chat")
         assertEquals("heartbeat/task", detached.summary)
         assertTrue(detached.actions.none { it.id == "worktree-action-Merge" })
-    }
-
-    @Test
-    fun `a paused sandbox asks with its own card so it lands next to the composer`() {
-        val conflicted = task(WorktreePhaseUi.Working)
-            .copy(sandboxPhase = "Conflicted", sandboxConflicts = persistentListOf("a.kt"))
-        val result = timeline(conflicted)
-        assertEquals(listOf("worktree:chat:paused"), result.messages.map { it.id })
-        assertTrue(result.card("worktree:chat:paused").actions.any { it.id == "sandbox-continue" })
-    }
-
-    @Test
-    fun `finished sandbox offers a branch hand off instead of a pull request or a merge`() {
-        val sandbox = task(WorktreePhaseUi.AwaitingDecision).copy(sandboxPhase = "Ready")
-        val call = timeline(sandbox).card("worktree:chat")
-        assertEquals(listOf("Hand off to heartbeat/task", "Refine", "Leave"), call.actions.map { it.label })
-        assertEquals(
-            StudioIntent.DecideWorktree("chat", WorktreeActionUi.HandOff),
-            timeline(sandbox).press("worktree:chat", "worktree-action-HandOff"),
-        )
     }
 
     @Test
@@ -377,12 +357,6 @@ class StudioWorktreeFeedTest {
         mergeTargetTemplate = "Merge target: %1\$s",
         refine = "Refine",
         leave = "Leave",
-        sandboxPaused = "Sandbox paused",
-        sandboxConflicted = "Sandbox conflicts",
-        sandboxContinue = "Continue",
-        sandboxResolve = "Resolve",
-        sandboxLeavePaused = "Leave paused",
-        sandboxHandOffTemplate = "Hand off to %1\$s",
         openPr = "Open PR",
         actionWorking = "Applying action",
         failed = "Operation failed",

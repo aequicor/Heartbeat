@@ -16,6 +16,7 @@ paths:
     она компилирует; браузерные тесты выключены — `commonTest` идёт на JVM, `check` только компилирует тесты под wasm;
   - `heartbeat.feature.api` / `heartbeat.feature.impl` — зависимости и ограничения для фич;
   - `heartbeat.metro` — Metro-плагин;
+  - `heartbeat.bundle` — сборщик бандла desktop (`:bundles:<name>`, только JVM), см. `bundles.md`;
   - `heartbeat.detekt` — detekt + ktlint-wrapper + compose-rules;
   - `heartbeat.jcef` — встроенный Chromium (JCEF): натив хоста из каталога, JDK-модули и JVM-аргументы, проверка закреплённого runtime и изолированные нативные тест-задачи.
 - Новый модуль регистрируется в `settings.gradle.kts` (`include(":features:chat:api")`). Используй typesafe project accessors (`projects.core.logging`).

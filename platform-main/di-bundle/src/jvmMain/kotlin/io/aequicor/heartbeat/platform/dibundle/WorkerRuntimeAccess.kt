@@ -8,8 +8,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileSession
 import io.aequicor.heartbeat.core.profilefacade.awaitStartupReady
 import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.core.statemachine.Machine
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionRegistry
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeInteractionDemand
 import io.aequicor.heartbeat.feature.harness.api.HarnessBackgroundWorker
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
@@ -44,8 +43,7 @@ public interface WorkerApplicationAccess {
 @ContributesTo(ProfileScope::class)
 public interface WorkerProfileAccess {
     val secrets: SecretStore
-    val context: FacadeContext
-    val handles: ActiveSessionRegistry
+    val interaction: NativeInteractionDemand
     val library: Machine<HarnessState, HarnessIntent, HarnessOutput>
     val runs: Machine<HarnessRunsState, HarnessRunsIntent, HarnessRunsOutput>
     val decisions: Machine<ProcessDecisionsState, ProcessDecisionsIntent, ProcessDecisionsOutput>
@@ -79,13 +77,12 @@ public fun ProfileSession.workerRuntimeStatus(): Flow<WorkerRuntimeStatus> {
         access.library.state,
         access.runs.state,
         access.decisions.state,
-        access.handles.awaitingInteraction,
-        access.context.authenticationRequired,
-    ) { library, runs, decisions, interaction, authentication ->
+        access.interaction.required,
+    ) { library, runs, decisions, interaction ->
         WorkerRuntimeStatus(
             hasFailed = library is HarnessState.Failed || runs is HarnessRunsState.Failed ||
                 decisions is ProcessDecisionsState.Failed,
-            isNativeInteractionRequired = interaction || authentication,
+            isNativeInteractionRequired = interaction,
             runningWorkflows =
                 (runs as? HarnessRunsState.Ready)?.runs?.count { it.status == WorkflowStatus.Running } ?: 0,
             pendingDecisions = (decisions as? ProcessDecisionsState.Ready)?.ledger?.entries?.count {

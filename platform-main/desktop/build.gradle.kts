@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
 import io.aequicor.heartbeat.buildlogic.WriteComponentMetadata
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
+import org.jetbrains.compose.desktop.application.tasks.AbstractJLinkTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractProguardTask
@@ -23,6 +24,9 @@ plugins {
 
 dependencies {
     implementation(projects.platformMain.shared)
+    // Desktop bundles are discovered at runtime (ServiceLoader), so they only need to be on the runtime class path.
+    runtimeOnly(projects.bundles.shell)
+    runtimeOnly(projects.bundles.web)
     implementation(projects.designSystem.tokens)
     implementation(projects.designSystem.theme)
     implementation(projects.designSystem.components)
@@ -361,6 +365,11 @@ afterEvaluate {
     }
     tasks.withType<AbstractCheckNativeDistributionRuntime>().configureEach {
         jdkHome.set(desktopJavaHome)
+    }
+    tasks.withType<AbstractJLinkTask>().configureEach {
+        // Compose already passes --strip-debug, --no-man-pages, --no-header-files and --strip-native-commands but leaves
+        // --compress unset (no compression); zip-9 shrinks the runtime inside every installer. JDK 21+ syntax.
+        freeArgs.add("--compress=zip-9")
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
         if (targetFormat == TargetFormat.Dmg) {
