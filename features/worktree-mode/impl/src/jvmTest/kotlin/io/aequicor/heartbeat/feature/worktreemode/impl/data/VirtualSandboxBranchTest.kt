@@ -101,6 +101,51 @@ class VirtualSandboxBranchTest {
     }
 
     @Test
+    fun `a pushed commit is split from an earlier commit and force pushed with a lease`() = runTest {
+        val f = VirtualFixture()
+        val remote = Files.createTempDirectory("heartbeat-virtual-remote-")
+        try {
+            f.cmd("init", "--bare", remote.toString())
+            f.cmd("remote", "add", "origin", remote.toString())
+            f.cmd("switch", "-c", "pr/split")
+            val start = f.cmd("rev-parse", "HEAD")
+            Files.createDirectories(f.project.resolve("one"))
+            Files.writeString(f.project.resolve("one/a.txt"), "a")
+            Files.writeString(f.project.resolve("b.txt"), "b")
+            f.cmd("add", "one/a.txt", "b.txt")
+            f.cmd("commit", "-m", "too big")
+            val big = f.cmd("rev-parse", "HEAD")
+            f.cmd("push", "origin", "pr/split")
+            f.cmd("switch", "main")
+            val ref = f.create("split")
+            val files = assertNotNull(f.backend.find(ref))
+            f.backend.checkoutRef(ref, "pr/split", isFetch = true, at = start.take(12))
+            assertEquals(null, files.read("b.txt"))
+            f.backend.restorePaths(ref, listOf("one"), big)
+            assertEquals("a", files.read("one/a.txt"))
+            assertFailsWith<IllegalStateException> { f.backend.commitToBranch(ref, "pr/split", "feat: a") }
+            val first = f.backend.commitToBranch(ref, "pr/split", "feat: a", isForce = true)
+            f.backend.restorePaths(ref, listOf("b.txt"), "pr/split")
+            assertEquals("a", files.read("one/a.txt"))
+            f.backend.restorePaths(ref, listOf("b.txt"), big)
+            val second = f.backend.commitToBranch(ref, "pr/split", "feat: b", isPush = true, isForce = true)
+            assertEquals(second, f.cmd("--git-dir=$remote", "rev-parse", "pr/split"))
+            assertEquals(first, f.cmd("rev-parse", "$second^"))
+            assertEquals(start, f.cmd("rev-parse", "$first^"))
+            assertEquals("", f.cmd("diff", big, second))
+            // Someone else moves origin: the lease on the last fetched state refuses to overwrite it.
+            f.cmd("--git-dir=$remote", "update-ref", "refs/heads/pr/split", big)
+            files.change(f.backend.state(ref).revision, listOf(VirtualFileChange("c.txt", "c")))
+            assertFailsWith<IllegalStateException> {
+                f.backend.commitToBranch(ref, "pr/split", "feat: c", isPush = true, isForce = true)
+            }
+            assertEquals(big, f.cmd("--git-dir=$remote", "rev-parse", "pr/split"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
     fun `a branch checked out in another worktree is published to origin only`() = runTest {
         val f = VirtualFixture()
         val other = Files.createTempDirectory("heartbeat-virtual-other-")

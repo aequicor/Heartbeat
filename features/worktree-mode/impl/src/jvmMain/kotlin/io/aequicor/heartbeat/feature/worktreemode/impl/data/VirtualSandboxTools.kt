@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -41,7 +42,10 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
             "To continue work that lives on another branch (a pull request) load it with sandbox_checkout, " +
             "fetch=true if it is not local yet. Merge another branch (for example the pull request base) into " +
             "the sandbox with sandbox_merge; " +
-            "the next sandbox_commit records it as a merge. Read branch history with sandbox_log. " +
+            "the next sandbox_commit records it as a merge. Read branch history with sandbox_log. To rewrite a " +
+            "pushed branch (for example split a commit), load an earlier commit with sandbox_checkout at=<sha>, " +
+            "bring paths back with sandbox_restore from the old tip, commit step by step and publish with " +
+            "sandbox_commit force=true push=true. " +
             if (state.isResolving) {
                 "The user authorized conflict resolution. Read conflict files and use sandbox_resolve_conflict for " +
                     "each resolved file; unresolved paths: ${state.conflicts.joinToString(
@@ -70,6 +74,8 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
 
             "sandbox_merge" -> "Base=${state.baseCommit}\nThe branch is merged into the sandbox files"
 
+            "sandbox_restore" -> "Base=${state.baseCommit}\nThe paths are replaced from another commit"
+
             "sandbox_log" -> "Read-only branch history"
 
             else -> workspaces.find(parent)?.read(checkNotNull(arguments["path"]).jsonPrimitive.content).orEmpty()
@@ -79,9 +85,11 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
         require(description.length <= MAX_VIRTUAL_ACTION_CHARS) { "SandboxActionTooLarge" }
         val isCommit = spec.name == "sandbox_commit"
         val isPush = isCommit && arguments["push"]?.jsonPrimitive?.content == "true"
+        val isForce = isPush && arguments["force"]?.jsonPrimitive?.content == "true"
         return AgentToolApproval(
             spec.name,
             when {
+                isForce -> FORCE_PUSH_TITLE
                 isPush -> PUSH_TITLE
                 isCommit -> COMMIT_TITLE
                 else -> "Изменить виртуальное состояние"
@@ -148,21 +156,33 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
             "sandbox_commit" -> {
                 val branch = checkNotNull(arguments["branch"]).jsonPrimitive.content
                 val isPush = arguments["push"]?.jsonPrimitive?.content == "true"
+                val isForce = arguments["force"]?.jsonPrimitive?.content == "true"
                 val commit = workspaces.commitToBranch(
                     parent,
                     branch,
                     checkNotNull(arguments["message"]).jsonPrimitive.content,
                     isPush,
+                    isForce,
                 )
-                return AgentToolResult(
-                    "Committed $commit to refs/heads/$branch" + if (isPush) " and pushed it to origin" else "",
-                )
+                val pushed = when {
+                    isPush && isForce -> " and force-pushed it to origin with a lease"
+                    isPush -> " and pushed it to origin"
+                    else -> ""
+                }
+                return AgentToolResult("Committed $commit to refs/heads/$branch$pushed")
             }
 
             "sandbox_checkout" -> workspaces.checkoutRef(
                 parent,
                 checkNotNull(arguments["branch"]).jsonPrimitive.content,
                 arguments["fetch"]?.jsonPrimitive?.content == "true",
+                arguments["at"]?.jsonPrimitive?.content,
+            )
+
+            "sandbox_restore" -> workspaces.restorePaths(
+                parent,
+                checkNotNull(arguments["paths"]?.jsonArray).map { it.jsonPrimitive.content },
+                checkNotNull(arguments["from"]).jsonPrimitive.content,
             )
 
             "sandbox_merge" -> workspaces.mergeRef(
@@ -194,23 +214,30 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
             "SandboxBranchUnknown" to "No such local or origin branch; pass fetch=true to load it from origin.",
             "SandboxGitFailed" to "Git refused the operation, for example a push rejected because origin moved: " +
                 "sandbox_merge the same branch with fetch=true to take the new origin state into your files, then " +
-                "commit again. Never sandbox_checkout over unsaved work.",
+                "commit again; a forced push whose lease no longer matches needs a fetching checkout and a redo. " +
+                "Never sandbox_checkout over unsaved work.",
+            "SandboxCommitNotOnBranch" to "at must be a commit of that branch's history.",
+            "SandboxCommitUnknown" to "No such commit; fetch the branch with sandbox_checkout fetch=true first.",
             "SandboxSourceChanged" to "The project checkout moved under the sandbox; wait for the user to continue.",
             "SandboxSourceDirty" to "The project checkout has uncommitted changes; wait for the user to continue.",
             "SandboxPaused" to "The sandbox is paused; wait for the user to continue.",
         )
         const val PUSH_TITLE = "Записать снапшот песочницы в ветку и отправить её в origin (push)"
+        const val FORCE_PUSH_TITLE = "Переписать ветку снапшотом песочницы и отправить в origin (force push с lease)"
         const val COMMIT_TITLE = "Записать снапшот песочницы в ветку реального репозитория"
         val specs = listOf(
             AgentToolSpec(
                 "sandbox_commit",
                 "Commit the sandbox's current files to a local branch of the real repository, creating it or " +
-                    "fast-forwarding it. The branch must not be checked out; no shell or git is needed. " +
-                    "push=true also pushes the branch to origin without force (the user approves it)",
+                    "fast-forwarding it; no shell or git is needed. push=true also pushes the branch to origin " +
+                    "(the user approves it). force=true continues the commit the sandbox loaded for the branch " +
+                    "(sandbox_checkout at=<sha>) even when the branch moved past it, rewriting its history, and " +
+                    "with push=true force-pushes with a lease on the last fetched origin state",
                 Json.parseToJsonElement(
                     """
                     {"type":"object","properties":{
-                      "branch":{"type":"string"},"message":{"type":"string"},"push":{"type":"boolean"}},
+                      "branch":{"type":"string"},"message":{"type":"string"},"push":{"type":"boolean"},
+                      "force":{"type":"boolean"}},
                       "required":["branch","message"],"additionalProperties":false}
                     """.trimIndent(),
                 ).jsonObject,
@@ -221,13 +248,28 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
                 "Replace ALL sandbox files with the tree of a branch of the real repository, discarding every " +
                     "change in the sandbox, for work that lives " +
                     "on a branch the sandbox was not cut from (for example a pull request branch). With fetch=true " +
-                    "the branch is first fetched from origin. Afterwards sandbox_commit to the same branch name " +
-                    "continues that branch. No shell or git is needed",
+                    "the branch is first fetched from origin. at=<sha> loads an earlier commit of that branch " +
+                    "instead of its tip, to rewrite history from there with sandbox_commit force=true. Afterwards " +
+                    "sandbox_commit to the same branch name continues that branch. No shell or git is needed",
                 Json.parseToJsonElement(
                     """
                     {"type":"object","properties":{
-                      "branch":{"type":"string"},"fetch":{"type":"boolean"}},
+                      "branch":{"type":"string"},"fetch":{"type":"boolean"},"at":{"type":"string"}},
                       "required":["branch"],"additionalProperties":false}
+                    """.trimIndent(),
+                ).jsonObject,
+                AgentToolAction.Edit,
+            ),
+            AgentToolSpec(
+                "sandbox_restore",
+                "Replace files or whole directories of the sandbox with their state in another commit or branch " +
+                    "(from: a full or short SHA, or a branch name); paths absent there are deleted. Use it to " +
+                    "rebuild a large commit step by step on an earlier one, then sandbox_commit each step",
+                Json.parseToJsonElement(
+                    """
+                    {"type":"object","properties":{
+                      "paths":{"type":"array","items":{"type":"string"}},"from":{"type":"string"}},
+                      "required":["paths","from"],"additionalProperties":false}
                     """.trimIndent(),
                 ).jsonObject,
                 AgentToolAction.Edit,

@@ -349,20 +349,36 @@ internal class DesktopVirtualWorkspaces(
         ).state
     }
 
-    override suspend fun commitToBranch(ref: WorkspaceRef, branch: String, message: String, isPush: Boolean): String =
-        lock.withLock {
-            val committed = branches.commit(accessible(ref), branch, message, isPush)
-            save(committed.record)
-            log.i { "Virtual sandbox snapshot committed to a branch" }
-            branches.push(committed, branch, isPush)
-            committed.commit
-        }
+    override suspend fun commitToBranch(
+        ref: WorkspaceRef,
+        branch: String,
+        message: String,
+        isPush: Boolean,
+        isForce: Boolean,
+    ): String = lock.withLock {
+        val committed = branches.commit(accessible(ref), branch, message, isPush, isForce)
+        save(committed.record)
+        log.i { "Virtual sandbox snapshot committed to a branch force=$isForce" }
+        branches.push(committed, branch, isPush)
+        committed.commit
+    }
 
-    override suspend fun checkoutRef(ref: WorkspaceRef, branch: String, isFetch: Boolean): VirtualSandboxState =
+    override suspend fun checkoutRef(
+        ref: WorkspaceRef,
+        branch: String,
+        isFetch: Boolean,
+        at: String?,
+    ): VirtualSandboxState = lock.withLock {
+        val checkedOut = branches.checkout(accessible(ref), branch, isFetch, at)
+        log.i { "Virtual sandbox files replaced by a branch" }
+        save(checkedOut).state
+    }
+
+    override suspend fun restorePaths(ref: WorkspaceRef, paths: List<String>, from: String): VirtualSandboxState =
         lock.withLock {
-            val checkedOut = branches.checkout(accessible(ref), branch, isFetch)
-            log.i { "Virtual sandbox files replaced by a branch" }
-            save(checkedOut).state
+            val restored = branches.restore(accessible(ref), paths, from)
+            log.i { "Virtual sandbox paths restored from another commit count=${paths.size}" }
+            save(restored).state
         }
 
     override suspend fun mergeRef(ref: WorkspaceRef, branch: String, isFetch: Boolean): VirtualSandboxState =
@@ -675,8 +691,20 @@ internal interface VirtualSandboxStore :
 
 /** Operations between a sandbox and branches of the real repository; no checkout or working file is touched. */
 internal interface VirtualSandboxBranches {
-    suspend fun commitToBranch(ref: WorkspaceRef, branch: String, message: String, isPush: Boolean = false): String
-    suspend fun checkoutRef(ref: WorkspaceRef, branch: String, isFetch: Boolean): VirtualSandboxState
+    suspend fun commitToBranch(
+        ref: WorkspaceRef,
+        branch: String,
+        message: String,
+        isPush: Boolean = false,
+        isForce: Boolean = false,
+    ): String
+    suspend fun checkoutRef(
+        ref: WorkspaceRef,
+        branch: String,
+        isFetch: Boolean,
+        at: String? = null,
+    ): VirtualSandboxState
+    suspend fun restorePaths(ref: WorkspaceRef, paths: List<String>, from: String): VirtualSandboxState
     suspend fun mergeRef(ref: WorkspaceRef, branch: String, isFetch: Boolean): VirtualSandboxState
     suspend fun history(ref: WorkspaceRef, branch: String, base: String, isStat: Boolean): String
 }
