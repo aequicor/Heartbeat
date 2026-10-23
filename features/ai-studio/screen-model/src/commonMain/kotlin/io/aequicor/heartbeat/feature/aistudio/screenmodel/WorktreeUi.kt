@@ -26,7 +26,7 @@ enum class WorktreePhaseUi {
 /** Explicit result decisions, never inferred from an ordinary reply. */
 @Serializable
 @SerialName("WorktreeActionUi")
-enum class WorktreeActionUi { CreatePr, HandOff, Merge, Refine, Leave }
+enum class WorktreeActionUi { CreatePr, Merge, Refine, Leave }
 
 /** Restoration of the profile journal, separate from individual task failures. */
 @Serializable

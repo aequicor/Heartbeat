@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeInteractionDemand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
@@ -31,6 +32,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RuntimePoolShut
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionCatalogService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionLauncher
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionPolicy
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /** Profile-owned execution: runtime pool, open handles, session creation/resumption and the facade itself. */
@@ -41,6 +44,16 @@ object AiEngineSessionBindings {
     @Provides
     @SingleIn(ProfileScope::class)
     fun handles(): ActiveSessionRegistry = ActiveSessionRegistry()
+
+    /** Native interaction demand of the profile: open handles awaiting a user action or an authentication request. */
+    @Provides
+    fun interactionDemand(handles: ActiveSessionRegistry, context: FacadeContext): NativeInteractionDemand =
+        object : NativeInteractionDemand {
+            override val required: Flow<Boolean> =
+                combine(handles.awaitingInteraction, context.authenticationRequired) { interaction, authentication ->
+                    interaction || authentication
+                }
+        }
 
     /** Explicit disconnection also stops accepted work; lazy access avoids a cycle through engine management. */
     @Provides

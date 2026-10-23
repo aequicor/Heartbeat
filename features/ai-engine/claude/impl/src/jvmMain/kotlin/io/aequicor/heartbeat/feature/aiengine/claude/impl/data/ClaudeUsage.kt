@@ -44,7 +44,7 @@ internal class ClaudeContextUsage : SessionContextUsage {
 
             "result" -> {
                 val models = message["modelUsage"] as? JsonObject
-                val active = model?.let { models?.activeModel(it) }
+                val active = model?.let { models?.get(it) as? JsonObject }
                 capacity = active?.positiveLong("contextWindow")
                 publish()
             }
@@ -110,13 +110,8 @@ internal class ClaudeProviderUsage(private val validate: suspend () -> Boolean) 
         if (message.text("type") != "rate_limit_event") return
         val value = message["rate_limit_info"] as? JsonObject ?: return
         val id = value.text("rateLimitType")?.takeIf { it.isNotBlank() } ?: return
-        val fraction = value.fraction("utilization")
-            ?: value.fraction("surpassedThreshold")
-            ?: if (value.text("status") == "rejected" && (id == "five_hour" || id.startsWith("seven_day"))) {
-                1.0
-            } else {
-                return
-            }
+        val fraction = (value["utilization"] as? JsonPrimitive)?.doubleOrNull
+            ?.takeIf { it.isFinite() && it >= 0 } ?: return
         val seconds = (value["resetsAt"] as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 }
         val window = ProviderUsageWindow(
             id = id,
@@ -172,19 +167,6 @@ private fun claudeRequestTokens(usage: JsonObject?): Long? {
         total + value
     }
 }
-
-/** The CLI may key usage by an alias such as `claude-opus-4-7[1m]`, while the request reports the bare id. */
-private fun JsonObject.activeModel(model: String): JsonObject? {
-    (get(model) as? JsonObject)?.let { return it }
-    val matches = entries.filter { (key, value) ->
-        value is JsonObject && (key.substringBefore('[') == model.substringBefore('['))
-    }
-    return (matches.singleOrNull()?.value as? JsonObject)
-}
-
-/** Events without `utilization` still carry the warning threshold or a rejection; clamp to a valid fraction. */
-private fun JsonObject.fraction(key: String): Double? =
-    (get(key) as? JsonPrimitive)?.doubleOrNull?.takeIf { it.isFinite() && it >= 0 }
 
 private fun JsonObject.nonnegativeLong(key: String): Long? =
     (get(key) as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 }

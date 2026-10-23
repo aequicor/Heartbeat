@@ -23,6 +23,9 @@ plugins {
 
 dependencies {
     implementation(projects.platformMain.shared)
+    // Desktop bundles are discovered at runtime (ServiceLoader), so they only need to be on the runtime class path.
+    runtimeOnly(projects.bundles.shell)
+    runtimeOnly(projects.bundles.web)
     implementation(projects.designSystem.tokens)
     implementation(projects.designSystem.theme)
     implementation(projects.designSystem.components)

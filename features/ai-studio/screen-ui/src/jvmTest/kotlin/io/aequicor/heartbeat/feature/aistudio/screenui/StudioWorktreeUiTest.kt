@@ -371,7 +371,7 @@ class StudioWorktreeUiTest {
                     onNodeWithText(resultLabel).assertIsDisplayed()
                     onNodeWithText(targetLabel, substring = true).assertIsDisplayed()
                     onNodeWithText(checkNotNull(task.summary), substring = true).assertIsDisplayed()
-                    PlainDecisions.forEach {
+                    WorktreeActionUi.entries.forEach {
                         val action = onNodeWithTag(decision(it.name))
                         action.assertIsDisplayed()
                         val bounds = action.fetchSemanticsNode().boundsInRoot
@@ -381,7 +381,7 @@ class StudioWorktreeUiTest {
                     onNodeWithText(resultLabel).assertIsDisplayed()
                     runOnIdle {
                         assertEquals<List<StudioIntent>>(
-                            PlainDecisions.map { StudioIntent.DecideWorktree("chat", it) },
+                            WorktreeActionUi.entries.map { StudioIntent.DecideWorktree("chat", it) },
                             events.withoutFocus(),
                         )
                     }
@@ -428,14 +428,14 @@ class StudioWorktreeUiTest {
             }
             val loadingCard = hasTestTag(card(JOURNAL_LOADING_ID))
             onNode(loadingCard and hasAnyAncestor(hasTestTag("transcript-chat"))).assertIsDisplayed()
-            PlainDecisions.forEach { onNodeWithTag(decision(it.name)).assertDoesNotExist() }
+            WorktreeActionUi.entries.forEach { onNodeWithTag(decision(it.name)).assertDoesNotExist() }
             runOnIdle {
                 hasTask = true
                 journal = WorktreeJournalUi.Error
             }
             onNodeWithTag(card(JOURNAL_ERROR_ID)).assertIsDisplayed()
             onNodeWithTag(card(JOURNAL_LOADING_ID)).assertDoesNotExist()
-            PlainDecisions.forEach { onNodeWithTag(decision(it.name)).assertDoesNotExist() }
+            WorktreeActionUi.entries.forEach { onNodeWithTag(decision(it.name)).assertDoesNotExist() }
             onNodeWithTag(action(JOURNAL_ERROR_ID, JOURNAL_RETRY_ID)).performClick()
             runOnIdle {
                 assertEquals(listOf<StudioIntent>(StudioIntent.RetryWorktreeJournal), events.withoutFocus())
@@ -444,7 +444,7 @@ class StudioWorktreeUiTest {
             }
             onNodeWithTag(card("worktree:chat")).assertDoesNotExist()
             runOnIdle { isShown = true }
-            PlainDecisions.forEach { onNodeWithTag(decision(it.name)).assertIsDisplayed() }
+            WorktreeActionUi.entries.forEach { onNodeWithTag(decision(it.name)).assertIsDisplayed() }
             onNodeWithTag(card(JOURNAL_ERROR_ID)).assertDoesNotExist()
         }
 
@@ -587,6 +587,3 @@ private fun saveImage(image: ImageBitmap, name: String) {
 }
 
 private fun List<StudioIntent>.withoutFocus() = filterNot { it is StudioIntent.Suggestions.FocusChanged }
-
-/** Decisions of a plain worktree; a sandbox result is handed off instead of a pull request or a merge. */
-private val PlainDecisions = WorktreeActionUi.entries.filter { it != WorktreeActionUi.HandOff }

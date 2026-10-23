@@ -1,3 +1,4 @@
+import org.jetbrains.kotlin.gradle.plugin.KotlinDependencyHandler
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 
 plugins {
@@ -20,35 +21,16 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(projects.features.aiEngine.koog.api)
-            implementation(projects.features.aiEngine.koog.impl)
             api(projects.features.aiEngine.claude.api)
-            implementation(projects.features.aiEngine.claude.impl)
             api(projects.core.common)
             api(projects.features.aiEngine.facade.api)
-            implementation(projects.features.aiEngine.facade.impl)
             api(projects.features.aiEngine.pi.api)
-            implementation(projects.features.aiEngine.pi.impl)
-            implementation(projects.features.aiEngine.acpInterface.impl)
-            implementation(projects.features.aiEngine.codex.impl)
             api(projects.features.welcome.api)
-            implementation(projects.features.welcome.impl)
             api(projects.features.questionnaire.api)
             implementation(projects.features.questionnaire.impl)
             implementation(projects.features.checklist.impl)
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.aiStudio.api)
-            implementation(projects.features.researchChat.impl)
-            implementation(projects.features.browser.impl)
-            implementation(projects.features.chromiumBridge.api)
-            implementation(projects.features.chromiumBridge.impl)
-            implementation(projects.features.searchEngine.impl)
-            implementation(projects.features.togglesPanel.impl)
-            implementation(projects.features.settings.impl)
-            implementation(projects.features.appLogs.impl)
-            implementation(projects.features.aiEngine.authenticator.impl)
-            implementation(projects.features.aiEngine.facade.impl)
-            implementation(projects.features.aiEngine.connections.impl)
-            implementation(projects.features.aiEngine.controlPanel.impl)
             implementation(projects.features.aiSessionEngineTransfer.impl)
             implementation(projects.features.effortConfiguration.impl)
             implementation(projects.features.contextWindowOptimization.impl)
@@ -70,11 +52,9 @@ kotlin {
             implementation(projects.features.organicAi.api)
             implementation(projects.features.organicAi.impl)
             api(projects.features.plantUmlSupport.api)
-            implementation(projects.features.plantUmlSupport.impl)
             implementation(projects.features.scheduler.api)
             implementation(projects.features.scheduler.impl)
             api(projects.features.appUpdate.api)
-            implementation(projects.features.appUpdate.impl)
             implementation(projects.features.serviceAsUi.api)
             implementation(projects.features.serviceAsUi.impl)
             implementation(projects.features.projectConfig.api)
@@ -101,7 +81,58 @@ kotlin {
             implementation(projects.core.stateMachine.impl)
             implementation(projects.core.featureToggles.impl)
         }
+        // Engines (`engines` group): kept per platform so that desktop can drop them from the static graph
+        // once the `engines` bundle owns them; the mobile hosts keep them.
+        val engineImpls: KotlinDependencyHandler.() -> Unit = {
+            implementation(projects.features.aiEngine.koog.impl)
+            implementation(projects.features.aiEngine.claude.impl)
+            implementation(projects.features.aiEngine.facade.impl)
+            implementation(projects.features.aiEngine.pi.impl)
+            implementation(projects.features.aiEngine.acpInterface.impl)
+            implementation(projects.features.aiEngine.codex.impl)
+            implementation(projects.features.aiEngine.authenticator.impl)
+            implementation(projects.features.aiEngine.connections.impl)
+            implementation(projects.features.aiEngine.controlPanel.impl)
+            implementation(projects.features.searchEngine.impl)
+        }
+        androidMain.dependencies(engineImpls)
+        iosMain.dependencies(engineImpls)
+        jvmMain.dependencies(engineImpls)
+        // Mobile hosts compile the browser, the Chromium bridge and the research chat into the static graph, and the
+        // shell features (settings, welcome, flags panel, logs, update); on desktop they live in the `web` and
+        // `shell` bundles.
+        androidMain.dependencies {
+            implementation(projects.features.welcome.impl)
+            implementation(projects.features.togglesPanel.impl)
+            implementation(projects.features.settings.impl)
+            implementation(projects.features.appLogs.impl)
+            implementation(projects.features.appUpdate.impl)
+            implementation(projects.features.browser.impl)
+            implementation(projects.features.chromiumBridge.api)
+            implementation(projects.features.chromiumBridge.impl)
+            implementation(projects.features.researchChat.impl)
+        }
+        iosMain.dependencies {
+            implementation(projects.features.welcome.impl)
+            implementation(projects.features.togglesPanel.impl)
+            implementation(projects.features.settings.impl)
+            implementation(projects.features.appLogs.impl)
+            implementation(projects.features.appUpdate.impl)
+            implementation(projects.features.browser.impl)
+            implementation(projects.features.chromiumBridge.api)
+            implementation(projects.features.chromiumBridge.impl)
+            implementation(projects.features.researchChat.impl)
+        }
+        // Desktop bundles: discovered at runtime through ServiceLoader; the assemblers (:bundles:*) come with the desktop app.
+        jvmMain.dependencies {
+            implementation(projects.core.bundles.impl)
+            implementation(projects.core.bundles.api)
+            implementation(projects.features.browser.api)
+        }
         jvmTest.dependencies {
+            runtimeOnly(projects.bundles.shell)
+            runtimeOnly(projects.bundles.web)
+            implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.aiStudio.screenModel)
             implementation(projects.core.navigation.compose)
             implementation(projects.designSystem.theme)

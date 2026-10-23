@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
-import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
@@ -108,11 +107,6 @@ internal class WorktreeFake(private val isCutting: Boolean = false) :
                         },
                     )
                 }
-            }
-
-            // The journal reopens a handed-off virtual sandbox for the next run.
-            is WorktreeIntent.Public.Recheck -> change(intent.chatId) { task ->
-                task.copy(virtualSandbox = task.virtualSandbox?.copy(phase = VirtualSandboxPhase.Ready))
             }
 
             else -> change(intent.runKey()) { it.transition(intent) }
