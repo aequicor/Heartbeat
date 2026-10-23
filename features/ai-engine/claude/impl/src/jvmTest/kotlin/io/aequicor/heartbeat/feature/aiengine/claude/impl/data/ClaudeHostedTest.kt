@@ -643,7 +643,10 @@ class ClaudeHostedTest {
         )
         try {
             val servers = Json.parseToJsonElement(Files.readString(config)) as JsonObject
-            assertEquals(setOf("heartbeat_tools", "heartbeat_search"), assertIs<JsonObject>(servers["mcpServers"]).keys)
+            val mcpServers = assertIs<JsonObject>(servers["mcpServers"])
+            assertEquals(setOf("heartbeat_tools", "heartbeat_search"), mcpServers.keys)
+            // The CLI's default 60-second HTTP tool timeout would cut off a waiting run_build.
+            assertEquals("900000", assertIs<JsonObject>(mcpServers["heartbeat_tools"])["timeout"].toString())
             val args = claudeHostedArguments(
                 claudeArguments(search = true),
                 config,

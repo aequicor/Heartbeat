@@ -566,9 +566,14 @@ internal fun claudeHostedConfig(
     return file
 }
 
+/**
+ * Without a per-server `timeout` the CLI aborts an HTTP tool call after 60 seconds: a waiting run_build or a long
+ * run_command would fail on the engine side while the work keeps running here.
+ */
 private fun mcpServer(origin: String, token: String) = buildJsonObject {
     put("type", "http")
     put("url", "${origin.trimEnd('/')}/mcp")
+    put("timeout", HOSTED_TOOL_TIMEOUT_MILLIS)
     put("headers", buildJsonObject { put("Authorization", "Bearer $token") })
 }
 
@@ -660,6 +665,9 @@ internal fun claudeMcpDirectory(
 }
 
 private val mcpLog = Log.tag("ClaudeProcess/McpFiles")
+
+/** Above the longest host-side wait of a hosted tool (ten minutes for run_build and run_command). */
+private const val HOSTED_TOOL_TIMEOUT_MILLIS = 15L * 60 * 1000
 private const val STALE_CONFIG_MILLIS = 24L * 60 * 60 * 1000
 
 internal fun BufferedReader.readFrame(): String? {
