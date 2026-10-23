@@ -7,6 +7,9 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionEngineTransfer
+import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackEnabled
@@ -50,7 +53,13 @@ class StudioBundleWiringTest {
     @Test
     fun `toggles of the bundle reach the application toggles`() {
         val registered = (app as TestToggleAccessors).toggleControl.registered.map { it.key }
-        listOf(FeedbackEnabled, EffortConfiguration, PlanningModeEnabled).forEach { toggle ->
+        listOf(
+            FeedbackEnabled,
+            EffortConfiguration,
+            PlanningModeEnabled,
+            AutocompleteEnabled,
+            SessionEngineTransfer,
+        ).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
     }
@@ -76,6 +85,12 @@ class StudioBundleWiringTest {
     }
 
     @Test
+    fun `the composer suggestions of the bundle reach the foundation`() = runTest {
+        val session = app.profileSessions.open(ProfileId("studio-composer"))
+        assertNotNull((session.graph as TestStudioProfileAccessors).studioComposerAssists)
+    }
+
+    @Test
     fun `agent tools of the bundle reach the tool set of the engines bundle`() = runTest {
         val session = app.profileSessions.open(ProfileId("studio-tools"))
         val groups = (session.graph as TestStudioProfileAccessors).studioAgentTools.catalog().map { it.id }
@@ -88,5 +103,6 @@ class StudioBundleWiringTest {
 interface TestStudioProfileAccessors {
     val studioEffortChoices: EffortChoicesView
     val studioPlanningView: PlanningView
+    val studioComposerAssists: ComposerAssists
     val studioAgentTools: ProfileAgentTools
 }

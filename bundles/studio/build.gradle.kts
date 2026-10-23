@@ -9,6 +9,10 @@ kotlin {
         jvmMain.dependencies {
             implementation(projects.features.effortConfiguration.api)
             implementation(projects.features.effortConfiguration.impl)
+            implementation(projects.features.autocomplete.api)
+            implementation(projects.features.autocomplete.impl)
+            implementation(projects.features.aiSessionEngineTransfer.api)
+            implementation(projects.features.aiSessionEngineTransfer.impl)
             implementation(projects.features.planningMode.api)
             implementation(projects.features.planningMode.impl)
             implementation(projects.features.aiEngine.facade.api)

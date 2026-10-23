@@ -31,7 +31,6 @@ kotlin {
             implementation(projects.features.checklist.impl)
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.aiStudio.api)
-            implementation(projects.features.aiSessionEngineTransfer.impl)
             implementation(projects.features.contextWindowOptimization.impl)
             implementation(projects.features.computerUse.impl)
             api(projects.features.computerUse.api)
@@ -42,7 +41,6 @@ kotlin {
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.autocomplete.api)
-            implementation(projects.features.autocomplete.impl)
             implementation(projects.features.organicAi.api)
             api(projects.features.plantUmlSupport.api)
             implementation(projects.features.scheduler.api)
@@ -103,6 +101,8 @@ kotlin {
         // Studio (`studio` group): the mobile hosts keep these impls in the static graph; on desktop the `studio`
         // bundle owns them.
         val studioImpls: KotlinDependencyHandler.() -> Unit = {
+            implementation(projects.features.aiSessionEngineTransfer.impl)
+            implementation(projects.features.autocomplete.impl)
             implementation(projects.features.effortConfiguration.impl)
             implementation(projects.features.feedback.impl)
             implementation(projects.features.planningMode.impl)
@@ -144,6 +144,7 @@ kotlin {
             implementation(projects.features.aiEngine.acpInterface.api)
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.effortConfiguration.api)
+            implementation(projects.features.aiSessionEngineTransfer.api)
         }
         jvmTest.dependencies {
             runtimeOnly(projects.bundles.agentRuntime)

@@ -41,6 +41,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvide
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnections
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngine
+import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferIntent
+import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferOutput
+import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferState
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
@@ -185,6 +189,12 @@ internal interface FoundationProfileBundleImports {
 
     /** Plans of the `studio` bundle. */
     val planningView: PlanningView
+
+    /** Composer suggestions of the `studio` bundle. */
+    val composerAssists: ComposerAssists
+
+    /** Engine hand-over machine of the `studio` bundle. */
+    val sessionTransfer: Machine<SessionTransferState, SessionTransferIntent, SessionTransferOutput>
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -427,6 +437,14 @@ internal object StudioServiceImportBindings {
 
     @Provides
     fun planningView(imports: FoundationProfileBundleImports): PlanningView = imports.planningView
+
+    @Provides
+    fun composerAssists(imports: FoundationProfileBundleImports): ComposerAssists = imports.composerAssists
+
+    @Provides
+    fun sessionTransfer(
+        imports: FoundationProfileBundleImports,
+    ): Machine<SessionTransferState, SessionTransferIntent, SessionTransferOutput> = imports.sessionTransfer
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */

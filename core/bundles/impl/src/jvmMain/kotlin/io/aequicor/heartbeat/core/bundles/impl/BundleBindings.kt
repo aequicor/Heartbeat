@@ -47,6 +47,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
@@ -120,6 +121,7 @@ internal class DefaultFoundationProfileBindings(
     private val models: Provider<ModelProfilesView>,
     private val attachments: Provider<AttachmentsCatalog>,
     private val resolver: Provider<ResourceResolver>,
+    private val configuration: Provider<EngineConfiguration>,
     private val workspaces: Provider<LocalWorkspaces>,
     private val selections: Provider<ModelSelections>,
     private val sources: Provider<AuthSources>,
@@ -152,6 +154,7 @@ internal class DefaultFoundationProfileBindings(
     override val searchEngine: SearchEngine get() = search()
     override val attachmentsCatalog: AttachmentsCatalog get() = attachments()
     override val resourceResolver: ResourceResolver get() = resolver()
+    override val engineConfiguration: EngineConfiguration get() = configuration()
     override val localWorkspaces: LocalWorkspaces get() = workspaces()
     override val modelSelections: ModelSelections get() = selections()
     override val authSources: AuthSources get() = sources()

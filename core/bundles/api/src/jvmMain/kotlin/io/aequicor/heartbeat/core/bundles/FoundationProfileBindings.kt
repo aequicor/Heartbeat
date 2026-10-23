@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
@@ -144,6 +145,9 @@ public interface FoundationProfileEngineBindings {
 
     /** Reads the bytes of attachments and other prompt resources of the profile. */
     public val resourceResolver: ResourceResolver
+
+    /** Engine configuration of the profile (the composer lists the commands an engine offers by it). */
+    public val engineConfiguration: EngineConfiguration
 
     /** Local projects of the profile (worktrees and agent learning work on them). */
     public val localWorkspaces: LocalWorkspaces

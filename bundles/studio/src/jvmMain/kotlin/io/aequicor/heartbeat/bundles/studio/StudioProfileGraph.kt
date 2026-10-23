@@ -5,8 +5,13 @@ import dev.zacsweers.metro.Includes
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
+import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferIntent
+import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferOutput
+import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferState
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
 
@@ -20,6 +25,12 @@ public interface StudioProfileExports {
 
     /** Plans of the profile's chats; the studio of the foundation reads them. */
     public val planningView: PlanningView
+
+    /** Suggestions of the composer (commands, files, skills); the studio of the foundation reads them. */
+    public val composerAssists: ComposerAssists
+
+    /** Hand-over of a chat to another engine; the machine starts on first read, so the foundation reads it lazily. */
+    public val sessionTransfer: Machine<SessionTransferState, SessionTransferIntent, SessionTransferOutput>
 
     /** Agent tools of the bundle's features; `engines` merges them into the set its facade assembles. */
     public val agentTools: Set<AgentToolContribution>
