@@ -26,7 +26,8 @@ internal class VirtualWorkspacePolicy(
         if (workspaces.virtual(workspace) == null) return null
         val engine = scope.engine ?: scope.target?.engine ?: scope.session?.engine
         val native = engines.value.engines.state.value.firstOrNull { it.descriptor.id == engine }
-            ?.descriptor?.nativeTools.orEmpty().associate { it.name to ToolSwitch.Off }
+            ?.descriptor?.nativeTools.orEmpty().filterNot { it.isGated && it.isWorkspaceFree }
+            .associate { it.name to ToolSwitch.Off }
         return ToolPolicy(
             hostedOff = tools.value.asSequence().flatMap { it.catalog }.map { it.name }.filterNot(
                 ::virtualToolAllowed,
