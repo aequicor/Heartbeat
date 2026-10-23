@@ -471,14 +471,45 @@ internal class DesktopVirtualWorkspaces(
         return tip
     }
 
-    /** Records a pending merged tip as the second parent unless [parent] already contains it. */
+    /**
+     * Records a pending merged tip as the second parent unless [parent] already contains it. A branch commit is
+     * authored by the repository's configured user, like a commit made in the checkout.
+     */
     private suspend fun writeCommit(record: VirtualRecord, tree: String, parent: String, message: String): String {
         val source = record.source
         val merged = record.mergeParent?.takeUnless { it == parent || isAncestor(source, it, parent) }
+        val author = userIdentity(source)
         return if (merged == null) {
-            git.text(source, "commit-tree", "--no-gpg-sign", tree, "-p", parent, "-m", message)
+            git.call(source, "commit-tree", "--no-gpg-sign", tree, "-p", parent, "-m", message, environment = author)
         } else {
-            git.text(source, "commit-tree", "--no-gpg-sign", tree, "-p", parent, "-p", merged, "-m", message)
+            git.call(
+                source,
+                "commit-tree",
+                "--no-gpg-sign",
+                tree,
+                "-p",
+                parent,
+                "-p",
+                merged,
+                "-m",
+                message,
+                environment = author,
+            )
+        }.text.trim()
+    }
+
+    private suspend fun userIdentity(source: String): Map<String, String> {
+        val name = git.call(source, "config", "--get", "user.name", allowFailure = true).text.trim()
+        val email = git.call(source, "config", "--get", "user.email", allowFailure = true).text.trim()
+        return if (name.isEmpty() || email.isEmpty()) {
+            emptyMap()
+        } else {
+            mapOf(
+                "GIT_AUTHOR_NAME" to name,
+                "GIT_AUTHOR_EMAIL" to email,
+                "GIT_COMMITTER_NAME" to name,
+                "GIT_COMMITTER_EMAIL" to email,
+            )
         }
     }
 

@@ -46,8 +46,8 @@ internal class VirtualSandboxGit(private val dispatchers: DispatcherProvider) : 
                 .directory(Path.of(source).toFile()).redirectOutput(out.toFile()).redirectError(err.toFile())
                 .apply {
                     environment().keys.filter { it.startsWith("GIT_") }.forEach { environment().remove(it) }
-                    environment().putAll(environment)
                     environment().putAll(identity)
+                    environment().putAll(environment)
                     environment()["GIT_NO_REPLACE_OBJECTS"] = "1"
                     environment()["GIT_NO_LAZY_FETCH"] = "1"
                 }.start()
