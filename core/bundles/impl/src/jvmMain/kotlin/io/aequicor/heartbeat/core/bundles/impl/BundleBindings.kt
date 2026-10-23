@@ -54,6 +54,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.ktor.client.HttpClient
 import java.util.ServiceLoader
@@ -118,6 +123,11 @@ internal class DefaultFoundationProfileBindings(
     private val contextPolicies: Provider<Set<ContextPolicyProvider>>,
     private val virtualWorkspaces: Provider<Set<VirtualWorkspaceProvider>>,
     private val configs: Provider<Set<ConfigSection>>,
+    private val scheduledHosts: Provider<Set<ScheduledSessionHost>>,
+    private val wakeOwners: Provider<Set<ScheduledWakeOwner>>,
+    private val eventOwners: Provider<Set<ScheduledEventOwner>>,
+    private val recoverySources: Provider<Set<HelperCapacityRecoverySource>>,
+    private val eventSources: Provider<Set<SchedulerEventSource>>,
 ) : FoundationProfileBindings,
     FoundationProfileEngineBindings {
     override val profileId: ProfileId get() = id()
@@ -144,6 +154,11 @@ internal class DefaultFoundationProfileBindings(
     }
     override val agentRuntimeSets: FoundationAgentRuntimeSets = object : FoundationAgentRuntimeSets {
         override val configSections: Set<ConfigSection> get() = configs()
+        override val scheduledSessionHosts: Set<ScheduledSessionHost> get() = scheduledHosts()
+        override val scheduledWakeOwners: Set<ScheduledWakeOwner> get() = wakeOwners()
+        override val scheduledEventOwners: Set<ScheduledEventOwner> get() = eventOwners()
+        override val helperCapacityRecoverySources: Set<HelperCapacityRecoverySource> get() = recoverySources()
+        override val schedulerEventSources: Set<SchedulerEventSource> get() = eventSources()
     }
 }
 

@@ -11,6 +11,9 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEnabled
+import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgents
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -22,6 +25,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** The desktop graph with the `agent-runtime` bundle: worktrees and agent learning come from its own graphs. */
@@ -49,7 +53,7 @@ class AgentRuntimeBundleWiringTest {
     @Test
     fun `toggles of the bundle reach the application toggles`() {
         val registered = (app as TestToggleAccessors).toggleControl.registered.map { it.key }
-        listOf(WorktreeModeEnabled, AgentLearningEnabled, ProjectConfigEnabled).forEach { toggle ->
+        listOf(WorktreeModeEnabled, AgentLearningEnabled, ProjectConfigEnabled, SchedulerEnabled).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
     }
@@ -60,6 +64,7 @@ class AgentRuntimeBundleWiringTest {
         val names = (session.graph as ProfileStartupAccess).profileStartups.map { it::class.simpleName }
         assertTrue("WorktreeStartup" in names, names.toString())
         assertTrue("ProjectConfigStartup" in names, names.toString())
+        assertTrue("SchedulerStartup" in names, names.toString())
     }
 
     @Test
@@ -68,6 +73,15 @@ class AgentRuntimeBundleWiringTest {
         val groups = (session.graph as TestAgentRuntimeProfileAccessors).runtimeAgentTools.catalog().map { it.id }
         assertTrue("worktree" in groups, groups.toString())
         assertTrue("learning" in groups, groups.toString())
+        assertTrue("scheduler" in groups, groups.toString())
+    }
+
+    @Test
+    fun `scheduler services of the bundle reach the foundation`() = runTest {
+        val session = app.profileSessions.open(ProfileId("agent-runtime-scheduler"))
+        val accessors = session.graph as TestAgentRuntimeProfileAccessors
+        assertNotNull(accessors.runtimeSchedulerBus)
+        assertNotNull(accessors.runtimeBackgroundAgents)
     }
 
     @Test
@@ -87,6 +101,8 @@ class AgentRuntimeBundleWiringTest {
 @dev.zacsweers.metro.ContributesTo(ProfileScope::class)
 interface TestAgentRuntimeProfileAccessors {
     val runtimeAgentTools: ProfileAgentTools
+    val runtimeSchedulerBus: SchedulerBus
+    val runtimeBackgroundAgents: BackgroundAgents
 
     @ForScope(ProfileScope::class)
     val runtimeProfileScope: ScopeHandle

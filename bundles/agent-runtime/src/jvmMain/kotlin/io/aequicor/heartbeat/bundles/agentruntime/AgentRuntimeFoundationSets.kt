@@ -7,6 +7,11 @@ import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 
 /**
  * Parts of the sets that `agent-runtime` owns and the foundation contributes to through [FoundationProfileBindings].
@@ -19,4 +24,29 @@ internal object AgentRuntimeFoundationSets {
     @ElementsIntoSet
     fun foundationConfigSections(foundation: FoundationProfileBindings): Set<ConfigSection> =
         foundation.agentRuntimeSets.configSections
+
+    @Provides
+    @ElementsIntoSet
+    fun foundationSessionHosts(foundation: FoundationProfileBindings): Set<ScheduledSessionHost> =
+        foundation.agentRuntimeSets.scheduledSessionHosts
+
+    @Provides
+    @ElementsIntoSet
+    fun foundationWakeOwners(foundation: FoundationProfileBindings): Set<ScheduledWakeOwner> =
+        foundation.agentRuntimeSets.scheduledWakeOwners
+
+    @Provides
+    @ElementsIntoSet
+    fun foundationEventOwners(foundation: FoundationProfileBindings): Set<ScheduledEventOwner> =
+        foundation.agentRuntimeSets.scheduledEventOwners
+
+    @Provides
+    @ElementsIntoSet
+    fun foundationRecoverySources(foundation: FoundationProfileBindings): Set<HelperCapacityRecoverySource> =
+        foundation.agentRuntimeSets.helperCapacityRecoverySources
+
+    @Provides
+    @ElementsIntoSet
+    fun foundationEventSources(foundation: FoundationProfileBindings): Set<SchedulerEventSource> =
+        foundation.agentRuntimeSets.schedulerEventSources
 }

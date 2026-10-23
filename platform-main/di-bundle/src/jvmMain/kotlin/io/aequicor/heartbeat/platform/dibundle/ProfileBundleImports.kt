@@ -45,6 +45,17 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocuments
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
+import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgents
+import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
+import io.aequicor.heartbeat.feature.scheduler.api.LocalCommands
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledHelperPromptOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledRequestOriginObserver
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 
 /**
@@ -117,6 +128,18 @@ internal interface FoundationProfileBundleImports {
 
     /** Koog connections of the `engines` bundle. */
     val koogConnections: KoogConnections
+
+    /** Bus of events and wakes of the `agent-runtime` bundle. */
+    val schedulerBus: SchedulerBus
+
+    /** Background agents of the `agent-runtime` bundle. */
+    val backgroundAgents: BackgroundAgents
+
+    /** Helper agents of the `agent-runtime` bundle. */
+    val helperAgents: HelperAgents
+
+    /** Local commands of the `agent-runtime` bundle. */
+    val localCommands: LocalCommands
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -173,14 +196,43 @@ internal interface EngineOwnedSets {
 }
 
 /**
- * Sets that the `agent-runtime` bundle owns: its project configuration assembles them from its own contributions and
- * from the part the foundation (through `FoundationProfileBindings`) hands over. The foundation keeps the declarations
- * so that its own parts resolve while no feature contributes, and never merges the bundle's part back.
+ * Sets that the `agent-runtime` bundle owns: its project configuration and its scheduler assemble them from their own
+ * contributions and from the parts the foundation (through `FoundationProfileBindings`) hands over. The foundation
+ * keeps the declarations so that its own parts resolve while no feature contributes, and never merges the bundle's
+ * part back.
  */
 @ContributesTo(ProfileScope::class)
 internal interface AgentRuntimeOwnedSets {
     @Multibinds(allowEmpty = true)
     fun configSections(): Set<ConfigSection>
+
+    @Multibinds(allowEmpty = true)
+    fun scheduledSessionHosts(): Set<ScheduledSessionHost>
+
+    @Multibinds(allowEmpty = true)
+    fun scheduledWakeOwners(): Set<ScheduledWakeOwner>
+
+    @Multibinds(allowEmpty = true)
+    fun scheduledEventOwners(): Set<ScheduledEventOwner>
+
+    @Multibinds(allowEmpty = true)
+    fun helperCapacityRecoverySources(): Set<HelperCapacityRecoverySource>
+
+    @Multibinds(allowEmpty = true)
+    fun schedulerEventSources(): Set<SchedulerEventSource>
+}
+
+/**
+ * Scheduler sets that the foundation owns: its features (the studio) read them, the `agent-runtime` bundle exports
+ * nothing into them yet.
+ */
+@ContributesTo(ProfileScope::class)
+internal interface SchedulerConsumedSets {
+    @Multibinds(allowEmpty = true)
+    fun scheduledHelperPromptOwners(): Set<ScheduledHelperPromptOwner>
+
+    @Multibinds(allowEmpty = true)
+    fun scheduledRequestOriginObservers(): Set<ScheduledRequestOriginObserver>
 }
 
 /** Bridges the profile exports of the bundles into the profile graph of the foundation. */
@@ -267,6 +319,23 @@ internal object EngineServiceImportBindings {
     @Provides
     fun nativeInteractionDemand(imports: FoundationProfileBundleImports): NativeInteractionDemand =
         imports.nativeInteractionDemand
+}
+
+/** Scheduler services the foundation features use, read from the `agent-runtime` bundle; they have no stand-in. */
+@ContributesTo(ProfileScope::class)
+@BindingContainer
+internal object SchedulerServiceImportBindings {
+    @Provides
+    fun schedulerBus(imports: FoundationProfileBundleImports): SchedulerBus = imports.schedulerBus
+
+    @Provides
+    fun backgroundAgents(imports: FoundationProfileBundleImports): BackgroundAgents = imports.backgroundAgents
+
+    @Provides
+    fun helperAgents(imports: FoundationProfileBundleImports): HelperAgents = imports.helperAgents
+
+    @Provides
+    fun localCommands(imports: FoundationProfileBundleImports): LocalCommands = imports.localCommands
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */

@@ -51,7 +51,6 @@ kotlin {
             implementation(projects.features.organicAi.impl)
             api(projects.features.plantUmlSupport.api)
             implementation(projects.features.scheduler.api)
-            implementation(projects.features.scheduler.impl)
             api(projects.features.appUpdate.api)
             implementation(projects.features.serviceAsUi.api)
             implementation(projects.features.serviceAsUi.impl)
@@ -100,6 +99,7 @@ kotlin {
             implementation(projects.features.worktreeMode.impl)
             implementation(projects.features.agentLearning.impl)
             implementation(projects.features.projectConfig.impl)
+            implementation(projects.features.scheduler.impl)
         }
         androidMain.dependencies(agentRuntimeImpls)
         iosMain.dependencies(agentRuntimeImpls)

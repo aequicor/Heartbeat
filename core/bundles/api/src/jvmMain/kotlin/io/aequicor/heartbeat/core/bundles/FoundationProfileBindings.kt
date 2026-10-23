@@ -23,6 +23,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 
 /**
@@ -73,6 +78,21 @@ public interface FoundationProfileBindings {
 public interface FoundationAgentRuntimeSets {
     /** Sections of the project configuration tree contributed by the features of the foundation. */
     public val configSections: Set<ConfigSection>
+
+    /** Hosts of the foundation (the studio) that own sessions and deliver wake prompts through their turns. */
+    public val scheduledSessionHosts: Set<ScheduledSessionHost>
+
+    /** Admission controllers of the foundation's features (checklists) for the wakes they own. */
+    public val scheduledWakeOwners: Set<ScheduledWakeOwner>
+
+    /** Publisher controllers of the foundation's features for exact delivery of their events. */
+    public val scheduledEventOwners: Set<ScheduledEventOwner>
+
+    /** Durable helper slots of the foundation's features, read before any new background admission. */
+    public val helperCapacityRecoverySources: Set<HelperCapacityRecoverySource>
+
+    /** Platform signal sources contributed by the foundation. */
+    public val schedulerEventSources: Set<SchedulerEventSource>
 }
 
 /**
