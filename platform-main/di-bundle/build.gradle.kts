@@ -47,7 +47,6 @@ kotlin {
             implementation(projects.features.autocomplete.api)
             implementation(projects.features.autocomplete.impl)
             implementation(projects.features.organicAi.api)
-            implementation(projects.features.organicAi.impl)
             api(projects.features.plantUmlSupport.api)
             implementation(projects.features.scheduler.api)
             api(projects.features.appUpdate.api)
@@ -100,6 +99,7 @@ kotlin {
             implementation(projects.features.projectConfig.impl)
             implementation(projects.features.scheduler.impl)
             implementation(projects.features.adaptiveSubagents.impl)
+            implementation(projects.features.organicAi.impl)
         }
         androidMain.dependencies(agentRuntimeImpls)
         iosMain.dependencies(agentRuntimeImpls)
