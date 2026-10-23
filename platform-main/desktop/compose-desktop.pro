@@ -31,6 +31,7 @@
 -keep interface io.aequicor.heartbeat.platform.dibundle.FoundationBundleImports { *; }
 -keep interface io.aequicor.heartbeat.platform.dibundle.FoundationProfileBundleImports { *; }
 -keep interface io.aequicor.heartbeat.platform.dibundle.FoundationEngineImports { *; }
+-keep interface io.aequicor.heartbeat.platform.dibundle.FoundationAgentRuntimeImports { *; }
 -keep interface io.aequicor.heartbeat.core.bundles.FoundationAppBindings { *; }
 -keep interface io.aequicor.heartbeat.core.bundles.FoundationProfileBindings { *; }
 -keep interface io.aequicor.heartbeat.core.bundles.FoundationProfileToolBindings { *; }

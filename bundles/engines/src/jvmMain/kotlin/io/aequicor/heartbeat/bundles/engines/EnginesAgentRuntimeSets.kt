@@ -52,36 +52,48 @@ internal object EnginesAgentRuntimeSets {
     /** Native action analyzers of the foundation features. */
     @Provides
     @ElementsIntoSet
-    fun nativeActionAnalyzers(tools: FoundationProfileToolBindings): Set<NativeActionAnalysis> =
-        tools.nativeActionAnalyzers
+    fun nativeActionAnalyzers(
+        tools: FoundationProfileToolBindings,
+        imports: EnginesProfileImports,
+    ): Set<NativeActionAnalysis> = tools.nativeActionAnalyzers + imports.nativeActionAnalyzers
 
-    /** Tool output offloads of the foundation features. */
+    /** Tool output offloads of the foundation features and of the other bundles. */
     @Provides
     @ElementsIntoSet
-    fun toolOutputOffloads(tools: FoundationProfileToolBindings): Set<ToolOutputOffload> = tools.toolOutputOffloads
+    fun toolOutputOffloads(
+        tools: FoundationProfileToolBindings,
+        imports: EnginesProfileImports,
+    ): Set<ToolOutputOffload> = tools.toolOutputOffloads + imports.toolOutputOffloads
 
-    /** Session hooks of the foundation features. */
+    /** Session hooks of the foundation features and of the other bundles. */
     @Provides
     @ElementsIntoSet
-    fun sessionHooks(tools: FoundationProfileToolBindings): Set<SessionHook> = tools.sessionHooks
+    fun sessionHooks(tools: FoundationProfileToolBindings, imports: EnginesProfileImports): Set<SessionHook> =
+        tools.sessionHooks + imports.sessionHooks
 
-    /** Tool policy providers of the foundation features. */
+    /** Tool policy providers of the foundation features and of the other bundles. */
     @Provides
     @ElementsIntoSet
-    fun toolPolicyProviders(tools: FoundationProfileToolBindings): Set<AgentToolPolicyProvider> =
-        tools.toolPolicyProviders
+    fun toolPolicyProviders(
+        tools: FoundationProfileToolBindings,
+        imports: EnginesProfileImports,
+    ): Set<AgentToolPolicyProvider> = tools.toolPolicyProviders + imports.toolPolicyProviders
 
-    /** Context policy providers of the foundation features. */
+    /** Context policy providers of the foundation features and of the other bundles. */
     @Provides
     @ElementsIntoSet
-    fun contextPolicyProviders(tools: FoundationProfileToolBindings): Set<ContextPolicyProvider> =
-        tools.contextPolicyProviders
+    fun contextPolicyProviders(
+        tools: FoundationProfileToolBindings,
+        imports: EnginesProfileImports,
+    ): Set<ContextPolicyProvider> = tools.contextPolicyProviders + imports.contextPolicyProviders
 
-    /** Virtual workspace providers of the foundation features. */
+    /** Virtual workspace providers of the foundation features and of the other bundles. */
     @Provides
     @ElementsIntoSet
-    fun virtualWorkspaceProviders(tools: FoundationProfileToolBindings): Set<VirtualWorkspaceProvider> =
-        tools.virtualWorkspaceProviders
+    fun virtualWorkspaceProviders(
+        tools: FoundationProfileToolBindings,
+        imports: EnginesProfileImports,
+    ): Set<VirtualWorkspaceProvider> = tools.virtualWorkspaceProviders + imports.virtualWorkspaceProviders
 }
 
 /**

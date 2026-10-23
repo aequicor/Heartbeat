@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpStdioTransport
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.spi.AuthCredentials
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
+import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 
 /** Engine services at the application level that the integration tests read from the `engines` bundle. */
 interface TestEngineAppImports {
@@ -26,6 +28,10 @@ interface TestEngineProfileImports {
     val authCredentials: AuthCredentials
     val engineConfiguration: EngineConfiguration
     val agentToolContributions: List<AgentToolContribution>
+    val sessionHooks: Set<SessionHook>
+    val configSectionList: List<ConfigSection>
+    val helperPromptOwner: HelperPromptTestOwner
+    val requestOriginObserver: RequestOriginTestObserver
 }
 
 /** Makes the application graph of the tests see the engine services of the bundle, like the foundation does. */
@@ -64,4 +70,19 @@ object TestEngineProfileBridge {
     @Provides
     fun agentToolContributions(imports: TestEngineProfileImports): List<AgentToolContribution> =
         imports.agentToolContributions
+
+    /** The hooks of every bundle; the foundation's own `Set<SessionHook>` has only its part. */
+    @Provides
+    fun sessionHooks(imports: TestEngineProfileImports): List<SessionHook> = imports.sessionHooks.toList()
+
+    /** The sections of every bundle. */
+    @Provides
+    fun configSections(imports: TestEngineProfileImports): List<ConfigSection> = imports.configSectionList
+
+    @Provides
+    fun helperPromptOwner(imports: TestEngineProfileImports): HelperPromptTestOwner = imports.helperPromptOwner
+
+    @Provides
+    fun requestOriginObserver(imports: TestEngineProfileImports): RequestOriginTestObserver =
+        imports.requestOriginObserver
 }

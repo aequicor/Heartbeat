@@ -134,7 +134,7 @@ class ProjectConfigIntegrationTest {
 
 @ContributesTo(ProfileScope::class)
 interface TestProjectConfigAccessors {
-    val configSections: Set<ConfigSection>
+    val configSections: List<ConfigSection>
     val localWorkspaces: LocalWorkspaces
     val machines: MachineRegistry
 }

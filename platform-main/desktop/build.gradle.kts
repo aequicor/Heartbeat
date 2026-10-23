@@ -27,6 +27,7 @@ dependencies {
     runtimeOnly(projects.bundles.shell)
     runtimeOnly(projects.bundles.web)
     runtimeOnly(projects.bundles.engines)
+    runtimeOnly(projects.bundles.agentRuntime)
     implementation(projects.designSystem.tokens)
     implementation(projects.designSystem.theme)
     implementation(projects.designSystem.components)

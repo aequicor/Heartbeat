@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.core.bundles
 
 import dev.zacsweers.metro.AppScope
 import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.RecordRetentions
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
@@ -67,6 +68,9 @@ public interface FoundationAppBindings {
 
     /** HTTP client of the application. */
     public val httpClient: HttpClient
+
+    /** Stamps stored records with their retention (when they expire). */
+    public val recordRetentions: RecordRetentions
 
     /** Where and how the secrets are kept (the connection wizard tells it to the user). */
     public val secretStorage: SecretStorageInfo

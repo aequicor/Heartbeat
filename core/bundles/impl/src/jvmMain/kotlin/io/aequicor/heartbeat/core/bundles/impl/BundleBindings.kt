@@ -14,11 +14,14 @@ import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.bundles.BundleEntry
 import io.aequicor.heartbeat.core.bundles.BundleRegistry
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileAgentBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileRuntimeBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileToolBindings
 import io.aequicor.heartbeat.core.bundles.HostResourceResolver
 import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.RecordRetentions
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
@@ -50,6 +53,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledHelperPromptOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledRequestOriginObserver
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.ktor.client.HttpClient
 import java.util.ServiceLoader
@@ -124,8 +132,34 @@ public interface FoundationAgentRuntimeSets {
     public fun virtualWorkspaceProviders(): Set<VirtualWorkspaceProvider>
 }
 
+/** Sets owned by the `agent-runtime` bundle (scheduler, project configuration) that the foundation also feeds. */
+@ContributesTo(ProfileScope::class)
+public interface FoundationRuntimeOwnedSets {
+    /** Hosts of scheduled sessions (the scheduler lives in the `agent-runtime` bundle). */
+    @Multibinds(allowEmpty = true)
+    public fun scheduledSessionHosts(): Set<ScheduledSessionHost>
+
+    /** Owners of scheduled wake-ups. */
+    @Multibinds(allowEmpty = true)
+    public fun scheduledWakeOwners(): Set<ScheduledWakeOwner>
+
+    /** Sections of the project configuration. */
+    @Multibinds(allowEmpty = true)
+    public fun configSections(): Set<ConfigSection>
+
+    /** Owners of helper prompts: the bundle's part comes from its exports, see the application's bridge. */
+    @Multibinds(allowEmpty = true)
+    public fun scheduledHelperPromptOwners(): Set<ScheduledHelperPromptOwner>
+
+    /** Observers of request origins, same as the helper prompt owners. */
+    @Multibinds(allowEmpty = true)
+    public fun scheduledRequestOriginObservers(): Set<ScheduledRequestOriginObserver>
+}
+
 /** Stateful foundation services of one profile handed to the profile graphs of bundles. */
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileBindings>())
+@ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileAgentBindings>())
+@ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileRuntimeBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileEngineBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileToolBindings>())
 @Inject
@@ -147,7 +181,12 @@ internal class DefaultFoundationProfileBindings(
     private val toolPolicies: Provider<Set<AgentToolPolicyProvider>>,
     private val contextPolicies: Provider<Set<ContextPolicyProvider>>,
     private val workspaceProviders: Provider<Set<VirtualWorkspaceProvider>>,
+    private val sessionHosts: Provider<Set<ScheduledSessionHost>>,
+    private val wakeOwners: Provider<Set<ScheduledWakeOwner>>,
+    private val sections: Provider<Set<ConfigSection>>,
 ) : FoundationProfileBindings,
+    FoundationProfileAgentBindings,
+    FoundationProfileRuntimeBindings,
     FoundationProfileEngineBindings,
     FoundationProfileToolBindings {
     override val profileId: ProfileId get() = id()
@@ -170,6 +209,9 @@ internal class DefaultFoundationProfileBindings(
     override val toolPolicyProviders: Set<AgentToolPolicyProvider> get() = toolPolicies()
     override val contextPolicyProviders: Set<ContextPolicyProvider> get() = contextPolicies()
     override val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider> get() = workspaceProviders()
+    override val scheduledSessionHosts: Set<ScheduledSessionHost> get() = sessionHosts()
+    override val scheduledWakeOwners: Set<ScheduledWakeOwner> get() = wakeOwners()
+    override val configSections: Set<ConfigSection> get() = sections()
 }
 
 /**
@@ -195,7 +237,9 @@ internal class DefaultFoundationBindings(
     private val registry: Provider<MachineRegistry>,
     private val client: Provider<HttpClient>,
     private val secrets: Provider<SecretStorageInfo>,
+    private val retentions: Provider<RecordRetentions>,
 ) : FoundationAppBindings {
+    override val recordRetentions: RecordRetentions get() = retentions()
     override val secretStorage: SecretStorageInfo get() = secrets()
     override val featureToggles: FeatureToggles get() = toggles()
     override val featureToggleControl: FeatureToggleControl get() = control()

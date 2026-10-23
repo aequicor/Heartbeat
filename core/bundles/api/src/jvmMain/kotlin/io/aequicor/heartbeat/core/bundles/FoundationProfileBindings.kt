@@ -20,6 +20,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 
 /**
@@ -44,9 +47,6 @@ public interface FoundationProfileBindings {
 
     /** Credentials of the profile. */
     public val secrets: SecretStore
-
-    /** Library of model descriptions; adaptive subagents stay in the foundation for now. */
-    public val modelProfiles: ModelProfilesView
 
     /** Catalog of the profile's attachments (stays in the foundation for now). */
     public val attachmentsCatalog: AttachmentsCatalog
@@ -95,6 +95,34 @@ public interface FoundationProfileToolBindings {
 
     /** Virtual workspace providers contributed by the features of the foundation. */
     public val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider>
+}
+
+/**
+ * Services of the agent runtime the foundation hands to the profile graphs of the bundles that only use them (`web`,
+ * `engines`). They are a separate interface because the `agent-runtime` bundle owns these services: its own profile
+ * graph must not receive them from the foundation, or each would have two bindings. The foundation backs them with the
+ * lazy imports from `agent-runtime`.
+ */
+public interface FoundationProfileAgentBindings {
+    /** Library of model descriptions of the adaptive subagents. */
+    public val modelProfiles: ModelProfilesView
+}
+
+/**
+ * The parts of the sets owned by the `agent-runtime` bundle that the features staying in the foundation contribute
+ * (the studio hosts sessions for the scheduler, the checklist owns wake-ups, service-as-ui brings a config section).
+ * The owner takes it as a `@Provides` instance, like [FoundationProfileToolBindings], and adds every set with
+ * `@ElementsIntoSet`. Only what the foundation compiles itself.
+ */
+public interface FoundationProfileRuntimeBindings {
+    /** Hosts of scheduled sessions contributed by the foundation. */
+    public val scheduledSessionHosts: Set<ScheduledSessionHost>
+
+    /** Owners of scheduled wake-ups contributed by the foundation. */
+    public val scheduledWakeOwners: Set<ScheduledWakeOwner>
+
+    /** Sections of the project configuration contributed by the foundation. */
+    public val configSections: Set<ConfigSection>
 }
 
 /**

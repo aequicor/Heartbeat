@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.bundles.web
 
 import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Includes
+import io.aequicor.heartbeat.core.bundles.FoundationProfileAgentBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.di.ForScope
@@ -38,6 +39,7 @@ internal interface WebProfileGraph : WebProfileExports {
         fun create(
             @Includes foundation: FoundationProfileBindings,
             @Includes engines: FoundationProfileEngineBindings,
+            @Includes agents: FoundationProfileAgentBindings,
         ): WebProfileGraph
     }
 }

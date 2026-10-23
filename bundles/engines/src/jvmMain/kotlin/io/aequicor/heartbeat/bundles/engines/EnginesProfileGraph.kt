@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.bundles.engines
 import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Includes
 import dev.zacsweers.metro.Provides
+import io.aequicor.heartbeat.core.bundles.FoundationProfileAgentBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileToolBindings
 import io.aequicor.heartbeat.core.di.ForScope
@@ -16,15 +17,21 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDefaults
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeInteractionDemand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptResourceHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnections
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngine
@@ -117,6 +124,24 @@ public interface EnginesProfileImports {
 
     /** Engine adapters that other bundles bring; the facade registers them with its own. */
     public val engineRegistrations: Set<EngineRegistration>
+
+    /** Session hooks of the other bundles. */
+    public val sessionHooks: Set<SessionHook>
+
+    /** Tool policy providers of the other bundles. */
+    public val toolPolicyProviders: Set<AgentToolPolicyProvider>
+
+    /** Context policy providers of the other bundles. */
+    public val contextPolicyProviders: Set<ContextPolicyProvider>
+
+    /** Tool output offloads of the other bundles. */
+    public val toolOutputOffloads: Set<ToolOutputOffload>
+
+    /** Native action analyzers of the other bundles. */
+    public val nativeActionAnalyzers: Set<NativeActionAnalysis>
+
+    /** Virtual workspace providers of the other bundles. */
+    public val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider>
 }
 
 /**
@@ -130,6 +155,7 @@ internal interface EnginesProfileGraph : EnginesProfileExports {
     fun interface Factory {
         fun create(
             @Includes foundation: FoundationProfileBindings,
+            @Includes agents: FoundationProfileAgentBindings,
             @Provides tools: FoundationProfileToolBindings,
             @Provides imports: EnginesProfileImports,
         ): EnginesProfileGraph

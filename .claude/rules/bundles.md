@@ -35,6 +35,11 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   Аксессор фундамента отдаёт только то, что фундамент компилирует сам. Объявления `@Multibinds` пустых наборов остаются
   у владельца; фундамент объявляет их же для себя (`FoundationAgentRuntimeSets`). Полный итог набора владелец отдаёт
   фундаменту (диагностике, тестам) не как `Set<T>`, а как `List<T>`: ключ списка не склеивается с набором фундамента.
+- **Бандл `agent-runtime`** (harness, organic-ai, scheduler, adaptive-subagents, worktree-mode, project-config,
+  agent-learning) берёт сервисы `engines` прямым профильным импортом (`AgentRuntimeEngineServices` через `@Includes`),
+  а части своих наборов от фундамента — `FoundationProfileRuntimeBindings` (`@Provides`, как инструменты у `engines`).
+  Свои вклады в наборы `engines` он экспортирует наборами, а в наборы, которыми владеет сам и читает фундамент
+  (подсказки помощников, наблюдатели происхождения запросов, секции конфигурации), — списками.
 - **Вклады в движки извне.** Чужие адаптеры движков приходят в `engines` профильным импортом
   `EnginesProfileImports.engineRegistrations` (так в тестах: `TestEngineBundle`); `engines` отдаёт итоговый список
   `registeredEngines`.

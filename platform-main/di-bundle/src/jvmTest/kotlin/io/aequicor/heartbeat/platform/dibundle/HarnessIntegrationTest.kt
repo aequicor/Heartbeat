@@ -229,7 +229,7 @@ class HarnessIntegrationTest {
         )
     }
 
-    private suspend fun assertSchedulerHooks(hooks: Set<SessionHook>, bus: SchedulerBus): HookedToolCall =
+    private suspend fun assertSchedulerHooks(hooks: Collection<SessionHook>, bus: SchedulerBus): HookedToolCall =
         coroutineScope {
             val event = async(start = CoroutineStart.UNDISPATCHED) {
                 bus.events.first { it.key == EventKeys.custom("harness.test.hook_timer") }
@@ -241,7 +241,7 @@ class HarnessIntegrationTest {
             call
         }
 
-    private suspend fun assertDirectHooks(hooks: Set<SessionHook>): HookedToolCall {
+    private suspend fun assertDirectHooks(hooks: Collection<SessionHook>): HookedToolCall {
         val context = SessionHookContext(
             HOOKED_SESSION,
             null,
@@ -297,7 +297,7 @@ class HarnessIntegrationTest {
 
 @ContributesTo(ProfileScope::class)
 interface TestHarnessHookAccessors {
-    val harnessSessionHooks: Set<SessionHook>
+    val harnessSessionHooks: List<SessionHook>
     val harnessSchedulerBus: SchedulerBus
 
     @ForScope(ProfileScope::class)

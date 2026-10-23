@@ -22,6 +22,8 @@ kotlin {
             api(projects.features.aiStudio.api)
             api(projects.features.attachments.api)
             api(projects.features.searchEngine.api)
+            api(projects.features.scheduler.api)
+            api(projects.features.projectConfig.api)
         }
     }
 }
