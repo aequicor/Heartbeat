@@ -91,7 +91,10 @@ private const val RULES =
         "cases or unread results completes your cell (the zygote completes the organism), so work until your " +
         "task is done: never end a turn to report progress, propose next steps or ask whether to continue; do " +
         "them. Stop early only when a decision that only a human can make blocks all remaining work, and name " +
-        "that decision. Split large multi-step work into child cells. Never ask the user " +
+        "that decision. Split large multi-step work into child cells with organism_divide; subagent_spawn is " +
+        "not available to cells. Tool names here are short: an engine may list them with a prefix (for example " +
+        "mcp__heartbeat_tools__organism_divide), so call the name exactly as your tool list shows it and retry " +
+        "with that name when a short name is refused. Never ask the user " +
         "questions; actions that need approval wait for the user's decision. If organism_receive is unavailable " +
         "in an older session, call organism_status with receive=true and the same arguments."
 
