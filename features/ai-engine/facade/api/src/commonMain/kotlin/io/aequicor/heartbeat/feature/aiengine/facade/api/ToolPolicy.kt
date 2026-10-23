@@ -9,6 +9,11 @@ public data class NativeToolSpec(
     val action: AgentToolAction,
     val isEnabledByDefault: Boolean,
     val isGated: Boolean,
+    /**
+     * The tool never touches a workspace directory (a network read, for example). A gated one stays available in a
+     * virtual workspace, where the adapter's gate vets its target; every other native tool is off there.
+     */
+    val isWorkspaceFree: Boolean = false,
 )
 
 /** Persisted policy choice. Absence means the adapter default. */

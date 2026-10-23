@@ -31,7 +31,7 @@ internal class NativeToolGate(
     private val log = Log.tag("NativeToolGate")
 
     suspend fun prepare(context: AgentToolContext, call: NativeToolCall): NativePreflight = guarded {
-        if (!isPathFreeWebRead(call) && isVirtual(context)) {
+        if (!isWorkspaceFree(call) && isVirtual(context)) {
             return@guarded denied("Native tools are unavailable in a virtual workspace; use hosted tools")
         }
         if (!isEnabled(
@@ -44,9 +44,9 @@ internal class NativeToolGate(
         prepareCurrent(context, call)
     }
 
-    /** A page read touches no workspace file: the adapter has already limited it to a public address. */
-    private fun isPathFreeWebRead(call: NativeToolCall): Boolean =
-        call.name == "WebFetch" && call.paths.isEmpty() && call.command == null
+    /** Such a call references no workspace file or command, so a virtual workspace has nothing to protect from it. */
+    private fun isWorkspaceFree(call: NativeToolCall): Boolean =
+        call.isWorkspaceFree && call.paths.isEmpty() && call.command == null && call.workingDirectory == null
 
     private suspend fun prepareCurrent(context: AgentToolContext, call: NativeToolCall): NativePreflight {
         if (actionSafety?.isEnabled() == true) {
