@@ -57,6 +57,7 @@ internal class GitHubPullTools(
         ""
     } else {
         "GitHub PR tools target only the public repository configured by the desktop host. " +
+            "github_pr_context reads comments, review threads, edits and CI checks. " +
             "Send full title/body inline. Read first and pass expected_revision for update or ready. " +
             "Never retry an unknown write outcome blindly: read GitHub to reconcile. " +
             "Ready does not certify a commit or perform review/merge. REST is used except the fixed ready " +
@@ -111,8 +112,15 @@ public object GitHubPullToggleBindings {
     public fun githubPullTools(): FeatureToggle<*> = GitHubPullToolsEnabled
 }
 
+private val ReadOperations = setOf("github_pr_read", "github_pr_context")
+
 private val PullSpecs = listOf(
     pullSpec("github_pr_read", "Read a PR and its revision in the host-configured public repository.", "number"),
+    pullSpec(
+        "github_pr_context",
+        "Read a PR's author, branches, commits, comments, reviews, review threads, description edits and CI checks.",
+        "number",
+    ),
     pullSpec(
         "github_pr_create",
         "Create a draft PR in the host-configured public repository. Branches must already exist; full text inline.",
@@ -148,4 +156,4 @@ private fun pullSpec(name: String, description: String, vararg fields: String): 
         )
     },
     emptyList(),
-).specification(if (name == "github_pr_read") AgentToolAction.Read else AgentToolAction.Command)
+).specification(if (name in ReadOperations) AgentToolAction.Read else AgentToolAction.Command)
