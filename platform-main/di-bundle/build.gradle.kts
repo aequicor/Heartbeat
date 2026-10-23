@@ -32,6 +32,7 @@ kotlin {
             api(projects.features.computerUse.api)
             implementation(projects.features.feedback.api)
             implementation(projects.features.attachments.api)
+            implementation(projects.features.attachments.impl)
             implementation(projects.features.harness.api)
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.adaptiveSubagents.api)
@@ -41,7 +42,6 @@ kotlin {
             implementation(projects.features.scheduler.api)
             api(projects.features.appUpdate.api)
             implementation(projects.features.serviceAsUi.api)
-            implementation(projects.features.serviceAsUi.impl)
             implementation(projects.features.projectConfig.api)
             implementation(projects.features.planningMode.api)
             api(projects.core.di.api)
@@ -97,7 +97,6 @@ kotlin {
         // bundle owns them.
         val studioImpls: KotlinDependencyHandler.() -> Unit = {
             implementation(projects.features.aiSessionEngineTransfer.impl)
-            implementation(projects.features.attachments.impl)
             implementation(projects.features.autocomplete.impl)
             implementation(projects.features.computerUse.impl)
             implementation(projects.features.contextWindowOptimization.impl)
@@ -106,6 +105,7 @@ kotlin {
             implementation(projects.features.planningMode.impl)
             implementation(projects.features.checklist.impl)
             implementation(projects.features.questionnaire.impl)
+            implementation(projects.features.serviceAsUi.impl)
         }
         androidMain.dependencies(studioImpls)
         iosMain.dependencies(studioImpls)

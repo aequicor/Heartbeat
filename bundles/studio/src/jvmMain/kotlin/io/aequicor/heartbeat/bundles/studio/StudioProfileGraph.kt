@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.bundles.studio
 
 import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Includes
+import dev.zacsweers.metro.Provides
+import io.aequicor.heartbeat.core.bundles.ConfigSectionPart
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileRuntimeBindings
@@ -11,13 +13,11 @@ import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferIntent
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferOutput
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferState
-import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistRemoteScreens
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
@@ -52,12 +52,6 @@ public interface StudioProfileExports {
     /** Questionnaire screens the studio embeds next to a chat. */
     public val questionnaireScreens: QuestionnaireRemoteScreens
 
-    /** Catalog of the profile's attachments; the studio, the research chat and the engines read it. */
-    public val attachmentsCatalog: AttachmentsCatalog
-
-    /** Reads the bytes of attachments; the facade of `engines` resolves prompt resources through the foundation. */
-    public val resourceResolver: ResourceResolver
-
     /** Checklist screens the studio embeds next to a chat. */
     public val checklistScreens: ChecklistRemoteScreens
 
@@ -76,6 +70,9 @@ public interface StudioProfileExports {
 
     /** State of context compaction and rollover; the studio of the foundation reads it. */
     public val contextOptimization: ContextOptimizationView
+
+    /** Project configuration sections of the bundle's features; `agent-runtime`, which owns the tree, merges them. */
+    public val configSectionPart: ConfigSectionPart
 }
 
 /** Profile-level graph of the `studio` bundle: the profile contributions of its member features. */
@@ -87,6 +84,9 @@ internal interface StudioProfileGraph : StudioProfileExports {
             @Includes foundation: FoundationProfileBindings,
             @Includes engines: FoundationProfileEngineBindings,
             @Includes runtime: FoundationProfileRuntimeBindings,
+            // Provided as an instance, not included: an included interface would bind its `Set` accessor itself and
+            // shadow the multibinding the service-as-ui feature reads.
+            @Provides imports: StudioProfileImports,
         ): StudioProfileGraph
     }
 }

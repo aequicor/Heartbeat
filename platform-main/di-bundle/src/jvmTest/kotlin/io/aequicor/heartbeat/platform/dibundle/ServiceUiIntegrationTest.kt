@@ -6,7 +6,9 @@ import com.arkivanov.essenty.lifecycle.destroy
 import com.arkivanov.essenty.lifecycle.resume
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
@@ -105,7 +107,10 @@ class ServiceUiIntegrationTest {
                 assertEquals(setOf(host), disabled.hosts.keys)
             }
         }
-        val kinds = access.serviceUiProviders.map { it.kind }
+        // The `studio` bundle owns the set; the providers it merges come from the harnesses of `agent-runtime`.
+        val bundleHost = (app as BundleHostAccess).bundleHost
+        val kinds = bundleHost.foundationProfileImports(TestBundleServiceUiProviders::class, access.serviceUiScope)
+            .serviceUiProviders.map { it.kind }
         assertEquals(kinds.toSet().size, kinds.size)
         assertTrue("harness" in kinds, kinds.toString())
         app.profileSessions.close()
@@ -154,6 +159,13 @@ class ServiceUiIntegrationTest {
 @ContributesTo(ProfileScope::class)
 interface TestServiceUiAccessors {
     val machines: MachineRegistry
+
+    @ForScope(ProfileScope::class)
+    val serviceUiScope: ScopeHandle
+}
+
+/** Service-as-ui providers as the `studio` bundle receives them from the other bundles. */
+interface TestBundleServiceUiProviders {
     val serviceUiProviders: Set<ServiceUiProvider>
 }
 

@@ -23,6 +23,8 @@ public class StudioBundle : BundleEntry {
 
     override val hasProfileGraph: Boolean = true
 
+    override val profileImportsType: KClass<*> = StudioProfileImports::class
+
     override val profileExportTypes: List<KClass<*>> =
         listOf(StudioProfileExports::class, ProfileStartupAccess::class)
 
@@ -31,5 +33,6 @@ public class StudioBundle : BundleEntry {
             foundation as FoundationProfileBindings,
             foundation as FoundationProfileEngineBindings,
             foundation as FoundationProfileRuntimeBindings,
+            imports as StudioProfileImports,
         )
 }

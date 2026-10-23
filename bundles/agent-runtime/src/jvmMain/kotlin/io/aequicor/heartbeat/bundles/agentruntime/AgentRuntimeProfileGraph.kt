@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.bundles.agentruntime
 import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Includes
 import dev.zacsweers.metro.Provides
+import io.aequicor.heartbeat.core.bundles.ConfigSectionPart
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.di.ForScope
@@ -84,7 +85,7 @@ public interface AgentRuntimeProfileExports {
     /** Request provenance observers of the bundle's harnesses; the studio of the foundation reads them. */
     public val scheduledRequestOriginObservers: Set<ScheduledRequestOriginObserver>
 
-    /** Providers of service-as-ui methods and owners; the foundation merges them into its own set. */
+    /** Providers of service-as-ui methods and owners; the `studio` bundle, which owns that set, merges them. */
     public val serviceUiProviders: Set<ServiceUiProvider>
 
     /**
@@ -102,6 +103,12 @@ public interface AgentRuntimeProfileExports {
 public interface AgentRuntimeProfileImports {
     /** Admission controllers of the `studio` bundle's features (checklists) for the wakes they own. */
     public val scheduledWakeOwners: Set<ScheduledWakeOwner>
+
+    /**
+     * Project configuration sections of the `studio` bundle's features (the interface section of service-as-ui). A
+     * holder: this bundle exports the whole `Set<ConfigSection>`, so a part cannot come under the same key.
+     */
+    public val studioConfigSections: ConfigSectionPart
 }
 
 /** Profile-level graph of the `agent-runtime` bundle: the profile contributions of its member features. */

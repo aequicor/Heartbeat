@@ -4,8 +4,10 @@ import dev.zacsweers.metro.BindingContainer
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.ElementsIntoSet
 import dev.zacsweers.metro.Provides
+import io.aequicor.heartbeat.core.bundles.BundleUnavailableException
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
@@ -38,6 +40,15 @@ internal object AgentRuntimeFoundationSets {
     @Provides
     @ElementsIntoSet
     fun bundleWakeOwners(imports: AgentRuntimeProfileImports): Set<ScheduledWakeOwner> = imports.scheduledWakeOwners
+
+    @Provides
+    @ElementsIntoSet
+    fun studioConfigSections(imports: AgentRuntimeProfileImports): Set<ConfigSection> = try {
+        imports.studioConfigSections.configSections
+    } catch (e: BundleUnavailableException) {
+        Log.tag("AgentRuntimeSets").w(e) { "The studio bundle is unavailable; its configuration sections stay out" }
+        emptySet()
+    }
 
     @Provides
     @ElementsIntoSet

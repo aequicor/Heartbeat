@@ -35,7 +35,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeInteractionDemand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
@@ -45,7 +44,6 @@ import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngine
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferIntent
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferOutput
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferState
-import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
@@ -80,7 +78,6 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
-import io.aequicor.heartbeat.feature.serviceasui.api.spi.ServiceUiProvider
 
 /**
  * What the profile graph of the foundation takes from the profile graphs of the bundles; implemented by the host
@@ -186,9 +183,6 @@ internal interface FoundationProfileBundleImports {
     /** Request provenance observers of the harnesses of the `agent-runtime` bundle. */
     val scheduledRequestOriginObservers: Set<ScheduledRequestOriginObserver>
 
-    /** Service-as-ui providers of the `agent-runtime` bundle. */
-    val serviceUiProviders: Set<ServiceUiProvider>
-
     /** Effort levels of the `studio` bundle. */
     val effortChoices: EffortChoicesView
 
@@ -209,12 +203,6 @@ internal interface FoundationProfileBundleImports {
 
     /** Checklist screens of the `studio` bundle. */
     val checklistScreens: ChecklistRemoteScreens
-
-    /** Attachments catalog of the `studio` bundle. */
-    val attachmentsCatalog: AttachmentsCatalog
-
-    /** Attachment reader of the `studio` bundle. */
-    val resourceResolver: ResourceResolver
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -349,11 +337,6 @@ internal object ProfileBundleImportBindings {
 
     @Provides
     @ElementsIntoSet
-    fun bundleServiceUiProviders(imports: FoundationProfileBundleImports): Set<ServiceUiProvider> =
-        imports.orElse(emptySet()) { serviceUiProviders }
-
-    @Provides
-    @ElementsIntoSet
     fun bundleStartups(imports: FoundationProfileBundleImports): Set<ProfileStartup> =
         imports.orElse(emptySet()) { profileStartups }
 
@@ -476,12 +459,6 @@ internal object StudioServiceImportBindings {
 
     @Provides
     fun checklistScreens(imports: FoundationProfileBundleImports): ChecklistRemoteScreens = imports.checklistScreens
-
-    @Provides
-    fun attachmentsCatalog(imports: FoundationProfileBundleImports): AttachmentsCatalog = imports.attachmentsCatalog
-
-    @Provides
-    fun resourceResolver(imports: FoundationProfileBundleImports): ResourceResolver = imports.resourceResolver
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */

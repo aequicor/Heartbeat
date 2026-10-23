@@ -13,9 +13,6 @@ kotlin {
             implementation(projects.features.autocomplete.impl)
             implementation(projects.features.aiSessionEngineTransfer.api)
             implementation(projects.features.aiSessionEngineTransfer.impl)
-            implementation(projects.features.attachments.api)
-            implementation(projects.features.attachments.impl)
-            implementation(projects.core.desktopDialogs)
             implementation(projects.features.checklist.api)
             implementation(projects.features.checklist.impl)
             implementation(projects.features.scheduler.api)
@@ -39,6 +36,11 @@ kotlin {
             implementation(projects.features.computerUse.impl)
             implementation(projects.features.contextWindowOptimization.api)
             implementation(projects.features.contextWindowOptimization.impl)
+            implementation(projects.core.desktopDialogs)
+            implementation(projects.features.serviceAsUi.api)
+            implementation(projects.features.serviceAsUi.impl)
+            implementation(projects.features.browser.api)
+            implementation(projects.features.projectConfig.api)
         }
     }
 }
