@@ -26,7 +26,8 @@ internal class VirtualWorkspacePolicy(
         if (workspaces.virtual(workspace) == null) return null
         val engine = scope.engine ?: scope.target?.engine ?: scope.session?.engine
         val native = engines.value.engines.state.value.firstOrNull { it.descriptor.id == engine }
-            ?.descriptor?.nativeTools.orEmpty().associate { it.name to ToolSwitch.Off }
+            ?.descriptor?.nativeTools.orEmpty().filterNot { it.name in VIRTUAL_NATIVE_TOOLS }
+            .associate { it.name to ToolSwitch.Off }
         return ToolPolicy(
             hostedOff = tools.value.asSequence().flatMap { it.catalog }.map { it.name }.filterNot(
                 ::virtualToolAllowed,
@@ -35,6 +36,9 @@ internal class VirtualWorkspacePolicy(
         )
     }
 }
+
+/** The engine's own page reader outranks the provider one; it needs no directory and its adapter gate checks the URL. */
+private val VIRTUAL_NATIVE_TOOLS = setOf("WebFetch")
 
 internal fun virtualToolAllowed(name: String): Boolean = name in setOf(
     "read_file", "list_dir", "glob", "grep", "write_file", "edit_file", "delete_file", "move_file",
