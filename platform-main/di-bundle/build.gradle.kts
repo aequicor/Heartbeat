@@ -31,7 +31,6 @@ kotlin {
             implementation(projects.features.checklist.impl)
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.aiStudio.api)
-            implementation(projects.features.computerUse.impl)
             api(projects.features.computerUse.api)
             implementation(projects.features.feedback.api)
             implementation(projects.features.attachments.api)
@@ -102,6 +101,7 @@ kotlin {
         val studioImpls: KotlinDependencyHandler.() -> Unit = {
             implementation(projects.features.aiSessionEngineTransfer.impl)
             implementation(projects.features.autocomplete.impl)
+            implementation(projects.features.computerUse.impl)
             implementation(projects.features.contextWindowOptimization.impl)
             implementation(projects.features.effortConfiguration.impl)
             implementation(projects.features.feedback.impl)

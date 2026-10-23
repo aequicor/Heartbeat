@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.platform.dibundle
 
+import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.bundles.BundleHealth
 import io.aequicor.heartbeat.core.bundles.BundleId
@@ -12,6 +13,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionEngineTransfer
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermissionGuide
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
@@ -30,6 +34,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /** The desktop graph with the `studio` bundle: the features it assembles come from its own graphs. */
@@ -64,6 +69,7 @@ class StudioBundleWiringTest {
             AutocompleteEnabled,
             SessionEngineTransfer,
             ContextOptimizationEnabled,
+            ComputerUseEnabled,
         ).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
@@ -103,6 +109,20 @@ class StudioBundleWiringTest {
     }
 
     @Test
+    fun `computer use presentation and permission guide of the bundle reach the foundation`() {
+        val accessors = app as TestStudioAppAccessors
+        assertNotNull(accessors.studioCapturePresentation)
+        assertSame(accessors.studioPermissionGuide, accessors.studioPermissionGuide)
+    }
+
+    @Test
+    fun `computer use tools of the bundle reach the tool set of the engines bundle`() = runTest {
+        val session = app.profileSessions.open(ProfileId("studio-computer-use"))
+        val groups = (session.graph as TestStudioProfileAccessors).studioAgentTools.catalog().map { it.id }
+        assertTrue("computer" in groups, groups.toString())
+    }
+
+    @Test
     fun `the context optimization of the bundle reaches the foundation and its hooks reach the facade`() = runTest {
         val session = app.profileSessions.open(ProfileId("studio-context"))
         val accessors = session.graph as TestStudioProfileAccessors
@@ -113,6 +133,13 @@ class StudioBundleWiringTest {
         assertTrue("ContextLedgerHook" in hooks, hooks.toString())
         assertTrue("ContextHandoffHook" in hooks, hooks.toString())
     }
+}
+
+/** Test access to what the foundation application graph takes from the `studio` bundle. */
+@dev.zacsweers.metro.ContributesTo(AppScope::class)
+interface TestStudioAppAccessors {
+    val studioCapturePresentation: ComputerUseCapturePresentation
+    val studioPermissionGuide: ComputerUsePermissionGuide
 }
 
 /** Test access to what the foundation profile graph takes from the `studio` bundle. */

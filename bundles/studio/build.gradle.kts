@@ -27,6 +27,8 @@ kotlin {
             implementation(projects.core.datastore.api)
             implementation(projects.core.navigation.api)
             implementation(projects.core.profileFacade.api)
+            implementation(projects.features.computerUse.api)
+            implementation(projects.features.computerUse.impl)
             implementation(projects.features.contextWindowOptimization.api)
             implementation(projects.features.contextWindowOptimization.impl)
         }

@@ -17,6 +17,8 @@ import io.aequicor.heartbeat.core.navigation.DeepLinkEntry
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpStdioTransportFactory
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermissionGuide
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
@@ -55,6 +57,12 @@ internal interface FoundationBundleImports {
 
     /** Launch-long work of the `shell` bundle, such as the app update check. */
     val appStartups: Set<AppStartup>
+
+    /** Window hiding during computer-use captures, from the `studio` bundle. */
+    val capturePresentation: ComputerUseCapturePresentation
+
+    /** Permission guide of computer use, from the `studio` bundle. */
+    val permissionGuide: ComputerUsePermissionGuide
 }
 
 /** Renderer of a diagram while the `web` bundle is not running: the feature reports itself as unavailable. */
@@ -85,6 +93,14 @@ internal object BundleImportBindings {
     @Provides
     fun acpStdio(host: BundleHost): AcpStdioTransportFactory =
         host.foundationImports(FoundationBundleImports::class).acpStdio
+
+    @Provides
+    fun capturePresentation(host: BundleHost): ComputerUseCapturePresentation =
+        host.foundationImports(FoundationBundleImports::class).capturePresentation
+
+    @Provides
+    fun permissionGuide(host: BundleHost): ComputerUsePermissionGuide =
+        host.foundationImports(FoundationBundleImports::class).permissionGuide
 
     @Provides
     @ElementsIntoSet
