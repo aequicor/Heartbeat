@@ -442,6 +442,39 @@ class VirtualSandboxTest {
     }
 
     @Test
+    fun `merge brings the base branch into a checked out branch and commits it as a merge`() = runTest {
+        val f = VirtualFixture()
+        try {
+            f.cmd("switch", "-c", "pr/merge")
+            Files.writeString(f.project.resolve("pr.txt"), "from pr")
+            f.cmd("add", "pr.txt")
+            f.cmd("commit", "-m", "pr work")
+            val tip = f.cmd("rev-parse", "HEAD")
+            f.cmd("switch", "main")
+            Files.writeString(f.project.resolve("main.txt"), "from main")
+            f.cmd("add", "main.txt")
+            f.cmd("commit", "-m", "main work")
+            val main = f.cmd("rev-parse", "HEAD")
+            val ref = f.create("merge")
+            val files = assertNotNull(f.backend.find(ref))
+            f.backend.checkoutRef(ref, "pr/merge", isFetch = false)
+            assertEquals(null, files.read("main.txt"))
+            assertTrue("pr work" in f.backend.history(ref, "pr/merge", "main", isStat = true))
+            val merged = f.backend.mergeRef(ref, "main", isFetch = false)
+            assertTrue(merged.conflicts.isEmpty())
+            assertEquals("from main", files.read("main.txt"))
+            assertEquals("from pr", files.read("pr.txt"))
+            assertEquals(merged, f.backend.mergeRef(ref, "main", isFetch = false))
+            val commit = f.backend.commitToBranch(ref, "pr/merge", "Merge main")
+            assertEquals("$tip $main", f.cmd("show", "-s", "--format=%P", commit))
+            assertEquals("main", f.cmd("branch", "--show-current"))
+            assertEquals("", f.cmd("status", "--porcelain"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
     fun `commit to branch refuses checked out diverged and malformed branches`() = runTest {
         val f = VirtualFixture()
         try {
