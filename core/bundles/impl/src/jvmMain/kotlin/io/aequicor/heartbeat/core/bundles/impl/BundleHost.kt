@@ -35,6 +35,7 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
     private val healthById = LinkedHashMap<BundleId, BundleHealth>()
     private val graphs = HashMap<BundleId, Any>()
     private val appView = View()
+    private val profileViews = HashMap<ScopeHandle, View>()
     private val resolving = ThreadLocal.withInitial { ArrayList<BindingKey>() }
     private val lifecycleLock = Any()
 
@@ -110,6 +111,7 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
     public fun openProfile(foundation: Any, scope: ScopeHandle): Map<BundleId, BundleHealth> {
         ensureStarted()
         val view = View().apply { isOpen = false }
+        synchronized(profileViews) { profileViews[scope] = view }
         val profileHealth = LinkedHashMap<BundleId, BundleHealth>()
         val members = entries.filter { it.hasProfileGraph && healthById[it.id] != null }
         for (entry in members) {
@@ -140,7 +142,10 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
             }
         }
         view.isOpen = true
-        scope.onClose { view.close() }
+        scope.onClose {
+            view.close()
+            synchronized(profileViews) { profileViews.remove(scope) }
+        }
         val summary = profileHealth.entries.joinToString { "${it.key}=${it.value::class.simpleName}" }
         log.i { "Profile graphs of bundles: $summary" }
         return profileHealth
@@ -152,6 +157,17 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
      */
     public fun <T : Any> foundationImports(type: KClass<T>): T =
         type.java.cast(importsProxy(FOUNDATION_ID, type.java, null))
+
+    /**
+     * Like [foundationImports], for the profile graph of the foundation: accessors see the exports of the bundles'
+     * profile graphs opened for [scope] (the profile scope the foundation graph was created with), then the app
+     * exports. Resolved lazily; a profile whose bundle graphs were not opened (or already closed) reports
+     * [BundleUnavailableException], so the foundation can fall back like it does for app imports.
+     */
+    public fun <T : Any> foundationProfileImports(type: KClass<T>, scope: ScopeHandle): T =
+        type.java.cast(importsProxy(FOUNDATION_ID, type.java, null) { profileViewOf(scope) })
+
+    private fun profileViewOf(scope: ScopeHandle): View? = synchronized(profileViews) { profileViews[scope] }
 
     override fun resolve(key: BindingKey): Any = resolveFor(key, null, null)
 
@@ -210,7 +226,12 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
         return BundleHealth.Degraded(missing)
     }
 
-    private fun importsProxy(owner: BundleId, type: Class<*>, view: View?): Any = Proxy.newProxyInstance(
+    private fun importsProxy(
+        owner: BundleId,
+        type: Class<*>,
+        view: View?,
+        viewOf: (() -> View?)? = null,
+    ): Any = Proxy.newProxyInstance(
         type.classLoader,
         arrayOf(type),
     ) { proxy, method, _ ->
@@ -223,7 +244,8 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
 
             else -> {
                 val key = bindingKeyOf(method.genericReturnType)
-                if (method.isSetAccessor()) collectFor(key, owner, view) else resolveFor(key, owner, view)
+                val target = if (viewOf == null) view else viewOf() ?: throw BundleUnavailableException(key, owner)
+                if (method.isSetAccessor()) collectFor(key, owner, target) else resolveFor(key, owner, target)
             }
         }
     }

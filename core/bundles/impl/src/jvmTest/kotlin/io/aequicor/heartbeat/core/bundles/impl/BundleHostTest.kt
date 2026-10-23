@@ -300,6 +300,31 @@ class BundleHostTest {
         host.openProfile(Any(), FakeScope())
     }
 
+    private interface FoundationProfileImports {
+        val opener: Opener
+    }
+
+    @Test
+    fun `foundation reads the profile exports of its own profile lazily`() {
+        val openerA = object : Opener {}
+        val openerB = object : Opener {}
+        val first = FakeScope()
+        val second = FakeScope()
+        val host = BundleHost(listOf(profileEntry("web", openerA))) { Unit }
+        val early = host.foundationProfileImports(FoundationProfileImports::class, first)
+        assertFailsWith<BundleUnavailableException> { early.opener }
+        host.openProfile(Any(), first)
+        assertSame(openerA, early.opener)
+        val other = BundleHost(listOf(profileEntry("web", openerB))) { Unit }
+        other.openProfile(Any(), second)
+        assertSame(openerB, other.foundationProfileImports(FoundationProfileImports::class, second).opener)
+        assertFailsWith<BundleUnavailableException> {
+            other.foundationProfileImports(FoundationProfileImports::class, first).opener
+        }
+        first.close()
+        assertFailsWith<BundleUnavailableException> { early.opener }
+    }
+
     @Test
     fun `ensureStarted is idempotent and start and seal run once`() {
         var created = 0
