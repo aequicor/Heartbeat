@@ -58,6 +58,8 @@ class FeatureLayerDependency(config: Config) : Rule(config, "Feature dependencie
             !sourcePackage.isInPackage("io.aequicor.heartbeat.platform.dibundle")
         ) {
             "Engine SPI is private to ai-engine adapters and the application bundle"
+        } else if (reference.isInPackage(BUNDLES_PACKAGE) && sourcePackage.isInPackage(FeatureLayer.FEATURE_PREFIX)) {
+            "Bundle registry is private to bundle builders and the platform; feature code stays registry-free"
         } else {
             source?.violation(reference)
         }
@@ -82,6 +84,8 @@ class FeatureLayerDependency(config: Config) : Rule(config, "Feature dependencie
     }
 
     private companion object {
+        const val BUNDLES_PACKAGE = "io.aequicor.heartbeat.core.bundles"
+
         /** Adapter SPIs: engine registration/runtime and credential access for trusted adapters. */
         val ENGINE_SPI_PACKAGES = listOf(
             "io.aequicor.heartbeat.feature.aiengine.facade.api.spi",
