@@ -34,7 +34,9 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
         return "Integrate a finished child's virtual snapshot with sandbox_integrate using " +
             "the workspace and snapshot " +
             "from its host result note. Never use git or shell to integrate. To commit the sandbox files into a " +
-            "branch of the real repository use sandbox_commit with a branch that is not checked out. " +
+            "branch of the real repository use sandbox_commit with a branch that is not checked out. To continue work " +
+            "that lives on another branch (a pull request) load it with sandbox_checkout, fetch=true if it is not " +
+            "local yet. " +
             if (state.isResolving) {
                 "The user authorized conflict resolution. Read conflict files and use sandbox_resolve_conflict for " +
                     "each resolved file; unresolved paths: ${state.conflicts.joinToString(
@@ -58,6 +60,8 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
             )
 
             "sandbox_commit" -> "Base=${state.baseCommit}"
+
+            "sandbox_checkout" -> "Base=${state.baseCommit}\nAll sandbox files are replaced"
 
             else -> workspaces.find(parent)?.read(checkNotNull(arguments["path"]).jsonPrimitive.content).orEmpty()
         }
@@ -101,6 +105,12 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
                 return AgentToolResult("Committed $commit to refs/heads/$branch")
             }
 
+            "sandbox_checkout" -> workspaces.checkoutRef(
+                parent,
+                checkNotNull(arguments["branch"]).jsonPrimitive.content,
+                arguments["fetch"]?.jsonPrimitive?.content == "true",
+            )
+
             "sandbox_resolve_conflict" -> workspaces.resolve(
                 parent,
                 checkNotNull(arguments["path"]).jsonPrimitive.content,
@@ -125,6 +135,21 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
                     {"type":"object","properties":{
                       "branch":{"type":"string"},"message":{"type":"string"}},
                       "required":["branch","message"],"additionalProperties":false}
+                    """.trimIndent(),
+                ).jsonObject,
+                AgentToolAction.Edit,
+            ),
+            AgentToolSpec(
+                "sandbox_checkout",
+                "Replace ALL sandbox files with the tree of a branch of the real repository, for work that lives " +
+                    "on a branch the sandbox was not cut from (for example a pull request branch). With fetch=true " +
+                    "the branch is first fetched from origin. Afterwards sandbox_commit to the same branch name " +
+                    "continues that branch. No shell or git is needed",
+                Json.parseToJsonElement(
+                    """
+                    {"type":"object","properties":{
+                      "branch":{"type":"string"},"fetch":{"type":"boolean"}},
+                      "required":["branch"],"additionalProperties":false}
                     """.trimIndent(),
                 ).jsonObject,
                 AgentToolAction.Edit,

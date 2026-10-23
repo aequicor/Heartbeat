@@ -40,7 +40,7 @@ internal class VirtualWorkspacePolicy(
 internal fun virtualToolAllowed(name: String): Boolean = name in setOf(
     "read_file", "list_dir", "glob", "grep", "write_file", "edit_file", "delete_file", "move_file",
     "configure_build", "run_build", "build_status", "cancel_build", "mark_task_complete",
-    "sandbox_integrate", "sandbox_resolve_conflict", "sandbox_commit", "web_search", "web_fetch",
+    "sandbox_integrate", "sandbox_resolve_conflict", "sandbox_commit", "sandbox_checkout", "web_search", "web_fetch",
     "organism_divide", "organism_complain", "organism_dispute", "organism_status", "organism_receive",
     "subagent_spawn", "subagent_receive",
     "plan_read", "plan_write", "plan_propose",

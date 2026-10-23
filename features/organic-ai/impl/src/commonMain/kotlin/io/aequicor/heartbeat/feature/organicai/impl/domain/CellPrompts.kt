@@ -96,7 +96,9 @@ private const val SANDBOX =
     "Your workspace is an isolated sandbox. New sandboxes are virtual: use hosted " +
         "file tools for all code access. Nothing you change there " +
         "reaches the project or another cell by itself, and you never edit the project's original checkout. Build " +
-        "and test with run_build, not natively. Your final answer ends your task; mark_task_complete is not needed. " +
+        "and test with run_build, not natively. To continue work on another branch (a pull request), load it with " +
+        "sandbox_checkout (fetch=true when it is not local) and publish with sandbox_commit. " +
+        "Your final answer ends your task; mark_task_complete is not needed. " +
         "When your cell completes, the host captures everything in your checkout, committed or not. When a child's " +
         "result comes with a host integration note, integrate it with " +
         "sandbox_integrate when the note gives a virtual workspace, " +

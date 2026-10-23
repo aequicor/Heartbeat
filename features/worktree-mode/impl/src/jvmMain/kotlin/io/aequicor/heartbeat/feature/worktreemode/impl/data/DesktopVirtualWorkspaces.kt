@@ -341,7 +341,7 @@ internal class DesktopVirtualWorkspaces(
             "--no-gpg-sign",
             tree,
             "-p",
-            tip ?: current.state.baseCommit,
+            tip ?: current.branchCommits[branch] ?: current.state.baseCommit,
             "-m",
             message,
         )
@@ -350,6 +350,37 @@ internal class DesktopVirtualWorkspaces(
         log.i { "Virtual sandbox snapshot committed to a branch" }
         commit
     }
+
+    /**
+     * Replaces the sandbox files with the tree of a branch of the real repository, optionally fetching it from
+     * origin first, so work that lives on a branch the sandbox was not cut from can be continued. The source
+     * checkout, its index and its HEAD are untouched; the branch becomes the parent of the next [commitToBranch].
+     */
+    override suspend fun checkoutRef(ref: WorkspaceRef, branch: String, isFetch: Boolean): VirtualSandboxState =
+        lock.withLock {
+            val current = accessible(ref)
+            require(!branch.startsWith("-") && branch.length <= MAX_BRANCH_NAME) { "InvalidBranchName" }
+            check(git.call(current.source, "check-ref-format", "--branch", branch, allowFailure = true).code == 0) {
+                "InvalidBranchName"
+            }
+            val remote = "refs/remotes/origin/$branch"
+            if (isFetch) git.call(current.source, "fetch", "--no-tags", "origin", "+refs/heads/$branch:$remote")
+            val found = listOf("refs/heads/$branch", remote).firstNotNullOfOrNull { full ->
+                git.call(current.source, "rev-parse", "--verify", "--quiet", "$full^{commit}", allowFailure = true)
+                    .takeIf { it.code == 0 }?.text?.trim()
+            }
+            val tip = checkNotNull(found) { "SandboxBranchUnknown" }
+            val tree = git.text(current.source, "rev-parse", "$tip^{tree}")
+            val snapshot = git.commit(current.source, tree, current.state.baseCommit)
+            git.pin(current.source, current.id, snapshot)
+            log.i { "Virtual sandbox files replaced by a branch" }
+            save(
+                current.copy(
+                    state = current.state.copy(snapshot = snapshot, revision = current.state.revision + 1),
+                    branchCommits = current.branchCommits + (branch to tip),
+                ),
+            ).state
+        }
 
     /** A child's immutable result merges relative to the exact parent snapshot it inherited. */
     override suspend fun integrate(
@@ -628,6 +659,7 @@ internal interface VirtualSandboxStore : VirtualWorkspaceProvider {
     suspend fun snapshot(ref: WorkspaceRef): String
     suspend fun handoff(record: WorktreeRecord): VirtualSandboxState
     suspend fun commitToBranch(ref: WorkspaceRef, branch: String, message: String): String
+    suspend fun checkoutRef(ref: WorkspaceRef, branch: String, isFetch: Boolean): VirtualSandboxState
     suspend fun integrate(
         parent: WorkspaceRef,
         child: WorkspaceRef,
