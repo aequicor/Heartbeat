@@ -14,7 +14,7 @@ kotlin {
             api(projects.core.profileFacade.api)
             api(projects.core.datastore.api)
             api(projects.core.stateMachine.api)
-            api(projects.features.chromiumBridge.api)
+            api(projects.features.aiStudio.api)
         }
     }
 }

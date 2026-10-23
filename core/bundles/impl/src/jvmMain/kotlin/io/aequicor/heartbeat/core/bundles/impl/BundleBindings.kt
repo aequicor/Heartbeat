@@ -27,7 +27,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileGraphAttachment
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
-import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
+import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.ktor.client.HttpClient
 import java.util.ServiceLoader
 
@@ -73,12 +73,12 @@ internal class DefaultFoundationProfileBindings(
     private val id: Provider<ProfileId>,
     @ForScope(ProfileScope::class) private val scope: Provider<ScopeHandle>,
     @ForScope(ProfileScope::class) private val stores: Provider<DataStores>,
-    private val external: Provider<ExternalBrowser>,
+    private val studio: Provider<StudioRemoteScreens>,
 ) : FoundationProfileBindings {
     override val profileId: ProfileId get() = id()
     override val profileScope: ScopeHandle get() = scope()
     override val dataStores: DataStores get() = stores()
-    override val externalBrowser: ExternalBrowser get() = external()
+    override val studioRemoteScreens: StudioRemoteScreens get() = studio()
 }
 
 /**

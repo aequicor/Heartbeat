@@ -38,8 +38,6 @@ kotlin {
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.researchChat.impl)
-            implementation(projects.features.chromiumBridge.api)
-            implementation(projects.features.chromiumBridge.impl)
             implementation(projects.features.searchEngine.impl)
             implementation(projects.features.togglesPanel.impl)
             implementation(projects.features.settings.impl)
@@ -99,9 +97,18 @@ kotlin {
             implementation(projects.core.stateMachine.impl)
             implementation(projects.core.featureToggles.impl)
         }
-        // Mobile hosts compile the browser into the static graph; on desktop it lives in the `web` bundle.
-        androidMain.dependencies { implementation(projects.features.browser.impl) }
-        iosMain.dependencies { implementation(projects.features.browser.impl) }
+        // Mobile hosts compile the browser and the Chromium bridge into the static graph; on desktop they live in the
+        // `web` bundle.
+        androidMain.dependencies {
+            implementation(projects.features.browser.impl)
+            implementation(projects.features.chromiumBridge.api)
+            implementation(projects.features.chromiumBridge.impl)
+        }
+        iosMain.dependencies {
+            implementation(projects.features.browser.impl)
+            implementation(projects.features.chromiumBridge.api)
+            implementation(projects.features.chromiumBridge.impl)
+        }
         // Desktop bundles: discovered at runtime through ServiceLoader; the assemblers (:bundles:*) come with the desktop app.
         jvmMain.dependencies {
             implementation(projects.core.bundles.impl)
@@ -110,6 +117,7 @@ kotlin {
         }
         jvmTest.dependencies {
             runtimeOnly(projects.bundles.web)
+            implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.aiStudio.screenModel)
             implementation(projects.core.navigation.compose)
             implementation(projects.designSystem.theme)

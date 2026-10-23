@@ -5,7 +5,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
-import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
+import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 
 /**
  * Stateful profile-level bindings the foundation hands to the profile graph of a bundle (`@Includes`). Read lazily:
@@ -24,6 +24,6 @@ public interface FoundationProfileBindings {
     @ForScope(ProfileScope::class)
     public val dataStores: DataStores
 
-    /** The user's own Chromium browser driven through the Heartbeat extension (stays in the foundation for now). */
-    public val externalBrowser: ExternalBrowser
+    /** Studio screens that the Chromium side panel opens and drives (the studio stays in the foundation for now). */
+    public val studioRemoteScreens: StudioRemoteScreens
 }
