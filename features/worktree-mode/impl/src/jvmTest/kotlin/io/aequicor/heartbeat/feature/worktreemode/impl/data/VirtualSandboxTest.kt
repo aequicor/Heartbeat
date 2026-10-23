@@ -475,6 +475,34 @@ class VirtualSandboxTest {
     }
 
     @Test
+    fun `a branch checked out in another worktree is published to origin only`() = runTest {
+        val f = VirtualFixture()
+        val other = Files.createTempDirectory("heartbeat-virtual-other-")
+        val remote = Files.createTempDirectory("heartbeat-virtual-remote-")
+        try {
+            f.cmd("init", "--bare", remote.toString())
+            f.cmd("remote", "add", "origin", remote.toString())
+            f.cmd("branch", "pr/busy")
+            f.cmd("push", "origin", "pr/busy")
+            val tip = f.cmd("rev-parse", "pr/busy")
+            Files.delete(other)
+            f.cmd("worktree", "add", other.toString(), "pr/busy")
+            val ref = f.create("busy")
+            val files = assertNotNull(f.backend.find(ref))
+            assertFailsWith<IllegalStateException> { f.backend.commitToBranch(ref, "pr/busy", "m", isPush = true) }
+            f.backend.checkoutRef(ref, "pr/busy", isFetch = true)
+            files.change(1, listOf(VirtualFileChange("busy.txt", "busy")))
+            assertFailsWith<IllegalStateException> { f.backend.commitToBranch(ref, "pr/busy", "m") }
+            val pushed = f.backend.commitToBranch(ref, "pr/busy", "feat: busy", isPush = true)
+            assertEquals(pushed, f.cmd("--git-dir=$remote", "rev-parse", "pr/busy"))
+            assertEquals(tip, f.cmd("rev-parse", "$pushed^"))
+            assertEquals(tip, f.cmd("rev-parse", "refs/heads/pr/busy"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
     fun `commit to branch refuses checked out diverged and malformed branches`() = runTest {
         val f = VirtualFixture()
         try {
