@@ -296,6 +296,7 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
                         io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled,
                     ),
                 off = request.off,
+                model = target.model.value,
             ),
         )
         return buildJsonObject {

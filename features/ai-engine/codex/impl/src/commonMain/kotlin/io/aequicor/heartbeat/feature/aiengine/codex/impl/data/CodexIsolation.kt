@@ -68,6 +68,9 @@ internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, settings:
     if (CodexDisabledCapabilities.any { features?.get(it) != JsonPrimitive(false) }) {
         fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
     }
+    if (settings.off.isVerifiedInventoryRequired) {
+        rpc.verifyInventory(settings.model, effective, settings.off)
+    }
     val servers = effective["mcp_servers"] as? JsonObject
     return settings.off.applyTo(
         buildJsonObject {
@@ -97,4 +100,5 @@ internal data class CodexIsolationSettings(
     val areQuestionsEnabled: Boolean,
     val areSubagentsEnabled: Boolean = false,
     val off: CodexNativeOff = CodexNativeOff(),
+    val model: String = "",
 )

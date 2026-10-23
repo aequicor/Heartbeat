@@ -23,9 +23,8 @@ const values = (text, name) => {
 };
 const enhanced = values(source, 'enhancedFeatures');
 const baseline = [...values(isolation, 'CodexDisabledCapabilities'), ...values(source, 'executionFeatures'), ...values(source, 'virtualFeatures')];
-const versions = values(source, 'verifiedEnhancedVersions');
 const inventoryNames = tools => tools.flatMap(tool => tool.type === 'namespace'
-  ? [tool.name, ...inventoryNames(tool.tools ?? [])]
+  ? [...(tool.name === 'functions' ? [] : [tool.name]), ...inventoryNames(tool.tools ?? [])]
   : [tool.name ?? tool.type]);
 
 test('verified CLI closes actual image code mode delegation and goal ingress while preserving hosted tools', {
@@ -34,7 +33,6 @@ test('verified CLI closes actual image code mode delegation and goal ingress whi
 }, async () => {
   const versionResult = await executeFile(executable, ['--version'], { windowsHide: true, timeout: 5000 });
   const version = versionResult.stdout.trim().replace(/^codex-cli /, '');
-  assert.ok(versions.includes(version), `Unverified CLI build ${version}`);
 
   const legacy = await capture(baseline.map(name => [name, false]));
   assert.ok(legacy.names.includes('view_image'), 'The legacy view_image_tool flag must expose the regression');
@@ -89,7 +87,7 @@ async function capture(features) {
     for await (const chunk of request) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     assert.equal(request.headers.authorization, undefined);
-    receive(inventoryNames(body.tools ?? []));
+    receive(inventoryNames([...(body.tools ?? []), ...(body.input ?? []).filter(item => item.type === 'additional_tools').flatMap(item => item.tools ?? [])]));
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
     const result = { id: 'fixture-response', object: 'response', status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 } };
     response.end(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: result })}\n\n`);

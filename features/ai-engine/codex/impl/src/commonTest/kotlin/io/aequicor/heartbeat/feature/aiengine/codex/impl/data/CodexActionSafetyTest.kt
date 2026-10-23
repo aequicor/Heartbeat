@@ -31,16 +31,43 @@ import kotlin.test.assertTrue
 
 class CodexActionSafetyTest {
     @Test
-    fun `enhanced mode accepts only the build whose actual tool inventory was verified`() {
-        val off = CodexNativeOff(isActionAnalysisRequired = true)
-        off.requireVersion("0.163.0-alpha.10.2")
-        listOf(null, "", "0.160.0", "0.163.0", "0.163.0-alpha.10.1", "0.163.0-alpha.10.3", "1.0.0").forEach {
-            assertFailsWith<EngineException>(it) { off.requireVersion(it) }
+    fun `protected creation checks the selected model inventory before starting a thread`() = runTest {
+        val fixture = Fixture(this, tools = SafetyTools())
+        var checks = 0
+        fixture.wire.verifyInventory = { model, config, off ->
+            checks++
+            assertEquals("model", model)
+            assertTrue(off.isVerifiedInventoryRequired)
+            assertEquals(JsonPrimitive(false), config.obj("features")["view_image"])
+            assertTrue(fixture.requests("thread/start").isEmpty())
         }
-        // The stronger contract must not change the existing protocol compatibility of legacy sessions.
-        CodexNativeOff(isShellDisabled = true).requireVersion("0.160.0")
-        CodexNativeOff(isShellDisabled = true).requireVersion("0.164.0")
-        CodexNativeOff().requireVersion(null)
+        fixture.open()
+        assertEquals(1, checks)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `protected sessions disable agents explicitly to override resumed delegation`() {
+        val off = CodexNativeOff(isActionAnalysisRequired = true)
+        val locked = off.applyTo(json())
+        assertTrue("agents.enabled=false" in off.arguments())
+        assertEquals(JsonPrimitive(false), locked.obj("agents")["enabled"])
+        val enabled = JsonObject(locked + ("agents" to json("enabled" to JsonPrimitive(true))))
+        for ((effective, flags) in listOf(enabled to locked, locked to enabled)) {
+            val layer = json("name" to json("type" to "sessionFlags".json()), "config" to flags)
+            val response = json("config" to effective, "layers" to JsonArray(listOf(layer)))
+            assertFailsWith<EngineException> { off.validateConfig(response) }
+        }
+    }
+
+    @Test
+    fun `unsafe inventory closes the candidate without creating a user thread`() = runTest {
+        val fixture = Fixture(this, tools = SafetyTools())
+        fixture.wire.verifyInventory = { _, _, _ -> inventoryFailure() }
+        assertFailsWith<EngineException> { fixture.open() }
+        assertTrue(fixture.requests("thread/start").isEmpty())
+        assertTrue(fixture.wire.peers.all { it.isClosed })
+        fixture.runtime.close()
     }
 
     @Test
@@ -48,8 +75,6 @@ class CodexActionSafetyTest {
         val off = CodexNativeOff(isToolFree = true)
         assertFalse(off.isActionAnalysisRequired)
         assertTrue(off.isVerifiedInventoryRequired)
-        off.requireVersion("0.163.0-alpha.10.2")
-        assertFailsWith<EngineException> { off.requireVersion("0.164.0") }
         val locked = off.applyTo(json())
         assertEquals(JsonPrimitive(false), locked.obj("features")["default_mode_request_user_input"])
         assertTrue("features.default_mode_request_user_input=false" in off.arguments())
@@ -124,21 +149,6 @@ class CodexActionSafetyTest {
         assertIs<ActiveSessionState.Running>(session.state.value)
         assertEquals(JsonObject(emptyMap()), fixture.questionResponse().obj("answers"))
         fixture.runtime.close()
-    }
-
-    @Test
-    fun `exact build probe never truncates extra suffixes or chooses between conflicting version lines`() {
-        val off = CodexNativeOff(isActionAnalysisRequired = true)
-        off.requireVersion(codexActionAnalysisVersion("warning\ncodex-cli 0.163.0-alpha.10.2\r\n"))
-        listOf(
-            "codex-cli 0.163.0-alpha.10.2+unverified",
-            "codex-cli 0.163.0-alpha.10.2_extra",
-            "codex-cli 0.163.0-alpha.10.2 ignored suffix",
-            "codex-cli 0.163.0-alpha.10.2\ncodex-cli 0.163.0-alpha.11",
-            "prefix codex-cli 0.163.0-alpha.10.2",
-        ).forEach { output ->
-            assertFailsWith<EngineException> { off.requireVersion(codexActionAnalysisVersion(output)) }
-        }
     }
 
     @Test
