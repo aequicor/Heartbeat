@@ -9,10 +9,12 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.Provider
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
+import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.bundles.BundleEntry
 import io.aequicor.heartbeat.core.bundles.BundleRegistry
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
@@ -29,8 +31,11 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraphAttachment
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
+import io.aequicor.heartbeat.core.secrets.SecretStorageInfo
+import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
@@ -78,7 +83,8 @@ public interface FoundationProfileAccess {
 }
 
 /** Stateful foundation services of one profile handed to the profile graphs of bundles. */
-@ContributesBinding(ProfileScope::class)
+@ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileBindings>())
+@ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileEngineBindings>())
 @Inject
 internal class DefaultFoundationProfileBindings(
     private val id: Provider<ProfileId>,
@@ -87,16 +93,21 @@ internal class DefaultFoundationProfileBindings(
     private val studio: Provider<StudioRemoteScreens>,
     private val facade: Provider<EngineFacade>,
     private val search: Provider<SearchEngine>,
+    private val secretStore: Provider<SecretStore>,
+    private val models: Provider<ModelProfilesView>,
     private val attachments: Provider<AttachmentsCatalog>,
     private val resolver: Provider<ResourceResolver>,
     private val tools: Provider<Set<AgentToolContribution>>,
     private val analyzers: Provider<Set<NativeActionAnalysis>>,
     private val offloads: Provider<Set<ToolOutputOffload>>,
-) : FoundationProfileBindings {
+) : FoundationProfileBindings,
+    FoundationProfileEngineBindings {
     override val profileId: ProfileId get() = id()
     override val profileScope: ScopeHandle get() = scope()
     override val dataStores: DataStores get() = stores()
     override val studioRemoteScreens: StudioRemoteScreens get() = studio()
+    override val secrets: SecretStore get() = secretStore()
+    override val modelProfiles: ModelProfilesView get() = models()
     override val engineFacade: EngineFacade get() = facade()
     override val searchEngine: SearchEngine get() = search()
     override val attachmentsCatalog: AttachmentsCatalog get() = attachments()
@@ -128,7 +139,9 @@ internal class DefaultFoundationBindings(
     private val launcher: Provider<MachineLauncher>,
     private val registry: Provider<MachineRegistry>,
     private val client: Provider<HttpClient>,
+    private val secrets: Provider<SecretStorageInfo>,
 ) : FoundationAppBindings {
+    override val secretStorage: SecretStorageInfo get() = secrets()
     override val featureToggles: FeatureToggles get() = toggles()
     override val featureToggleControl: FeatureToggleControl get() = control()
     override val profileSessions: ProfileSessions get() = sessions()

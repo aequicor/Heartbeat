@@ -5,6 +5,8 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.secrets.SecretStore
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
@@ -34,17 +36,14 @@ public interface FoundationProfileBindings {
     /** Studio screens that the Chromium side panel opens and drives (the studio stays in the foundation for now). */
     public val studioRemoteScreens: StudioRemoteScreens
 
-    /** Sessions and models of the AI engines (the engine facade stays in the foundation for now). */
-    public val engineFacade: EngineFacade
+    /** Credentials of the profile. */
+    public val secrets: SecretStore
 
-    /** Web search that research runs use (stays in the foundation for now). */
-    public val searchEngine: SearchEngine
+    /** Library of model descriptions; adaptive subagents stay in the foundation for now. */
+    public val modelProfiles: ModelProfilesView
 
     /** Catalog of the profile's attachments (stays in the foundation for now). */
     public val attachmentsCatalog: AttachmentsCatalog
-
-    /** Reads the bytes of attachments and other prompt resources of the profile. */
-    public val resourceResolver: ResourceResolver
 
     /**
      * Agent tools the foundation graph assembles: the contributions of the features that stay in it plus the parts
@@ -57,4 +56,21 @@ public interface FoundationProfileBindings {
 
     /** Tool output offloads contributed by the features of the foundation. */
     public val toolOutputOffloads: Set<ToolOutputOffload>
+}
+
+/**
+ * Services of the AI engines the foundation hands to the profile graphs of the bundles that only use them (`web`).
+ * They are a separate interface because the `engines` bundle owns these services: its own profile graph must not
+ * receive them from the foundation, or each would have two bindings. The foundation backs them with the lazy
+ * imports from `engines`.
+ */
+public interface FoundationProfileEngineBindings {
+    /** Sessions and models of the AI engines. */
+    public val engineFacade: EngineFacade
+
+    /** Web search that research runs use. */
+    public val searchEngine: SearchEngine
+
+    /** Reads the bytes of attachments and other prompt resources of the profile. */
+    public val resourceResolver: ResourceResolver
 }

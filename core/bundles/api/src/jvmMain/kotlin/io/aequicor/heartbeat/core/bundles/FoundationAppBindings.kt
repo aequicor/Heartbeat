@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.network.release.ReleaseSource
 import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
 import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
+import io.aequicor.heartbeat.core.secrets.SecretStorageInfo
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.ktor.client.HttpClient
@@ -66,4 +67,7 @@ public interface FoundationAppBindings {
 
     /** HTTP client of the application. */
     public val httpClient: HttpClient
+
+    /** Where and how the secrets are kept (the connection wizard tells it to the user). */
+    public val secretStorage: SecretStorageInfo
 }

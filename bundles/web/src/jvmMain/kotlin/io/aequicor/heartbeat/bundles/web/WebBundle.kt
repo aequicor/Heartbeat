@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.bundles.BundleEntry
 import io.aequicor.heartbeat.core.bundles.BundleId
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import kotlin.reflect.KClass
 
@@ -24,5 +25,8 @@ public class WebBundle : BundleEntry {
     override val profileExportTypes: List<KClass<*>> = listOf(WebProfileExports::class, ProfileStartupAccess::class)
 
     override fun createProfileGraph(appGraph: Any, foundation: Any, imports: Any): Any =
-        (appGraph as WebAppGraph).profileGraphs.create(foundation as FoundationProfileBindings)
+        (appGraph as WebAppGraph).profileGraphs.create(
+            foundation as FoundationProfileBindings,
+            foundation as FoundationProfileEngineBindings,
+        )
 }

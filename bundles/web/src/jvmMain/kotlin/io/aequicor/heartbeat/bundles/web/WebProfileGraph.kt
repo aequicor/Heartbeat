@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.bundles.web
 import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Includes
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.navigation.RouteEntry
@@ -36,6 +37,7 @@ internal interface WebProfileGraph : WebProfileExports {
     fun interface Factory {
         fun create(
             @Includes foundation: FoundationProfileBindings,
+            @Includes engines: FoundationProfileEngineBindings,
         ): WebProfileGraph
     }
 }
