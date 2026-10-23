@@ -6,9 +6,11 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
+import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppInstallation
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppReleaseSource
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.ReleasePlatform
+import io.aequicor.heartbeat.feature.appupdate.impl.domain.UpdateChannel
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.updateFailure
 
 /**
@@ -19,6 +21,40 @@ import io.aequicor.heartbeat.feature.appupdate.impl.domain.updateFailure
 @Inject
 internal class AppReleases(private val client: GitHubReleaseClient) : AppReleaseSource {
     private val log = Log.tag("AppReleases")
+
+    /**
+     * On the beta channel of a launch that knows its train: the newest train when it is not the installed one and the
+     * installed platform API suffices. A train that needs a newer platform is skipped, not failed: the platform
+     * cannot be updated by a train, so the check falls back to the full-installer release (which carries the new
+     * platform), and offers nothing when there is none. Everything else is the stable policy.
+     */
+    override suspend fun newer(installation: AppInstallation): AppRelease? {
+        if (installation.channel == UpdateChannel.Beta && installation.train != null) {
+            newerTrain(installation.repository, installation.train)?.let { return it }
+        }
+        return newer(installation.repository, installation.version, installation.platform)
+    }
+
+    private suspend fun newerTrain(repository: GitHubRepository, installed: String): AppRelease? {
+        val (release, asset) = newestTrain(client.recent(repository)) ?: return null
+        val manifest = parseTrainManifest(client.document(asset.url))
+        return when {
+            manifest.train == installed -> {
+                log.i { "installed train is the newest train=$installed" }
+                null
+            }
+
+            manifest.platformApi > INSTALLED_PLATFORM_API -> {
+                log.i { "train needs a newer platform train=${manifest.train} api=${manifest.platformApi}" }
+                null
+            }
+
+            else -> {
+                log.i { "newer train=${manifest.train} installed=$installed" }
+                toTrainOffer(release, asset, manifest)
+            }
+        }
+    }
 
     override suspend fun newer(
         repository: GitHubRepository,

@@ -8,7 +8,6 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeAuthentication
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineServices
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings

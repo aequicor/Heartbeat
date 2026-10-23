@@ -100,9 +100,9 @@ class ChromiumBridgeEndToEndTest {
         bounded("connection gone") {
             machine.state.first { (it as? ChromiumBridgeState.Enabled)?.connections?.isEmpty() == true }
         }
-        val tools = profile.toolContributions.single { it.group == "external_browser" }
-        val names = tools.specifications(AgentToolScope(null)).map { it.name }
-        assertTrue(names.isNotEmpty() && names.all { it.startsWith("ex_control_") }, "Declared: $names")
+        val tools = (profile as TestWebProfileAccessors).webAgentTools
+        val names = tools.specifications(AgentToolScope(null)).map { it.name }.filter { it.startsWith("ex_control_") }
+        assertTrue(names.isNotEmpty(), "Declared: $names")
         app.profileSessions.close()
     }
 

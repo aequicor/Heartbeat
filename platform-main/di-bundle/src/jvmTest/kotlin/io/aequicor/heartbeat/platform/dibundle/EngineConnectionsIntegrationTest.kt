@@ -7,14 +7,15 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineServices
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -35,10 +36,22 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
+/** The services the connection screens use, read through the engines bundle's public exports. */
+class EngineServices(val facade: EngineFacade, val sources: AuthSources)
+
 /** Profile accessor of the services used by the connection screens. */
 @ContributesTo(ProfileScope::class)
 interface EngineServicesAccessor {
-    val engineServices: EngineServices
+    val connectionFacade: EngineFacade
+    val connectionSources: AuthSources
+}
+
+val EngineServicesAccessor.engineServices: EngineServices get() = EngineServices(connectionFacade, connectionSources)
+
+/** Every engine registration of the profile, including the ones of the `engines` bundle. */
+@ContributesTo(ProfileScope::class)
+interface RegisteredEnginesAccess {
+    val registeredEngines: RegisteredEngines
 }
 
 /** Profile accessor of the model choice read by model pickers. */

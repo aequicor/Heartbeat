@@ -4,12 +4,16 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.bundles.impl.BundleHost
 import io.aequicor.heartbeat.core.secrets.SecretStorageInfo
 import io.aequicor.heartbeat.core.secrets.impl.SecretsConfig
 
 @DependencyGraph(AppScope::class)
 internal interface JvmHeartbeatGraph : HeartbeatGraph {
     val secretStorage: SecretStorageInfo
+
+    /** Runtime-loaded desktop bundles; none until a `:bundles:*` assembler is on the class path. */
+    val bundleHost: BundleHost
 
     @DependencyGraph.Factory
     fun interface Factory {
@@ -29,4 +33,4 @@ fun createHeartbeatGraph(
     allowSecretInteraction: Boolean = true,
 ): HeartbeatGraph = createGraphFactory<JvmHeartbeatGraph.Factory>().create(
     SecretsConfig(isDevelopment = hasLocalSecrets, isInteractionAllowed = allowSecretInteraction),
-)
+).also { graph -> graph.bundleHost.ensureStarted() }

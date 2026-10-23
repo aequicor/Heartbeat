@@ -23,7 +23,7 @@ class ClaudeIntegrationTest {
         val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)
         try {
             val profile = app.profileSessions.open(ProfileId("claude-test"))
-            val engines = (profile.graph as AiEngineAccess).engineRegistrations
+            val engines = (profile.graph as RegisteredEnginesAccess).registeredEngines.all
             val claude = engines.single { it.descriptor.id == ClaudeEngine.Id }
             assertFalse(claude.factory.isInitialized())
             assertEquals(ClaudeEngine.AuthOwner, claude.authOwner)

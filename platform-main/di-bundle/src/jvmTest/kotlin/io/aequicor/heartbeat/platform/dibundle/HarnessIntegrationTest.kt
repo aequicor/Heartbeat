@@ -4,6 +4,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
@@ -139,7 +140,7 @@ class HarnessIntegrationTest {
         val profile = app.profileSessions.open(profileId)
         // Construct facade/hooks first while harness stays disabled: the cycle must remain lazy.
         (profile.graph as AiEngineTestAccessors).engineFacade.engines.state.value
-        val hooks = (profile.graph as TestHarnessHookAccessors).harnessSessionHooks
+        val hooks = allSessionHooks(profile.graph as TestHarnessHookAccessors)
         // Planning may intercept conservatively while its toggle loads; harness observers must stay disabled.
         assertTrue(hooks.none { it.isObserving })
         assertNull(app.machines.find(HarnessMachineKey))
@@ -185,10 +186,17 @@ class HarnessIntegrationTest {
                 assertTrue(restored.isRuntimeAvailable)
                 // Reverse construction order: startup already activated harness before this explicit facade read.
                 (reopened.graph as AiEngineTestAccessors).engineFacade.engines.state.value
-                assertTrue((reopened.graph as TestHarnessHookAccessors).harnessSessionHooks.any { it.isIntercepting })
+                assertTrue(allSessionHooks(reopened.graph as TestHarnessHookAccessors).any { it.isIntercepting })
             }
         }
         app.profileSessions.close()
+    }
+
+    /** The hooks of the foundation plus those of the `agent-runtime` bundle: together, what the facade runs. */
+    private fun allSessionHooks(graph: TestHarnessHookAccessors): Set<SessionHook> {
+        val host = (app as BundleHostAccess).bundleHost
+        val bundle = host.foundationProfileImports(TestBundleSessionHooks::class, graph.harnessProfileScope)
+        return graph.harnessSessionHooks + bundle.sessionHooks
     }
 
     private suspend fun awaitInitialActivation(
@@ -302,7 +310,15 @@ interface TestHarnessHookAccessors {
 
     @ForScope(ProfileScope::class)
     val harnessProfileRoutes: Set<RouteEntry<*>>
+
+    @ForScope(ProfileScope::class)
+    val harnessProfileScope: ScopeHandle
     val studioHarnesses: StudioHarnesses
+}
+
+/** What the test reads from the profile graph of the `agent-runtime` bundle through the registry. */
+interface TestBundleSessionHooks {
+    val sessionHooks: Set<SessionHook>
 }
 
 private val HOOKED_SESSION = SessionRef(EngineId("test"), SessionSourceId("test"), "harness-session")

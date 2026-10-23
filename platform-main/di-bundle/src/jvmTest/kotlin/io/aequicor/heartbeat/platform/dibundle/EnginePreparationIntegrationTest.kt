@@ -1,15 +1,7 @@
 package io.aequicor.heartbeat.platform.dibundle
 
-import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
-import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.ConnectWizardGraph
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.ConnectWizardScope
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardModel
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenState
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.PreparationPhaseUi
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.WizardStep
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
@@ -33,15 +25,12 @@ import pro.respawn.flowmvi.dsl.collect
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** Resolves the production wizard model through its actual Metro child graph. */
-@ContributesTo(ConnectWizardScope::class)
-interface PreparationWizardTestAccessors {
-    val model: ConnectWizardModel
-}
-
+/**
+ * The connect wizard lives in the `engines` bundle's own graph now, so its model is covered by the connections tests;
+ * this test follows the preparation of an engine through the studio, which stays in the foundation.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class EnginePreparationIntegrationTest {
     @Test
@@ -61,42 +50,27 @@ class EnginePreparationIntegrationTest {
                 app.scopes.child(profile.graph.scope, "preparation-studio"),
                 StudioScreenHost.Window,
             ).model
-            val wizard = (profile.graph as ConnectWizardGraph.Factory).createConnectWizard(
-                ConnectEngineRoute(TestAdapter.engine),
-                app.scopes.child(profile.graph.scope, "preparation-wizard"),
-            ) as PreparationWizardTestAccessors
             val studioStates = MutableStateFlow<AiStudioScreenState?>(null)
-            val wizardStates = MutableStateFlow<ConnectWizardScreenState?>(null)
             backgroundScope.launch {
                 studio.store.collect { states.collect { studioStates.value = it } }
             }
-            backgroundScope.launch {
-                wizard.model.store.collect { states.collect { wizardStates.value = it } }
-            }
-            wizardStates.filterNotNull().first { it.step == WizardStep.Method }
             assertTrue(studioStates.filterNotNull().first().enginePreparations.isEmpty())
 
             TestAdapter.preparation.value = EnginePreparation.Downloading(42, 100)
             val downloadingStudio = studioStates.filterNotNull().first {
                 it.enginePreparations.singleOrNull()?.phase == EnginePreparationPhaseUi.Downloading
             }
-            val downloadingWizard = wizardStates.filterNotNull().first {
-                it.preparation?.phase == PreparationPhaseUi.Downloading
-            }
             assertEquals(42, downloadingStudio.enginePreparations.single().percent)
             assertEquals("Integration engine", downloadingStudio.enginePreparations.single().engine)
-            assertEquals(42, downloadingWizard.preparation?.percent)
 
             TestAdapter.preparation.value = EnginePreparation.Failed(EnginePreparationFailure.Network)
             studioStates.filterNotNull().first {
                 it.enginePreparations.singleOrNull()?.phase == EnginePreparationPhaseUi.Network
             }
-            wizardStates.filterNotNull().first { it.preparation?.phase == PreparationPhaseUi.Network }
 
             TestAdapter.preparation.value = EnginePreparation.Ready
             val readyStudio = studioStates.filterNotNull().first { it.enginePreparations.isEmpty() }
             assertTrue(readyStudio.enginePreparations.isEmpty())
-            assertNull(wizardStates.filterNotNull().first { it.preparation == null }.preparation)
         } finally {
             app.closeAndAwaitStorages()
             TestAdapter.preparation.value = EnginePreparation.Ready

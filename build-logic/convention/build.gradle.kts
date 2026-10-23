@@ -57,6 +57,10 @@ gradlePlugin {
             id = libs.plugins.heartbeat.room.get().pluginId
             implementationClass = "io.aequicor.heartbeat.buildlogic.RoomConventionPlugin"
         }
+        register("heartbeatBundle") {
+            id = libs.plugins.heartbeat.bundle.get().pluginId
+            implementationClass = "io.aequicor.heartbeat.buildlogic.BundleConventionPlugin"
+        }
         register("heartbeatJcef") {
             id = libs.plugins.heartbeat.jcef.get().pluginId
             implementationClass = "io.aequicor.heartbeat.buildlogic.JcefConventionPlugin"

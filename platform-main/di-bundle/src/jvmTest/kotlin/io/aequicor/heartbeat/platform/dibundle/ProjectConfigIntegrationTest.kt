@@ -2,7 +2,9 @@ package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
@@ -60,7 +62,11 @@ class ProjectConfigIntegrationTest {
             assertTrue(ProjectConfigEnabled in toggles.toggleControl.registered)
             assertTrue(ProjectConfigEnabled.default)
             val profile = app.profileSessions.open(ProfileId("config-off"))
-            val sections = (profile.graph as TestProjectConfigAccessors).configSections.map { it.id }.toSet()
+            val accessors = profile.graph as TestProjectConfigAccessors
+            // The `agent-runtime` bundle owns the set: its sections plus the ones the foundation hands over.
+            val host = (app as BundleHostAccess).bundleHost
+            val sections = host.foundationProfileImports(TestBundleConfigSections::class, accessors.profileScope)
+                .configSections.map { it.id }.toSet()
             assertEquals(
                 setOf(ConfigSectionId.Harnesses, ConfigSectionId.Interfaces, ConfigSectionId.Learning),
                 sections,
@@ -134,7 +140,14 @@ class ProjectConfigIntegrationTest {
 
 @ContributesTo(ProfileScope::class)
 interface TestProjectConfigAccessors {
-    val configSections: Set<ConfigSection>
     val localWorkspaces: LocalWorkspaces
     val machines: MachineRegistry
+
+    @ForScope(ProfileScope::class)
+    val profileScope: ScopeHandle
+}
+
+/** What the test reads from the profile graph of the `agent-runtime` bundle through the registry. */
+interface TestBundleConfigSections {
+    val configSections: Set<ConfigSection>
 }

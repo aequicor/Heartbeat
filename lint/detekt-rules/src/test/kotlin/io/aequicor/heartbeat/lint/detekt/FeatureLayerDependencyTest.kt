@@ -71,6 +71,16 @@ class FeatureLayerDependencyTest {
     }
 
     @Test
+    fun `bundle registry is invisible to feature code`() {
+        val registry = "io.aequicor.heartbeat.core.bundles.BundleRegistry"
+        listOf("api", "impl.domain", "impl.di").forEach { source ->
+            assertEquals(1, rule.lint("package io.aequicor.heartbeat.feature.chat.$source\nimport $registry").size)
+        }
+        assertEquals(0, rule.lint("package io.aequicor.heartbeat.platform.dibundle\nimport $registry").size)
+        assertEquals(0, rule.lint("package io.aequicor.heartbeat.bundles.web\nimport $registry").size)
+    }
+
+    @Test
     fun `fully qualified references survive whitespace and escaped package names`() {
         assertEquals(
             2,

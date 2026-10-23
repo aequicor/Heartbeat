@@ -1,0 +1,56 @@
+name: Bundle train
+description: Assemble the desktop bundles and write train-manifest.json with only the jars that changed since the previous train.
+inputs:
+  train:
+    description: Train id (a plain name; the tag is train-<id>).
+    required: true
+  out:
+    description: Directory for train-manifest.json and the changed jars.
+    default: train-out
+  github-token:
+    description: Token that reads the previous train release.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Find the previous train
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REPO: ${{ github.repository }}
+        TRAIN: ${{ inputs.train }}
+      run: |
+        mkdir -p train-previous
+        tag=$(gh release list --limit 100 --json tagName,isDraft \
+          --jq "[.[] | select(.isDraft | not) | select(.tagName | startswith(\"train-\")) | select(.tagName != \"train-$TRAIN\")][0].tagName // \"\"")
+        if [ -n "$tag" ]; then
+          gh release download "$tag" --pattern train-manifest.json --dir train-previous || true
+        fi
+        ls train-previous
+    - name: Assemble the bundles
+      shell: bash
+      env:
+        TRAIN: ${{ inputs.train }}
+      # The jar name carries the train id; the build cache makes unchanged bundles cache hits, and
+      # train_manifest.py maps their identical jars back to the version of the train that first published them.
+      run: |
+        ./gradlew -Pheartbeat.bundleVersion="$TRAIN" \
+          -Porg.gradle.java.installations.auto-detect=false \
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64 \
+          assembleBundle bundleManifest --no-daemon --stacktrace --profile
+    - name: Write the train
+      shell: bash
+      env:
+        TRAIN: ${{ inputs.train }}
+        OUT: ${{ inputs.out }}
+      run: |
+        rm -rf train-jars "$OUT"
+        mkdir train-jars
+        cp bundles/*/build/bundle/*.jar train-jars/
+        previous=()
+        if [ -f train-previous/train-manifest.json ]; then
+          previous=(--previous train-previous/train-manifest.json)
+        fi
+        python3 scripts/train_manifest.py --built build/bundles/manifest.json --jars train-jars \
+          "${previous[@]}" --train "$TRAIN" --out "$OUT"
+        cat "$OUT/train-manifest.json"
