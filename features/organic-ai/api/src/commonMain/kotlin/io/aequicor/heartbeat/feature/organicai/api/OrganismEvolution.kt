@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.organicai.api
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -294,10 +295,18 @@ private fun Organism.answered(cell: Cell, text: String): Step = when {
     }
 }
 
-/** A broken zygote stalls until resumed; any other cell dies with its descendants and its parent is told. */
+/**
+ * A broken zygote stalls until resumed. A cell on its own model whose provider refused its first turn (rate limit,
+ * quota, credentials) starts that turn again on the organism's model in a new session. Any other cell dies with its
+ * descendants and its parent is told.
+ */
 private fun Organism.broke(cell: Cell, breakdown: Breakdown): Step {
     val phase = cell.phase as CellPhase.Working
     if (cell.isZygote) return Step(updated(cell.id) { it.copy(phase = CellPhase.Stalled(breakdown, phase.work)) })
+    if (cell.configuration != null && cell.turns == 1 && breakdown.isProviderRefusal()) {
+        val fallback = updated(cell.id) { begin(it.copy(configuration = null, session = null), phase.work) }
+        return Step(fallback, drive = cell.id)
+    }
     val cause = DeathCause.Failed(breakdown)
     val (excised, ended) = excise(cell.id, cause)
     val (posted, woken) = excised.post(cell.parent, Letter.ChildDied(cell.id, cell.name, cause), wakes = true)
@@ -408,6 +417,10 @@ private fun Organism.recover(cell: Cell, work: Work): Cell {
 private fun Organism.begin(cell: Cell, work: Work, isRecovery: Boolean = false): Cell {
     val turn = cell.turns + 1
     return cell.copy(phase = CellPhase.Working(requestFor(cell.id, turn), work, isRecovery), turns = turn)
+}
+
+private fun Breakdown.isProviderRefusal(): Boolean = (this as? Breakdown.Engine)?.failure.let {
+    it is EngineFailure.RateLimited || it is EngineFailure.QuotaExceeded || it is EngineFailure.Authentication
 }
 
 private fun List<Trial>.replaced(trial: Trial): List<Trial> = map { if (it.case.id == trial.case.id) trial else it }
