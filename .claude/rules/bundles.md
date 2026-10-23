@@ -45,9 +45,13 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   `ScheduledSessionHost`, `ScheduledWakeOwner`, `ScheduledEventOwner`, `HelperCapacityRecoverySource`,
   `SchedulerEventSource` и `ConfigSection`, поэтому их владеет бандл, а часть фундамента (студия, чек-листы, интерфейсы)
   приходит через `FoundationProfileBindings.agentRuntimeSets`; `AgentRuntimeOwnedSets` в фундаменте держит только
-  `@Multibinds`. `ScheduledHelperPromptOwner`, `ScheduledRequestOriginObserver` и `ServiceUiProvider` читает фундамент
-  (студия, service-as-ui), поэтому их владеет фундамент, а харнессы бандла отдают свою часть экспортом. Тот же принцип, что
-  у `engines`: набор нельзя одновременно собирать из чужого экспорта и отдавать ему свою часть (получится цикл).
+  `@Multibinds`. `ScheduledHelperPromptOwner` и `ScheduledRequestOriginObserver` читает фундамент (студия), поэтому их
+  владеет фундамент, а харнессы бандла отдают свою часть экспортом. `ServiceUiProvider` читает service-as-ui, то есть
+  `studio`: он владеет набором и берёт часть харнессов у `agent-runtime` (`StudioProfileImports`), а фундамент его больше
+  не собирает. Тот же принцип, что у `engines`: набор нельзя одновременно собирать из чужого экспорта и отдавать ему свою
+  часть (получится цикл). Если владелец уже экспортирует набор целиком, а часть нужна ему от другого бандла, часть
+  едет под отдельным ключом-держателем: `ConfigSectionPart` (`core:bundles:api`) несёт разделы конфигурации
+  `service-as-ui` из `studio` в дерево `agent-runtime`, которое тот целиком экспортирует как `Set<ConfigSection>`.
 - **Бандл `studio`.** Фичи вокруг студии отдают фундаменту сервисы экспортом профильного графа (`StudioProfileExports`:
   `EffortChoicesView`, `PlanningView`, `ComposerAssists`, `ContextOptimizationView`, экраны опросников и чек-листов,
   машина переноса сессии), а фундамент читает их через `FoundationProfileBundleImports`. Инструменты агента, хуки сессий,
@@ -55,7 +59,10 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   владельцы наборов планировщика — `agent-runtime`, который берёт владельцев пробуждений чек-листов у `studio`
   (`AgentRuntimeProfileImports`). Шину планировщика `studio` получает от фундамента через
   `FoundationProfileRuntimeBindings` (отдельный интерфейс по той же причине, что и `FoundationProfileModelBindings`).
-  `ai-studio`, `attachments` и `service-as-ui` пока остаются в фундаменте.
+  Документы и превью браузера для интерфейсов `service-as-ui` бандл берёт у `web` (`StudioProfileImports`, без `web`
+  подставляются заглушки). Окно-презентацию захвата и гид выдачи прав `computer-use` отдаёт хосту экспорт уровня
+  приложения (`StudioAppExports`, импорт `FoundationBundleImports`). `ai-studio` и `attachments` пока остаются в
+  фундаменте: их потребляют `engines`, `web`, Chromium-мост и всё, что строит граф `AiStudioGraph`.
 - **Контрибуции из не-impl библиотек** (например `core:common`) попадают в граф каждого бандла. Публичные снимает
   `excludes` на `@DependencyGraph`; `internal` нельзя назвать в `excludes` — перекрывай их
   `@ContributesBinding(priority = …)` в бандле (проверено spike-тестом) или оставляй дубликат, если класс без состояния.
