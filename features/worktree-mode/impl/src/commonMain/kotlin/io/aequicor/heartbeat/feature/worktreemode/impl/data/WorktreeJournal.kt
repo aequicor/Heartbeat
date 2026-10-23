@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeAction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
@@ -271,7 +272,7 @@ internal class WorktreeJournal(
 
     private suspend fun recheckCommand(command: WorktreeIntent.Public.Recheck, emit: suspend (WorktreeTask) -> Unit) {
         record(command.chatId)?.takeIf { it.task.virtualSandbox != null }?.let { selected ->
-            virtual.refresh(selected, command.isResume, command.resolveConflicts)
+            virtual.refresh(reopened(selected), command.isResume, command.resolveConflicts)
             virtual.related(selected.commonDirectory).forEach { emit(it.task) }
         } ?: recheck(command.chatId, emit)
     }
@@ -318,7 +319,7 @@ internal class WorktreeJournal(
                     it.descriptor.id == command.target?.engine
                 }
                 check(engine?.descriptor?.isVirtualWorkspaceSupported != false) { "VirtualWorkspaceUnsupported" }
-                val checked = virtual.refresh(captured, explicit = false)
+                val checked = virtual.refresh(reopened(captured), explicit = false)
                 check(checked?.task?.virtualSandbox?.let { it.isReady || it.isResolving } == true) { "SandboxPaused" }
                 update(command.chatId) { it.startingRun(command) } ?: return@prepareRun null
             } else {
@@ -334,6 +335,13 @@ internal class WorktreeJournal(
                 update(command.chatId) { it.copy(task = it.task.runPrepared(command.request)) }
             }
         }
+
+    /** A new run continues a handed-off sandbox, for example a follow-up to a completed organism. */
+    private suspend fun reopened(captured: WorktreeRecord): WorktreeRecord {
+        if (captured.task.virtualSandbox?.phase != VirtualSandboxPhase.HandedOff) return captured
+        val state = git.reopenVirtual(captured) ?: return captured
+        return update(captured.task.chatId) { it.copy(task = it.task.virtualChanged(state)) } ?: captured
+    }
 
     /** Serialized with run preparation, so a new native turn cannot start between the check and the capture. */
     private suspend fun seal(command: WorktreeIntent.Public.Seal, emit: suspend (WorktreeTask) -> Unit) {

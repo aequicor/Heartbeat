@@ -296,11 +296,26 @@ internal class DesktopVirtualWorkspaces(
         val branch = checkNotNull(record.task.branch)
         val snapshot = current.state.snapshot
         val existing = git.call(current.source, "rev-parse", "--verify", "refs/heads/$branch", allowFailure = true)
-        check(existing.code != 0 || existing.text.trim() == snapshot) { "SandboxBranchOccupied" }
-        if (existing.code != 0) git.call(current.source, "update-ref", "refs/heads/$branch", snapshot, "")
+        val tip = existing.text.trim().takeIf { existing.code == 0 }
+        // A reopened sandbox moves only the result branch it published itself.
+        check(tip == null || tip == snapshot || tip == current.handedOff) { "SandboxBranchOccupied" }
+        if (tip != snapshot) git.call(current.source, "update-ref", "refs/heads/$branch", snapshot, tip.orEmpty())
         log.i { "Virtual sandbox branch handed to user" }
         save(
             current.copy(state = current.state.copy(phase = VirtualSandboxPhase.HandedOff, resultCommit = snapshot)),
+        ).state
+    }
+
+    /** A new run continues a handed-off sandbox; the next handoff moves the result branch to the new snapshot. */
+    override suspend fun reopen(ref: WorkspaceRef): VirtualSandboxState = lock.withLock {
+        val record = known(ref)
+        if (record.state.phase != VirtualSandboxPhase.HandedOff) return@withLock record.state
+        log.i { "Virtual sandbox reopened for a new run" }
+        save(
+            record.copy(
+                state = record.state.copy(phase = VirtualSandboxPhase.Ready, resultCommit = null),
+                handedOff = record.state.resultCommit,
+            ),
         ).state
     }
 
@@ -736,6 +751,8 @@ private data class VirtualRecord(
     val branchCommits: Map<String, String> = emptyMap(),
     /** Branch the sandbox continues after [DesktopVirtualWorkspaces.checkoutRef] or a branch commit. */
     val branch: String? = null,
+    /** Result branch tip of a handoff before [DesktopVirtualWorkspaces.reopen]; the next handoff may move it. */
+    val handedOff: String? = null,
     /** Merged tip that the next branch commit records as a second parent; a later merge supersedes it. */
     val mergeParent: String? = null,
 ) {
@@ -754,6 +771,7 @@ internal interface VirtualSandboxStore :
     suspend fun resume(ref: WorkspaceRef, explicit: Boolean, resolveConflicts: Boolean = false): VirtualSandboxState
     suspend fun snapshot(ref: WorkspaceRef): String
     suspend fun handoff(record: WorktreeRecord): VirtualSandboxState
+    suspend fun reopen(ref: WorkspaceRef): VirtualSandboxState
     suspend fun integrate(
         parent: WorkspaceRef,
         child: WorkspaceRef,
