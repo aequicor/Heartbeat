@@ -49,7 +49,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * with living children, a filed case, a dispute it participates in or unread results rests; otherwise it completes
  * (the zygote completes the organism). A broken zygote stalls. A cell on its own model whose provider refused its
  * first turn (rate limit, quota, credentials) starts it again on the organism's model in a new session; any other
- * broken cell dies with its descendants and its parent is told. A kill lyses the accused subtree and may wake its waiting parent and plaintiff.
+ * broken cell dies with its descendants and its parent is told. A kill lyses the accused subtree and may wake its
+ * waiting parent and plaintiff.
  * All result text is returned through the receive tool,
  * never through a prompt. A result arriving during a turn never interrupts it. Explicit waits and read cursors
  * survive restart; legacy saved letters turns are moved back into inboxes before recovery.
