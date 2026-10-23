@@ -41,7 +41,6 @@ kotlin {
             implementation(projects.features.attachments.api)
             implementation(projects.features.attachments.impl)
             implementation(projects.features.harness.api)
-            implementation(projects.features.harness.impl)
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.autocomplete.api)
@@ -100,6 +99,7 @@ kotlin {
             implementation(projects.features.scheduler.impl)
             implementation(projects.features.adaptiveSubagents.impl)
             implementation(projects.features.organicAi.impl)
+            implementation(projects.features.harness.impl)
         }
         androidMain.dependencies(agentRuntimeImpls)
         iosMain.dependencies(agentRuntimeImpls)

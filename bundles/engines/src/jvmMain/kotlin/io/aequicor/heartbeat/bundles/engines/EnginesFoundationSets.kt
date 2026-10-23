@@ -32,6 +32,9 @@ public interface EnginesProfileImports {
 
     /** Virtual workspaces of the `agent-runtime` bundle (sandboxes of worktree tasks). */
     public val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider>
+
+    /** Session hooks of the `agent-runtime` bundle (harnesses watch and feed sessions through them). */
+    public val sessionHooks: Set<SessionHook>
 }
 
 /** The foundation owns the attachments; the facade of `engines` resolves prompt resources through its resolver. */
@@ -63,6 +66,10 @@ internal object EnginesFoundationSets {
     @ElementsIntoSet
     fun bundleVirtualWorkspaces(imports: EnginesProfileImports): Set<VirtualWorkspaceProvider> =
         imports.virtualWorkspaceProviders
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleSessionHooks(imports: EnginesProfileImports): Set<SessionHook> = imports.sessionHooks
 
     @Provides
     @ElementsIntoSet

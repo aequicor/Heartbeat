@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsEnab
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEnabled
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgents
@@ -64,6 +65,7 @@ class AgentRuntimeBundleWiringTest {
             SchedulerEnabled,
             AdaptiveSubagentsEnabled,
             OrganicAiEnabled,
+            HarnessEnabled,
         ).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
@@ -77,6 +79,7 @@ class AgentRuntimeBundleWiringTest {
         assertTrue("ProjectConfigStartup" in names, names.toString())
         assertTrue("SchedulerStartup" in names, names.toString())
         assertTrue("OrganicAiStartup" in names, names.toString())
+        assertTrue("HarnessStartup" in names, names.toString())
     }
 
     @Test

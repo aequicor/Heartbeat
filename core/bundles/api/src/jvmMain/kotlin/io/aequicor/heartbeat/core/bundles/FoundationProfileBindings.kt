@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
@@ -155,6 +156,11 @@ public interface FoundationProfileEngineBindings {
 
     /** One-shot isolated prompts (adaptive subagents route and research models with them). */
     public val isolatedPrompts: IsolatedPrompts
+
+    /**
+     * Tools of the profile's agents; harnesses list their catalogs. Read lazily: the bundle's own tools are part of it.
+     */
+    public val profileAgentTools: ProfileAgentTools
 }
 
 /**

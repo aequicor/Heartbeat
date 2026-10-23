@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
+import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveModels
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthChecks
@@ -46,6 +47,15 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocuments
+import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
+import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
+import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionsIntent
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionsOutput
+import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionsState
+import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
+import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
+import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
@@ -59,6 +69,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
+import io.aequicor.heartbeat.feature.serviceasui.api.spi.ServiceUiProvider
 
 /**
  * What the profile graph of the foundation takes from the profile graphs of the bundles; implemented by the host
@@ -148,6 +159,24 @@ internal interface FoundationProfileBundleImports {
 
     /** Model picker for subagents of the `agent-runtime` bundle. */
     val adaptiveModels: AdaptiveModels
+
+    /** Harness library of the `agent-runtime` bundle. */
+    val harnessLibrary: Machine<HarnessState, HarnessIntent, HarnessOutput>
+
+    /** Workflow runs of the `agent-runtime` bundle. */
+    val harnessRuns: Machine<HarnessRunsState, HarnessRunsIntent, HarnessRunsOutput>
+
+    /** Process decisions of the `agent-runtime` bundle. */
+    val processDecisions: Machine<ProcessDecisionsState, ProcessDecisionsIntent, ProcessDecisionsOutput>
+
+    /** Prompt context owners of the harnesses of the `agent-runtime` bundle. */
+    val scheduledHelperPromptOwners: Set<ScheduledHelperPromptOwner>
+
+    /** Request provenance observers of the harnesses of the `agent-runtime` bundle. */
+    val scheduledRequestOriginObservers: Set<ScheduledRequestOriginObserver>
+
+    /** Service-as-ui providers of the `agent-runtime` bundle. */
+    val serviceUiProviders: Set<ServiceUiProvider>
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -231,8 +260,8 @@ internal interface AgentRuntimeOwnedSets {
 }
 
 /**
- * Scheduler sets that the foundation owns: its features (the studio) read them, the `agent-runtime` bundle exports
- * nothing into them yet.
+ * Scheduler sets that the foundation owns: its features (the studio) read them, and the harnesses of the
+ * `agent-runtime` bundle contribute to them through its exports.
  */
 @ContributesTo(ProfileScope::class)
 internal interface SchedulerConsumedSets {
@@ -269,6 +298,21 @@ internal object ProfileBundleImportBindings {
     @ForScope(ProfileScope::class)
     fun bundleRoutes(imports: FoundationProfileBundleImports): Set<RouteEntry<*>> =
         imports.orElse(emptySet()) { profileRoutes }
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleHelperPromptOwners(imports: FoundationProfileBundleImports): Set<ScheduledHelperPromptOwner> =
+        imports.orElse(emptySet()) { scheduledHelperPromptOwners }
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleRequestOriginObservers(imports: FoundationProfileBundleImports): Set<ScheduledRequestOriginObserver> =
+        imports.orElse(emptySet()) { scheduledRequestOriginObservers }
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleServiceUiProviders(imports: FoundationProfileBundleImports): Set<ServiceUiProvider> =
+        imports.orElse(emptySet()) { serviceUiProviders }
 
     @Provides
     @ElementsIntoSet
@@ -350,6 +394,20 @@ internal object AgentRuntimeServiceImportBindings {
 
     @Provides
     fun adaptiveModels(imports: FoundationProfileBundleImports): AdaptiveModels = imports.adaptiveModels
+
+    @Provides
+    fun harnessLibrary(imports: FoundationProfileBundleImports): Machine<HarnessState, HarnessIntent, HarnessOutput> =
+        imports.harnessLibrary
+
+    @Provides
+    fun harnessRuns(
+        imports: FoundationProfileBundleImports,
+    ): Machine<HarnessRunsState, HarnessRunsIntent, HarnessRunsOutput> = imports.harnessRuns
+
+    @Provides
+    fun processDecisions(
+        imports: FoundationProfileBundleImports,
+    ): Machine<ProcessDecisionsState, ProcessDecisionsIntent, ProcessDecisionsOutput> = imports.processDecisions
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */

@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileModelBindings
 import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.RecordRetentions
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
@@ -50,6 +51,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
@@ -122,6 +124,7 @@ internal class DefaultFoundationProfileBindings(
     private val selections: Provider<ModelSelections>,
     private val sources: Provider<AuthSources>,
     private val prompts: Provider<IsolatedPrompts>,
+    private val agentTools: Provider<ProfileAgentTools>,
     private val tools: Provider<Set<AgentToolContribution>>,
     private val analyzers: Provider<Set<NativeActionAnalysis>>,
     private val offloads: Provider<Set<ToolOutputOffload>>,
@@ -153,6 +156,7 @@ internal class DefaultFoundationProfileBindings(
     override val modelSelections: ModelSelections get() = selections()
     override val authSources: AuthSources get() = sources()
     override val isolatedPrompts: IsolatedPrompts get() = prompts()
+    override val profileAgentTools: ProfileAgentTools get() = agentTools()
     override val engineSets: FoundationEngineSets = object : FoundationEngineSets {
         override val resourceResolver: ResourceResolver get() = resolver()
         override val engineRegistrations: Set<EngineRegistration> get() = registrations()
@@ -197,7 +201,9 @@ internal class DefaultFoundationBindings(
     private val registry: Provider<MachineRegistry>,
     private val client: Provider<HttpClient>,
     private val secrets: Provider<SecretStorageInfo>,
+    private val retentions: Provider<RecordRetentions>,
 ) : FoundationAppBindings {
+    override val recordRetentions: RecordRetentions get() = retentions()
     override val secretStorage: SecretStorageInfo get() = secrets()
     override val featureToggles: FeatureToggles get() = toggles()
     override val featureToggleControl: FeatureToggleControl get() = control()
