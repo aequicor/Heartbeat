@@ -13,6 +13,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionEngineTransfer
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistEnabled
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistRemoteScreens
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermissionGuide
@@ -73,6 +75,7 @@ class StudioBundleWiringTest {
             ContextOptimizationEnabled,
             ComputerUseEnabled,
             QuestionnaireEnabled,
+            ChecklistEnabled,
         ).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
@@ -85,6 +88,13 @@ class StudioBundleWiringTest {
         assertTrue("FeedbackStartup" in names, names.toString())
         assertTrue("PlanningStartup" in names, names.toString())
         assertTrue("QuestionnaireStartup" in names, names.toString())
+        assertTrue("ChecklistStartup" in names, names.toString())
+    }
+
+    @Test
+    fun `the checklist screens of the bundle reach the foundation`() = runTest {
+        val session = app.profileSessions.open(ProfileId("studio-checklist"))
+        assertNotNull((session.graph as TestStudioProfileAccessors).studioChecklistScreens)
     }
 
     @Test
@@ -161,6 +171,7 @@ interface TestStudioProfileAccessors {
     val studioAgentTools: ProfileAgentTools
     val studioContextOptimization: ContextOptimizationView
     val studioQuestionnaireScreens: QuestionnaireRemoteScreens
+    val studioChecklistScreens: ChecklistRemoteScreens
 
     @ForScope(ProfileScope::class)
     val studioProfileScope: ScopeHandle

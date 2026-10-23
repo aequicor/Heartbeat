@@ -37,6 +37,10 @@ internal object AgentRuntimeFoundationSets {
 
     @Provides
     @ElementsIntoSet
+    fun bundleWakeOwners(imports: AgentRuntimeProfileImports): Set<ScheduledWakeOwner> = imports.scheduledWakeOwners
+
+    @Provides
+    @ElementsIntoSet
     fun foundationEventOwners(foundation: FoundationProfileBindings): Set<ScheduledEventOwner> =
         foundation.agentRuntimeSets.scheduledEventOwners
 

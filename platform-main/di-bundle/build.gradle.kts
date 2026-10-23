@@ -27,7 +27,6 @@ kotlin {
             api(projects.features.aiEngine.pi.api)
             api(projects.features.welcome.api)
             api(projects.features.questionnaire.api)
-            implementation(projects.features.checklist.impl)
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.aiStudio.api)
             api(projects.features.computerUse.api)
@@ -105,6 +104,7 @@ kotlin {
             implementation(projects.features.effortConfiguration.impl)
             implementation(projects.features.feedback.impl)
             implementation(projects.features.planningMode.impl)
+            implementation(projects.features.checklist.impl)
             implementation(projects.features.questionnaire.impl)
         }
         androidMain.dependencies(studioImpls)
@@ -146,6 +146,7 @@ kotlin {
             implementation(projects.features.effortConfiguration.api)
             implementation(projects.features.aiSessionEngineTransfer.api)
             implementation(projects.features.contextWindowOptimization.api)
+            implementation(projects.features.checklist.api)
         }
         jvmTest.dependencies {
             runtimeOnly(projects.bundles.agentRuntime)

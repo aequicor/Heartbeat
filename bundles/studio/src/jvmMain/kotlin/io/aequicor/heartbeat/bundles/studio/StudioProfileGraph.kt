@@ -4,6 +4,7 @@ import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Includes
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileRuntimeBindings
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.navigation.RouteEntry
@@ -16,10 +17,12 @@ import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransfer
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferOutput
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferState
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistRemoteScreens
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreens
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 
 /**
  * What the profile graph of the `studio` bundle publishes to the foundation of the same profile. Its profile
@@ -47,6 +50,12 @@ public interface StudioProfileExports {
     /** Questionnaire screens the studio embeds next to a chat. */
     public val questionnaireScreens: QuestionnaireRemoteScreens
 
+    /** Checklist screens the studio embeds next to a chat. */
+    public val checklistScreens: ChecklistRemoteScreens
+
+    /** Admission controllers of the bundle's features; `agent-runtime` merges them into the set its scheduler reads. */
+    public val scheduledWakeOwners: Set<ScheduledWakeOwner>
+
     /** Offloads of long tool output; `engines` merges them into the set its facade assembles. */
     public val toolOutputOffloads: Set<ToolOutputOffload>
 
@@ -69,6 +78,7 @@ internal interface StudioProfileGraph : StudioProfileExports {
         fun create(
             @Includes foundation: FoundationProfileBindings,
             @Includes engines: FoundationProfileEngineBindings,
+            @Includes runtime: FoundationProfileRuntimeBindings,
         ): StudioProfileGraph
     }
 }

@@ -2,7 +2,9 @@ package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
@@ -70,7 +72,10 @@ class ChecklistIntegrationTest {
     fun `checklist contributes exactly one wake owner that follows its toggle without starting a chat`() = runTest {
         val profile = app.profileSessions.open(ProfileId("checklist-owner"))
         val access = profile.graph as TestChecklistAccessors
-        val owner = access.wakeOwners.single { it.feature == ChecklistEvents.OWNER }
+        // The `studio` bundle contributes the owner; `agent-runtime` merges it into the set its scheduler reads.
+        val host = (app as BundleHostAccess).bundleHost
+        val owner = host.foundationProfileImports(TestStudioWakeOwners::class, access.profileScope)
+            .scheduledWakeOwners.single { it.feature == ChecklistEvents.OWNER }
         val request = WakeRequest(
             WakeId("owner-check"),
             session,
@@ -139,5 +144,12 @@ interface TestChecklistAccessors {
     val tools: ProfileAgentTools
     val machines: MachineRegistry
     val bus: SchedulerBus
-    val wakeOwners: Set<ScheduledWakeOwner>
+
+    @ForScope(ProfileScope::class)
+    val profileScope: ScopeHandle
+}
+
+/** What the test reads from the profile graph of the `studio` bundle through the registry. */
+interface TestStudioWakeOwners {
+    val scheduledWakeOwners: Set<ScheduledWakeOwner>
 }

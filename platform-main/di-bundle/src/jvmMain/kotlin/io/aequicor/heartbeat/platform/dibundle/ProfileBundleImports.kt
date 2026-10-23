@@ -51,6 +51,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocuments
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistRemoteScreens
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
@@ -203,6 +204,9 @@ internal interface FoundationProfileBundleImports {
 
     /** Questionnaire screens of the `studio` bundle. */
     val questionnaireScreens: QuestionnaireRemoteScreens
+
+    /** Checklist screens of the `studio` bundle. */
+    val checklistScreens: ChecklistRemoteScreens
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -461,6 +465,9 @@ internal object StudioServiceImportBindings {
     @Provides
     fun questionnaireScreens(imports: FoundationProfileBundleImports): QuestionnaireRemoteScreens =
         imports.questionnaireScreens
+
+    @Provides
+    fun checklistScreens(imports: FoundationProfileBundleImports): ChecklistRemoteScreens = imports.checklistScreens
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */

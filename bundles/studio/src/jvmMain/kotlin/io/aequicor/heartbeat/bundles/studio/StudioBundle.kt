@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.bundles.BundleId
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileRuntimeBindings
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import kotlin.reflect.KClass
 
@@ -29,5 +30,6 @@ public class StudioBundle : BundleEntry {
         (appGraph as StudioAppGraph).profileGraphs.create(
             foundation as FoundationProfileBindings,
             foundation as FoundationProfileEngineBindings,
+            foundation as FoundationProfileRuntimeBindings,
         )
 }

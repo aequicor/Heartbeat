@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.core.bundles.FoundationEngineSets
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileModelBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileRuntimeBindings
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.RecordRetentions
 import io.aequicor.heartbeat.core.datastore.StorageRoot
@@ -61,6 +62,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
@@ -109,6 +111,7 @@ public interface FoundationProfileAccess {
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileEngineBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileModelBindings>())
+@ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileRuntimeBindings>())
 @Inject
 internal class DefaultFoundationProfileBindings(
     private val id: Provider<ProfileId>,
@@ -141,9 +144,12 @@ internal class DefaultFoundationProfileBindings(
     private val eventOwners: Provider<Set<ScheduledEventOwner>>,
     private val recoverySources: Provider<Set<HelperCapacityRecoverySource>>,
     private val eventSources: Provider<Set<SchedulerEventSource>>,
+    private val bus: Provider<SchedulerBus>,
 ) : FoundationProfileBindings,
     FoundationProfileEngineBindings,
-    FoundationProfileModelBindings {
+    FoundationProfileModelBindings,
+    FoundationProfileRuntimeBindings {
+    override val schedulerBus: SchedulerBus get() = bus()
     override val profileId: ProfileId get() = id()
     override val profileScope: ScopeHandle get() = scope()
     override val dataStores: DataStores get() = stores()

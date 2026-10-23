@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
@@ -165,6 +166,16 @@ public interface FoundationProfileEngineBindings {
      * Tools of the profile's agents; harnesses list their catalogs. Read lazily: the bundle's own tools are part of it.
      */
     public val profileAgentTools: ProfileAgentTools
+}
+
+/**
+ * The scheduler services the bundles that only use them read (`studio`: checklists publish on the bus). Apart from
+ * [FoundationProfileBindings] because the `agent-runtime` bundle owns the bus: its own graph must not receive it from
+ * the foundation, or it would have two bindings. The foundation backs it with the lazy import from `agent-runtime`.
+ */
+public interface FoundationProfileRuntimeBindings {
+    /** Bus of events and wakes between features. */
+    public val schedulerBus: SchedulerBus
 }
 
 /**

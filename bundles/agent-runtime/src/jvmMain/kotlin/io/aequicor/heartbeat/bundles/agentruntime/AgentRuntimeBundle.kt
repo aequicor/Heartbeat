@@ -22,6 +22,8 @@ public class AgentRuntimeBundle : BundleEntry {
 
     override val hasProfileGraph: Boolean = true
 
+    override val profileImportsType: KClass<*> = AgentRuntimeProfileImports::class
+
     override val profileExportTypes: List<KClass<*>> =
         listOf(AgentRuntimeProfileExports::class, ProfileStartupAccess::class)
 
@@ -29,5 +31,6 @@ public class AgentRuntimeBundle : BundleEntry {
         (appGraph as AgentRuntimeAppGraph).profileGraphs.create(
             foundation as FoundationProfileBindings,
             foundation as FoundationProfileEngineBindings,
+            imports as AgentRuntimeProfileImports,
         )
 }

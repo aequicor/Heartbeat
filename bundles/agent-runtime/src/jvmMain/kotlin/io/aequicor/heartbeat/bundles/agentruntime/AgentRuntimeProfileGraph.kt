@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.bundles.agentruntime
 
 import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Includes
+import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.di.ForScope
@@ -29,6 +30,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.LocalCommands
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledHelperPromptOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledRequestOriginObserver
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.spi.ServiceUiProvider
 
 /**
@@ -92,6 +94,16 @@ public interface AgentRuntimeProfileExports {
     public val configSections: Set<ConfigSection>
 }
 
+/**
+ * What the profile graph of `agent-runtime` takes from other bundles; implemented by the host with lazy proxies.
+ * Sets of this interface are owned by `agent-runtime` (its scheduler assembles them), so the bundle never exports
+ * them.
+ */
+public interface AgentRuntimeProfileImports {
+    /** Admission controllers of the `studio` bundle's features (checklists) for the wakes they own. */
+    public val scheduledWakeOwners: Set<ScheduledWakeOwner>
+}
+
 /** Profile-level graph of the `agent-runtime` bundle: the profile contributions of its member features. */
 @GraphExtension(ProfileScope::class)
 internal interface AgentRuntimeProfileGraph : AgentRuntimeProfileExports {
@@ -100,6 +112,9 @@ internal interface AgentRuntimeProfileGraph : AgentRuntimeProfileExports {
         fun create(
             @Includes foundation: FoundationProfileBindings,
             @Includes engines: FoundationProfileEngineBindings,
+            // Provided as an instance, not included: an included interface would bind its `Set` accessor itself and
+            // shadow the multibinding the scheduler reads.
+            @Provides imports: AgentRuntimeProfileImports,
         ): AgentRuntimeProfileGraph
     }
 }
