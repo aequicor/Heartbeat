@@ -58,6 +58,9 @@ sealed interface EngineManagementIntent : EngineControlPanelIntent {
 
     /** Passes the pasted code to the signing-in CLI. */
     data object SubmitLoginCode : EngineRequest
+
+    /** Opens the engine's host application. */
+    data object OpenHostApp : EngineRequest
 }
 
 /** Removals, a package sync, an update replacing the verified bundled copy and sign-out ask first. */
@@ -95,7 +98,7 @@ internal fun EngineControlPanelState.sent(intent: EngineManagementIntent.EngineR
     is EngineManagementIntent.SetEngineEnabled, EngineManagementIntent.InspectEngine,
     EngineManagementIntent.CheckUpdates, EngineManagementIntent.RestartEngine,
     is EngineManagementIntent.RequestEngineAction, EngineManagementIntent.CancelEngineJob,
-    EngineManagementIntent.DismissEngineJob,
+    EngineManagementIntent.DismissEngineJob, EngineManagementIntent.OpenHostApp,
     -> this
 }
 
@@ -104,15 +107,27 @@ internal fun EngineControlPanelState.commandFor(intent: EngineManagementIntent.E
     if (panel == null) return null
     return when (intent) {
         is EngineManagementIntent.SetEngineEnabled -> EngineCommand.SetEnabled(intent.isEnabled)
+
         EngineManagementIntent.InspectEngine -> EngineCommand.Inspect
+
         EngineManagementIntent.CheckUpdates -> EngineCommand.CheckForUpdates
+
         EngineManagementIntent.RestartEngine -> EngineCommand.Restart
+
         EngineManagementIntent.CancelEngineJob -> EngineCommand.Cancel
+
         EngineManagementIntent.DismissEngineJob -> EngineCommand.Dismiss
+
         is EngineManagementIntent.RequestEngineAction -> EngineCommand.Start(intent.action.toAction(intent.method))
+
         EngineManagementIntent.ConfirmEngineAction -> confirmAction?.let { EngineCommand.Start(it.toAction()) }
+
         EngineManagementIntent.SaveLaunch -> launchCommand()
+
         EngineManagementIntent.SubmitLoginCode -> codeCommand()
+
+        EngineManagementIntent.OpenHostApp ->
+            EngineCommand.OpenHostApp.takeIf { EngineActionKindUi.OpenHostApp in panel.actions }
     }
 }
 

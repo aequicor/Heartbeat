@@ -24,6 +24,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
@@ -67,6 +69,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -192,6 +195,70 @@ class EngineManagementServiceTest {
         assertEquals(launchContext, manager.inspected.single())
         assertEquals(listOf(cliId), catalog.refreshes)
         assertEquals(1, runtimes.prunes)
+    }
+
+    @Test
+    fun `a host application is inspected only for engines that declare one and opens on request`() = runTest {
+        val service = service()
+        runCurrent()
+        service.execute(cliId, EngineCommand.Inspect)
+        runCurrent()
+        assertEquals(0, manager.hostInspections)
+        assertNull(service.state.value.engine(cliId).hostApp)
+        assertRefused { service.execute(cliId, EngineCommand.OpenHostApp) }
+    }
+
+    @Test
+    fun `an inspected host application is shown and can be opened`() = runTest {
+        val hosted = FakeManager().apply { hostApp = HostAppState(isInstalled = true, version = "3.1") }
+        val spec = cliSpec.copy(hostApp = HostAppSpec("Host"))
+        val hostedRegistry = EngineRegistry(
+            listOf(registration(id = cliId, owner = AuthOwnerId("cli")).withManagement(spec, hosted)),
+            EnginePlatform.DesktopMacOs,
+        )
+        val service = service(hostedRegistry)
+        runCurrent()
+        assertRefused { service.execute(cliId, EngineCommand.OpenHostApp) }
+
+        service.execute(cliId, EngineCommand.Inspect)
+        runCurrent()
+        assertEquals(hosted.hostApp, service.state.value.engine(cliId).hostApp)
+
+        service.execute(cliId, EngineCommand.OpenHostApp)
+        assertEquals(1, hosted.opened)
+
+        hosted.openFailure = IllegalStateException("launcher broke")
+        val crashed = assertFailsWith<EngineException> { service.execute(cliId, EngineCommand.OpenHostApp) }
+        assertEquals(EngineFailure.Unknown(), crashed.failure)
+        val missing = EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        hosted.openFailure = missing
+        assertEquals(
+            missing.failure,
+            assertFailsWith<EngineException> { service.execute(cliId, EngineCommand.OpenHostApp) }.failure,
+        )
+    }
+
+    @Test
+    fun `a failing host application inspection is recorded with the installation`() = runTest {
+        val hosted = FakeManager().apply {
+            hostFailure = EngineException(
+                EngineFailure.Engine(EngineFailureReason.Unavailable),
+            )
+        }
+        val spec = cliSpec.copy(hostApp = HostAppSpec("Host"))
+        val hostedRegistry = EngineRegistry(
+            listOf(registration(id = cliId, owner = AuthOwnerId("cli")).withManagement(spec, hosted)),
+            EnginePlatform.DesktopMacOs,
+        )
+        val service = service(hostedRegistry)
+        runCurrent()
+
+        service.execute(cliId, EngineCommand.Inspect)
+        runCurrent()
+
+        val hostApp = assertNotNull(service.state.value.engine(cliId).hostApp)
+        assertEquals(ManagementFailure.Engine(EngineFailure.Engine(EngineFailureReason.Unavailable)), hostApp.failure)
+        assertFalse(hostApp.isInstalled)
     }
 
     @Test
@@ -342,19 +409,20 @@ class EngineManagementServiceTest {
         assertEquals(copy, service.state.value.engine(cliId).installation.managed)
     }
 
-    private fun TestScope.service() = EngineManagementService(
-        registry,
-        flags,
-        preferences,
-        catalog,
-        bindings,
-        runtimes,
-        installs,
-        EngineLaunchConfig { launchContext },
-        UnusedFeeds,
-        CliConnections { },
-        facadeContext(),
-    )
+    private fun TestScope.service(registry: EngineRegistry = this@EngineManagementServiceTest.registry) =
+        EngineManagementService(
+            registry,
+            if (registry === this@EngineManagementServiceTest.registry) flags else FakeFlags(registry),
+            preferences,
+            catalog,
+            bindings,
+            runtimes,
+            installs,
+            EngineLaunchConfig { launchContext },
+            UnusedFeeds,
+            CliConnections { },
+            facadeContext(),
+        )
 
     private suspend fun assertRefused(block: suspend () -> Unit) {
         val error = assertFailsWith<EngineException> { block() }
@@ -447,6 +515,23 @@ private class FakeManager : EngineManager {
     var releaseFailure: ManagementException? = null
     val inspected = mutableListOf<LaunchContext>()
     val checked = mutableListOf<LaunchSettings>()
+    var hostApp = HostAppState()
+    var hostInspections = 0
+    var opened = 0
+
+    var hostFailure: EngineException? = null
+    var openFailure: Exception? = null
+
+    override suspend fun inspectHostApp(): HostAppState {
+        hostInspections++
+        hostFailure?.let { throw it }
+        return hostApp
+    }
+
+    override suspend fun openHostApp() {
+        openFailure?.let { throw it }
+        opened++
+    }
 
     override suspend fun inspect(launch: LaunchContext): Installation {
         inspected += launch

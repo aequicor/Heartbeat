@@ -22,8 +22,10 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusDirection
@@ -42,7 +44,9 @@ import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
@@ -53,6 +57,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.coroutines.flow.first
 
 private val log = Log.tag("HbCodeEditor")
 
@@ -72,7 +77,7 @@ private val log = Log.tag("HbCodeEditor")
  * to switch apps, so Ctrl+Tab is the key to tell users). [keyboardHint] is the caller's localized description of
  * these keys, read by accessibility services after the label. Touch keyboards have no Tab key, so indentation is
  * typed there. A read-only editor stays focusable, selectable and scrollable. The caller owns the text; logs never
- * contain it.
+ * contain it. [revealLine] (1-based) scrolls that line to the top once the text is laid out, again when it changes.
  */
 @Composable
 public fun HbCodeEditor(
@@ -87,6 +92,7 @@ public fun HbCodeEditor(
     placeholder: String = "",
     errorMessage: String? = null,
     keyboardHint: String? = null,
+    revealLine: Int? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -97,6 +103,7 @@ public fun HbCodeEditor(
     val focus = LocalFocusManager.current
     val highlight = remember(language, colors) { syntaxTransformation(language, colors) }
     val padding = HbTheme.spacing.s
+    RevealLine(revealLine, vertical, HbTheme.typography.code)
     HbRow(
         modifier
             .hbFocusOutline(isFocused, shape, isTextInput = true)
@@ -131,6 +138,20 @@ public fun HbCodeEditor(
                 },
             )
         }
+    }
+}
+
+/** Scrolls [line] to the top of [scroll] once the editor can scroll; lines never wrap, so each is one line high. */
+@Composable
+private fun RevealLine(line: Int?, scroll: ScrollState, style: TextStyle) {
+    val measurer = rememberTextMeasurer()
+    LaunchedEffect(line, scroll) {
+        if (line == null || line <= 1) return@LaunchedEffect
+        // The step between baselines: a single line may be trimmed of its leading.
+        val lineHeight = measurer.measure("0\n0", style).size.height - measurer.measure("0", style).size.height
+        snapshotFlow { scroll.maxValue }.first { it in 1 until Int.MAX_VALUE }
+        scroll.scrollTo((line - 1) * lineHeight)
+        log.d { "Revealed a line of the code editor" }
     }
 }
 

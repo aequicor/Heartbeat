@@ -12,5 +12,6 @@ internal class UnsupportedProjectFileIndex : ProjectFileIndex {
         workspace: io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef?,
         query: String,
         limit: Int,
+        skillsOnly: Boolean,
     ) = emptyList<ProjectFile>()
 }

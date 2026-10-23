@@ -31,6 +31,9 @@ data class HbColors(
     /** Red error text and icons on neutral surfaces and inputs, with AA text contrast in every host preset. */
     val errorForeground: Color = if (isDark) Color(0xFFFFB4AB) else Color(0xFF9C2733)
     val textSecondary: Color = textPrimary.copy(alpha = 0.72f).compositeOver(surface)
+
+    /** Text of an interactive link in reading content; underlined as well, so color is never the only cue. */
+    val link: Color = if (isDark) Color(0xFFC9BCF5) else Color(0xFF5A3FB0)
     val syntaxKeyword: Color = if (isDark) Color(0xFFDDD2F4) else Color(0xFF654D92)
     val syntaxString: Color = if (isDark) Color(0xFFB4D8C2) else Color(0xFF356953)
     val syntaxNumber: Color = if (isDark) Color(0xFFE5C8A6) else Color(0xFF85522F)

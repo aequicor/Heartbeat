@@ -39,6 +39,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSkillContent
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
+import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
@@ -169,6 +175,34 @@ class StudioConfiguredSubmissionTest {
             assertTrue(fixture.session.requests.single().text().contains(fixture.engineContext.orEmpty()))
             assertTrue(fixture.preparedPrompt.orEmpty().contains("Hello"))
         }
+    }
+
+    @Test
+    fun `linked project skills reach the engine as host directives without changing the typed text`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.skills = listOf(
+            ComposerSkillContent("/open-pr", ".agents/skills/open-pr/SKILL.md", "---\nname: open-pr\n---\nOpen a PR"),
+        )
+
+        fixture.submit("skill")
+
+        val text = fixture.session.requests.single().text()
+        assertTrue("Open a PR" in text && ".agents/skills/open-pr/SKILL.md" in text)
+        assertEquals("Hello", stripHostDirectives(text))
+        assertEquals(listOf("Hello"), fixture.linkedTexts)
+        assertEquals(fixture.session.route.engine, fixture.linkedScopes.single().target?.engine)
+    }
+
+    @Test
+    fun `skills are not linked for agent prompts or slash commands`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.skills = listOf(ComposerSkillContent("/open-pr", ".agents/skills/open-pr/SKILL.md", "Open a PR"))
+
+        fixture.submit("agent", isUserPrompt = false)
+        fixture.submit("command", userInstruction = "/compact [/open-pr](.agents/skills/open-pr/SKILL.md)")
+
+        assertEquals(emptyList(), fixture.linkedTexts)
+        assertTrue(fixture.session.requests.none { "Open a PR" in it.text() })
     }
 
     @Test
@@ -447,6 +481,9 @@ private class SubmissionFixture(
     var engineContext: String? = null
     var preparedPrompt: String? = null
     var authorityStore: ChecklistTestStore? = null
+    var skills: List<ComposerSkillContent> = emptyList()
+    val linkedTexts = mutableListOf<String>()
+    val linkedScopes = mutableListOf<ComposerScope>()
     private val submissionAccess = object : StudioConfigurationAccess by access {
         override suspend fun captureUserInstructions(
             id: String,
@@ -478,6 +515,19 @@ private class SubmissionFixture(
                 securityReads += 1
                 return security.value
             }
+        },
+        object : ComposerAssists {
+            override suspend fun referencedSkills(text: String, scope: ComposerScope): List<ComposerSkillContent> {
+                linkedTexts += text
+                linkedScopes += scope
+                return skills
+            }
+
+            override suspend fun suggest(
+                trigger: ComposerTrigger,
+                scope: ComposerScope,
+                hostCommands: List<HostCommand>,
+            ): List<ComposerSuggestion> = emptyList()
         },
         planning = planning,
     )

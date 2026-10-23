@@ -7,12 +7,14 @@ import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.data.ClaudeComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.data.ClaudeNativeCatalog
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeDesktopSwitch
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeEngineManager
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
@@ -78,6 +80,15 @@ public object ClaudeBindings {
                     ClaudeEngine.AuthOwner,
                     ClaudeEngine.AuthLocation,
                 ),
+                // The same CLI login, run by the Claude Code runtime the Claude desktop app keeps and updates.
+                ConnectionMethod.CliLogin(
+                    ConnectionMethodId("desktop"),
+                    ProviderInfo(ProviderId("anthropic"), "Anthropic"),
+                    EndpointOrigin("https://api.anthropic.com"),
+                    ClaudeEngine.AuthOwner,
+                    ClaudeEngine.AuthLocation,
+                    ClaudeManagementSpec.hostApp,
+                ),
             ),
             isLocalWorkspaceSupported = true,
             isVirtualWorkspaceSupported = true,
@@ -109,6 +120,11 @@ public object ClaudeBindings {
         configurator = lazy { reader },
         composerAssists = lazy { assists },
     )
+
+    /** The desktop app switch reads its toggle on every use, so switching it applies to the next start. */
+    @Provides
+    internal fun desktopSwitch(toggles: FeatureToggles): ClaudeDesktopSwitch =
+        ClaudeDesktopSwitch { toggles.get(ClaudeEngine.DesktopApp) }
 }
 
 /** Registers the adapter toggle in the application panel. */
@@ -122,6 +138,11 @@ public object ClaudeDefaults {
     @Provides
     @IntoSet
     public fun toggle(): FeatureToggle<*> = ClaudeEngine.Enabled
+
+    /** Enabled by default: the Claude desktop app's runtime is chosen only when the user picks it. */
+    @Provides
+    @IntoSet
+    public fun desktopAppToggle(): FeatureToggle<*> = ClaudeEngine.DesktopApp
 }
 
 /** Known sessions remain addressable while discovery of external native history is explicitly unsupported. */

@@ -4,6 +4,7 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeDesktopSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -56,6 +57,7 @@ internal class ClaudeSignIn(
     private val configuration: ClaudeConfiguration = ClaudeConfiguration(),
     private val starter: ClaudeProcessStarter = ClaudeProcessStarter.Default,
     private val isWindows: Boolean = ClaudeHost().isWindows,
+    private val desktop: ClaudeDesktopSwitch = ClaudeDesktopSwitch.On,
 ) {
     private val log = Log.tag("ClaudeSignIn")
 
@@ -103,7 +105,10 @@ internal class ClaudeSignIn(
 
     // The lookup lists directories, so it never runs on the caller's dispatcher.
     private suspend fun startup(launch: LaunchContext): ClaudeStartup {
-        val startup = withContext(dispatchers.io) { resolveClaudeStartup(launch, configuration) }
+        val isHostAppEnabled = desktop.isEnabled()
+        val startup = withContext(dispatchers.io) {
+            resolveClaudeStartup(launch, configuration, isHostAppEnabled = isHostAppEnabled)
+        }
         if (!startup.isRunnable) {
             log.w { "Claude executable is missing or not runnable source=${startup.source}" }
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))

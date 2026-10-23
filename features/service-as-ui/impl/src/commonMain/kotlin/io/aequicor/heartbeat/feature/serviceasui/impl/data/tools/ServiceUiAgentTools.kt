@@ -135,7 +135,11 @@ internal class ServiceUiAgentTools(
                 ServiceUiTools.SHOW -> AgentToolApproval(
                     spec.name,
                     "Show the card “${arguments.text("title").orEmpty()}”",
-                    arguments["spec"]?.let { PrettyJson.encodeToString(JsonElement.serializer(), it) },
+                    arguments["spec"]?.let { inline ->
+                        val json = PrettyJson.encodeToString(JsonElement.serializer(), inline)
+                        // An anonymous page in the body runs as soon as its card is drawn, without a click.
+                        if (inlineSpec(arguments).hasWeb()) "$INLINE_WEB_NOTICE\n\n$json" else json
+                    },
                 )
 
                 ServiceUiTools.CALL -> AgentToolApproval(
@@ -659,6 +663,8 @@ internal class ServiceUiAgentTools(
         const val CALL_SECONDS = 60
         const val CALL_RESULT_CHARS = 16_000
         const val NOT_LOADED = "interfaces are turned off or not loaded yet"
+        const val INLINE_WEB_NOTICE =
+            "Contains a web document: its scripts and public HTTPS assets load when the card or its modal is shown."
         val METHODS_TIMEOUT = 3.seconds
         val PrettyJson = Json { prettyPrint = true }
         val REVIEWED_TOOLS = setOf(ServiceUiTools.PUT, ServiceUiTools.DELETE, ServiceUiTools.SHOW, ServiceUiTools.CALL)
@@ -681,6 +687,8 @@ internal class ServiceUiAgentTools(
 }
 
 private fun UiNode.hasWeb(): Boolean = this is UiNode.Web || children.any { it.hasWeb() }
+
+private fun UiSpecCheck?.hasWeb(): Boolean = (this as? UiSpecCheck.Valid)?.spec?.bodies?.any { it.hasWeb() } == true
 
 private fun UiSurface.summary(): JsonObject = buildJsonObject {
     put("id", id.value)

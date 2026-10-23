@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeDesktopSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -101,6 +102,7 @@ internal class ProcessClaudeTransport(
     private val workspaces: LocalWorkspaces,
     private val launches: EngineLaunchConfig = EngineLaunchConfig.Default,
     private val assists: ClaudeComposerAssists = ClaudeComposerAssists.None,
+    private val desktop: ClaudeDesktopSwitch = ClaudeDesktopSwitch.On,
 ) : ClaudeTransport {
     private val log = Log.tag("ClaudeProcess")
     override val nativeStore: String by lazy { claudeNativeStore(configuration.configDirectory) }
@@ -146,14 +148,18 @@ internal class ProcessClaudeTransport(
         val isFound = startup.source != InstallSource.Missing
         val version = if (isFound && startup.isRunnable) version(startup) else null
         log.i {
-            "Claude located source=${startup.source} desktop=${startup.isDesktopBundle} version=${version ?: "unknown"}"
+            "Claude located source=${startup.source} version=${version ?: "unknown"}"
         }
         return Installation(startup.source, version, startup.executable.takeIf { isFound }, startup.isRunnable)
     }
 
     // The lookup lists directories, so it never runs on the caller's dispatcher.
-    private suspend fun startup(launch: LaunchContext?): ClaudeStartup = withContext(dispatchers.io) {
-        resolveClaudeStartup(launch ?: launches.context(ClaudeEngine.Id), configuration)
+    private suspend fun startup(launch: LaunchContext?): ClaudeStartup {
+        val context = launch ?: launches.context(ClaudeEngine.Id)
+        val isHostAppEnabled = desktop.isEnabled()
+        return withContext(dispatchers.io) {
+            resolveClaudeStartup(context, configuration, isHostAppEnabled = isHostAppEnabled)
+        }
     }
 
     /** `claude --version`, bounded; an executable that does not answer has no known version. */

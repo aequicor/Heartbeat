@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthLocationId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSecretId
@@ -20,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.BindingCheck
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -27,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineEnablement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -34,10 +38,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineJob
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -49,10 +63,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlin.time.Instant
 
 internal val OpenAi = ProviderInfo(ProviderId("openai"), "OpenAI", "https://platform.openai.com/api-keys")
 internal val ApiKeyMethod =
@@ -227,10 +245,108 @@ internal class RecordingScope<I : MachineIntent> : EffectScope<I> {
     }
 }
 
-/** Publishes the state a test sets; the settings space only observes engine management. */
+/**
+ * Publishes the state a test sets and records commands; a configuration replaces the engine's launch settings, an
+ * inspection shows [inspectedHostApp].
+ */
 internal class FakeEngineManagement : EngineManagement {
     override val state = MutableStateFlow(EngineManagementState.Off)
+    val commands = mutableListOf<EngineCommand>()
+    var inspectedHostApp: HostAppState? = null
+    var configureFailure: EngineException? = null
 
-    override suspend fun execute(engine: EngineId, command: EngineCommand) =
-        error("the settings space does not manage engines")
+    /** The phase a started sign-in reaches; AwaitingCode stays until cancelled. */
+    var loginPhase: JobPhase = JobPhase.Succeeded
+    var startFailure: EngineException? = null
+    private var logins = 0L
+
+    /** Publishes inspections later in this scope, like the real service's state flow; null publishes at once. */
+    var publisher: CoroutineScope? = null
+    private var inspections = 0L
+
+    override suspend fun execute(engine: EngineId, command: EngineCommand) {
+        commands += command
+        when (command) {
+            EngineCommand.Inspect -> {
+                val checkedAt = Instant.fromEpochSeconds(++inspections)
+                val publish = {
+                    change(engine) {
+                        it.copy(
+                            hostApp = inspectedHostApp,
+                            installation = it.installation.copy(checkedAt = checkedAt),
+                        )
+                    }
+                }
+                publisher?.launch {
+                    delay(PUBLISH_DELAY_MILLIS)
+                    publish()
+                } ?: publish()
+            }
+
+            is EngineCommand.Configure -> {
+                configureFailure?.let { throw it }
+                change(engine) { it.copy(launch = LaunchState(command.settings)) }
+            }
+
+            is EngineCommand.Start -> {
+                startFailure?.let { throw it }
+                check(command.action is EngineAction.Login) { "unexpected action ${command.action}" }
+                val job = EngineJob(command.action, loginPhase, Instant.fromEpochSeconds(LOGIN_EPOCH + ++logins))
+                change(engine) { it.copy(job = job) }
+            }
+
+            EngineCommand.Dismiss -> change(engine) { it.copy(job = null) }
+
+            EngineCommand.Cancel -> change(engine) { it.copy(job = it.job?.copy(phase = JobPhase.Cancelled)) }
+
+            else -> error("unexpected command $command")
+        }
+    }
+
+    private fun change(engine: EngineId, block: (ManagedEngine) -> ManagedEngine) = state.update { current ->
+        current.copy(engines = current.engines.map { if (it.descriptor.id == engine) block(it) else it })
+    }
 }
+
+internal val ClaudeId = EngineId("claude")
+internal val ClaudeApp = HostAppSpec("Claude")
+internal val DesktopMethod = ConnectionMethod.CliLogin(
+    ConnectionMethodId("desktop"),
+    ProviderInfo(ProviderId("anthropic"), "Anthropic"),
+    EndpointOrigin("https://api.anthropic.com"),
+    AuthOwnerId("claude.code"),
+    AuthLocationId("claude.local"),
+    ClaudeApp,
+)
+
+/** Management that knows the Claude engine with [settings] and a host application. */
+internal fun claudeManagement(
+    settings: LaunchSettings = LaunchSettings(),
+    login: LoginState = LoginState.NotApplicable,
+) = EngineManagementState(
+    isEnabled = true,
+    platform = EnginePlatform.DesktopMacOs,
+    engines = listOf(
+        ManagedEngine(
+            EngineDescriptor(
+                ClaudeId,
+                "Claude Code",
+                EngineFamily.Vendor,
+                setOf(EnginePlatform.DesktopMacOs),
+                AiEngines,
+                connectionMethods = listOf(DesktopMethod),
+            ),
+            ManagementSpec(
+                login = if (login == LoginState.NotApplicable) LoginSupport.None else LoginSupport.Cli,
+                hostApp = ClaudeApp,
+            ),
+            EngineEnablement(),
+            EngineAvailability.Available,
+            login = login,
+            launch = LaunchState(settings),
+        ),
+    ),
+)
+
+private const val PUBLISH_DELAY_MILLIS = 50L
+private const val LOGIN_EPOCH = 1_000L

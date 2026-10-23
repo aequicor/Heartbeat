@@ -46,6 +46,8 @@ import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.semantics.editableText
 import androidx.compose.ui.semantics.inputText
 import androidx.compose.ui.semantics.semantics
@@ -76,9 +78,11 @@ private const val REJECTION_GRACE_FRAMES = 2
  *
  * Code editors customise the plain multi-line editor: [textStyle] replaces the prose style (also used by the
  * placeholder), [isReadOnly] keeps text selectable and focusable without edits, [outputTransformation] styles the
- * displayed text without changing it, and [onPreviewKey] may edit the live [TextFieldState] in place; such edits are
- * reported through [onValueChange] like typing. A caller-supplied vertical [scrollState] is also drawn by the caller,
- * so it can share the state with neighbours (a line-number gutter) and place the scrollbar on its own viewport.
+ * displayed text without changing it, [inputFilter] normalises user edits before reporting them, [clipboard] wraps
+ * the platform clipboard used by copy, cut and paste, and [onPreviewKey] may edit the live [TextFieldState] in place;
+ * such edits are reported through [onValueChange] like typing. A caller-supplied vertical [scrollState] is also drawn
+ * by the caller, so it can share the state with neighbours (a line-number gutter) and place the scrollbar on its own
+ * viewport.
  * [onCaretChange] reports the caret (selection start) after every user edit or owner-driven replacement, so an
  * owner can resolve token triggers at the caret, including edits that keep the same caret offset.
  * [caretRequest] moves the caret once after the requested replacement text has arrived.
@@ -99,6 +103,8 @@ internal fun HbEditableText(
     textStyle: TextStyle = editorTextStyle(),
     isReadOnly: Boolean = false,
     outputTransformation: OutputTransformation? = null,
+    inputFilter: InputTransformation? = null,
+    clipboard: ((TextFieldState, Clipboard) -> Clipboard)? = null,
     scrollState: ScrollState? = null,
     onPreviewKey: ((KeyEvent, TextFieldState) -> Boolean)? = null,
     onCaretChange: ((Int) -> Unit)? = null,
@@ -135,7 +141,10 @@ internal fun HbEditableText(
         repeat(REJECTION_GRACE_FRAMES) { withFrameNanos { } }
         bridge.restoreIfUnanswered(state, currentValue)
     }
-    val inputTransformation = InputTransformation { bridge.observeInput(this, onValueChange) }
+    val inputTransformation = InputTransformation {
+        inputFilter?.run { transformInput() }
+        bridge.observeInput(this, onValueChange)
+    }
     val decorator = placeholderDecorator(
         EditorPlaceholder(placeholder, textStyle),
         editingText.isEmpty(),
@@ -155,7 +164,11 @@ internal fun HbEditableText(
     val selectionColors = remember(colors) {
         TextSelectionColors(handleColor = colors.focusAccent, backgroundColor = colors.selectionHighlight)
     }
-    CompositionLocalProvider(LocalTextSelectionColors provides selectionColors) {
+    val editorClipboard = rememberEditorClipboard(state, clipboard)
+    CompositionLocalProvider(
+        LocalTextSelectionColors provides selectionColors,
+        LocalClipboard provides editorClipboard,
+    ) {
         if (isSecret) {
             val hiddenText = AnnotatedString("•".repeat(editingText.length))
             BasicSecureTextField(
@@ -184,6 +197,22 @@ internal fun HbEditableText(
             )
         }
     }
+}
+
+/** The platform clipboard, or the caller's wrapper of it, used by copy, cut and paste of [state]. */
+@Composable
+private fun rememberEditorClipboard(
+    state: TextFieldState,
+    clipboard: ((TextFieldState, Clipboard) -> Clipboard)?,
+): Clipboard {
+    val platformClipboard = LocalClipboard.current
+    val editorClipboard = remember(state, platformClipboard, clipboard != null) {
+        clipboard?.invoke(state, platformClipboard) ?: platformClipboard
+    }
+    if (editorClipboard is ComposerReferenceClipboard) {
+        LaunchedEffect(editorClipboard) { editorClipboard.watchSelection() }
+    }
+    return editorClipboard
 }
 
 /** Focus entry selects once; clicks inside an already focused field keep normal caret behavior. */

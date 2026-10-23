@@ -18,6 +18,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPlanning
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.browserMentionDirective
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
 import kotlinx.coroutines.CancellationException
@@ -30,6 +32,7 @@ internal class StudioConfiguredSubmission(
     private val efforts: EffortChoicesView,
     private val origins: StudioRequestOrigins,
     private val security: StudioSecurityPolicy,
+    private val assists: ComposerAssists,
     private val rollovers: StudioRolloverObserver = StudioRolloverObserver { _, _ -> },
     private val planning: StudioPlanning = StudioPlanning.None,
 ) {
@@ -68,7 +71,7 @@ internal class StudioConfiguredSubmission(
         // A handoff retires configuration observation because its session is never reflected again.
         if (request.isHandoff) controller.retire(id, active)
         val reviewTarget = record.helper?.model?.reviewTarget
-        val submitted = send(access, active, constrained, effort, reviewTarget) {
+        val submitted = send(access, active, target, constrained, effort, reviewTarget) {
             turnPolicy(isTrustSupported)
         }
         consumeCarriedContext(access, record, request, carried)
@@ -141,6 +144,7 @@ internal class StudioConfiguredSubmission(
     private suspend fun send(
         access: StudioConfigurationAccess,
         active: ActiveSession,
+        target: EngineTarget,
         request: StudioTurnRequest,
         reasoningEffort: String?,
         reviewTarget: EngineTarget?,
@@ -150,7 +154,7 @@ internal class StudioConfiguredSubmission(
         val helper = request.submission as? StudioHelperSubmission
         val submit: suspend () -> SubmittedPrompt = {
             origins.record(active.ref, request.request, request.causes)
-            val prompt = preparePrompt(access, request)
+            val prompt = preparePrompt(access, request, ComposerScope(target, active.route.workspace))
             val finalPolicy = if (helper != null) {
                 var latest: StudioPromptPolicy? = null
                 val trust = helper.begin { policy().also { latest = it }.trust }
@@ -198,14 +202,41 @@ internal class StudioConfiguredSubmission(
         }
     }
 
-    private suspend fun preparePrompt(access: StudioConfigurationAccess, request: StudioTurnRequest): String {
+    private suspend fun preparePrompt(
+        access: StudioConfigurationAccess,
+        request: StudioTurnRequest,
+        scope: ComposerScope,
+    ): String {
         if (request.compaction != null) return ""
+        // Only text the user typed invokes skills; a slash command would take the bodies as its arguments.
+        val isSkillInvocation = request.isUserPrompt && !request.prompt.trimStart().startsWith("/")
+        val skills = if (isSkillInvocation) skillDirectives(request.prompt, scope) else emptyList()
         val browser = request.userInstruction?.takeIf { request.isUserPrompt }?.let {
             browserMentionDirective(it, "external_browser" in request.environment?.preselected.orEmpty())
         }
-        val prepared = learning.prompt(request.id, request.prompt, request.directives + listOfNotNull(browser))
+        val prepared = learning.prompt(request.id, request.prompt, request.directives + skills + listOfNotNull(browser))
         val context = access.engineSwitchContext(request.id, prepared + "\n\n" + hostDirective(""))
         return if (context == null) prepared else prepared + "\n\n" + hostDirective(context)
+    }
+
+    /**
+     * A linked project skill shows only its label in the composer; its body travels as a host directive, so a model
+     * without file tools follows the same instruction while the transcript keeps what the user typed. The body is
+     * project content, deliberately kept out of the captured user instructions that action safety trusts.
+     */
+    private suspend fun skillDirectives(prompt: String, scope: ComposerScope): List<String> {
+        val skills = try {
+            assists.referencedSkills(prompt, scope)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "Linked project skills unavailable; the prompt keeps only their links" }
+            emptyList()
+        }
+        if (skills.isNotEmpty()) log.i { "Linked project skills delivered: ${skills.size}" }
+        return skills.map {
+            "The user invoked project skill ${it.label} (${it.relativePath}). Follow its instructions:\n\n${it.content}"
+        }
     }
 
     private data class StudioPromptPolicy(val mode: AgentToolDecisionMode, val trust: TrustLevel?)

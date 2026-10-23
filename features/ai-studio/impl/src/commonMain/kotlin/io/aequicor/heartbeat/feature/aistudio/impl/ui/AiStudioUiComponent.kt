@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.Browse
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.SidePanelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.StudioNoDialog
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.file_preview_title
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.interface_panel
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioEmbed
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits
@@ -100,7 +101,7 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         val chatArea = remember(chatAreaComponent) { chatAreaComponent?.asStudioEmbed() }
         val sideMode = when (side) {
             SidePanelUi.Browser -> browserMode
-            SidePanelUi.Interface -> BrowserPaneMode.Panel
+            SidePanelUi.Interface, SidePanelUi.File -> BrowserPaneMode.Panel
             SidePanelUi.None -> BrowserPaneMode.Hidden
         }
         StudioBrowserLayout(sideMode, modifier, browser = { SidePanel(component, side) }) {
@@ -117,10 +118,20 @@ private fun ComposableComponent.asStudioEmbed(): StudioEmbed = object : StudioEm
     override fun Content(modifier: Modifier) = this@asStudioEmbed.Content(modifier)
 }
 
-/** The browser, or the interface panel of the window drawn like the browser panel, within the window insets. */
+/**
+ * The browser, or the interface panel or file preview of the window drawn like the browser panel, within the window
+ * insets.
+ */
 @Composable
 private fun SidePanel(component: AiStudioComponent, side: SidePanelUi) {
-    if (side == SidePanelUi.Interface) {
+    if (side == SidePanelUi.File) {
+        val title = stringResource(Res.string.file_preview_title)
+        StudioFilePreviewPanel(
+            component.filePreview,
+            Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).safeDrawingPadding().imePadding()
+                .semantics { paneTitle = title },
+        )
+    } else if (side == SidePanelUi.Interface) {
         val panel by component.interfacePanel.collectAsState()
         val title = stringResource(Res.string.interface_panel)
         Box(

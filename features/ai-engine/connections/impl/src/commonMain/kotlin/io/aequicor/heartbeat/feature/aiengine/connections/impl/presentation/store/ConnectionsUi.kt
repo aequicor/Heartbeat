@@ -52,6 +52,8 @@ data class MethodRowUi(
     val isOriginEditable: Boolean,
     val isPathEditable: Boolean,
     val credentialsPage: String?,
+    /** Host application whose runtime the connection uses, for a host application sign-in. */
+    val hostApp: String? = null,
 )
 
 /** Model row; [isEnabled] means offered to model pickers; [description] is null while descriptions are off. */
@@ -89,6 +91,7 @@ internal fun ConnectionMethod.toRow(): MethodRowUi = MethodRowUi(
     isOriginEditable = isOriginEditable,
     isPathEditable = isPathEditable,
     credentialsPage = provider.credentialsPage,
+    hostApp = (this as? ConnectionMethod.CliLogin)?.hostApp?.title,
 )
 
 internal fun ModelInfo.toRow(isEnabled: Boolean, isDefault: Boolean = false): ModelRowUi =

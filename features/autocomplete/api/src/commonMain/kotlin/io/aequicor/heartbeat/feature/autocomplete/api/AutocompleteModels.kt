@@ -88,7 +88,7 @@ public sealed interface ComposerTrigger {
     /** The text typed between the trigger character and the caret. */
     public val query: String
 
-    /** `/` at the start of a line; an empty query still lists every available command. */
+    /** `/` at line start or `$` after whitespace; offers commands and skills, including an empty query. */
     public data class Command(override val range: IntRange, override val query: String) : ComposerTrigger
 
     /** `@` after whitespace or at the start of a line; needs at least one typed character. */
@@ -102,6 +102,18 @@ public data class ComposerDraft(
     /** A file suggestion the owner must import as an attachment of the draft. */
     public val attach: ComposerSuggestion.File? = null,
 )
+
+/**
+ * Instruction body of a project skill linked in a prompt (`[/name](path/SKILL.md)`). The host delivers [content]
+ * with the prompt, so a model without file tools still receives the instruction the short label stands for.
+ */
+public data class ComposerSkillContent(
+    public val label: String,
+    public val relativePath: String,
+    public val content: String,
+) {
+    override fun toString(): String = "ComposerSkillContent(path=$relativePath, length=${content.length})"
+}
 
 /**
  * Main-safe suggestion service of one profile. Suggest never starts processes on its own, ranks the merged
@@ -120,6 +132,15 @@ public interface ComposerAssists {
         scope: ComposerScope,
         hostCommands: List<HostCommand> = emptyList(),
     ): Flow<List<ComposerSuggestion>> = flow { emit(suggest(trigger, scope, hostCommands)) }
+
+    /**
+     * Bodies of the project skills linked in [text], read again from the workspace of [scope] at send time, within a
+     * total size budget taken in link order: the first body that does not fit ends delivery. Nothing is delivered
+     * while autocomplete is off or when the route's engine has its own skill catalog, whose exclusions a link must
+     * not override. A link that no longer resolves to a valid skill file
+     * contributes nothing; the prompt itself keeps the link.
+     */
+    public suspend fun referencedSkills(text: String, scope: ComposerScope): List<ComposerSkillContent> = emptyList()
 
     /** Suggestions for the active [trigger] in [scope], plus the host screen's own [hostCommands]. */
     public suspend fun suggest(

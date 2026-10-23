@@ -97,6 +97,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_finish
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_finish_without_models
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_get_key
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_host_app_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_host_fixed
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_key_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_key_hint_development
@@ -307,7 +308,7 @@ private fun MethodList(
                     isSelected = method.id == state.selectedMethod,
                     onClick = { onIntent(ConnectWizardScreenIntent.SelectMethod(method.id)) },
                     modifier = Modifier.testTag("method:${method.id}"),
-                    description = methodKindLabel(method.kind),
+                    description = methodLabel(method),
                     enabled = !state.isBusy,
                 )
             }
@@ -324,7 +325,7 @@ private fun MethodForm(
 ) {
     val uriHandler = LocalUriHandler.current
     val isEnabled = !state.isBusy
-    HbSettingsSection(method.provider, modifier, description = methodKindLabel(method.kind)) {
+    HbSettingsSection(method.provider, modifier, description = methodLabel(method)) {
         HbColumn(Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m), gap = HbTheme.spacing.s) {
             when (method.kind) {
                 MethodKindUi.ApiKey -> KeyField(
@@ -334,7 +335,10 @@ private fun MethodForm(
                     onIntent,
                 ) { openProviderPage(uriHandler, it) }
 
-                MethodKindUi.CliLogin -> Hint(stringResource(Res.string.wizard_cli_hint))
+                MethodKindUi.CliLogin -> Hint(
+                    method.hostApp?.let { stringResource(Res.string.wizard_host_app_hint, it) }
+                        ?: stringResource(Res.string.wizard_cli_hint),
+                )
 
                 MethodKindUi.NoAuth -> Hint(stringResource(Res.string.wizard_no_auth_hint))
             }

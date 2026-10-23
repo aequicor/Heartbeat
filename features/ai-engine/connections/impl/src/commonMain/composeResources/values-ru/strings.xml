@@ -10,6 +10,7 @@
     <string name="conn_availability_unsupported">Недоступен на этом устройстве</string>
     <string name="conn_availability_unavailable">Требует установки</string>
     <string name="conn_kind_api_key">API-ключ</string>
+    <string name="conn_kind_host_app">Приложение %1$s</string>
     <string name="conn_kind_cli">Вход через CLI</string>
     <string name="conn_kind_no_auth">Без авторизации</string>
     <string name="conn_failure_authentication">Не удалось авторизоваться у провайдера. Проверьте API-ключ выбранного провайдера или заново войдите в CLI, затем проверьте подключение.</string>
@@ -48,7 +49,8 @@
     <string name="wizard_base_url_hint">Можно указать полный базовый URL API вместе с путём, например https://openrouter.ai/api/v1.</string>
     <string name="wizard_host_fixed">Адрес фиксирован для этого провайдера.</string>
     <string name="wizard_field_label">Название подключения</string>
-    <string name="wizard_cli_hint">Используется вход, выполненный в CLI самого движка. Heartbeat не читает, не копирует и не обновляет его токены.</string>
+    <string name="wizard_host_app_hint">Движок запускается на runtime, который устанавливает и обновляет приложение %1$s, с общими настройками и историей. Это переключает runtime движка для всех его подключений и заменяет свой исполняемый файл. Приложение должно быть установлено. Heartbeat не читает вход самого приложения: если CLI ещё не выполнил вход, при подключении откроется страница входа в браузере.</string>
+    <string name="wizard_cli_hint">Используется вход, выполненный в CLI самого движка. Если входа ещё нет, при подключении откроется страница входа в браузере. Heartbeat не читает, не копирует и не обновляет его токены.</string>
     <string name="wizard_no_auth_hint">Адрес не требует учётных данных — например, локальный сервер моделей.</string>
     <string name="wizard_error_missing_key">Введите API-ключ</string>
     <string name="wizard_error_invalid_host">Введите адрес вида https://api.example.com</string>

@@ -365,8 +365,14 @@ afterEvaluate {
         jdkHome.set(desktopJavaHome)
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
-        if (targetFormat == TargetFormat.Dmg && name.contains("Release")) {
-            doLast(objects.newInstance<CompressReleaseDmg>().apply { imageDirectory.set(destinationDir) })
+        if (targetFormat == TargetFormat.Dmg) {
+            // Compose omits --icon when packaging from an existing --app-image, as it does for a DMG; jpackage then
+            // takes the volume icon (.VolumeIcon.icns, the Finder window title and path bar) from its Java default.
+            // Compose's argfile keeps free arguments verbatim, so the path is quoted like its own paths.
+            freeArgs.addAll(iconFile.map { icon -> listOf("--icon", "\"${icon.asFile.absolutePath}\"") })
+            if (name.contains("Release")) {
+                doLast(objects.newInstance<CompressReleaseDmg>().apply { imageDirectory.set(destinationDir) })
+            }
         }
         launcherJvmArgs.set(launcherJvmArgs.get().map { argument ->
             if (argument.startsWith("--limit-modules=")) {

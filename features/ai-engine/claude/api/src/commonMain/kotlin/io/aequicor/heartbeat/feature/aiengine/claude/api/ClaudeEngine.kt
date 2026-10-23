@@ -22,6 +22,17 @@ public object ClaudeEngine {
         "Движок Claude Code CLI",
         default = true,
     )
+
+    /**
+     * Connection through the Claude desktop app: its Claude Code runtime may be chosen explicitly, the engine panel
+     * shows the app and opens it. While off the app's runtime is only the last resort of the automatic choice on
+     * macOS, as before.
+     */
+    public val DesktopApp: FeatureToggle.Flag = FeatureToggle.Flag(
+        "ai.claude.desktop_app",
+        "Claude Code через приложение Claude",
+        default = true,
+    )
 }
 
 /**

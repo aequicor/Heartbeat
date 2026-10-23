@@ -49,8 +49,8 @@ internal fun checkUiSpec(text: String, rules: UiSpecRules): UiSpecCheck = when (
  */
 internal fun validateUiSpec(spec: UiSpec, rules: UiSpecRules): List<UiSpecDiagnostic> = SpecValidator(spec, rules).run()
 
-/** Scope of bindings: whether `item`/`index` exist and whether a web document may appear. */
-private data class Scope(val hasItem: Boolean = false, val isWebAllowed: Boolean = false)
+/** Scope of bindings: whether `item`/`index` exist. */
+private data class Scope(val hasItem: Boolean = false)
 
 private class SpecValidator(private val spec: UiSpec, private val rules: UiSpecRules) {
     private val found = mutableListOf<UiSpecDiagnostic>()
@@ -60,12 +60,11 @@ private class SpecValidator(private val spec: UiSpec, private val rules: UiSpecR
     fun run(): List<UiSpecDiagnostic> {
         declarations()
         quickActions()
-        val isWebInBody = !isInline
         spec.title?.let { template(it, "$ROOT.title", Scope()) }
-        node(spec.body, "$ROOT.body", Scope(isWebAllowed = isWebInBody))
+        node(spec.body, "$ROOT.body", Scope())
         for ((name, modal) in spec.modals) {
             template(modal.title, "$ROOT.modals.$name.title", Scope())
-            node(modal.body, "$ROOT.modals.$name.body", Scope(isWebAllowed = true))
+            node(modal.body, "$ROOT.modals.$name.body", Scope())
         }
         return found.take(UiSpecLimits.DIAGNOSTICS)
     }
@@ -280,7 +279,6 @@ private class SpecValidator(private val spec: UiSpec, private val rules: UiSpecR
     private fun web(node: UiNode.Web, path: String, scope: Scope) {
         webs++
         if (webs > 1) report(path, UiSpecProblem.LimitExceeded, "one web document per surface")
-        if (!scope.isWebAllowed) report(path, UiSpecProblem.PlacementForbidden)
         if (node.html.encodeToByteArray().size > UiSpecLimits.HTML_BYTES) {
             report("$path.html", UiSpecProblem.LimitExceeded, "${UiSpecLimits.HTML_BYTES} bytes")
         }

@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HostAppState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
@@ -84,6 +85,15 @@ public interface EngineManager {
 
     /** Signs the CLI out and returns the resulting state. */
     public suspend fun logout(launch: LaunchContext): LoginState = unsupported()
+
+    /**
+     * The host application ([io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec.hostApp]) and the
+     * runtimes it keeps, read from the file system only: never starts the application or reads its data.
+     */
+    public suspend fun inspectHostApp(): HostAppState = HostAppState()
+
+    /** Opens the host application; throws when it is not installed or does not start. */
+    public suspend fun openHostApp(): Unit = unsupported()
 }
 
 /** What a running sign-in shows the user and asks back. */

@@ -32,6 +32,7 @@
     <string name="engine_source_bundled">Поставляется с Heartbeat</string>
     <string name="engine_source_managed">Установлен Heartbeat</string>
     <string name="engine_source_system">Найден на компьютере</string>
+    <string name="engine_source_host_app">Из приложения-хоста</string>
     <string name="engine_source_custom">Свой исполняемый файл</string>
     <string name="engine_source_missing">Не установлен</string>
     <string name="engine_not_runnable">Нельзя безопасно запустить</string>
@@ -148,6 +149,7 @@
     <string name="engine_problem_control">Управляющие символы, включая переводы строк, недопустимы.</string>
     <string name="engine_problem_not_found">Не найден на этом компьютере.</string>
     <string name="engine_problem_not_executable">Не исполняемый файл.</string>
+    <string name="engine_problem_invalid_version">Используйте цифры, буквы, ., + и -.</string>
     <string name="engine_problem_not_directory">Не каталог.</string>
     <string name="engine_job_status">%1$s · %2$s</string>
     <string name="engine_path_copy">Скопировать путь</string>
@@ -294,4 +296,26 @@
     <string name="control_resource_not_listed">Не подключён настройками</string>
     <string name="control_resource_needs_trust">Ждёт доверия к проекту</string>
     <string name="control_resource_kind_off">Поиск отключён настройками профиля</string>
+    <string name="engine_host_app_title">Приложение %1$s</string>
+    <string name="engine_host_app_unchecked">Ещё не проверено. Проверьте движок, чтобы найти приложение.</string>
+    <string name="engine_host_app_missing">Не установлено на этом компьютере.</string>
+    <string name="engine_host_app_version">Установлено, версия %1$s</string>
+    <string name="engine_host_app_installed">Установлено</string>
+    <string name="engine_host_app_in_use">Используется</string>
+    <string name="engine_host_app_runtimes">Runtime в приложении</string>
+    <string name="engine_host_app_runtime">%1$s · сборка %2$s</string>
+    <string name="engine_host_app_runtime_pending">%1$s · сборка %2$s — устанавливается приложением</string>
+    <string name="engine_host_app_no_runtime">У приложения ещё нет runtime. Откройте его один раз — оно загрузит runtime.</string>
+    <string name="engine_host_app_config">Общая конфигурация: %1$s</string>
+    <string name="engine_host_app_login_hint">Heartbeat не читает вход самого приложения. Движок использует вход CLI ниже; он общий с сессиями приложения через каталог конфигурации.</string>
+    <string name="engine_host_app_open">Открыть приложение</string>
+    <string name="engine_launch_runtime">Runtime</string>
+    <string name="engine_launch_runtime_custom">Вместо него используется свой исполняемый файл выше.</string>
+    <string name="engine_runtime_auto">Автоматически</string>
+    <string name="engine_runtime_managed">Копия Heartbeat</string>
+    <string name="engine_runtime_host_app">Приложение %1$s</string>
+    <string name="engine_runtime_system">Установленный в системе</string>
+    <string name="engine_runtime_version">Версия runtime приложения</string>
+    <string name="engine_runtime_version_newest">Новейшая</string>
+    <string name="engine_host_app_path_copy">Скопировать путь к приложению %1$s</string>
 </resources>
