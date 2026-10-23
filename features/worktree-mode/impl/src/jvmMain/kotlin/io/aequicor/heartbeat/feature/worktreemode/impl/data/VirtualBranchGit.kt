@@ -12,9 +12,17 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
      * at the sandbox base or fast-forwarded; it is never moved sideways and never touches a checked-out branch,
      * the index or any file of the source checkout. A branch checked out in another worktree is only published:
      * with [isPush] the commit continues the tip this sandbox loaded and goes straight to origin, leaving the
-     * local branch of that worktree as it is.
+     * local branch of that worktree as it is. [isForce] continues the commit this sandbox loaded for the branch
+     * (for example an earlier commit chosen with [checkout]) even when the branch moved past it, so history can be
+     * rewritten; the push then replaces the remote branch with a lease on its last fetched state.
      */
-    suspend fun commit(current: VirtualRecord, branch: String, message: String, isPush: Boolean): Committed {
+    suspend fun commit(
+        current: VirtualRecord,
+        branch: String,
+        message: String,
+        isPush: Boolean,
+        isForce: Boolean = false,
+    ): Committed {
         require(message.isNotBlank() && message.length <= MAX_COMMIT_MESSAGE) { "InvalidCommitMessage" }
         require(!branch.startsWith("-") && branch.length <= MAX_BRANCH_NAME) { "InvalidBranchName" }
         check(git.call(current.source, "check-ref-format", "--branch", branch, allowFailure = true).code == 0) {
@@ -25,25 +33,49 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
             .any { it.trim() == "branch $full" }
         check(!isCheckedOut || (isPush && current.branchCommits[branch] != null)) { "SandboxBranchCheckedOut" }
         val snapshot = current.state.snapshot
-        val tip = continuedTip(current, branch, isCheckedOut)
+        val tip = if (isForce) null else continuedTip(current, branch, isCheckedOut)
         val tree = git.text(current.source, "rev-parse", "$snapshot^{tree}")
         val parent = tip ?: current.branchCommits[branch] ?: current.state.baseCommit
         val commit = writeCommit(current, tree, parent, message)
-        if (!isCheckedOut) git.call(current.source, "update-ref", full, commit, tip.orEmpty())
+        if (!isCheckedOut) {
+            if (isForce) {
+                git.call(current.source, "update-ref", full, commit)
+            } else {
+                git.call(current.source, "update-ref", full, commit, tip.orEmpty())
+            }
+        }
         val record = current.copy(
             branchCommits = current.branchCommits + (branch to commit),
             branch = branch,
             mergeParent = null,
         )
-        return Committed(record, commit, isCheckedOut)
+        return Committed(record, commit, isCheckedOut, isForce)
     }
 
-    /** Never forced: a remote that moved sideways fails the push and leaves the local commit in place. */
+    /**
+     * Pushes a branch commit to origin. Without force a remote that moved sideways fails the push and leaves the
+     * local commit in place; a forced push replaces the remote only while it still has its last fetched state.
+     */
     suspend fun push(committed: Committed, branch: String, isPush: Boolean) {
         if (!isPush) return
+        val source = committed.record.source
         val full = "refs/heads/$branch"
         val local = if (committed.isCheckedOut) committed.commit else full
-        git.call(committed.record.source, "push", "origin", "$local:$full")
+        if (committed.isForce) {
+            val known = git.call(
+                source,
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "refs/remotes/origin/$branch",
+                allowFailure = true,
+            )
+            val lease = known.text.trim().takeIf { known.code == 0 }.orEmpty()
+            // No `+` in the refspec: it would force the update past the lease.
+            git.call(source, "push", "--force-with-lease=$full:$lease", "origin", "$local:$full")
+        } else {
+            git.call(source, "push", "origin", "$local:$full")
+        }
     }
 
     /**
@@ -51,8 +83,10 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
      * origin first, so work that lives on a branch the sandbox was not cut from can be continued. The source
      * checkout, its index and its HEAD are untouched; the branch becomes the parent of the next [commit].
      */
-    suspend fun checkout(current: VirtualRecord, branch: String, isFetch: Boolean): VirtualRecord {
-        val tip = branchTip(current, branch, isFetch, isRemoteFirst = isFetch)
+    suspend fun checkout(current: VirtualRecord, branch: String, isFetch: Boolean, at: String? = null): VirtualRecord {
+        val head = branchTip(current, branch, isFetch, isRemoteFirst = isFetch)
+        // An earlier commit of the branch: the next forced commit rewrites the branch from there.
+        val tip = at?.let { earlierCommit(current, branch, it, head) } ?: head
         val tree = git.text(current.source, "rev-parse", "$tip^{tree}")
         val snapshot = git.commit(current.source, tree, current.state.baseCommit)
         git.pin(current.source, current.id, snapshot)
@@ -62,6 +96,46 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
             branch = branch,
             mergeParent = null,
         )
+    }
+
+    /**
+     * Takes [paths] (files or directories) from [from] — a branch or a commit — into the sandbox files, removing
+     * entries [from] does not have. Splitting a large commit restores its paths step by step onto an earlier one.
+     */
+    suspend fun restore(current: VirtualRecord, paths: List<String>, from: String): VirtualRecord {
+        require(paths.isNotEmpty() && paths.size <= MAX_RESTORE_PATHS) { "InvalidRestorePaths" }
+        paths.forEach { DesktopVirtualWorkspaces.safePath(it) }
+        val commit = if (COMMIT_ID.matches(from)) resolveCommit(current, from) else branchTip(current, from, false)
+        val snapshot = git.restore(current.source, current.state.snapshot, commit, paths)
+        git.pin(current.source, current.id, snapshot)
+        return current.copy(state = current.state.copy(snapshot = snapshot, revision = current.state.revision + 1))
+    }
+
+    /**
+     * [at] must be in the history of the branch as origin, the local branch or this sandbox know it: a local branch
+     * another worktree holds may lag behind origin, and the sandbox may have committed past both.
+     */
+    private suspend fun earlierCommit(record: VirtualRecord, branch: String, at: String, head: String): String {
+        val commit = resolveCommit(record, at)
+        val tips = listOfNotNull(
+            head,
+            knownCommit(record, "refs/remotes/origin/$branch"),
+            knownCommit(record, "refs/heads/$branch"),
+            record.branchCommits[branch],
+        ).distinct()
+        check(tips.any { isAncestor(record.source, commit, it) }) { "SandboxCommitNotOnBranch" }
+        return commit
+    }
+
+    private suspend fun knownCommit(record: VirtualRecord, ref: String): String? {
+        val found = git.call(record.source, "rev-parse", "--verify", "--quiet", "$ref^{commit}", allowFailure = true)
+        return found.text.trim().takeIf { found.code == 0 }
+    }
+
+    private suspend fun resolveCommit(record: VirtualRecord, id: String): String {
+        require(COMMIT_ID.matches(id)) { "InvalidCommitId" }
+        val found = git.call(record.source, "rev-parse", "--verify", "--quiet", "$id^{commit}", allowFailure = true)
+        return checkNotNull(found.text.trim().takeIf { found.code == 0 }) { "SandboxCommitUnknown" }
     }
 
     /**
@@ -233,9 +307,16 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
 }
 
 /** A branch commit: the record to persist, the commit and whether another worktree holds the branch. */
-internal data class Committed(val record: VirtualRecord, val commit: String, val isCheckedOut: Boolean)
+internal data class Committed(
+    val record: VirtualRecord,
+    val commit: String,
+    val isCheckedOut: Boolean,
+    val isForce: Boolean = false,
+)
 
 private const val MAX_COMMIT_MESSAGE = 8 * 1024
 private const val MAX_BRANCH_NAME = 200
 private const val MAX_HISTORY_COMMITS = 200
 private const val MAX_HISTORY_CHARS = 64 * 1024
+private const val MAX_RESTORE_PATHS = 500
+private val COMMIT_ID = Regex("[0-9a-f]{7,64}")
