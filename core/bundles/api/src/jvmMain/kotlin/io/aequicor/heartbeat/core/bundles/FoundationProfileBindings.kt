@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvide
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 
 /**
@@ -59,6 +60,19 @@ public interface FoundationProfileBindings {
      * and the accessor replaces the graph's own contributions with the foundation's merged set.
      */
     public val engineSets: FoundationEngineSets
+
+    /** Parts of the sets that the `agent-runtime` bundle owns (see [FoundationAgentRuntimeSets]). */
+    public val agentRuntimeSets: FoundationAgentRuntimeSets
+}
+
+/**
+ * What the features that stay in the foundation contribute to the sets the `agent-runtime` bundle owns. Behind a
+ * holder for the same reason as [FoundationEngineSets]: a `Set` accessor of an included interface would shadow the
+ * bundle's own multibinding.
+ */
+public interface FoundationAgentRuntimeSets {
+    /** Sections of the project configuration tree contributed by the features of the foundation. */
+    public val configSections: Set<ConfigSection>
 }
 
 /**

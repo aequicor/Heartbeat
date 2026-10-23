@@ -3,12 +3,14 @@ package io.aequicor.heartbeat.platform.dibundle
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.bundles.BundleHealth
 import io.aequicor.heartbeat.core.bundles.BundleId
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
-import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -47,7 +49,7 @@ class AgentRuntimeBundleWiringTest {
     @Test
     fun `toggles of the bundle reach the application toggles`() {
         val registered = (app as TestToggleAccessors).toggleControl.registered.map { it.key }
-        listOf(WorktreeModeEnabled, AgentLearningEnabled).forEach { toggle ->
+        listOf(WorktreeModeEnabled, AgentLearningEnabled, ProjectConfigEnabled).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
     }
@@ -57,6 +59,7 @@ class AgentRuntimeBundleWiringTest {
         val session = app.profileSessions.open(ProfileId("agent-runtime-startups"))
         val names = (session.graph as ProfileStartupAccess).profileStartups.map { it::class.simpleName }
         assertTrue("WorktreeStartup" in names, names.toString())
+        assertTrue("ProjectConfigStartup" in names, names.toString())
     }
 
     @Test
@@ -68,10 +71,15 @@ class AgentRuntimeBundleWiringTest {
     }
 
     @Test
-    fun `configuration sections of the bundle reach the foundation set`() = runTest {
+    fun `the bundle owns the configuration tree and takes the sections of the foundation into it`() = runTest {
         val session = app.profileSessions.open(ProfileId("agent-runtime-config"))
-        val sections = (session.graph as TestAgentRuntimeProfileAccessors).runtimeConfigSections
-        assertTrue(sections.any { it::class.simpleName == "LearningConfigSection" }, sections.toString())
+        val scope = (session.graph as TestAgentRuntimeProfileAccessors).runtimeProfileScope
+        val host = (app as BundleHostAccess).bundleHost
+        val names = host.foundationProfileImports(TestBundleConfigSections::class, scope).configSections
+            .map { it::class.simpleName }
+        // Learning is the bundle's own, the interface section is handed over by the foundation.
+        assertTrue("LearningConfigSection" in names, names.toString())
+        assertTrue("InterfaceConfigSection" in names, names.toString())
     }
 }
 
@@ -79,5 +87,7 @@ class AgentRuntimeBundleWiringTest {
 @dev.zacsweers.metro.ContributesTo(ProfileScope::class)
 interface TestAgentRuntimeProfileAccessors {
     val runtimeAgentTools: ProfileAgentTools
-    val runtimeConfigSections: Set<ConfigSection>
+
+    @ForScope(ProfileScope::class)
+    val runtimeProfileScope: ScopeHandle
 }

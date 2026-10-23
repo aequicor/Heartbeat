@@ -14,6 +14,7 @@ import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.bundles.BundleEntry
 import io.aequicor.heartbeat.core.bundles.BundleRegistry
+import io.aequicor.heartbeat.core.bundles.FoundationAgentRuntimeSets
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.bundles.FoundationEngineSets
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
@@ -52,6 +53,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvide
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.ktor.client.HttpClient
 import java.util.ServiceLoader
@@ -115,6 +117,7 @@ internal class DefaultFoundationProfileBindings(
     private val toolPolicies: Provider<Set<AgentToolPolicyProvider>>,
     private val contextPolicies: Provider<Set<ContextPolicyProvider>>,
     private val virtualWorkspaces: Provider<Set<VirtualWorkspaceProvider>>,
+    private val configs: Provider<Set<ConfigSection>>,
 ) : FoundationProfileBindings,
     FoundationProfileEngineBindings {
     override val profileId: ProfileId get() = id()
@@ -138,6 +141,9 @@ internal class DefaultFoundationProfileBindings(
         override val toolPolicyProviders: Set<AgentToolPolicyProvider> get() = toolPolicies()
         override val contextPolicyProviders: Set<ContextPolicyProvider> get() = contextPolicies()
         override val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider> get() = virtualWorkspaces()
+    }
+    override val agentRuntimeSets: FoundationAgentRuntimeSets = object : FoundationAgentRuntimeSets {
+        override val configSections: Set<ConfigSection> get() = configs()
     }
 }
 

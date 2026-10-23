@@ -61,9 +61,6 @@ internal interface FoundationProfileBundleImports {
     /** Navigation entries of the `web`, `engines` and `agent-runtime` bundles. */
     val profileRoutes: Set<RouteEntry<*>>
 
-    /** Sections of the project configuration tree of the `agent-runtime` bundle. */
-    val configSections: Set<ConfigSection>
-
     /** Services the bundles start with the profile. */
     val profileStartups: Set<ProfileStartup>
 
@@ -175,6 +172,17 @@ internal interface EngineOwnedSets {
     fun virtualWorkspaceProviders(): Set<VirtualWorkspaceProvider>
 }
 
+/**
+ * Sets that the `agent-runtime` bundle owns: its project configuration assembles them from its own contributions and
+ * from the part the foundation (through `FoundationProfileBindings`) hands over. The foundation keeps the declarations
+ * so that its own parts resolve while no feature contributes, and never merges the bundle's part back.
+ */
+@ContributesTo(ProfileScope::class)
+internal interface AgentRuntimeOwnedSets {
+    @Multibinds(allowEmpty = true)
+    fun configSections(): Set<ConfigSection>
+}
+
 /** Bridges the profile exports of the bundles into the profile graph of the foundation. */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
@@ -201,11 +209,6 @@ internal object ProfileBundleImportBindings {
     @ForScope(ProfileScope::class)
     fun bundleRoutes(imports: FoundationProfileBundleImports): Set<RouteEntry<*>> =
         imports.orElse(emptySet()) { profileRoutes }
-
-    @Provides
-    @ElementsIntoSet
-    fun bundleConfigSections(imports: FoundationProfileBundleImports): Set<ConfigSection> =
-        imports.orElse(emptySet()) { configSections }
 
     @Provides
     @ElementsIntoSet

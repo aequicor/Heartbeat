@@ -26,7 +26,10 @@ public interface AgentRuntimeProfileExports {
     /** Virtual workspaces (sandboxes); `engines` merges them into the set its facade assembles. */
     public val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider>
 
-    /** Sections of the project configuration tree; the foundation merges them into its own set. */
+    /**
+     * Every section of the project configuration tree, the foundation's own included. A read-only view: the bundle
+     * owns the set, so the foundation never merges it back.
+     */
     public val configSections: Set<ConfigSection>
 }
 

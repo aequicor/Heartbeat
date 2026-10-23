@@ -2,7 +2,7 @@ plugins {
     alias(libs.plugins.heartbeat.bundle)
 }
 
-// Бандл «agent-runtime»: рантайм агентов — режим worktree и обучение агента (остальные фичи группы переедут сюда же).
+// Бандл «agent-runtime»: рантайм агентов — режим worktree, обучение агента и конфигурация проекта (остальные фичи группы переедут сюда же).
 kotlin {
     sourceSets {
         jvmMain.dependencies {
@@ -11,7 +11,9 @@ kotlin {
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.agentLearning.impl)
             implementation(projects.features.projectConfig.api)
+            implementation(projects.features.projectConfig.impl)
             implementation(projects.features.aiEngine.facade.api)
+            implementation(projects.core.desktopDialogs)
             implementation(projects.core.stateMachine.api)
             implementation(projects.core.featureToggles.api)
             implementation(projects.core.di.api)

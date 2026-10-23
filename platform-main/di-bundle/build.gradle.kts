@@ -56,7 +56,6 @@ kotlin {
             implementation(projects.features.serviceAsUi.api)
             implementation(projects.features.serviceAsUi.impl)
             implementation(projects.features.projectConfig.api)
-            implementation(projects.features.projectConfig.impl)
             implementation(projects.features.planningMode.api)
             implementation(projects.features.planningMode.impl)
             api(projects.core.di.api)
@@ -100,6 +99,7 @@ kotlin {
         val agentRuntimeImpls: KotlinDependencyHandler.() -> Unit = {
             implementation(projects.features.worktreeMode.impl)
             implementation(projects.features.agentLearning.impl)
+            implementation(projects.features.projectConfig.impl)
         }
         androidMain.dependencies(agentRuntimeImpls)
         iosMain.dependencies(agentRuntimeImpls)
