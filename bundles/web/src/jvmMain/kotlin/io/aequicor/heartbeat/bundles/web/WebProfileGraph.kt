@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Includes
 import io.aequicor.heartbeat.core.bundles.FoundationProfileAgentBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileStudioBindings
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.navigation.RouteEntry
@@ -40,6 +41,7 @@ internal interface WebProfileGraph : WebProfileExports {
             @Includes foundation: FoundationProfileBindings,
             @Includes engines: FoundationProfileEngineBindings,
             @Includes agents: FoundationProfileAgentBindings,
+            @Includes studio: FoundationProfileStudioBindings,
         ): WebProfileGraph
     }
 }

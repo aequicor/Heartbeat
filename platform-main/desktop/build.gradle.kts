@@ -28,6 +28,7 @@ dependencies {
     runtimeOnly(projects.bundles.web)
     runtimeOnly(projects.bundles.engines)
     runtimeOnly(projects.bundles.agentRuntime)
+    runtimeOnly(projects.bundles.studio)
     implementation(projects.designSystem.tokens)
     implementation(projects.designSystem.theme)
     implementation(projects.designSystem.components)
@@ -39,6 +40,10 @@ dependencies {
     implementation(libs.jna.platform)
     testImplementation(libs.kotlin.testJunit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(projects.platformMain.diBundle)
+    testImplementation(projects.core.bundles.api)
+    testImplementation(projects.core.profileFacade.api)
+    testImplementation(projects.features.aiEngine.facade.api)
 }
 
 // The app runtime is independent of Gradle's daemon and shared modules' compilation toolchains.

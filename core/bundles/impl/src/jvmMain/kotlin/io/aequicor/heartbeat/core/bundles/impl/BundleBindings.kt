@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.core.bundles.FoundationProfileAgentBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileRuntimeBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileStudioBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileToolBindings
 import io.aequicor.heartbeat.core.bundles.HostResourceResolver
 import io.aequicor.heartbeat.core.datastore.DataStores
@@ -158,6 +159,7 @@ public interface FoundationRuntimeOwnedSets {
 
 /** Stateful foundation services of one profile handed to the profile graphs of bundles. */
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileBindings>())
+@ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileStudioBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileAgentBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileRuntimeBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileEngineBindings>())
@@ -185,6 +187,7 @@ internal class DefaultFoundationProfileBindings(
     private val wakeOwners: Provider<Set<ScheduledWakeOwner>>,
     private val sections: Provider<Set<ConfigSection>>,
 ) : FoundationProfileBindings,
+    FoundationProfileStudioBindings,
     FoundationProfileAgentBindings,
     FoundationProfileRuntimeBindings,
     FoundationProfileEngineBindings,

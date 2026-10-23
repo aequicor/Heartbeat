@@ -36,6 +36,7 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
     private val graphs = HashMap<BundleId, Any>()
     private val appView = View()
     private val profileViews = HashMap<ScopeHandle, View>()
+    private val profileHealths = HashMap<ScopeHandle, Map<BundleId, BundleHealth>>()
     private val resolving = ThreadLocal.withInitial { ArrayList<BindingKey>() }
     private val lifecycleLock = Any()
 
@@ -49,6 +50,10 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
     }
 
     override val health: Map<BundleId, BundleHealth> get() = synchronized(healthById) { healthById.toMap() }
+
+    /** Health of the profile graphs of the bundles opened for [scope], or `null` while none is open. */
+    public fun profileHealth(scope: ScopeHandle): Map<BundleId, BundleHealth>? =
+        synchronized(profileHealths) { profileHealths[scope] }
 
     /** Graph of a started bundle, for platform code that needs an accessor (`registry.accessor<X>()` successor). */
     public fun graph(id: BundleId): Any? = synchronized(graphs) { graphs[id] }
@@ -143,9 +148,11 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
             }
         }
         view.isOpen = true
+        synchronized(profileHealths) { profileHealths[scope] = profileHealth.toMap() }
         scope.onClose {
             view.close()
             synchronized(profileViews) { profileViews.remove(scope) }
+            synchronized(profileHealths) { profileHealths.remove(scope) }
         }
         val summary = profileHealth.entries.joinToString { "${it.key}=${it.value::class.simpleName}" }
         log.i { "Profile graphs of bundles: $summary" }

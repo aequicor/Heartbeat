@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.bundles.BundleId
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileRuntimeBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileStudioBindings
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import kotlin.reflect.KClass
 
@@ -30,6 +31,7 @@ public class AgentRuntimeBundle : BundleEntry {
     override fun createProfileGraph(appGraph: Any, foundation: Any, imports: Any): Any =
         (appGraph as AgentRuntimeAppGraph).profileGraphs.create(
             foundation as FoundationProfileBindings,
+            foundation as FoundationProfileStudioBindings,
             imports as AgentRuntimeProfileImports,
             imports,
             foundation as FoundationProfileRuntimeBindings,

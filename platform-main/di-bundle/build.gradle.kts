@@ -27,34 +27,26 @@ kotlin {
             api(projects.features.aiEngine.pi.api)
             api(projects.features.welcome.api)
             api(projects.features.questionnaire.api)
-            implementation(projects.features.questionnaire.impl)
-            implementation(projects.features.checklist.impl)
-            implementation(projects.features.aiStudio.impl)
             implementation(projects.features.aiStudio.api)
-            implementation(projects.features.aiSessionEngineTransfer.impl)
-            implementation(projects.features.effortConfiguration.impl)
-            implementation(projects.features.contextWindowOptimization.impl)
             implementation(projects.features.worktreeMode.api)
-            implementation(projects.features.computerUse.impl)
             api(projects.features.computerUse.api)
             implementation(projects.features.feedback.api)
-            implementation(projects.features.feedback.impl)
             implementation(projects.features.attachments.api)
-            implementation(projects.features.attachments.impl)
             implementation(projects.features.harness.api)
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.autocomplete.api)
-            implementation(projects.features.autocomplete.impl)
             implementation(projects.features.organicAi.api)
             api(projects.features.plantUmlSupport.api)
             implementation(projects.features.scheduler.api)
             api(projects.features.appUpdate.api)
             implementation(projects.features.serviceAsUi.api)
-            implementation(projects.features.serviceAsUi.impl)
             implementation(projects.features.projectConfig.api)
             implementation(projects.features.planningMode.api)
-            implementation(projects.features.planningMode.impl)
+            implementation(projects.features.aiSessionEngineTransfer.api)
+            implementation(projects.features.effortConfiguration.api)
+            implementation(projects.features.contextWindowOptimization.api)
+            implementation(projects.features.checklist.api)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)
@@ -103,6 +95,27 @@ kotlin {
         }
         androidMain.dependencies(agentRuntimeImpls)
         iosMain.dependencies(agentRuntimeImpls)
+        // Studio (`studio` group): the same split, the `studio` bundle owns it on desktop.
+        val studioImpls: KotlinDependencyHandler.() -> Unit = {
+            implementation(projects.features.questionnaire.impl)
+            implementation(projects.features.checklist.impl)
+            implementation(projects.features.aiStudio.impl)
+            implementation(projects.features.aiSessionEngineTransfer.impl)
+            implementation(projects.features.effortConfiguration.impl)
+            implementation(projects.features.contextWindowOptimization.impl)
+            implementation(projects.features.computerUse.impl)
+            implementation(projects.features.feedback.impl)
+            implementation(projects.features.attachments.impl)
+            implementation(projects.features.autocomplete.impl)
+            implementation(projects.features.serviceAsUi.impl)
+            implementation(projects.features.planningMode.impl)
+        }
+        androidMain.dependencies(studioImpls)
+        iosMain.dependencies(studioImpls)
+        // The integration tests drive the studio features through their own graphs and internals, so the test graph
+        // compiles the studio statically (without the bridges to the bundle); the engines, agent-runtime and web
+        // bundles are loaded at runtime as on desktop. The desktop app test starts the real `studio` bundle.
+        jvmTest.dependencies(studioImpls)
         // Mobile hosts compile the browser, the Chromium bridge and the research chat into the static graph, and the
         // shell features (settings, welcome, flags panel, logs, update); on desktop they live in the `web` and
         // `shell` bundles.
@@ -131,7 +144,7 @@ kotlin {
         // Desktop bundles: discovered at runtime through ServiceLoader; the assemblers (:bundles:*) come with the desktop app.
         jvmMain.dependencies {
             implementation(projects.core.bundles.impl)
-            implementation(projects.core.bundles.api)
+            api(projects.core.bundles.api)
             implementation(projects.features.browser.api)
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiEngine.authenticator.api)

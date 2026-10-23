@@ -40,6 +40,16 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   а части своих наборов от фундамента — `FoundationProfileRuntimeBindings` (`@Provides`, как инструменты у `engines`).
   Свои вклады в наборы `engines` он экспортирует наборами, а в наборы, которыми владеет сам и читает фундамент
   (подсказки помощников, наблюдатели происхождения запросов, секции конфигурации), — списками.
+- **Бандл `studio`** (ai-studio, attachments, autocomplete, checklist, questionnaire, planning-mode, effort-configuration,
+  context-window-optimization, feedback, ai-session-engine-transfer, computer-use, service-as-ui) берёт сервисы других
+  бандлов прямым профильным импортом (`StudioServices` через `@Includes`; множества — через `StudioProfileImports`), отдаёт
+  `engines` и `agent-runtime` свои части их наборов, а фундаменту — `StudioProfileExports`/`StudioAppExports`
+  (экраны студии, каталог вложений, `ResourceResolver`, computer use). `studioRemoteScreens` и `attachmentsCatalog`
+  живут в `FoundationProfileStudioBindings` (их берут `web` и `agent-runtime`).
+- **Тесты.** Интеграционные тесты `di-bundle` собирают студию статически (`jvmTest.dependencies(studioImpls)`,
+  мосты студии исключены в `TestAppGraph`), потому что они ходят во внутренности студии; `engines`, `agent-runtime` и
+  `web` грузятся в рантайме, как на desktop. Настоящий бандл `studio` и все остальные запускает `DesktopBundlesTest`
+  (`:platform-main:desktop`): граф приложения с бандлами на class path, здоровье бандлов и их профильных графов.
 - **Вклады в движки извне.** Чужие адаптеры движков приходят в `engines` профильным импортом
   `EnginesProfileImports.engineRegistrations` (так в тестах: `TestEngineBundle`); `engines` отдаёт итоговый список
   `registeredEngines`.

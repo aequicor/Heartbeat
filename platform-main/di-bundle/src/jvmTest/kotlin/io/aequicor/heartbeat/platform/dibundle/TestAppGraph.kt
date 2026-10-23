@@ -41,7 +41,11 @@ import java.nio.file.Files
  * [PersistedProfile] plays the role of disk — it outlives a graph, i.e. "survives process death".
  * Storages of core:datastore live in its temporary [PersistedProfile.storageRoot].
  */
-@DependencyGraph(AppScope::class)
+@DependencyGraph(
+    AppScope::class,
+    // The studio is compiled into this graph (see build.gradle.kts), so it is not imported from its bundle.
+    excludes = [StudioImportBindings::class, StudioAppImportBindings::class],
+)
 interface TestAppGraph : HeartbeatGraph {
     val acpClients: AcpClientFactory
     val acpStdio: AcpStdioTransportFactory

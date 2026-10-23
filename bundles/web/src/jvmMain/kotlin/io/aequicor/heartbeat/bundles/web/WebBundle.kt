@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileAgentBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileStudioBindings
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import kotlin.reflect.KClass
 
@@ -30,5 +31,6 @@ public class WebBundle : BundleEntry {
             foundation as FoundationProfileBindings,
             foundation as FoundationProfileEngineBindings,
             foundation as FoundationProfileAgentBindings,
+            foundation as FoundationProfileStudioBindings,
         )
 }

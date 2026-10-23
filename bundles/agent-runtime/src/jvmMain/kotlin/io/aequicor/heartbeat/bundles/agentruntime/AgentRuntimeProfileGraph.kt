@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Includes
 import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileRuntimeBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileStudioBindings
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.navigation.RouteEntry
@@ -40,6 +41,8 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledHelperPromptOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledRequestOriginObserver
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.serviceasui.api.spi.ServiceUiProvider
 
@@ -154,6 +157,15 @@ public interface AgentRuntimeProfileImports : AgentRuntimeEngineServices {
 
     /** Request origin observers that other bundles bring to the scheduler. */
     public val scheduledRequestOriginObservers: Set<ScheduledRequestOriginObserver>
+
+    /** Hosts of scheduled sessions that other bundles bring to the scheduler. */
+    public val scheduledSessionHosts: Set<ScheduledSessionHost>
+
+    /** Owners of scheduled wake-ups that other bundles bring to the scheduler. */
+    public val scheduledWakeOwners: Set<ScheduledWakeOwner>
+
+    /** Sections of the project configuration that other bundles bring. */
+    public val configSections: Set<ConfigSection>
 }
 
 /** Profile-level graph of the `agent-runtime` bundle: the profile contributions of its member features. */
@@ -163,6 +175,7 @@ internal interface AgentRuntimeProfileGraph : AgentRuntimeProfileExports {
     fun interface Factory {
         fun create(
             @Includes foundation: FoundationProfileBindings,
+            @Includes studio: FoundationProfileStudioBindings,
             @Includes engines: AgentRuntimeEngineServices,
             @Provides imports: AgentRuntimeProfileImports,
             @Provides foundationSets: FoundationProfileRuntimeBindings,

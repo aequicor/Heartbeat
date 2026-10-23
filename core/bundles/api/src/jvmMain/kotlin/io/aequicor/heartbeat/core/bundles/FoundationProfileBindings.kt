@@ -42,14 +42,8 @@ public interface FoundationProfileBindings {
     @ForScope(ProfileScope::class)
     public val dataStores: DataStores
 
-    /** Studio screens that the Chromium side panel opens and drives (the studio stays in the foundation for now). */
-    public val studioRemoteScreens: StudioRemoteScreens
-
     /** Credentials of the profile. */
     public val secrets: SecretStore
-
-    /** Catalog of the profile's attachments (stays in the foundation for now). */
-    public val attachmentsCatalog: AttachmentsCatalog
 
     /**
      * Reads attachments and other prompt resources of the profile. It is a [HostResourceResolver] and not a
@@ -95,6 +89,19 @@ public interface FoundationProfileToolBindings {
 
     /** Virtual workspace providers contributed by the features of the foundation. */
     public val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider>
+}
+
+/**
+ * Services of the studio the foundation hands to the profile graphs of the bundles that only use them (`web`). They are
+ * a separate interface because the `studio` bundle owns these services: its own profile graph must not receive them
+ * from the foundation, or each would have two bindings. The foundation backs them with the lazy imports from `studio`.
+ */
+public interface FoundationProfileStudioBindings {
+    /** Studio screens that the Chromium side panel opens and drives. */
+    public val studioRemoteScreens: StudioRemoteScreens
+
+    /** Catalog of the profile's attachments. */
+    public val attachmentsCatalog: AttachmentsCatalog
 }
 
 /**

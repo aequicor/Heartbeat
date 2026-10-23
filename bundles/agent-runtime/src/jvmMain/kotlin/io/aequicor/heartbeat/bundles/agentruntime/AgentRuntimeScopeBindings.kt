@@ -112,6 +112,19 @@ internal object AgentRuntimeFoundationSets {
 
     @Provides
     @ElementsIntoSet
+    fun importedSessionHosts(imports: AgentRuntimeProfileImports): Set<ScheduledSessionHost> =
+        imports.scheduledSessionHosts
+
+    @Provides
+    @ElementsIntoSet
+    fun importedWakeOwners(imports: AgentRuntimeProfileImports): Set<ScheduledWakeOwner> = imports.scheduledWakeOwners
+
+    @Provides
+    @ElementsIntoSet
+    fun importedConfigSections(imports: AgentRuntimeProfileImports): Set<ConfigSection> = imports.configSections
+
+    @Provides
+    @ElementsIntoSet
     fun helperPromptOwners(imports: AgentRuntimeProfileImports): Set<ScheduledHelperPromptOwner> =
         imports.scheduledHelperPromptOwners
 
