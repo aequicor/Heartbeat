@@ -44,10 +44,19 @@ public interface FoundationProfileBindings {
 
     /** Catalog of the profile's attachments (stays in the foundation for now). */
     public val attachmentsCatalog: AttachmentsCatalog
+}
 
+/**
+ * Sets of the agent tool catalog that the foundation graph assembles, for the one bundle that owns those sets (the
+ * future `engines`). They are a separate interface because a bundle that receives a set accessor through `@Includes`
+ * gets a second binding for the same multibinding: its own contributions are replaced by the foundation's merged set,
+ * which in turn reads the bundle's export, and the host reports a cross-bundle cycle. Other bundles (`web`) must not
+ * include it.
+ */
+public interface FoundationProfileToolBindings {
     /**
      * Agent tools the foundation graph assembles: the contributions of the features that stay in it plus the parts
-     * that other bundles export to it. A bundle that owns the set merges them with its own contributions.
+     * that other bundles export to it.
      */
     public val agentTools: Set<AgentToolContribution>
 

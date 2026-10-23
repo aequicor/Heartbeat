@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.core.bundles.BundleRegistry
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileToolBindings
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
@@ -85,6 +86,7 @@ public interface FoundationProfileAccess {
 /** Stateful foundation services of one profile handed to the profile graphs of bundles. */
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileEngineBindings>())
+@ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileToolBindings>())
 @Inject
 internal class DefaultFoundationProfileBindings(
     private val id: Provider<ProfileId>,
@@ -101,7 +103,8 @@ internal class DefaultFoundationProfileBindings(
     private val analyzers: Provider<Set<NativeActionAnalysis>>,
     private val offloads: Provider<Set<ToolOutputOffload>>,
 ) : FoundationProfileBindings,
-    FoundationProfileEngineBindings {
+    FoundationProfileEngineBindings,
+    FoundationProfileToolBindings {
     override val profileId: ProfileId get() = id()
     override val profileScope: ScopeHandle get() = scope()
     override val dataStores: DataStores get() = stores()
