@@ -250,7 +250,7 @@ internal class ProcessClaudeTransport(
                 else -> null
             }
             instructionFile = hosted?.takeIf { endpoint != null || it.instructions.isNotBlank() }
-                ?.let { instructionFile(it.instructions) }
+                ?.let { instructionFile(claudeToolNames(endpoint != null, searchEndpoint != null) + it.instructions) }
             if ("--print" in arguments) projectAssists = assists.prepare(workspace)
             val pluginArguments = projectAssists?.let { listOf("--plugin-dir", it.directory) }.orEmpty()
             val effectiveArguments = configuredArguments(
@@ -524,6 +524,26 @@ internal fun claudeHostedArguments(
         "--append-system-prompt-file",
         instructions.toString(),
     )
+
+/**
+ * How Heartbeat's tools are named in this CLI. Instructions name tools briefly, and the model otherwise put the
+ * prefix of most host tools before search tools that live on their own server.
+ */
+internal fun claudeToolNames(isHosted: Boolean, isSearch: Boolean): String {
+    if (!isHosted && !isSearch) return ""
+    val hosted = if (isHosted) {
+        "Heartbeat host tools named briefly in these instructions are MCP tools mcp__${HOSTED_TOOLS_SERVER}__<name>. "
+    } else {
+        ""
+    }
+    val search = if (isSearch) {
+        "Web search and page reading are on a separate server: mcp__${HOSTED_SEARCH_SERVER}__web_search and " +
+            "mcp__${HOSTED_SEARCH_SERVER}__web_fetch, never mcp__${HOSTED_TOOLS_SERVER}__web_fetch. "
+    } else {
+        ""
+    }
+    return hosted + search + "\n\n"
+}
 
 /** Hosted coding and optional public web search share one strict MCP configuration. */
 internal fun claudeHostedConfig(
