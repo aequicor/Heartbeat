@@ -6,9 +6,12 @@ import io.aequicor.heartbeat.core.bundles.BundleId
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackEnabled
+import io.aequicor.heartbeat.feature.planningmode.api.PlanningModeEnabled
+import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -47,7 +50,7 @@ class StudioBundleWiringTest {
     @Test
     fun `toggles of the bundle reach the application toggles`() {
         val registered = (app as TestToggleAccessors).toggleControl.registered.map { it.key }
-        listOf(FeedbackEnabled, EffortConfiguration).forEach { toggle ->
+        listOf(FeedbackEnabled, EffortConfiguration, PlanningModeEnabled).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
     }
@@ -57,6 +60,7 @@ class StudioBundleWiringTest {
         val session = app.profileSessions.open(ProfileId("studio-startups"))
         val names = (session.graph as ProfileStartupAccess).profileStartups.map { it::class.simpleName }
         assertTrue("FeedbackStartup" in names, names.toString())
+        assertTrue("PlanningStartup" in names, names.toString())
     }
 
     @Test
@@ -64,10 +68,25 @@ class StudioBundleWiringTest {
         val session = app.profileSessions.open(ProfileId("studio-effort"))
         assertNotNull((session.graph as TestStudioProfileAccessors).studioEffortChoices)
     }
+
+    @Test
+    fun `the plans of the bundle reach the foundation`() = runTest {
+        val session = app.profileSessions.open(ProfileId("studio-planning"))
+        assertNotNull((session.graph as TestStudioProfileAccessors).studioPlanningView)
+    }
+
+    @Test
+    fun `agent tools of the bundle reach the tool set of the engines bundle`() = runTest {
+        val session = app.profileSessions.open(ProfileId("studio-tools"))
+        val groups = (session.graph as TestStudioProfileAccessors).studioAgentTools.catalog().map { it.id }
+        assertTrue("planning" in groups, groups.toString())
+    }
 }
 
 /** Test access to what the foundation profile graph takes from the `studio` bundle. */
 @dev.zacsweers.metro.ContributesTo(ProfileScope::class)
 interface TestStudioProfileAccessors {
     val studioEffortChoices: EffortChoicesView
+    val studioPlanningView: PlanningView
+    val studioAgentTools: ProfileAgentTools
 }

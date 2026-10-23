@@ -57,6 +57,7 @@ import io.aequicor.heartbeat.feature.harness.api.decision.ProcessDecisionsState
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
+import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
@@ -181,6 +182,9 @@ internal interface FoundationProfileBundleImports {
 
     /** Effort levels of the `studio` bundle. */
     val effortChoices: EffortChoicesView
+
+    /** Plans of the `studio` bundle. */
+    val planningView: PlanningView
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -420,6 +424,9 @@ internal object AgentRuntimeServiceImportBindings {
 internal object StudioServiceImportBindings {
     @Provides
     fun effortChoices(imports: FoundationProfileBundleImports): EffortChoicesView = imports.effortChoices
+
+    @Provides
+    fun planningView(imports: FoundationProfileBundleImports): PlanningView = imports.planningView
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */

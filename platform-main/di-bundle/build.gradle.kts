@@ -51,7 +51,6 @@ kotlin {
             implementation(projects.features.serviceAsUi.impl)
             implementation(projects.features.projectConfig.api)
             implementation(projects.features.planningMode.api)
-            implementation(projects.features.planningMode.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)
@@ -106,6 +105,7 @@ kotlin {
         val studioImpls: KotlinDependencyHandler.() -> Unit = {
             implementation(projects.features.effortConfiguration.impl)
             implementation(projects.features.feedback.impl)
+            implementation(projects.features.planningMode.impl)
         }
         androidMain.dependencies(studioImpls)
         iosMain.dependencies(studioImpls)
