@@ -48,6 +48,14 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   `@Multibinds`. `ScheduledHelperPromptOwner`, `ScheduledRequestOriginObserver` и `ServiceUiProvider` читает фундамент
   (студия, service-as-ui), поэтому их владеет фундамент, а харнессы бандла отдают свою часть экспортом. Тот же принцип, что
   у `engines`: набор нельзя одновременно собирать из чужого экспорта и отдавать ему свою часть (получится цикл).
+- **Бандл `studio`.** Фичи вокруг студии отдают фундаменту сервисы экспортом профильного графа (`StudioProfileExports`:
+  `EffortChoicesView`, `PlanningView`, `ComposerAssists`, `ContextOptimizationView`, экраны опросников и чек-листов,
+  машина переноса сессии), а фундамент читает их через `FoundationProfileBundleImports`. Инструменты агента, хуки сессий,
+  выгрузки вывода и политики контекста бандл отдаёт наборам, которыми владеет `engines` (`EnginesProfileImports`);
+  владельцы наборов планировщика — `agent-runtime`, который берёт владельцев пробуждений чек-листов у `studio`
+  (`AgentRuntimeProfileImports`). Шину планировщика `studio` получает от фундамента через
+  `FoundationProfileRuntimeBindings` (отдельный интерфейс по той же причине, что и `FoundationProfileModelBindings`).
+  `ai-studio`, `attachments` и `service-as-ui` пока остаются в фундаменте.
 - **Контрибуции из не-impl библиотек** (например `core:common`) попадают в граф каждого бандла. Публичные снимает
   `excludes` на `@DependencyGraph`; `internal` нельзя назвать в `excludes` — перекрывай их
   `@ContributesBinding(priority = …)` в бандле (проверено spike-тестом) или оставляй дубликат, если класс без состояния.
