@@ -425,8 +425,10 @@ private fun WorktreeUi.pausedVirtualCard(id: String, session: String, labels: Wo
     } else {
         null
     }
+    // Its own id joins the transcript where the pause happens, next to the composer, instead of updating the task
+    // card that stays where the chat started.
     return worktreeCard(
-        id,
+        "$id$PAUSED_SUFFIX",
         if (isConflicted) labels.sandboxConflicted else labels.sandboxPaused,
         HbToolStatus.Pending,
         sandboxConflicts.joinToString("\n"),
@@ -591,3 +593,5 @@ internal const val OPEN_PR_ID = "worktree-open-pr"
 private const val MAX_BUILDS = 3
 private const val BUILD_OUTPUT_CHARS = 4000
 private const val BUILD_OUTPUT_LINES = 40
+
+private const val PAUSED_SUFFIX = ":paused"
