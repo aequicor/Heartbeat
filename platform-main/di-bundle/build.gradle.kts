@@ -32,7 +32,6 @@ kotlin {
             api(projects.features.computerUse.api)
             implementation(projects.features.feedback.api)
             implementation(projects.features.attachments.api)
-            implementation(projects.features.attachments.impl)
             implementation(projects.features.harness.api)
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.adaptiveSubagents.api)
@@ -98,6 +97,7 @@ kotlin {
         // bundle owns them.
         val studioImpls: KotlinDependencyHandler.() -> Unit = {
             implementation(projects.features.aiSessionEngineTransfer.impl)
+            implementation(projects.features.attachments.impl)
             implementation(projects.features.autocomplete.impl)
             implementation(projects.features.computerUse.impl)
             implementation(projects.features.contextWindowOptimization.impl)

@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.core.bundles.BundleRegistry
 import io.aequicor.heartbeat.core.bundles.FoundationAgentRuntimeSets
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.bundles.FoundationEngineSets
+import io.aequicor.heartbeat.core.bundles.FoundationProfileAttachmentBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileModelBindings
@@ -112,6 +113,7 @@ public interface FoundationProfileAccess {
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileEngineBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileModelBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileRuntimeBindings>())
+@ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileAttachmentBindings>())
 @Inject
 internal class DefaultFoundationProfileBindings(
     private val id: Provider<ProfileId>,
@@ -148,7 +150,8 @@ internal class DefaultFoundationProfileBindings(
 ) : FoundationProfileBindings,
     FoundationProfileEngineBindings,
     FoundationProfileModelBindings,
-    FoundationProfileRuntimeBindings {
+    FoundationProfileRuntimeBindings,
+    FoundationProfileAttachmentBindings {
     override val schedulerBus: SchedulerBus get() = bus()
     override val profileId: ProfileId get() = id()
     override val profileScope: ScopeHandle get() = scope()

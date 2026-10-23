@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionEngineTransfer
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistEnabled
@@ -76,6 +77,7 @@ class StudioBundleWiringTest {
             ComputerUseEnabled,
             QuestionnaireEnabled,
             ChecklistEnabled,
+            AttachmentsEnabled,
         ).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
@@ -89,6 +91,7 @@ class StudioBundleWiringTest {
         assertTrue("PlanningStartup" in names, names.toString())
         assertTrue("QuestionnaireStartup" in names, names.toString())
         assertTrue("ChecklistStartup" in names, names.toString())
+        assertTrue("AttachmentStartup" in names, names.toString())
     }
 
     @Test

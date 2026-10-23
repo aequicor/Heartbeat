@@ -11,11 +11,13 @@ import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferIntent
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferOutput
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferState
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistRemoteScreens
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
@@ -49,6 +51,12 @@ public interface StudioProfileExports {
 
     /** Questionnaire screens the studio embeds next to a chat. */
     public val questionnaireScreens: QuestionnaireRemoteScreens
+
+    /** Catalog of the profile's attachments; the studio, the research chat and the engines read it. */
+    public val attachmentsCatalog: AttachmentsCatalog
+
+    /** Reads the bytes of attachments; the facade of `engines` resolves prompt resources through the foundation. */
+    public val resourceResolver: ResourceResolver
 
     /** Checklist screens the studio embeds next to a chat. */
     public val checklistScreens: ChecklistRemoteScreens
