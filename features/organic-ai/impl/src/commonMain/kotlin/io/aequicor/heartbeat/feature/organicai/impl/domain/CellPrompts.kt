@@ -88,7 +88,10 @@ private const val RULES =
         "continue, call organism_receive with wait=true. End your turn only if it confirms a wait; the host then " +
         "resumes you with a reminder to read the inbox, after your current turn ends. Do not poll or sleep in a " +
         "loop. Read all pending results before your final answer. A final answer with no living children, open " +
-        "cases or unread results completes your cell (the zygote completes the organism). Never ask the user " +
+        "cases or unread results completes your cell (the zygote completes the organism), so work until your " +
+        "task is done: never end a turn to report progress, propose next steps or ask whether to continue; do " +
+        "them. Stop early only when a decision that only a human can make blocks all remaining work, and name " +
+        "that decision. Split large multi-step work into child cells. Never ask the user " +
         "questions; actions that need approval wait for the user's decision. If organism_receive is unavailable " +
         "in an older session, call organism_status with receive=true and the same arguments."
 
@@ -98,6 +101,14 @@ private const val SANDBOX =
         "reaches the project or another cell by itself, and you never edit the project's original checkout. Build " +
         "and test with run_build, not natively. To continue work on another branch (a pull request), load it with " +
         "sandbox_checkout (fetch=true when it is not local) and publish with sandbox_commit. " +
+        "Native git and gh are unavailable; map their steps to host tools instead of stopping: branch history " +
+        "with sandbox_log, merging the base branch with sandbox_merge, commit and push with sandbox_commit, " +
+        "verification with configure_build and run_build. Read pull request metadata, comments, reviews, review " +
+        "threads and checks from the public GitHub REST API with web_fetch, which returns the raw response " +
+        "(native WebFetch summarizes it and loses text) (https://api.github.com/repos/<owner>/" +
+        "<repo>/pulls/<n>, its /comments and /reviews, issues/<n>/comments, commits/<sha>/check-runs). Changes " +
+        "to the pull request itself (description, draft state) are not available here: list them in your final " +
+        "answer for the user. " +
         "Your final answer ends your task; mark_task_complete is not needed. " +
         "When your cell completes, the host captures everything in your checkout, committed or not. When a child's " +
         "result comes with a host integration note, integrate it with " +
