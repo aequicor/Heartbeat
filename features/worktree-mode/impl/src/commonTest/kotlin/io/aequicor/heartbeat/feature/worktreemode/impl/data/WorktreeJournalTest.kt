@@ -113,7 +113,7 @@ class WorktreeJournalTest {
     }
 
     @Test
-    fun `completed virtual root hands its branch to the user only on explicit choice`() = runTest {
+    fun `completed virtual root hands its branch to the user`() = runTest {
         val fixture = Fixture()
         fixture.git.isVirtualSupported = true
         fixture.toggles.isSandbox = true
@@ -123,12 +123,8 @@ class WorktreeJournalTest {
         fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN))
         fixture.send(WorktreeIntent.Public.TaskCompleteSignaled(CHAT, SESSION, TURN, "Done"))
         fixture.send(WorktreeIntent.Public.RunSettled(CHAT, REQUEST, SESSION, TURN, TurnOutcome.Completed))
-        assertEquals(0, fixture.git.handoffCount)
-        assertEquals(WorktreePhase.AwaitingDecision, fixture.task().phase)
-        fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.HandOff))
         assertEquals(1, fixture.git.handoffCount)
         assertEquals(VirtualSandboxPhase.HandedOff, fixture.task().virtualSandbox?.phase)
-        assertEquals(WorktreePhase.Retained, fixture.task().phase)
     }
 
     @Test

@@ -99,17 +99,11 @@ class ClaudeStartupTest {
             "CLAUDE_CONFIG_DIR" to "/elsewhere",
         )
         val system = resolveClaudeStartup(LaunchContext(), config.copy(executable = "/opt/claude"), host())
-        assertEquals(
-            mapOf("PATH" to "/bin", "HTTPS_PROXY" to "http://proxy", "ENABLE_TOOL_SEARCH" to "false"),
-            claudeEnvironment(host, system),
-        )
+        assertEquals(mapOf("PATH" to "/bin", "HTTPS_PROXY" to "http://proxy"), claudeEnvironment(host, system))
 
         val settings = LaunchSettings(
             homeDirectory = "/Users/me/.claude-work",
-            environment = listOf(
-                EnvironmentEntry("NO_PROXY", "localhost"),
-                EnvironmentEntry("ENABLE_TOOL_SEARCH", "true"),
-            ),
+            environment = listOf(EnvironmentEntry("NO_PROXY", "localhost")),
         )
         val configured = resolveClaudeStartup(
             LaunchContext(settings),
@@ -121,7 +115,6 @@ class ClaudeStartupTest {
                 "PATH" to "/bin",
                 "HTTPS_PROXY" to "http://proxy",
                 "NO_PROXY" to "localhost",
-                "ENABLE_TOOL_SEARCH" to "true",
                 "CLAUDE_CONFIG_DIR" to "/Users/me/.claude-work",
             ),
             claudeEnvironment(host, configured),
@@ -134,10 +127,7 @@ class ClaudeStartupTest {
 
         val environment = claudeEnvironment(emptyMap(), startup)
 
-        assertEquals(
-            mapOf("ENABLE_TOOL_SEARCH" to "false", "DISABLE_AUTOUPDATER" to "1", "DISABLE_UPDATES" to "1"),
-            environment,
-        )
+        assertEquals(mapOf("DISABLE_AUTOUPDATER" to "1", "DISABLE_UPDATES" to "1"), environment)
     }
 
     @Test
@@ -178,7 +168,7 @@ class ClaudeStartupTest {
         val startup = ClaudeStartup("/desktop/claude", InstallSource.HostApp, isRunnable = true)
 
         assertEquals(
-            mapOf("ENABLE_TOOL_SEARCH" to "false", "DISABLE_AUTOUPDATER" to "1", "DISABLE_UPDATES" to "1"),
+            mapOf("DISABLE_AUTOUPDATER" to "1", "DISABLE_UPDATES" to "1"),
             claudeEnvironment(emptyMap(), startup),
         )
     }

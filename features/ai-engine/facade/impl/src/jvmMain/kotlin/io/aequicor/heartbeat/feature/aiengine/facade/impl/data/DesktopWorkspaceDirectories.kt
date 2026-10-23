@@ -9,7 +9,6 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
-import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 
 @Inject
@@ -28,10 +27,6 @@ internal class DesktopWorkspaceDirectories(private val dispatchers: DispatcherPr
                 return@withContext null
             }
             WorkspaceDirectory(path.toString(), path.fileName?.toString() ?: "Project")
-        } catch (_: NoSuchFileException) {
-            // A stored project whose folder is gone is routine and re-checked often; no stack trace.
-            log.v { "Local project directory is missing" }
-            null
         } catch (error: IOException) {
             log.w(error.safeWorkspaceFailure()) { "Directory validation failed" }
             null

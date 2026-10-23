@@ -10,8 +10,7 @@ internal val ClaudeAgentTools: Set<String> = linkedSetOf("Agent", "Task", "TaskO
 internal val ClaudeNativeCatalog: List<NativeToolSpec> = buildList {
     listOf("Read", "Glob", "Grep").forEach { add(NativeToolSpec(it, AgentToolAction.Read, false, true)) }
     listOf("Edit", "Write", "MultiEdit").forEach { add(NativeToolSpec(it, AgentToolAction.Edit, false, true)) }
-    add(NativeToolSpec("Bash", AgentToolAction.Command, false, true))
-    add(NativeToolSpec("WebFetch", AgentToolAction.Command, false, true, isWorkspaceFree = true))
+    listOf("Bash", "WebFetch").forEach { add(NativeToolSpec(it, AgentToolAction.Command, false, true)) }
     ClaudeAgentTools.forEach { add(NativeToolSpec(it, AgentToolAction.Command, true, false)) }
     add(NativeToolSpec("WebSearch", AgentToolAction.Read, true, false))
 }

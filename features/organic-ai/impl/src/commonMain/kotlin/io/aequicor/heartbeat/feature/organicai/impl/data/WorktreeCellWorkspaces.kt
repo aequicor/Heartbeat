@@ -194,14 +194,6 @@ internal class WorktreeCellWorkspaces(
 
     override suspend fun awaitAvailable(organism: Organism, cell: CellId) {
         val key = organism.sandboxTask(cell)
-        // A completed cell handed its sandbox to the user; a new turn (a follow-up) continues it. Any other paused
-        // sandbox is rechecked once without an explicit resume: worktree mode continues it when no user decision is
-        // needed (a source that moved under a loaded branch) and otherwise keeps it waiting for the user.
-        val phase = snapshot()[key]?.virtualSandbox?.takeUnless { it.isReady || it.isResolving }?.phase
-        if (phase != null) {
-            log.i { "organism ${organism.id.value} cell ${cell.value}: rechecking its $phase sandbox" }
-            dispatch(WorktreeIntent.Public.Recheck(key))
-        }
         machines.observe(WorktreeMachineKey).flatMapLatest { it?.state ?: flowOf(WorktreeState.Idle) }
             .first { state ->
                 val task = (state as? WorktreeState.Ready)?.tasks?.get(key)

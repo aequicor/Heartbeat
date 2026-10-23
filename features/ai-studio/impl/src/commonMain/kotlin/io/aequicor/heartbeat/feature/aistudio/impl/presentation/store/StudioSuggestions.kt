@@ -37,6 +37,7 @@ internal class StudioSuggestions(
 ) {
     private val log = Log.tag("StudioSuggestions")
     private val requests = MutableStateFlow<Map<String, Request>>(emptyMap())
+    private val focused = mutableSetOf<Int>()
     private val warmScopes = MutableStateFlow<List<ComposerScope>>(emptyList())
     private val dismissed = mutableMapOf<String, SuggestionQuery>()
     private var nextRequest = 0L
@@ -45,8 +46,8 @@ internal class StudioSuggestions(
     /** Runs inside the store's state publication hook, before obsolete rows can reach the editor. */
     @HighFrequency
     internal fun onState(state: AiStudioScreenState): AiStudioScreenState {
-        // Every open pane is indexed ahead of the first keystroke, not only the focused one.
-        warmScopes.value = state.panes.map { state.composerScope(it.id) }.distinct()
+        warmScopes.value = state.panes.asSequence().filter { it.id in focused }
+            .map { state.composerScope(it.id) }.distinct().toList()
         val desired = state.panes.mapNotNull { pane -> state.query(pane.id) }.associateBy { it.draftKey }
         dismissed.keys.retainAll(desired.keys)
         val previous = requests.value
@@ -72,7 +73,10 @@ internal class StudioSuggestions(
     internal suspend fun handle(pipeline: SuggestionsPipeline, intent: AiStudioScreenIntent.Suggestions) {
         with(pipeline) {
             when (intent) {
-                is AiStudioScreenIntent.Suggestions.FocusChanged -> withState { onState(this) }
+                is AiStudioScreenIntent.Suggestions.FocusChanged -> {
+                    if (intent.isFocused) focused.add(intent.paneId) else focused.remove(intent.paneId)
+                    withState { onState(this) }
+                }
 
                 is AiStudioScreenIntent.Suggestions.DraftChanged -> updateState {
                     withDraft(intent.paneId, intent.text).withDraftCaret(intent.paneId, intent.text.length)
@@ -109,7 +113,7 @@ internal class StudioSuggestions(
         }
     }
 
-    /** Cancels obsolete work, warming the routes of open panes separately from individual typed tokens. */
+    /** Cancels obsolete work, warming focused routes separately from individual typed tokens. */
     internal suspend fun observe(pipeline: SuggestionsPipeline): Unit = coroutineScope {
         launch {
             warmScopes.collectLatest { scopes ->
