@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreens
 
 /**
  * What the profile graph of the `studio` bundle publishes to the foundation of the same profile. Its profile
@@ -42,6 +43,9 @@ public interface StudioProfileExports {
 
     /** Session hooks of the bundle's features; `engines` merges them into the set its facade runs. */
     public val sessionHooks: Set<SessionHook>
+
+    /** Questionnaire screens the studio embeds next to a chat. */
+    public val questionnaireScreens: QuestionnaireRemoteScreens
 
     /** Offloads of long tool output; `engines` merges them into the set its facade assembles. */
     public val toolOutputOffloads: Set<ToolOutputOffload>

@@ -23,6 +23,8 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackEnabled
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningModeEnabled
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -70,6 +72,7 @@ class StudioBundleWiringTest {
             SessionEngineTransfer,
             ContextOptimizationEnabled,
             ComputerUseEnabled,
+            QuestionnaireEnabled,
         ).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
@@ -81,6 +84,13 @@ class StudioBundleWiringTest {
         val names = (session.graph as ProfileStartupAccess).profileStartups.map { it::class.simpleName }
         assertTrue("FeedbackStartup" in names, names.toString())
         assertTrue("PlanningStartup" in names, names.toString())
+        assertTrue("QuestionnaireStartup" in names, names.toString())
+    }
+
+    @Test
+    fun `the questionnaire screens of the bundle reach the foundation`() = runTest {
+        val session = app.profileSessions.open(ProfileId("studio-questionnaire"))
+        assertNotNull((session.graph as TestStudioProfileAccessors).studioQuestionnaireScreens)
     }
 
     @Test
@@ -150,6 +160,7 @@ interface TestStudioProfileAccessors {
     val studioComposerAssists: ComposerAssists
     val studioAgentTools: ProfileAgentTools
     val studioContextOptimization: ContextOptimizationView
+    val studioQuestionnaireScreens: QuestionnaireRemoteScreens
 
     @ForScope(ProfileScope::class)
     val studioProfileScope: ScopeHandle

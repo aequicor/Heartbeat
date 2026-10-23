@@ -64,6 +64,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
 import io.aequicor.heartbeat.feature.planningmode.api.PlanningView
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreens
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommands
@@ -199,6 +200,9 @@ internal interface FoundationProfileBundleImports {
 
     /** Context compaction state of the `studio` bundle. */
     val contextOptimization: ContextOptimizationView
+
+    /** Questionnaire screens of the `studio` bundle. */
+    val questionnaireScreens: QuestionnaireRemoteScreens
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -453,6 +457,10 @@ internal object StudioServiceImportBindings {
     @Provides
     fun contextOptimization(imports: FoundationProfileBundleImports): ContextOptimizationView =
         imports.contextOptimization
+
+    @Provides
+    fun questionnaireScreens(imports: FoundationProfileBundleImports): QuestionnaireRemoteScreens =
+        imports.questionnaireScreens
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */
