@@ -333,7 +333,9 @@ internal fun rememberStudioTimeline(
 
 /**
  * Build cards that belong inside a reply: a `build:<operation>` card goes right after the run_build call whose
- * result names that operation. Keys are the calls' ids; a card without such a visible call stays in the timeline.
+ * result names that operation. run_build returns only when its build ends, so while it waits the newest unnamed
+ * cards go after the waiting calls, newest to newest. Keys are the calls' ids; a card without such a visible call
+ * stays in the timeline.
  */
 internal fun anchoredCards(messages: List<MessageUi>, cards: List<HbChatMessage>): Map<String, HbChatMessage> {
     val builds = cards.filter { it.id.startsWith(BUILD_CARD_PREFIX) }
@@ -342,14 +344,18 @@ internal fun anchoredCards(messages: List<MessageUi>, cards: List<HbChatMessage>
         .flatMap { reply -> reply.parts.asSequence().filterIsInstance<ReplyPartUi.Tool>().map { it.tool } }
         .filter { it.title == RUN_BUILD_TOOL }
         .toList()
-    return builds.mapNotNull { card ->
+    val named = builds.mapNotNull { card ->
         val operation = card.id.removePrefix(BUILD_CARD_PREFIX)
         calls.firstOrNull { "\"id\":\"$operation\"" in it.output }?.let { it.id to card }
     }.toMap()
+    val waiting = calls.filter { it.status in waitingStatuses && it.id !in named }
+    val unnamed = builds.filterNot { card -> named.values.any { it.id == card.id } }
+    return named + waiting.asReversed().zip(unnamed.asReversed()) { call, card -> call.id to card }
 }
 
 private const val BUILD_CARD_PREFIX = "build:"
 private const val RUN_BUILD_TOOL = "run_build"
+private val waitingStatuses = setOf(ToolStatusUi.Pending, ToolStatusUi.Running)
 
 internal fun MessageUi.toHb(labels: TimelineLabels, anchored: Map<String, HbChatMessage> = emptyMap()): HbChatMessage =
     when (this) {

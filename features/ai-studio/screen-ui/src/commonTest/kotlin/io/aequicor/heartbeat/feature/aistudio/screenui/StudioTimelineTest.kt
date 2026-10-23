@@ -20,6 +20,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
@@ -386,6 +387,27 @@ class StudioTimelineTest {
         )
         val call = assertIs<HbMessagePart.Tool>(updated.messages.last().parts[1]).call
         assertEquals("done", call.title)
+    }
+
+    @Test
+    fun `a build card follows the run_build call that still waits for it`() {
+        val cache = TimelineCache()
+        fun tool(id: String, status: ToolStatusUi, output: String) =
+            ReplyPartUi.Tool(ToolUi(id, "run_build", status, output, null))
+        val earlier = tool("t1", ToolStatusUi.Done, "{\"id\":\"op0\",\"phase\":\"Completed\"}")
+        fun turn(last: ReplyPartUi.Tool) = reply("", isStreaming = true).copy(parts = persistentListOf(earlier, last))
+        val cards = persistentListOf(card("build:op0"), card("build:stale"), card("build:op1"))
+        val retained = persistentSetOf("build:op0", "build:stale", "build:op1")
+
+        val waiting = cache.update(listOf(prompt, turn(tool("t2", ToolStatusUi.Running, ""))), labels, cards, retained)
+        val parts = waiting.messages.single { it.id == "m2" }.parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:op0", "t2", "build:op1"), parts)
+        assertTrue(waiting.messages.any { it.id == "build:stale" })
+
+        val done = tool("t2", ToolStatusUi.Done, "{\"id\":\"op1\",\"phase\":\"Completed\"}")
+        val finished = cache.update(listOf(prompt, turn(done)), labels, cards, retained)
+        val after = finished.messages.single { it.id == "m2" }.parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:op0", "t2", "build:op1"), after)
     }
 
     private fun card(id: String) = HbChatMessage(
