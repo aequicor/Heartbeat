@@ -109,6 +109,13 @@ internal class DesktopVirtualWorkspaces(
     override suspend fun inspect(ref: WorkspaceRef): VirtualSandboxState = lock.withLock {
         val record = history(known(ref))
         if (record.state.phase == VirtualSandboxPhase.HandedOff) return@withLock record.state
+        // A loaded branch's files never follow the source, so a clean moved source only re-anchors them in place.
+        val head = git.text(record.source, "rev-parse", "HEAD")
+        val isStale = head != record.state.baseCommit || record.pendingSnapshot != null || record.isHistoryChanged
+        if (record.branch != null && isStale && sourceCleanRecord(record)) {
+            log.i { "Virtual sandbox with a loaded branch re-anchored on the source" }
+            return@withLock save(branches.reanchor(record, head)).state
+        }
         val expected = record.pendingBase ?: record.state.baseCommit
         val isChanged = record.isHistoryChanged || !sourceCleanRecord(
             record,
