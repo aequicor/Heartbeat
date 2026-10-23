@@ -43,13 +43,21 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunIdentity
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -59,6 +67,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WorktreeAgentToolsTest {
@@ -224,6 +233,36 @@ class WorktreeAgentToolsTest {
     }
 
     @Test
+    fun `a build call returns the terminal result instead of a queued operation to poll`() = runTest {
+        val fixture = Fixture(isLive = true)
+        fixture.queue(WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))))
+        val call = async { fixture.execute(CONTEXT, "run_build", BUILD_ARGUMENTS) }
+        advanceTimeBy(BUILD_PROGRESS)
+        assertFalse(call.isCompleted)
+        fixture.registry.finishBuilds(WorktreeBuildPhase.Failed)
+        val result = call.await()
+        assertTrue(result.isError)
+        assertTrue("\"Failed\"" in result.text && "Still" !in result.text, result.text)
+    }
+
+    @Test
+    fun `a build still pending after the long wait is handed to build status which waits again`() = runTest {
+        val fixture = Fixture(isLive = true)
+        fixture.queue(WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))))
+        val pending = fixture.execute(CONTEXT, "run_build", BUILD_ARGUMENTS)
+        assertFalse(pending.isError)
+        assertTrue("Still Running" in pending.text, pending.text)
+        val operation = Json.decodeFromString<WorktreeBuildOperation>(pending.text.lineSequence().first()).id
+        val status = async { fixture.execute(CONTEXT, "build_status", operationArguments(operation)) }
+        advanceTimeBy(BUILD_PROGRESS)
+        assertFalse(status.isCompleted)
+        fixture.registry.finishBuilds(WorktreeBuildPhase.Completed)
+        val result = status.await()
+        assertFalse(result.isError)
+        assertTrue("\"Completed\"" in result.text && "Still" !in result.text, result.text)
+    }
+
+    @Test
     fun `a rejected build plan is explained at once instead of timing out`() = runTest {
         val fixture = Fixture()
         fixture.prepare()
@@ -247,14 +286,15 @@ class WorktreeAgentToolsTest {
         assertEquals("OperationFailed", fixture.execute(CONTEXT, "configure_build", plan).text)
     }
 
-    private class Fixture {
+    private class Fixture(isLive: Boolean = false) {
         private val workspaces = PreviewWorkspaces()
         val toggles = PreviewToggles()
         val git = PreviewGit()
         private val journal = WorktreeJournal(PreviewStores(), git, PreviewBuilds(), workspaces, toggles)
+        val registry = JournalRegistry(journal)
         val tools = WorktreeAgentTools(
             journal,
-            PreviewRegistry(),
+            if (isLive) registry else PreviewRegistry(),
             toggles,
             workspaces,
         )
@@ -305,6 +345,8 @@ class WorktreeAgentToolsTest {
             decisionMode = AgentToolDecisionMode.AutomaticSafety,
         )
         val IDENTITY = WorktreeRunIdentity(REQUEST, SESSION, TURN)
+        val BUILD_ARGUMENTS = JsonObject(mapOf("command" to JsonPrimitive("test")))
+        const val BUILD_PROGRESS = 60_000L
 
         fun operationArguments(id: String = "operation") = JsonObject(mapOf("operation" to JsonPrimitive(id)))
 
@@ -327,6 +369,50 @@ private class PreviewRegistry : MachineRegistry {
         key: MachineKey<S, I, P, E, O>,
         intent: P,
     ): SendResult = error("Approval must not execute a machine intent")
+}
+
+/** Applies public intents to the real journal and projects its tasks the way the machine state does. */
+private class JournalRegistry(journal: WorktreeJournal) : MachineRegistry {
+    private val state = MutableStateFlow<WorktreeState>(WorktreeState.Ready())
+    private val ref = object : MachineRef<WorktreeState, WorktreeIntent.Public, WorktreeOutput> {
+        override val name: String = WorktreeMachineKey.name
+        override val state: StateFlow<WorktreeState> = this@JournalRegistry.state
+        override val outputs: Flow<WorktreeOutput> = emptyFlow()
+        override suspend fun send(intent: WorktreeIntent.Public): SendResult {
+            journal.apply(intent) { task -> project(task.chatId) { task } }
+            return SendResult.Accepted
+        }
+    }
+
+    /** Settles every build of the projected tasks, as the coordinator does when the process exits. */
+    fun finishBuilds(phase: WorktreeBuildPhase) = tasks().keys.forEach { chatId ->
+        project(chatId) { task ->
+            checkNotNull(task).copy(builds = task.builds.mapValues { it.value.copy(phase = phase) })
+        }
+    }
+
+    private fun tasks(): Map<String, WorktreeTask> = (state.value as WorktreeState.Ready).tasks
+
+    private fun project(chatId: String, transform: (WorktreeTask?) -> WorktreeTask) = state.update { current ->
+        val tasks = (current as WorktreeState.Ready).tasks
+        WorktreeState.Ready(tasks + (chatId to transform(tasks[chatId])))
+    }
+
+    @Suppress("UNCHECKED_CAST") // The fake serves only WorktreeMachineKey.
+    override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
+        key: MachineKey<S, I, P, E, O>,
+    ): MachineRef<S, P, O> = ref as MachineRef<S, P, O>
+
+    @Suppress("UNCHECKED_CAST") // The fake serves only WorktreeMachineKey.
+    override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
+        key: MachineKey<S, I, P, E, O>,
+    ): StateFlow<MachineRef<S, P, O>?> = MutableStateFlow(ref) as StateFlow<MachineRef<S, P, O>?>
+
+    @Suppress("UNCHECKED_CAST") // The fake serves only WorktreeMachineKey.
+    override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
+        key: MachineKey<S, I, P, E, O>,
+        intent: P,
+    ): SendResult = (ref as MachineRef<S, P, O>).send(intent)
 }
 
 private class PreviewGit : WorktreeGit {
@@ -391,7 +477,7 @@ private class PreviewToggles : FeatureToggles {
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(toggle.default)
 
     // The feature reads its Boolean flag; unrelated declarations keep their own value type.
-    @Suppress("UNCHECKED_CAST")
+    @Suppress("UNCHECKED_CAST") // The fake serves only WorktreeMachineKey.
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = when (toggle) {
         is FeatureToggle.Flag -> (toggle != WorktreeSandboxEnabled || isSandbox) as T
         is FeatureToggle.Choice -> toggle.default
@@ -412,7 +498,7 @@ private class PreviewStore : KeyValueStore {
     private val value = MutableStateFlow<String?>(null)
 
     // This journal stores only one string; the declaration owns its type.
-    @Suppress("UNCHECKED_CAST")
+    @Suppress("UNCHECKED_CAST") // The fake serves only WorktreeMachineKey.
     override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = value.map { it as T? }
 
     @Suppress("UNCHECKED_CAST") // The same single string declaration is read synchronously.
