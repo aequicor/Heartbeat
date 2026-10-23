@@ -414,6 +414,29 @@ class VirtualSandboxTest {
     }
 
     @Test
+    fun `checkout replaces the sandbox files with another branch and commits continue it`() = runTest {
+        val f = VirtualFixture()
+        try {
+            f.cmd("switch", "-c", "pr/work")
+            Files.writeString(f.project.resolve("pr.txt"), "from pr")
+            f.cmd("add", "pr.txt")
+            f.cmd("commit", "-m", "pr work")
+            val tip = f.cmd("rev-parse", "HEAD")
+            f.cmd("switch", "main")
+            val ref = f.create("checkout")
+            val files = assertNotNull(f.backend.find(ref))
+            assertEquals(null, files.read("pr.txt"))
+            f.backend.checkoutRef(ref, "pr/work", isFetch = false)
+            assertEquals("from pr", files.read("pr.txt"))
+            val commit = f.backend.commitToBranch(ref, "pr/work", "feat: continue")
+            assertEquals(tip, f.cmd("rev-parse", "$commit^"))
+            assertFailsWith<IllegalStateException> { f.backend.checkoutRef(ref, "missing", isFetch = false) }
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
     fun `commit to branch refuses checked out diverged and malformed branches`() = runTest {
         val f = VirtualFixture()
         try {
