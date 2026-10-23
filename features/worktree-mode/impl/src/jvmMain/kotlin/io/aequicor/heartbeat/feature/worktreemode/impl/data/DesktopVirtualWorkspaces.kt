@@ -92,6 +92,9 @@ internal class DesktopVirtualWorkspaces(
                 fork = view,
                 reflogPath = reflogPath, reflogStamp = reflogStamp(reflogPath),
                 reflogCursor = withContext(dispatchers.io) { advanceReflog(reflogPath, null).cursor },
+                // A child continues the branch its parent loaded, so it can commit to it too.
+                branchCommits = parent?.branchCommits.orEmpty(),
+                branch = parent?.branch,
             ),
         )
         settings.setPoolSize(record.commonDirectory, settings.get(record.commonDirectory).poolSize)
@@ -365,17 +368,7 @@ internal class DesktopVirtualWorkspaces(
     override suspend fun checkoutRef(ref: WorkspaceRef, branch: String, isFetch: Boolean): VirtualSandboxState =
         lock.withLock {
             val current = accessible(ref)
-            require(!branch.startsWith("-") && branch.length <= MAX_BRANCH_NAME) { "InvalidBranchName" }
-            check(git.call(current.source, "check-ref-format", "--branch", branch, allowFailure = true).code == 0) {
-                "InvalidBranchName"
-            }
-            val remote = "refs/remotes/origin/$branch"
-            if (isFetch) git.call(current.source, "fetch", "--no-tags", "origin", "+refs/heads/$branch:$remote")
-            val found = listOf("refs/heads/$branch", remote).firstNotNullOfOrNull { full ->
-                git.call(current.source, "rev-parse", "--verify", "--quiet", "$full^{commit}", allowFailure = true)
-                    .takeIf { it.code == 0 }?.text?.trim()
-            }
-            val tip = checkNotNull(found) { "SandboxBranchUnknown" }
+            val tip = branchTip(current, branch, isFetch, isRemoteFirst = isFetch)
             val tree = git.text(current.source, "rev-parse", "$tip^{tree}")
             val snapshot = git.commit(current.source, tree, current.state.baseCommit)
             git.pin(current.source, current.id, snapshot)
@@ -409,21 +402,35 @@ internal class DesktopVirtualWorkspaces(
             val snapshot = git.commit(current.source, merged.tree, current.state.baseCommit)
             git.pin(current.source, current.id, snapshot)
             log.i { "Virtual sandbox merged a branch (conflicts=${merged.conflicts.size})" }
-            val isClean = merged.conflicts.isEmpty()
-            save(
-                current.copy(
-                    state = current.state.copy(
-                        phase = if (isClean) VirtualSandboxPhase.Ready else VirtualSandboxPhase.Conflicted,
-                        snapshot = if (isClean) snapshot else current.state.snapshot,
-                        revision = current.state.revision + 1,
-                        conflicts = merged.conflicts,
-                    ),
-                    pendingBase = current.state.baseCommit.takeUnless { isClean },
-                    pendingSnapshot = snapshot.takeUnless { isClean },
-                    mergeParent = theirs,
-                ),
-            ).state
+            save(afterMerge(current, branch, theirs, snapshot, merged.conflicts)).state
         }
+
+    /**
+     * The sandbox after merging [theirs]. Merging the continued branch itself catches up with it, so the next commit
+     * continues its tip; another branch becomes the next commit's second parent.
+     */
+    private fun afterMerge(
+        current: VirtualRecord,
+        branch: String,
+        theirs: String,
+        snapshot: String,
+        conflicts: List<String>,
+    ): VirtualRecord {
+        val isClean = conflicts.isEmpty()
+        val isOwn = branch == current.branch
+        return current.copy(
+            state = current.state.copy(
+                phase = if (isClean) VirtualSandboxPhase.Ready else VirtualSandboxPhase.Conflicted,
+                snapshot = if (isClean) snapshot else current.state.snapshot,
+                revision = current.state.revision + 1,
+                conflicts = conflicts,
+            ),
+            pendingBase = current.state.baseCommit.takeUnless { isClean },
+            pendingSnapshot = snapshot.takeUnless { isClean },
+            branchCommits = if (isOwn) current.branchCommits + (branch to theirs) else current.branchCommits,
+            mergeParent = if (isOwn) current.mergeParent else theirs,
+        )
+    }
 
     /** Read-only history of [branch] since [base] in the real repository; nothing is checked out or written. */
     override suspend fun history(ref: WorkspaceRef, branch: String, base: String, isStat: Boolean): String =
@@ -443,14 +450,21 @@ internal class DesktopVirtualWorkspaces(
             (commits + if (stat.isEmpty()) "" else "\n\n$stat").take(MAX_HISTORY_CHARS)
         }
 
-    private suspend fun branchTip(record: VirtualRecord, branch: String, isFetch: Boolean): String {
+    /** A fetched branch resolves to its origin state first; otherwise a local branch with unpushed work wins. */
+    private suspend fun branchTip(
+        record: VirtualRecord,
+        branch: String,
+        isFetch: Boolean,
+        isRemoteFirst: Boolean = true,
+    ): String {
         require(!branch.startsWith("-") && branch.length <= MAX_BRANCH_NAME) { "InvalidBranchName" }
         check(git.call(record.source, "check-ref-format", "--branch", branch, allowFailure = true).code == 0) {
             "InvalidBranchName"
         }
         val remote = "refs/remotes/origin/$branch"
         if (isFetch) git.call(record.source, "fetch", "--no-tags", "origin", "+refs/heads/$branch:$remote")
-        val found = listOf(remote, "refs/heads/$branch").firstNotNullOfOrNull { full ->
+        val refs = listOf(remote, "refs/heads/$branch")
+        val found = (if (isRemoteFirst) refs else refs.reversed()).firstNotNullOfOrNull { full ->
             git.call(record.source, "rev-parse", "--verify", "--quiet", "$full^{commit}", allowFailure = true)
                 .takeIf { it.code == 0 }?.text?.trim()
         }

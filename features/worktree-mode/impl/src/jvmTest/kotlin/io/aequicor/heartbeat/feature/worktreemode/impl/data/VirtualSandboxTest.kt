@@ -530,6 +530,50 @@ class VirtualSandboxTest {
     }
 
     @Test
+    fun `a child continues its parent's branch and a fetch prefers origin over a stale local branch`() = runTest {
+        val f = VirtualFixture()
+        val other = Files.createTempDirectory("heartbeat-virtual-other-")
+        val remote = Files.createTempDirectory("heartbeat-virtual-remote-")
+        val writer = Files.createTempDirectory("heartbeat-virtual-writer-")
+        try {
+            f.cmd("init", "--bare", remote.toString())
+            f.cmd("remote", "add", "origin", remote.toString())
+            f.cmd("branch", "pr/shared")
+            f.cmd("push", "origin", "pr/shared")
+            Files.delete(other)
+            f.cmd("worktree", "add", other.toString(), "pr/shared")
+            // Someone else advances origin; the local branch of the other worktree stays behind.
+            Files.delete(writer)
+            f.cmd("clone", "--branch", "pr/shared", remote.toString(), writer.toString())
+            Files.writeString(writer.resolve("remote.txt"), "remote")
+            f.cmd("-C", writer.toString(), "add", "remote.txt")
+            f.cmd("-C", writer.toString(), "-c", "user.name=W", "-c", "user.email=w@test.invalid", "commit", "-m", "r")
+            f.cmd("-C", writer.toString(), "push", "origin", "pr/shared")
+            val parent = f.create("parent")
+            f.backend.checkoutRef(parent, "pr/shared", isFetch = true)
+            assertEquals("remote", assertNotNull(f.backend.find(parent)).read("remote.txt"))
+            val child = f.create("child", parent)
+            val files = assertNotNull(f.backend.find(child))
+            files.change(f.backend.state(child).revision, listOf(VirtualFileChange("child.txt", "child")))
+            val pushed = f.backend.commitToBranch(child, "pr/shared", "feat: child", isPush = true)
+            assertEquals(pushed, f.cmd("--git-dir=$remote", "rev-parse", "pr/shared"))
+            // The parent's push is rejected until it catches up with the branch.
+            val parentFiles = assertNotNull(f.backend.find(parent))
+            parentFiles.change(f.backend.state(parent).revision, listOf(VirtualFileChange("parent.txt", "parent")))
+            assertFailsWith<IllegalStateException> {
+                f.backend.commitToBranch(parent, "pr/shared", "feat: parent", isPush = true)
+            }
+            f.backend.mergeRef(parent, "pr/shared", isFetch = true)
+            val caught = f.backend.commitToBranch(parent, "pr/shared", "feat: parent", isPush = true)
+            assertEquals(pushed, f.cmd("rev-parse", "$caught^"))
+            assertEquals("child", f.cmd("show", "$caught:child.txt"))
+            assertEquals("parent", f.cmd("show", "$caught:parent.txt"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
     fun `commit to branch refuses checked out diverged and malformed branches`() = runTest {
         val f = VirtualFixture()
         try {

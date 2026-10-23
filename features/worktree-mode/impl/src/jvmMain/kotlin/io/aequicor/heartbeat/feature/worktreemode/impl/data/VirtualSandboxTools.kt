@@ -186,13 +186,15 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
     private companion object {
         val REASON = Regex("(Sandbox|Invalid)[A-Za-z]+|TurnUnavailable")
         val hints = mapOf(
-            "SandboxBranchCheckedOut" to "The branch is checked out in another worktree: load it with " +
-                "sandbox_checkout and publish with push=true, which updates origin without touching that worktree.",
-            "SandboxBranchDiverged" to "The local branch moved independently; sandbox_checkout it again and redo " +
-                "the change on top.",
+            "SandboxBranchCheckedOut" to "The branch is checked out in another worktree: publish with push=true, " +
+                "which updates origin only. A sandbox that never loaded the branch must load it with " +
+                "sandbox_checkout before editing, because checkout replaces every sandbox file.",
+            "SandboxBranchDiverged" to "The local branch moved independently: sandbox_merge that branch to take " +
+                "its state into your files, then commit again. Never sandbox_checkout over unsaved work.",
             "SandboxBranchUnknown" to "No such local or origin branch; pass fetch=true to load it from origin.",
             "SandboxGitFailed" to "Git refused the operation, for example a push rejected because origin moved: " +
-                "sandbox_checkout with fetch=true and redo the change on top.",
+                "sandbox_merge the same branch with fetch=true to take the new origin state into your files, then " +
+                "commit again. Never sandbox_checkout over unsaved work.",
             "SandboxSourceChanged" to "The project checkout moved under the sandbox; wait for the user to continue.",
             "SandboxSourceDirty" to "The project checkout has uncommitted changes; wait for the user to continue.",
             "SandboxPaused" to "The sandbox is paused; wait for the user to continue.",
@@ -216,7 +218,8 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
             ),
             AgentToolSpec(
                 "sandbox_checkout",
-                "Replace ALL sandbox files with the tree of a branch of the real repository, for work that lives " +
+                "Replace ALL sandbox files with the tree of a branch of the real repository, discarding every " +
+                    "change in the sandbox, for work that lives " +
                     "on a branch the sandbox was not cut from (for example a pull request branch). With fetch=true " +
                     "the branch is first fetched from origin. Afterwards sandbox_commit to the same branch name " +
                     "continues that branch. No shell or git is needed",
@@ -233,7 +236,8 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
                 "sandbox_merge",
                 "Three-way merge a branch of the real repository (for example the pull request base, fetch=true " +
                     "for its latest origin state) into the sandbox files. The next sandbox_commit records the merged " +
-                    "tip as a second parent. Conflicts leave the files unchanged until the user authorizes resolving",
+                    "tip as a second parent; merging the branch the sandbox continues catches up with it instead " +
+                    "(after a rejected push). Conflicts leave the files unchanged until the user authorizes resolving",
                 Json.parseToJsonElement(
                     """
                     {"type":"object","properties":{
