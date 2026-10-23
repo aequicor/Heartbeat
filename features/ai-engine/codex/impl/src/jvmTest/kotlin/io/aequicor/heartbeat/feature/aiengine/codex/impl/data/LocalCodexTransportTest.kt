@@ -188,7 +188,7 @@ class LocalCodexTransportTest {
     }
 
     @Test
-    fun `unsupported versions refuse restricted launch before creating an app server`() = runTest {
+    fun `protected launches defer compatibility to capabilities regardless of version`() = runTest {
         assumeFalse(System.getProperty("os.name").startsWith("Windows"))
         val dispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
@@ -210,9 +210,7 @@ class LocalCodexTransportTest {
                 dispatchers,
                 FakeScope(backgroundScope),
             ).prepare()
-            assertFailsWith<EngineException> { launch.open(CodexNativeOff(isShellDisabled = true)) }
-            assertEquals("", arguments.readText())
-            val wire = launch.open()
+            val wire = launch.open(CodexNativeOff(isActionAnalysisRequired = true))
             try {
                 assertEquals("unsupported-$index", wire.messages.first().obj("params").text("executable"))
             } finally {
@@ -271,6 +269,10 @@ class LocalCodexTransportTest {
             if [ "${'$'}1" = "--version" ]; then
                 if [ -n "${'$'}HEARTBEAT_TEST_VERSIONS" ]; then printf 'probe\n' >> "${'$'}HEARTBEAT_TEST_VERSIONS"; fi
                 printf 'codex-cli $version\n'
+                exit 0
+            fi
+            if [ "${'$'}1" = "debug" ]; then
+                printf '{"models":[{"slug":"model"}]}\n'
                 exit 0
             fi
             printf '%s\n' "${'$'}@" > "${'$'}HEARTBEAT_TEST_ARGS"
