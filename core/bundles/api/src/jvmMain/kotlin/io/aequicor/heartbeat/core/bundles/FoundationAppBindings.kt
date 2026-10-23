@@ -6,10 +6,13 @@ import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggleControl
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.navigation.NavHostFactory
+import io.aequicor.heartbeat.core.network.release.ReleaseSource
 import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
 import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
+import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.ktor.client.HttpClient
@@ -36,6 +39,15 @@ public interface FoundationAppBindings {
 
     /** Root directory of the application's files. */
     public val storageRoot: StorageRoot
+
+    /** Changes of toggle overrides (the flags panel). */
+    public val featureToggleControl: FeatureToggleControl
+
+    /** Sessions of the signed-in profiles (settings and welcome show what a profile allows). */
+    public val profileSessions: ProfileSessions
+
+    /** Latest release of the application (the update check). */
+    public val releaseSource: ReleaseSource
 
     /** Downloads of release artifacts with checksum verification. */
     public val releaseDownloader: VerifiedReleaseDownloader

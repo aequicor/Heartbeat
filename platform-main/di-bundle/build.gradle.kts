@@ -31,16 +31,12 @@ kotlin {
             implementation(projects.features.aiEngine.acpInterface.impl)
             implementation(projects.features.aiEngine.codex.impl)
             api(projects.features.welcome.api)
-            implementation(projects.features.welcome.impl)
             api(projects.features.questionnaire.api)
             implementation(projects.features.questionnaire.impl)
             implementation(projects.features.checklist.impl)
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.searchEngine.impl)
-            implementation(projects.features.togglesPanel.impl)
-            implementation(projects.features.settings.impl)
-            implementation(projects.features.appLogs.impl)
             implementation(projects.features.aiEngine.authenticator.impl)
             implementation(projects.features.aiEngine.facade.impl)
             implementation(projects.features.aiEngine.connections.impl)
@@ -69,7 +65,6 @@ kotlin {
             implementation(projects.features.scheduler.api)
             implementation(projects.features.scheduler.impl)
             api(projects.features.appUpdate.api)
-            implementation(projects.features.appUpdate.impl)
             implementation(projects.features.serviceAsUi.api)
             implementation(projects.features.serviceAsUi.impl)
             implementation(projects.features.projectConfig.api)
@@ -96,15 +91,26 @@ kotlin {
             implementation(projects.core.stateMachine.impl)
             implementation(projects.core.featureToggles.impl)
         }
-        // Mobile hosts compile the browser, the Chromium bridge and the research chat into the static graph; on
-        // desktop they live in the `web` bundle.
+        // Mobile hosts compile the browser, the Chromium bridge and the research chat into the static graph, and the
+        // shell features (settings, welcome, flags panel, logs, update); on desktop they live in the `web` and
+        // `shell` bundles.
         androidMain.dependencies {
+            implementation(projects.features.welcome.impl)
+            implementation(projects.features.togglesPanel.impl)
+            implementation(projects.features.settings.impl)
+            implementation(projects.features.appLogs.impl)
+            implementation(projects.features.appUpdate.impl)
             implementation(projects.features.browser.impl)
             implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.chromiumBridge.impl)
             implementation(projects.features.researchChat.impl)
         }
         iosMain.dependencies {
+            implementation(projects.features.welcome.impl)
+            implementation(projects.features.togglesPanel.impl)
+            implementation(projects.features.settings.impl)
+            implementation(projects.features.appLogs.impl)
+            implementation(projects.features.appUpdate.impl)
             implementation(projects.features.browser.impl)
             implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.chromiumBridge.impl)
@@ -117,6 +123,7 @@ kotlin {
             implementation(projects.features.browser.api)
         }
         jvmTest.dependencies {
+            runtimeOnly(projects.bundles.shell)
             runtimeOnly(projects.bundles.web)
             implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.aiStudio.screenModel)

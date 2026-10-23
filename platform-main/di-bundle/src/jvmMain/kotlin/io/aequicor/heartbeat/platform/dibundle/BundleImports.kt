@@ -9,8 +9,12 @@ import io.aequicor.heartbeat.core.bundles.BundleUnavailableException
 import io.aequicor.heartbeat.core.bundles.impl.BundleHost
 import io.aequicor.heartbeat.core.datastore.ProfileStorageCleaner
 import io.aequicor.heartbeat.core.di.AppShutdownParticipant
+import io.aequicor.heartbeat.core.di.AppStartup
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.navigation.DeepLinkEntry
+import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
@@ -34,6 +38,15 @@ internal interface FoundationBundleImports {
 
     /** Wipes of the data a bundle keeps for a removed profile. */
     val profileStorageCleaners: Set<ProfileStorageCleaner>
+
+    /** Guest-tree routes of the `shell` bundle. */
+    val appRoutes: List<RouteEntry<*>>
+
+    /** Guest-tree deep links of the `shell` bundle. */
+    val appDeepLinks: List<DeepLinkEntry>
+
+    /** Launch-long work of the `shell` bundle, such as the app update check. */
+    val appStartups: Set<AppStartup>
 }
 
 /** Renderer of a diagram while the `web` bundle is not running: the feature reports itself as unavailable. */
@@ -71,4 +84,29 @@ internal object BundleImportBindings {
     @ElementsIntoSet
     fun bundleProfileCleaners(host: BundleHost): Set<ProfileStorageCleaner> =
         host.foundationImports(FoundationBundleImports::class).profileStorageCleaners
+
+    @Provides
+    @ElementsIntoSet
+    @ForScope(AppScope::class)
+    fun bundleAppRoutes(host: BundleHost): Set<RouteEntry<*>> =
+        orEmpty("routes") { host.foundationImports(FoundationBundleImports::class).appRoutes }.toSet()
+
+    @Provides
+    @ElementsIntoSet
+    @ForScope(AppScope::class)
+    fun bundleAppDeepLinks(host: BundleHost): Set<DeepLinkEntry> =
+        orEmpty("deep links") { host.foundationImports(FoundationBundleImports::class).appDeepLinks }.toSet()
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleAppStartups(host: BundleHost): Set<AppStartup> =
+        host.foundationImports(FoundationBundleImports::class).appStartups
+
+    /** A bundle that is not running leaves its list out, like a platform without the feature. */
+    private inline fun <T> orEmpty(what: String, read: () -> List<T>): List<T> = try {
+        read()
+    } catch (e: BundleUnavailableException) {
+        log.w(e) { "A bundle with app $what is unavailable; they stay out of the app" }
+        emptyList()
+    }
 }

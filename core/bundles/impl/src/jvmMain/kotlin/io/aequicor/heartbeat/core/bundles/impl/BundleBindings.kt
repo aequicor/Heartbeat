@@ -19,13 +19,16 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggleControl
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.navigation.NavHostFactory
+import io.aequicor.heartbeat.core.network.release.ReleaseSource
 import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
 import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraphAttachment
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -103,6 +106,9 @@ internal class DefaultFoundationProfileBindings(
 @Inject
 internal class DefaultFoundationBindings(
     private val toggles: Provider<FeatureToggles>,
+    private val control: Provider<FeatureToggleControl>,
+    private val sessions: Provider<ProfileSessions>,
+    private val releases: Provider<ReleaseSource>,
     private val artifacts: Provider<VerifiedArtifactCache>,
     @ForScope(AppScope::class) private val scope: Provider<ScopeHandle>,
     @ForScope(AppScope::class) private val stores: Provider<DataStores>,
@@ -115,6 +121,9 @@ internal class DefaultFoundationBindings(
     private val client: Provider<HttpClient>,
 ) : FoundationAppBindings {
     override val featureToggles: FeatureToggles get() = toggles()
+    override val featureToggleControl: FeatureToggleControl get() = control()
+    override val profileSessions: ProfileSessions get() = sessions()
+    override val releaseSource: ReleaseSource get() = releases()
     override val verifiedArtifacts: VerifiedArtifactCache get() = artifacts()
     override val appScope: ScopeHandle get() = scope()
     override val dataStores: DataStores get() = stores()
