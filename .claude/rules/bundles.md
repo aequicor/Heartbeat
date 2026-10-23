@@ -33,9 +33,18 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   только то, что фундамент компилирует сам. Объявления `@Multibinds` пустых наборов остаются и у владельца, и в
   фундаменте (`EngineOwnedSets`). Наборы отдаются через держатель, а не `Set`-аксессорами интерфейса из `@Includes`:
   такой аксессор сам становится биндингом и подменяет мультибиндинг графа (проверено на `engines`: терялись вклады
-  фундамента). По той же причине импорты бандла передаются в фабрику профильного графа как `@Provides`, а не
+  фундамента). Сервис, которым владеет бандл, нельзя оставлять аксессором в `FoundationProfileBindings`, если его
+  включает граф самого владельца (два биндинга одного типа): так `ModelProfilesView` вынесен в
+  `FoundationProfileModelBindings`, который включает только `engines`. По той же причине импорты бандла передаются в фабрику профильного графа как `@Provides`, а не
   `@Includes`. Полный список регистраций движков фундамент читает через `RegisteredEngines`, а не через
   `Set<EngineRegistration>` (иначе набор читал бы сам себя).
+- **Наборы `agent-runtime`.** Владелец набора определяется тем, кто его читает. Планировщик и конфигурация проекта читают
+  `ScheduledSessionHost`, `ScheduledWakeOwner`, `ScheduledEventOwner`, `HelperCapacityRecoverySource`,
+  `SchedulerEventSource` и `ConfigSection`, поэтому их владеет бандл, а часть фундамента (студия, чек-листы, интерфейсы)
+  приходит через `FoundationProfileBindings.agentRuntimeSets`; `AgentRuntimeOwnedSets` в фундаменте держит только
+  `@Multibinds`. `ScheduledHelperPromptOwner`, `ScheduledRequestOriginObserver` и `ServiceUiProvider` читает фундамент
+  (студия, service-as-ui), поэтому их владеет фундамент, а харнессы бандла отдают свою часть экспортом. Тот же принцип, что
+  у `engines`: набор нельзя одновременно собирать из чужого экспорта и отдавать ему свою часть (получится цикл).
 - **Контрибуции из не-impl библиотек** (например `core:common`) попадают в граф каждого бандла. Публичные снимает
   `excludes` на `@DependencyGraph`; `internal` нельзя назвать в `excludes` — перекрывай их
   `@ContributesBinding(priority = …)` в бандле (проверено spike-тестом) или оставляй дубликат, если класс без состояния.
