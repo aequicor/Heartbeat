@@ -45,4 +45,6 @@ internal fun virtualToolAllowed(name: String): Boolean = name in setOf(
     "organism_divide", "organism_complain", "organism_dispute", "organism_status", "organism_receive",
     "subagent_spawn", "subagent_receive",
     "plan_read", "plan_write", "plan_propose",
+    // Host-configured PR metadata only: no shell, files or project paths, so the sandbox boundary holds.
+    "github_pr_read", "github_pr_create", "github_pr_update", "github_pr_ready",
 )

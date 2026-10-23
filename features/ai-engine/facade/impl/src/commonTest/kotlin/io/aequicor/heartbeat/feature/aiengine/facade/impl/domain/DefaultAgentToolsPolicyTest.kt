@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ProfileToolPolicies
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.VirtualWorkspacePolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety.IsolatedTurnFixture
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.virtualToolAllowed
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.flowOf
@@ -107,6 +108,14 @@ internal class DefaultAgentToolsPolicyTest {
         planNames.forEach { assertFalse(tools.execute(context, it, empty).isError) }
         assertTrue(tools.execute(context, "run_command", empty).isError)
         assertEquals(3, owner.executions)
+    }
+
+    @Test
+    fun `virtual sessions keep host configured GitHub PR tools and still block shell`() {
+        listOf("github_pr_read", "github_pr_create", "github_pr_update", "github_pr_ready").forEach {
+            assertTrue(virtualToolAllowed(it), it)
+        }
+        assertFalse(virtualToolAllowed("run_command"))
     }
 
     @Test
