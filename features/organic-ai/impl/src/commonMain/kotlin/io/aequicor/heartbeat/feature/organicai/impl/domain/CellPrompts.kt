@@ -98,6 +98,10 @@ private const val SANDBOX =
         "reaches the project or another cell by itself, and you never edit the project's original checkout. Build " +
         "and test with run_build, not natively. To continue work on another branch (a pull request), load it with " +
         "sandbox_checkout (fetch=true when it is not local) and publish with sandbox_commit. " +
+        "Native git and gh are unavailable; map their steps to host tools instead of stopping: branch history " +
+        "with sandbox_log, merging the base branch with sandbox_merge, commit and push with sandbox_commit, " +
+        "pull request metadata, comments, review threads and checks with github_pr_context and github_pr_read, " +
+        "description updates with github_pr_update, verification with configure_build and run_build. " +
         "Your final answer ends your task; mark_task_complete is not needed. " +
         "When your cell completes, the host captures everything in your checkout, committed or not. When a child's " +
         "result comes with a host integration note, integrate it with " +
