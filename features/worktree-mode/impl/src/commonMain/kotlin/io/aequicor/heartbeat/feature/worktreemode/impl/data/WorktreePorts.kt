@@ -215,4 +215,9 @@ internal interface VirtualSandboxAccess {
     suspend fun handoffVirtual(
         record: WorktreeRecord,
     ): io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState? = null
+
+    /** Makes a handed-off sandbox editable again for a new run; its published result branch stays as it is. */
+    suspend fun reopenVirtual(
+        record: WorktreeRecord,
+    ): io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState? = null
 }

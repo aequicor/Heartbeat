@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -385,6 +386,28 @@ class VirtualSandboxTest {
             assertNotNull(f.backend.find(occupied)).change(0, listOf(VirtualFileChange("x", "new")))
             f.cmd("branch", "heartbeat/worktree-occupied")
             assertFailsWith<IllegalStateException> { f.backend.handoff(f.record("occupied")) }
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
+    fun `a reopened sandbox edits again and its next handoff moves its own result branch`() = runTest {
+        val f = VirtualFixture()
+        try {
+            val ref = f.create("reopen")
+            val files = assertNotNull(f.backend.find(ref))
+            files.change(0, listOf(VirtualFileChange("source.txt", "first")))
+            val first = f.backend.handoff(f.record("reopen"))
+            val reopened = f.backend.reopen(ref)
+            assertEquals(VirtualSandboxPhase.Ready, reopened.phase)
+            assertEquals(null, reopened.resultCommit)
+            assertEquals(reopened, f.backend.reopen(ref))
+            files.change(reopened.revision, listOf(VirtualFileChange("source.txt", "second")))
+            val second = f.backend.handoff(f.record("reopen"))
+            assertNotEquals(first.resultCommit, second.resultCommit)
+            assertEquals(second.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-reopen"))
+            assertEquals("second", f.cmd("show", "heartbeat/worktree-reopen:source.txt"))
         } finally {
             f.close()
         }
