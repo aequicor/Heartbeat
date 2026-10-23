@@ -42,7 +42,6 @@ internal fun virtualToolAllowed(name: String): Boolean = name in setOf(
     "configure_build", "run_build", "build_status", "cancel_build", "mark_task_complete",
     "sandbox_integrate", "sandbox_resolve_conflict", "sandbox_commit", "sandbox_checkout", "sandbox_merge",
     "sandbox_log", "web_search", "web_fetch",
-    "github_pr_read", "github_pr_context", "github_pr_create", "github_pr_update", "github_pr_ready",
     "organism_divide", "organism_complain", "organism_dispute", "organism_status", "organism_receive",
     "subagent_spawn", "subagent_receive",
     "plan_read", "plan_write", "plan_propose",
