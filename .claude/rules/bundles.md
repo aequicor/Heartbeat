@@ -10,6 +10,9 @@ Desktop делится на бандлы, которые выпускаются 
 загрузчик). Бандл — единица DI, тестов, доставки, отката и выключения. Состав: `foundation` (core, дизайн-система,
 Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtime`, `studio`, `shell`.
 
+- **`studio`** собирает студию и спутников (`attachments`, `autocomplete`, `checklist`, `questionnaire`, `planning-mode`,
+  `effort-configuration`, `context-window-optimization`, `feedback`, `ai-session-engine-transfer`, `computer-use`,
+  `service-as-ui`, `ai-studio`) по шагам; фича, которой ещё нет в `bundles/studio/build.gradle.kts`, остаётся в фундаменте.
 - **Сборщик бандла** — модуль `:bundles:<name>` с плагином `heartbeat.bundle` (только JVM). Он зависит от `…:impl`
   своих фич и держит собственный Metro-граф и `BundleEntry` (`core:bundles:api`). Код фич не меняется: те же
   `@Contributes*`.

@@ -142,6 +142,7 @@ kotlin {
             runtimeOnly(projects.bundles.agentRuntime)
             runtimeOnly(projects.bundles.engines)
             runtimeOnly(projects.bundles.shell)
+            runtimeOnly(projects.bundles.studio)
             runtimeOnly(projects.bundles.web)
             implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.aiStudio.screenModel)
