@@ -190,8 +190,11 @@ internal class ClaudeRuntime(
     }
 
     override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {
+        // The login is probed once per subscription: each probe spawns the CLI, and polling must not do that twice a second.
+        var isAccountChecked = false
         while (true) {
-            emit(treeSession(root, access).treeSnapshot())
+            emit(treeSession(root, access, isAccountChecked).treeSnapshot())
+            isAccountChecked = true
             delay(TREE_REFRESH_MILLIS)
         }
     }.distinctUntilChanged()
@@ -206,8 +209,12 @@ internal class ClaudeRuntime(
         }
     }
 
-    private suspend fun treeSession(root: SessionRef, access: SessionTreeAccess): ClaudeSession = mutex.withLock {
-        validate(access.target)
+    private suspend fun treeSession(
+        root: SessionRef,
+        access: SessionTreeAccess,
+        isAccountChecked: Boolean = false,
+    ): ClaudeSession = mutex.withLock {
+        validate(access.target, isAccountChecked)
         if (root.engine != identity.engine || root.source != ClaudeEngine.SessionSource) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
@@ -288,12 +295,12 @@ internal class ClaudeRuntime(
         }
     }
 
-    private suspend fun validate(target: EngineTarget) {
+    private suspend fun validate(target: EngineTarget, isAccountChecked: Boolean = false) {
         try {
             if (isClosed) throw EngineException(closeFailure)
             requireClaudeEnabled(toggles)
             if (target.engine != identity.engine) authFailure(AuthFailureReason.AuthMismatch)
-            account.validate(identity.revision)
+            if (!isAccountChecked) account.validate(identity.revision)
         } catch (e: EngineException) {
             log.w(e.redacted()) { "Claude session request rejected: ${e.failure::class.simpleName.orEmpty()}" }
             throw e
