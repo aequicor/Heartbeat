@@ -146,6 +146,42 @@ class VirtualSandboxBranchTest {
     }
 
     @Test
+    fun `an earlier commit only origin has is loaded although the local branch lags behind`() = runTest {
+        val f = VirtualFixture()
+        val remote = Files.createTempDirectory("heartbeat-virtual-remote-")
+        val writer = Files.createTempDirectory("heartbeat-virtual-writer-")
+        try {
+            f.cmd("init", "--bare", remote.toString())
+            f.cmd("remote", "add", "origin", remote.toString())
+            f.cmd("branch", "pr/lag")
+            f.cmd("push", "origin", "pr/lag")
+            Files.delete(writer)
+            f.cmd("clone", "--branch", "pr/lag", remote.toString(), writer.toString())
+            val identity = arrayOf("-c", "user.name=W", "-c", "user.email=w@test.invalid")
+            Files.writeString(writer.resolve("one.txt"), "one")
+            f.cmd("-C", writer.toString(), "add", "one.txt")
+            f.cmd("-C", writer.toString(), *identity, "commit", "-m", "one")
+            val one = f.cmd("-C", writer.toString(), "rev-parse", "HEAD")
+            Files.writeString(writer.resolve("two.txt"), "two")
+            f.cmd("-C", writer.toString(), "add", "two.txt")
+            f.cmd("-C", writer.toString(), *identity, "commit", "-m", "two")
+            f.cmd("-C", writer.toString(), "push", "origin", "pr/lag")
+            f.cmd("fetch", "origin")
+            val ref = f.create("lag")
+            f.backend.checkoutRef(ref, "pr/lag", isFetch = false, at = one)
+            val files = assertNotNull(f.backend.find(ref))
+            assertEquals("one", files.read("one.txt"))
+            assertEquals(null, files.read("two.txt"))
+            val elsewhere = f.cmd("commit-tree", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "-m", "elsewhere")
+            assertFailsWith<IllegalStateException> {
+                f.backend.checkoutRef(ref, "pr/lag", isFetch = false, at = elsewhere)
+            }
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
     fun `a branch checked out in another worktree is published to origin only`() = runTest {
         val f = VirtualFixture()
         val other = Files.createTempDirectory("heartbeat-virtual-other-")

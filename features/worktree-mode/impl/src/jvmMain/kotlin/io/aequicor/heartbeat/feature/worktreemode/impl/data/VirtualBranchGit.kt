@@ -86,7 +86,7 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
     suspend fun checkout(current: VirtualRecord, branch: String, isFetch: Boolean, at: String? = null): VirtualRecord {
         val head = branchTip(current, branch, isFetch, isRemoteFirst = isFetch)
         // An earlier commit of the branch: the next forced commit rewrites the branch from there.
-        val tip = at?.let { earlierCommit(current, it, head) } ?: head
+        val tip = at?.let { earlierCommit(current, branch, it, head) } ?: head
         val tree = git.text(current.source, "rev-parse", "$tip^{tree}")
         val snapshot = git.commit(current.source, tree, current.state.baseCommit)
         git.pin(current.source, current.id, snapshot)
@@ -111,10 +111,25 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
         return current.copy(state = current.state.copy(snapshot = snapshot, revision = current.state.revision + 1))
     }
 
-    private suspend fun earlierCommit(record: VirtualRecord, at: String, head: String): String {
+    /**
+     * [at] must be in the history of the branch as origin, the local branch or this sandbox know it: a local branch
+     * another worktree holds may lag behind origin, and the sandbox may have committed past both.
+     */
+    private suspend fun earlierCommit(record: VirtualRecord, branch: String, at: String, head: String): String {
         val commit = resolveCommit(record, at)
-        check(isAncestor(record.source, commit, head)) { "SandboxCommitNotOnBranch" }
+        val tips = listOfNotNull(
+            head,
+            knownCommit(record, "refs/remotes/origin/$branch"),
+            knownCommit(record, "refs/heads/$branch"),
+            record.branchCommits[branch],
+        ).distinct()
+        check(tips.any { isAncestor(record.source, commit, it) }) { "SandboxCommitNotOnBranch" }
         return commit
+    }
+
+    private suspend fun knownCommit(record: VirtualRecord, ref: String): String? {
+        val found = git.call(record.source, "rev-parse", "--verify", "--quiet", "$ref^{commit}", allowFailure = true)
+        return found.text.trim().takeIf { found.code == 0 }
     }
 
     private suspend fun resolveCommit(record: VirtualRecord, id: String): String {
