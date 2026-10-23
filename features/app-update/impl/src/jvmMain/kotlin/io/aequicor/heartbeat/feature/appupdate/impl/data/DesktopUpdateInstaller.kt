@@ -27,11 +27,14 @@ import java.nio.file.StandardCopyOption
  * The next launch compares its version with the mark ([previousAttempt]).
  * Linux DEB installations belong to the system package manager: update offers lead to the release page for
  * manual installation, without downloading or trying to replace root-owned files from the desktop process.
+ * A bundle train ([AppRelease.train]) is prepared for the platform launcher by [TrainUpdate] instead and activates at
+ * the next start; there is no helper, so no mark is written and the launcher alone rolls a bad train back.
  */
 internal class DesktopUpdateInstaller(
     private val workspace: UpdateWorkspace,
     private val downloader: UpdateDownloader,
     private val mac: MacBundleUpdate,
+    private val trains: TrainUpdate,
     private val launch: LaunchProperties,
     private val io: CoroutineDispatcher,
     private val processId: () -> Long = { ProcessHandle.current().pid() },
@@ -50,6 +53,12 @@ internal class DesktopUpdateInstaller(
         previousAttempt(installation.version)
         if (installation.platform.isManualInstallRequired) {
             updateFailure(AppUpdateFailure.ManualInstallRequired, "Linux updates use the system package manager")
+        }
+        if (release.train != null) {
+            // The platform launcher applies a train at its next start: nothing is replaced or started here.
+            val root = launch.launcherRoot ?: updateFailure(AppUpdateFailure.InstallFailed, "no launcher root")
+            trains.prepare(installation.repository, root, release, progress)
+            return
         }
         val launcher = launch.launcher ?: updateFailure(AppUpdateFailure.InstallFailed, "the launcher is unknown")
         val bundle = if (installation.platform.os == MAC_OS) {

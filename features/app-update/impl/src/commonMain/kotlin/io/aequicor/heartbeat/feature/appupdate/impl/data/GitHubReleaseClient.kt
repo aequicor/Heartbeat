@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.core.network.release.ReleaseSource
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateException
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 
 /** App-update policy over shared anonymous transport. The effect handler logs failures once. */
 @Inject
@@ -32,6 +34,24 @@ internal class GitHubReleaseClient(private val source: ReleaseSource) {
         Result.success(source.latestGitHubRelease(repository.owner, repository.name))
     } catch (e: ReleaseException) {
         Result.failure(e)
+    }
+
+    /**
+     * The newest published releases of [repository], newest first, drafts excluded and pre-releases kept: the beta
+     * channel looks for trains among them. Other failures keep their app-specific category.
+     */
+    suspend fun recent(repository: GitHubRepository): List<GitHubRelease> {
+        log.v { "list recent app releases" }
+        val url = "https://api.github.com/repos/${repository.owner}/${repository.name}/releases?per_page=$RECENT_COUNT"
+        val body = updateRequest { source.document(url, setOf(GITHUB_API_HOST)) }
+        val releases = try {
+            ReleaseListJson.decodeFromString<List<GitHubRelease>>(body)
+        } catch (e: SerializationException) {
+            throw AppUpdateException(AppUpdateFailure.InvalidRelease, "release list is not valid JSON", e)
+        } catch (e: IllegalArgumentException) {
+            throw AppUpdateException(AppUpdateFailure.InvalidRelease, "release list is not valid JSON", e)
+        }
+        return releases.filterNot { it.isDraft }
     }
 
     /** A bounded text asset on GitHub's download hosts. */
@@ -70,6 +90,9 @@ private fun ReleaseException.asUpdateFailure(): AppUpdateException = AppUpdateEx
     cause = this,
 )
 
+private const val GITHUB_API_HOST = "api.github.com"
+private const val RECENT_COUNT = 30
+private val ReleaseListJson = Json { ignoreUnknownKeys = true }
 private const val HTTP_NOT_FOUND = 404
 private const val HTTP_FORBIDDEN = 403
 private const val HTTP_RATE_LIMITED = 429

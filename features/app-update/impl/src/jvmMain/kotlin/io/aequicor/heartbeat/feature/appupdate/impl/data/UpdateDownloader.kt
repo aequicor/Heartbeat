@@ -33,6 +33,23 @@ internal class UpdateDownloader(private val downloader: VerifiedReleaseDownloade
                 )
             }
         }
+
+    /** Downloads one jar of a train from [url] into a new [target]; it must have [sha256] (size [size] if known). */
+    suspend fun downloadFile(
+        url: String,
+        sha256: String,
+        size: Long?,
+        target: Path,
+        progress: suspend (Long, Long?) -> Unit,
+    ): Unit = withContext(io) {
+        updateRequest {
+            downloader.download(
+                ReleaseDownload(url, sha256, size?.takeIf { it > 0 }, GitHubDownloadHosts),
+                target,
+                progress,
+            )
+        }
+    }
 }
 
 private const val SPACE_FACTOR = 3

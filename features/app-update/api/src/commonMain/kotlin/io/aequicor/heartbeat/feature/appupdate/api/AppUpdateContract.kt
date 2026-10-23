@@ -52,6 +52,10 @@ public enum class UnsupportedReason {
 /**
  * The installable build of one release for this machine: the asset [assetName] at the https [url] whose SHA-256 the
  * publisher states as [sha256]; [pageUrl] is the release page for a manual install.
+ *
+ * A bundle train ([train] is its id, [version] the same id) has no installer: [assetName] is `train-manifest.json` at
+ * [url], [sha256] is the digest GitHub states for the manifest or empty, and [size] is null. Integrity is then
+ * checked per jar by the SHA-256 the manifest lists.
  */
 public data class AppRelease(
     val version: String,
@@ -60,6 +64,7 @@ public data class AppRelease(
     val sha256: String,
     val size: Long?,
     val pageUrl: String,
+    val train: String? = null,
 )
 
 /** How far the installation of a release has come. */
@@ -172,4 +177,14 @@ public val AppUpdateEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "app_update.enabled",
     description = "Проверка и установка обновлений приложения (Desktop)",
     default = true,
+)
+
+/**
+ * Opt-in `beta` update channel: besides full releases the check also offers the newest bundle train, a GitHub
+ * pre-release that carries `train-manifest.json`. Off by default: stable ignores drafts and pre-releases.
+ */
+public val AppUpdateBetaChannel: FeatureToggle.Flag = FeatureToggle.Flag(
+    key = "app_update.beta",
+    description = "Бета-канал обновлений: предварительные релизы с поездами бандлов (Desktop)",
+    default = false,
 )

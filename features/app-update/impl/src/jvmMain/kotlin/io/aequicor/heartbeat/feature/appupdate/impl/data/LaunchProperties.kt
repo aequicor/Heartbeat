@@ -41,7 +41,26 @@ internal class LaunchProperties(private val property: (String) -> String? = Syst
     /** The JVM's architecture name (`aarch64`, `amd64`, `x86_64`). */
     val architecture: String get() = property(OS_ARCH).orEmpty()
 
+    /** The id of the bundle train the platform launcher started; null for a launch without a launcher. */
+    val trainId: String? get() = property(TRAIN)?.takeIf { it.isNotBlank() }
+
+    /**
+     * The launcher's root directory (`store/`, `staging/`, `pending/` below it), stated by the platform launcher;
+     * null for a launch without one.
+     */
+    val launcherRoot: Path?
+        get() = property(LAUNCHER_ROOT)?.takeIf { it.isNotBlank() }?.let { path ->
+            try {
+                Path.of(path).toAbsolutePath()
+            } catch (e: InvalidPathException) {
+                log.w(e.withoutPath()) { "launcher root is invalid" }
+                null
+            }
+        }
+
     private companion object {
+        const val TRAIN = "heartbeat.train"
+        const val LAUNCHER_ROOT = "heartbeat.launcher.root"
         const val APP_VERSION = "heartbeat.app.version"
         const val UPDATE_REPOSITORY = "heartbeat.app.update.repository"
         const val APP_PATH = "jpackage.app-path"
@@ -61,7 +80,9 @@ internal class DesktopInstallationProbe(private val platform: PlatformInfo, priv
         }
         val build = releasePlatform(platform.host, launch.architecture)
             ?: return InstallationCheck.Unsupported(UnsupportedReason.UnsupportedPlatform)
-        return InstallationCheck.Supported(AppInstallation(version, repository, build))
+        // Trains need the launcher that applies them: without its root there is no train to compare or install.
+        val train = launch.trainId.takeIf { launch.launcherRoot != null }
+        return InstallationCheck.Supported(AppInstallation(version, repository, build, train))
     }
 }
 

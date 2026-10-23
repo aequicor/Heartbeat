@@ -158,9 +158,8 @@ class DesktopUpdateInstallerTest {
         assertEquals(PreviousAttempt.None, workspace.takeOutcome(AppVersion(1, 3, 0)))
     }
 
-    private fun installer(file: Path, launcher: Path) = DesktopUpdateInstaller(
-        workspace = workspace,
-        downloader = UpdateDownloader(
+    private fun installer(file: Path, launcher: Path): DesktopUpdateInstaller {
+        val downloader = UpdateDownloader(
             object : VerifiedReleaseDownloader {
                 override suspend fun download(
                     request: ReleaseDownload,
@@ -173,8 +172,15 @@ class DesktopUpdateInstallerTest {
                 }
             },
             TestDispatchers,
-        ),
+        )
+        return installer(downloader, launcher)
+    }
+
+    private fun installer(downloader: UpdateDownloader, launcher: Path) = DesktopUpdateInstaller(
+        workspace = workspace,
+        downloader = downloader,
         mac = MacBundleUpdate(CommandRunner(TestDispatchers)),
+        trains = TrainUpdate(GitHubReleaseClient(NoReleases), downloader, Dispatchers.IO),
         launch = LaunchProperties(mapOf("jpackage.app-path" to "$launcher")::get),
         io = Dispatchers.IO,
         processId = { PROCESS_ID },
