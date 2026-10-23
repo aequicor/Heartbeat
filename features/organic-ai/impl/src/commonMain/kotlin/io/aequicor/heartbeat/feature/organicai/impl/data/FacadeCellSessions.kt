@@ -116,9 +116,12 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         awake: Int,
     ): CellHandle? {
         while (true) {
+            var stale: ActiveSession? = null
             val pending = mutex.withLock {
                 checkOpening(key, generation, awake)
                 generations[key] = generation
+                stale = handles[key]?.takeIf { it.isOpen() && existing == null && !it.runs(route) }
+                    ?.also { handles.remove(key) }
                 val cached = handles[key]?.takeIf { it.isOpen() } ?: recoverHeld(key, existing)
                 if (cached != null) {
                     val sending = submitting[cached]
@@ -128,11 +131,19 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
                 openers[key] = (openers[key] ?: 0) + 1
                 null
             }
+            stale?.let {
+                // The cell moved to another model (a provider refused its own one): its old session is let go.
+                log.i { "cell session on ${it.ref.engine.value} replaced for ${route.target.engine.value}" }
+                discard(key, it, generation, isStopped = false, isArchived = false)
+            }
             if (pending == null) return null
             // Recovery must observe the earlier send's outcome before deciding whether to adopt or submit a turn.
             pending.await()
         }
     }
+
+    private fun ActiveSession.runs(route: CellRoute): Boolean =
+        this.route.engine == route.target.engine && this.route.binding == route.target.binding
 
     /** Rechecks an opener after any admission wait; called only under [mutex]. */
     private fun checkOpening(key: CellKey, generation: Int, awake: Int) {
