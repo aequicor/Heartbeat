@@ -114,6 +114,16 @@ class WorktreeCellWorkspacesTest {
     }
 
     @Test
+    fun `a paused sandbox is rechecked without an explicit resume before the next turn`() = runTest {
+        val conflicted = VirtualSandboxState(VirtualSandboxPhase.Conflicted, baseCommit = "base", snapshot = "s")
+        machine.publish(prepared(revision = 4).copy(virtualSandbox = conflicted))
+        val waiting = async { workspaces.awaitAvailable(sandboxed, C1) }
+        runCurrent()
+        assertEquals(listOf<WorktreeIntent.Public>(WorktreeIntent.Public.Recheck(key)), machine.sent)
+        waiting.await()
+    }
+
+    @Test
     fun `a run begins after the older request of the cell is closed as unknown`() = runTest {
         val stale = RequestId("organic-o1-c1-1")
         val fresh = RequestId("organic-o1-c1-2")
