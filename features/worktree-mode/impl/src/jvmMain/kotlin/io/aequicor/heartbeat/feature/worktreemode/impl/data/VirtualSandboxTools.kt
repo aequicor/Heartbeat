@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.worktreemode.impl.data
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
@@ -11,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -21,6 +23,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @ContributesIntoSet(ProfileScope::class)
 internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, private val journal: WorktreeJournal) :
     AgentToolContribution {
+    private val log = Log.tag("VirtualSandboxTools")
     override val group: String = "virtual_sandbox"
     override val title: String = "Виртуальная песочница"
     override val catalog = specs.toolCatalog()
@@ -91,18 +94,34 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         checkNotNull(journal.authenticated(context)) { "TurnUnavailable" }
         val parent = checkNotNull(context.workspace)
-        return if (name == "sandbox_log") {
-            AgentToolResult(
-                workspaces.history(
-                    parent,
-                    checkNotNull(arguments["branch"]).jsonPrimitive.content,
-                    checkNotNull(arguments["base"]).jsonPrimitive.content,
-                    arguments["stat"]?.jsonPrimitive?.content == "true",
-                ),
-            )
-        } else {
-            change(context, parent, name, arguments)
+        return try {
+            if (name == "sandbox_log") {
+                AgentToolResult(
+                    workspaces.history(
+                        parent,
+                        checkNotNull(arguments["branch"]).jsonPrimitive.content,
+                        checkNotNull(arguments["base"]).jsonPrimitive.content,
+                        arguments["stat"]?.jsonPrimitive?.content == "true",
+                    ),
+                )
+            } else {
+                change(context, parent, name, arguments)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: IllegalStateException) {
+            log.w(error) { "Virtual sandbox tool refused name=$name" }
+            refusal(error)
+        } catch (error: IllegalArgumentException) {
+            log.w(error) { "Virtual sandbox tool refused name=$name" }
+            refusal(error)
         }
+    }
+
+    /** Store refusals carry only fixed reason codes, so they reach the agent; anything else stays opaque. */
+    private fun refusal(error: RuntimeException): AgentToolResult {
+        val code = error.message?.takeIf { REASON.matches(it) } ?: throw error
+        return AgentToolResult("Refused: $code. ${hints[code].orEmpty()}".trim(), isError = true)
     }
 
     private suspend fun change(
@@ -165,6 +184,19 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
     }
 
     private companion object {
+        val REASON = Regex("(Sandbox|Invalid)[A-Za-z]+|TurnUnavailable")
+        val hints = mapOf(
+            "SandboxBranchCheckedOut" to "The branch is checked out in another worktree: load it with " +
+                "sandbox_checkout and publish with push=true, which updates origin without touching that worktree.",
+            "SandboxBranchDiverged" to "The local branch moved independently; sandbox_checkout it again and redo " +
+                "the change on top.",
+            "SandboxBranchUnknown" to "No such local or origin branch; pass fetch=true to load it from origin.",
+            "SandboxGitFailed" to "Git refused the operation, for example a push rejected because origin moved: " +
+                "sandbox_checkout with fetch=true and redo the change on top.",
+            "SandboxSourceChanged" to "The project checkout moved under the sandbox; wait for the user to continue.",
+            "SandboxSourceDirty" to "The project checkout has uncommitted changes; wait for the user to continue.",
+            "SandboxPaused" to "The sandbox is paused; wait for the user to continue.",
+        )
         const val PUSH_TITLE = "Записать снапшот песочницы в ветку и отправить её в origin (push)"
         const val COMMIT_TITLE = "Записать снапшот песочницы в ветку реального репозитория"
         val specs = listOf(

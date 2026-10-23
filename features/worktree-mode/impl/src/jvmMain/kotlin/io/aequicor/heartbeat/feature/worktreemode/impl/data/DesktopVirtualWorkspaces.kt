@@ -307,7 +307,9 @@ internal class DesktopVirtualWorkspaces(
     /**
      * Publishes the current snapshot as one commit on a local branch of the real repository. The branch is created
      * at the sandbox base or fast-forwarded; it is never moved sideways and never touches a checked-out branch,
-     * the index or any file of the source checkout.
+     * the index or any file of the source checkout. A branch checked out in another worktree is only published:
+     * with [isPush] the commit continues the tip this sandbox loaded and goes straight to origin, leaving the
+     * local branch of that worktree as it is.
      */
     override suspend fun commitToBranch(ref: WorkspaceRef, branch: String, message: String, isPush: Boolean): String =
         lock.withLock {
@@ -320,32 +322,13 @@ internal class DesktopVirtualWorkspaces(
             val full = "refs/heads/$branch"
             val isCheckedOut = git.text(current.source, "worktree", "list", "--porcelain").lineSequence()
                 .any { it.trim() == "branch $full" }
-            check(!isCheckedOut) { "SandboxBranchCheckedOut" }
+            check(!isCheckedOut || (isPush && current.branchCommits[branch] != null)) { "SandboxBranchCheckedOut" }
             val snapshot = current.state.snapshot
-            val existing = git.call(current.source, "rev-parse", "--verify", full, allowFailure = true)
-            val tip = existing.text.trim().takeIf { existing.code == 0 }
-            // A branch this sandbox already committed to advances again;
-            // anything else must be an ancestor of the snapshot.
-            check(
-                tip == null || tip == current.branchCommits[branch] || git.call(
-                    current.source,
-                    "merge-base",
-                    "--is-ancestor",
-                    tip,
-                    snapshot,
-                    allowFailure = true,
-                ).code == 0,
-            ) { "SandboxBranchDiverged" }
+            val tip = continuedTip(current, branch, isCheckedOut)
             val tree = git.text(current.source, "rev-parse", "$snapshot^{tree}")
             val parent = tip ?: current.branchCommits[branch] ?: current.state.baseCommit
-            val merged = current.mergeParent?.takeUnless { it == parent || isAncestor(current.source, it, parent) }
-            val source = current.source
-            val commit = if (merged == null) {
-                git.text(source, "commit-tree", "--no-gpg-sign", tree, "-p", parent, "-m", message)
-            } else {
-                git.text(source, "commit-tree", "--no-gpg-sign", tree, "-p", parent, "-p", merged, "-m", message)
-            }
-            git.call(current.source, "update-ref", full, commit, tip.orEmpty())
+            val commit = writeCommit(current, tree, parent, message)
+            if (!isCheckedOut) git.call(current.source, "update-ref", full, commit, tip.orEmpty())
             save(
                 current.copy(
                     branchCommits = current.branchCommits + (branch to commit),
@@ -355,7 +338,7 @@ internal class DesktopVirtualWorkspaces(
             )
             log.i { "Virtual sandbox snapshot committed to a branch" }
             // Never forced: a remote that moved sideways fails the push and leaves the local commit in place.
-            if (isPush) git.call(current.source, "push", "origin", "$full:$full")
+            if (isPush) git.call(current.source, "push", "origin", "${if (isCheckedOut) commit else full}:$full")
             commit
         }
 
@@ -457,6 +440,31 @@ internal class DesktopVirtualWorkspaces(
                 .takeIf { it.code == 0 }?.text?.trim()
         }
         return checkNotNull(found) { "SandboxBranchUnknown" }
+    }
+
+    /**
+     * The commit a branch commit continues. A branch this sandbox already committed to advances again; anything
+     * else must be an ancestor of the snapshot. A branch checked out elsewhere continues the tip this sandbox loaded.
+     */
+    private suspend fun continuedTip(record: VirtualRecord, branch: String, isCheckedOut: Boolean): String? {
+        if (isCheckedOut) return record.branchCommits[branch]
+        val existing = git.call(record.source, "rev-parse", "--verify", "refs/heads/$branch", allowFailure = true)
+        val tip = existing.text.trim().takeIf { existing.code == 0 }
+        check(
+            tip == null || tip == record.branchCommits[branch] || isAncestor(record.source, tip, record.state.snapshot),
+        ) { "SandboxBranchDiverged" }
+        return tip
+    }
+
+    /** Records a pending merged tip as the second parent unless [parent] already contains it. */
+    private suspend fun writeCommit(record: VirtualRecord, tree: String, parent: String, message: String): String {
+        val source = record.source
+        val merged = record.mergeParent?.takeUnless { it == parent || isAncestor(source, it, parent) }
+        return if (merged == null) {
+            git.text(source, "commit-tree", "--no-gpg-sign", tree, "-p", parent, "-m", message)
+        } else {
+            git.text(source, "commit-tree", "--no-gpg-sign", tree, "-p", parent, "-p", merged, "-m", message)
+        }
     }
 
     private suspend fun isAncestor(source: String, ancestor: String, commit: String): Boolean =
