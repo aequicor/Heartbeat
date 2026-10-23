@@ -1,3 +1,5 @@
+@file:Suppress("FeatureLayerDependency") // hands the foundation's engine registrations to the engines bundle
+
 package io.aequicor.heartbeat.core.bundles
 
 import io.aequicor.heartbeat.core.datastore.DataStores
@@ -8,10 +10,15 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -44,20 +51,27 @@ public interface FoundationProfileBindings {
 
     /** Catalog of the profile's attachments (stays in the foundation for now). */
     public val attachmentsCatalog: AttachmentsCatalog
+
+    /**
+     * Parts of the sets that the `engines` bundle owns. They sit behind one holder instead of plain `Set` accessors:
+     * a graph that includes this interface would otherwise bind each `Set` twice, as an accessor and as a multibinding,
+     * and the accessor replaces the graph's own contributions with the foundation's merged set.
+     */
+    public val engineSets: FoundationEngineSets
 }
 
 /**
- * Sets of the agent tool catalog that the foundation graph assembles, for the one bundle that owns those sets (the
- * future `engines`). They are a separate interface because a bundle that receives a set accessor through `@Includes`
- * gets a second binding for the same multibinding: its own contributions are replaced by the foundation's merged set,
- * which in turn reads the bundle's export, and the host reports a cross-bundle cycle. Other bundles (`web`) must not
- * include it.
+ * What the features that stay in the foundation contribute to the sets the facade of the `engines` bundle assembles.
+ * A bundle that owns a set merges these parts with its own contributions and with the parts other bundles export.
  */
-public interface FoundationProfileToolBindings {
-    /**
-     * Agent tools the foundation graph assembles: the contributions of the features that stay in it plus the parts
-     * that other bundles export to it.
-     */
+public interface FoundationEngineSets {
+    /** Resolver of the profile's attachments: the foundation keeps them, the facade reads them through it. */
+    public val resourceResolver: ResourceResolver
+
+    /** Engine registrations contributed by the foundation (tests and hosts that bring their own adapter). */
+    public val engineRegistrations: Set<EngineRegistration>
+
+    /** Agent tools of the features that stay in the foundation. */
     public val agentTools: Set<AgentToolContribution>
 
     /** Native action analyzers contributed by the features of the foundation. */
@@ -65,13 +79,25 @@ public interface FoundationProfileToolBindings {
 
     /** Tool output offloads contributed by the features of the foundation. */
     public val toolOutputOffloads: Set<ToolOutputOffload>
+
+    /** Session hooks contributed by the features of the foundation (the facade of `engines` runs them). */
+    public val sessionHooks: Set<SessionHook>
+
+    /** Tool policy providers contributed by the features of the foundation. */
+    public val toolPolicyProviders: Set<AgentToolPolicyProvider>
+
+    /** Context policy providers contributed by the features of the foundation. */
+    public val contextPolicyProviders: Set<ContextPolicyProvider>
+
+    /** Virtual workspace providers contributed by the features of the foundation. */
+    public val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider>
 }
 
 /**
  * Services of the AI engines the foundation hands to the profile graphs of the bundles that only use them (`web`).
- * They are a separate interface because the `engines` bundle owns these services: its own profile graph must not
- * receive them from the foundation, or each would have two bindings. The foundation backs them with the lazy
- * imports from `engines`.
+ * They are a separate interface because the `engines` bundle owns the facade and the search: its own profile graph must
+ * not receive them from the foundation, or each would have two bindings. The foundation backs them with the lazy
+ * imports from `engines` (the resource resolver is the foundation's own, over its attachments).
  */
 public interface FoundationProfileEngineBindings {
     /** Sessions and models of the AI engines. */

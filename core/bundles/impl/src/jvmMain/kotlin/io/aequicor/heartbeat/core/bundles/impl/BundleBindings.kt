@@ -1,3 +1,5 @@
+@file:Suppress("FeatureLayerDependency") // hands the foundation's engine registrations to the engines bundle
+
 package io.aequicor.heartbeat.core.bundles.impl
 
 import dev.zacsweers.metro.AppScope
@@ -13,9 +15,9 @@ import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.bundles.BundleEntry
 import io.aequicor.heartbeat.core.bundles.BundleRegistry
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
+import io.aequicor.heartbeat.core.bundles.FoundationEngineSets
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
-import io.aequicor.heartbeat.core.bundles.FoundationProfileToolBindings
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
@@ -38,10 +40,15 @@ import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -86,7 +93,6 @@ public interface FoundationProfileAccess {
 /** Stateful foundation services of one profile handed to the profile graphs of bundles. */
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileEngineBindings>())
-@ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileToolBindings>())
 @Inject
 internal class DefaultFoundationProfileBindings(
     private val id: Provider<ProfileId>,
@@ -102,9 +108,13 @@ internal class DefaultFoundationProfileBindings(
     private val tools: Provider<Set<AgentToolContribution>>,
     private val analyzers: Provider<Set<NativeActionAnalysis>>,
     private val offloads: Provider<Set<ToolOutputOffload>>,
+    private val registrations: Provider<Set<EngineRegistration>>,
+    private val hooks: Provider<Set<SessionHook>>,
+    private val toolPolicies: Provider<Set<AgentToolPolicyProvider>>,
+    private val contextPolicies: Provider<Set<ContextPolicyProvider>>,
+    private val virtualWorkspaces: Provider<Set<VirtualWorkspaceProvider>>,
 ) : FoundationProfileBindings,
-    FoundationProfileEngineBindings,
-    FoundationProfileToolBindings {
+    FoundationProfileEngineBindings {
     override val profileId: ProfileId get() = id()
     override val profileScope: ScopeHandle get() = scope()
     override val dataStores: DataStores get() = stores()
@@ -115,9 +125,17 @@ internal class DefaultFoundationProfileBindings(
     override val searchEngine: SearchEngine get() = search()
     override val attachmentsCatalog: AttachmentsCatalog get() = attachments()
     override val resourceResolver: ResourceResolver get() = resolver()
-    override val agentTools: Set<AgentToolContribution> get() = tools()
-    override val nativeActionAnalyzers: Set<NativeActionAnalysis> get() = analyzers()
-    override val toolOutputOffloads: Set<ToolOutputOffload> get() = offloads()
+    override val engineSets: FoundationEngineSets = object : FoundationEngineSets {
+        override val resourceResolver: ResourceResolver get() = resolver()
+        override val engineRegistrations: Set<EngineRegistration> get() = registrations()
+        override val agentTools: Set<AgentToolContribution> get() = tools()
+        override val nativeActionAnalyzers: Set<NativeActionAnalysis> get() = analyzers()
+        override val toolOutputOffloads: Set<ToolOutputOffload> get() = offloads()
+        override val sessionHooks: Set<SessionHook> get() = hooks()
+        override val toolPolicyProviders: Set<AgentToolPolicyProvider> get() = toolPolicies()
+        override val contextPolicyProviders: Set<ContextPolicyProvider> get() = contextPolicies()
+        override val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider> get() = virtualWorkspaces()
+    }
 }
 
 /**

@@ -120,7 +120,7 @@ class PiEngineIntegrationTest {
     )
 
     private fun AiEngineAccessors.piRegistration(): EngineRegistration =
-        engineRegistrations.single { it.descriptor.id == PiEngineId }
+        (this as RegisteredEnginesAccess).registeredEngines.all.single { it.descriptor.id == PiEngineId }
 
     private fun withProfile(block: suspend ProfileFixture.() -> Unit) = runTest {
         val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)

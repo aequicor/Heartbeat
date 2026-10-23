@@ -15,6 +15,8 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.navigation.DeepLinkEntry
 import io.aequicor.heartbeat.core.navigation.RouteEntry
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpStdioTransportFactory
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
@@ -38,6 +40,12 @@ internal interface FoundationBundleImports {
 
     /** Wipes of the data a bundle keeps for a removed profile. */
     val profileStorageCleaners: Set<ProfileStorageCleaner>
+
+    /** Agent Client Protocol clients of the `engines` bundle. */
+    val acpClients: AcpClientFactory
+
+    /** Agent Client Protocol stdio transport of the `engines` bundle. */
+    val acpStdio: AcpStdioTransportFactory
 
     /** Guest-tree routes of the `shell` bundle. */
     val appRoutes: List<RouteEntry<*>>
@@ -69,6 +77,14 @@ internal object BundleImportBindings {
         log.w(e) { "PlantUML bundle is unavailable; diagrams stay code" }
         UnavailablePlantUmlRenderer
     }
+
+    @Provides
+    fun acpClients(host: BundleHost): AcpClientFactory =
+        host.foundationImports(FoundationBundleImports::class).acpClients
+
+    @Provides
+    fun acpStdio(host: BundleHost): AcpStdioTransportFactory =
+        host.foundationImports(FoundationBundleImports::class).acpStdio
 
     @Provides
     @ElementsIntoSet

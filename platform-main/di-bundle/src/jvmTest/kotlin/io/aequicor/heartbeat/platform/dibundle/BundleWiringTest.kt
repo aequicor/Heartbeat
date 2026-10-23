@@ -114,6 +114,36 @@ class ShellBundleWiringTest {
     }
 }
 
+/** The desktop graph with the `engines` bundle: the facade and the engine adapters come from its own graph. */
+class EnginesBundleWiringTest {
+    private val persisted = PersistedProfile()
+    private val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)
+
+    @BeforeTest
+    fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
+
+    @AfterTest
+    fun tearDown() = runTest {
+        app.closeAndAwaitStorages()
+        Dispatchers.resetMain()
+        File(persisted.storageRoot).deleteRecursively()
+    }
+
+    @Test
+    fun `the production graph starts and seals the engines bundle without findings`() {
+        val graph = createHeartbeatGraph(isDevelopment = true) as JvmHeartbeatGraph
+        val health = graph.bundleHost.health
+        assertEquals(BundleHealth.Healthy, health.getValue(BundleId("engines")), health.toString())
+    }
+
+    @Test
+    fun `the profile gets the facade and the adapters of the bundle`() = runTest {
+        val graph = app.profileSessions.open(io.aequicor.heartbeat.core.profilefacade.ProfileId("engines-wiring")).graph
+        val engines = (graph as RegisteredEnginesAccess).registeredEngines.all.map { it.descriptor.id.value }
+        assertTrue(engines.isNotEmpty(), "the adapters of the bundle must reach the profile")
+    }
+}
+
 /** Test accessors of the sets that the `shell` bundle contributes to. */
 @dev.zacsweers.metro.ContributesTo(dev.zacsweers.metro.AppScope::class)
 interface TestShellAccessors {

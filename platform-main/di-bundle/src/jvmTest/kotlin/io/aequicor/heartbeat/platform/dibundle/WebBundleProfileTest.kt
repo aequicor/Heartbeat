@@ -7,7 +7,7 @@ import io.aequicor.heartbeat.core.datastore.ProfileStorageCleaner
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
@@ -69,9 +69,9 @@ class WebBundleProfileTest {
     }
 
     @Test
-    fun `agent tools of both browsers reach the profile tool set`() = runTest {
+    fun `agent tools of both browsers reach the tool set of the engines bundle`() = runTest {
         val session = app.profileSessions.open(ProfileId("web-tools"))
-        val groups = (session.graph as TestWebProfileAccessors).webAgentTools.map { it.group }
+        val groups = (session.graph as TestWebProfileAccessors).webAgentTools.catalog().map { it.id }
         assertTrue("browser" in groups, groups.toString())
         assertTrue("external_browser" in groups, groups.toString())
     }
@@ -101,7 +101,7 @@ class WebBundleProfileTest {
 interface TestWebProfileAccessors {
     val webDocuments: BrowserDocuments
     val browserDocumentPreviews: BrowserDocumentPreviews
-    val webAgentTools: Set<AgentToolContribution>
+    val webAgentTools: ProfileAgentTools
 }
 
 /** Test access to what the foundation app graph takes from the `web` bundle. */

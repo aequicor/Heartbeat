@@ -21,8 +21,13 @@ public class EnginesBundle : BundleEntry {
 
     override val hasProfileGraph: Boolean = true
 
+    override val profileImportsType: KClass<*> = EnginesProfileImports::class
+
     override val profileExportTypes: List<KClass<*>> = listOf(EnginesProfileExports::class, ProfileStartupAccess::class)
 
     override fun createProfileGraph(appGraph: Any, foundation: Any, imports: Any): Any =
-        (appGraph as EnginesAppGraph).profileGraphs.create(foundation as FoundationProfileBindings)
+        (appGraph as EnginesAppGraph).profileGraphs.create(
+            foundation as FoundationProfileBindings,
+            imports as EnginesProfileImports,
+        )
 }

@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.core.datastore.ProfileStorageCleaner
 import io.aequicor.heartbeat.core.di.AppShutdownParticipant
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpStdioTransportFactory
 
 /** What the `engines` bundle publishes to the other bundles and to the foundation at the application level. */
 public interface EnginesAppExports {
@@ -19,6 +21,12 @@ public interface EnginesAppExports {
 
     /** Wipes the engine data of a removed profile; the foundation merges it into its own set. */
     public val profileStorageCleaners: Set<ProfileStorageCleaner>
+
+    /** Clients of the Agent Client Protocol; hosts and tests connect external agents through them. */
+    public val acpClients: AcpClientFactory
+
+    /** Standard-stream transport of the Agent Client Protocol. */
+    public val acpStdio: AcpStdioTransportFactory
 }
 
 /**

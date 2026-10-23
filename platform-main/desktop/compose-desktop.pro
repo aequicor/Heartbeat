@@ -32,6 +32,7 @@
 -keep interface io.aequicor.heartbeat.platform.dibundle.FoundationProfileBundleImports { *; }
 -keep interface io.aequicor.heartbeat.core.bundles.FoundationAppBindings { *; }
 -keep interface io.aequicor.heartbeat.core.bundles.FoundationProfileBindings { *; }
--keep interface io.aequicor.heartbeat.core.bundles.FoundationProfileToolBindings { *; }
+-keep interface io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings { *; }
+-keep interface io.aequicor.heartbeat.core.bundles.FoundationEngineSets { *; }
 -keep interface io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess { *; }
 -adaptresourcefilecontents META-INF/services/io.aequicor.heartbeat.core.bundles.BundleEntry

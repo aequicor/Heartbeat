@@ -97,7 +97,6 @@ kotlin {
         }
         androidMain.dependencies(engineImpls)
         iosMain.dependencies(engineImpls)
-        jvmMain.dependencies(engineImpls)
         // Mobile hosts compile the browser, the Chromium bridge and the research chat into the static graph, and the
         // shell features (settings, welcome, flags panel, logs, update); on desktop they live in the `web` and
         // `shell` bundles.
@@ -128,8 +127,13 @@ kotlin {
             implementation(projects.core.bundles.impl)
             implementation(projects.core.bundles.api)
             implementation(projects.features.browser.api)
+            implementation(projects.features.aiEngine.authenticator.api)
+            implementation(projects.features.aiEngine.connections.api)
+            implementation(projects.features.aiEngine.acpInterface.api)
+            implementation(projects.features.searchEngine.api)
         }
         jvmTest.dependencies {
+            runtimeOnly(projects.bundles.engines)
             runtimeOnly(projects.bundles.shell)
             runtimeOnly(projects.bundles.web)
             implementation(projects.features.chromiumBridge.api)
