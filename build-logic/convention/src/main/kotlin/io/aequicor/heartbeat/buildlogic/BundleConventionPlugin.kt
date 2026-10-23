@@ -112,6 +112,20 @@ class BundleConventionPlugin : Plugin<Project> {
                     providers.gradleProperty(PLATFORM_API_PROPERTY).map(String::toInt).orElse(DEFAULT_PLATFORM_API),
                 )
                 manifestFile.set(root.layout.buildDirectory.file("bundles/manifest.json"))
+                // prebuilt `foundation` and `contracts` jars of the train:
+                // -Pheartbeat.baseArtifacts=foundation,contracts, jars in -Pheartbeat.baseArtifactDir=<dir>
+                val baseVersion = providers.gradleProperty(BUNDLE_VERSION_PROPERTY)
+                    .orElse(provider { version.toString() })
+                baseArtifacts.putAll(
+                    providers.gradleProperty(BASE_ARTIFACTS_PROPERTY).zip(baseVersion) { ids, version ->
+                        ids.split(',').map(String::trim).filter(String::isNotEmpty).associateWith { version }
+                    },
+                )
+                jars.from(
+                    providers.gradleProperty(BASE_ARTIFACT_DIR_PROPERTY).map { dir ->
+                        root.fileTree(dir) { include("*.jar") }
+                    },
+                )
             }
         }
         val affected = if (AFFECTED_TASK in root.tasks.names) {
@@ -160,6 +174,8 @@ class BundleConventionPlugin : Plugin<Project> {
         const val MANIFEST_TASK = "bundleManifest"
         const val AFFECTED_TASK = "affectedBundles"
         const val BUNDLE_VERSION_PROPERTY = "heartbeat.bundleVersion"
+        const val BASE_ARTIFACTS_PROPERTY = "heartbeat.baseArtifacts"
+        const val BASE_ARTIFACT_DIR_PROPERTY = "heartbeat.baseArtifactDir"
         const val PLATFORM_API_PROPERTY = "heartbeat.platformApi"
         const val CHANGED_PATHS_PROPERTY = "heartbeat.changedPaths"
         const val CHANGED_FILE_PROPERTY = "heartbeat.changedFile"

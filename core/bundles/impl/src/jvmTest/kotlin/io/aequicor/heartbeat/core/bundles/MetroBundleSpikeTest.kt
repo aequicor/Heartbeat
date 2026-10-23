@@ -9,6 +9,8 @@ import dev.zacsweers.metro.Provider
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.createGraph
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.bundles.spike.FixtureService
+import io.aequicor.heartbeat.core.bundles.spike.LibraryFixtureService
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
 import kotlinx.coroutines.CoroutineDispatcher
@@ -38,7 +40,10 @@ class EagerUser(val heavy: Heavy)
 @Inject
 class LazyUser(val heavy: Provider<Heavy>)
 
-@DependencyGraph(AppScope::class, excludes = [ProfileGraph.Factory::class])
+@DependencyGraph(
+    AppScope::class,
+    excludes = [ProfileGraph.Factory::class, LibraryFixtureService::class, BundleFixtureService::class],
+)
 interface SpikeAppGraph {
     val eager: EagerUser
     val lazyUser: LazyUser
@@ -130,6 +135,12 @@ class MetroBundleSpikeTest {
     }
 
     @Test
+    fun `excludes removes a public ContributesBinding of another module`() {
+        val graph = createGraph<SpikeExcludedBindingGraph>()
+        assertEquals("bundle", graph.service.origin)
+    }
+
+    @Test
     fun `higher priority contribution overrides an internal foundation contribution`() {
         val graph = createGraph<SpikeDispatcherGraph>()
         assertTrue(graph.dispatchers is SpikeDispatcherOverride)
@@ -145,7 +156,22 @@ class SpikeDispatcherOverride : DispatcherProvider {
     override val io: CoroutineDispatcher get() = Dispatchers.Unconfined
 }
 
-@DependencyGraph(AppScope::class, excludes = [ProfileGraph.Factory::class])
+/** Bundle-local binding that replaces the library one; without `excludes` the two would clash at compile time. */
+@dev.zacsweers.metro.ContributesBinding(AppScope::class)
+@Inject
+class BundleFixtureService : FixtureService {
+    override val origin: String = "bundle"
+}
+
+@DependencyGraph(AppScope::class, excludes = [ProfileGraph.Factory::class, LibraryFixtureService::class])
+interface SpikeExcludedBindingGraph {
+    val service: FixtureService
+}
+
+@DependencyGraph(
+    AppScope::class,
+    excludes = [ProfileGraph.Factory::class, LibraryFixtureService::class, BundleFixtureService::class],
+)
 interface SpikeDispatcherGraph {
     val dispatchers: DispatcherProvider
 }

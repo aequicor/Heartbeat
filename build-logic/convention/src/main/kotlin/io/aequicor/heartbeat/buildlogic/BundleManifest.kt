@@ -18,13 +18,23 @@ import java.security.MessageDigest
 /** Bundles every other bundle builds on; each bundle of the train lists them in its manifest entry. */
 internal val BUNDLE_BASE_DEPENDENCIES = listOf("contracts", "foundation")
 
-/** One bundle of the train as the launcher reads it. */
+/** What an entry of the train is: a feature bundle or a base artifact (`foundation`, `contracts`) the bundles build on. */
+internal enum class BundleArtifactKind(val json: String) { Bundle("bundle"), Base("base") }
+
+/** One artifact of the train as the launcher reads it. */
 internal data class BundleManifestEntry(
     val id: String,
     val version: String,
     val jar: String,
     val sha256: String,
     val dependencies: List<String>,
+    val kind: BundleArtifactKind = BundleArtifactKind.Bundle,
+)
+
+/** Base artifacts and what each depends on: `contracts` (the `features:*:api`) is built on the foundation. */
+internal val BASE_ARTIFACT_DEPENDENCIES = mapOf(
+    "foundation" to emptyList(),
+    "contracts" to listOf("foundation"),
 )
 
 /** File name of the bundle jar: stable for a given id and version, so the manifest can point at it. */
@@ -57,6 +67,8 @@ internal fun renderBundleManifest(platformApi: Int, entries: List<BundleManifest
         appendLine("      \"version\": ${jsonString(entry.version)},")
         appendLine("      \"jar\": ${jsonString(entry.jar)},")
         appendLine("      \"sha256\": ${jsonString(entry.sha256)},")
+        // only base artifacts carry a kind, so the entries of plain bundles keep the format launchers already read
+        if (entry.kind != BundleArtifactKind.Bundle) appendLine("      \"kind\": ${jsonString(entry.kind.json)},")
         appendLine("      \"dependencies\": [${entry.dependencies.sorted().joinToString(", ") { jsonString(it) }}]")
         appendLine("    }" + if (index < sorted.lastIndex) "," else "")
     }
@@ -86,6 +98,13 @@ abstract class BundleManifest : DefaultTask() {
     @get:Input
     abstract val versions: MapProperty<String, String>
 
+    /**
+     * `base artifact id -> version` of the prebuilt `foundation` and `contracts` jars of the train (same jar naming as
+     * the bundles). Empty keeps the manifest to the bundles.
+     */
+    @get:Input
+    abstract val baseArtifacts: MapProperty<String, String>
+
     /** The platform API level the train is built for; the launcher refuses a train above its own level. */
     @get:Input
     abstract val platformApi: Property<Int>
@@ -101,7 +120,14 @@ abstract class BundleManifest : DefaultTask() {
     @TaskAction
     fun write() {
         val jarsByName = jars.files.associateBy { it.name }
-        val entries = versions.get().map { (id, version) ->
+        val base = baseArtifacts.get().map { (id, version) ->
+            val dependencies = BASE_ARTIFACT_DEPENDENCIES[id]
+                ?: throw GradleException("Unknown base artifact $id, expected ${BASE_ARTIFACT_DEPENDENCIES.keys}")
+            val name = bundleJarName(id, version)
+            val jar = jarsByName[name] ?: throw GradleException("Base artifact jar $name is missing")
+            BundleManifestEntry(id, version, name, sha256Hex(jar), dependencies, BundleArtifactKind.Base)
+        }
+        val entries = base + versions.get().map { (id, version) ->
             val name = bundleJarName(id, version)
             val jar = jarsByName[name] ?: throw GradleException("Bundle jar $name is missing: run assembleBundle")
             BundleManifestEntry(

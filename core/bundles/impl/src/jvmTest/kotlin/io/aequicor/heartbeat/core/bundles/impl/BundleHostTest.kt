@@ -341,6 +341,39 @@ class BundleHostTest {
         assertEquals(1, created)
     }
 
+    private interface ScopeExports {
+        val scope: ScopeHandle
+    }
+
+    private fun scopeEntry() = entry("dup", exports = listOf(ScopeExports::class)) {
+        object : ScopeExports {
+            override val scope: ScopeHandle get() = error("never read")
+        }
+    }
+
+    @Test
+    fun `bundle exporting a key the foundation owns fails`() {
+        val host = started(scopeEntry(), entry("web", exports = listOf(WebExports::class)) { Web() })
+        assertIs<BundleHealth.Failed>(host.health.getValue(BundleId("dup")))
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("web")))
+    }
+
+    @Test
+    fun `foundation owned keys cover app and profile bindings and skip sets`() {
+        val keys = foundationOwnedKeys().map { it.signature }
+        assertEquals(true, ScopeHandle::class.java.name in keys)
+        assertEquals(true, keys.none { it.startsWith("java.util.Set") })
+    }
+
+    @Test
+    fun `smaller owned set is a deliberate exception`() {
+        val host = BundleHost(listOf(scopeEntry()), { Unit }, emptySet()).also {
+            it.start()
+            it.seal()
+        }
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("dup")))
+    }
+
     @Test
     fun `failing profile graph is isolated and reported`() {
         val failing = object : BundleEntry {

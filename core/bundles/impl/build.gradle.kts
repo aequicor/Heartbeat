@@ -12,6 +12,9 @@ kotlin {
             implementation(projects.core.di.api)
             implementation(projects.core.common)
         }
+        jvmTest.dependencies {
+            implementation(projects.core.bundles.spikeFixture)
+        }
         jvmMain.dependencies {
             implementation(projects.core.profileFacade.api)
             implementation(projects.core.featureToggles.api)

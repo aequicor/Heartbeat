@@ -68,8 +68,19 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   `agent-runtime`, `engines`, `web` и `shell`, владеет наборами владельцев подсказок планировщика, `StudioRemoteScreens`
   читает Chromium-мост, а интеграционные тесты строят `AiStudioGraph` из профильного графа фундамента.
 - **Контрибуции из не-impl библиотек** (например `core:common`) попадают в граф каждого бандла. Публичные снимает
-  `excludes` на `@DependencyGraph`; `internal` нельзя назвать в `excludes` — перекрывай их
+  `excludes` на `@DependencyGraph` — в том числе `@ContributesBinding` публичного класса из другого модуля (проверено
+  spike-тестом с фикстурой `core:bundles:spike-fixture`: исключённая библиотечная привязка заменяется привязкой бандла,
+  без `excludes` они конфликтуют); `internal` нельзя назвать в `excludes` — перекрывай их
   `@ContributesBinding(priority = …)` в бандле (проверено spike-тестом) или оставляй дубликат, если класс без состояния.
+- **Дубликаты состояния фундамента.** Ключи `FoundationAppBindings` и `FoundationProfileBindings` (кроме наборов) принадлежат
+  фундаменту: `BundleHost` при регистрации экспортов помечает бандл `Failed`, если он экспортирует такой ключ (второй
+  экземпляр stateful-синглтона рядом с тем, что фундамент отдаёт всем графам). Исключение — осознанно меньший набор
+  ключей в конструкторе хоста, не молчаливый экспорт. Статические контрибуции из библиотек этой проверкой не видны —
+  для них действуют `excludes` выше и `verifyBundleMembership`.
+- **Артефакты поезда.** `foundation` и `contracts` описываются в `bundleManifest` как базовые артефакты (`"kind": "base"`;
+  у `contracts` зависимость `foundation`; у обычных бандлов поле `kind` не пишется). Готовые jar-ы подаются
+  `-Pheartbeat.baseArtifacts=foundation,contracts -Pheartbeat.baseArtifactDir=<каталог с bundle-<id>-<версия>.jar>`;
+  версия — `heartbeat.bundleVersion`. Сборка самих jar-ов фундамента и контрактов пока не автоматизирована.
 - **Профильный граф бандла.** Фичи профиля (`ProfileScope`) живут в `@GraphExtension(ProfileScope::class)` бандла
   (`WebProfileGraph`), который создаётся из app-графа бандла (`val profileGraphs: …Graph.Factory`) и получает
   `@Includes FoundationProfileBindings`. `BundleEntry.hasProfileGraph = true`, `createProfileGraph` и

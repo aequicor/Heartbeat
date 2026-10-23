@@ -22,14 +22,23 @@ import kotlin.reflect.KClass
  * a proxy accessor is called only when a dependent binding is built, so references through `Provider` never resolve
  * at graph creation and cycles are detected only when they are real ([BundleCycleException]).
  *
- * Rules checked at [seal]: a non-set key has exactly one exporter; a bundle never both imports and exports the
- * same set (it would count its own contribution twice); a bundle importing a key nobody exports is
- * [BundleHealth.Degraded].
+ * Rules checked at [seal]: a non-set key has exactly one exporter; a bundle never exports a key the foundation owns
+ * (`FoundationAppBindings`, `FoundationProfileBindings`: it would be a second instance of a stateful singleton);
+ * a bundle never both imports and exports the same set (it would count its own contribution twice); a bundle
+ * importing a key nobody exports is [BundleHealth.Degraded].
  *
  * Profiles: [openProfile] repeats the same for the per-profile graphs of the bundles that have one. Profile
  * exports are visible only inside that profile and take precedence over app exports of the same key.
  */
-public class BundleHost(entries: Collection<BundleEntry>, private val foundation: () -> Any) : BundleRegistry {
+public class BundleHost internal constructor(
+    entries: Collection<BundleEntry>,
+    private val foundation: () -> Any,
+    private val foundationOwned: Set<BindingKey>,
+) : BundleRegistry {
+    /** Host that refuses bundles exporting what the foundation owns (the keys of `Foundation*Bindings`). */
+    public constructor(entries: Collection<BundleEntry>, foundation: () -> Any) :
+        this(entries, foundation, foundationOwnedKeys())
+
     private val log = Log.tag("BundleHost")
     private val entries: List<BundleEntry> = entries.sortedBy { it.id }
     private val healthById = LinkedHashMap<BundleId, BundleHealth>()
@@ -196,6 +205,10 @@ public class BundleHost(entries: Collection<BundleEntry>, private val foundation
             accessorsOf(type.java).map { method ->
                 Exporter(id, bindingKeyOf(method.genericReturnType), method, graph)
             }
+        }
+        val duplicated = own.filter { it.key in foundationOwned }
+        check(duplicated.isEmpty()) {
+            "$id exports ${duplicated.map { it.key }}: owned by the foundation, a second instance of a service"
         }
         synchronized(view.exporters) {
             fun existing(key: BindingKey) = view.exporters[key].orEmpty() + parent?.exporters?.get(key).orEmpty()

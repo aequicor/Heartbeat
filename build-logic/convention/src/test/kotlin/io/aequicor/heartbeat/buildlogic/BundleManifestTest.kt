@@ -76,6 +76,59 @@ class BundleManifestTest {
     }
 
     @Test
+    fun `base artifacts are listed with their kind and dependencies`() {
+        val task = fixture()
+        val jars = temporaryFolder.newFolder("jars")
+        val foundation = jars.resolve(bundleJarName("foundation", "1.0")).apply { writeText("f") }
+        val contracts = jars.resolve(bundleJarName("contracts", "1.0")).apply { writeText("c") }
+        val web = jars.resolve(bundleJarName("web", "1.0")).apply { writeText("w") }
+        task.baseArtifacts.put("foundation", "1.0")
+        task.baseArtifacts.put("contracts", "1.0")
+        task.versions.put("web", "1.0")
+        task.jars.from(foundation, contracts, web)
+
+        task.write()
+
+        val text = task.manifestFile.get().asFile.readText()
+        val base = BundleArtifactKind.Base
+        assertEquals(
+            renderBundleManifest(
+                7,
+                listOf(
+                    BundleManifestEntry(
+                        "foundation", "1.0", "bundle-foundation-1.0.jar", sha256Hex(foundation), emptyList(), base,
+                    ),
+                    BundleManifestEntry(
+                        "contracts", "1.0", "bundle-contracts-1.0.jar", sha256Hex(contracts), listOf("foundation"), base,
+                    ),
+                    BundleManifestEntry(
+                        "web", "1.0", "bundle-web-1.0.jar", sha256Hex(web), BUNDLE_BASE_DEPENDENCIES,
+                    ),
+                ),
+            ),
+            text,
+        )
+        assertEquals(true, "\"kind\": \"base\"" in text)
+        assertEquals(2, Regex("\"kind\"").findAll(text).count())
+    }
+
+    @Test
+    fun `plain bundles keep the entry format without kind`() {
+        val json = renderBundleManifest(1, listOf(BundleManifestEntry("web", "1", "j", "aa", emptyList())))
+        assertEquals(false, "kind" in json)
+    }
+
+    @Test
+    fun `unknown base artifact and missing base jar fail the task`() {
+        val task = fixture()
+        task.baseArtifacts.put("shell", "1.0")
+        assertFailsWith<GradleException> { task.write() }
+        val missing = fixture()
+        missing.baseArtifacts.put("foundation", "1.0")
+        assertFailsWith<GradleException> { missing.write() }
+    }
+
+    @Test
     fun `missing jar fails the task`() {
         val task = fixture()
         task.versions.put("web", "1.0")
