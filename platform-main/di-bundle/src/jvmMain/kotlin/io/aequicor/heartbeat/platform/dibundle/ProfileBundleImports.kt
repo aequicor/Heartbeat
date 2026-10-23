@@ -44,6 +44,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocuments
+import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 
 /**
@@ -57,8 +58,11 @@ internal interface FoundationProfileBundleImports {
     /** Visual checks of documents in the `web` bundle's browser. */
     val documentPreviews: BrowserDocumentPreviews
 
-    /** Navigation entries of the `web` and `engines` bundles. */
+    /** Navigation entries of the `web`, `engines` and `agent-runtime` bundles. */
     val profileRoutes: Set<RouteEntry<*>>
+
+    /** Sections of the project configuration tree of the `agent-runtime` bundle. */
+    val configSections: Set<ConfigSection>
 
     /** Services the bundles start with the profile. */
     val profileStartups: Set<ProfileStartup>
@@ -197,6 +201,11 @@ internal object ProfileBundleImportBindings {
     @ForScope(ProfileScope::class)
     fun bundleRoutes(imports: FoundationProfileBundleImports): Set<RouteEntry<*>> =
         imports.orElse(emptySet()) { profileRoutes }
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleConfigSections(imports: FoundationProfileBundleImports): Set<ConfigSection> =
+        imports.orElse(emptySet()) { configSections }
 
     @Provides
     @ElementsIntoSet

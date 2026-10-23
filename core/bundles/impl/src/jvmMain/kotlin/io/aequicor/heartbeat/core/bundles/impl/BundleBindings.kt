@@ -43,6 +43,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
@@ -105,6 +106,7 @@ internal class DefaultFoundationProfileBindings(
     private val models: Provider<ModelProfilesView>,
     private val attachments: Provider<AttachmentsCatalog>,
     private val resolver: Provider<ResourceResolver>,
+    private val workspaces: Provider<LocalWorkspaces>,
     private val tools: Provider<Set<AgentToolContribution>>,
     private val analyzers: Provider<Set<NativeActionAnalysis>>,
     private val offloads: Provider<Set<ToolOutputOffload>>,
@@ -125,6 +127,7 @@ internal class DefaultFoundationProfileBindings(
     override val searchEngine: SearchEngine get() = search()
     override val attachmentsCatalog: AttachmentsCatalog get() = attachments()
     override val resourceResolver: ResourceResolver get() = resolver()
+    override val localWorkspaces: LocalWorkspaces get() = workspaces()
     override val engineSets: FoundationEngineSets = object : FoundationEngineSets {
         override val resourceResolver: ResourceResolver get() = resolver()
         override val engineRegistrations: Set<EngineRegistration> get() = registrations()

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
@@ -108,4 +109,7 @@ public interface FoundationProfileEngineBindings {
 
     /** Reads the bytes of attachments and other prompt resources of the profile. */
     public val resourceResolver: ResourceResolver
+
+    /** Local projects of the profile (worktrees and agent learning work on them). */
+    public val localWorkspaces: LocalWorkspaces
 }

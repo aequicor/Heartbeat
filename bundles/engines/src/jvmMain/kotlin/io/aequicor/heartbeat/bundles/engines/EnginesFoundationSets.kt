@@ -27,8 +27,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
  * interface are owned by `engines` (its facade assembles them), so the bundle never exports them.
  */
 public interface EnginesProfileImports {
-    /** Agent tools of the embedded and the external browser (`web` exports them). */
+    /** Agent tools of the bundles: the browser (`web`), worktrees and learning (`agent-runtime`). */
     public val agentTools: Set<AgentToolContribution>
+
+    /** Virtual workspaces of the `agent-runtime` bundle (sandboxes of worktree tasks). */
+    public val virtualWorkspaceProviders: Set<VirtualWorkspaceProvider>
 }
 
 /** The foundation owns the attachments; the facade of `engines` resolves prompt resources through its resolver. */
@@ -41,8 +44,8 @@ internal class FoundationResourceResolver(private val foundation: FoundationProf
 
 /**
  * Parts of the sets that `engines` owns and other participants export to it: the foundation through
- * [FoundationProfileBindings], the `web` bundle through [EnginesProfileImports]. Every element is read when the set is
- * requested, which happens after the profile graphs of the bundles are open.
+ * [FoundationProfileBindings], the `web` and `agent-runtime` bundles through [EnginesProfileImports]. Every element is
+ * read when the set is requested, which happens after the profile graphs of the bundles are open.
  */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
@@ -55,6 +58,11 @@ internal object EnginesFoundationSets {
     @Provides
     @ElementsIntoSet
     fun bundleAgentTools(imports: EnginesProfileImports): Set<AgentToolContribution> = imports.agentTools
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleVirtualWorkspaces(imports: EnginesProfileImports): Set<VirtualWorkspaceProvider> =
+        imports.virtualWorkspaceProviders
 
     @Provides
     @ElementsIntoSet

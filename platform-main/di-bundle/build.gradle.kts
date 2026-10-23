@@ -34,7 +34,6 @@ kotlin {
             implementation(projects.features.aiSessionEngineTransfer.impl)
             implementation(projects.features.effortConfiguration.impl)
             implementation(projects.features.contextWindowOptimization.impl)
-            implementation(projects.features.worktreeMode.impl)
             implementation(projects.features.computerUse.impl)
             api(projects.features.computerUse.api)
             implementation(projects.features.feedback.api)
@@ -44,7 +43,6 @@ kotlin {
             implementation(projects.features.harness.api)
             implementation(projects.features.harness.impl)
             implementation(projects.features.agentLearning.api)
-            implementation(projects.features.agentLearning.impl)
             implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.adaptiveSubagents.impl)
             implementation(projects.features.autocomplete.api)
@@ -97,6 +95,14 @@ kotlin {
         }
         androidMain.dependencies(engineImpls)
         iosMain.dependencies(engineImpls)
+        // Agent runtime (`agent-runtime` group): the mobile hosts keep these impls in the static graph; on desktop
+        // the `agent-runtime` bundle owns them.
+        val agentRuntimeImpls: KotlinDependencyHandler.() -> Unit = {
+            implementation(projects.features.worktreeMode.impl)
+            implementation(projects.features.agentLearning.impl)
+        }
+        androidMain.dependencies(agentRuntimeImpls)
+        iosMain.dependencies(agentRuntimeImpls)
         // Mobile hosts compile the browser, the Chromium bridge and the research chat into the static graph, and the
         // shell features (settings, welcome, flags panel, logs, update); on desktop they live in the `web` and
         // `shell` bundles.
@@ -133,6 +139,7 @@ kotlin {
             implementation(projects.features.searchEngine.api)
         }
         jvmTest.dependencies {
+            runtimeOnly(projects.bundles.agentRuntime)
             runtimeOnly(projects.bundles.engines)
             runtimeOnly(projects.bundles.shell)
             runtimeOnly(projects.bundles.web)
@@ -156,6 +163,8 @@ kotlin {
             implementation(projects.features.effortConfiguration.api)
             implementation(projects.features.contextWindowOptimization.api)
             implementation(projects.features.agentLearning.api)
+            implementation(projects.features.worktreeMode.api)
+            implementation(projects.features.projectConfig.api)
             implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.scheduler.api)
             implementation(projects.features.organicAi.api)
