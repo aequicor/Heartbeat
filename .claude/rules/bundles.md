@@ -61,8 +61,11 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   `FoundationProfileRuntimeBindings` (отдельный интерфейс по той же причине, что и `FoundationProfileModelBindings`).
   Документы и превью браузера для интерфейсов `service-as-ui` бандл берёт у `web` (`StudioProfileImports`, без `web`
   подставляются заглушки). Окно-презентацию захвата и гид выдачи прав `computer-use` отдаёт хосту экспорт уровня
-  приложения (`StudioAppExports`, импорт `FoundationBundleImports`). `ai-studio` и `attachments` пока остаются в
-  фундаменте: их потребляют `engines`, `web`, Chromium-мост и всё, что строит граф `AiStudioGraph`.
+  приложения (`StudioAppExports`, импорт `FoundationBundleImports`). Вложения (`attachments`) бандл отдаёт каталогом и
+  резолвером ресурсов; `web` читает их у фундамента через `FoundationProfileAttachmentBindings` (владелец не включает
+  этот интерфейс: иначе у него два биндинга одного типа). `ai-studio` пока остаётся в фундаменте: он тянет сервисы
+  `agent-runtime`, `engines`, `web` и `shell`, владеет наборами владельцев подсказок планировщика, `StudioRemoteScreens`
+  читает Chromium-мост, а интеграционные тесты строят `AiStudioGraph` из профильного графа фундамента.
 - **Контрибуции из не-impl библиотек** (например `core:common`) попадают в граф каждого бандла. Публичные снимает
   `excludes` на `@DependencyGraph`; `internal` нельзя назвать в `excludes` — перекрывай их
   `@ContributesBinding(priority = …)` в бандле (проверено spike-тестом) или оставляй дубликат, если класс без состояния.
