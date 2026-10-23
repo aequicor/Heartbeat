@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_SEARCH_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
@@ -535,7 +536,7 @@ internal fun claudeHostedConfig(
             "mcpServers",
             buildJsonObject {
                 put(HOSTED_TOOLS_SERVER, mcpServer(endpoint.url, endpoint.token))
-                search?.let { put("heartbeat_search", mcpServer(it.origin, it.token)) }
+                search?.let { put(HOSTED_SEARCH_SERVER, mcpServer(it.origin, it.token)) }
             },
         )
     }
@@ -564,7 +565,7 @@ internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint, directory: Path)
             "mcpServers",
             buildJsonObject {
                 put(
-                    "heartbeat_search",
+                    HOSTED_SEARCH_SERVER,
                     buildJsonObject {
                         put("type", "http")
                         put("url", "${endpoint.origin}/mcp")
