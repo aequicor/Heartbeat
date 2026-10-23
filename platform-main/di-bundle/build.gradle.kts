@@ -37,7 +37,6 @@ kotlin {
             implementation(projects.features.computerUse.impl)
             api(projects.features.computerUse.api)
             implementation(projects.features.feedback.api)
-            implementation(projects.features.feedback.impl)
             implementation(projects.features.attachments.api)
             implementation(projects.features.attachments.impl)
             implementation(projects.features.harness.api)
@@ -103,6 +102,13 @@ kotlin {
         }
         androidMain.dependencies(agentRuntimeImpls)
         iosMain.dependencies(agentRuntimeImpls)
+        // Studio (`studio` group): the mobile hosts keep these impls in the static graph; on desktop the `studio`
+        // bundle owns them.
+        val studioImpls: KotlinDependencyHandler.() -> Unit = {
+            implementation(projects.features.feedback.impl)
+        }
+        androidMain.dependencies(studioImpls)
+        iosMain.dependencies(studioImpls)
         // Mobile hosts compile the browser, the Chromium bridge and the research chat into the static graph, and the
         // shell features (settings, welcome, flags panel, logs, update); on desktop they live in the `web` and
         // `shell` bundles.

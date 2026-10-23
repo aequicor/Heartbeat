@@ -7,6 +7,8 @@ plugins {
 kotlin {
     sourceSets {
         jvmMain.dependencies {
+            implementation(projects.features.feedback.api)
+            implementation(projects.features.feedback.impl)
             implementation(projects.core.stateMachine.api)
             implementation(projects.core.featureToggles.api)
             implementation(projects.core.di.api)
