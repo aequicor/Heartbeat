@@ -1,0 +1,157 @@
+package io.aequicor.heartbeat.launcher;
+
+import java.io.FilterInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
+
+/**
+ * Первый запуск из seed. Установщик кладёт рядом с приложением каталог seed: {@code manifest.json} поезда,
+ * jar бандлов, которые вошли в установщик (минимум {@code foundation}), и необязательный {@code seed.properties} с
+ * {@code baseUrl} — адресом, где лежат остальные jar поезда. Если активного поезда ещё нет, seed-jar копируются в
+ * хранилище (с проверкой SHA-256), недостающие бандлы докачиваются, поезд активируется. Повторный вызов после сбоя
+ * продолжает с того, что уже лежит в хранилище. Без seed (монолитная установка) {@link #isNeeded()} ложно, и лаунчер
+ * работает как раньше.
+ */
+public final class FirstLaunch {
+    public static final String MANIFEST = "manifest.json";
+    public static final String PROPERTIES = "seed.properties";
+    public static final String BASE_URL_KEY = "baseUrl";
+
+    /** Наблюдатель за ходом первого запуска; вызывается из потока {@link #run}. */
+    public interface Listener {
+        void onLog(String line);
+
+        /**
+         * @param done номер скачиваемого бандла (с нуля) — столько бандлов уже скачано
+         * @param total сколько бандлов предстоит скачать
+         * @param bundleId текущий бандл
+         * @param bytes сколько байт текущего бандла получено
+         */
+        void onProgress(int done, int total, String bundleId, long bytes);
+    }
+
+    private final Launcher launcher;
+    private final Path seedDir;
+
+    public FirstLaunch(Launcher launcher, Path seedDir) {
+        this.launcher = launcher;
+        this.seedDir = seedDir.toAbsolutePath();
+    }
+
+    /** Нужен ли первый запуск: есть seed-манифест, активного поезда нет, и поезд seed не помечен плохим. */
+    public boolean isNeeded() throws IOException {
+        Path manifestFile = seedDir.resolve(MANIFEST);
+        if (!Files.isRegularFile(manifestFile)) {
+            return false;
+        }
+        LauncherState state = launcher.store().state();
+        if (!state.current.isEmpty()) {
+            return false;
+        }
+        return !state.bad.contains(TrainManifest.parse(Files.readString(manifestFile, StandardCharsets.UTF_8)).train());
+    }
+
+    /** Адрес скачивания из {@code seed.properties}, либо {@code null}. */
+    public String baseUrl() throws IOException {
+        Path file = seedDir.resolve(PROPERTIES);
+        if (!Files.isRegularFile(file)) {
+            return null;
+        }
+        Properties properties = new Properties();
+        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            properties.load(reader);
+        }
+        String value = properties.getProperty(BASE_URL_KEY, "").trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    /**
+     * Импортирует seed-jar, докачивает недостающие через {@code remote} и активирует поезд.
+     *
+     * @return активированный поезд
+     * @throws IOException если докачать нечем/не удалось, хэш не сошёлся или платформа устарела
+     */
+    public String run(TrainStore.Fetcher remote, Listener listener) throws IOException {
+        String manifestJson = Files.readString(seedDir.resolve(MANIFEST), StandardCharsets.UTF_8);
+        TrainManifest manifest = TrainManifest.parse(manifestJson);
+        listener.onLog("Train " + manifest.train() + ", bundles: " + manifest.bundles().size());
+        TrainStore store = launcher.store();
+        Files.createDirectories(store.jarPath("0").getParent());
+        List<TrainManifest.Bundle> missing = new ArrayList<>();
+        for (TrainManifest.Bundle bundle : manifest.bundles()) {
+            if (importSeedJar(store, bundle, listener)) {
+                continue;
+            }
+            missing.add(bundle);
+        }
+        listener.onLog("Seed provides " + (manifest.bundles().size() - missing.size()) + ", to download: " + missing.size());
+        int[] done = {0};
+        int total = missing.size();
+        TrainStore.Fetcher counting = bundle -> {
+            listener.onLog("Downloading " + bundle.jar());
+            listener.onProgress(done[0], total, bundle.id(), 0);
+            return new FilterInputStream(remote.open(bundle)) {
+                private long bytes;
+
+                @Override
+                public int read() throws IOException {
+                    int b = super.read();
+                    if (b >= 0) {
+                        report(1);
+                    }
+                    return b;
+                }
+
+                @Override
+                public int read(byte[] buffer, int off, int len) throws IOException {
+                    int n = super.read(buffer, off, len);
+                    if (n > 0) {
+                        report(n);
+                    } else if (n < 0) {
+                        done[0]++;
+                        listener.onProgress(done[0], total, bundle.id(), bytes);
+                    }
+                    return n;
+                }
+
+                private void report(int n) {
+                    bytes += n;
+                    listener.onProgress(done[0], total, bundle.id(), bytes);
+                }
+            };
+        };
+        launcher.applyUpdate(manifestJson, counting);
+        listener.onLog("Train " + manifest.train() + " activated");
+        return manifest.train();
+    }
+
+    /** Копирует jar из seed в хранилище, если он есть и его SHA-256 верен. */
+    private boolean importSeedJar(TrainStore store, TrainManifest.Bundle bundle, Listener listener) throws IOException {
+        String sha = TrainManifest.normalizedSha(bundle);
+        Path target = store.jarPath(sha);
+        if (Files.isRegularFile(target) && TrainStore.sha256(target).equals(sha)) {
+            return true;
+        }
+        Path source = seedDir.resolve(bundle.jar());
+        if (!Files.isRegularFile(source)) {
+            return false;
+        }
+        if (!TrainStore.sha256(source).equals(sha)) {
+            listener.onLog("Seed jar " + bundle.jar() + " is corrupted, will be downloaded");
+            return false;
+        }
+        Path part = target.resolveSibling(sha + ".seed");
+        Files.copy(source, part, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(part, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        listener.onLog("Imported " + bundle.jar() + " from seed");
+        return true;
+    }
+}
