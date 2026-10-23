@@ -32,7 +32,6 @@ kotlin {
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.aiSessionEngineTransfer.impl)
-            implementation(projects.features.effortConfiguration.impl)
             implementation(projects.features.contextWindowOptimization.impl)
             implementation(projects.features.computerUse.impl)
             api(projects.features.computerUse.api)
@@ -105,6 +104,7 @@ kotlin {
         // Studio (`studio` group): the mobile hosts keep these impls in the static graph; on desktop the `studio`
         // bundle owns them.
         val studioImpls: KotlinDependencyHandler.() -> Unit = {
+            implementation(projects.features.effortConfiguration.impl)
             implementation(projects.features.feedback.impl)
         }
         androidMain.dependencies(studioImpls)
@@ -143,6 +143,7 @@ kotlin {
             implementation(projects.features.aiEngine.connections.api)
             implementation(projects.features.aiEngine.acpInterface.api)
             implementation(projects.features.searchEngine.api)
+            implementation(projects.features.effortConfiguration.api)
         }
         jvmTest.dependencies {
             runtimeOnly(projects.bundles.agentRuntime)

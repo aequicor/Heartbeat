@@ -47,6 +47,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocuments
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
@@ -177,6 +178,9 @@ internal interface FoundationProfileBundleImports {
 
     /** Service-as-ui providers of the `agent-runtime` bundle. */
     val serviceUiProviders: Set<ServiceUiProvider>
+
+    /** Effort levels of the `studio` bundle. */
+    val effortChoices: EffortChoicesView
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -408,6 +412,14 @@ internal object AgentRuntimeServiceImportBindings {
     fun processDecisions(
         imports: FoundationProfileBundleImports,
     ): Machine<ProcessDecisionsState, ProcessDecisionsIntent, ProcessDecisionsOutput> = imports.processDecisions
+}
+
+/** Services of the `studio` bundle the foundation features use; they have no stand-in. */
+@ContributesTo(ProfileScope::class)
+@BindingContainer
+internal object StudioServiceImportBindings {
+    @Provides
+    fun effortChoices(imports: FoundationProfileBundleImports): EffortChoicesView = imports.effortChoices
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */
