@@ -27,5 +27,21 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
 - **Контрибуции из не-impl библиотек** (например `core:common`) попадают в граф каждого бандла. Публичные снимает
   `excludes` на `@DependencyGraph`; `internal` нельзя назвать в `excludes` — перекрывай их
   `@ContributesBinding(priority = …)` в бандле (проверено spike-тестом) или оставляй дубликат, если класс без состояния.
+- **Профильный граф бандла.** Фичи профиля (`ProfileScope`) живут в `@GraphExtension(ProfileScope::class)` бандла
+  (`WebProfileGraph`), который создаётся из app-графа бандла (`val profileGraphs: …Graph.Factory`) и получает
+  `@Includes FoundationProfileBindings`. `BundleEntry.hasProfileGraph = true`, `createProfileGraph` и
+  `profileExportTypes` отдают наружу `<Bundle>ProfileExports` и `ProfileStartupAccess`. App-граф бандла исключает
+  `ProfileGraph.Factory` (`excludes`), чтобы не собирать профильный граф фундамента. Фундамент забирает профильные
+  части через `FoundationProfileBundleImports` (`ProfileBundleImports.kt`): отсутствующий бандл даёт запасной вариант
+  (`orElse`), закрытие профиля роняет профильный граф бандла вместе со скоупом.
+- **Расширение `Foundation*Bindings`.** `FoundationAppBindings` и `FoundationProfileBindings` (`core:bundles:api`) —
+  единственный путь, которым бандл берёт состояние фундамента; объявляй в них только то, что бандлу нужно сейчас,
+  типом из `api`-модуля (контракты), не из `impl`. Новый аксессор добавляется в интерфейс и в `DefaultFoundation*Bindings`
+  (`core:bundles:impl`) через `Provider` — чтение ленивое. Область аксессора совпадает с областью сервиса: app — в
+  `FoundationAppBindings`, profile — в `FoundationProfileBindings`. `api` фичи, которой владеет бандл, в
+  `core:bundles:api` не попадает: тип переезжает вместе с владельцем (так `ExternalBrowser` покинул фундамент после
+  переноса `chromium-bridge` в `web`). Когда владелец сервиса сам станет бандлом, аксессор заменяется импортом
+  `<Bundle>Imports`. Android и iOS эти интерфейсы не видят: `…:impl` бандла там остаются в статическом графе
+  (`androidMain`/`iosMain` в `platform-main/di-bundle`).
 - **Сбой бандла изолирован**: исключение при создании графа даёт `BundleHealth.Failed`, нехватка экспортёра —
   `Degraded`. Состояние читает лаунчер, чтобы откатить поезд.
