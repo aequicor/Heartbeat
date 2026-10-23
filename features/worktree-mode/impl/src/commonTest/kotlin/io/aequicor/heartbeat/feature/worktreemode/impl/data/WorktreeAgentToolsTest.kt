@@ -263,6 +263,18 @@ class WorktreeAgentToolsTest {
     }
 
     @Test
+    fun `build status finds the latest build of a command when the engine cut off run_build`() = runTest {
+        val fixture = Fixture(isLive = true)
+        fixture.queue(WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))))
+        val pending = fixture.execute(CONTEXT, "run_build", BUILD_ARGUMENTS)
+        val operation = Json.decodeFromString<WorktreeBuildOperation>(pending.text.lineSequence().first()).id
+        fixture.registry.finishBuilds(WorktreeBuildPhase.Completed)
+        val result = fixture.execute(CONTEXT, "build_status", operationArguments("test"))
+        assertEquals(operation, Json.decodeFromString<WorktreeBuildOperation>(result.text).id)
+        assertEquals("UnknownBuildOperation", fixture.execute(CONTEXT, "build_status", operationArguments("lint")).text)
+    }
+
+    @Test
     fun `a rejected build plan is explained at once instead of timing out`() = runTest {
         val fixture = Fixture()
         fixture.prepare()
