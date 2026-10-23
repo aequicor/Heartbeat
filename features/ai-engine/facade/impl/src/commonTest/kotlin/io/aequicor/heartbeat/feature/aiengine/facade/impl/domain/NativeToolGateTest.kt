@@ -47,6 +47,15 @@ internal class NativeToolGateTest {
     }
 
     @Test
+    fun `virtual workspaces still allow a path free web fetch but not a command`() = runTest {
+        val tools = fixture(policies = ToolPolicyResolver { _, _, _ -> ResolvedToolPolicy(nativeOn = setOf("WebFetch")) })
+        val virtual = CONTEXT.copy(workspace = WorkspaceRef("sandbox-test"))
+        val fetch = call("WebFetch").copy(action = AgentToolAction.Command)
+        assertIs<NativePreparation.Ask>(tools.prepareNative(virtual, fetch))
+        assertIs<NativePreparation.Deny>(tools.prepareNative(virtual, fetch.copy(command = "curl x")))
+    }
+
+    @Test
     fun `off and unknown tools are denied before hooks coverage or permission`() = runTest {
         val hook = Hook()
         val tools = fixture(
