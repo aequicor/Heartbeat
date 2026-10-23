@@ -490,6 +490,10 @@ class VirtualSandboxTest {
             assertEquals(merged, f.backend.mergeRef(ref, "main", isFetch = false))
             val commit = f.backend.commitToBranch(ref, "pr/merge", "Merge main")
             assertEquals("$tip $main", f.cmd("show", "-s", "--format=%P", commit))
+            assertEquals(
+                f.cmd("config", "user.email") + " " + f.cmd("config", "user.email"),
+                f.cmd("show", "-s", "--format=%ae %ce", commit),
+            )
             assertEquals("main", f.cmd("branch", "--show-current"))
             assertEquals("", f.cmd("status", "--porcelain"))
         } finally {
