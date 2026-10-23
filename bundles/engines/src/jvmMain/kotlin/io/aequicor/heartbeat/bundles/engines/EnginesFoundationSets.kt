@@ -38,6 +38,12 @@ public interface EnginesProfileImports {
      * bundle (context ledger and handoff).
      */
     public val sessionHooks: Set<SessionHook>
+
+    /** Offloads of long tool output of the `studio` bundle (context window optimization). */
+    public val toolOutputOffloads: Set<ToolOutputOffload>
+
+    /** Context policies of the `studio` bundle (masking of old tool results). */
+    public val contextPolicyProviders: Set<ContextPolicyProvider>
 }
 
 /** The foundation owns the attachments; the facade of `engines` resolves prompt resources through its resolver. */
@@ -49,18 +55,12 @@ internal class FoundationResourceResolver(private val foundation: FoundationProf
 }
 
 /**
- * Parts of the sets that `engines` owns and other participants export to it: the foundation through
- * [FoundationProfileBindings], the `web` and `agent-runtime` bundles through [EnginesProfileImports]. Every element is
- * read when the set is requested, which happens after the profile graphs of the bundles are open.
+ * Parts of the sets that `engines` owns and the other bundles export to it through [EnginesProfileImports]. Every
+ * element is read when the set is requested, which happens after the profile graphs of the bundles are open.
  */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
-internal object EnginesFoundationSets {
-    @Provides
-    @ElementsIntoSet
-    fun foundationAgentTools(foundation: FoundationProfileBindings): Set<AgentToolContribution> =
-        foundation.engineSets.agentTools
-
+internal object EnginesBundleSets {
     @Provides
     @ElementsIntoSet
     fun bundleAgentTools(imports: EnginesProfileImports): Set<AgentToolContribution> = imports.agentTools
@@ -73,6 +73,25 @@ internal object EnginesFoundationSets {
     @Provides
     @ElementsIntoSet
     fun bundleSessionHooks(imports: EnginesProfileImports): Set<SessionHook> = imports.sessionHooks
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleOffloads(imports: EnginesProfileImports): Set<ToolOutputOffload> = imports.toolOutputOffloads
+
+    @Provides
+    @ElementsIntoSet
+    fun bundleContextPolicies(imports: EnginesProfileImports): Set<ContextPolicyProvider> =
+        imports.contextPolicyProviders
+}
+
+/** Parts of the sets that `engines` owns and the foundation contributes through [FoundationProfileBindings]. */
+@ContributesTo(ProfileScope::class)
+@BindingContainer
+internal object EnginesFoundationSets {
+    @Provides
+    @ElementsIntoSet
+    fun foundationAgentTools(foundation: FoundationProfileBindings): Set<AgentToolContribution> =
+        foundation.engineSets.agentTools
 
     @Provides
     @ElementsIntoSet

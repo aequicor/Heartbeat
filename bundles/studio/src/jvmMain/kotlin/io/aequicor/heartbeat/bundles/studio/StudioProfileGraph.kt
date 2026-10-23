@@ -9,7 +9,9 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferIntent
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferOutput
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.SessionTransferState
@@ -40,6 +42,12 @@ public interface StudioProfileExports {
 
     /** Session hooks of the bundle's features; `engines` merges them into the set its facade runs. */
     public val sessionHooks: Set<SessionHook>
+
+    /** Offloads of long tool output; `engines` merges them into the set its facade assembles. */
+    public val toolOutputOffloads: Set<ToolOutputOffload>
+
+    /** Context policies of the bundle's features; `engines` merges them into the set its facade assembles. */
+    public val contextPolicyProviders: Set<ContextPolicyProvider>
 
     /** Navigation entries of the bundle's screens; the foundation merges them into the profile routes. */
     @ForScope(ProfileScope::class)
