@@ -383,8 +383,11 @@ internal class WorktreeAgentTools(
         WorktreeRunIdentity(checkNotNull(run).request, context.session, context.turn)
 
     private suspend fun status(task: WorktreeTask, arguments: JsonObject): AgentToolResult {
-        val operation = arguments["operation"]?.jsonPrimitive?.content ?: return failure("MissingOperation")
-        val known = task.builds[operation] ?: return failure("UnknownBuildOperation")
+        val requested = arguments["operation"]?.jsonPrimitive?.content ?: return failure("MissingOperation")
+        // A run_build cut off by the engine's own tool timeout leaves the agent only the command it ran.
+        val known = task.builds[requested] ?: task.builds.values.lastOrNull { it.command == requested }
+            ?: return failure("UnknownBuildOperation")
+        val operation = known.id
         val wait = (arguments["waitMs"]?.jsonPrimitive?.longOrNull ?: BUILD_WAIT).coerceIn(0L, BUILD_WAIT)
         val current = if (wait > 0 && known.phase !in terminal) {
             awaitBuild(task.chatId, operation, wait) ?: task
@@ -513,7 +516,8 @@ internal class WorktreeAgentTools(
                 "build_status",
                 "Wait for a build operation that run_build left pending: by default up to ten minutes for a " +
                     "terminal result; waitMs=0 reads it at once. Completed, Failed, Cancelled and Unknown are " +
-                    "terminal: process the result without sleeping.",
+                    "terminal: process the result without sleeping. If run_build itself failed before naming the " +
+                    "operation, pass the command id to wait for its latest build.",
                 Json.parseToJsonElement(
                     """{"type":"object","properties":{
                         "operation":{"type":"string"},"waitMs":{"type":"integer","minimum":0,"maximum":600000}
