@@ -69,9 +69,10 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
             "Input=$arguments\nCurrent=$child"
         require(description.length <= MAX_VIRTUAL_ACTION_CHARS) { "SandboxActionTooLarge" }
         val isCommit = spec.name == "sandbox_commit"
+        val isPush = isCommit && arguments["push"]?.jsonPrimitive?.content == "true"
         return AgentToolApproval(
             spec.name,
-            if (isCommit) COMMIT_TITLE else "Изменить виртуальное состояние",
+            if (isPush) PUSH_TITLE else if (isCommit) COMMIT_TITLE else "Изменить виртуальное состояние",
             description,
             "${state.revision}:${state.snapshot}:$arguments",
         )
@@ -97,12 +98,16 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
 
             "sandbox_commit" -> {
                 val branch = checkNotNull(arguments["branch"]).jsonPrimitive.content
+                val isPush = arguments["push"]?.jsonPrimitive?.content == "true"
                 val commit = workspaces.commitToBranch(
                     parent,
                     branch,
                     checkNotNull(arguments["message"]).jsonPrimitive.content,
+                    isPush,
                 )
-                return AgentToolResult("Committed $commit to refs/heads/$branch")
+                return AgentToolResult(
+                    "Committed $commit to refs/heads/$branch" + if (isPush) " and pushed it to origin" else "",
+                )
             }
 
             "sandbox_checkout" -> workspaces.checkoutRef(
@@ -124,16 +129,18 @@ internal class VirtualSandboxTools(private val workspaces: VirtualSandboxStore, 
     }
 
     private companion object {
+        const val PUSH_TITLE = "Записать снапшот песочницы в ветку и отправить её в origin (push)"
         const val COMMIT_TITLE = "Записать снапшот песочницы в ветку реального репозитория"
         val specs = listOf(
             AgentToolSpec(
                 "sandbox_commit",
                 "Commit the sandbox's current files to a local branch of the real repository, creating it or " +
-                    "fast-forwarding it. The branch must not be checked out; no shell or git is needed",
+                    "fast-forwarding it. The branch must not be checked out; no shell or git is needed. " +
+                    "push=true also pushes the branch to origin without force (the user approves it)",
                 Json.parseToJsonElement(
                     """
                     {"type":"object","properties":{
-                      "branch":{"type":"string"},"message":{"type":"string"}},
+                      "branch":{"type":"string"},"message":{"type":"string"},"push":{"type":"boolean"}},
                       "required":["branch","message"],"additionalProperties":false}
                     """.trimIndent(),
                 ).jsonObject,

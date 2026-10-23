@@ -309,7 +309,12 @@ internal class DesktopVirtualWorkspaces(
      * at the sandbox base or fast-forwarded; it is never moved sideways and never touches a checked-out branch,
      * the index or any file of the source checkout.
      */
-    override suspend fun commitToBranch(ref: WorkspaceRef, branch: String, message: String): String = lock.withLock {
+    override suspend fun commitToBranch(
+        ref: WorkspaceRef,
+        branch: String,
+        message: String,
+        isPush: Boolean,
+    ): String = lock.withLock {
         val current = accessible(ref)
         require(message.isNotBlank() && message.length <= MAX_COMMIT_MESSAGE) { "InvalidCommitMessage" }
         require(!branch.startsWith("-") && branch.length <= MAX_BRANCH_NAME) { "InvalidBranchName" }
@@ -348,6 +353,8 @@ internal class DesktopVirtualWorkspaces(
         git.call(current.source, "update-ref", full, commit, tip.orEmpty())
         save(current.copy(branchCommits = current.branchCommits + (branch to commit)))
         log.i { "Virtual sandbox snapshot committed to a branch" }
+        // Never forced: a remote that moved sideways fails the push and leaves the local commit in place.
+        if (isPush) git.call(current.source, "push", "origin", "$full:$full")
         commit
     }
 
@@ -658,7 +665,7 @@ internal interface VirtualSandboxStore : VirtualWorkspaceProvider {
     suspend fun resume(ref: WorkspaceRef, explicit: Boolean, resolveConflicts: Boolean = false): VirtualSandboxState
     suspend fun snapshot(ref: WorkspaceRef): String
     suspend fun handoff(record: WorktreeRecord): VirtualSandboxState
-    suspend fun commitToBranch(ref: WorkspaceRef, branch: String, message: String): String
+    suspend fun commitToBranch(ref: WorkspaceRef, branch: String, message: String, isPush: Boolean = false): String
     suspend fun checkoutRef(ref: WorkspaceRef, branch: String, isFetch: Boolean): VirtualSandboxState
     suspend fun integrate(
         parent: WorkspaceRef,

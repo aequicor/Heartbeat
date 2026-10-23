@@ -431,6 +431,11 @@ class VirtualSandboxTest {
             val commit = f.backend.commitToBranch(ref, "pr/work", "feat: continue")
             assertEquals(tip, f.cmd("rev-parse", "$commit^"))
             assertFailsWith<IllegalStateException> { f.backend.checkoutRef(ref, "missing", isFetch = false) }
+            val remote = Files.createTempDirectory("heartbeat-virtual-remote-")
+            f.cmd("init", "--bare", remote.toString())
+            f.cmd("remote", "add", "origin", remote.toString())
+            val pushed = f.backend.commitToBranch(ref, "pr/work", "feat: push", isPush = true)
+            assertEquals(pushed, f.cmd("--git-dir=$remote", "rev-parse", "pr/work"))
         } finally {
             f.close()
         }
