@@ -410,13 +410,34 @@ class StudioTimelineTest {
         assertEquals(listOf("t1", "build:op0", "t2", "build:op1"), after)
     }
 
-    private fun card(id: String) = HbChatMessage(
+    @Test
+    fun `a build card follows the run_build call the engine cut off by the command it ran`() {
+        val cache = TimelineCache()
+        val cut = ReplyPartUi.Tool(
+            ToolUi("t1", "run_build", ToolStatusUi.Failed, "{\"command\": \"wiring\"}\nThe operation timed out.", null),
+        )
+        val status = ReplyPartUi.Tool(ToolUi("t2", "build_status", ToolStatusUi.Failed, "UnknownBuildOperation", null))
+        val turn = reply("", isStreaming = true).copy(parts = persistentListOf(cut, status))
+        val cards = persistentListOf(
+            card("build:old", "wiring"),
+            card("build:check", "check"),
+            card("build:op9", "wiring"),
+        )
+        val retained = persistentSetOf("build:old", "build:check", "build:op9")
+
+        val timeline = cache.update(listOf(prompt, turn), labels, cards, retained)
+        val parts = timeline.messages.single { it.id == "m2" }.parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:op9", "t2"), parts)
+        assertTrue(timeline.messages.any { it.id == "build:check" } && timeline.messages.any { it.id == "build:old" })
+    }
+
+    private fun card(id: String, command: String = id) = HbChatMessage(
         id,
         "Studio",
         "",
         role = HbChatRole.System,
         kind = HbMessageKind.Tool,
-        parts = persistentListOf(HbMessagePart.Tool(HbToolCall(id, id, kind = HbToolKind.Worktree))),
+        parts = persistentListOf(HbMessagePart.Tool(HbToolCall(id, command, kind = HbToolKind.Worktree))),
     )
 
     private fun reply(text: String, isStreaming: Boolean) =

@@ -333,9 +333,10 @@ internal fun rememberStudioTimeline(
 
 /**
  * Build cards that belong inside a reply: a `build:<operation>` card goes right after the run_build call whose
- * result names that operation. run_build returns only when its build ends, so while it waits the newest unnamed
- * cards go after the waiting calls, newest to newest. Keys are the calls' ids; a card without such a visible call
- * stays in the timeline.
+ * result names that operation. A call that names no operation — still waiting for its build, or cut off by the
+ * engine's tool timeout — takes the newest card of the command in its arguments; any card left goes after the
+ * remaining waiting calls, newest to newest. Keys are the calls' ids; a card without such a visible call stays
+ * in the timeline.
  */
 internal fun anchoredCards(messages: List<MessageUi>, cards: List<HbChatMessage>): Map<String, HbChatMessage> {
     val builds = cards.filter { it.id.startsWith(BUILD_CARD_PREFIX) }
@@ -344,17 +345,27 @@ internal fun anchoredCards(messages: List<MessageUi>, cards: List<HbChatMessage>
         .flatMap { reply -> reply.parts.asSequence().filterIsInstance<ReplyPartUi.Tool>().map { it.tool } }
         .filter { it.title == RUN_BUILD_TOOL }
         .toList()
-    val named = builds.mapNotNull { card ->
+    val anchored = LinkedHashMap<String, HbChatMessage>()
+    builds.forEach { card ->
         val operation = card.id.removePrefix(BUILD_CARD_PREFIX)
-        calls.firstOrNull { "\"id\":\"$operation\"" in it.output }?.let { it.id to card }
-    }.toMap()
-    val waiting = calls.filter { it.status in waitingStatuses && it.id !in named }
-    val unnamed = builds.filterNot { card -> named.values.any { it.id == card.id } }
-    return named + waiting.asReversed().zip(unnamed.asReversed()) { call, card -> call.id to card }
+        calls.firstOrNull { "\"id\":\"$operation\"" in it.output }?.let { anchored[it.id] = card }
+    }
+    val unnamedCalls = calls.filter { it.id !in anchored && OPERATION_ID !in it.output }
+    var unnamed = builds.filterNot { card -> anchored.values.any { it.id == card.id } }.asReversed()
+    unnamed = unnamed.filterNot { card ->
+        val command = (card.parts.firstOrNull() as? HbMessagePart.Tool)?.call?.title ?: return@filterNot false
+        val pattern = Regex("\"command\"\\s*:\\s*\"${Regex.escape(command)}\"")
+        unnamedCalls.lastOrNull { it.id !in anchored && pattern.containsMatchIn(it.output) }
+            ?.also { anchored[it.id] = card } != null
+    }
+    val waiting = unnamedCalls.filter { it.id !in anchored && it.status in waitingStatuses }
+    waiting.asReversed().zip(unnamed) { call, card -> anchored[call.id] = card }
+    return anchored
 }
 
 private const val BUILD_CARD_PREFIX = "build:"
 private const val RUN_BUILD_TOOL = "run_build"
+private const val OPERATION_ID = "\"id\":\""
 private val waitingStatuses = setOf(ToolStatusUi.Pending, ToolStatusUi.Running)
 
 internal fun MessageUi.toHb(labels: TimelineLabels, anchored: Map<String, HbChatMessage> = emptyMap()): HbChatMessage =
