@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.bundles.FoundationEngineSets
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileModelBindings
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
@@ -40,10 +41,13 @@ import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
@@ -101,6 +105,7 @@ public interface FoundationProfileAccess {
 /** Stateful foundation services of one profile handed to the profile graphs of bundles. */
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileBindings>())
 @ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileEngineBindings>())
+@ContributesBinding(ProfileScope::class, binding = binding<FoundationProfileModelBindings>())
 @Inject
 internal class DefaultFoundationProfileBindings(
     private val id: Provider<ProfileId>,
@@ -114,6 +119,9 @@ internal class DefaultFoundationProfileBindings(
     private val attachments: Provider<AttachmentsCatalog>,
     private val resolver: Provider<ResourceResolver>,
     private val workspaces: Provider<LocalWorkspaces>,
+    private val selections: Provider<ModelSelections>,
+    private val sources: Provider<AuthSources>,
+    private val prompts: Provider<IsolatedPrompts>,
     private val tools: Provider<Set<AgentToolContribution>>,
     private val analyzers: Provider<Set<NativeActionAnalysis>>,
     private val offloads: Provider<Set<ToolOutputOffload>>,
@@ -129,7 +137,8 @@ internal class DefaultFoundationProfileBindings(
     private val recoverySources: Provider<Set<HelperCapacityRecoverySource>>,
     private val eventSources: Provider<Set<SchedulerEventSource>>,
 ) : FoundationProfileBindings,
-    FoundationProfileEngineBindings {
+    FoundationProfileEngineBindings,
+    FoundationProfileModelBindings {
     override val profileId: ProfileId get() = id()
     override val profileScope: ScopeHandle get() = scope()
     override val dataStores: DataStores get() = stores()
@@ -141,6 +150,9 @@ internal class DefaultFoundationProfileBindings(
     override val attachmentsCatalog: AttachmentsCatalog get() = attachments()
     override val resourceResolver: ResourceResolver get() = resolver()
     override val localWorkspaces: LocalWorkspaces get() = workspaces()
+    override val modelSelections: ModelSelections get() = selections()
+    override val authSources: AuthSources get() = sources()
+    override val isolatedPrompts: IsolatedPrompts get() = prompts()
     override val engineSets: FoundationEngineSets = object : FoundationEngineSets {
         override val resourceResolver: ResourceResolver get() = resolver()
         override val engineRegistrations: Set<EngineRegistration> get() = registrations()

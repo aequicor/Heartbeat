@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.bundles.BundleEntry
 import io.aequicor.heartbeat.core.bundles.BundleId
 import io.aequicor.heartbeat.core.bundles.FoundationAppBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileModelBindings
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import kotlin.reflect.KClass
 
@@ -28,6 +29,7 @@ public class EnginesBundle : BundleEntry {
     override fun createProfileGraph(appGraph: Any, foundation: Any, imports: Any): Any =
         (appGraph as EnginesAppGraph).profileGraphs.create(
             foundation as FoundationProfileBindings,
+            foundation as FoundationProfileModelBindings,
             imports as EnginesProfileImports,
         )
 }

@@ -9,10 +9,13 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
@@ -52,9 +55,6 @@ public interface FoundationProfileBindings {
 
     /** Credentials of the profile. */
     public val secrets: SecretStore
-
-    /** Library of model descriptions; adaptive subagents stay in the foundation for now. */
-    public val modelProfiles: ModelProfilesView
 
     /** Catalog of the profile's attachments (stays in the foundation for now). */
     public val attachmentsCatalog: AttachmentsCatalog
@@ -146,4 +146,23 @@ public interface FoundationProfileEngineBindings {
 
     /** Local projects of the profile (worktrees and agent learning work on them). */
     public val localWorkspaces: LocalWorkspaces
+
+    /** Model choices of the profile (adaptive subagents offer them as candidates). */
+    public val modelSelections: ModelSelections
+
+    /** Sources of engine authorization (adaptive subagents list the models that are signed in). */
+    public val authSources: AuthSources
+
+    /** One-shot isolated prompts (adaptive subagents route and research models with them). */
+    public val isolatedPrompts: IsolatedPrompts
+}
+
+/**
+ * The library of model descriptions, which the `engines` bundle reads. Apart from [FoundationProfileBindings] because
+ * the `agent-runtime` bundle owns the library: its own graph must not receive it from the foundation, or it would have
+ * two bindings. The foundation backs it with the lazy import from `agent-runtime`.
+ */
+public interface FoundationProfileModelBindings {
+    /** Library of model descriptions. */
+    public val modelProfiles: ModelProfilesView
 }

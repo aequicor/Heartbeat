@@ -8,6 +8,9 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveModels
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsEnabled
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEnabled
@@ -53,7 +56,13 @@ class AgentRuntimeBundleWiringTest {
     @Test
     fun `toggles of the bundle reach the application toggles`() {
         val registered = (app as TestToggleAccessors).toggleControl.registered.map { it.key }
-        listOf(WorktreeModeEnabled, AgentLearningEnabled, ProjectConfigEnabled, SchedulerEnabled).forEach { toggle ->
+        listOf(
+            WorktreeModeEnabled,
+            AgentLearningEnabled,
+            ProjectConfigEnabled,
+            SchedulerEnabled,
+            AdaptiveSubagentsEnabled,
+        ).forEach { toggle ->
             assertTrue(toggle.key in registered, "${toggle.key} is missing from $registered")
         }
     }
@@ -74,6 +83,15 @@ class AgentRuntimeBundleWiringTest {
         assertTrue("worktree" in groups, groups.toString())
         assertTrue("learning" in groups, groups.toString())
         assertTrue("scheduler" in groups, groups.toString())
+        assertTrue("subagents" in groups, groups.toString())
+    }
+
+    @Test
+    fun `the model library of the bundle reaches the foundation and the engines bundle`() = runTest {
+        val session = app.profileSessions.open(ProfileId("agent-runtime-models"))
+        val accessors = session.graph as TestAgentRuntimeProfileAccessors
+        assertNotNull(accessors.runtimeModelProfiles)
+        assertNotNull(accessors.runtimeAdaptiveModels)
     }
 
     @Test
@@ -103,6 +121,8 @@ interface TestAgentRuntimeProfileAccessors {
     val runtimeAgentTools: ProfileAgentTools
     val runtimeSchedulerBus: SchedulerBus
     val runtimeBackgroundAgents: BackgroundAgents
+    val runtimeModelProfiles: ModelProfilesView
+    val runtimeAdaptiveModels: AdaptiveModels
 
     @ForScope(ProfileScope::class)
     val runtimeProfileScope: ScopeHandle

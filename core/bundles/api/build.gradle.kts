@@ -18,6 +18,8 @@ kotlin {
             api(projects.core.navigation.api)
             api(projects.core.secrets.api)
             api(projects.features.aiEngine.facade.api)
+            api(projects.features.aiEngine.authenticator.api)
+            api(projects.features.aiEngine.connections.api)
             api(projects.features.adaptiveSubagents.api)
             api(projects.features.aiStudio.api)
             api(projects.features.attachments.api)

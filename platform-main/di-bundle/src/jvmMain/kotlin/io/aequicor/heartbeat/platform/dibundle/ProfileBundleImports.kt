@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveModels
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthChecks
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.spi.AuthCredentials
@@ -140,6 +142,12 @@ internal interface FoundationProfileBundleImports {
 
     /** Local commands of the `agent-runtime` bundle. */
     val localCommands: LocalCommands
+
+    /** Library of model descriptions of the `agent-runtime` bundle. */
+    val modelProfiles: ModelProfilesView
+
+    /** Model picker for subagents of the `agent-runtime` bundle. */
+    val adaptiveModels: AdaptiveModels
 }
 
 /** Documents while the `web` bundle is not running: nothing is shown, as if the document limit were reached. */
@@ -321,10 +329,10 @@ internal object EngineServiceImportBindings {
         imports.nativeInteractionDemand
 }
 
-/** Scheduler services the foundation features use, read from the `agent-runtime` bundle; they have no stand-in. */
+/** Services of the `agent-runtime` bundle the foundation features use; they have no stand-in. */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
-internal object SchedulerServiceImportBindings {
+internal object AgentRuntimeServiceImportBindings {
     @Provides
     fun schedulerBus(imports: FoundationProfileBundleImports): SchedulerBus = imports.schedulerBus
 
@@ -336,6 +344,12 @@ internal object SchedulerServiceImportBindings {
 
     @Provides
     fun localCommands(imports: FoundationProfileBundleImports): LocalCommands = imports.localCommands
+
+    @Provides
+    fun modelProfiles(imports: FoundationProfileBundleImports): ModelProfilesView = imports.modelProfiles
+
+    @Provides
+    fun adaptiveModels(imports: FoundationProfileBundleImports): AdaptiveModels = imports.adaptiveModels
 }
 
 /** Engine adapters and their control surface, read from the `engines` bundle like [EngineServiceImportBindings]. */

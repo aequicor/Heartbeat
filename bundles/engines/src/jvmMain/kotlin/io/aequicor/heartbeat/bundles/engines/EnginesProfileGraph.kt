@@ -6,6 +6,7 @@ import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Includes
 import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
+import io.aequicor.heartbeat.core.bundles.FoundationProfileModelBindings
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.navigation.RouteEntry
@@ -99,6 +100,7 @@ internal interface EnginesProfileGraph : EnginesProfileExports {
     fun interface Factory {
         fun create(
             @Includes foundation: FoundationProfileBindings,
+            @Includes models: FoundationProfileModelBindings,
             // Provided as an instance, not included: an included interface would bind its `Set` accessor itself and
             // shadow the multibinding the facade reads.
             @Provides imports: EnginesProfileImports,

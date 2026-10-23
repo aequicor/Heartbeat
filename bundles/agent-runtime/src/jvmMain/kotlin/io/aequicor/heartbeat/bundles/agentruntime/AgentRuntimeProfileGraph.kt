@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.navigation.RouteEntry
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveModels
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspaceProvider
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
@@ -41,6 +43,12 @@ public interface AgentRuntimeProfileExports {
 
     /** Local commands that run in the profile's projects (harness scripts and checks). */
     public val localCommands: LocalCommands
+
+    /** Library of model descriptions; the foundation and the `engines` bundle (through the foundation) read it. */
+    public val modelProfiles: ModelProfilesView
+
+    /** Picks models for subagents and tasks. */
+    public val adaptiveModels: AdaptiveModels
 
     /**
      * Every section of the project configuration tree, the foundation's own included. A read-only view: the bundle
