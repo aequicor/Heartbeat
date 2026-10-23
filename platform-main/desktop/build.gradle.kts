@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
 import io.aequicor.heartbeat.buildlogic.WriteComponentMetadata
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
+import org.jetbrains.compose.desktop.application.tasks.AbstractJLinkTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractProguardTask
@@ -366,6 +367,10 @@ afterEvaluate {
     }
     tasks.withType<AbstractCheckNativeDistributionRuntime>().configureEach {
         jdkHome.set(desktopJavaHome)
+    }
+    tasks.withType<AbstractJLinkTask>().configureEach {
+        // Compose strips debug info but leaves the runtime image uncompressed; the installer is capped at 50 MB.
+        freeArgs.add("--compress=zip-9")
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
         if (targetFormat == TargetFormat.Dmg) {
