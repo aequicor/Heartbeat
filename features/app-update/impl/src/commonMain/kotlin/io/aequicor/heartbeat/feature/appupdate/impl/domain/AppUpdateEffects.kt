@@ -18,6 +18,7 @@ internal class AppUpdateEffects(
     private val probe: InstallationProbe,
     private val releases: AppReleaseSource,
     private val installer: UpdateInstaller,
+    private val channel: suspend () -> UpdateChannel = { UpdateChannel.Stable },
 ) : EffectHandler<AppUpdateEffect, AppUpdateIntent> {
     private val log = Log.tag("AppUpdateEffects")
 
@@ -36,11 +37,11 @@ internal class AppUpdateEffects(
                 return
             }
 
-            is InstallationCheck.Supported -> check.installation
+            is InstallationCheck.Supported -> check.installation.copy(channel = channel())
         }
         val previous = installer.previousAttempt(installation.version)
         val intent = try {
-            val release = releases.newer(installation.repository, installation.version, installation.platform)
+            val release = releases.newer(installation)
             Internal.Checked(
                 release,
                 when {

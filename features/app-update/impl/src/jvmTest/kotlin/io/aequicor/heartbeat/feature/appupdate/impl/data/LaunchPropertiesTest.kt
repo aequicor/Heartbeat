@@ -43,6 +43,17 @@ class LaunchPropertiesTest {
     }
 
     @Test
+    fun `the installed train is known only when the launcher states its root`() {
+        val train = release + ("heartbeat.train" to "t1")
+        assertEquals("t1", trainOf(train + ("heartbeat.launcher.root" to "/launcher")))
+        assertNull(trainOf(train))
+        assertNull(trainOf(release))
+    }
+
+    private fun trainOf(properties: Map<String, String>): String? =
+        (probe(properties).current() as InstallationCheck.Supported).installation.train
+
+    @Test
     fun `development launches never update themselves`() {
         val notRelease = InstallationCheck.Unsupported(UnsupportedReason.NotReleaseBuild)
         assertEquals(notRelease, probe(release - "heartbeat.app.update.repository").current())

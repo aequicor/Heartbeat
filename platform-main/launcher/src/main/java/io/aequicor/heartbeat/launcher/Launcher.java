@@ -156,6 +156,19 @@ public final class Launcher {
         return now.isEmpty() ? null : now;
     }
 
+    /**
+     * Сообщает приложению текущий поезд и корень лаунчера через системные свойства
+     * {@code heartbeat.train} и {@code heartbeat.launcher.root} (их читает app-update).
+     */
+    public void exposeToApp(Prepared prepared, Path root) {
+        System.setProperty("heartbeat.launcher.root", root.toAbsolutePath().toString());
+        if (prepared.train() != null) {
+            System.setProperty("heartbeat.train", prepared.train());
+        } else {
+            System.clearProperty("heartbeat.train");
+        }
+    }
+
     public boolean isBad(String train) throws IOException {
         return store.state().bad.contains(train);
     }
