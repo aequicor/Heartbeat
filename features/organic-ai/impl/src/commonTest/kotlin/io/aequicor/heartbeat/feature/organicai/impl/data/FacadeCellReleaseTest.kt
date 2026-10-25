@@ -17,6 +17,9 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.CellKey
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRoute
 import io.aequicor.heartbeat.feature.organicai.impl.domain.ReleaseOutcome
 import io.aequicor.heartbeat.feature.organicai.impl.session
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -137,5 +140,69 @@ class FacadeCellReleaseTest {
         assertEquals(fallback.ref, moved.session)
         assertEquals(2, facade.creations.size)
         assertEquals(1, own.closes)
+    }
+
+    @Test
+    fun `an unconfirmed replaced session is archived and loses its harnesses once a lysis stops it`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own")).apply {
+            finish = null
+            ignoresCancel = true
+        }
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses()
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        val ownRoute = route.copy(target = TARGET.copy(engine = EngineId("koog")), harnesses = setOf("h"))
+        cells.open(key, ownRoute, existing = null, generation = 1).submit(RequestId("r1"), "work", null)
+        cells.open(key, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+        assertEquals(0, own.closes)
+        assertFalse(own.isArchived)
+        assertTrue(harnesses.disconnected.isEmpty())
+
+        own.ignoresCancel = false
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, fallback.ref, ReleaseMode.Lyse))
+        assertEquals(1, own.closes)
+        assertTrue(own.isArchived)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+    }
+
+    @Test
+    fun `a failed harness removal of a replaced session is retried at the cell's lysis`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own"))
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses().apply { failures = 1 }
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        val ownRoute = route.copy(target = TARGET.copy(engine = EngineId("koog")), harnesses = setOf("h"))
+        cells.open(key, ownRoute, existing = null, generation = 1)
+        cells.open(key, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+        assertEquals(1, own.closes)
+        assertTrue(harnesses.disconnected.isEmpty())
+
+        cells.release(key, fallback.ref, ReleaseMode.Lyse)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+    }
+
+    @Test
+    fun `a replaced session that is still sending is not stopped until the cell is released`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own"))
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses()
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        val ownRoute = route.copy(target = TARGET.copy(engine = EngineId("koog")), harnesses = setOf("h"))
+        val handle = cells.open(key, ownRoute, existing = null, generation = 1)
+        val sent = CompletableDeferred<Unit>()
+        own.beforeSend = { sent.await() }
+        val sending = async { handle.submit(RequestId("r1"), "work", null) }
+        runCurrent()
+        assertEquals(fallback.ref, cells.open(key, route.copy(harnesses = setOf("h")), null, generation = 2).session)
+        assertEquals(0, own.closes)
+        assertFalse(own.isArchived)
+        assertTrue(own.cancelled.isEmpty())
+
+        sent.complete(Unit)
+        sending.await()
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, fallback.ref, ReleaseMode.Lyse))
+        assertEquals(1, own.closes)
+        assertTrue(own.isArchived)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
     }
 }

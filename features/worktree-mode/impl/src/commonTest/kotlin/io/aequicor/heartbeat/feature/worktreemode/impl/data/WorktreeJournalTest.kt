@@ -732,6 +732,28 @@ class WorktreeHandOffJournalTest {
     }
 
     @Test
+    fun `an explicit reopen waits for a running handoff and then reopens the published branch`() = runTest {
+        val fixture = Fixture()
+        fixture.completeVirtualRoot()
+        val started = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        fixture.git.handoffStarted = started
+        fixture.git.handoffGate = proceed
+        val handing = async { fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.HandOff)) }
+        started.await()
+        val reopening = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.send(WorktreeIntent.Public.Recheck(CHAT, isReopen = true))
+        }
+        assertFalse(reopening.isCompleted)
+        proceed.complete(Unit)
+        handing.await()
+        reopening.await()
+        assertEquals(1, fixture.git.handoffCount)
+        assertEquals(1, fixture.git.reopenCount)
+        assertEquals(VirtualSandboxPhase.Ready, fixture.journal.taskProjection(CHAT)?.virtualSandbox?.phase)
+    }
+
+    @Test
     fun `a handoff choice of a plain worktree changes nothing`() = runTest {
         val fixture = Fixture()
         fixture.completeCoding()

@@ -274,8 +274,13 @@ internal class WorktreeJournal(
 
     private suspend fun recheckCommand(command: WorktreeIntent.Public.Recheck, emit: suspend (WorktreeTask) -> Unit) {
         record(command.chatId)?.takeIf { it.task.virtualSandbox != null }?.let { selected ->
-            // A handed-off branch belongs to the user: only an explicit reopen continues the sandbox.
-            val target = if (command.isReopen) reopened(selected) else selected
+            // A handed-off branch belongs to the user: only an explicit reopen continues the sandbox. Like a run
+            // start, the reopen is serialized with run preparation, seal and hand-off of the chat.
+            val target = if (command.isReopen) {
+                upkeep.prepareRun(command.chatId) { reopened(record(command.chatId) ?: selected) }
+            } else {
+                selected
+            }
             virtual.refresh(target, command.isResume, command.resolveConflicts)
             virtual.related(selected.commonDirectory).forEach { emit(it.task) }
         } ?: recheck(command.chatId, emit)

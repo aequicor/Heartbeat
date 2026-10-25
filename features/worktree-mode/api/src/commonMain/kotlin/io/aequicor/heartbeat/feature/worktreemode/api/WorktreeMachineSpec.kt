@@ -24,7 +24,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | RecoveryRequired | RunSubmissionReconciled | Pending identity | Failed; clear ownership; save receipt |
  * | RecoveryRequired | RunAdopted | Pending Coding run with exactly this recorded session and turn | Working |
  * | Any | Either submission command | Accepted, settled or mismatched identity | Unchanged |
- * | AwaitingDecision | ChooseAction(HandOff) | Sandbox root (`canHandOff`), same run (`handedOff`) | Retained |
+ * | AwaitingDecision | ChooseAction(HandOff) | Sandbox root (`canHandOff`) | Unchanged; journal publishes branch |
+ * | AwaitingDecision | Branch published (`handedOff`) | Sandbox root, same run as at the choice | Retained |
  * | Any | ChooseAction(HandOff) | Plain worktree, child sandbox or another phase | Unchanged |
  *
  * Lost submission observation retains the lease and never proves rejection or native completion. Recovery needs

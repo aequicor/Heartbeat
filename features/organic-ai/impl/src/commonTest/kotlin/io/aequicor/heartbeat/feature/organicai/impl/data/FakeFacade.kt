@@ -269,13 +269,18 @@ internal class FakeFacade(
 /** Cell sessions whose harness removals go nowhere. */
 internal fun cellSessions(facade: EngineFacade): FacadeCellSessions = FacadeCellSessions(facade, FakeCellHarnesses())
 
-/** Records harness removals of cell sessions; connections always succeed. */
+/** Records harness removals of cell sessions; connections always succeed, the next [failures] removals fail. */
 internal class FakeCellHarnesses : CellHarnesses {
     val disconnected = mutableListOf<Pair<SessionRef, Set<String>>>()
+    var failures = 0
 
     override suspend fun connect(session: SessionRef, harnesses: Set<String>) = Unit
 
     override suspend fun disconnect(session: SessionRef, harnesses: Set<String>, isReleased: suspend () -> Boolean) {
+        if (failures > 0) {
+            failures--
+            error("removal failed")
+        }
         if (isReleased()) disconnected += session to harnesses
     }
 }
