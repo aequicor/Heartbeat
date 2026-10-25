@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.KClass
 
 /**
@@ -26,6 +27,10 @@ import kotlin.reflect.KClass
  * (`FoundationAppBindings`, `FoundationProfileBindings`: it would be a second instance of a stateful singleton);
  * a bundle never both imports and exports the same set (it would count its own contribution twice); a bundle
  * importing a key nobody exports is [BundleHealth.Degraded].
+ *
+ * An exporter that throws while producing a binding is [BundleHealth.Failed] from then on (at app level; at profile
+ * level only that profile loses it, like a failed profile graph): its exports are withdrawn and the consumer gets
+ * [BundleUnavailableException] with the failure as the cause. A set collection skips such an exporter.
  *
  * Profiles: [openProfile] repeats the same for the per-profile graphs of the bundles that have one. Profile
  * exports are visible only inside that profile and take precedence over app exports of the same key.
@@ -51,10 +56,12 @@ public class BundleHost internal constructor(
     @Volatile
     private var isSealed = false
     private var isStarting = false
+    private var isStarted = false
 
     init {
         val duplicates = this.entries.groupBy { it.id }.filterValues { it.size > 1 }.keys
         require(duplicates.isEmpty()) { "Duplicate bundle ids: $duplicates" }
+        require(this.entries.none { it.id == FOUNDATION_ID }) { "Bundle id $FOUNDATION_ID is reserved for the host" }
     }
 
     override val health: Map<BundleId, BundleHealth> get() = synchronized(healthById) { healthById.toMap() }
@@ -62,9 +69,14 @@ public class BundleHost internal constructor(
     /** Graph of a started bundle, for platform code that needs an accessor (`registry.accessor<X>()` successor). */
     public fun graph(id: BundleId): Any? = synchronized(graphs) { graphs[id] }
 
-    /** Creates the bundle graphs in id order over the foundation; a failing bundle does not stop the others. */
+    /**
+     * Creates the bundle graphs in id order over the foundation; a failing bundle does not stop the others.
+     * Runs once: a second call would register every export again and fail all bundles, so it is rejected.
+     */
     public fun start() {
         check(!isSealed) { "Host is already sealed" }
+        check(!isStarted) { "Bundles are already started" }
+        isStarted = true
         isStarting = true
         try {
             for (entry in entries) {
@@ -108,7 +120,7 @@ public class BundleHost internal constructor(
         synchronized(lifecycleLock) {
             if (isSealed) return
             check(!isStarting) { "Bundles are being created; imports cannot be resolved while graphs are created" }
-            start()
+            if (!isStarted) start()
             seal()
         }
     }
@@ -265,17 +277,55 @@ public class BundleHost internal constructor(
         check(view == null || view.isOpen) { "The profile graphs of the bundles are still being created or are closed" }
         val exporter = (view ?: appView).find(key, appView).firstOrNull()
             ?: throw BundleUnavailableException(key, requestedBy)
-        return guarded(key) { exporter.read() }
+        return read(exporter, view, requestedBy)
     }
 
     private fun collectFor(key: BindingKey, excluding: BundleId?, view: View?): Set<Any> {
         ensureStarted()
         check(view == null || view.isOpen) { "The profile graphs of the bundles are still being created or are closed" }
-        val found = view?.exporters?.get(key).orEmpty() + appView.exporters[key].orEmpty()
+        val found = view?.snapshot(key).orEmpty() + appView.snapshot(key)
         return found.filter { it.owner != excluding }
             .flatMapTo(LinkedHashSet()) { exporter ->
-                guarded(key) { exporter.read() as Set<*> }.filterNotNull()
+                val part = try {
+                    read(exporter, view, excluding) as Set<*>
+                } catch (e: BundleUnavailableException) {
+                    log.w(e) { "Set ${exporter.key} misses the part of ${exporter.owner}" }
+                    emptySet<Any>()
+                }
+                part.filterNotNull()
             }
+    }
+
+    /**
+     * Reads [exporter]; its failure withdraws the bundle (see the class docs) and surfaces as
+     * [BundleUnavailableException]. A cycle and an import the exporter itself misses do not fail the exporter.
+     */
+    private fun read(exporter: Exporter, view: View?, requestedBy: BundleId?): Any = try {
+        guarded(exporter.key) { exporter.read() }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: BundleCycleException) {
+        throw e
+    } catch (e: BundleUnavailableException) {
+        throw BundleUnavailableException(exporter.key, requestedBy, e)
+    } catch (e: Exception) {
+        withdraw(exporter, view, e)
+        throw BundleUnavailableException(exporter.key, requestedBy, e)
+    } catch (e: LinkageError) {
+        withdraw(exporter, view, e)
+        throw BundleUnavailableException(exporter.key, requestedBy, e)
+    }
+
+    private fun withdraw(exporter: Exporter, view: View?, cause: Throwable) {
+        val inProfile = view != null && view.snapshot(exporter.key).any { it === exporter }
+        if (inProfile) {
+            log.e(cause) { "Bundle ${exporter.owner} failed to export ${exporter.key}; it leaves this profile" }
+            removeOwnedBy(exporter.owner, checkNotNull(view))
+        } else {
+            log.e(cause) { "Bundle ${exporter.owner} failed to export ${exporter.key}; it is failed" }
+            markFailed(exporter.owner, cause)
+            synchronized(profileViews) { profileViews.values.toList() }.forEach { removeOwnedBy(exporter.owner, it) }
+        }
     }
 
     private inline fun <T> guarded(key: BindingKey, block: () -> T): T {
@@ -308,6 +358,8 @@ public class BundleHost internal constructor(
 
         @Volatile
         var isOpen: Boolean = true
+
+        fun snapshot(key: BindingKey): List<Exporter> = synchronized(exporters) { exporters[key].orEmpty().toList() }
 
         fun find(key: BindingKey, parent: View): List<Exporter> =
             synchronized(exporters) { exporters[key].orEmpty().toList() }

@@ -91,6 +91,9 @@ val heartbeatUpdateRepository = providers.gradleProperty("heartbeat.updateReposi
 tasks.withType<Test>().configureEach {
     // Match launchHeartbeat's owned-window layers, including tests that do not enter main().
     systemProperties(heartbeatJcef.renderingProperties)
+    // BundleKeepRulesTest compares the release keep rules with the binding interfaces of core:bundles:api.
+    inputs.file("compose-desktop.pro").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(rootProject.file("core/bundles/api/src")).withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // SHA-256 of each Pi release asset for the version pinned as `pi` in gradle/libs.versions.toml.

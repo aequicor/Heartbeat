@@ -22,7 +22,8 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
  * published as one unit of delivery.
  *
  * - JDK 17 toolchain, Metro and detekt like every module; `core:bundles:api` for the `BundleEntry` contract;
- * - the module registers its impl dependencies in the root `verifyBundleMembership` task, and `check` runs it;
+ * - the module registers its impl dependencies in the root `verifyBundleMembership` task, and `check` runs it: every
+ *   `…:impl` has exactly one desktop owner, a bundle or the static graph of `:platform-main:di-bundle` (common and JVM);
  * - boundary rules (no bundle-to-bundle dependency, only `platform-main` consumes bundles) live in
  *   [checkImplDependencies].
  */
@@ -53,7 +54,15 @@ class BundleConventionPlugin : Plugin<Project> {
         } else {
             root.tasks.register<VerifyBundleMembership>(VERIFY_TASK) {
                 group = "verification"
-                description = "Fails when an impl module belongs to more than one bundle."
+                description = "Fails when an impl module does not belong to exactly one bundle or the foundation."
+                impls.set(root.provider { root.subprojects.map { it.path }.filter { it.endsWith(":impl") }.sorted() })
+                foundation.set(
+                    root.provider {
+                        root.findProject(FOUNDATION_PROJECT)?.desktopProjectDependencyPaths()
+                            ?.filter { it.endsWith(":impl") }
+                            .orEmpty()
+                    },
+                )
             }
         }
         verify.configure { membership.put(bundlePath, implDependencies()) }
@@ -165,11 +174,22 @@ class BundleConventionPlugin : Plugin<Project> {
         .distinct()
         .sorted()
 
+    /** Project dependencies of the common and JVM main source sets: what the desktop static graph compiles in. */
+    private fun Project.desktopProjectDependencyPaths(): List<String> = configurations
+        .filter { configuration ->
+            DESKTOP_SOURCE_SETS.any { configuration.name.startsWith(it) } && "Test" !in configuration.name
+        }
+        .flatMap { configuration -> configuration.dependencies.withType<ProjectDependency>().map { it.path } }
+        .distinct()
+        .sorted()
+
     private fun Project.implDependencies() = provider { projectDependencyPaths().filter { it.endsWith(":impl") } }
 
     private companion object {
         const val JDK_VERSION = 17
         const val VERIFY_TASK = "verifyBundleMembership"
+        const val FOUNDATION_PROJECT = ":platform-main:di-bundle"
+        val DESKTOP_SOURCE_SETS = listOf("commonMain", "jvmMain")
         const val ASSEMBLE_TASK = "assembleBundle"
         const val MANIFEST_TASK = "bundleManifest"
         const val AFFECTED_TASK = "affectedBundles"

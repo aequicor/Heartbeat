@@ -147,6 +147,9 @@ private fun launchLoggedHeartbeat(
     }
 }
 
+/** Read by the platform launcher's shutdown hook (`platform-main/launcher`, `LauncherMain`). */
+private const val LAUNCHER_CLEAN_EXIT = "heartbeat.exit.clean"
+
 private fun launchDesktopApplication(
     lifecycle: LifecycleRegistry,
     graph: HeartbeatGraph,
@@ -164,6 +167,8 @@ private fun launchDesktopApplication(
             shutdown::closeScopes,
             lifecycle::destroy,
         ) {
+            // Compose ends the JVM with exitProcess(0): tell the platform launcher this exit is not a crash.
+            System.setProperty(LAUNCHER_CLEAN_EXIT, "true")
             exitApplication()
             systemQuit.complete()
         }

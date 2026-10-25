@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.KClass
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -389,5 +390,83 @@ class BundleHostTest {
         val health = host.openProfile(Any(), FakeScope())
         assertIs<BundleHealth.Failed>(health.getValue(BundleId("bad")))
         assertEquals(BundleHealth.Healthy, health.getValue(BundleId("web")))
+    }
+
+    @Test
+    fun `exporter failing on first read is failed and the consumer gets unavailable with the cause`() {
+        val boom = IllegalStateException("boom")
+        var seen: StudioImports? = null
+        val host = started(
+            entry("web", exports = listOf(WebExports::class)) {
+                object : WebExports {
+                    override val renderer: Renderer get() = throw boom
+                    override val tools: Set<Tool> = emptySet()
+                }
+            },
+            entry("studio", imports = StudioImports::class) { imports ->
+                seen = imports as StudioImports
+                Any()
+            },
+        )
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("web")))
+        val failure = assertFailsWith<BundleUnavailableException> { seen?.renderer }
+        assertSame(boom, failure.cause)
+        assertIs<BundleHealth.Failed>(host.health.getValue(BundleId("web")))
+        val again = assertFailsWith<BundleUnavailableException> { seen?.renderer }
+        assertEquals(null, again.cause)
+    }
+
+    @Test
+    fun `cancellation of an exporter is rethrown and does not fail the bundle`() {
+        var seen: StudioImports? = null
+        val host = started(
+            entry("web", exports = listOf(WebExports::class)) {
+                object : WebExports {
+                    override val renderer: Renderer get() = throw CancellationException("cancelled")
+                    override val tools: Set<Tool> = emptySet()
+                }
+            },
+            entry("studio", imports = StudioImports::class) { imports ->
+                seen = imports as StudioImports
+                Any()
+            },
+        )
+        assertFailsWith<CancellationException> { seen?.renderer }
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("web")))
+    }
+
+    @Test
+    fun `set exporter failing on read is skipped and failed while others contribute`() {
+        val toolA = object : Tool {}
+        var seen: StudioImports? = null
+        val host = started(
+            entry("a", exports = listOf(ToolExports::class)) { Tools(setOf(toolA)) },
+            entry("b", exports = listOf(ToolExports::class)) {
+                object : ToolExports {
+                    override val tools: Set<Tool> get() = error("broken toggles")
+                }
+            },
+            entry("studio", imports = StudioImports::class) { imports ->
+                seen = imports as StudioImports
+                Any()
+            },
+        )
+        assertEquals(setOf(toolA), seen?.tools)
+        assertIs<BundleHealth.Failed>(host.health.getValue(BundleId("b")))
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("a")))
+    }
+
+    @Test
+    fun `second start is rejected instead of failing every bundle`() {
+        val host = BundleHost(listOf(entry("a", exports = listOf(WebExports::class)) { Web() })) { Unit }
+        host.start()
+        assertFailsWith<IllegalStateException> { host.start() }
+        host.ensureStarted()
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("a")))
+    }
+
+    @Test
+    fun `foundation is not a bundle id`() {
+        assertFailsWith<IllegalArgumentException> { BundleHost(listOf(entry("foundation") { Any() })) { Unit } }
     }
 }

@@ -17,9 +17,15 @@ public data class BindingKey(public val signature: String) {
     override fun toString(): String = signature
 }
 
-/** A binding is requested while the bundle that exports it is failed or absent. */
-public class BundleUnavailableException(public val key: BindingKey, public val requestedBy: BundleId?) :
-    IllegalStateException("No healthy bundle exports $key (requested by ${requestedBy ?: "host"})")
+/**
+ * A binding is requested while the bundle that exports it is failed or absent; [cause] is the failure of the exporter
+ * when it broke while producing the binding.
+ */
+public class BundleUnavailableException(
+    public val key: BindingKey,
+    public val requestedBy: BundleId?,
+    cause: Throwable? = null,
+) : IllegalStateException("No healthy bundle exports $key (requested by ${requestedBy ?: "host"})", cause)
 
 /** A cross-bundle binding is requested while it is being resolved: the chain of keys is [path]. */
 public class BundleCycleException(public val path: List<BindingKey>) :

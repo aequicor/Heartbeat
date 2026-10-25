@@ -26,4 +26,40 @@ class BundleMembershipTest {
             bundleMembershipViolations(membership),
         )
     }
+
+    @Test
+    fun `every impl owned by one bundle or the foundation is fine`() {
+        val membership = mapOf(":bundles:web" to listOf(":features:browser:impl"))
+        val violations = bundleMembershipViolations(
+            membership,
+            foundation = listOf(":core:di:impl", ":features:ai-studio:impl"),
+            impls = listOf(":core:di:impl", ":features:ai-studio:impl", ":features:browser:impl"),
+        )
+        assertTrue(violations.isEmpty(), violations.toString())
+    }
+
+    @Test
+    fun `impl in a bundle and in the foundation graph is reported`() {
+        val membership = mapOf(":bundles:web" to listOf(":features:browser:impl"))
+        assertEquals(
+            listOf(":features:browser:impl is assembled by :bundles:web, $FOUNDATION_OWNER"),
+            bundleMembershipViolations(
+                membership,
+                foundation = listOf(":features:browser:impl"),
+                impls = listOf(":features:browser:impl"),
+            ),
+        )
+    }
+
+    @Test
+    fun `impl owned by nobody is reported`() {
+        assertEquals(
+            listOf(":features:orphan:impl is assembled by no bundle and not by the foundation"),
+            bundleMembershipViolations(
+                mapOf(":bundles:web" to listOf(":features:browser:impl")),
+                foundation = listOf(":core:di:impl"),
+                impls = listOf(":core:di:impl", ":features:browser:impl", ":features:orphan:impl"),
+            ),
+        )
+    }
 }

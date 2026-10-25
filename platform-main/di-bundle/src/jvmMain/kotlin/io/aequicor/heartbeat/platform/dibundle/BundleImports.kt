@@ -18,11 +18,16 @@ import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpStdioTransportFactory
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermissionGuide
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePresentation
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 
 /**
@@ -72,6 +77,23 @@ internal object UnavailablePlantUmlRenderer : PlantUmlRenderer {
     override suspend fun render(request: PlantUmlRequest): PlantUmlResult = PlantUmlResult.Unsupported
 }
 
+/**
+ * Window hiding while the `studio` bundle is not running: computer use is unavailable then, so there is no capture
+ * to hide the windows from and registrations only need to be closable.
+ */
+internal object UnavailableCapturePresentation : ComputerUseCapturePresentation {
+    override fun register(presentation: ComputerUsePresentation): AutoCloseable = AutoCloseable {}
+
+    override suspend fun <T> withoutPresentation(action: suspend () -> T): T = action()
+}
+
+/** Permission guide while the `studio` bundle is not running: no panel is ever shown. */
+internal object UnavailablePermissionGuide : ComputerUsePermissionGuide {
+    override val guide: StateFlow<ComputerUsePermission?> = MutableStateFlow<ComputerUsePermission?>(null).asStateFlow()
+
+    override fun dismiss() = Unit
+}
+
 /** Bridges bundle exports into the foundation graph. */
 @ContributesTo(AppScope::class)
 @BindingContainer
@@ -95,12 +117,20 @@ internal object BundleImportBindings {
         host.foundationImports(FoundationBundleImports::class).acpStdio
 
     @Provides
-    fun capturePresentation(host: BundleHost): ComputerUseCapturePresentation =
+    fun capturePresentation(host: BundleHost): ComputerUseCapturePresentation = try {
         host.foundationImports(FoundationBundleImports::class).capturePresentation
+    } catch (e: BundleUnavailableException) {
+        log.w(e) { "Studio bundle is unavailable; windows are not hidden from captures" }
+        UnavailableCapturePresentation
+    }
 
     @Provides
-    fun permissionGuide(host: BundleHost): ComputerUsePermissionGuide =
+    fun permissionGuide(host: BundleHost): ComputerUsePermissionGuide = try {
         host.foundationImports(FoundationBundleImports::class).permissionGuide
+    } catch (e: BundleUnavailableException) {
+        log.w(e) { "Studio bundle is unavailable; the computer-use permission guide is off" }
+        UnavailablePermissionGuide
+    }
 
     @Provides
     @ElementsIntoSet
