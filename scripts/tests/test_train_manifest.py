@@ -58,14 +58,7 @@ class TrainManifestTests(unittest.TestCase):
         self.assertEqual(carried, [])
         self.assertEqual(t3["bundles"][0]["url"], BASE1 + "bundle-web-t1.jar")
 
-    def test_previous_without_url_uses_previous_base_url(self):
-        previous = {"train": "t1", "platformApi": 1, "bundles": [bundle("web", "t1", A)]}
-        built = {"platformApi": 1, "bundles": [bundle("web", "t2", A)]}
-        manifest, carried = train_manifest.build_train(built, previous, "t2", BASE2, BASE1)
-        self.assertEqual(carried, [])
-        self.assertEqual(manifest["bundles"][0]["url"], BASE1 + "bundle-web-t1.jar")
-
-    def test_previous_without_url_and_base_republishes(self):
+    def test_previous_without_url_republishes(self):
         previous = {"train": "t1", "platformApi": 1, "bundles": [bundle("web", "t1", A)]}
         built = {"platformApi": 1, "bundles": [bundle("web", "t2", A)]}
         manifest, carried = train_manifest.build_train(built, previous, "t2", BASE2)
@@ -90,7 +83,8 @@ class TrainManifestTests(unittest.TestCase):
 
     def test_rejects_base_url_without_https_or_slash(self):
         built = {"platformApi": 1, "bundles": [bundle("web", "t", A)]}
-        for url in ("http://example.com/x/", "https://example.com/x", "https://example.com/x/?q=/"):
+        for url in ("http://example.com/x/", "https://example.com/x", "https://example.com/x/?q=/",
+                    "https:////", "https:///x/", "https://exa mple.com/x/", "https://example.com/x#/"):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 train_manifest.build_train(built, None, "t", url)
 
@@ -104,6 +98,9 @@ class TrainManifestTests(unittest.TestCase):
             {"platformApi": 1, "bundles": [{**bundle("web", "t1", A), "jar": "../evil.jar"}]},
             {"platformApi": 1, "bundles": [{**bundle("web", "t1", A), "url": "http://x/bundle-web-t1.jar"}]},
             {"platformApi": 1, "bundles": [bundle("web", "t1", A), bundle("web", "t0", B)]},
+            {"platformApi": 1, "bundles": [bundle("web", "t1", A), {**bundle("shell", "t1", B), "jar": "bundle-web-t1.jar"}]},
+            *({"platformApi": 1, "bundles": [{**bundle("web", "t1", A), "url": url + "bundle-web-t1.jar"}]}
+              for url in ("https:////", "https:///", "https://x/?q=/", "https://x/#/", "https://x y/", "https://x")),
         ]
         for previous in broken:
             with self.subTest(previous=previous), self.assertRaises(ValueError):
@@ -131,11 +128,11 @@ class TrainManifestTests(unittest.TestCase):
                 json.dumps({"platformApi": 1, "bundles": [bundle("web", "t2", A), bundle("shell", "t2", C)]})
             )
             (root / "prev.json").write_text(
-                json.dumps({"train": "t1", "platformApi": 1, "bundles": [bundle("web", "t1", A)]})
+                json.dumps({"train": "t1", "platformApi": 1, "bundles": [with_url(bundle("web", "t1", A), BASE1)]})
             )
             code = train_manifest.main(
                 ["--built", str(root / "built.json"), "--jars", str(jars), "--previous", str(root / "prev.json"),
-                 "--train", "t2", "--base-url", BASE2, "--previous-base-url", BASE1, "--out", str(out)]
+                 "--train", "t2", "--base-url", BASE2, "--out", str(out)]
             )
             self.assertEqual(code, 0)
             self.assertEqual(sorted(p.name for p in out.iterdir()), ["bundle-shell-t2.jar", "train-manifest.json"])

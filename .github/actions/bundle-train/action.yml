@@ -31,12 +31,12 @@ runs:
       run: |
         rm -rf train-previous
         mkdir -p train-previous
+        # The same tag filter as prerelease.yml: only train-t<sha12> pre-releases are trains.
+        is_train='test("^train-t[0-9a-f]{12}$")'
         tag=$(gh release list --limit 100 --json tagName,isDraft \
-          --jq "[.[] | select(.isDraft | not) | select(.tagName | startswith(\"train-\")) | select(.tagName != \"train-$TRAIN\")][0].tagName // \"\"")
+          --jq "[.[] | select(.isDraft | not) | select(.tagName | $is_train) | select(.tagName != \"train-$TRAIN\")][0].tagName // \"\"")
         if [ -n "$tag" ]; then
           gh release download "$tag" --pattern train-manifest.json --dir train-previous
-          # Entries written before the manifest had `url` live in that release.
-          echo "$GITHUB_SERVER_URL/$GH_REPO/releases/download/$tag/" > train-previous/base-url
           echo "Previous train: $tag"
         else
           echo "No previous train: every jar is published"
@@ -65,8 +65,7 @@ runs:
         cp bundles/*/build/bundle/*.jar train-jars/
         previous=()
         if [ -f train-previous/train-manifest.json ]; then
-          previous=(--previous train-previous/train-manifest.json
-            --previous-base-url "$(cat train-previous/base-url)")
+          previous=(--previous train-previous/train-manifest.json)
         fi
         python3 scripts/train_manifest.py --built build/bundles/manifest.json --jars train-jars \
           "${previous[@]}" --train "$TRAIN" --base-url "$BASE_URL" --out "$OUT"
