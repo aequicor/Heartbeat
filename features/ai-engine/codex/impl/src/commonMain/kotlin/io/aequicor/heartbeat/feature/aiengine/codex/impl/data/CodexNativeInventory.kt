@@ -1,17 +1,28 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 
 /**
  * Inert stand-in declared by the offline probe only when the working thread declares no hosted tools, because an
  * empty catalog cannot show where the CLI placed its declarations. It is never executed.
  */
 internal const val CODEX_INVENTORY_TOOL = "heartbeat_inventory_probe"
+
+/** The inert [CODEX_INVENTORY_TOOL] declaration, in the dynamic tool format of thread/start. */
+internal val CodexInventoryMarker: JsonObject = json(
+    "type" to "function".json(),
+    "name" to CODEX_INVENTORY_TOOL.json(),
+    "description" to "Offline inventory marker".json(),
+    "inputSchema" to json("type" to "object".json(), "properties" to json()),
+)
 
 /**
  * The model-facing surface of one protected working thread that the offline probe reproduces: the selected
@@ -28,10 +39,11 @@ internal data class CodexInventoryTarget(
 /**
  * Top-level keys of the working process's effective configuration that the probe either reproduces or that
  * cannot add a native tool: feature flags and isolation keys the host overrides, keys whose tools are gated by
- * reproduced features (plugins, apps, hooks, skills), and inference, prompt, authentication, storage and
- * presentation settings. Everything else (for example `tools`, legacy `experimental_use_*` and `include_*`
- * switches) can change the catalog independently of features and fails closed. `profile` is refused separately:
- * an active profile's features apply after session flags and are absent from the effective `features`.
+ * reproduced features (plugins, apps, hooks, skills), and inference, reasoning, prompt, authentication, storage,
+ * logging, trust bookkeeping, notice and presentation settings that the Codex TUI commonly writes.
+ * Everything else (for example `tools`, legacy `experimental_use_*` and `include_*` switches) can change the
+ * catalog independently of features and fails closed. `profile` is refused separately: an active profile's
+ * features apply after session flags and are absent from the effective `features`.
  */
 internal val CodexInventoryConfigKeys = setOf(
     "features", "web_search", "agents", "mcp_servers", "model_catalog_json", "approval_policy", "sandbox_mode",
@@ -43,41 +55,77 @@ internal val CodexInventoryConfigKeys = setOf(
     "forced_chatgpt_workspace_id", "cli_auth_credentials_store", "mcp_oauth_credentials_store", "chatgpt_base_url",
     "shell_environment_policy", "notify", "history", "file_opener", "tui", "desktop", "hide_agent_reasoning",
     "show_raw_agent_reasoning", "notice", "check_for_update_on_startup", "disable_paste_burst",
-    "windows_wsl_setup_acknowledged", "otel", "analytics", "feedback",
+    "windows_wsl_setup_acknowledged", "otel", "analytics", "feedback", "personality",
+    "suppress_unstable_features_warning", "project_root_markers", "tool_output_token_limit",
+    "preferred_auth_method", "approvals_reviewer", "zsh_path", "log_dir", "sqlite_home", "disable_response_storage",
 )
 
 /**
- * Refuses a working configuration the probe cannot faithfully reproduce. Unset values (null, empty or all-null
- * tables, as `config/read` serializes absent optional fields) are ignored. No key name or value is logged.
+ * Refuses a working configuration the probe cannot faithfully reproduce. Allowlisted keys pass with any value.
+ * Any other key, including `profile`, passes only when unset: null or a non-empty table of unset values, as
+ * `config/read` serializes absent optional fields; an explicitly declared `{}` or `[]` counts as set. The names
+ * of refused top-level keys (never their values) are logged once per refusal for support diagnostics.
  */
 internal fun requireCodexInventoryConfig(effective: JsonObject) {
-    effective.forEach { (key, value) ->
-        if (!isUnsetConfig(value) && (key == "profile" || key !in CodexInventoryConfigKeys)) inventoryFailure()
-    }
+    val refused = effective.filter { (key, value) ->
+        (key == "profile" || key !in CodexInventoryConfigKeys) && !isUnsetConfig(value)
+    }.keys
+    if (refused.isEmpty()) return
+    val names = refused.map { if (ConfigKeyName.matches(it)) it else "<unnamed>" }.sorted().joinToString()
+    Log.tag("CodexNativeInventory").w { "Codex config keys refused by native inventory: $names" }
+    inventoryFailure()
 }
+
+private val ConfigKeyName = Regex("[A-Za-z0-9_-]{1,64}")
 
 private fun isUnsetConfig(value: JsonElement): Boolean = when (value) {
     JsonNull -> true
-    is JsonObject -> value.values.all(::isUnsetConfig)
-    is JsonArray -> value.isEmpty()
+    is JsonObject -> value.isNotEmpty() && value.values.all(::isUnsetConfig)
     else -> false
 }
 
 /**
  * Checks actual Responses declarations, not version numbers or echoed configuration keys. Each [declared] host
- * function must appear exactly once; besides them only native questions are allowed, which the host handles and
- * refuses for tool-free turns. An absent or malformed catalog is not evidence of isolation. Unknown namespaces and
- * tool kinds fail closed even when they reuse an allowed function name.
+ * function (dynamic tool format: `name`, `description`, `inputSchema`) must appear exactly once with the same
+ * description and parameter structure, so a same-named native replacement is refused; besides them only native
+ * questions are allowed, which the host handles and refuses for tool-free turns. An absent or malformed catalog
+ * is not evidence of isolation. Unknown namespaces and tool kinds fail closed even when they reuse an allowed
+ * function name.
  */
-internal fun validateCodexInventory(request: JsonObject, declared: Set<String> = setOf(CODEX_INVENTORY_TOOL)) {
-    if (declared.isEmpty()) inventoryFailure()
+internal fun validateCodexInventory(request: JsonObject, declared: List<JsonObject> = listOf(CodexInventoryMarker)) {
+    val specs = declared.associateBy { it.text("name") ?: inventoryFailure() }
+    if (specs.isEmpty() || specs.size != declared.size) inventoryFailure()
     val names = requestedTools(request).map { tool ->
         if (tool.text("type") != "function") inventoryFailure()
         val name = tool.text("name") ?: inventoryFailure()
-        if (name !in declared && name != "request_user_input") inventoryFailure()
+        val spec = specs[name]
+        if (spec == null) {
+            if (name != "request_user_input") inventoryFailure()
+        } else if (!matchesDeclaration(tool, spec)) {
+            inventoryFailure()
+        }
         name
     }
-    if (!names.containsAll(declared) || names.distinct().size != names.size) inventoryFailure()
+    if (!names.containsAll(specs.keys) || names.distinct().size != names.size) inventoryFailure()
+}
+
+/**
+ * The CLI may normalize JSON schemas (dropped keywords, widened numeric types), so parameters are compared by
+ * structure: property names at every level, required sets and array items. Descriptions must match exactly.
+ */
+private fun matchesDeclaration(tool: JsonObject, spec: JsonObject): Boolean =
+    tool.text("description").orEmpty() == spec.text("description").orEmpty() &&
+        schemaShape(tool["parameters"]) == schemaShape(spec["inputSchema"])
+
+private fun schemaShape(schema: JsonElement?): JsonElement {
+    if (schema !is JsonObject) return JsonNull
+    return buildJsonObject {
+        val properties = schema["properties"] as? JsonObject
+        put("properties", JsonObject(properties.orEmpty().mapValues { schemaShape(it.value) }))
+        val required = (schema["required"] as? JsonArray).orEmpty().map { it.toString() }.toSortedSet()
+        put("required", JsonArray(required.map(::JsonPrimitive)))
+        schema["items"]?.let { put("items", schemaShape(it)) }
+    }
 }
 
 /** Top-level tools plus deferred `additional_tools` input items; a missing input list is malformed. */

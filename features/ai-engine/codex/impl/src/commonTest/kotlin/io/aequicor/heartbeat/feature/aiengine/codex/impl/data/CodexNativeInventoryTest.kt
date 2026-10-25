@@ -9,7 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertFailsWith
 
 class CodexNativeInventoryTest {
-    private val marker = tool(CODEX_INVENTORY_TOOL)
+    private val marker = responseTool(CodexInventoryMarker)
 
     @Test
     fun `actual safe inventory is accepted without any version information`() {
@@ -68,7 +68,7 @@ class CodexNativeInventoryTest {
 
     @Test
     fun `every declared host function must appear exactly once beside native questions`() {
-        val declared = setOf("read_file", "web_search")
+        val declared = listOf(spec("read_file"), spec("web_search"))
         validateCodexInventory(request(listOf(tool("read_file"), tool("web_search"))), declared)
         validateCodexInventory(
             request(listOf(tool("read_file"), tool("web_search"), tool("request_user_input"))),
@@ -80,7 +80,87 @@ class CodexNativeInventoryTest {
             request(listOf(tool("read_file"), tool("web_search"), marker)),
             request(listOf(tool("read_file"), tool("web_search"), tool("exec"))),
         ).forEach { candidate -> assertFailsWith<EngineException> { validateCodexInventory(candidate, declared) } }
-        assertFailsWith<EngineException> { validateCodexInventory(request(listOf(marker)), emptySet()) }
+        assertFailsWith<EngineException> { validateCodexInventory(request(listOf(marker)), emptyList()) }
+        assertFailsWith<EngineException> {
+            validateCodexInventory(request(listOf(tool("read_file"))), listOf(spec("read_file"), spec("read_file")))
+        }
+    }
+
+    @Test
+    fun `same named native replacement with another description or schema is refused`() {
+        val declared = spec(
+            "read_file",
+            json(
+                "type" to "object".json(),
+                "properties" to json(
+                    "path" to json("type" to "string".json(), "minLength" to JsonPrimitive(1)),
+                    "range" to json(
+                        "type" to "array".json(),
+                        "items" to json("type" to "integer".json()),
+                    ),
+                ),
+                "required" to JsonArray(listOf("path".json())),
+                "additionalProperties" to JsonPrimitive(false),
+            ),
+        )
+        val faithful = responseTool(declared)
+        // Normalization by the CLI (dropped keywords, widened numeric types) keeps the declared structure.
+        val widened = json(
+            "type" to "object".json(),
+            "properties" to json(
+                "path" to json("type" to "string".json()),
+                "range" to json("type" to "array".json(), "items" to json("type" to "number".json())),
+            ),
+            "required" to JsonArray(listOf("path".json())),
+        )
+        val normalized = JsonObject(faithful + ("parameters" to widened))
+        validateCodexInventory(request(listOf(faithful)), listOf(declared))
+        validateCodexInventory(request(listOf(normalized)), listOf(declared))
+        val parameters = faithful.obj("parameters")
+        val optional = JsonObject(parameters + ("required" to JsonArray(emptyList())))
+        val extended = JsonObject(
+            parameters + ("properties" to JsonObject(parameters.obj("properties") + ("cmd" to json()))),
+        )
+        listOf(
+            JsonObject(faithful + ("description" to "Native file reader".json())),
+            JsonObject(faithful - "description"),
+            JsonObject(faithful - "parameters"),
+            JsonObject(faithful + ("parameters" to optional)),
+            JsonObject(faithful + ("parameters" to extended)),
+        ).forEach { replacement ->
+            assertFailsWith<EngineException> { validateCodexInventory(request(listOf(replacement)), listOf(declared)) }
+        }
+    }
+
+    @Test
+    fun `presentation auth logging and trust keys written by the Codex TUI are accepted`() {
+        requireCodexInventoryConfig(
+            json(
+                "personality" to "pragmatic".json(),
+                "suppress_unstable_features_warning" to JsonPrimitive(true),
+                "project_root_markers" to JsonArray(listOf(".git".json())),
+                "tool_output_token_limit" to JsonPrimitive(10_000),
+                "preferred_auth_method" to "chatgpt".json(),
+                "approvals_reviewer" to "user".json(),
+                "zsh_path" to "/bin/zsh".json(),
+                "log_dir" to "/tmp/codex-logs".json(),
+                "model_reasoning_effort" to "high".json(),
+                "model_reasoning_summary" to "auto".json(),
+                "model_verbosity" to "low".json(),
+                "hide_agent_reasoning" to JsonPrimitive(true),
+                "show_raw_agent_reasoning" to JsonPrimitive(false),
+                "file_opener" to "vscode".json(),
+                "notify" to JsonArray(listOf("notify-send".json())),
+                "windows_wsl_setup_acknowledged" to JsonPrimitive(true),
+                "projects" to json("/work" to json("trust_level" to "trusted".json())),
+                "notice" to json("hide_full_access_warning" to JsonPrimitive(true)),
+                "tui" to json("notifications" to JsonPrimitive(true)),
+                "history" to json("persistence" to "save-all".json()),
+                "analytics" to json("enabled" to JsonPrimitive(false)),
+                "feedback" to json("enabled" to JsonPrimitive(false)),
+                "otel" to json("exporter" to "none".json()),
+            ),
+        )
     }
 
     @Test
@@ -93,11 +173,17 @@ class CodexNativeInventoryTest {
                 "tools" to json("web_search" to JsonNull, "view_image" to JsonNull),
                 "profile" to JsonNull,
                 "experimental_use_unified_exec_tool" to JsonNull,
-                "include_plan_tool" to JsonArray(emptyList()),
+                // Allowlisted keys stay lenient, including empty declarations.
+                "project_doc_fallback_filenames" to JsonArray(emptyList()),
+                "sandbox_workspace_write" to json(),
             ),
         )
         listOf(
             json("tools" to json("view_image" to JsonPrimitive(true))),
+            // An explicitly declared empty table or list on an unknown key is a setting, not an absent field.
+            json("tools" to json()),
+            json("include_plan_tool" to JsonArray(emptyList())),
+            json("unknown_future_key" to json("nested" to json())),
             json("profile" to "work".json()),
             json("experimental_use_unified_exec_tool" to JsonPrimitive(true)),
             json("include_apply_patch_tool" to JsonPrimitive(false)),
@@ -105,7 +191,25 @@ class CodexNativeInventoryTest {
         ).forEach { config -> assertFailsWith<EngineException> { requireCodexInventoryConfig(config) } }
     }
 
-    private fun tool(name: String) = json("type" to "function".json(), "name" to name.json())
+    private fun spec(name: String, schema: JsonObject = emptySchema) = json(
+        "type" to "function".json(),
+        "name" to name.json(),
+        "description" to "Host $name".json(),
+        "inputSchema" to schema,
+    )
+
+    private val emptySchema = json("type" to "object".json(), "properties" to json())
+
+    /** The Responses form the CLI sends for a dynamic declaration. */
+    private fun responseTool(spec: JsonObject) = json(
+        "type" to "function".json(),
+        "name" to spec.getValue("name"),
+        "description" to spec.getValue("description"),
+        "strict" to JsonPrimitive(false),
+        "parameters" to spec.getValue("inputSchema"),
+    )
+
+    private fun tool(name: String) = responseTool(spec(name))
 
     private fun request(tools: List<JsonObject>, input: List<JsonObject> = emptyList()) =
         json("tools" to JsonArray(tools), "input" to JsonArray(input))

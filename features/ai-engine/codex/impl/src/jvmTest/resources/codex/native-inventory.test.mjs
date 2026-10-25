@@ -24,8 +24,17 @@ const values = (text, name) => {
 };
 const enhanced = values(source, 'enhancedFeatures');
 const configKeys = new Set(values(inventory, 'CodexInventoryConfigKeys'));
-const isUnset = value => value == null || (Array.isArray(value) ? value.length === 0
-  : typeof value === 'object' && Object.values(value).every(isUnset));
+// Mirrors requireCodexInventoryConfig: an unknown key is unset only as null or a non-empty table of unset values.
+const isUnset = value => value == null || (typeof value === 'object' && !Array.isArray(value)
+  && Object.keys(value).length > 0 && Object.values(value).every(isUnset));
+const fixtureTool = { name: 'heartbeat_fixture_read', description: 'Host fixture tool', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } };
+// Mirrors the structural comparison of validateCodexInventory: property names, required sets and array items.
+const shape = schema => schema == null || typeof schema !== 'object' ? null : {
+  properties: Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, value]) => [key, shape(value)])),
+  required: [...(schema.required ?? [])].sort(),
+  ...(schema.items === undefined ? {} : { items: shape(schema.items) }),
+};
+const functions = tools => tools.flatMap(tool => tool.type === 'namespace' ? functions(tool.tools ?? []) : [tool]);
 const baseline = [...values(isolation, 'CodexDisabledCapabilities'), ...values(source, 'executionFeatures'), ...values(source, 'virtualFeatures')];
 const inventoryNames = tools => tools.flatMap(tool => tool.type === 'namespace'
   ? [...(tool.name === 'functions' ? [] : [tool.name]), ...inventoryNames(tool.tools ?? [])]
@@ -55,6 +64,10 @@ test('installed CLI closes actual image code mode delegation and goal ingress wh
     ...enhanced.map(name => [name, false]),
   ]);
   assert.deepEqual(locked.names.sort(), ['heartbeat_fixture_read', 'request_user_input']);
+  // The probe compares full declarations, so the CLI must keep the declared description and schema structure.
+  const declared = locked.tools.find(tool => tool.name === fixtureTool.name);
+  assert.equal(declared.description, fixtureTool.description);
+  assert.deepEqual(shape(declared.parameters), shape(fixtureTool.inputSchema));
   for (const name of [...baseline, ...enhanced]) assert.equal(locked.features[name], false, name);
   // A clean home must pass the protected allowlist; otherwise every protected session would fail closed.
   for (const [key, value] of Object.entries(locked.config)) {
@@ -92,7 +105,8 @@ async function capture(features) {
     for await (const chunk of request) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     assert.equal(request.headers.authorization, undefined);
-    receive(inventoryNames([...(body.tools ?? []), ...(body.input ?? []).filter(item => item.type === 'additional_tools').flatMap(item => item.tools ?? [])]));
+    const tools = [...(body.tools ?? []), ...(body.input ?? []).filter(item => item.type === 'additional_tools').flatMap(item => item.tools ?? [])];
+    receive({ names: inventoryNames(tools), tools: functions(tools) });
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
     const result = { id: 'fixture-response', object: 'response', status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 } };
     response.end(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: result })}\n\n`);
@@ -140,10 +154,11 @@ async function capture(features) {
         const effective = await rpc('config/read', { includeLayers: true, cwd });
         const opened = await rpc('thread/start', {
           model: 'fixture-model', modelProvider: 'inventory', cwd, approvalPolicy: 'never', sandbox: 'read-only', ephemeral: true,
-          dynamicTools: [{ name: 'heartbeat_fixture_read', description: 'Host fixture tool', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } }],
+          dynamicTools: [fixtureTool],
         });
         await rpc('turn/start', { threadId: opened.thread.id, input: [{ type: 'text', text: 'Return no output. Do not call tools.' }] });
-        return { names: await received, config: effective.config, features: effective.config.features, nativeCalls };
+        const { names, tools } = await received;
+        return { names, tools, config: effective.config, features: effective.config.features, nativeCalls };
       })(),
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Offline inventory fixture timeout')), 15000); }),
     ]);

@@ -40,8 +40,9 @@ internal fun codexExecutableIdentity(executable: String): String = try {
  * host-owned model catalog, the selected model, the thread-level `config` (features, `agents`, `web_search`)
  * and the thread's hosted dynamic declarations (with their real names, descriptions and schemas, or the inert
  * [CODEX_INVENTORY_TOOL] when the thread declares none). Every observed function must be one of those
- * declarations or native `request_user_input`. It is repeated for every protected preparation, so an app update
- * or policy change cannot reuse an earlier approval; the CLI version alone never decides compatibility.
+ * declarations, with the same description and parameter structure, or native `request_user_input`. It is
+ * repeated for every protected preparation, so an app update or policy change cannot reuse an earlier approval;
+ * the CLI version alone never decides compatibility.
  *
  * Assumptions that cannot be reproduced offline and are therefore accepted, not verified:
  * - The provider and authentication differ: the probe uses a credential-free loopback Responses provider instead
@@ -90,6 +91,10 @@ internal class CodexInventoryProbe(
         } catch (error: IllegalArgumentException) {
             log.w(IllegalStateException(error.javaClass.simpleName)) { "Codex inventory probe response rejected" }
             inventoryFailure()
+        } catch (error: IllegalStateException) {
+            // checkNotNull on a malformed thread/start reply; only the type is kept, as for the other failures.
+            log.w(IllegalStateException(error.javaClass.simpleName)) { "Codex inventory probe response incomplete" }
+            inventoryFailure()
         } finally {
             withContext(NonCancellable) { removeTemporaryFiles(root) }
         }
@@ -120,9 +125,7 @@ internal class CodexInventoryProbe(
     private suspend fun capture(executable: String, root: Path, target: CodexInventoryTarget, off: CodexNativeOff) =
         coroutineScope {
             val features = target.effective["features"] as? JsonObject ?: inventoryFailure()
-            val tools = target.tools.ifEmpty { listOf(markerDeclaration) }
-            val declared = tools.map { it.text("name") ?: inventoryFailure() }.toSet()
-            if (declared.size != tools.size) inventoryFailure()
+            val tools = target.tools.ifEmpty { listOf(CodexInventoryMarker) }
             CodexInventoryEndpoint().use { endpoint ->
                 val received = async { endpoint.receive(dispatchers.io) }
                 var running: CodexProbeProcess? = null
@@ -147,7 +150,7 @@ internal class CodexInventoryProbe(
                                 ),
                             ),
                         )
-                        validateCodexInventory(received.await(), declared)
+                        validateCodexInventory(received.await(), tools)
                     } finally {
                         events.cancel()
                         rpc.close()
@@ -209,12 +212,6 @@ internal class CodexInventoryProbe(
 
     private companion object {
         const val PROBE_TIMEOUT = 15_000L
-        val markerDeclaration = json(
-            "type" to "function".json(),
-            "name" to CODEX_INVENTORY_TOOL.json(),
-            "description" to "Offline inventory marker".json(),
-            "inputSchema" to json("type" to "object".json(), "properties" to json()),
-        )
     }
 }
 
