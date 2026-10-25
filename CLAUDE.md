@@ -459,6 +459,8 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > (`<git-common-dir>/heartbeat-worktree-data/slots`, до 4 на репозиторий; слоты под OS-локом чужого воркера пропускаются,
 > лишние сверх лимита, без песочниц или без проекта удаляются `SandboxSlotSweeper`); оставленная песочница чистит
 > игнорируемые выходы.
+> Push и fetch веток из инструментов песочницы (`push` у `sandbox_commit`, `fetch` у `sandbox_checkout`/`sandbox_merge`) —
+> тогл `worktree_mode.sandbox_remote` (по умолчанию false); без него аргументов нет в схемах.
 > Очередь сборок одна на машину: вес по типу сборки (`WorktreeBuildKind`), бюджет по CPU/RAM или лимит из раздела
 > настроек «Сборки» (`BuildCapacitySettings`, app-wide), round-robin между проектами, без обгона тяжёлой сборки.
 > `configure_build`, `run_build` и `cancel_build` используют общий гейт; полные план/команда и рабочая область

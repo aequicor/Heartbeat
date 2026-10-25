@@ -137,15 +137,21 @@ internal class DesktopVirtualWorkspaces(
 
     /**
      * A loaded branch's files never follow the source, so it never pauses for it: a clean source re-anchors a stale
-     * or paused one in place. Null when the record has no loaded branch or its source is dirty.
+     * or paused one in place, keeping a merge or child integration conflict. Null when the record has no loaded
+     * branch or its source is dirty.
      */
     private suspend fun detached(record: VirtualRecord): VirtualSandboxState? {
         if (record.branch == null || !sourceCleanRecord(record)) return null
-        val head = git.text(record.source, "rev-parse", "HEAD")
-        val isStale = head != record.state.baseCommit || record.pendingSnapshot != null || record.isHistoryChanged
-        if (!isStale && record.state.isReady) return save(record).state
+        return save(anchored(record, git.text(record.source, "rev-parse", "HEAD"))).state
+    }
+
+    /** The record of a loaded branch re-anchored on [head], unchanged when it is neither stale nor paused. */
+    private suspend fun anchored(record: VirtualRecord, head: String): VirtualRecord {
+        val isSettled = record.state.isReady ||
+            (record.keepsConflict && record.state.phase == VirtualSandboxPhase.Conflicted)
+        if (!branches.isStale(record, head) && isSettled) return record
         log.i { "Virtual sandbox with a loaded branch re-anchored on the source" }
-        return save(branches.reanchor(record, head)).state
+        return branches.reanchor(record, head)
     }
 
     override suspend fun sourceClean(ref: WorkspaceRef): Boolean = lock.withLock { sourceCleanRecord(known(ref)) }
@@ -190,8 +196,20 @@ internal class DesktopVirtualWorkspaces(
             } else {
                 val head = git.text(record.source, "rev-parse", "HEAD")
                 when {
-                    record.branch != null -> branches.reanchor(record, head).also {
-                        log.i { "Virtual sandbox with a loaded branch re-anchored on the source" }
+                    record.branch != null -> anchored(record, head).let { current ->
+                        if (current.keepsConflict) {
+                            // A kept merge conflict continues like any other: resolution needs authorization.
+                            val isResolving = explicit && resolveConflicts
+                            current.copy(
+                                isResolving = isResolving,
+                                state = current.state.copy(
+                                    phase = VirtualSandboxPhase.Conflicted,
+                                    isResolving = isResolving,
+                                ),
+                            )
+                        } else {
+                            current
+                        }
                     }
 
                     record.pendingSnapshot != null -> resumeConflicts(record, head, explicit, resolveConflicts)
@@ -250,6 +268,7 @@ internal class DesktopVirtualWorkspaces(
             current = current.copy(
                 pendingBase = head,
                 pendingSnapshot = snapshot,
+                pending = current.pending ?: VirtualPending.Rebase,
                 state = current.state.copy(
                     revision = current.state.revision + 1,
                     conflicts = (current.state.conflicts + merged.conflicts).distinct(),
@@ -289,6 +308,7 @@ internal class DesktopVirtualWorkspaces(
             record.copy(
                 pendingBase = head,
                 pendingSnapshot = snapshot,
+                pending = VirtualPending.Rebase,
                 state = record.state.copy(
                     phase = VirtualSandboxPhase.Conflicted,
                     conflicts = merged.conflicts,
@@ -349,18 +369,37 @@ internal class DesktopVirtualWorkspaces(
         ).state
     }
 
+    /** The push runs outside the profile lock; the commit is already saved (and pinned) when it starts. */
     override suspend fun commitToBranch(
         ref: WorkspaceRef,
         branch: String,
         message: String,
         isPush: Boolean,
         isForce: Boolean,
-    ): String = lock.withLock {
-        val committed = branches.commit(accessible(ref), branch, message, isPush, isForce)
-        save(committed.record)
-        log.i { "Virtual sandbox snapshot committed to a branch force=$isForce" }
-        branches.push(committed, branch, isPush)
-        committed.commit
+        expectedRevision: Long?,
+    ): String {
+        val committed = lock.withLock {
+            val committed = branches.commit(branchReady(ref, expectedRevision), branch, message, isPush, isForce)
+            save(committed.record)
+            log.i { "Virtual sandbox snapshot committed to a branch force=$isForce" }
+            committed
+        }
+        if (isPush) {
+            try {
+                branches.push(committed, branch)
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.w(error) { "Virtual sandbox branch push failed force=$isForce" }
+                throw error
+            }
+            log.i { "Virtual sandbox branch pushed to origin force=$isForce" }
+            lock.withLock {
+                // Origin now holds the pushed commit: it is the lease of the next forced push.
+                read()[ref.value]?.let { save(it.copy(origins = it.origins + (branch to committed.commit))) }
+            }
+        }
+        return committed.commit
     }
 
     override suspend fun checkoutRef(
@@ -368,29 +407,67 @@ internal class DesktopVirtualWorkspaces(
         branch: String,
         isFetch: Boolean,
         at: String?,
-    ): VirtualSandboxState = lock.withLock {
-        val checkedOut = branches.checkout(accessible(ref), branch, isFetch, at)
-        log.i { "Virtual sandbox files replaced by a branch" }
-        save(checkedOut).state
+        expectedRevision: Long?,
+    ): VirtualSandboxState {
+        val revision = fetched(ref, branch, isFetch, expectedRevision)
+        return lock.withLock {
+            val checkedOut = branches.checkout(branchReady(ref, revision), branch, isFetch, at)
+            log.i { "Virtual sandbox files replaced by a branch" }
+            save(checkedOut).state
+        }
     }
 
-    override suspend fun restorePaths(ref: WorkspaceRef, paths: List<String>, from: String): VirtualSandboxState =
-        lock.withLock {
-            val restored = branches.restore(accessible(ref), paths, from)
-            log.i { "Virtual sandbox paths restored from another commit count=${paths.size}" }
-            save(restored).state
-        }
+    override suspend fun restorePaths(
+        ref: WorkspaceRef,
+        paths: List<String>,
+        from: String,
+        expectedRevision: Long?,
+    ): VirtualSandboxState = lock.withLock {
+        val restored = branches.restore(branchReady(ref, expectedRevision), paths, from)
+        log.i { "Virtual sandbox paths restored from another commit count=${paths.size}" }
+        save(restored).state
+    }
 
-    override suspend fun mergeRef(ref: WorkspaceRef, branch: String, isFetch: Boolean): VirtualSandboxState =
-        lock.withLock {
-            val current = accessible(ref)
+    override suspend fun mergeRef(
+        ref: WorkspaceRef,
+        branch: String,
+        isFetch: Boolean,
+        expectedRevision: Long?,
+    ): VirtualSandboxState {
+        val revision = fetched(ref, branch, isFetch, expectedRevision)
+        return lock.withLock {
+            val current = branchReady(ref, revision)
             val merged = branches.merge(current, branch, isFetch) ?: return@withLock current.state
             log.i { "Virtual sandbox merged a branch (conflicts=${merged.state.conflicts.size})" }
             save(merged).state
         }
+    }
 
-    override suspend fun history(ref: WorkspaceRef, branch: String, base: String, isStat: Boolean): String =
-        lock.withLock { branches.history(known(ref), branch, base, isStat) }
+    override suspend fun branchHistory(ref: WorkspaceRef, branch: String, base: String, isStat: Boolean): String =
+        lock.withLock {
+            branches.history(known(ref), branch, base, isStat).also {
+                log.i { "Virtual sandbox branch history read stat=$isStat chars=${it.length}" }
+            }
+        }
+
+    /**
+     * Fetches [branch] outside the profile lock when [isFetch]; returns the revision the operation must still find
+     * afterwards, so a sandbox that changed during the network call refuses instead of applying a stale approval.
+     */
+    private suspend fun fetched(ref: WorkspaceRef, branch: String, isFetch: Boolean, expectedRevision: Long?): Long {
+        val record = lock.withLock { branchReady(ref, expectedRevision) }
+        if (isFetch) branches.fetch(record, branch)
+        return record.state.revision
+    }
+
+    /** Branch operations need a ready sandbox: a merge or rebase conflict must be resolved first. */
+    private suspend fun branchReady(ref: WorkspaceRef, expectedRevision: Long?): VirtualRecord {
+        val known = known(ref)
+        check(known.state.phase != VirtualSandboxPhase.Conflicted && !known.isResolving) { "SandboxConflicted" }
+        val record = accessible(ref)
+        check(expectedRevision == null || record.state.revision == expectedRevision) { "SandboxRevisionChanged" }
+        return record
+    }
 
     /** A child's immutable result merges relative to the exact parent snapshot it inherited. */
     override suspend fun integrate(
@@ -423,6 +500,9 @@ internal class DesktopVirtualWorkspaces(
                 ),
                 pendingBase = target.state.baseCommit.takeIf { merged.conflicts.isNotEmpty() },
                 pendingSnapshot = snapshot.takeIf { merged.conflicts.isNotEmpty() },
+                pending = VirtualPending.Integrate.takeIf { merged.conflicts.isNotEmpty() },
+                // The integration replaces any earlier pending view, including a conflicted branch merge.
+                pendingMerge = null,
             ),
         ).state
     }
@@ -441,8 +521,10 @@ internal class DesktopVirtualWorkspaces(
         val snapshot = git.edit(record.source, checkNotNull(record.pendingSnapshot), mapOf(safePath(path) to content))
         val remaining = record.state.conflicts - path
         git.pin(record.source, record.id, snapshot)
+        // A resolved branch merge becomes the next commit's second parent (or the caught-up tip) only now.
+        val merged = record.pendingMerge?.takeIf { remaining.isEmpty() }?.let(record::withMerge) ?: record
         save(
-            record.copy(
+            merged.copy(
                 state = record.state.copy(
                     phase = if (remaining.isEmpty()) VirtualSandboxPhase.Ready else VirtualSandboxPhase.Conflicted,
                     conflicts = remaining,
@@ -454,6 +536,8 @@ internal class DesktopVirtualWorkspaces(
                 ),
                 pendingSnapshot = snapshot.takeIf { remaining.isNotEmpty() },
                 pendingBase = record.pendingBase.takeIf { remaining.isNotEmpty() },
+                pending = record.pending.takeIf { remaining.isNotEmpty() },
+                pendingMerge = record.pendingMerge.takeIf { remaining.isNotEmpty() },
                 isResolving = remaining.isNotEmpty(),
             ),
         ).state
@@ -658,9 +742,37 @@ internal data class VirtualRecord(
     val handedOff: String? = null,
     /** Merged tip that the next branch commit records as a second parent; a later merge supersedes it. */
     val mergeParent: String? = null,
+    /** What produced [pendingSnapshot]; null in records from before it was recorded (treated as a rebase). */
+    val pending: VirtualPending? = null,
+    /** A conflicted branch merge, applied by [withMerge] once its conflicts are resolved and dropped with them. */
+    val pendingMerge: PendingMerge? = null,
+    /** Last commit this sandbox itself wrote per branch; a retry with the same files reuses it. */
+    val ownCommits: Map<String, String> = emptyMap(),
+    /** Origin state per branch observed by a checkout, an own-branch merge or a push: the forced push lease. */
+    val origins: Map<String, String> = emptyMap(),
 ) {
+    /** A merge or child integration conflict, which a loaded branch keeps when it re-anchors on the source. */
+    val keepsConflict: Boolean
+        get() = pendingSnapshot != null && (pending == VirtualPending.Merge || pending == VirtualPending.Integrate)
+
     override fun toString(): String = "VirtualRecord(id=$id, revision=${state.revision}, phase=${state.phase})"
 }
+
+/** Origin of a pending conflicted view. */
+@Serializable
+internal enum class VirtualPending { Rebase, Merge, Integrate }
+
+/**
+ * A branch merge waiting for conflict resolution: [theirs] becomes the caught-up tip of [branch] ([isCatchUp]) or
+ * the second parent of the next commit; [origin] is the origin state of the sandbox's own branch seen by the merge.
+ */
+@Serializable
+internal data class PendingMerge(
+    val branch: String,
+    val theirs: String,
+    val isCatchUp: Boolean,
+    val origin: String? = null,
+)
 
 /** Shared backend contract keeps both DI bindings on the same profile-owned instance. */
 internal interface VirtualSandboxStore :
@@ -691,20 +803,33 @@ internal interface VirtualSandboxStore :
 
 /** Operations between a sandbox and branches of the real repository; no checkout or working file is touched. */
 internal interface VirtualSandboxBranches {
+    /** [expectedRevision] is the approved revision; a changed sandbox refuses with `SandboxRevisionChanged`. */
     suspend fun commitToBranch(
         ref: WorkspaceRef,
         branch: String,
         message: String,
         isPush: Boolean = false,
         isForce: Boolean = false,
+        expectedRevision: Long? = null,
     ): String
     suspend fun checkoutRef(
         ref: WorkspaceRef,
         branch: String,
         isFetch: Boolean,
         at: String? = null,
+        expectedRevision: Long? = null,
     ): VirtualSandboxState
-    suspend fun restorePaths(ref: WorkspaceRef, paths: List<String>, from: String): VirtualSandboxState
-    suspend fun mergeRef(ref: WorkspaceRef, branch: String, isFetch: Boolean): VirtualSandboxState
-    suspend fun history(ref: WorkspaceRef, branch: String, base: String, isStat: Boolean): String
+    suspend fun restorePaths(
+        ref: WorkspaceRef,
+        paths: List<String>,
+        from: String,
+        expectedRevision: Long? = null,
+    ): VirtualSandboxState
+    suspend fun mergeRef(
+        ref: WorkspaceRef,
+        branch: String,
+        isFetch: Boolean,
+        expectedRevision: Long? = null,
+    ): VirtualSandboxState
+    suspend fun branchHistory(ref: WorkspaceRef, branch: String, base: String, isStat: Boolean): String
 }

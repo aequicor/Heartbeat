@@ -140,11 +140,15 @@ internal class VirtualSandboxGit(private val dispatchers: DispatcherProvider) : 
         }
     }
 
-    /** [paths] (files or directories) take their entries from [from]; entries absent there are removed. */
+    /**
+     * [paths] (files or directories, a trailing `/` allowed) take their entries from [from]; entries absent there
+     * are removed.
+     */
     override suspend fun restore(source: String, commit: String, from: String, paths: List<String>): String {
         val current = entries(source, commit)
         val wanted = entries(source, from)
-        fun covered(path: String) = paths.any { path == it || path.startsWith("$it/") }
+        val roots = paths.map { it.trimEnd('/') }
+        fun covered(path: String) = roots.any { path == it || path.startsWith("$it/") }
         val updates = buildString {
             current.keys.filter { covered(it) && it !in wanted }.forEach {
                 append("0 ${"0".repeat(commit.length)}\t$it\u0000")
