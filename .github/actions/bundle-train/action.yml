@@ -1,5 +1,7 @@
 name: Bundle train
-description: Assemble the desktop bundles and write train-manifest.json with only the jars that changed since the previous train.
+description: >-
+  Assemble the desktop bundles and write train-manifest.json with only the jars that changed since the previous
+  train; every bundle carries the absolute url of the release that holds its jar.
 inputs:
   train:
     description: Train id (a plain name; the tag is train-<id>).
@@ -7,6 +9,11 @@ inputs:
   out:
     description: Directory for train-manifest.json and the changed jars.
     default: train-out
+  base-url:
+    description: >-
+      Download URL of the release that publishes this train, ending with '/'
+      (https://github.com/<repo>/releases/download/<tag>/): the url of every jar the train carries itself.
+    required: true
   github-token:
     description: Token that reads the previous train release.
     required: true
@@ -19,12 +26,20 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         GH_REPO: ${{ github.repository }}
         TRAIN: ${{ inputs.train }}
+      # No previous train is the only reason to go on without one: a failing gh call or a published train
+      # without its manifest stops the build instead of silently republishing every jar.
       run: |
+        rm -rf train-previous
         mkdir -p train-previous
         tag=$(gh release list --limit 100 --json tagName,isDraft \
           --jq "[.[] | select(.isDraft | not) | select(.tagName | startswith(\"train-\")) | select(.tagName != \"train-$TRAIN\")][0].tagName // \"\"")
         if [ -n "$tag" ]; then
-          gh release download "$tag" --pattern train-manifest.json --dir train-previous || true
+          gh release download "$tag" --pattern train-manifest.json --dir train-previous
+          # Entries written before the manifest had `url` live in that release.
+          echo "$GITHUB_SERVER_URL/$GH_REPO/releases/download/$tag/" > train-previous/base-url
+          echo "Previous train: $tag"
+        else
+          echo "No previous train: every jar is published"
         fi
         ls train-previous
     - name: Assemble the bundles
@@ -43,14 +58,16 @@ runs:
       env:
         TRAIN: ${{ inputs.train }}
         OUT: ${{ inputs.out }}
+        BASE_URL: ${{ inputs.base-url }}
       run: |
         rm -rf train-jars "$OUT"
         mkdir train-jars
         cp bundles/*/build/bundle/*.jar train-jars/
         previous=()
         if [ -f train-previous/train-manifest.json ]; then
-          previous=(--previous train-previous/train-manifest.json)
+          previous=(--previous train-previous/train-manifest.json
+            --previous-base-url "$(cat train-previous/base-url)")
         fi
         python3 scripts/train_manifest.py --built build/bundles/manifest.json --jars train-jars \
-          "${previous[@]}" --train "$TRAIN" --out "$OUT"
+          "${previous[@]}" --train "$TRAIN" --base-url "$BASE_URL" --out "$OUT"
         cat "$OUT/train-manifest.json"
