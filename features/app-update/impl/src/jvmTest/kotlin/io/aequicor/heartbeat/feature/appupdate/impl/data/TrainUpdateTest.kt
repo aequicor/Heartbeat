@@ -135,6 +135,55 @@ class TrainUpdateTest {
     }
 
     @Test
+    fun `a listed jar wins over a manifest url no recent release lists`() = runTest {
+        // The url names a release that no longer serves the jar (404); the recent train t1 still has it.
+        val gone = "$TRAIN_DOWNLOADS/v1.0.0/core.jar"
+        val withUrl = manifestJson(
+            "t2",
+            listOf("core.jar" to sha256(core), "ui.jar" to sha256(ui)),
+            urls = mapOf("core.jar" to gone),
+        )
+
+        update(manifestText = withUrl).prepare(repository, root, offer, progress())
+
+        assertEquals(listOf("$TRAIN_DOWNLOADS/train-t1/core.jar", "$TRAIN_DOWNLOADS/train-t2/ui.jar"), requestedFiles)
+        assertTrue(root.resolve("pending/t2/manifest.json").exists())
+    }
+
+    @Test
+    fun `a manifest url of another repository is not used`() = runTest {
+        val foreign = "https://github.com/someone/Heartbeat/releases/download/v1.0.0/core.jar"
+        val withUrl = manifestJson(
+            "t2",
+            listOf("core.jar" to sha256(core), "ui.jar" to sha256(ui)),
+            urls = mapOf("core.jar" to foreign),
+        )
+
+        assertUpdateFailure(AppUpdateFailure.InvalidRelease) {
+            update(manifestText = withUrl, publications = publications.take(1), extra = mapOf(foreign to core))
+                .prepare(repository, root, offer, progress())
+        }
+        assertFalse(foreign in requestedFiles)
+        assertFalse(root.resolve("pending").exists())
+    }
+
+    @Test
+    fun `progress counts the bytes received when a jar size is unknown`() = runTest {
+        val published = "$TRAIN_DOWNLOADS/v1.0.0/core.jar"
+        val withUrl = manifestJson(
+            "t2",
+            listOf("core.jar" to sha256(core), "ui.jar" to sha256(ui)),
+            urls = mapOf("core.jar" to published),
+        )
+
+        update(manifestText = withUrl, publications = publications.take(1), extra = mapOf(published to core))
+            .prepare(repository, root, offer, progress())
+
+        val received = phases.filter { it.startsWith("downloading") }
+        assertEquals(listOf("downloading ${core.size}/null", "downloading ${core.size + ui.size}/null"), received)
+    }
+
+    @Test
     fun `a failed download removes the staging files and queues nothing`() = runTest {
         assertUpdateFailure(AppUpdateFailure.Network) {
             update(failing = setOf("$TRAIN_DOWNLOADS/train-t2/ui.jar")).prepare(repository, root, offer, progress())

@@ -51,7 +51,7 @@ internal class TrainUpdate(
         // The train's own release first: a jar it carries is the one that belongs to it.
         val releases = client.recent(repository).sortedByDescending { it.trainManifestAsset()?.url == release.url }
         val missing = withContext(io) {
-            storage { manifest.missingDownloads(releases) { Files.exists(storeJar(root, it)) } }
+            storage { manifest.missingDownloads(repository, releases) { Files.exists(storeJar(root, it)) } }
         }
         log.i { "train download train=${manifest.train} bundles=${manifest.bundles.size} missing=${missing.size}" }
         val staging = root.resolve(STAGING).resolve(manifest.train)
@@ -80,6 +80,7 @@ internal class TrainUpdate(
         progress: InstallProgressSink,
     ) {
         val total = missing.sumOf { it.asset.size }.takeIf { size -> size > 0 && missing.all { it.asset.size > 0 } }
+        // Bytes actually received: a jar of unknown size (0) must not make the progress go back.
         var done = 0L
         for (download in missing) {
             val staged = staging.resolve(download.bundle.jar)
@@ -89,8 +90,10 @@ internal class TrainUpdate(
                 download.bundle.sha256,
                 download.asset.size,
                 staged,
-            ) { received, _ -> progress.downloading(before + received, total) }
-            done += download.asset.size
+            ) { received, _ ->
+                done = before + received
+                progress.downloading(done, total)
+            }
             withContext(io) { storage { moveInto(staged, storeJar(root, download.bundle.sha256)) } }
         }
     }

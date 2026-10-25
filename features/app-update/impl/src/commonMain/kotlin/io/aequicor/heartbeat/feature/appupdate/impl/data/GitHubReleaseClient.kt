@@ -47,7 +47,8 @@ internal class GitHubReleaseClient(private val source: ReleaseSource) {
      * The newest published releases of [repository], newest first, drafts excluded and pre-releases kept: the beta
      * channel looks for trains among them. GitHub does not document the order of `GET /releases`, so it is not relied
      * on: the releases are sorted by when they were published (`published_at`, else `created_at`), newest first; a
-     * release without a readable timestamp goes last, ties keep the listed order. Other failures keep their
+     * release without a readable timestamp goes last, ties keep the listed order. The sorting applies only within the
+     * single page GitHub returns: a release outside that page is not considered at all. Other failures keep their
      * app-specific category.
      */
     suspend fun recent(repository: GitHubRepository): List<GitHubRelease> {

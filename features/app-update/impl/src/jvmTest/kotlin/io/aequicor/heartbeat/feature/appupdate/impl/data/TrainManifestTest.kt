@@ -1,9 +1,12 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
+import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class TrainManifestTest {
     private val sha = "ab".repeat(32)
@@ -58,5 +61,24 @@ class TrainManifestTest {
         broken.forEach { text ->
             assertUpdateFailure(AppUpdateFailure.InvalidRelease) { parseTrainManifest(text) }
         }
+    }
+
+    @Test
+    fun `a bundle url is trusted only as a release download of the configured repository`() {
+        val repository = GitHubRepository("aequicor", "Heartbeat")
+
+        assertTrue(isRepositoryDownload("$TRAIN_DOWNLOADS/v1.0.0/core.jar", repository))
+        val otherCase = "https://github.com/Aequicor/heartbeat/releases/download/t-1/core.jar"
+        assertTrue(isRepositoryDownload(otherCase, repository))
+        listOf(
+            "https://github.com/someone/Heartbeat/releases/download/v1.0.0/core.jar",
+            "https://github.com/aequicor/HeartbeatX/releases/download/v1.0.0/core.jar",
+            "http://github.com/aequicor/Heartbeat/releases/download/v1.0.0/core.jar",
+            "$TRAIN_DOWNLOADS/../../../someone/Heartbeat/releases/download/v1/core.jar",
+            "$TRAIN_DOWNLOADS/v1.0.0/../core.jar",
+            "$TRAIN_DOWNLOADS/v1.0.0/core.jar?x=1",
+            "$TRAIN_DOWNLOADS/v1.0.0/%2e%2e/core.jar",
+            "$TRAIN_DOWNLOADS/core.jar",
+        ).forEach { url -> assertFalse(isRepositoryDownload(url, repository), url) }
     }
 }

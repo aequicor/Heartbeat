@@ -48,7 +48,7 @@ internal data class TrainBundle(
  * broken train is never downloaded: a train id that is not a plain name (it names a directory), a non-positive
  * `platformApi`, no bundles, duplicate bundle ids or jars, a jar name with a path separator or without `.jar`, and a
  * SHA-256 that is not 64 hex digits. Unknown fields are ignored; digests are normalised to lowercase. A bundle `url`
- * is kept as published: [missingDownloads] uses it only on GitHub's download hosts.
+ * is kept as published: [missingDownloads] uses it only as a release download of the configured repository.
  */
 internal fun parseTrainManifest(text: String): TrainManifest {
     val manifest = decode(text)

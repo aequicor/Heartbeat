@@ -139,12 +139,16 @@ internal class DesktopUpdateInstaller(
         log.i { "update helper waits for the app to quit version=${release.version}" }
     }
 
-    /** Copies the helper [name] from the app's resources into [directory]. */
+    /**
+     * Copies the helper [name] from the app's resources into [directory]. A missing resource is
+     * [AppUpdateFailure.InstallFailed] (a broken build), so a train that is already queued only skips the relaunch.
+     */
     // The file system message names the user's paths: only the kind of failure travels on, so it is not the cause.
     @Suppress("SwallowedException")
     private fun script(directory: Path, name: String): Path = try {
         val target = directory.resolve(name)
-        val resource = checkNotNull(javaClass.getResourceAsStream("/app-update/$name")) { "Missing update helper" }
+        val resource = javaClass.getResourceAsStream("/app-update/$name")
+            ?: updateFailure(AppUpdateFailure.InstallFailed, "update helper $name is missing")
         resource.use { Files.copy(it, target, StandardCopyOption.REPLACE_EXISTING) }
         target
     } catch (e: IOException) {
