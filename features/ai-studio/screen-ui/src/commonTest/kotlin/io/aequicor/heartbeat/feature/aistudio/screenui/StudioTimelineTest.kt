@@ -475,6 +475,25 @@ class StudioTimelineTest {
     }
 
     @Test
+    fun `a build card shown before the transcript loaded does not join a call of a later turn`() {
+        val placement = TimelineWeaves()
+        val cache = TimelineCache(placement)
+        val early = card("build:early")
+        cache.update(emptyList(), labels, listOf(early), setOf(early.id))
+        val loaded = listOf(prompt, reply("Done", isStreaming = false))
+        cache.update(loaded, labels, listOf(early), setOf(early.id))
+        assertEquals(mapOf("build:early" to 1), placement.loadedWith)
+
+        val waiting = ReplyPartUi.Tool(ToolUi("t2", "run_build", ToolStatusUi.Running, "", null))
+        val later = reply("", isStreaming = true).copy(id = "m4", parts = persistentListOf(waiting))
+        val next = loaded + MessageUi.Prompt("m3", Instant.fromEpochSeconds(3), "Build again") + later
+        val timeline = cache.update(next, labels, listOf(early), setOf(early.id))
+        assertEquals(listOf("t2"), timeline.messages.last().parts.map { assertIs<HbMessagePart.Tool>(it).call.id })
+        assertEquals(listOf("build:early", "m1", "m2", "m3", "m4"), timeline.messages.map { it.id })
+        assertEquals(setOf("build:early"), placement.shown)
+    }
+
+    @Test
     fun `cards drawn inside a reply count as shown for the host`() {
         val placement = TimelineWeaves()
         val cache = TimelineCache(placement)

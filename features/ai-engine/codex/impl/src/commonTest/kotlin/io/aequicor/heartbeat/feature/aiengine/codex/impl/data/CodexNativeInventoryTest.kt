@@ -7,6 +7,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class CodexNativeInventoryTest {
     private val marker = responseTool(CodexInventoryMarker)
@@ -130,6 +132,66 @@ class CodexNativeInventoryTest {
         ).forEach { replacement ->
             assertFailsWith<EngineException> { validateCodexInventory(request(listOf(replacement)), listOf(declared)) }
         }
+    }
+
+    @Test
+    fun `an items the CLI adds to an array declared without one is accepted while property changes still fail`() {
+        val declared = spec(
+            "tag_files",
+            json(
+                "type" to "object".json(),
+                "properties" to json("tags" to json("type" to "array".json())),
+                "required" to JsonArray(listOf("tags".json())),
+            ),
+        )
+        val faithful = responseTool(declared)
+        val parameters = faithful.obj("parameters")
+        val withProperties = { properties: JsonObject ->
+            JsonObject(faithful + ("parameters" to JsonObject(parameters + ("properties" to properties))))
+        }
+        val sanitized = withProperties(json("tags" to json("type" to "array".json(), "items" to json())))
+        validateCodexInventory(request(listOf(sanitized)), listOf(declared))
+        listOf(
+            json("other" to json("type" to "array".json())),
+            json(),
+            json("tags" to json("type" to "array".json()), "extra" to json()),
+        ).forEach { properties ->
+            val changed = withProperties(properties)
+            assertFailsWith<EngineException> { validateCodexInventory(request(listOf(changed)), listOf(declared)) }
+        }
+        // Declared items stay compared: dropping them or renaming their properties is a different declaration.
+        val typed = spec(
+            "tag_files",
+            json(
+                "type" to "object".json(),
+                "properties" to json(
+                    "tags" to json(
+                        "type" to "array".json(),
+                        "items" to json("type" to "object".json(), "properties" to json("id" to json())),
+                    ),
+                ),
+            ),
+        )
+        listOf(
+            json("tags" to json("type" to "array".json())),
+            json("tags" to json("type" to "array".json(), "items" to json("properties" to json("name" to json())))),
+        ).forEach { properties ->
+            val changed = JsonObject(
+                responseTool(typed) + ("parameters" to json("type" to "object".json(), "properties" to properties)),
+            )
+            assertFailsWith<EngineException> { validateCodexInventory(request(listOf(changed)), listOf(typed)) }
+        }
+    }
+
+    @Test
+    fun `a persistent refusal warns once and again only when the refused key set changes`() {
+        val refusals = CodexConfigRefusals()
+        val tools = json("tools" to json("view_image" to JsonPrimitive(true)))
+        repeat(2) { assertFailsWith<EngineException> { requireCodexInventoryConfig(tools, refusals) } }
+        assertFalse(refusals.isNew(setOf("tools")))
+        assertTrue(refusals.isNew(setOf("profile", "tools")))
+        assertFalse(refusals.isNew(setOf("profile", "tools")))
+        assertTrue(refusals.isNew(setOf("tools")))
     }
 
     @Test

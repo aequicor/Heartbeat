@@ -7,8 +7,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
+import kotlin.concurrent.atomics.AtomicReference
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
 /**
  * Inert stand-in declared by the offline probe only when the working thread declares no hosted tools, because an
@@ -64,17 +64,36 @@ internal val CodexInventoryConfigKeys = setOf(
  * Refuses a working configuration the probe cannot faithfully reproduce. Allowlisted keys pass with any value.
  * Any other key, including `profile`, passes only when unset: null or a non-empty table of unset values, as
  * `config/read` serializes absent optional fields; an explicitly declared `{}` or `[]` counts as set. The names
- * of refused top-level keys (never their values) are logged once per refusal for support diagnostics.
+ * of refused top-level keys (never their values) are logged for support diagnostics: at WARN when the refused set
+ * differs from the last one [refusals] reported, otherwise at VERBOSE, so a persistent configuration does not
+ * repeat the warning on every protected preparation.
  */
-internal fun requireCodexInventoryConfig(effective: JsonObject) {
+internal fun requireCodexInventoryConfig(effective: JsonObject, refusals: CodexConfigRefusals = CodexRefusalLog) {
     val refused = effective.filter { (key, value) ->
         (key == "profile" || key !in CodexInventoryConfigKeys) && !isUnsetConfig(value)
     }.keys
     if (refused.isEmpty()) return
-    val names = refused.map { if (ConfigKeyName.matches(it)) it else "<unnamed>" }.sorted().joinToString()
-    Log.tag("CodexNativeInventory").w { "Codex config keys refused by native inventory: $names" }
+    val names = refused.map { if (ConfigKeyName.matches(it)) it else "<unnamed>" }.toSortedSet()
+    val log = Log.tag("CodexNativeInventory")
+    if (refusals.isNew(names)) {
+        log.w { "Codex config keys refused by native inventory: ${names.joinToString()}" }
+    } else {
+        log.v { "Codex config keys refused by native inventory again: ${names.joinToString()}" }
+    }
     inventoryFailure()
 }
+
+/** Remembers the last refused key set reported at WARN; safe for concurrent session preparations. */
+@OptIn(ExperimentalAtomicApi::class)
+internal class CodexConfigRefusals {
+    private val last = AtomicReference<Set<String>?>(null)
+
+    /** True when [names] differs from the previously reported set, which [names] then replaces. */
+    fun isNew(names: Set<String>): Boolean = last.exchange(names) != names
+}
+
+/** Process-wide dedupe of refusal warnings only; it never affects the refusal itself. */
+private val CodexRefusalLog = CodexConfigRefusals()
 
 private val ConfigKeyName = Regex("[A-Za-z0-9_-]{1,64}")
 
@@ -110,23 +129,28 @@ internal fun validateCodexInventory(request: JsonObject, declared: List<JsonObje
 }
 
 /**
- * The CLI may normalize JSON schemas (dropped keywords, widened numeric types), so parameters are compared by
- * structure: property names at every level, required sets and array items. Descriptions must match exactly.
+ * The CLI may normalize JSON schemas (dropped keywords, widened numeric types, a default `items` for an array
+ * declared without one), so parameters are compared by structure: property names at every level, required sets,
+ * and array items where the declaration has them. Descriptions must match exactly.
  */
 private fun matchesDeclaration(tool: JsonObject, spec: JsonObject): Boolean =
     tool.text("description").orEmpty() == spec.text("description").orEmpty() &&
-        schemaShape(tool["parameters"]) == schemaShape(spec["inputSchema"])
+        matchesShape(tool["parameters"], spec["inputSchema"])
 
-private fun schemaShape(schema: JsonElement?): JsonElement {
-    if (schema !is JsonObject) return JsonNull
-    return buildJsonObject {
-        val properties = schema["properties"] as? JsonObject
-        put("properties", JsonObject(properties.orEmpty().mapValues { schemaShape(it.value) }))
-        val required = (schema["required"] as? JsonArray).orEmpty().map { it.toString() }.toSortedSet()
-        put("required", JsonArray(required.map(::JsonPrimitive)))
-        schema["items"]?.let { put("items", schemaShape(it)) }
-    }
+/** Missing, added or renamed properties and changed required sets fail; an `items` the CLI added is ignored. */
+private fun matchesShape(returned: JsonElement?, declared: JsonElement?): Boolean {
+    if (declared !is JsonObject || returned !is JsonObject) return declared !is JsonObject && returned !is JsonObject
+    val declaredProperties = (declared["properties"] as? JsonObject).orEmpty()
+    val returnedProperties = (returned["properties"] as? JsonObject).orEmpty()
+    if (declaredProperties.keys != returnedProperties.keys) return false
+    if (declaredProperties.any { (name, schema) -> !matchesShape(returnedProperties[name], schema) }) return false
+    if (requiredNames(declared) != requiredNames(returned)) return false
+    val declaredItems = declared["items"] ?: return true
+    return matchesShape(returned["items"], declaredItems)
 }
+
+private fun requiredNames(schema: JsonObject): Set<String> =
+    (schema["required"] as? JsonArray).orEmpty().map { it.toString() }.toSet()
 
 /** Top-level tools plus deferred `additional_tools` input items; a missing input list is malformed. */
 private fun requestedTools(request: JsonObject): List<JsonObject> {

@@ -160,13 +160,7 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         }
         val sections = sectionsFor(next, nextLabels)
         val previousAnchored = anchored
-        val positions = weaves.associateTo(HashMap()) { it.id to it.afterIndex }
-        anchored = anchoredCards(
-            next,
-            nextCards,
-            nextCards.associate { it.id to (positions[it.id] ?: next.lastIndex) },
-            outputs,
-        )
+        anchored = anchoredCards(next, nextCards, appearedAfter(next, nextCards), outputs)
         history = if (isPlacementChanged) {
             rebuild(next, sections, nextLabels)
         } else {
@@ -184,6 +178,27 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         observedCards = woven
         observedPositions = weaves
         return updated
+    }
+
+    /**
+     * The last message index present when each card first showed. A card placed before any message counts as
+     * appearing with the first transcript loaded after it, recorded once, so it never moves into a later turn.
+     */
+    private fun appearedAfter(next: List<MessageUi>, nextCards: List<HbChatMessage>): Map<String, Int> {
+        val positions = weaves.associateTo(HashMap()) { it.id to it.afterIndex }
+        val loaded = placement.loadedWith
+        val recorded = HashMap<String, Int>()
+        val appeared = nextCards.associate { card ->
+            val position = positions[card.id] ?: next.lastIndex
+            val index = if (position >= 0) {
+                position
+            } else {
+                loaded[card.id] ?: next.lastIndex.also { if (it >= 0) recorded[card.id] = it }
+            }
+            card.id to index
+        }
+        if (recorded.isNotEmpty()) placement.loadedWith = loaded + recorded
+        return appeared
     }
 
     /** Replies whose inline build cards changed are converted again; the rest of the timeline stays as it is. */
@@ -281,6 +296,7 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
             if (id in woven) updated = updated.remove(id)
             woven = woven - id
             weaves = weaves.filterNot { it.id == id }
+            placement.loadedWith -= id
         }
         return updated
     }
@@ -371,8 +387,8 @@ internal fun rememberStudioTimeline(
  * engine's tool timeout — takes the newest card of the command in its arguments; any card left goes after the
  * remaining waiting calls, newest to newest. Without an operation a call takes only a card that appeared after
  * its reply started: [appearedAfter] maps a card id to the index of the last message present when the card first
- * showed (a card missing from it appears now), so an older build never moves into a newer call. A card that
- * showed before any message has no known start and may go to any call. Keys are the calls' ids; a card without
+ * showed (a card missing from it appears now), so an older build never moves into a newer call; a negative index
+ * (no message yet) lets no call take it. Keys are the calls' ids; a card without
  * such a visible call stays in the timeline. [outputs] keeps parsed call outputs between updates.
  */
 internal fun anchoredCards(
@@ -392,7 +408,7 @@ internal fun anchoredCards(
     outputs.retainOnly(calls.mapTo(HashSet()) { it.tool.id })
     fun RunBuildCall.mayTake(card: HbChatMessage): Boolean {
         val appeared = appearedAfter[card.id] ?: messages.lastIndex
-        return appeared < 0 || appeared >= replyIndex
+        return appeared >= replyIndex
     }
     val anchored = LinkedHashMap<String, HbChatMessage>()
     builds.forEach { card ->

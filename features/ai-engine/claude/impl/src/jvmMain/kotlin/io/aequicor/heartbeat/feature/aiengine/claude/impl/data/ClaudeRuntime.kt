@@ -208,13 +208,20 @@ internal class ClaudeRuntime(
         }
     }.distinctUntilChanged()
 
-    /** Only a confirmed logout or account change ends a running subscription; a failed probe is not a verdict. */
+    /**
+     * Only a confirmed logout or account change ends a running subscription; a failed probe is not a verdict.
+     * Each failure is logged once here, so the unlogged [checkRequest] is used instead of [validate].
+     */
     private suspend fun recheckAccount(target: EngineTarget) {
         try {
-            validate(target)
+            checkRequest(target, isAccountChecked = false)
         } catch (e: EngineException) {
-            if (e.failure is EngineFailure.Authentication) throw e
-            log.w(e.redacted()) { "Claude login recheck failed; the session tree subscription continues" }
+            val isVerdict = e.failure is EngineFailure.Authentication
+            log.w(e.redacted()) {
+                val outcome = if (isVerdict) "ends" else "continues"
+                "Claude login recheck failed: ${e.failure::class.simpleName.orEmpty()}; the session tree subscription $outcome"
+            }
+            if (isVerdict) throw e
         }
     }
 
@@ -325,14 +332,19 @@ internal class ClaudeRuntime(
 
     private suspend fun validate(target: EngineTarget, isAccountChecked: Boolean = false) {
         try {
-            if (isClosed) throw EngineException(closeFailure)
-            requireClaudeEnabled(toggles)
-            if (target.engine != identity.engine) authFailure(AuthFailureReason.AuthMismatch)
-            if (!isAccountChecked) account.validate(identity.revision)
+            checkRequest(target, isAccountChecked)
         } catch (e: EngineException) {
             log.w(e.redacted()) { "Claude session request rejected: ${e.failure::class.simpleName.orEmpty()}" }
             throw e
         }
+    }
+
+    /** The checks behind [validate], without its rejection log; callers log the failure themselves. */
+    private suspend fun checkRequest(target: EngineTarget, isAccountChecked: Boolean) {
+        if (isClosed) throw EngineException(closeFailure)
+        requireClaudeEnabled(toggles)
+        if (target.engine != identity.engine) authFailure(AuthFailureReason.AuthMismatch)
+        if (!isAccountChecked) account.validate(identity.revision)
     }
 }
 

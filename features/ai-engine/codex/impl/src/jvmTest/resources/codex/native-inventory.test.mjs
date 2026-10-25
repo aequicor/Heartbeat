@@ -28,17 +28,34 @@ const configKeys = new Set(values(inventory, 'CodexInventoryConfigKeys'));
 const isUnset = value => value == null || (typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).length > 0 && Object.values(value).every(isUnset));
 const fixtureTool = { name: 'heartbeat_fixture_read', description: 'Host fixture tool', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } };
-// Mirrors the structural comparison of validateCodexInventory: property names, required sets and array items.
-const shape = schema => schema == null || typeof schema !== 'object' ? null : {
-  properties: Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, value]) => [key, shape(value)])),
-  required: [...(schema.required ?? [])].sort(),
-  ...(schema.items === undefined ? {} : { items: shape(schema.items) }),
+// Mirrors the structural comparison of validateCodexInventory: property names, required sets and array items
+// where the declaration has them (a default items the CLI adds for an array declared without one is ignored).
+const isSchema = schema => schema != null && typeof schema === 'object';
+const sameSet = (left, right) => left.size === right.size && [...left].every(item => right.has(item));
+const matchesShape = (returned, declared) => {
+  if (!isSchema(declared) || !isSchema(returned)) return !isSchema(declared) && !isSchema(returned);
+  const declaredProperties = declared.properties ?? {};
+  const returnedProperties = returned.properties ?? {};
+  if (!sameSet(new Set(Object.keys(declaredProperties)), new Set(Object.keys(returnedProperties)))) return false;
+  if (Object.entries(declaredProperties).some(([key, value]) => !matchesShape(returnedProperties[key], value))) return false;
+  if (!sameSet(new Set(declared.required ?? []), new Set(returned.required ?? []))) return false;
+  return declared.items === undefined || matchesShape(returned.items, declared.items);
 };
 const functions = tools => tools.flatMap(tool => tool.type === 'namespace' ? functions(tool.tools ?? []) : [tool]);
 const baseline = [...values(isolation, 'CodexDisabledCapabilities'), ...values(source, 'executionFeatures'), ...values(source, 'virtualFeatures')];
 const inventoryNames = tools => tools.flatMap(tool => tool.type === 'namespace'
   ? [...(tool.name === 'functions' ? [] : [tool.name]), ...inventoryNames(tool.tools ?? [])]
   : [tool.name ?? tool.type]);
+
+test('structural comparison ignores an added items but keeps properties and required strict', () => {
+  const declared = { type: 'object', properties: { list: { type: 'array' } }, required: ['list'] };
+  assert.ok(matchesShape({ ...declared, properties: { list: { type: 'array', items: {} } } }, declared));
+  assert.ok(!matchesShape({ ...declared, properties: { other: { type: 'array' } } }, declared));
+  assert.ok(!matchesShape({ ...declared, properties: {} }, declared));
+  assert.ok(!matchesShape({ ...declared, required: [] }, declared));
+  const typed = { type: 'object', properties: { list: { type: 'array', items: { type: 'object', properties: { id: {} } } } } };
+  assert.ok(!matchesShape({ type: 'object', properties: { list: { type: 'array' } } }, typed));
+});
 
 test('installed CLI closes actual image code mode delegation and goal ingress while preserving hosted tools', {
   skip: !executable && 'Pass the installed or selected Codex executable path to run the offline native contract',
@@ -67,7 +84,7 @@ test('installed CLI closes actual image code mode delegation and goal ingress wh
   // The probe compares full declarations, so the CLI must keep the declared description and schema structure.
   const declared = locked.tools.find(tool => tool.name === fixtureTool.name);
   assert.equal(declared.description, fixtureTool.description);
-  assert.deepEqual(shape(declared.parameters), shape(fixtureTool.inputSchema));
+  assert.ok(matchesShape(declared.parameters, fixtureTool.inputSchema), 'Declared parameter structure changed');
   for (const name of [...baseline, ...enhanced]) assert.equal(locked.features[name], false, name);
   // A clean home must pass the protected allowlist; otherwise every protected session would fail closed.
   for (const [key, value] of Object.entries(locked.config)) {
