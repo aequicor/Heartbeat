@@ -13,7 +13,9 @@ import java.util.Set;
 /**
  * Локальное состояние лаунчера (файл {@code state.properties}): текущий и предыдущий поезд, плохие поезда,
  * счётчик крахов свежего поезда и признаки «процесс запущен» / «прожил окно стабильности».
- * Записывается атомарно (временный файл + move).
+ * Записывается атомарно (временный файл + move); изменения (чтение → правка → запись) идут под
+ * {@link TrainStore#locked}. Повреждённый файл не роняет запуск: нечитаемые числа берутся по умолчанию, а нечитаемый
+ * файл целиком — как пустое состояние.
  */
 final class LauncherState {
     String current = "";
@@ -25,6 +27,8 @@ final class LauncherState {
     int dbSchema;
     /** Поезд, перед активацией которого сделан бэкап БД ({@code ""} — бэкапа нет). */
     String backupOf = "";
+    /** Бандл текущего поезда не поднялся: следующий {@link Launcher#prepare()} откатывает поезд. */
+    boolean rollbackRequested;
     final Set<String> bad = new LinkedHashSet<>();
 
     static LauncherState load(Path file) throws IOException {
@@ -35,14 +39,18 @@ final class LauncherState {
         Properties props = new Properties();
         try (InputStream in = Files.newInputStream(file)) {
             props.load(in);
+        } catch (IllegalArgumentException e) {
+            System.err.println("Launcher state is corrupted, starting from an empty state: " + e);
+            return state;
         }
         state.current = props.getProperty("current", "");
         state.previous = props.getProperty("previous", "");
-        state.crashes = Integer.parseInt(props.getProperty("crashes", "0"));
+        state.crashes = intOf(props, "crashes");
         state.running = Boolean.parseBoolean(props.getProperty("running", "false"));
         state.stable = Boolean.parseBoolean(props.getProperty("stable", "true"));
-        state.dbSchema = Integer.parseInt(props.getProperty("dbSchema", "0"));
+        state.dbSchema = intOf(props, "dbSchema");
         state.backupOf = props.getProperty("backupOf", "");
+        state.rollbackRequested = Boolean.parseBoolean(props.getProperty("rollbackRequested", "false"));
         String badList = props.getProperty("bad", "");
         for (String item : badList.split(",")) {
             if (!item.isEmpty()) {
@@ -61,6 +69,7 @@ final class LauncherState {
         props.setProperty("stable", Boolean.toString(stable));
         props.setProperty("dbSchema", Integer.toString(dbSchema));
         props.setProperty("backupOf", backupOf);
+        props.setProperty("rollbackRequested", Boolean.toString(rollbackRequested));
         props.setProperty("bad", String.join(",", bad));
         Files.createDirectories(file.toAbsolutePath().getParent());
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
@@ -68,5 +77,14 @@ final class LauncherState {
             props.store(out, null);
         }
         Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+    }
+
+    private static int intOf(Properties props, String key) {
+        try {
+            return Math.max(0, Integer.parseInt(props.getProperty(key, "0").trim()));
+        } catch (NumberFormatException e) {
+            System.err.println("Launcher state field " + key + " is corrupted, using 0: " + e.getMessage());
+            return 0;
+        }
     }
 }

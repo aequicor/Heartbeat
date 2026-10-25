@@ -200,13 +200,16 @@ class LauncherTest {
     }
 
     @Test
-    void bundleInitFailureRollsBackImmediately() throws Exception {
+    void bundleInitFailureRollsBackAtNextStart() throws Exception {
         install("t1", 0, "a");
         install("t2", 0, "a");
         launcher.prepare();
         assertEquals("t1", launcher.reportBundleFailure());
+        assertFalse(launcher.isBad("t2"));
+        Launcher.Prepared next = launcher.prepare();
+        assertEquals("t1", next.train());
+        assertEquals("t2", next.rolledBackFrom());
         assertTrue(launcher.isBad("t2"));
-        assertEquals("t1", launcher.prepare().train());
     }
 
     @Test
@@ -214,6 +217,7 @@ class LauncherTest {
         install("t1", 0, "a");
         install("t2", 0, "a");
         launcher.reportBundleFailure();
+        launcher.prepare();
         assertThrows(IOException.class, () -> install("t2", 0, "a"));
     }
 
@@ -236,6 +240,10 @@ class LauncherTest {
         Files.writeString(data.resolve("extra.db"), "new");
         launcher.prepare();
         assertEquals("t1", launcher.reportBundleFailure());
+        // Данные открыты работающим процессом: восстановление — только при следующем запуске.
+        assertEquals("v2-migrated", Files.readString(data.resolve("app.db")));
+        Launcher.Prepared next = launcher.prepare();
+        assertTrue(next.dbRestored());
         assertEquals("v1", Files.readString(data.resolve("app.db")));
         assertFalse(Files.exists(data.resolve("extra.db")));
     }
@@ -248,6 +256,7 @@ class LauncherTest {
         assertFalse(Files.exists(root.resolve("backups").resolve("t2")));
         Files.writeString(data.resolve("app.db"), "changed");
         launcher.reportBundleFailure();
+        assertEquals("t1", launcher.prepare().train());
         assertEquals("changed", Files.readString(data.resolve("app.db")));
     }
 
@@ -274,11 +283,284 @@ class LauncherTest {
     }
 
     @Test
-    void rollbackWithoutPreviousFallsBackToSeed() throws Exception {
+    void bundleFailureWithoutPreviousKeepsTheOnlyTrain() throws Exception {
         install("t1", 0, "a");
+        launcher.prepare();
         assertNull(launcher.reportBundleFailure());
-        assertNull(launcher.prepare().train());
-        assertTrue(launcher.isBad("t1"));
+        assertEquals("t1", launcher.prepare().train());
+        assertFalse(launcher.isBad("t1"));
+    }
+
+    @Test
+    void crashLimitWithoutPreviousKeepsTheOnlyTrain() throws Exception {
+        install("t1", 0, "a");
+        for (int i = 0; i < Launcher.CRASH_LIMIT + 2; i++) {
+            assertEquals("t1", launcher.prepare().train());
+        }
+        assertFalse(launcher.isBad("t1"));
+    }
+
+    @Test
+    void bundleFailureAfterStableIsIgnored() throws Exception {
+        install("t1", 0, "a");
+        install("t2", 0, "a");
+        launcher.prepare();
+        launcher.markStable();
+        assertNull(launcher.reportBundleFailure());
+        assertEquals("t2", launcher.prepare().train());
+        assertFalse(launcher.isBad("t2"));
+    }
+
+    @Test
+    void requestedRollbackKeepsBackupWhenStableTimerFires() throws Exception {
+        install("t1", 1, "a");
+        install("t2", 2, "a");
+        launcher.prepare();
+        launcher.reportBundleFailure();
+        launcher.markStable();
+        assertTrue(Files.exists(root.resolve("backups").resolve("t2")));
+        assertTrue(launcher.prepare().dbRestored());
+    }
+
+    @Test
+    void activationBindsBackupInTheSameState() throws Exception {
+        install("t1", 1, "a");
+        install("t2", 2, "a");
+        LauncherState state = launcher.store().state();
+        assertEquals("t2", state.current);
+        assertEquals("t2", state.backupOf);
+        assertEquals(2, state.dbSchema);
+    }
+
+    @Test
+    void corruptJarOfMigratedTrainWithoutBackupRequiresReinstall() throws Exception {
+        install("t1", 1, "a");
+        install("t2", 2, "a");
+        launcher.prepare();
+        launcher.markStable(); // бэкап удалён, БД уже на схеме 2
+        Files.writeString(launcherJar("a@t2"), "corrupted");
+        IOException error = assertThrows(IOException.class, () -> launcher.prepare());
+        assertTrue(error.getMessage().contains("reinstall"));
+        assertEquals("t2", launcher.store().state().current);
+        assertFalse(launcher.isBad("t2"));
+    }
+
+    @Test
+    void corruptJarOfMigratedTrainRestoresBackupOnRollback() throws Exception {
+        install("t1", 1, "a");
+        Files.writeString(data.resolve("app.db"), "v1");
+        install("t2", 2, "a");
+        Files.writeString(data.resolve("app.db"), "v2");
+        Files.writeString(launcherJar("a@t2"), "corrupted");
+        Launcher.Prepared prepared = launcher.prepare();
+        assertEquals("t1", prepared.train());
+        assertTrue(prepared.dbRestored());
+        assertEquals("v1", Files.readString(data.resolve("app.db")));
+        assertEquals(1, launcher.store().state().dbSchema);
+    }
+
+    @Test
+    void rollbackToLowerSchemaWithoutBackupIsRefused() throws Exception {
+        install("t1", 1, "a");
+        install("t2", 2, "a");
+        launcher.prepare();
+        TrainStore.deleteRecursively(root.resolve("backups").resolve("t2"));
+        launcher.reportBundleFailure();
+        Launcher.Prepared next = launcher.prepare();
+        assertEquals("t2", next.train());
+        assertNull(next.rolledBackFrom());
+        assertFalse(launcher.isBad("t2"));
+    }
+
+    @Test
+    void corruptJarWithoutPreviousRequiresReinstall() throws Exception {
+        install("t1", 0, "a");
+        Files.writeString(launcherJar("a@t1"), "corrupted");
+        assertThrows(IOException.class, () -> launcher.prepare());
+        assertEquals("t1", launcher.store().state().current);
+    }
+
+    void queuePending(String train, String json, long mtime) throws Exception {
+        Path dir = Files.createDirectories(root.resolve("pending").resolve(train));
+        Files.writeString(dir.resolve("manifest.json"), json);
+        Files.setLastModifiedTime(dir, java.nio.file.attribute.FileTime.fromMillis(mtime));
+    }
+
+    /** Кладёт jar поезда в store, как это делает app-update. */
+    void storeJars(String train, String... jars) throws Exception {
+        Files.createDirectories(root.resolve("store"));
+        for (String jar : jars) {
+            Files.write(launcherJar(jar + "@" + train), remote.get(jar + "@" + train));
+        }
+    }
+
+    @Test
+    void pendingTrainIsActivatedAtPrepare() throws Exception {
+        install("t1", 0, "a");
+        String m2 = manifest("t2", 1, 0, "a", "b");
+        storeJars("t2", "a", "b");
+        queuePending("t2", m2, 1_000);
+        int before = fetches;
+        Launcher.Prepared prepared = launcher.prepare();
+        assertEquals("t2", prepared.train());
+        assertEquals(before, fetches);
+        assertEquals("t1", launcher.store().state().previous);
+        assertFalse(Files.exists(root.resolve("pending").resolve("t2")));
+    }
+
+    @Test
+    void pendingTrainWithMissingJarIsDroppedAndCurrentKept() throws Exception {
+        install("t1", 0, "a");
+        String m2 = manifest("t2", 1, 0, "a", "b");
+        storeJars("t2", "a");
+        queuePending("t2", m2, 1_000);
+        assertEquals("t1", launcher.prepare().train());
+        assertFalse(Files.exists(root.resolve("pending").resolve("t2")));
+        assertFalse(Files.exists(root.resolve("trains").resolve("t2")));
+    }
+
+    @Test
+    void newestPendingTrainWinsAndOthersAreRemoved() throws Exception {
+        install("t1", 0, "a");
+        String m2 = manifest("t2", 1, 0, "a");
+        String m3 = manifest("t3", 1, 0, "a");
+        storeJars("t2", "a");
+        queuePending("t2", m2, 1_000);
+        storeJars("t3", "a");
+        queuePending("t3", m3, 2_000);
+        assertEquals("t3", launcher.prepare().train());
+        assertFalse(Files.exists(root.resolve("pending").resolve("t2")));
+        assertFalse(Files.exists(root.resolve("pending").resolve("t3")));
+    }
+
+    @Test
+    void badOrIncompatiblePendingTrainIsSkipped() throws Exception {
+        install("t1", 0, "a");
+        install("t2", 0, "a");
+        launcher.reportBundleFailure();
+        launcher.prepare(); // t2 плохой
+        storeJars("t2", "a");
+        queuePending("t2", manifest("t2", 1, 0, "a"), 1_000);
+        assertEquals("t1", launcher.prepare().train());
+        String m9 = manifest("t9", 99, 0, "a");
+        storeJars("t9", "a");
+        queuePending("t9", m9, 1_000);
+        assertEquals("t1", launcher.prepare().train());
+        assertFalse(Files.exists(root.resolve("pending").resolve("t9")));
+    }
+
+    @Test
+    void pruneKeepsJarsOfPendingTrain() throws Exception {
+        install("t1", 0, "a");
+        String m5 = manifest("t5", 1, 0, "z");
+        storeJars("t5", "z");
+        queuePending("t5", m5, 1_000);
+        install("t2", 0, "a"); // активация чистит хранилище
+        assertTrue(Files.exists(launcherJar("z@t5")));
+    }
+
+    @Test
+    void pruneRemovesOrphanBackups() throws Exception {
+        Files.createDirectories(root.resolve("backups").resolve("old"));
+        install("t1", 0, "a");
+        assertFalse(Files.exists(root.resolve("backups").resolve("old")));
+    }
+
+    @Test
+    void stateMutationsAreSerializedAcrossStores() throws Exception {
+        install("t1", 0, "a");
+        int threads = 4;
+        int rounds = 25;
+        List<Thread> workers = new java.util.ArrayList<>();
+        java.util.concurrent.ConcurrentLinkedQueue<Throwable> errors = new java.util.concurrent.ConcurrentLinkedQueue<>();
+        for (int t = 0; t < threads; t++) {
+            TrainStore own = new TrainStore(root);
+            workers.add(new Thread(() -> {
+                try {
+                    for (int i = 0; i < rounds; i++) {
+                        own.locked(() -> {
+                            LauncherState state = own.state();
+                            state.crashes++;
+                            state.save(own.stateFile());
+                            return null;
+                        });
+                    }
+                } catch (Throwable e) {
+                    errors.add(e);
+                }
+            }));
+        }
+        workers.forEach(Thread::start);
+        for (Thread worker : workers) {
+            worker.join(30_000);
+        }
+        assertTrue(errors.isEmpty(), errors.toString());
+        assertEquals(threads * rounds, launcher.store().state().crashes);
+    }
+
+    @Test
+    void readOnlyPrepareDoesNotTouchState() throws Exception {
+        install("t1", 0, "a");
+        install("t2", 0, "a");
+        launcher.prepare();
+        byte[] before = Files.readAllBytes(root.resolve("state.properties"));
+        for (int i = 0; i < 3; i++) {
+            assertEquals("t2", launcher.prepareReadOnly().train());
+        }
+        assertEquals(new String(before, StandardCharsets.UTF_8),
+            new String(Files.readAllBytes(root.resolve("state.properties")), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void exposesBadTrainsToTheApp() throws Exception {
+        install("t1", 0, "a");
+        install("t2", 0, "a");
+        launcher.reportBundleFailure();
+        Launcher.Prepared prepared = launcher.prepare();
+        try {
+            launcher.exposeToApp(prepared, root);
+            assertEquals("t2", System.getProperty("heartbeat.train.bad"));
+            assertEquals("t1", System.getProperty("heartbeat.train"));
+            new Launcher(tmp.resolve("other"), data).exposeToApp(prepared, tmp.resolve("other"));
+            assertNull(System.getProperty("heartbeat.train.bad"));
+        } finally {
+            System.clearProperty("heartbeat.train.bad");
+            System.clearProperty("heartbeat.train");
+            System.clearProperty("heartbeat.launcher.root");
+        }
+    }
+
+    @Test
+    void corruptStateDoesNotCrash() throws Exception {
+        Files.createDirectories(root);
+        Files.writeString(root.resolve("state.properties"), "crashes=abc\ndbSchema=x\n");
+        LauncherState state = launcher.store().state();
+        assertEquals(0, state.crashes);
+        assertEquals(0, state.dbSchema);
+        Files.writeString(root.resolve("state.properties"), "current=\\u12\n");
+        assertEquals("", launcher.store().state().current);
+    }
+
+    @Test
+    void parsesOptionalBundleUrl() {
+        String sha = "a".repeat(64);
+        TrainManifest m = TrainManifest.parse("{\"train\":\"t1\",\"platformApi\":1,\"bundles\":["
+            + "{\"id\":\"web\",\"version\":\"1\",\"jar\":\"web.jar\",\"sha256\":\"" + sha + "\","
+            + "\"url\":\"https://example.com/v1/web.jar\"},"
+            + "{\"id\":\"core\",\"version\":\"1\",\"jar\":\"core.jar\",\"sha256\":\"" + sha + "\"}]}");
+        assertEquals("https://example.com/v1/web.jar", m.bundles().get(0).url());
+        assertNull(m.bundles().get(1).url());
+        assertThrows(IllegalArgumentException.class, () -> TrainManifest.parse("{\"train\":\"t1\",\"platformApi\":1,"
+            + "\"bundles\":[{\"id\":\"web\",\"version\":\"1\",\"jar\":\"web.jar\",\"sha256\":\"" + sha + "\","
+            + "\"url\":\"http://example.com/web.jar\"}]}"));
+    }
+
+    @Test
+    void rejectsOutOfRangeNumbers() {
+        assertThrows(IllegalArgumentException.class, () -> TrainManifest.parse(
+            "{\"train\":\"t\",\"platformApi\":4294967297,\"bundles\":[]}"));
+        assertThrows(IllegalArgumentException.class, () -> TrainManifest.parse(
+            "{\"train\":\"t\",\"platformApi\":1,\"dbSchema\":-1,\"bundles\":[]}"));
     }
 
     @Test

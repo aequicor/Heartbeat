@@ -151,11 +151,28 @@ class FirstLaunchTest {
     }
 
     @Test
-    void badSeedTrainIsNotRetried() throws Exception {
+    void failedSeedTrainStaysWithoutPreviousTrain() throws Exception {
         writeSeed("t1", List.of("foundation"), "foundation");
         firstLaunch.run(fetcher, listener);
+        launcher.prepare();
         launcher.reportBundleFailure();
         assertFalse(firstLaunch.isNeeded());
+        assertEquals("t1", launcher.prepare().train());
+    }
+
+    @Test
+    void offlineSeedWithAllJarsNeedsNoBaseUrl() throws Exception {
+        writeSeed("t1", List.of("foundation", "web"), "foundation", "web");
+        assertEquals(null, firstLaunch.baseUrl());
+        assertEquals("t1", firstLaunch.run(new HttpFetcher(null), listener));
+    }
+
+    @Test
+    void missingJarWithoutBaseUrlFailsClearly() throws Exception {
+        writeSeed("t1", List.of("foundation"), "foundation", "web");
+        IOException error = assertThrows(IOException.class, () -> firstLaunch.run(new HttpFetcher(null), listener));
+        assertTrue(error.getMessage().contains("baseUrl"));
+        assertTrue(firstLaunch.isNeeded());
     }
 
     @Test
@@ -180,6 +197,11 @@ class FirstLaunchTest {
             byte[] bytes = http.open(new TrainManifest.Bundle("ok", "1", "ok.jar", hash)).readAllBytes();
             assertEquals("data", new String(bytes, StandardCharsets.UTF_8));
             assertThrows(IOException.class, () -> http.open(new TrainManifest.Bundle("no", "1", "no.jar", hash)));
+            // Бандл из более старого релиза: собственный адрес важнее baseUrl.
+            HttpFetcher elsewhere = new HttpFetcher("https://example.invalid/train/");
+            String own = "http://127.0.0.1:" + server.getAddress().getPort() + "/ok.jar";
+            byte[] viaUrl = elsewhere.open(new TrainManifest.Bundle("old", "1", "old.jar", hash, own)).readAllBytes();
+            assertEquals("data", new String(viaUrl, StandardCharsets.UTF_8));
         } finally {
             server.stop(0);
         }

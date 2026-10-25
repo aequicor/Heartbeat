@@ -3,11 +3,14 @@ package io.aequicor.heartbeat.launcher;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -16,14 +19,30 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 
 /**
  * Хранилище поездов в корне лаунчера. Раскладка: {@code store/<sha256>.jar} (jar общие для поездов),
- * {@code trains/<train>/manifest.json}, {@code staging/} (недокачанное), {@code state.properties}.
- * Хранит не более {@link #KEEP_TRAINS} поездов: текущий и предыдущий.
+ * {@code trains/<train>/manifest.json}, {@code staging/} (недокачанное), {@code pending/<train>/manifest.json}
+ * (поезд, подготовленный app-update: все его jar уже в {@code store}; активирует его {@link Launcher#prepare()}),
+ * {@code backups/<train>/} (бэкап БД), {@code state.properties} и {@code state.lock}.
+ * Хранит не более {@link #KEEP_TRAINS} поездов: текущий и предыдущий; jar ожидающих поездов не удаляются.
+ *
+ * <p>Все изменения состояния и хранилища идут под {@link #locked}: блокировка внутри процесса (общая для всех
+ * экземпляров с тем же корнем) и файловая блокировка {@code state.lock} между процессами. Вложенные вызовы в том же
+ * потоке повторно не блокируют файл.
  */
 public final class TrainStore {
     public static final int KEEP_TRAINS = 2;
+
+    /** Действие под блокировкой состояния. */
+    interface Locked<T> {
+        T run() throws IOException;
+    }
+
+    private static final ConcurrentHashMap<Path, ReentrantLock> LOCKS = new ConcurrentHashMap<>();
 
     /** Источник байт jar для бандла (сеть, кэш релиза или тестовая подмена). */
     public interface Fetcher {
@@ -40,7 +59,37 @@ public final class TrainStore {
     private final Path root;
 
     public TrainStore(Path root) {
-        this.root = root.toAbsolutePath();
+        this.root = root.toAbsolutePath().normalize();
+    }
+
+    Path root() {
+        return root;
+    }
+
+    Path pendingDir() {
+        return root.resolve("pending");
+    }
+
+    /**
+     * Выполняет {@code action} под блокировкой состояния: сначала внутри процесса, затем файловой {@code state.lock}
+     * (ожидает, пока её держит другой процесс).
+     */
+    <T> T locked(Locked<T> action) throws IOException {
+        ReentrantLock lock = LOCKS.computeIfAbsent(root, key -> new ReentrantLock());
+        lock.lock();
+        try {
+            if (lock.getHoldCount() > 1) {
+                return action.run();
+            }
+            Files.createDirectories(root);
+            try (FileChannel channel = FileChannel.open(root.resolve("state.lock"),
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                 FileLock ignored = channel.lock()) {
+                return action.run();
+            }
+        } finally {
+            lock.unlock();
+        }
     }
 
     Path stateFile() {
@@ -65,6 +114,13 @@ public final class TrainStore {
      * Активным поезд не становится — для этого {@link #activate}.
      */
     public void stage(String manifestJson, Fetcher fetcher) throws IOException {
+        locked(() -> {
+            doStage(manifestJson, fetcher);
+            return null;
+        });
+    }
+
+    private void doStage(String manifestJson, Fetcher fetcher) throws IOException {
         TrainManifest manifest = TrainManifest.parse(manifestJson);
         Path staging = Files.createDirectories(root.resolve("staging").resolve(manifest.train()));
         Files.createDirectories(root.resolve("store"));
@@ -130,21 +186,35 @@ public final class TrainStore {
      * чистит всё, кроме двух последних поездов. Плохой поезд не активируется.
      */
     public void activate(String train) throws IOException {
-        LauncherState state = state();
-        if (state.bad.contains(train)) {
-            throw new IOException("Train " + train + " is marked bad");
-        }
-        verify(train);
-        if (train.equals(state.current)) {
-            return;
-        }
-        state.previous = state.current;
-        state.current = train;
-        state.crashes = 0;
-        state.running = false;
-        state.stable = false;
-        state.save(stateFile());
-        prune();
+        activate(train, state -> {
+        });
+    }
+
+    /**
+     * Как {@link #activate(String)}, но {@code update} правит состояние после переключения поезда — в той же
+     * единственной записи, без промежуточного состояния на диске.
+     */
+    void activate(String train, Consumer<LauncherState> update) throws IOException {
+        locked(() -> {
+            LauncherState state = state();
+            if (state.bad.contains(train)) {
+                throw new IOException("Train " + train + " is marked bad");
+            }
+            verify(train);
+            if (train.equals(state.current)) {
+                return null;
+            }
+            state.previous = state.current;
+            state.current = train;
+            state.crashes = 0;
+            state.running = false;
+            state.stable = false;
+            state.rollbackRequested = false;
+            update.accept(state);
+            state.save(stateFile());
+            prune();
+            return null;
+        });
     }
 
     /**
@@ -154,23 +224,64 @@ public final class TrainStore {
      *         (плохая метка при этом всё равно ставится)
      */
     public String rollback() throws IOException {
-        LauncherState state = state();
-        if (!state.current.isEmpty()) {
-            state.bad.add(state.current);
-        }
-        String target = state.previous.isEmpty() ? null : state.previous;
-        state.current = target == null ? "" : target;
-        state.previous = "";
-        state.crashes = 0;
-        state.running = false;
-        state.stable = true;
-        state.save(stateFile());
-        prune();
-        return target;
+        return rollback(state -> {
+        });
     }
 
-    /** Удаляет поезда и jar, не входящие в текущий и предыдущий поезд (в том числе подготовленные, но не активированные). */
+    /** Как {@link #rollback()}, но {@code update} правит состояние после отката в той же записи. */
+    String rollback(Consumer<LauncherState> update) throws IOException {
+        return locked(() -> {
+            LauncherState state = state();
+            if (!state.current.isEmpty()) {
+                state.bad.add(state.current);
+            }
+            String target = state.previous.isEmpty() ? null : state.previous;
+            state.current = target == null ? "" : target;
+            state.previous = "";
+            state.crashes = 0;
+            state.running = false;
+            state.stable = true;
+            state.rollbackRequested = false;
+            update.accept(state);
+            state.save(stateFile());
+            prune();
+            return target;
+        });
+    }
+
+    /**
+     * Манифесты поездов, ожидающих активации ({@code pending/<train>/manifest.json}); каталоги без манифеста
+     * (недописанные) не входят.
+     */
+    List<Path> pendingManifests() throws IOException {
+        List<Path> result = new ArrayList<>();
+        Path pending = pendingDir();
+        if (!Files.isDirectory(pending)) {
+            return result;
+        }
+        try (DirectoryStream<Path> dirs = Files.newDirectoryStream(pending)) {
+            for (Path dir : dirs) {
+                Path manifest = dir.resolve("manifest.json");
+                if (Files.isRegularFile(manifest)) {
+                    result.add(manifest);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Удаляет поезда, jar и бэкапы БД, не входящие в текущий и предыдущий поезд (в том числе подготовленные, но не
+     * активированные). Jar поездов из {@code pending/} сохраняются.
+     */
     void prune() throws IOException {
+        locked(() -> {
+            doPrune();
+            return null;
+        });
+    }
+
+    private void doPrune() throws IOException {
         LauncherState state = state();
         Set<String> keepTrains = new HashSet<>();
         if (!state.current.isEmpty()) {
@@ -195,6 +306,27 @@ public final class TrainStore {
             if (Files.exists(manifestFile(train))) {
                 for (TrainManifest.Bundle bundle : readManifest(train).bundles()) {
                     keepJars.add(TrainManifest.normalizedSha(bundle) + ".jar");
+                }
+            }
+        }
+        for (Path pending : pendingManifests()) {
+            try {
+                TrainManifest manifest = TrainManifest.parse(Files.readString(pending, StandardCharsets.UTF_8));
+                for (TrainManifest.Bundle bundle : manifest.bundles()) {
+                    keepJars.add(TrainManifest.normalizedSha(bundle) + ".jar");
+                }
+            } catch (IOException | RuntimeException e) {
+                // Нечитаемый ожидающий манифест не будет активирован: его jar не держим.
+                System.err.println("Pending manifest " + pending + " is unreadable: " + e);
+            }
+        }
+        Path backups = root.resolve("backups");
+        if (Files.isDirectory(backups)) {
+            try (DirectoryStream<Path> dirs = Files.newDirectoryStream(backups)) {
+                for (Path dir : dirs) {
+                    if (!keepTrains.contains(dir.getFileName().toString())) {
+                        deleteRecursively(dir);
+                    }
                 }
             }
         }
