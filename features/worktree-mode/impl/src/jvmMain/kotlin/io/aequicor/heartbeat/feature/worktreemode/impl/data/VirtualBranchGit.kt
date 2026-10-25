@@ -21,8 +21,10 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
      * goes straight to origin, leaving the local branch of that worktree as it is. [isForce] continues the commit
      * this sandbox loaded for the branch (for example an earlier commit chosen with [checkout]) even when the branch
      * moved past it, so history can be rewritten; only a branch loaded by [checkout] or committed by this sandbox can
-     * be forced, and the local branch moves only from the tip observed here. A retry whose files equal this
-     * sandbox's own last commit of the branch reuses that commit, so a failed push is retried without a duplicate.
+     * be forced, and the local branch moves only from the tip this sandbox observed when it loaded or last committed
+     * the branch ([VirtualRecord.localTips]): a local branch moved since then refuses with `SandboxBranchMoved`
+     * instead of losing those commits. A retry whose files and message equal this sandbox's own last commit of the
+     * branch reuses that commit, so a failed push is retried without a duplicate.
      */
     suspend fun commit(
         current: VirtualRecord,
@@ -41,13 +43,16 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
         check(!isForce || loaded != null) { "SandboxBranchNotLoaded" }
         val local = if (isCheckedOut) null else knownCommit(current, full)
         val parent = when {
-            isCheckedOut || isForce -> checkNotNull(loaded)
+            isCheckedOut -> checkNotNull(loaded)
+            isForce -> forcedParent(current, branch, local, checkNotNull(loaded))
             else -> continuedTip(current, local, loaded)
         }
         val tree = git.text(current.source, "rev-parse", "${current.state.snapshot}^{tree}")
-        val isRetry = parent == current.ownCommits[branch] && current.mergeParent == null &&
-            git.text(current.source, "rev-parse", "$parent^{tree}") == tree
-        val commit = if (isRetry) parent else writeCommit(current, tree, parent, message)
+        val commit = if (isRetry(current, branch, parent, tree, message)) {
+            parent
+        } else {
+            writeCommit(current, tree, parent, message)
+        }
         if (isCheckedOut) {
             // No branch holds it: the pin keeps the commit reachable until the push publishes it.
             git.pin(current.source, current.id, commit)
@@ -57,11 +62,32 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
         val record = current.copy(
             branchCommits = current.branchCommits + (branch to commit),
             ownCommits = current.ownCommits + (branch to commit),
+            localTips = if (isCheckedOut) current.localTips else current.localTips + (branch to commit),
             branch = branch,
             mergeParent = null,
         )
         return Committed(record, commit, isCheckedOut, isForce, current.origins[branch])
     }
+
+    /**
+     * A forced commit continues [loaded] and moves the local branch only from the tip this sandbox observed; old
+     * records have no observed tip, so the loaded commit is the best known state of the branch.
+     */
+    private fun forcedParent(current: VirtualRecord, branch: String, local: String?, loaded: String): String {
+        check(local == null || local == (current.localTips[branch] ?: loaded)) { "SandboxBranchMoved" }
+        return loaded
+    }
+
+    /** [parent] is this sandbox's own last commit of [branch] with the same files and message. */
+    private suspend fun isRetry(
+        current: VirtualRecord,
+        branch: String,
+        parent: String,
+        tree: String,
+        message: String,
+    ): Boolean = parent == current.ownCommits[branch] && current.mergeParent == null &&
+        git.text(current.source, "rev-parse", "$parent^{tree}") == tree &&
+        git.text(current.source, "show", "-s", "--format=%B", parent) == message.trim()
 
     /**
      * Pushes a branch commit to origin; a network operation. Without force a remote that moved sideways fails the
@@ -95,7 +121,8 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
      * Replaces the sandbox files with the tree of a branch of the real repository, so work that lives on a branch
      * the sandbox was not cut from can be continued. After a [fetch] ([isFetched]) the origin state wins over a
      * stale local branch. The source checkout, its index and its HEAD are untouched; the branch becomes the parent
-     * of the next [commit], and the origin state seen now becomes the lease of a later forced push.
+     * of the next [commit]. The local tip seen now guards a later forced [commit]; the origin state becomes the
+     * lease of a later forced push only when it is part of what was loaded (fetched now, or contained in the tip).
      */
     suspend fun checkout(
         current: VirtualRecord,
@@ -109,10 +136,12 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
         val tree = git.text(current.source, "rev-parse", "$tip^{tree}")
         val snapshot = git.commit(current.source, tree, current.state.baseCommit)
         git.pin(current.source, current.id, snapshot)
-        val origin = knownCommit(current, "refs/remotes/origin/$branch")
+        val origin = observedOrigin(current, branch, head, isFetched)
+        val local = knownCommit(current, "refs/heads/$branch")
         return current.copy(
             state = current.state.copy(snapshot = snapshot, revision = current.state.revision + 1),
             branchCommits = current.branchCommits + (branch to tip),
+            localTips = if (local == null) current.localTips - branch else current.localTips + (branch to local),
             branch = branch,
             mergeParent = null,
             origins = if (origin == null) current.origins - branch else current.origins + (branch to origin),
@@ -157,6 +186,20 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
         return commit
     }
 
+    /**
+     * The origin state a forced push may lease on: only one this sandbox has seen. A remote-tracking ref that a
+     * background fetch moved past the loaded [tip] holds commits the sandbox never saw, so it is no lease.
+     */
+    private suspend fun observedOrigin(
+        record: VirtualRecord,
+        branch: String,
+        tip: String,
+        isFetched: Boolean,
+    ): String? {
+        val origin = knownCommit(record, "refs/remotes/origin/$branch") ?: return null
+        return origin.takeIf { isFetched || isAncestor(record.source, it, tip) }
+    }
+
     private suspend fun knownCommit(record: VirtualRecord, ref: String): String? {
         val found = git.call(record.source, "rev-parse", "--verify", "--quiet", "$ref^{commit}", allowFailure = true)
         return found.text.trim().takeIf { found.code == 0 }
@@ -191,7 +234,7 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
             branch,
             theirs,
             isCatchUp = isOwn && !keepsLocalTip(current, branch, history, theirs),
-            origin = if (isOwn) knownCommit(current, "refs/remotes/origin/$branch") else null,
+            origin = if (isOwn) observedOrigin(current, branch, theirs, isFetched) else null,
         )
         return afterMerge(current, pending, snapshot, merged.conflicts)
     }

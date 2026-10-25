@@ -2,12 +2,14 @@ package io.aequicor.heartbeat.feature.worktreemode.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualFileChange
 import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxPhase
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -499,6 +501,153 @@ class VirtualSandboxBranchTest {
             f.backend.restorePaths(ref, listOf("dir/"), "abcdef1")
             assertEquals("x", assertNotNull(f.backend.find(ref)).read("dir/x.txt"))
         } finally {
+            f.close()
+        }
+    }
+
+    @Test
+    fun `a forced commit refuses a local branch that moved after the checkout`() = runTest {
+        val f = VirtualFixture()
+        try {
+            f.cmd("branch", "pr/force")
+            val ref = f.create("force")
+            f.backend.checkoutRef(ref, "pr/force", isFetch = false)
+            val moved = f.cmd("commit-tree", f.cmd("rev-parse", "pr/force^{tree}"), "-p", "pr/force", "-m", "other")
+            f.cmd("update-ref", "refs/heads/pr/force", moved)
+            val files = assertNotNull(f.backend.find(ref))
+            files.change(f.backend.state(ref).revision, listOf(VirtualFileChange("force.txt", "force")))
+            assertRefused("SandboxBranchMoved") { f.backend.commitToBranch(ref, "pr/force", "m", isForce = true) }
+            assertEquals(moved, f.cmd("rev-parse", "pr/force"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
+    fun `a checkout without a fetch never leases on origin commits it did not load`() = runTest {
+        val f = VirtualFixture()
+        val remote = Files.createTempDirectory("heartbeat-virtual-remote-")
+        val writer = Files.createTempDirectory("heartbeat-virtual-writer-")
+        try {
+            f.cmd("init", "--bare", remote.toString())
+            f.cmd("remote", "add", "origin", remote.toString())
+            f.cmd("branch", "pr/lease")
+            f.cmd("push", "origin", "pr/lease")
+            Files.delete(writer)
+            f.cmd("clone", "--branch", "pr/lease", remote.toString(), writer.toString())
+            Files.writeString(writer.resolve("w.txt"), "w")
+            f.cmd("-C", writer.toString(), "add", "w.txt")
+            f.cmd("-C", writer.toString(), "-c", "user.name=W", "-c", "user.email=w@test.invalid", "commit", "-m", "w")
+            f.cmd("-C", writer.toString(), "push", "origin", "pr/lease")
+            val theirs = f.cmd("-C", writer.toString(), "rev-parse", "HEAD")
+            // A background fetch moves the remote-tracking branch; the local branch stays behind.
+            f.cmd("fetch", "origin")
+            val ref = f.create("lease")
+            f.backend.checkoutRef(ref, "pr/lease", isFetch = false)
+            val files = assertNotNull(f.backend.find(ref))
+            assertEquals(null, files.read("w.txt"))
+            files.change(f.backend.state(ref).revision, listOf(VirtualFileChange("mine.txt", "mine")))
+            assertRefused("SandboxGitFailed") {
+                f.backend.commitToBranch(ref, "pr/lease", "feat: mine", isPush = true, isForce = true)
+            }
+            assertEquals(theirs, f.cmd("--git-dir=$remote", "rev-parse", "pr/lease"))
+        } finally {
+            removeTempDirectories(remote, writer)
+            f.close()
+        }
+    }
+
+    @Test
+    fun `a resolving branch merge refuses integration and keeps authorization on a wide resume`() = runTest {
+        val f = VirtualFixture()
+        try {
+            f.cmd("switch", "-c", "pr/resolving")
+            Files.writeString(f.project.resolve("source.txt"), "pr\n")
+            f.cmd("commit", "-am", "pr work")
+            f.cmd("switch", "main")
+            Files.writeString(f.project.resolve("source.txt"), "main\n")
+            f.cmd("commit", "-am", "main work")
+            val parent = f.create("resolving")
+            f.backend.checkoutRef(parent, "pr/resolving", isFetch = false)
+            val child = f.create("resolvingchild", parent)
+            val childFiles = assertNotNull(f.backend.find(child))
+            childFiles.change(f.backend.state(child).revision, listOf(VirtualFileChange("child.txt", "child")))
+            assertEquals(VirtualSandboxPhase.Conflicted, f.backend.mergeRef(parent, "main", isFetch = false).phase)
+            assertTrue(f.backend.resume(parent, explicit = true, resolveConflicts = true).isResolving)
+            assertTrue(f.backend.resume(parent, explicit = false).isResolving)
+            assertTrue(f.backend.resume(parent, explicit = true).isResolving)
+            assertRefused("SandboxConflicted") { f.backend.integrate(parent, child) }
+            val files = assertNotNull(f.backend.find(parent))
+            assertTrue(assertNotNull(files.read("source.txt")).contains("<<<<<<<"))
+            assertEquals(VirtualSandboxPhase.Ready, f.backend.resolve(parent, "source.txt", "both\n").phase)
+            assertEquals(VirtualSandboxPhase.Ready, f.backend.integrate(parent, child).phase)
+            assertEquals("child", files.read("child.txt"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
+    fun `a retried commit reuses the commit only when its message is unchanged`() = runTest {
+        val f = VirtualFixture()
+        try {
+            val ref = f.create("message")
+            assertNotNull(f.backend.find(ref)).change(0, listOf(VirtualFileChange("source.txt", "x")))
+            val first = f.backend.commitToBranch(ref, "pr/message", "feat: a")
+            assertEquals(first, f.backend.commitToBranch(ref, "pr/message", "feat: a"))
+            val second = f.backend.commitToBranch(ref, "pr/message", "feat: b")
+            assertTrue(first != second)
+            assertEquals("feat: b", f.cmd("show", "-s", "--format=%B", second))
+            assertEquals(second, f.cmd("rev-parse", "pr/message"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
+    fun `an old record with a conflict pending on its own base keeps it as a merge`() {
+        val state = VirtualSandboxState(baseCommit = "base", snapshot = "snapshot")
+        val old = VirtualRecord("ref", "id", "/source", "/common", state, fork = "base", pendingSnapshot = "pending")
+        assertTrue(old.copy(pendingBase = "base").keepsConflict)
+        assertFalse(old.copy(pendingBase = "moved").keepsConflict)
+        assertFalse(old.copy(pendingBase = "base", pending = VirtualPending.Rebase).keepsConflict)
+    }
+
+    @Test
+    fun `a fetch outside the lock refuses when the sandbox changed before the operation`() = runTest {
+        var onFetch: (suspend () -> Unit)? = null
+        val f = VirtualFixture { inner ->
+            object : VirtualGitObjects by inner {
+                override suspend fun call(
+                    source: String,
+                    vararg arguments: String,
+                    input: ByteArray,
+                    environment: Map<String, String>,
+                    allowFailure: Boolean,
+                ): GitBytes = inner.call(
+                    source,
+                    *arguments,
+                    input = input,
+                    environment = environment,
+                    allowFailure = allowFailure,
+                ).also { if (arguments.firstOrNull() == "fetch") onFetch?.invoke() }
+            }
+        }
+        val remote = Files.createTempDirectory("heartbeat-virtual-remote-")
+        try {
+            f.cmd("init", "--bare", remote.toString())
+            f.cmd("remote", "add", "origin", remote.toString())
+            f.cmd("branch", "pr/fetched")
+            f.cmd("push", "origin", "pr/fetched")
+            val ref = f.create("fetched")
+            val files = assertNotNull(f.backend.find(ref))
+            onFetch = { files.change(f.backend.state(ref).revision, listOf(VirtualFileChange("late.txt", "late"))) }
+            assertRefused("SandboxRevisionChanged") {
+                f.backend.checkoutRef(ref, "pr/fetched", isFetch = true, expectedRevision = 0)
+            }
+            assertEquals("late", files.read("late.txt"))
+        } finally {
+            removeTempDirectories(remote)
             f.close()
         }
     }

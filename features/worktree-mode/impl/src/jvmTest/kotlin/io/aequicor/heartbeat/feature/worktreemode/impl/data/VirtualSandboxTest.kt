@@ -414,7 +414,7 @@ class VirtualSandboxTest {
     }
 
     @Test
-    fun `a reopened sandbox does not move a result branch checked out in another worktree`() = runTest {
+    fun `a reopened sandbox hands off its snapshot without moving a result branch checked out elsewhere`() = runTest {
         val f = VirtualFixture()
         try {
             val ref = f.create("review")
@@ -424,7 +424,10 @@ class VirtualSandboxTest {
             f.cmd("worktree", "add", f.project.resolveSibling("review").toString(), "heartbeat/worktree-review")
             val reopened = f.backend.reopen(ref)
             files.change(reopened.revision, listOf(VirtualFileChange("source.txt", "second")))
-            assertFailsWith<IllegalStateException> { f.backend.handoff(f.record("review")) }
+            val second = f.backend.handoff(f.record("review"))
+            assertEquals(VirtualSandboxPhase.HandedOff, second.phase)
+            val result = assertNotNull(second.resultCommit)
+            assertEquals("second", f.cmd("show", "$result:source.txt"))
             assertEquals(first.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-review"))
         } finally {
             f.close()
@@ -487,11 +490,12 @@ class VirtualSandboxTest {
     }
 }
 
-internal class VirtualFixture {
+/** [wrap] lets a test observe or interleave the backend's git calls. */
+internal class VirtualFixture(wrap: (VirtualGitObjects) -> VirtualGitObjects = { it }) {
     private val root = Files.createTempDirectory("heartbeat-virtual-test-").toRealPath()
     val project: Path = Files.createDirectory(root.resolve("project"))
     private val stores = SettingsStores(root.resolve("state"))
-    private val git = VirtualSandboxGit(RealTestDispatchers)
+    private val git = wrap(VirtualSandboxGit(RealTestDispatchers))
     private val settings = StoredProjectBuildSettings(lazy { stores })
     var now = 1_000L
     private val clock = object : Clock {

@@ -95,6 +95,7 @@ internal class DesktopVirtualWorkspaces(
                 reflogCursor = withContext(dispatchers.io) { advanceReflog(reflogPath, null).cursor },
                 // A child continues the branch its parent loaded, so it can commit to it too.
                 branchCommits = parent?.branchCommits.orEmpty(),
+                localTips = parent?.localTips.orEmpty(),
                 branch = parent?.branch,
             ),
         )
@@ -196,29 +197,27 @@ internal class DesktopVirtualWorkspaces(
             } else {
                 val head = git.text(record.source, "rev-parse", "HEAD")
                 when {
-                    record.branch != null -> anchored(record, head).let { current ->
-                        if (current.keepsConflict) {
-                            // A kept merge conflict continues like any other: resolution needs authorization.
-                            val isResolving = explicit && resolveConflicts
-                            current.copy(
-                                isResolving = isResolving,
-                                state = current.state.copy(
-                                    phase = VirtualSandboxPhase.Conflicted,
-                                    isResolving = isResolving,
-                                ),
-                            )
-                        } else {
-                            current
-                        }
-                    }
-
+                    record.branch != null -> resumeLoaded(record, head, explicit && resolveConflicts)
                     record.pendingSnapshot != null -> resumeConflicts(record, head, explicit, resolveConflicts)
-
                     else -> rebase(record, head, explicit)
                 }
             }
             save(result).state
         }
+
+    /**
+     * A kept merge conflict of a loaded branch continues like any other: resolution needs authorization ([isGranted]).
+     * Only a re-anchor revokes a granted one; a barrier-wide resume of an unchanged sandbox keeps it.
+     */
+    private suspend fun resumeLoaded(record: VirtualRecord, head: String, isGranted: Boolean): VirtualRecord {
+        val current = anchored(record, head)
+        if (!current.keepsConflict) return current
+        val isResolving = isGranted || (current == record && record.isResolving)
+        return current.copy(
+            isResolving = isResolving,
+            state = current.state.copy(phase = VirtualSandboxPhase.Conflicted, isResolving = isResolving),
+        )
+    }
 
     private suspend fun resumeBarrier(record: VirtualRecord, explicit: Boolean): VirtualRecord? {
         val isExpired = record.state.deadlineMillis?.let { clock.now().toEpochMilliseconds() >= it } == true
@@ -349,13 +348,16 @@ internal class DesktopVirtualWorkspaces(
         val tip = existing.text.trim().takeIf { existing.code == 0 }
         // A reopened sandbox moves only the result branch it published itself.
         check(tip == null || tip == snapshot || tip == current.handedOff) { "SandboxBranchOccupied" }
-        if (tip != null && tip != snapshot) {
-            // Moving a branch checked out in another worktree would leave its files behind the new result.
-            val isCheckedOut = git.text(current.source, "worktree", "list", "--porcelain").lineSequence()
+        // Moving a branch checked out in another worktree would leave its files behind the new result: the pinned
+        // snapshot is the result then, and the branch stays where it is.
+        val isCheckedOut = tip != null && tip != snapshot &&
+            git.text(current.source, "worktree", "list", "--porcelain").lineSequence()
                 .any { it.trim() == "branch refs/heads/$branch" }
-            check(!isCheckedOut) { "SandboxBranchCheckedOut" }
+        if (isCheckedOut) {
+            log.i { "Virtual sandbox result branch left unmoved: it is checked out in another worktree" }
+        } else if (tip != snapshot) {
+            git.call(current.source, "update-ref", "refs/heads/$branch", snapshot, tip.orEmpty())
         }
-        if (tip != snapshot) git.call(current.source, "update-ref", "refs/heads/$branch", snapshot, tip.orEmpty())
         log.i { "Virtual sandbox branch handed to user" }
         save(
             current.copy(state = current.state.copy(phase = VirtualSandboxPhase.HandedOff, resultCommit = snapshot)),
@@ -391,14 +393,8 @@ internal class DesktopVirtualWorkspaces(
             committed
         }
         if (isPush) {
-            try {
-                branches.push(committed, branch)
-            } catch (error: kotlinx.coroutines.CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                log.w(error) { "Virtual sandbox branch push failed force=$isForce" }
-                throw error
-            }
+            // A failed push propagates; the caller (the sandbox tool refusal) logs it once.
+            branches.push(committed, branch)
             log.i { "Virtual sandbox branch pushed to origin force=$isForce" }
             lock.withLock {
                 // Origin now holds the pushed commit: it is the lease of the next forced push.
@@ -483,6 +479,8 @@ internal class DesktopVirtualWorkspaces(
         expectedSnapshot: String?,
     ): VirtualSandboxState = lock.withLock {
         val target = accessible(parent)
+        // A pending conflict (being resolved) owns the pending view; an integration on top would orphan it.
+        check(target.state.isReady && target.pendingSnapshot == null) { "SandboxConflicted" }
         val result = known(child)
         check(expectedRevision == null || target.state.revision == expectedRevision) { "SandboxRevisionChanged" }
         val childSnapshot = expectedSnapshot ?: result.state.snapshot
@@ -507,7 +505,6 @@ internal class DesktopVirtualWorkspaces(
                 pendingBase = target.state.baseCommit.takeIf { merged.conflicts.isNotEmpty() },
                 pendingSnapshot = snapshot.takeIf { merged.conflicts.isNotEmpty() },
                 pending = VirtualPending.Integrate.takeIf { merged.conflicts.isNotEmpty() },
-                // The integration replaces any earlier pending view, including a conflicted branch merge.
                 pendingMerge = null,
             ),
         ).state
@@ -748,18 +745,31 @@ internal data class VirtualRecord(
     val handedOff: String? = null,
     /** Merged tip that the next branch commit records as a second parent; a later merge supersedes it. */
     val mergeParent: String? = null,
-    /** What produced [pendingSnapshot]; null in records from before it was recorded (treated as a rebase). */
+    /** What produced [pendingSnapshot]; null in records from before it was recorded (see [keepsConflict]). */
     val pending: VirtualPending? = null,
     /** A conflicted branch merge, applied by [withMerge] once its conflicts are resolved and dropped with them. */
     val pendingMerge: PendingMerge? = null,
     /** Last commit this sandbox itself wrote per branch; a retry with the same files reuses it. */
     val ownCommits: Map<String, String> = emptyMap(),
-    /** Origin state per branch observed by a checkout, an own-branch merge or a push: the forced push lease. */
+    /**
+     * Origin state per branch the sandbox has seen (fetched or contained in what it loaded or merged, or pushed):
+     * the forced push lease.
+     */
     val origins: Map<String, String> = emptyMap(),
+    /** Local branch tip per branch observed by a checkout or written by a commit: a forced commit moves only it. */
+    val localTips: Map<String, String> = emptyMap(),
 ) {
-    /** A merge or child integration conflict, which a loaded branch keeps when it re-anchors on the source. */
+    /**
+     * A merge or child integration conflict, which a loaded branch keeps when it re-anchors on the source. Records
+     * from before [pending] was recorded hold a merge or integration conflict exactly when it is pending on the
+     * sandbox base itself (a rebase conflict is pending on the new source HEAD); both are kept the same way.
+     */
     val keepsConflict: Boolean
-        get() = pendingSnapshot != null && (pending == VirtualPending.Merge || pending == VirtualPending.Integrate)
+        get() = pendingSnapshot != null && when (pending) {
+            VirtualPending.Merge, VirtualPending.Integrate -> true
+            VirtualPending.Rebase -> false
+            null -> pendingBase == state.baseCommit
+        }
 
     override fun toString(): String = "VirtualRecord(id=$id, revision=${state.revision}, phase=${state.phase})"
 }

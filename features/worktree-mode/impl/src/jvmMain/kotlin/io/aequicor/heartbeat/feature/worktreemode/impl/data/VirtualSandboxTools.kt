@@ -108,9 +108,10 @@ internal class VirtualSandboxTools(
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         checkNotNull(journal.authenticated(context)) { "TurnUnavailable" }
         val parent = checkNotNull(context.workspace)
+        val isRemoteEnabled = toggles.get(WorktreeSandboxRemoteEnabled)
         return try {
             val isRemote = arguments.flag("push") || arguments.flag("fetch")
-            check(!isRemote || toggles.get(WorktreeSandboxRemoteEnabled)) { "SandboxRemoteDisabled" }
+            check(!isRemote || isRemoteEnabled) { "SandboxRemoteDisabled" }
             if (name == "sandbox_log") {
                 AgentToolResult(
                     workspaces.branchHistory(
@@ -128,7 +129,7 @@ internal class VirtualSandboxTools(
         } catch (error: Exception) {
             // Only coded store errors become a refusal and are logged here; any other one propagates to the caller.
             val refused = (error as? IllegalStateException ?: error as? IllegalArgumentException)
-                ?.let(::sandboxRefusal) ?: throw error
+                ?.let { sandboxRefusal(it, isRemoteEnabled) } ?: throw error
             log.w(error) { "Virtual sandbox tool refused name=$name" }
             refused
         }
@@ -226,10 +227,13 @@ private fun approvalTitle(name: String, arguments: JsonObject): String {
     }
 }
 
-/** Store refusals carry only fixed reason codes, so they reach the agent with a hint; null for any other error. */
-internal fun sandboxRefusal(error: RuntimeException): AgentToolResult? {
+/**
+ * Store refusals carry only fixed reason codes, so they reach the agent with a hint; null for any other error.
+ * Without [isRemote] the hints never suggest pushing or fetching, which would only be refused.
+ */
+internal fun sandboxRefusal(error: RuntimeException, isRemote: Boolean): AgentToolResult? {
     val code = error.message?.takeIf { REASON.matches(it) } ?: return null
-    return AgentToolResult("Refused: $code. ${hints[code].orEmpty()}".trim(), isError = true)
+    return AgentToolResult("Refused: $code. ${hints(isRemote)[code].orEmpty()}".trim(), isError = true)
 }
 
 /** The sandbox tools; without [isRemote] `sandbox_commit` has no `push` and checkout/merge have no `fetch`. */
@@ -309,38 +313,63 @@ private fun branchSpecs(isRemote: Boolean): List<AgentToolSpec> {
         ),
         AgentToolSpec(
             "sandbox_merge",
-            "Three-way merge a branch of the real repository (for example the pull request base" +
-                (if (isRemote) ", fetch=true for its latest origin state" else "") +
-                ") into the sandbox files; without a fetch the local branch wins. The next sandbox_commit " +
-                "records the merged tip as a second parent; merging the branch the sandbox continues catches up " +
-                "with it instead (after a rejected push). Conflicts leave the files unchanged until the user " +
-                "authorizes resolving them",
+            mergeDescription(isRemote),
             schema(""""branch":{"type":"string"}$fetch""", """"branch""""),
             AgentToolAction.Edit,
         ),
     )
 }
 
+private fun mergeDescription(isRemote: Boolean): String =
+    "Three-way merge a branch of the real repository (for example the pull request base" +
+        (if (isRemote) ", fetch=true for its latest origin state" else "") +
+        ") into the sandbox files" + (if (isRemote) "; without a fetch the local branch wins" else "") +
+        ". The next sandbox_commit records the merged tip as a second parent; merging the branch the " +
+        "sandbox continues catches up with it instead" + (if (isRemote) " (after a rejected push)" else "") +
+        ". Conflicts leave the files unchanged until the user authorizes resolving them"
+
 private fun JsonObject.flag(name: String): Boolean = (this[name] as? JsonPrimitive)?.content == "true"
 
 private val REASON = Regex("(Sandbox|Invalid)[A-Za-z]+|TurnUnavailable")
-private val hints = mapOf(
-    "SandboxBranchCheckedOut" to "The branch is checked out in another worktree: publish with push=true, " +
-        "which updates origin only. A sandbox that never loaded the branch must load it with " +
-        "sandbox_checkout before editing, because checkout replaces every sandbox file.",
+
+/** Refusal hints; remote advice only when [isRemote], like the instructions and schemas. */
+private fun hints(isRemote: Boolean): Map<String, String> = mapOf(
+    "SandboxBranchCheckedOut" to if (isRemote) {
+        "The branch is checked out in another worktree: publish with push=true, which updates origin only. " +
+            "A sandbox that never loaded the branch must load it with sandbox_checkout before editing, because " +
+            "checkout replaces every sandbox file."
+    } else {
+        "The branch is checked out in another worktree and cannot be moved: commit to another branch name."
+    },
     "SandboxBranchDiverged" to "The local branch moved independently: sandbox_merge that branch to take " +
         "its state into your files, then commit again. Never sandbox_checkout over unsaved work.",
+    "SandboxBranchMoved" to "The local branch moved after the sandbox loaded it, and a forced commit would " +
+        "discard those commits: sandbox_merge that branch to keep them, then commit again. Never " +
+        "sandbox_checkout over unsaved work.",
     "SandboxBranchNotLoaded" to "force=true rewrites only a branch loaded with sandbox_checkout (or committed " +
         "by this sandbox); load it first, before editing, because checkout replaces every sandbox file.",
-    "SandboxBranchUnknown" to "No such local or origin branch; pass fetch=true to load it from origin.",
+    "SandboxBranchUnknown" to if (isRemote) {
+        "No such local or origin branch; pass fetch=true to load it from origin."
+    } else {
+        "No such local or origin branch in the repository."
+    },
     "SandboxConflicted" to "The sandbox has unresolved conflicts; resolve every conflict with " +
         "sandbox_resolve_conflict once the user authorizes it, then retry.",
-    "SandboxGitFailed" to "Git refused the operation, for example a push rejected because origin moved: " +
-        "sandbox_merge the same branch with fetch=true to take the new origin state into your files, then " +
-        "commit again; a forced push whose lease no longer matches needs a fetching checkout and a redo. " +
-        "Never sandbox_checkout over unsaved work.",
+    "SandboxGitFailed" to if (isRemote) {
+        "Git refused the operation, for example a push rejected because origin moved: sandbox_merge the same " +
+            "branch with fetch=true to take the new origin state into your files, then commit again; a forced " +
+            "push whose lease no longer matches needs a fetching checkout and a redo. Never sandbox_checkout " +
+            "over unsaved work."
+    } else {
+        "Git refused the operation; read the branch with sandbox_log and call again. Never sandbox_checkout " +
+            "over unsaved work."
+    },
     "SandboxCommitNotOnBranch" to "at must be a commit of that branch's history.",
-    "SandboxCommitUnknown" to "No such commit; fetch the branch with sandbox_checkout fetch=true first.",
+    "SandboxCommitUnknown" to if (isRemote) {
+        "No such commit; fetch the branch with sandbox_checkout fetch=true first."
+    } else {
+        "No such commit in the repository."
+    },
     "SandboxRemoteDisabled" to "Pushing and fetching are turned off; work with local branches only.",
     "SandboxRevisionChanged" to "The sandbox changed since the call was approved; check its state and call again.",
     "SandboxSourceChanged" to "The project checkout moved under the sandbox; wait for the user to continue.",
