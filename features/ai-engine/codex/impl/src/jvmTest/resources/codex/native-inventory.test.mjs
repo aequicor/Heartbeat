@@ -1,4 +1,4 @@
-// Offline executable contract: node native-inventory.test.mjs <exact Codex CLI path>.
+// Offline executable contract: node native-inventory.test.mjs <installed Codex CLI path>.
 // Alternatively node --test reads HEARTBEAT_CODEX_INVENTORY_EXECUTABLE from the test process.
 // No real model, credentials, user config, or native tool execution is involved.
 import assert from 'node:assert/strict';
@@ -16,24 +16,25 @@ const executeFile = promisify(execFile);
 const executable = process.env.HEARTBEAT_CODEX_INVENTORY_EXECUTABLE || process.argv[2];
 const source = await readFile(new URL('../../../commonMain/kotlin/io/aequicor/heartbeat/feature/aiengine/codex/impl/data/CodexNativeOff.kt', import.meta.url), 'utf8');
 const isolation = await readFile(new URL('../../../commonMain/kotlin/io/aequicor/heartbeat/feature/aiengine/codex/impl/data/CodexIsolation.kt', import.meta.url), 'utf8');
+const inventory = await readFile(new URL('../../../commonMain/kotlin/io/aequicor/heartbeat/feature/aiengine/codex/impl/data/CodexNativeInventory.kt', import.meta.url), 'utf8');
 const values = (text, name) => {
   const body = text.match(new RegExp(`val ${name}(?::[^=]+)? = (?:listOf|setOf)\\(([\\s\\S]*?)\\n?\\s*\\)`))?.[1];
   assert.ok(body, `Missing Kotlin contract ${name}`);
   return [...body.matchAll(/"([^"\r\n]+)"/g)].map(match => match[1]);
 };
 const enhanced = values(source, 'enhancedFeatures');
+const configKeys = new Set(values(inventory, 'CodexInventoryConfigKeys'));
+const isUnset = value => value == null || (Array.isArray(value) ? value.length === 0
+  : typeof value === 'object' && Object.values(value).every(isUnset));
 const baseline = [...values(isolation, 'CodexDisabledCapabilities'), ...values(source, 'executionFeatures'), ...values(source, 'virtualFeatures')];
 const inventoryNames = tools => tools.flatMap(tool => tool.type === 'namespace'
   ? [...(tool.name === 'functions' ? [] : [tool.name]), ...inventoryNames(tool.tools ?? [])]
   : [tool.name ?? tool.type]);
 
-test('verified CLI closes actual image code mode delegation and goal ingress while preserving hosted tools', {
-  skip: !executable && 'Pass the verified Codex executable path to run the offline native contract',
+test('installed CLI closes actual image code mode delegation and goal ingress while preserving hosted tools', {
+  skip: !executable && 'Pass the installed or selected Codex executable path to run the offline native contract',
   timeout: 75000,
 }, async () => {
-  const versionResult = await executeFile(executable, ['--version'], { windowsHide: true, timeout: 5000 });
-  const version = versionResult.stdout.trim().replace(/^codex-cli /, '');
-
   const legacy = await capture(baseline.map(name => [name, false]));
   assert.ok(legacy.names.includes('view_image'), 'The legacy view_image_tool flag must expose the regression');
   assert.ok(legacy.names.includes('create_goal'), 'The legacy registry leaves native goal mutations available');
@@ -55,20 +56,24 @@ test('verified CLI closes actual image code mode delegation and goal ingress whi
   ]);
   assert.deepEqual(locked.names.sort(), ['heartbeat_fixture_read', 'request_user_input']);
   for (const name of [...baseline, ...enhanced]) assert.equal(locked.features[name], false, name);
+  // A clean home must pass the protected allowlist; otherwise every protected session would fail closed.
+  for (const [key, value] of Object.entries(locked.config)) {
+    if (key !== 'profile' && !isUnset(value)) assert.ok(configKeys.has(key), `Effective config key ${key} is not allowlisted`);
+  }
   assert.equal(locked.nativeCalls, 0);
   const toolFree = await capture([
     ...baseline.map(name => [name, false]),
     ...enhanced.map(name => [name, false]),
     ['default_mode_request_user_input', false],
   ]);
-  // This verified build retains request_user_input even with its default-mode flag Off.
+  // The checked build retains request_user_input even with its default-mode flag Off.
   // CodexSession rejects its callbacks for tool-free launches/current policy; the JVM regression
   // covers that refusal without publishing a human questionnaire. This capture must report reality.
   assert.deepEqual(toolFree.names.sort(), ['heartbeat_fixture_read', 'request_user_input']);
   assert.equal(toolFree.features.default_mode_request_user_input, false);
   assert.equal(toolFree.nativeCalls, 0);
 
-  console.log(`Verified offline tool inventory for ${version}: ${locked.names.join(', ')}`);
+  console.log(`Offline tool inventory of the selected CLI: ${locked.names.join(', ')}`);
 });
 
 async function capture(features) {
@@ -138,7 +143,7 @@ async function capture(features) {
           dynamicTools: [{ name: 'heartbeat_fixture_read', description: 'Host fixture tool', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } }],
         });
         await rpc('turn/start', { threadId: opened.thread.id, input: [{ type: 'text', text: 'Return no output. Do not call tools.' }] });
-        return { names: await received, features: effective.config.features, nativeCalls };
+        return { names: await received, config: effective.config, features: effective.config.features, nativeCalls };
       })(),
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Offline inventory fixture timeout')), 15000); }),
     ]);

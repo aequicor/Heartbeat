@@ -34,16 +34,61 @@ class CodexActionSafetyTest {
     fun `protected creation checks the selected model inventory before starting a thread`() = runTest {
         val fixture = Fixture(this, tools = SafetyTools())
         var checks = 0
-        fixture.wire.verifyInventory = { model, config, off ->
+        fixture.wire.verifyInventory = { target, off ->
             checks++
-            assertEquals("model", model)
+            assertEquals("model", target.model)
             assertTrue(off.isVerifiedInventoryRequired)
-            assertEquals(JsonPrimitive(false), config.obj("features")["view_image"])
+            assertEquals(JsonPrimitive(false), target.effective.obj("features")["view_image"])
             assertTrue(fixture.requests("thread/start").isEmpty())
         }
         fixture.open()
         assertEquals(1, checks)
         fixture.runtime.close()
+    }
+
+    @Test
+    fun `protected probe receives the working thread config and hosted declarations`() = runTest {
+        val fixture = Fixture(this, tools = SafetyTools())
+        val workspace = WorkspaceRef("project")
+        fixture.workspacePaths[workspace] = "/project"
+        var probed: CodexInventoryTarget? = null
+        fixture.wire.verifyInventory = { target, _ -> probed = target }
+        fixture.open(workspace)
+        val start = fixture.requests("thread/start").single().obj("params")
+        val target = checkNotNull(probed)
+        assertEquals(start.obj("config"), target.thread)
+        assertEquals(assertIs<JsonArray>(start["dynamicTools"]).toList(), target.tools)
+        assertTrue(target.tools.any { it.text("name") == "read_file" })
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `protected creation refuses effective configuration the probe cannot reproduce`() = runTest {
+        for (extra in listOf(
+            "tools" to json("view_image" to JsonPrimitive(true)),
+            "profile" to "danger".json(),
+            "experimental_use_unified_exec_tool" to JsonPrimitive(true),
+        )) {
+            val fixture = Fixture(this, tools = SafetyTools())
+            fixture.nativeConfig = JsonObject(fixture.nativeConfig + extra)
+            var checks = 0
+            fixture.wire.verifyInventory = { _, _ -> checks++ }
+            assertFailsWith<EngineException>(extra.first) { fixture.open() }
+            assertEquals(0, checks)
+            assertTrue(fixture.requests("thread/start").isEmpty())
+            fixture.runtime.close()
+        }
+    }
+
+    @Test
+    fun `transports without an offline probe refuse protected inventory`() = runTest {
+        val wire = object : CodexWire {
+            override val messages = kotlinx.coroutines.flow.emptyFlow<JsonObject>()
+            override suspend fun write(message: JsonObject) = Unit
+            override fun close() = Unit
+        }
+        val target = CodexInventoryTarget("model", json(), json(), emptyList())
+        assertFailsWith<EngineException> { wire.verifyInventory(target, CodexNativeOff(isToolFree = true)) }
     }
 
     @Test
@@ -63,7 +108,7 @@ class CodexActionSafetyTest {
     @Test
     fun `unsafe inventory closes the candidate without creating a user thread`() = runTest {
         val fixture = Fixture(this, tools = SafetyTools())
-        fixture.wire.verifyInventory = { _, _, _ -> inventoryFailure() }
+        fixture.wire.verifyInventory = { _, _ -> inventoryFailure() }
         assertFailsWith<EngineException> { fixture.open() }
         assertTrue(fixture.requests("thread/start").isEmpty())
         assertTrue(fixture.wire.peers.all { it.isClosed })

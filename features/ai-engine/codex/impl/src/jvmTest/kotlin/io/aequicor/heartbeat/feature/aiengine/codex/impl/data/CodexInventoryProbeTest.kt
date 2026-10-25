@@ -84,24 +84,21 @@ class CodexInventoryProbeTest {
         withDispatchers { dispatchers ->
             val path = CodexModelCatalog.create(executable, dispatchers).use { catalog ->
                 assertFailsWith<EngineException> {
-                    CodexInventoryProbe(
-                        dispatchers,
-                        catalog,
-                    ).verify(executable, "old identity", "gpt-6.1-sol", json(), CodexNativeOff(isToolFree = true))
+                    val off = CodexNativeOff(isToolFree = true)
+                    CodexInventoryProbe(dispatchers, catalog).verify(executable, "old identity", target(off), off)
                 }
                 assertFailsWith<EngineException> { catalog.requireModel("unknown-model") }
                 for (off in listOf(
                     CodexNativeOff(isActionAnalysisRequired = true),
                     CodexNativeOff(isToolFree = true),
                 )) {
-                    val base = json(
-                        "features" to JsonObject(CodexDisabledCapabilities.associateWith { JsonPrimitive(false) }),
-                    )
+                    val identity = codexExecutableIdentity(executable)
+                    CodexInventoryProbe(dispatchers, catalog).verify(executable, identity, target(off), off)
+                    // The working thread's real hosted declarations replace the inert marker.
                     CodexInventoryProbe(dispatchers, catalog).verify(
                         executable,
-                        codexExecutableIdentity(executable),
-                        "gpt-6.1-sol",
-                        off.applyTo(base).obj("features"),
+                        identity,
+                        target(off).copy(tools = searchToolSpecs().map { it as JsonObject }),
                         off,
                     )
                 }
@@ -114,15 +111,11 @@ class CodexInventoryProbeTest {
                 }
                 Files.writeString(catalog.path, JsonObject(source + ("models" to JsonArray(models))).toString())
                 val off = CodexNativeOff(isToolFree = true)
-                val base = json(
-                    "features" to JsonObject(CodexDisabledCapabilities.associateWith { JsonPrimitive(false) }),
-                )
                 assertFailsWith<EngineException> {
                     CodexInventoryProbe(dispatchers, catalog).verify(
                         executable,
                         codexExecutableIdentity(executable),
-                        "gpt-6.1-sol",
-                        off.applyTo(base).obj("features"),
+                        target(off),
                         off,
                     )
                 }
@@ -192,6 +185,13 @@ class CodexInventoryProbeTest {
                 directory,
             ).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
         }
+    }
+
+    /** The effective config and thread config a working process with only adapter defaults would produce. */
+    private fun target(off: CodexNativeOff): CodexInventoryTarget {
+        val base = json("features" to JsonObject(CodexDisabledCapabilities.associateWith { JsonPrimitive(false) }))
+        val effective = off.applyTo(base)
+        return CodexInventoryTarget("gpt-6.1-sol", effective, effective, emptyList())
     }
 
     private fun withDispatchers(block: suspend (DispatcherProvider) -> Unit) {

@@ -200,6 +200,40 @@ class LocalCodexTransportTest {
     }
 
     @Test
+    fun `unsupported versions refuse legacy restricted launch before creating an app server`() = runTest {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val dispatchers = object : DispatcherProvider {
+            override val main = dispatcher
+            override val default = dispatcher
+            override val io = dispatcher
+        }
+        for ((index, version) in listOf("0.159.9", "0.160.0-alpha.1", "unknown").withIndex()) {
+            val arguments = temporaryFolder.newFile("legacy-arguments-$index")
+            val context = LaunchContext(
+                LaunchSettings(
+                    executable = executable("legacy-$index", version).absolutePath,
+                    environment = listOf(EnvironmentEntry("HEARTBEAT_TEST_ARGS", arguments.absolutePath)),
+                ),
+            )
+            val launch = LocalCodexTransport(
+                CodexLocalConfiguration(),
+                EngineLaunchConfig { context },
+                dispatchers,
+                FakeScope(backgroundScope),
+            ).prepare()
+            assertFailsWith<EngineException> { launch.open(CodexNativeOff(isShellDisabled = true)) }
+            assertEquals("", arguments.readText())
+            val wire = launch.open()
+            try {
+                assertEquals("legacy-$index", wire.messages.first().obj("params").text("executable"))
+            } finally {
+                wire.close()
+            }
+        }
+    }
+
+    @Test
     fun `protected launches defer compatibility to capabilities regardless of version`() = runTest {
         assumeFalse(System.getProperty("os.name").startsWith("Windows"))
         val dispatcher = StandardTestDispatcher(testScheduler)

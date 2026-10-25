@@ -76,9 +76,12 @@ internal class LocalCodexTransport(
                 private var knownVersion: String? = null
 
                 override suspend fun open(): CodexWire = openResolved(resolved, environment)
+
+                /** Legacy restrictions keep the 0.160.0 floor; protected launches are judged by the probe. */
                 override suspend fun open(off: CodexNativeOff): CodexWire = if (off.isVerifiedInventoryRequired) {
                     openProtected(resolved, environment, off)
                 } else {
+                    if (off.isRestricted) off.requireVersion(version())
                     openResolved(resolved, environment, off)
                 }
 
@@ -88,7 +91,7 @@ internal class LocalCodexTransport(
                     record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
                 ): Boolean = CodexProcessStop(dispatchers).stop(owner, beginInspection, record)
 
-                /** Version text is diagnostic only; protected launches verify executable identity separately. */
+                /** One probe per captured executable: the legacy floor reads it; protected launches never use it. */
                 override suspend fun version(): String? = versionLock.withLock {
                     knownVersion ?: withContext(dispatchers.io) {
                         if (resolved.isRunnable && resolved.source != InstallSource.Missing) {
@@ -120,15 +123,9 @@ internal class LocalCodexTransport(
             val wire = openResolved(isolated, environment, nativeOff, catalog)
             isTransferred = true
             return object : CodexWire by wire {
-                override suspend fun verifyInventory(model: String, config: JsonObject, off: CodexNativeOff) {
-                    catalog.requireConfig(config)
-                    CodexInventoryProbe(dispatchers, catalog).verify(
-                        resolved.executable,
-                        identity,
-                        model,
-                        config.obj("features"),
-                        off,
-                    )
+                override suspend fun verifyInventory(target: CodexInventoryTarget, off: CodexNativeOff) {
+                    catalog.requireConfig(target.effective)
+                    CodexInventoryProbe(dispatchers, catalog).verify(resolved.executable, identity, target, off)
                 }
             }
         } finally {
@@ -183,7 +180,12 @@ internal class LocalCodexTransport(
             builder.environment().clear()
             builder.environment().putAll(environment)
             val process = builder.start()
-            if (catalog != null) process.onExit().thenRunAsync(catalog::close, dispatchers.io.asExecutor())
+            // The catalog is idempotent: openProtected also closes it when this start fails after spawning.
+            catalog?.let { owned ->
+                process.onExit().thenRunAsync(owned::close, dispatchers.io.asExecutor()).whenComplete { _, error ->
+                    if (error != null) log.w(error) { "Codex model catalog release failed" }
+                }
+            }
             var cleanup: (() -> Unit)? = null
             val wire = ProcessCodexWire(process, dispatchers) { cleanup?.invoke() }
             val handle = profile.onClose { wire.close() }

@@ -46,8 +46,7 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
     suspend fun processOwner(): CodexExecutionOwner? = wire.processOwner()
 
     /** Uses the transport of this execution connection; metadata connections cannot attest its inventory. */
-    suspend fun verifyInventory(model: String, config: JsonObject, off: CodexNativeOff) =
-        wire.verifyInventory(model, config, off)
+    suspend fun verifyInventory(target: CodexInventoryTarget, off: CodexNativeOff) = wire.verifyInventory(target, off)
 
     /** [experimentalApi] opts into dynamic tools; without it the handshake is the stable one. */
     suspend fun initialize(experimentalApi: Boolean = false) {

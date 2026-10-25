@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.IOException
+import java.io.UncheckedIOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
@@ -34,9 +35,25 @@ internal fun codexExecutableIdentity(executable: String): String = try {
 }
 
 /**
- * Audits the selected model and effective feature flags with an isolated local Responses provider. No user
- * config, authentication, prompts, MCP servers or environment overrides enter the probe. It is repeated for
- * every protected preparation, so an app update or policy change cannot reuse a version-based approval.
+ * Audits the model-facing surface of one protected working thread ([CodexInventoryTarget]) with an isolated local
+ * Responses provider. The probe reproduces the working launch's effective feature flags and Off arguments, the
+ * host-owned model catalog, the selected model, the thread-level `config` (features, `agents`, `web_search`)
+ * and the thread's hosted dynamic declarations (with their real names, descriptions and schemas, or the inert
+ * [CODEX_INVENTORY_TOOL] when the thread declares none). Every observed function must be one of those
+ * declarations or native `request_user_input`. It is repeated for every protected preparation, so an app update
+ * or policy change cannot reuse an earlier approval; the CLI version alone never decides compatibility.
+ *
+ * Assumptions that cannot be reproduced offline and are therefore accepted, not verified:
+ * - The provider and authentication differ: the probe uses a credential-free loopback Responses provider instead
+ *   of the user's provider and login. Tool selection is assumed to depend on features, model metadata and thread
+ *   config, not on the provider identity or account; provider-specific server-side tools are closed separately
+ *   (`web_search=disabled`, search features Off).
+ * - MCP servers are absent in the probe home. The working thread disables every configured server by name, so the
+ *   probe sends an empty `mcp_servers` table instead of entries that would be incomplete server definitions.
+ * - Other user configuration does not enter the probe. Instead [requireCodexInventoryConfig] refuses any set
+ *   top-level key of the working process's effective config that is not known to be reproduced or irrelevant to
+ *   the tool catalog, and an active `profile`.
+ * - On resume the declarations are the currently available subset of the thread's stored tool names.
  * Actual execution still validates its effective config and active sessionFlags before this probe.
  */
 internal class CodexInventoryProbe(
@@ -45,24 +62,19 @@ internal class CodexInventoryProbe(
 ) {
     private val log = Log.tag("CodexInventoryProbe")
 
-    suspend fun verify(
-        executable: String,
-        identity: String,
-        model: String,
-        features: JsonObject,
-        off: CodexNativeOff,
-    ) {
+    suspend fun verify(executable: String, identity: String, target: CodexInventoryTarget, off: CodexNativeOff) {
         var root: Path? = null
         try {
             withContext(dispatchers.io) {
                 if (codexExecutableIdentity(executable) != identity) inventoryFailure()
-                catalog.requireModel(model)
+                catalog.requireModel(target.model)
                 root = Files.createTempDirectory("heartbeat-codex-inventory-")
             }
             log.d { "Checking Codex native tool isolation" }
             val directory = checkNotNull(root)
             val isAccepted = withTimeoutOrNull(PROBE_TIMEOUT) {
-                withContext(dispatchers.main) { capture(executable, directory, model, features, off) }
+                // Socket accept, process start and teardown block, so the whole capture stays off the UI thread.
+                withContext(dispatchers.io) { capture(executable, directory, target, off) }
                 withContext(dispatchers.io) {
                     if (codexExecutableIdentity(executable) != identity) inventoryFailure()
                 }
@@ -83,68 +95,70 @@ internal class CodexInventoryProbe(
         }
     }
 
+    /** Runs from `finally`: IO failures are logged, never thrown, so they cannot mask the probe's own outcome. */
     private suspend fun removeTemporaryFiles(root: Path?) = withContext(dispatchers.io) {
         root?.let { directory ->
             try {
-                Files.walk(
-                    directory,
-                ).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
+                Files.walk(directory).use { paths ->
+                    paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists)
+                }
             } catch (error: IOException) {
-                log.w(
-                    IllegalStateException(error.javaClass.simpleName),
-                ) { "Codex inventory temporary files not removed" }
+                log.w(IllegalStateException(error.javaClass.simpleName)) {
+                    "Codex inventory temporary files not removed"
+                }
+            } catch (error: UncheckedIOException) {
+                // Files.walk reports iteration failures unchecked; the message may contain the temporary path.
+                log.w(IllegalStateException(error.javaClass.simpleName)) {
+                    "Codex inventory temporary files not removed"
+                }
             }
         }
     }
 
     private suspend fun awaitExit(running: CodexProbeProcess?) = withContext(dispatchers.io) { running?.awaitExit() }
 
-    private suspend fun capture(
-        executable: String,
-        root: Path,
-        model: String,
-        features: JsonObject,
-        off: CodexNativeOff,
-    ) = coroutineScope {
-        // Endpoint construction is nonblocking local setup; accept/read run on the injected IO dispatcher.
-        CodexInventoryEndpoint().use { endpoint ->
-            val received = async { endpoint.receive(dispatchers.io) }
-            var running: CodexProbeProcess? = null
-            try {
-                withContext(dispatchers.io) {
-                    running = start(executable, root, features, off, endpoint.baseUrl)
-                }
-                val rpc = CodexRpc(checkNotNull(running).wire, this)
-                val events = launch {
-                    rpc.notifications.collect { message -> message["id"]?.let { rpc.reject(it) } }
-                }
+    private suspend fun capture(executable: String, root: Path, target: CodexInventoryTarget, off: CodexNativeOff) =
+        coroutineScope {
+            val features = target.effective["features"] as? JsonObject ?: inventoryFailure()
+            val tools = target.tools.ifEmpty { listOf(markerDeclaration) }
+            val declared = tools.map { it.text("name") ?: inventoryFailure() }.toSet()
+            if (declared.size != tools.size) inventoryFailure()
+            CodexInventoryEndpoint().use { endpoint ->
+                val received = async { endpoint.receive(dispatchers.io) }
+                var running: CodexProbeProcess? = null
                 try {
-                    rpc.initialize(experimentalApi = true)
-                    val configuration = rpc.request("config/read", json("includeLayers" to JsonPrimitive(true)))
-                    off.validateConfig(configuration)
-                    catalog.requireConfig(configuration.obj("config"))
-                    val opened = rpc.request("thread/start", threadParams(root, model))
-                    rpc.request(
-                        "turn/start",
-                        json(
-                            "threadId" to checkNotNull(opened.obj("thread")["id"]),
-                            "input" to JsonArray(
-                                listOf(json("type" to "text".json(), "text" to "Return no output.".json())),
+                    running = start(executable, root, features, off, endpoint.baseUrl)
+                    val rpc = CodexRpc(checkNotNull(running).wire, this)
+                    val events = launch {
+                        rpc.notifications.collect { message -> message["id"]?.let { rpc.reject(it) } }
+                    }
+                    try {
+                        rpc.initialize(experimentalApi = true)
+                        val configuration = rpc.request("config/read", json("includeLayers" to JsonPrimitive(true)))
+                        off.validateConfig(configuration)
+                        catalog.requireConfig(configuration.obj("config"))
+                        val opened = rpc.request("thread/start", threadParams(root, target, tools))
+                        rpc.request(
+                            "turn/start",
+                            json(
+                                "threadId" to checkNotNull(opened.obj("thread")["id"]),
+                                "input" to JsonArray(
+                                    listOf(json("type" to "text".json(), "text" to "Return no output.".json())),
+                                ),
                             ),
-                        ),
-                    )
-                    validateCodexInventory(received.await())
+                        )
+                        validateCodexInventory(received.await(), declared)
+                    } finally {
+                        events.cancel()
+                        rpc.close()
+                    }
                 } finally {
-                    events.cancel()
-                    rpc.close()
+                    running?.wire?.close()
+                    received.cancel()
+                    withContext(NonCancellable) { awaitExit(running) }
                 }
-            } finally {
-                running?.wire?.close()
-                received.cancel()
-                withContext(NonCancellable) { awaitExit(running) }
             }
         }
-    }
 
     private fun start(
         executable: String,
@@ -180,29 +194,27 @@ internal class CodexInventoryProbe(
         return CodexProbeProcess(process, ProcessCodexWire(process, dispatchers) {})
     }
 
-    private fun threadParams(root: Path, model: String): JsonObject = buildJsonObject {
-        put("model", model)
-        put("modelProvider", "heartbeat_inventory")
-        put("cwd", root.resolve("work").toString())
-        put("approvalPolicy", "never")
-        put("sandbox", "read-only")
-        put("ephemeral", true)
-        put(
-            "dynamicTools",
-            JsonArray(
-                listOf(
-                    json(
-                        "name" to CODEX_INVENTORY_TOOL.json(),
-                        "description" to "Offline inventory marker".json(),
-                        "inputSchema" to json("type" to "object".json(), "properties" to json()),
-                    ),
-                ),
-            ),
-        )
-    }
+    /** Mirrors the working thread/start; only provider, cwd, ephemerality and MCP entries differ. */
+    private fun threadParams(root: Path, target: CodexInventoryTarget, tools: List<JsonObject>): JsonObject =
+        buildJsonObject {
+            put("model", target.model)
+            put("modelProvider", "heartbeat_inventory")
+            put("cwd", root.resolve("work").toString())
+            put("approvalPolicy", "never")
+            put("sandbox", "read-only")
+            put("ephemeral", true)
+            put("dynamicTools", JsonArray(tools))
+            put("config", JsonObject(target.thread + ("mcp_servers" to JsonObject(emptyMap()))))
+        }
 
     private companion object {
         const val PROBE_TIMEOUT = 15_000L
+        val markerDeclaration = json(
+            "type" to "function".json(),
+            "name" to CODEX_INVENTORY_TOOL.json(),
+            "description" to "Offline inventory marker".json(),
+            "inputSchema" to json("type" to "object".json(), "properties" to json()),
+        )
     }
 }
 

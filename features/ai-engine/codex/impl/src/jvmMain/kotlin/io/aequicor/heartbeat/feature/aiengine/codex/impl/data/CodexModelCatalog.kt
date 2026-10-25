@@ -13,15 +13,18 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.IOException
+import java.io.UncheckedIOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * One host-owned model catalog for the working process and its offline probe. Model metadata can override
  * feature flags (Code Mode, patching and delegation), so protected sessions use direct hosted functions.
  * Instructions, limits, effort and unknown metadata remain intact; the inventory probe rejects new tools.
- * The file stays alive until the working process exits. Unknown models fail closed, without remote fallback.
+ * The file stays alive until the working process exits; closing it more than once is a no-op.
+ * Unknown models fail closed, without remote fallback.
  */
 internal class CodexModelCatalog private constructor(
     private val root: Path,
@@ -36,8 +39,11 @@ internal class CodexModelCatalog private constructor(
         if (config.text("model_catalog_json") != path.toString()) inventoryFailure()
     }
 
+    private val isClosed = AtomicBoolean(false)
+
+    /** Idempotent: the process-exit callback and a failed launch may both release the same catalog. */
     override fun close() {
-        removeCatalog(root)
+        if (isClosed.compareAndSet(false, true)) removeCatalog(root)
     }
 
     companion object {
@@ -142,6 +148,11 @@ private fun removeCatalog(root: Path) {
     try {
         Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
     } catch (error: IOException) {
+        Log.tag("CodexModelCatalog").w(IllegalStateException(error.javaClass.simpleName)) {
+            "Codex model catalog cleanup failed"
+        }
+    } catch (error: UncheckedIOException) {
+        // Files.walk reports iteration failures unchecked; the message may contain the temporary path.
         Log.tag("CodexModelCatalog").w(IllegalStateException(error.javaClass.simpleName)) {
             "Codex model catalog cleanup failed"
         }

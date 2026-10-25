@@ -24,8 +24,11 @@ internal interface CodexWire : AutoCloseable {
     /** Read-only ownership snapshot; unsupported transports cannot supply evidence for a stored stop. */
     suspend fun processOwner(): CodexExecutionOwner? = null
 
-    /** Protected execution needs a fresh offline inventory of this executable, model and effective flags. */
-    suspend fun verifyInventory(model: String, config: JsonObject, off: CodexNativeOff): Unit = unsupported()
+    /**
+     * Protected execution needs a fresh offline inventory of this executable and the working thread's surface.
+     * Only the desktop transport can run the probe; every other transport fails closed.
+     */
+    suspend fun verifyInventory(target: CodexInventoryTarget, off: CodexNativeOff): Unit = unsupported()
 
     suspend fun write(message: JsonObject)
     override fun close()

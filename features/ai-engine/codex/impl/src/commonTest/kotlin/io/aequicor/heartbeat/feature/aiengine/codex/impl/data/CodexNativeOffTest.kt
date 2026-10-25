@@ -38,6 +38,25 @@ class CodexNativeOffTest {
     }
 
     @Test
+    fun `legacy restrictions reject unknown old malformed and baseline prerelease versions`() {
+        listOf(
+            null, "", "unknown", "0.159.9", "0.159.99-alpha.1", "0.160.0-alpha.1", "codex-cli 0.160.0",
+            "1.0", "1.0.999999999999", "0.163.0-", "0.163.0-alpha..1",
+        ).forEach {
+            assertFailsWith<EngineException>(it) { both.requireVersion(it) }
+        }
+        listOf("0.160.0", "0.160.1", "0.161.0-alpha.3", "0.163.0-alpha.10.2", "1.0.0").forEach(both::requireVersion)
+        CodexNativeOff().requireVersion(null)
+    }
+
+    @Test
+    fun `protected restrictions leave compatibility to the inventory probe instead of the version`() {
+        listOf(CodexNativeOff(isActionAnalysisRequired = true), CodexNativeOff(isToolFree = true)).forEach { off ->
+            listOf(null, "unknown", "0.159.9", "0.160.0-alpha.1").forEach(off::requireVersion)
+        }
+    }
+
+    @Test
     fun `restrictions require effective off flags and active session flags regardless of CLI version`() {
         both.validateConfig(response(config, config))
         val enabled = json(

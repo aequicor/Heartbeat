@@ -68,11 +68,8 @@ internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, settings:
     if (CodexDisabledCapabilities.any { features?.get(it) != JsonPrimitive(false) }) {
         fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
     }
-    if (settings.off.isVerifiedInventoryRequired) {
-        rpc.verifyInventory(settings.model, effective, settings.off)
-    }
     val servers = effective["mcp_servers"] as? JsonObject
-    return settings.off.applyTo(
+    val thread = settings.off.applyTo(
         buildJsonObject {
             put(
                 "mcp_servers",
@@ -92,6 +89,12 @@ internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, settings:
             if (settings.isSearchEnabled) put("web_search", "live")
         },
     )
+    if (settings.off.isVerifiedInventoryRequired) {
+        // The probe reproduces only what it can see offline; anything else in the working config fails closed.
+        requireCodexInventoryConfig(effective)
+        rpc.verifyInventory(CodexInventoryTarget(settings.model, effective, thread, settings.tools), settings.off)
+    }
+    return thread
 }
 
 /** Isolation settings captured for one native thread configuration. */
@@ -101,4 +104,6 @@ internal data class CodexIsolationSettings(
     val areSubagentsEnabled: Boolean = false,
     val off: CodexNativeOff = CodexNativeOff(),
     val model: String = "",
+    /** Hosted dynamic declarations of the thread, reproduced by the protected inventory probe. */
+    val tools: List<JsonObject> = emptyList(),
 )

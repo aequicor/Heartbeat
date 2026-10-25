@@ -39,6 +39,22 @@ internal data class CodexNativeOff(
         if (isToolFree) addAll(listOf("-c", "features.default_mode_request_user_input=false"))
     }
 
+    /**
+     * Legacy restrictions (without the offline inventory probe) rely on the 0.160.0 protocol baseline: older,
+     * 0.160.0 prereleases, malformed and unknown versions are refused before an app-server starts. The number is a
+     * floor, not proof of isolation: effective config and sessionFlags are still audited on every connection.
+     * Protected launches ([isVerifiedInventoryRequired]) are judged by the probe instead and skip this check.
+     */
+    fun requireVersion(version: String?) {
+        if (!isRestricted || isVerifiedInventoryRequired) return
+        val match = version?.let { Version.matchEntire(it) } ?: unsupportedPolicy()
+        val numbers = (1..3).map { match.groupValues[it].toIntOrNull() ?: unsupportedPolicy() }
+        if (numbers[0] == 0 && numbers[1] < MIN_MINOR) unsupportedPolicy()
+        val isBaselinePrerelease = numbers == listOf(0, MIN_MINOR, 0) &&
+            match.groupValues[PRERELEASE_GROUP].isNotEmpty()
+        if (isBaselinePrerelease) unsupportedPolicy()
+    }
+
     /** Applies Off after adapter defaults, including the optional `web_search=live` default. */
     fun applyTo(config: JsonObject): JsonObject = buildJsonObject {
         config.forEach { (key, value) -> put(key, value) }
@@ -96,6 +112,9 @@ internal data class CodexNativeOff(
     private fun unsupportedPolicy(): Nothing = fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
 
     private companion object {
+        val Version = Regex("([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?")
+        const val MIN_MINOR = 160
+        const val PRERELEASE_GROUP = 4
         val executionFeatures = listOf("shell_tool", "apply_patch_freeform", "multi_agent")
         val virtualFeatures = listOf("view_image_tool", "apply_patch_freeform", "multi_agent")
 
@@ -103,7 +122,7 @@ internal data class CodexNativeOff(
          * Close alternate native entry points as well as their legacy flags. Effective configuration is
          * checked on every execution connection; the desktop transport additionally captures the actual
          * model-facing catalog on a local credential-free provider before protected thread creation.
-         * CLI versions never authorize execution. Unknown native tools fail the inventory check.
+         * The CLI version alone never authorizes protected execution. Unknown native tools fail the inventory check.
          */
         val enhancedFeatures = listOf(
             "view_image", "unified_exec", "unified_exec_tty", "shell_snapshot", "shell_snapshot_v2",
