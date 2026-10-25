@@ -90,13 +90,23 @@ public final class LauncherMain {
             returned.set(true);
         } catch (InvocationTargetException e) {
             if (owner && prepared.train() != null) {
-                String target = launcher.reportBundleFailure();
-                if (target != null) {
-                    System.err.println("Bundle failure, train rolls back to " + target + " at the next start: "
-                        + e.getCause());
-                }
+                reportBundleFailure(launcher, e);
             }
             throw e;
+        }
+    }
+
+    /** Запрашивает откат поезда; собственный сбой не заслоняет исключение приложения {@code failure}. */
+    static void reportBundleFailure(Launcher launcher, InvocationTargetException failure) {
+        try {
+            String target = launcher.reportBundleFailure();
+            if (target != null) {
+                System.err.println("Bundle failure, train rolls back to " + target + " at the next start: "
+                    + failure.getCause());
+            }
+        } catch (IOException | RuntimeException e) {
+            System.err.println("Bundle failure was not recorded: " + e);
+            failure.addSuppressed(e);
         }
     }
 
@@ -113,21 +123,36 @@ public final class LauncherMain {
     /**
      * Берёт блокировку экземпляра {@code instance.lock} в корне без ожидания.
      *
-     * @return открытый канал, держащий блокировку, либо {@code null}, если её держит другой процесс (или этот же)
+     * @return открытый канал, держащий блокировку, либо {@code null}, если её держит другой процесс (или этот же) или
+     *         её не удалось взять из-за ошибки ввода-вывода — тогда процесс работает только на чтение
      */
-    static FileChannel acquireInstanceLock(Path root) throws IOException {
-        Files.createDirectories(root);
-        FileChannel channel = FileChannel.open(root.resolve("instance.lock"),
-            StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+    static FileChannel acquireInstanceLock(Path root) {
+        FileChannel channel = null;
         try {
+            Files.createDirectories(root);
+            channel = FileChannel.open(root.resolve("instance.lock"),
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE);
             if (channel.tryLock() != null) {
                 return channel;
             }
         } catch (OverlappingFileLockException e) {
             // этот процесс уже держит блокировку: второй владелец не нужен
+        } catch (IOException e) {
+            System.err.println("Instance lock is unavailable, starting read-only: " + e);
         }
-        channel.close();
+        closeQuietly(channel);
         return null;
+    }
+
+    private static void closeQuietly(FileChannel channel) {
+        if (channel == null) {
+            return;
+        }
+        try {
+            channel.close();
+        } catch (IOException e) {
+            System.err.println("Instance lock channel was not closed: " + e);
+        }
     }
 
     /** Показывает экран первого запуска (или работает без окна в headless) и ждёт активации поезда. */

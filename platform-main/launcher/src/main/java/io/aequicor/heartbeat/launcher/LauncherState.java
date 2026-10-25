@@ -27,6 +27,8 @@ final class LauncherState {
     int dbSchema;
     /** Поезд, перед активацией которого сделан бэкап БД ({@code ""} — бэкапа нет). */
     String backupOf = "";
+    /** Версия схем БД в бэкапе {@link #backupOf} ({@code -1} — неизвестна: состояние старого лаунчера или бэкапа нет). */
+    int backupSchema = -1;
     /** Бандл текущего поезда не поднялся: следующий {@link Launcher#prepare()} откатывает поезд. */
     boolean rollbackRequested;
     final Set<String> bad = new LinkedHashSet<>();
@@ -50,6 +52,7 @@ final class LauncherState {
         state.stable = Boolean.parseBoolean(props.getProperty("stable", "true"));
         state.dbSchema = intOf(props, "dbSchema");
         state.backupOf = props.getProperty("backupOf", "");
+        state.backupSchema = props.containsKey("backupSchema") ? intOf(props, "backupSchema") : -1;
         state.rollbackRequested = Boolean.parseBoolean(props.getProperty("rollbackRequested", "false"));
         String badList = props.getProperty("bad", "");
         for (String item : badList.split(",")) {
@@ -69,6 +72,9 @@ final class LauncherState {
         props.setProperty("stable", Boolean.toString(stable));
         props.setProperty("dbSchema", Integer.toString(dbSchema));
         props.setProperty("backupOf", backupOf);
+        if (backupSchema >= 0) {
+            props.setProperty("backupSchema", Integer.toString(backupSchema));
+        }
         props.setProperty("rollbackRequested", Boolean.toString(rollbackRequested));
         props.setProperty("bad", String.join(",", bad));
         Files.createDirectories(file.toAbsolutePath().getParent());

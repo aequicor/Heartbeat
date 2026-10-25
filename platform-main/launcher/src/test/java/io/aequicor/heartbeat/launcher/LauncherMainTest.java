@@ -1,13 +1,17 @@
 package io.aequicor.heartbeat.launcher;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -61,5 +65,21 @@ class LauncherMainTest {
         } finally {
             System.clearProperty(LauncherMain.EXIT_CLEAN);
         }
+    }
+
+    @Test
+    void unavailableInstanceLockFallsBackToReadOnly(@TempDir Path tmp) throws Exception {
+        Path notADirectory = Files.writeString(tmp.resolve("root"), "");
+        assertNull(LauncherMain.acquireInstanceLock(notADirectory));
+    }
+
+    @Test
+    void failedBundleReportKeepsTheApplicationFailure(@TempDir Path tmp) throws Exception {
+        Path notADirectory = Files.writeString(tmp.resolve("root"), "");
+        Launcher launcher = new Launcher(notADirectory, tmp.resolve("data"));
+        InvocationTargetException failure = new InvocationTargetException(new IllegalStateException("app"));
+        LauncherMain.reportBundleFailure(launcher, failure);
+        assertEquals(1, failure.getSuppressed().length);
+        assertTrue(failure.getSuppressed()[0] instanceof IOException);
     }
 }

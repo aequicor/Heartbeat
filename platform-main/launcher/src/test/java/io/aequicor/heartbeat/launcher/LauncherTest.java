@@ -5,16 +5,23 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -570,5 +577,157 @@ class LauncherTest {
         try (var loader = Launcher.newClassLoader(cp, null)) {
             assertEquals(1, loader.getURLs().length);
         }
+    }
+
+    /** Каталог без права записи: удалить его содержимое нельзя (как jar, открытый воркером на Windows). */
+    void withReadOnly(Path dir, ThrowingRunnable body) throws Exception {
+        assumeTrue(Files.getFileStore(dir).supportsFileAttributeView("posix"));
+        Set<PosixFilePermission> before = Files.getPosixFilePermissions(dir);
+        Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("r-xr-xr-x"));
+        try {
+            body.run();
+        } finally {
+            Files.setPosixFilePermissions(dir, before);
+        }
+    }
+
+    interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    @Test
+    void pruneFailureDoesNotFailActivation() throws Exception {
+        install("t1", 0, "a");
+        install("t2", 0, "a");
+        withReadOnly(root.resolve("trains").resolve("t1"), () -> {
+            install("t3", 0, "a");
+            assertEquals("t3", launcher.store().state().current);
+            assertEquals("t2", launcher.store().state().previous);
+            // Очистка продолжилась после сбоя: jar старого поезда удалён.
+            assertFalse(Files.exists(launcherJar("a@t1")));
+        });
+        launcher.store().prune();
+        assertFalse(Files.exists(root.resolve("trains").resolve("t1")));
+    }
+
+    @Test
+    void pruneFailureDuringRollbackStillRestoresAndDiscardsBackup() throws Exception {
+        install("t1", 1, "a");
+        Files.writeString(data.resolve("app.db"), "v1");
+        install("t2", 2, "a");
+        Files.writeString(data.resolve("app.db"), "v2");
+        launcher.prepare();
+        launcher.reportBundleFailure();
+        withReadOnly(root.resolve("trains").resolve("t2"), () -> {
+            Launcher.Prepared next = launcher.prepare();
+            assertEquals("t1", next.train());
+            assertTrue(next.dbRestored());
+        });
+        assertEquals("v1", Files.readString(data.resolve("app.db")));
+        assertFalse(Files.exists(root.resolve("backups").resolve("t2")));
+        assertEquals("", launcher.store().state().backupOf);
+        assertTrue(launcher.isBad("t2"));
+    }
+
+    @Test
+    void restoreIsDeferredWhileStorageIsLeased() throws Exception {
+        Path lockFile = Files.createDirectories(data.resolve(DbBackup.OWNER_DIR)).resolve(DbBackup.OWNER_LOCK);
+        Files.writeString(lockFile, "");
+        install("t1", 1, "a");
+        Files.writeString(data.resolve("app.db"), "v1");
+        install("t2", 2, "a");
+        assertFalse(Files.exists(root.resolve("backups").resolve("t2").resolve(DbBackup.OWNER_DIR)));
+        Files.writeString(data.resolve("app.db"), "v2");
+        launcher.prepare();
+        assertEquals("t1", launcher.reportBundleFailure());
+        String m3 = manifest("t3", 1, 2, "a");
+        storeJars("t3", "a");
+        queuePending("t3", m3, 1_000);
+        try (FileChannel worker = FileChannel.open(lockFile, StandardOpenOption.WRITE);
+             FileLock ignored = worker.lock()) {
+            Launcher.Prepared blocked = launcher.prepare();
+            assertEquals("t2", blocked.train());
+            assertNull(blocked.rolledBackFrom());
+            assertEquals("v2", Files.readString(data.resolve("app.db")));
+            assertTrue(Files.exists(root.resolve("backups").resolve("t2")));
+            assertTrue(launcher.store().state().rollbackRequested);
+            assertTrue(Files.exists(root.resolve("pending").resolve("t3")));
+            launcher.markStable(); // запрос отката не даёт выбросить бэкап
+            assertTrue(Files.exists(root.resolve("backups").resolve("t2")));
+        }
+        Launcher.Prepared next = launcher.prepare();
+        assertEquals("t2", next.rolledBackFrom());
+        assertTrue(next.dbRestored());
+        assertEquals("v1", Files.readString(data.resolve("app.db")));
+        assertTrue(Files.exists(lockFile));
+        assertTrue(launcher.isBad("t2"));
+        assertFalse(launcher.store().state().rollbackRequested);
+    }
+
+    @Test
+    void damagedRollbackTargetKeepsDataAndBackup() throws Exception {
+        install("t1", 1, "a");
+        Files.writeString(data.resolve("app.db"), "v1");
+        install("t2", 2, "b");
+        Files.writeString(data.resolve("app.db"), "v2");
+        Files.writeString(launcherJar("a@t1"), "corrupted");
+        launcher.prepare();
+        assertNull(launcher.reportBundleFailure());
+        for (int i = 0; i < Launcher.CRASH_LIMIT + 1; i++) {
+            Launcher.Prepared prepared = launcher.prepare();
+            assertEquals("t2", prepared.train());
+            assertFalse(prepared.dbRestored());
+        }
+        assertEquals("v2", Files.readString(data.resolve("app.db")));
+        assertTrue(Files.exists(root.resolve("backups").resolve("t2")));
+        assertFalse(launcher.isBad("t2"));
+    }
+
+    @Test
+    void backupSchemaIsRecordedOnActivation() throws Exception {
+        install("t1", 1, "a");
+        install("t2", 3, "a");
+        LauncherState state = launcher.store().state();
+        assertEquals(1, state.backupSchema);
+        launcher.prepare();
+        launcher.markStable();
+        assertEquals(-1, launcher.store().state().backupSchema);
+    }
+
+    @Test
+    void rollbackBelowBackupSchemaIsRefused() throws Exception {
+        install("t1", 5, "a");
+        install("t2", 1, "a"); // схема данных остаётся 5
+        install("t3", 6, "a"); // бэкап данных схемы 5, предыдущий поезд — t2 со схемой 1
+        assertEquals(5, launcher.store().state().backupSchema);
+        launcher.prepare();
+        assertNull(launcher.reportBundleFailure());
+        for (int i = 0; i < Launcher.CRASH_LIMIT + 1; i++) {
+            assertEquals("t3", launcher.prepare().train());
+        }
+        assertTrue(Files.exists(root.resolve("backups").resolve("t3")));
+        assertFalse(launcher.isBad("t3"));
+    }
+
+    @Test
+    void incompletePendingDirIsRemoved() throws Exception {
+        install("t1", 0, "a");
+        Path dir = Files.createDirectories(root.resolve("pending").resolve("t5"));
+        Files.writeString(dir.resolve("manifest.json.tmp"), "{");
+        assertEquals("t1", launcher.prepare().train());
+        assertFalse(Files.exists(dir));
+    }
+
+    @Test
+    void corruptStoreJarIsDeletedSoItCanBeFetchedAgain() throws Exception {
+        String m = manifest("t1", 1, 0, "a");
+        launcher.applyUpdate(m, fetcher("t1"));
+        Files.writeString(launcherJar("a@t1"), "corrupted");
+        assertThrows(IOException.class, () -> launcher.store().stage(m, bundle -> {
+            throw new IOException("offline");
+        }));
+        assertFalse(Files.exists(launcherJar("a@t1")));
+        launcher.store().stage(m, fetcher("t1"));
+        assertEquals("a@t1", Files.readString(launcherJar("a@t1")));
     }
 }

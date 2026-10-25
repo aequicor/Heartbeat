@@ -110,7 +110,8 @@ public final class TrainStore {
 
     /**
      * Докачивает недостающие jar поезда в {@code staging}, проверяет SHA-256 каждого и переносит в {@code store},
-     * затем записывает манифест. Уже лежащие в хранилище jar с верным хэшем не качаются повторно.
+     * затем записывает манифест. Уже лежащие в хранилище jar с верным хэшем не качаются повторно; jar с неверным
+     * хэшем удаляется до скачивания, чтобы его можно было скачать заново и при сбое этой попытки.
      * Активным поезд не становится — для этого {@link #activate}.
      */
     public void stage(String manifestJson, Fetcher fetcher) throws IOException {
@@ -128,8 +129,12 @@ public final class TrainStore {
             for (TrainManifest.Bundle bundle : manifest.bundles()) {
                 String sha = TrainManifest.normalizedSha(bundle);
                 Path target = jarPath(sha);
-                if (Files.isRegularFile(target) && sha256(target).equals(sha)) {
-                    continue;
+                if (Files.isRegularFile(target)) {
+                    if (sha256(target).equals(sha)) {
+                        continue;
+                    }
+                    System.err.println("Store jar " + target.getFileName() + " is corrupted, fetching it again");
+                    Files.deleteIfExists(target);
                 }
                 Path part = staging.resolve(sha + ".part");
                 try (InputStream in = fetcher.open(bundle); OutputStream out = Files.newOutputStream(part)) {
@@ -212,7 +217,7 @@ public final class TrainStore {
             state.rollbackRequested = false;
             update.accept(state);
             state.save(stateFile());
-            prune();
+            pruneQuietly();
             return null;
         });
     }
@@ -244,7 +249,7 @@ public final class TrainStore {
             state.rollbackRequested = false;
             update.accept(state);
             state.save(stateFile());
-            prune();
+            pruneQuietly();
             return target;
         });
     }
@@ -271,14 +276,54 @@ public final class TrainStore {
     }
 
     /**
+     * Удаляет каталоги {@code pending/<train>} без {@code manifest.json}: недописанные app-update (например, только
+     * {@code manifest.json.tmp}). Вызывается владельцем при старте, когда app-update ещё не работает. Сбой удаления
+     * только печатается.
+     */
+    void deleteIncompletePending() throws IOException {
+        Path pending = pendingDir();
+        if (!Files.isDirectory(pending)) {
+            return;
+        }
+        try (DirectoryStream<Path> dirs = Files.newDirectoryStream(pending)) {
+            for (Path dir : dirs) {
+                if (!Files.isRegularFile(dir.resolve("manifest.json"))) {
+                    tryDelete(dir);
+                }
+            }
+        }
+    }
+
+    /**
      * Удаляет поезда, jar и бэкапы БД, не входящие в текущий и предыдущий поезд (в том числе подготовленные, но не
-     * активированные). Jar поездов из {@code pending/} сохраняются.
+     * активированные). Jar поездов из {@code pending/} сохраняются. Очистка — best-effort: файл, который не удаётся
+     * удалить (например, jar, открытый задержавшимся воркером на Windows), печатается в stderr и пропускается; если
+     * не читается манифест сохраняемого поезда, jar не удаляются вовсе.
+     *
+     * @throws IOException только если не читается состояние
      */
     void prune() throws IOException {
         locked(() -> {
             doPrune();
             return null;
         });
+    }
+
+    /** {@link #prune()} после уже записанного состояния: никакой сбой очистки не отменяет операцию. */
+    private void pruneQuietly() {
+        try {
+            prune();
+        } catch (IOException | RuntimeException e) {
+            System.err.println("Launcher store cleanup failed, retried at the next change: " + e);
+        }
+    }
+
+    private static void tryDelete(Path path) {
+        try {
+            deleteRecursively(path);
+        } catch (IOException | RuntimeException e) {
+            System.err.println("Could not delete " + path + ": " + e);
+        }
     }
 
     private void doPrune() throws IOException {
@@ -291,21 +336,29 @@ public final class TrainStore {
             keepTrains.add(state.previous);
         }
         Set<String> keepJars = new HashSet<>();
+        boolean jarsKnown = true;
         Path trains = root.resolve("trains");
         if (Files.isDirectory(trains)) {
             try (DirectoryStream<Path> dirs = Files.newDirectoryStream(trains)) {
                 for (Path dir : dirs) {
                     String name = dir.getFileName().toString();
                     if (!keepTrains.contains(name)) {
-                        deleteRecursively(dir);
+                        tryDelete(dir);
                     }
                 }
+            } catch (IOException e) {
+                System.err.println("Could not list trains for cleanup: " + e);
             }
         }
         for (String train : keepTrains) {
             if (Files.exists(manifestFile(train))) {
-                for (TrainManifest.Bundle bundle : readManifest(train).bundles()) {
-                    keepJars.add(TrainManifest.normalizedSha(bundle) + ".jar");
+                try {
+                    for (TrainManifest.Bundle bundle : readManifest(train).bundles()) {
+                        keepJars.add(TrainManifest.normalizedSha(bundle) + ".jar");
+                    }
+                } catch (IOException | RuntimeException e) {
+                    jarsKnown = false;
+                    System.err.println("Manifest of kept train " + train + " is unreadable, jars are kept: " + e);
                 }
             }
         }
@@ -325,19 +378,23 @@ public final class TrainStore {
             try (DirectoryStream<Path> dirs = Files.newDirectoryStream(backups)) {
                 for (Path dir : dirs) {
                     if (!keepTrains.contains(dir.getFileName().toString())) {
-                        deleteRecursively(dir);
+                        tryDelete(dir);
                     }
                 }
+            } catch (IOException e) {
+                System.err.println("Could not list DB backups for cleanup: " + e);
             }
         }
         Path store = root.resolve("store");
-        if (Files.isDirectory(store)) {
+        if (jarsKnown && Files.isDirectory(store)) {
             try (DirectoryStream<Path> files = Files.newDirectoryStream(store)) {
                 for (Path file : files) {
                     if (!keepJars.contains(file.getFileName().toString())) {
-                        Files.deleteIfExists(file);
+                        tryDelete(file);
                     }
                 }
+            } catch (IOException e) {
+                System.err.println("Could not list the jar store for cleanup: " + e);
             }
         }
     }

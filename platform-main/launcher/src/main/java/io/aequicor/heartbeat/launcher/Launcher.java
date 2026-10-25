@@ -20,10 +20,14 @@ import java.util.Set;
  * {@link #STABLE_AFTER_MILLIS} жизни → {@link #markCleanExit()} при штатном выходе. Процесс, снятый без
  * {@code markCleanExit} до {@code markStable}, считается крахом свежего поезда; {@link #CRASH_LIMIT} краха подряд —
  * откат. Исключение при инициализации бандла ({@link #reportBundleFailure}) до окна стабильности только запрашивает
- * откат: его вместе с восстановлением БД выполняет следующий {@code prepare()}, когда файлы данных уже никто не держит.
+ * откат: его вместе с восстановлением БД выполняет следующий {@code prepare()}. Восстановление требует аренды хранилища
+ * ({@link DbBackup}): пока её держит другой процесс (задержавшийся воркер), откат откладывается — бэкап и запрос отката
+ * сохраняются, текущий поезд остаётся, ожидающий поезд не активируется, следующий запуск пробует снова.
  *
  * <p>Откат не опускает схему БД: поезд с {@code dbSchema} ниже версии, под которую уже могла мигрировать БД,
- * становится текущим только вместе с восстановлением бэкапа, сделанного перед активацией откатываемого поезда.
+ * становится текущим только вместе с восстановлением бэкапа, сделанного перед активацией откатываемого поезда, и только
+ * если его схема не ниже схемы самого бэкапа ({@code backupSchema}). Целевой поезд проверяется (манифест и хэши jar)
+ * до восстановления: к повреждённому поезду не откатываемся и бэкап не трогаем.
  * Без такого бэкапа (и без предыдущего поезда) откат не выполняется: при крахах остаётся текущий поезд, а
  * повреждённый текущий поезд останавливает запуск {@link IOException} с просьбой переустановить приложение.
  *
@@ -49,6 +53,10 @@ public final class Launcher {
 
     /** Выполненный откат: к какому поезду и восстановлен ли бэкап БД. */
     private record Rollback(String target, boolean restored) {
+    }
+
+    /** Допустимый откат: поезд {@code bad} → {@code target}, восстанавливать ли бэкап и схема БД после отката. */
+    private record Plan(String bad, String target, boolean restore, int schema) {
     }
 
     private final TrainStore store;
@@ -84,6 +92,7 @@ public final class Launcher {
         LauncherState state = store.state();
         String rolledBackFrom = null;
         boolean dbRestored = false;
+        boolean rollbackBlocked = false;
         if (!state.current.isEmpty()) {
             boolean crashed = state.running && !state.stable;
             if (crashed) {
@@ -94,17 +103,25 @@ public final class Launcher {
             state.save(store.stateFile());
             if (rollback) {
                 String from = state.current;
-                Rollback done = rollbackAndRestore();
-                if (done != null) {
-                    rolledBackFrom = from;
-                    dbRestored = done.restored();
-                } else {
-                    System.err.println("Train " + from + " fails, but there is no train to roll back to safely; "
-                        + "keeping it");
+                try {
+                    Rollback done = rollbackAndRestore();
+                    if (done != null) {
+                        rolledBackFrom = from;
+                        dbRestored = done.restored();
+                    } else {
+                        System.err.println("Train " + from + " fails, but there is no train to roll back to safely; "
+                            + "keeping it");
+                    }
+                } catch (DbBackup.StorageInUseException busy) {
+                    keepRollbackRequest();
+                    System.err.println("Train " + from + " rolls back at the next start: " + busy.getMessage());
+                    rollbackBlocked = true;
                 }
             }
         }
-        applyPending();
+        if (!rollbackBlocked) {
+            applyPending();
+        }
         while (true) {
             state = store.state();
             if (state.current.isEmpty()) {
@@ -115,7 +132,15 @@ public final class Launcher {
                 store.verify(state.current);
                 break;
             } catch (IOException | RuntimeException e) {
-                Rollback done = rollbackAndRestore();
+                Rollback done;
+                try {
+                    done = rollbackAndRestore();
+                } catch (DbBackup.StorageInUseException busy) {
+                    keepRollbackRequest();
+                    throw new IOException("Train " + state.current + " is damaged and its rollback restores data "
+                        + "that another Heartbeat process still uses; close it and start again (" + e.getMessage()
+                        + ")", busy);
+                }
                 if (done == null) {
                     throw new IOException("Train " + state.current + " is damaged and there is no train to roll back "
                         + "to without losing data; reinstall Heartbeat (" + e.getMessage() + ")", e);
@@ -153,6 +178,11 @@ public final class Launcher {
      * уже текущий поезд пропускается. Каталог ожидающего поезда удаляется при любом исходе.
      */
     private void applyPending() throws IOException {
+        try {
+            store.deleteIncompletePending();
+        } catch (IOException | RuntimeException e) {
+            System.err.println("Incomplete pending trains were not removed: " + e);
+        }
         List<Path> manifests = store.pendingManifests();
         Path newest = null;
         FileTime newestTime = null;
@@ -204,16 +234,19 @@ public final class Launcher {
         }
         store.locked(() -> {
             store.stage(manifestJson, fetcher);
-            boolean migrates = manifest.dbSchema() > store.state().dbSchema;
+            int dataSchema = store.state().dbSchema;
+            boolean migrates = manifest.dbSchema() > dataSchema;
             if (migrates) {
                 backup.backup(manifest.train());
             }
             store.activate(manifest.train(), state -> {
                 if (migrates) {
                     state.backupOf = manifest.train();
-                } else if (!state.backupOf.isEmpty()) {
-                    // Предыдущий бэкап относился к поезду, который теперь стал «предыдущим» — он остаётся валидным.
-                    state.backupOf = state.backupOf.equals(state.previous) ? state.backupOf : "";
+                    state.backupSchema = dataSchema;
+                } else if (!state.backupOf.isEmpty() && !state.backupOf.equals(state.previous)) {
+                    // Бэкап поезда, ставшего «предыдущим», остаётся валидным; остальные больше не нужны.
+                    state.backupOf = "";
+                    state.backupSchema = -1;
                 }
                 state.dbSchema = Math.max(state.dbSchema, manifest.dbSchema());
             });
@@ -233,11 +266,13 @@ public final class Launcher {
             }
             state.stable = true;
             state.crashes = 0;
-            if (!state.backupOf.isEmpty()) {
-                backup.discard(state.backupOf);
-                state.backupOf = "";
-            }
+            String discarded = state.backupOf;
+            state.backupOf = "";
+            state.backupSchema = -1;
             state.save(store.stateFile());
+            if (!discarded.isEmpty()) {
+                discardQuietly(discarded);
+            }
             return null;
         });
     }
@@ -255,15 +290,16 @@ public final class Launcher {
     /**
      * Бандл не поднялся (исключение при инициализации графа/старта) до окна стабильности: запрашивает откат поезда,
      * который выполнит следующий {@link #prepare()} (с восстановлением БД и плохой меткой). Файлы данных здесь не
-     * трогаются — их ещё держит этот процесс. После {@link #markStable()} и без предыдущего поезда ничего не делает:
-     * единственный поезд плохим не помечается, процесс засчитывается крахом.
+     * трогаются — их ещё держит этот процесс. После {@link #markStable()}, без предыдущего поезда и когда откат
+     * отклонила бы проверка (повреждённый целевой поезд, схема БД опустилась бы) ничего не делает: поезд плохим не
+     * помечается, процесс засчитывается крахом.
      *
      * @return поезд, к которому откатится следующий запуск (нужен рестарт JVM), либо {@code null}
      */
     public String reportBundleFailure() throws IOException {
         return store.locked(() -> {
             LauncherState state = store.state();
-            if (state.current.isEmpty() || state.stable || state.previous.isEmpty()) {
+            if (state.current.isEmpty() || state.stable || plan(state) == null) {
                 return null;
             }
             state.rollbackRequested = true;
@@ -313,42 +349,81 @@ public final class Launcher {
     }
 
     /**
-     * Откат поезда к предыдущему с восстановлением бэкапа БД, если он сделан перед активацией откатываемого поезда.
-     * Поезд со схемой БД ниже текущей версии становится текущим только вместе с восстановлением бэкапа.
+     * Проверяет, допустим ли откат из состояния {@code state}: предыдущий поезд есть и цел (манифест читается, jar
+     * совпадают по хэшу), а его схема БД не ниже схемы данных после отката — бэкапа ({@code backupSchema}), если он
+     * восстанавливается, иначе текущей.
      *
-     * @return итог отката, либо {@code null}, если предыдущего поезда нет или откат опустил бы схему БД без бэкапа
-     *         (состояние при этом не меняется)
+     * @return план отката либо {@code null}, если откатываться нельзя
      */
-    private Rollback rollbackAndRestore() throws IOException {
-        LauncherState before = store.state();
-        String bad = before.current;
-        String target = before.previous;
+    private Plan plan(LauncherState state) {
+        String bad = state.current;
+        String target = state.previous;
         if (bad.isEmpty() || target.isEmpty()) {
             return null;
         }
-        boolean restore = before.backupOf.equals(bad) && backup.exists(bad);
         int targetSchema;
         try {
             targetSchema = store.readManifest(target).dbSchema();
+            store.verify(target);
         } catch (IOException | RuntimeException e) {
-            targetSchema = -1;
-        }
-        if (targetSchema < before.dbSchema && !restore) {
+            System.err.println("Rollback target " + target + " is damaged, not rolling back: " + e);
             return null;
         }
+        boolean restore = state.backupOf.equals(bad) && backup.exists(bad);
+        int dataSchema;
         if (restore) {
-            backup.restore(bad);
+            // Бэкап старого лаунчера без записанной схемы: снят при текущем предыдущем поезде.
+            dataSchema = state.backupSchema >= 0 ? state.backupSchema : targetSchema;
+        } else {
+            dataSchema = state.dbSchema;
         }
-        int schema = restore ? Math.max(targetSchema, 0) : Math.max(before.dbSchema, targetSchema);
+        if (targetSchema < dataSchema) {
+            return null;
+        }
+        // Целевой поезд при первом запуске мигрирует данные до своей схемы.
+        return new Plan(bad, target, restore, Math.max(dataSchema, targetSchema));
+    }
+
+    /**
+     * Откат поезда к предыдущему с восстановлением бэкапа БД, если он сделан перед активацией откатываемого поезда
+     * (см. {@link #plan}). Бэкап удаляется после записи отката; сбой удаления только печатается.
+     *
+     * @return итог отката, либо {@code null}, если откат недопустим (состояние при этом не меняется)
+     * @throws DbBackup.StorageInUseException если аренду хранилища держит другой процесс (ничего не изменено)
+     */
+    private Rollback rollbackAndRestore() throws IOException {
+        Plan plan = plan(store.state());
+        if (plan == null) {
+            return null;
+        }
+        if (plan.restore()) {
+            backup.restore(plan.bad());
+        }
         store.rollback(after -> {
-            if (after.backupOf.equals(bad)) {
+            if (after.backupOf.equals(plan.bad())) {
                 after.backupOf = "";
+                after.backupSchema = -1;
             }
-            after.dbSchema = schema;
+            after.dbSchema = plan.schema();
         });
-        if (restore) {
-            backup.discard(bad);
+        if (plan.restore()) {
+            discardQuietly(plan.bad());
         }
-        return new Rollback(target, restore);
+        return new Rollback(plan.target(), plan.restore());
+    }
+
+    /** Откат отложен (хранилище занято): запрос сохраняется до следующего {@link #prepare()}. */
+    private void keepRollbackRequest() throws IOException {
+        LauncherState state = store.state();
+        state.rollbackRequested = true;
+        state.save(store.stateFile());
+    }
+
+    private void discardQuietly(String train) {
+        try {
+            backup.discard(train);
+        } catch (IOException | RuntimeException e) {
+            System.err.println("DB backup of " + train + " was not removed: " + e);
+        }
     }
 }
