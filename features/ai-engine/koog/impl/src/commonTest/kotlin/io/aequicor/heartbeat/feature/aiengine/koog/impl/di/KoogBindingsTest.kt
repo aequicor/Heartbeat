@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.koog.impl.di
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineAdapter
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -15,6 +16,18 @@ class KoogBindingsTest {
         val registration = KoogBindings.registration(adapter)
         assertTrue(EnginePlatform.DesktopLinux in registration.descriptor.platforms)
         assertTrue(ChangesSessionConfiguration.id in registration.descriptor.declaredFeatures)
+        assertFalse(adapter.isInitialized())
+    }
+
+    /**
+     * The facade offers a stored chat for continuation only when the engine declares runtime attachment:
+     * without it every Koog chat turned read-only after an app restart.
+     */
+    @Test
+    fun `descriptor declares runtime attachment so stored chats resume after restart`() {
+        val adapter = lazy<KoogEngineAdapter> { error("Descriptor access must stay lazy") }
+        val registration = KoogBindings.registration(adapter)
+        assertTrue(AttachesSessions.id in registration.descriptor.declaredFeatures)
         assertFalse(adapter.isInitialized())
     }
 
