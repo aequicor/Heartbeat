@@ -349,6 +349,12 @@ internal class DesktopVirtualWorkspaces(
         val tip = existing.text.trim().takeIf { existing.code == 0 }
         // A reopened sandbox moves only the result branch it published itself.
         check(tip == null || tip == snapshot || tip == current.handedOff) { "SandboxBranchOccupied" }
+        if (tip != null && tip != snapshot) {
+            // Moving a branch checked out in another worktree would leave its files behind the new result.
+            val isCheckedOut = git.text(current.source, "worktree", "list", "--porcelain").lineSequence()
+                .any { it.trim() == "branch refs/heads/$branch" }
+            check(!isCheckedOut) { "SandboxBranchCheckedOut" }
+        }
         if (tip != snapshot) git.call(current.source, "update-ref", "refs/heads/$branch", snapshot, tip.orEmpty())
         log.i { "Virtual sandbox branch handed to user" }
         save(

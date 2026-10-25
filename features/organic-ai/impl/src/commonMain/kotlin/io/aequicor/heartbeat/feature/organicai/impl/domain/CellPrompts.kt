@@ -103,9 +103,11 @@ private const val SANDBOX =
         "file tools for all code access. Nothing you change there " +
         "reaches the project or another cell by itself, and you never edit the project's original checkout. Build " +
         "and test with run_build, not natively. To continue work on another branch (a pull request), load it with " +
-        "sandbox_checkout (fetch=true when it is not local) and publish with sandbox_commit. " +
+        "sandbox_checkout (fetch=true when it is not local and the tool offers fetch) and publish with " +
+        "sandbox_commit (push only when the tool offers it). " +
         "Native git and gh are unavailable; map their steps to host tools instead of stopping: branch history " +
-        "with sandbox_log, merging the base branch with sandbox_merge, commit and push with sandbox_commit, " +
+        "with sandbox_log, merging the base branch with sandbox_merge, commit (and push, if offered) with " +
+        "sandbox_commit, " +
         "verification with configure_build and run_build. Read pull request metadata, comments, reviews, review " +
         "threads and checks from the public GitHub REST API with web_fetch, which returns the raw response " +
         "(native WebFetch summarizes it and loses text) (https://api.github.com/repos/<owner>/" +

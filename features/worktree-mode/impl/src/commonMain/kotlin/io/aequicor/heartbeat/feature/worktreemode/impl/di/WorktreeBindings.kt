@@ -22,9 +22,9 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineSpec
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxRemoteEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.WorktreeEffects
-import io.aequicor.heartbeat.feature.worktreemode.impl.data.WorktreeSandboxRemoteEnabled
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 

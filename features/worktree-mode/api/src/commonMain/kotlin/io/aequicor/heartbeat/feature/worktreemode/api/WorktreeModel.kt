@@ -29,6 +29,15 @@ public val WorktreeSandboxEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 )
 
 /**
+ * Lets virtual sandbox tools reach origin: `push` of `sandbox_commit` and `fetch` of `sandbox_checkout` /
+ * `sandbox_merge`. Off removes both arguments from the tool schemas and refuses them; local branch operations stay.
+ */
+public val WorktreeSandboxRemoteEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "worktree_mode.sandbox_remote",
+    "Песочницы: push и fetch веток в origin из инструментов песочницы",
+)
+
+/**
  * Weighs every coordinated build against the machine's CPU and memory budget (or the user limit in the "Builds"
  * settings section) and shares it fairly between projects. Off keeps the previous admission: builds wait only for
  * their exclusive resources.

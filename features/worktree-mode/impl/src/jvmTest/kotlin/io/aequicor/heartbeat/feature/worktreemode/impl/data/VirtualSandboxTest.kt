@@ -414,6 +414,24 @@ class VirtualSandboxTest {
     }
 
     @Test
+    fun `a reopened sandbox does not move a result branch checked out in another worktree`() = runTest {
+        val f = VirtualFixture()
+        try {
+            val ref = f.create("review")
+            val files = assertNotNull(f.backend.find(ref))
+            files.change(0, listOf(VirtualFileChange("source.txt", "first")))
+            val first = f.backend.handoff(f.record("review"))
+            f.cmd("worktree", "add", f.project.resolveSibling("review").toString(), "heartbeat/worktree-review")
+            val reopened = f.backend.reopen(ref)
+            files.change(reopened.revision, listOf(VirtualFileChange("source.txt", "second")))
+            assertFailsWith<IllegalStateException> { f.backend.handoff(f.record("review")) }
+            assertEquals(first.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-review"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
     fun `arbitrary ecosystems need no caches and slots roll back while preserving warm outputs`() = runTest {
         val f = VirtualFixture()
         try {
