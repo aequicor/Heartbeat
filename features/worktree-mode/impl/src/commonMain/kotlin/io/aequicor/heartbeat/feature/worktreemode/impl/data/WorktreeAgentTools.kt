@@ -194,6 +194,9 @@ internal class WorktreeAgentTools(
         } catch (error: IllegalStateException) {
             log.w(error) { "Build preview unavailable for a cancellation; describing the build record" }
             null
+        } catch (error: IllegalArgumentException) {
+            log.w(error) { "Build preview rejected for a cancellation; describing the build record" }
+            null
         }
         val details = if (execution == null) {
             "Command: ${approvalJson.encodeToString(known.command)}\n" +
@@ -367,9 +370,9 @@ internal class WorktreeAgentTools(
         withTimeoutOrNull(wait) { awaitTask(chatId) { it.builds[operation]?.phase in terminal } }
             ?: journal.taskProjection(chatId)
 
-    private fun buildResult(task: WorktreeTask, operation: String): AgentToolResult {
+    private fun buildResult(task: WorktreeTask, operation: String, note: String = ""): AgentToolResult {
         val build = checkNotNull(task.builds[operation])
-        val text = Json.encodeToString(build)
+        val text = note + Json.encodeToString(build)
         return if (build.phase in terminal) {
             AgentToolResult(text, isError = build.phase in setOf(WorktreeBuildPhase.Failed, WorktreeBuildPhase.Unknown))
         } else {
@@ -385,16 +388,24 @@ internal class WorktreeAgentTools(
     private suspend fun status(task: WorktreeTask, arguments: JsonObject): AgentToolResult {
         val requested = arguments["operation"]?.jsonPrimitive?.content ?: return failure("MissingOperation")
         // A run_build cut off by the engine's own tool timeout leaves the agent only the command it ran.
-        val known = task.builds[requested] ?: task.builds.values.lastOrNull { it.command == requested }
+        val exact = task.builds[requested]
+        val known = exact ?: task.builds.values.lastOrNull { it.command == requested }
             ?: return failure("UnknownBuildOperation")
         val operation = known.id
+        // Builds do not record the turn that started them, so a command match may be an earlier run_build.
+        val note = if (exact == null) {
+            "Matched by command, not by operation: the latest build of this command (operation=$operation), " +
+                "possibly started by an earlier run_build call. Pass this operation id from now on.\n"
+        } else {
+            ""
+        }
         val wait = (arguments["waitMs"]?.jsonPrimitive?.longOrNull ?: BUILD_WAIT).coerceIn(0L, BUILD_WAIT)
         val current = if (wait > 0 && known.phase !in terminal) {
             awaitBuild(task.chatId, operation, wait) ?: task
         } else {
             task
         }
-        return buildResult(current, operation)
+        return buildResult(current, operation, note)
     }
 
     private suspend fun cancel(task: WorktreeTask, arguments: JsonObject): AgentToolResult {

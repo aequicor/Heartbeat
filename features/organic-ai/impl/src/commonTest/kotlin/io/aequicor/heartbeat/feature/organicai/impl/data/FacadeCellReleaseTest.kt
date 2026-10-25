@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
@@ -35,7 +36,7 @@ class FacadeCellReleaseTest {
             cancelFailure = IllegalStateException("cancel failed")
         }
         val facade = FakeFacade(stored = mapOf(stored.ref to stored))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         facade.onResume = { cells.release(key, stored.ref, ReleaseMode.Lyse) }
         assertFailsWith<EngineException> { cells.open(key, route, stored.ref) }
         assertEquals(0, stored.closes)
@@ -55,7 +56,7 @@ class FacadeCellReleaseTest {
             ignoresCancel = true
         }
         val facade = FakeFacade(ArrayDeque(listOf(native)))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         val turn = cells.open(key, route, null, generation = 1).submit(RequestId("r1"), "work", null)
         cells.releaseAll()
         val recovered = cells.open(key, route, native.ref, generation = 2)
@@ -73,7 +74,7 @@ class FacadeCellReleaseTest {
             ignoresCancel = true
         }
         val facade = FakeFacade(stored = mapOf(stored.ref to stored))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         facade.onResume = {
             cells.releaseAll()
             assertTrue(cells.hasPendingRelease(ORGANISM))
@@ -92,7 +93,7 @@ class FacadeCellReleaseTest {
             finish = null
             ignoresCancel = true
         }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         cells.open(key, route, null).submit(RequestId("r1"), "work", null)
         assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, native.ref, ReleaseMode.Lyse))
         cells.releaseAll()
@@ -109,9 +110,29 @@ class FacadeCellReleaseTest {
         val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own"))
         val fallback = FakeSession(session("fallback"))
         val facade = FakeFacade(ArrayDeque(listOf(own, fallback)))
-        val cells = FacadeCellSessions(facade)
-        val ownRoute = route.copy(target = TARGET.copy(engine = EngineId("koog")))
+        val harnesses = FakeCellHarnesses()
+        val cells = FacadeCellSessions(facade, harnesses)
+        val ownRoute = route.copy(target = TARGET.copy(engine = EngineId("koog")), harnesses = setOf("h"))
         cells.open(key, ownRoute, existing = null, generation = 1)
+        val moved = cells.open(key, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+        assertEquals(fallback.ref, moved.session)
+        assertEquals(2, facade.creations.size)
+        assertEquals(1, own.closes)
+        // The organism forgot the replaced session: it is released like a dead cell's, harness slots included.
+        assertTrue(own.isArchived)
+        assertFalse(fallback.isArchived)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+    }
+
+    @Test
+    fun `a cell moved to another model on the same engine and binding gets a new session`() = runTest {
+        val own = FakeSession(session("own"))
+        val fallback = FakeSession(session("fallback"))
+        val facade = FakeFacade(ArrayDeque(listOf(own, fallback)))
+        val cells = cellSessions(facade)
+        val ownRoute = route.copy(target = TARGET.copy(model = ModelId("cheap")))
+        cells.open(key, ownRoute, existing = null, generation = 1)
+        assertEquals(own.ref, cells.open(key, ownRoute, existing = null, generation = 1).session)
         val moved = cells.open(key, route, existing = null, generation = 2)
         assertEquals(fallback.ref, moved.session)
         assertEquals(2, facade.creations.size)

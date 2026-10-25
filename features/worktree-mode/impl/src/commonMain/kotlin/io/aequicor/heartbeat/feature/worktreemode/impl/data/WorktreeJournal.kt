@@ -26,7 +26,9 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.buildUpdated
 import io.aequicor.heartbeat.feature.worktreemode.api.canChooseAction
+import io.aequicor.heartbeat.feature.worktreemode.api.canHandOff
 import io.aequicor.heartbeat.feature.worktreemode.api.failed
+import io.aequicor.heartbeat.feature.worktreemode.api.handedOff
 import io.aequicor.heartbeat.feature.worktreemode.api.hasActiveBuilds
 import io.aequicor.heartbeat.feature.worktreemode.api.hasActiveRun
 import io.aequicor.heartbeat.feature.worktreemode.api.operationFailed
@@ -272,7 +274,9 @@ internal class WorktreeJournal(
 
     private suspend fun recheckCommand(command: WorktreeIntent.Public.Recheck, emit: suspend (WorktreeTask) -> Unit) {
         record(command.chatId)?.takeIf { it.task.virtualSandbox != null }?.let { selected ->
-            virtual.refresh(reopened(selected), command.isResume, command.resolveConflicts)
+            // A handed-off branch belongs to the user: only an explicit reopen continues the sandbox.
+            val target = if (command.isReopen) reopened(selected) else selected
+            virtual.refresh(target, command.isResume, command.resolveConflicts)
             virtual.related(selected.commonDirectory).forEach { emit(it.task) }
         } ?: recheck(command.chatId, emit)
     }
@@ -537,11 +541,20 @@ internal class WorktreeJournal(
         }
     }
 
-    /** Publishes the finished sandbox as an immutable local branch; only a sandbox root can be handed off. */
-    private suspend fun handOff(existing: WorktreeRecord): WorktreeRecord? {
-        if (existing.task.virtualSandbox == null || existing.parentWorkspace != null) return existing
-        val state = git.handoffVirtual(existing) ?: return existing
-        return update(existing.task.chatId) { it.copy(task = it.task.virtualChanged(state)) }
+    /**
+     * Publishes the finished sandbox as an immutable local branch; only a sandbox root can be handed off. Serialized
+     * with run preparation, so a new native turn cannot start while the branch is published and be retained by it.
+     */
+    private suspend fun handOff(existing: WorktreeRecord): WorktreeRecord? = upkeep.prepareRun(existing.task.chatId) {
+        val current = record(existing.task.chatId) ?: return@prepareRun null
+        val run = existing.task.run
+        if (!current.task.canHandOff(current.parentWorkspace != null) || current.task.run != run) {
+            return@prepareRun current
+        }
+        val state = git.handoffVirtual(current) ?: return@prepareRun current
+        update(existing.task.chatId) {
+            it.copy(task = it.task.handedOff(state, it.parentWorkspace != null, run))
+        }
     }
 
     private suspend fun runBuild(command: WorktreeIntent.Public.RunBuild, emit: suspend (WorktreeTask) -> Unit) {

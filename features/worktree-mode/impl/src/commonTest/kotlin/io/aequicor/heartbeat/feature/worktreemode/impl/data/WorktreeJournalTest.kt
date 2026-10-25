@@ -688,210 +688,295 @@ class WorktreeJournalTest {
         assertEquals(SESSION, bound.run?.session)
         assertEquals(TURN, bound.run?.turn)
     }
+}
 
-    private class Fixture {
-        val stores = MemoryStores()
-        val git = FakeGit()
-        val builds = FakeBuilds()
-        val toggles = FakeToggles()
-        val workspaces = FakeWorkspaces()
-        val journal = reopen()
-        private var current: WorktreeTask? = null
-        fun reopen(): WorktreeJournal = WorktreeJournal(stores, git, builds, workspaces, toggles)
-        suspend fun send(command: WorktreeIntent.Public) {
-            journal.apply(command) { current = it }
-        }
-        fun task(): WorktreeTask = checkNotNull(current)
-        suspend fun accept(identity: WorktreeRunIdentity) {
-            send(WorktreeIntent.Public.RunStarted(CHAT, identity.request))
-            send(WorktreeIntent.Public.RunAccepted(CHAT, identity.request, identity.session, identity.turn))
-        }
-        suspend fun settle(identity: WorktreeRunIdentity) {
-            send(
-                WorktreeIntent.Public.RunSettled(
-                    CHAT,
-                    identity.request,
-                    identity.session,
-                    identity.turn,
-                    TurnOutcome.Completed,
-                ),
-            )
-        }
-        suspend fun completeCoding() {
-            journal.load()
-            send(WorktreeIntent.Public.Prepare(CHAT, PROJECT))
-            send(WorktreeIntent.Public.RunStarted(CHAT, REQUEST))
-            send(WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN))
-            send(WorktreeIntent.Public.TaskCompleteSignaled(CHAT, SESSION, TURN, "Done"))
-            send(WorktreeIntent.Public.RunSettled(CHAT, REQUEST, SESSION, TURN, TurnOutcome.Completed))
-            assertEquals(WorktreePhase.AwaitingDecision, task().phase)
-        }
+/** Handoff of a virtual sandbox root and its explicit reopening, on the real journal path. */
+class WorktreeHandOffJournalTest {
+    @Test
+    fun `a plain recheck keeps a handed-off sandbox and only an explicit reopen continues it`() = runTest {
+        val fixture = Fixture()
+        fixture.handOffVirtualRoot()
+        fixture.send(WorktreeIntent.Public.Recheck(CHAT))
+        fixture.send(WorktreeIntent.Public.Recheck(CHAT, isResume = true))
+        assertEquals(0, fixture.git.reopenCount)
+        assertEquals(VirtualSandboxPhase.HandedOff, fixture.task().virtualSandbox?.phase)
+        assertEquals("snapshot", fixture.task().virtualSandbox?.resultCommit)
+        assertEquals(WorktreePhase.Retained, fixture.task().phase)
+        fixture.send(WorktreeIntent.Public.Recheck(CHAT, isReopen = true))
+        assertEquals(1, fixture.git.reopenCount)
+        assertEquals(VirtualSandboxPhase.Ready, fixture.task().virtualSandbox?.phase)
+        assertNull(fixture.task().virtualSandbox?.resultCommit)
     }
 
-    private companion object {
-        const val CHAT = "chat"
-        val PROJECT = WorkspaceRef("project")
-        val CHECKOUT = WorkspaceRef("checkout")
-        val REQUEST = RequestId("request")
-        val TURN = TurnId("turn")
-        val MERGE_TURN = TurnId("merge-turn")
-        val SESSION = SessionRef(EngineId("test"), SessionSourceId("test"), "native")
-        val BUILD_IDENTITY = WorktreeRunIdentity(RequestId("build-turn"), SESSION, MERGE_TURN)
+    @Test
+    fun `a new turn waits for a running handoff and is never retained by it`() = runTest {
+        val fixture = Fixture()
+        fixture.completeVirtualRoot()
+        val started = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        fixture.git.handoffStarted = started
+        fixture.git.handoffGate = proceed
+        val handing = async { fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.HandOff)) }
+        started.await()
+        val request = RequestId("follow-up")
+        val next = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.send(WorktreeIntent.Public.RunStarted(CHAT, request))
+        }
+        assertFalse(next.isCompleted)
+        proceed.complete(Unit)
+        handing.await()
+        next.await()
+        assertEquals(1, fixture.git.handoffCount)
+        assertEquals(request, fixture.task().run?.request)
+        assertEquals(WorktreePhase.Working, fixture.task().phase)
     }
 
-    private class FakeGit : WorktreeGit {
-        override val isAvailable = true
-        override var isVirtualSupported = false
-        var handoffCount = 0
-        private var virtualState = VirtualSandboxState(baseCommit = "sha", snapshot = "snapshot")
-        override suspend fun virtualWorkspace(record: WorktreeRecord): WorkspaceRef? =
-            CHECKOUT.takeIf { record.task.virtualSandbox != null }
-        override suspend fun inspectVirtual(record: WorktreeRecord): VirtualSandboxState? =
-            virtualState.takeIf { record.task.virtualSandbox != null }
-        override suspend fun handoffVirtual(record: WorktreeRecord): VirtualSandboxState {
-            handoffCount++
-            virtualState = virtualState.copy(phase = VirtualSandboxPhase.HandedOff, resultCommit = "snapshot")
-            return virtualState
-        }
-        var hasPlanFailure = false
-        var promptCount = 0
-        var preflightCount = 0
-        var hasPromptFailure = false
-        var promptStarted: CompletableDeferred<Unit>? = null
-        var promptGate: CompletableDeferred<Unit>? = null
-        var isActionVerified = true
-        var existsStarted: CompletableDeferred<Unit>? = null
-        var existsGate: CompletableDeferred<Unit>? = null
-        var buildStarted: CompletableDeferred<Unit>? = null
-        var buildGate: CompletableDeferred<Unit>? = null
-        var snapshotCount = 0
-        override suspend fun plan(source: String, identity: String): WorktreeProvision {
-            check(!hasPlanFailure) { "GitProcessUnavailable" }
-            return WorktreeProvision("/source", "/checkout", "/common", "master", "heartbeat/task", "sha")
-        }
-        override suspend fun trackMain(source: String): WorktreeProvision = plan(source, "main")
-        override suspend fun materialize(record: WorktreeRecord) = Unit
-        override suspend fun exists(record: WorktreeRecord): Boolean {
-            val gate = existsGate
-            existsGate = null
-            if (gate != null) {
-                existsStarted?.complete(Unit)
-                gate.await()
-            }
-            return isCheckoutPresent
-        }
-        var isCheckoutPresent = true
-        override suspend fun validatePlan(record: WorktreeRecord, plan: WorktreeBuildPlan) = Unit
-        override suspend fun build(record: WorktreeRecord, id: String, command: String): BuildExecution {
-            buildStarted?.complete(Unit)
-            buildGate?.await()
-            return BuildExecution(
-                id,
-                WorktreeBuildCommand(command, "build"),
-                record.directory,
-                listOf(record.commonDirectory),
-                "/jobs/$id",
-                sandbox = if (record.task.isSandbox) SandboxBuild("", "/slots", record.directory) else null,
-            )
-        }
-        var reclaimCount = 0
-        var reclaimStarted: CompletableDeferred<Unit>? = null
-        var reclaimGate: CompletableDeferred<Unit>? = null
-        val discarded = mutableListOf<String>()
-        val pruned = mutableListOf<Set<String>>()
-        override suspend fun discardSnapshot(record: WorktreeRecord, id: String) {
-            discarded += id
-        }
-        override suspend fun pruneSnapshots(record: WorktreeRecord, active: Set<String>) {
-            pruned += active
-        }
-        override suspend fun reclaim(record: WorktreeRecord) {
-            reclaimCount++
-            reclaimStarted?.complete(Unit)
-            reclaimGate?.await()
-        }
-        override suspend fun snapshot(record: WorktreeRecord, id: String): String {
-            snapshotCount++
-            return "snapshot-$id"
-        }
-        val sealed = mutableListOf<String>()
-        override suspend fun seal(record: WorktreeRecord, id: String): String {
-            check(!isVirtualSupported || virtualState.isReady) { "SandboxPaused" }
-            sealed += id
-            return "seal-$id"
-        }
-        override suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String {
-            promptCount++
-            promptStarted?.complete(Unit)
-            promptGate?.await()
-            check(!hasPromptFailure) { "ActionPromptFailed" }
-            return "action"
-        }
-        override suspend fun mergeLease(record: WorktreeRecord, id: String): BuildExecution = build(
-            record,
-            id,
-            "lease",
-        ).copy(isHold = true)
-        override suspend fun mergePreflight(record: WorktreeRecord): String {
-            preflightCount++
-            return "sha"
-        }
-        override suspend fun verifyAction(record: WorktreeRecord, merge: Boolean, pullRequestUrl: String?) =
-            isActionVerified
+    @Test
+    fun `a handoff choice of a plain worktree changes nothing`() = runTest {
+        val fixture = Fixture()
+        fixture.completeCoding()
+        val before = fixture.task()
+        fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.HandOff))
+        assertEquals(0, fixture.git.handoffCount)
+        assertEquals(before, fixture.journal.taskProjection(CHAT))
     }
+}
 
-    private class FakeBuilds : WorktreeBuildCoordinator {
-        var releaseCount = 0
-        var acquireCount = 0
-        var leaseStarted: CompletableDeferred<Unit>? = null
-        var leaseGate: CompletableDeferred<Unit>? = null
-        var phase = WorktreeBuildPhase.Completed
-        var executeCount = 0
-        val executed = mutableListOf<BuildExecution>()
-        override suspend fun execute(
-            execution: BuildExecution,
-            isReattachment: Boolean,
-            update: suspend (WorktreeBuildOperation) -> Unit,
-        ): WorktreeBuildOperation {
-            executeCount++
-            executed += execution
-            return WorktreeBuildOperation(execution.id, execution.command.id, phase)
-        }
-        override suspend fun cancel(id: String) = true
-        override suspend fun recover(execution: BuildExecution): WorktreeBuildOperation = WorktreeBuildOperation(
-            execution.id,
-            execution.command.id,
-            phase,
+private class Fixture {
+    val stores = MemoryStores()
+    val git = FakeGit()
+    val builds = FakeBuilds()
+    val toggles = FakeToggles()
+    val workspaces = FakeWorkspaces()
+    val journal = reopen()
+    private var current: WorktreeTask? = null
+    fun reopen(): WorktreeJournal = WorktreeJournal(stores, git, builds, workspaces, toggles)
+    suspend fun send(command: WorktreeIntent.Public) {
+        journal.apply(command) { current = it }
+    }
+    fun task(): WorktreeTask = checkNotNull(current)
+    suspend fun accept(identity: WorktreeRunIdentity) {
+        send(WorktreeIntent.Public.RunStarted(CHAT, identity.request))
+        send(WorktreeIntent.Public.RunAccepted(CHAT, identity.request, identity.session, identity.turn))
+    }
+    suspend fun settle(identity: WorktreeRunIdentity) {
+        send(
+            WorktreeIntent.Public.RunSettled(
+                CHAT,
+                identity.request,
+                identity.session,
+                identity.turn,
+                TurnOutcome.Completed,
+            ),
         )
-        override suspend fun acquireLease(execution: BuildExecution) {
-            acquireCount++
-            leaseStarted?.complete(Unit)
-            leaseGate?.await()
+    }
+    suspend fun completeVirtualRoot() {
+        git.isVirtualSupported = true
+        toggles.isSandbox = true
+        journal.load()
+        send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, true))
+        send(WorktreeIntent.Public.RunStarted(CHAT, REQUEST))
+        send(WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN))
+        send(WorktreeIntent.Public.TaskCompleteSignaled(CHAT, SESSION, TURN, "Done"))
+        send(WorktreeIntent.Public.RunSettled(CHAT, REQUEST, SESSION, TURN, TurnOutcome.Completed))
+        assertEquals(WorktreePhase.AwaitingDecision, task().phase)
+    }
+    suspend fun handOffVirtualRoot() {
+        completeVirtualRoot()
+        send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.HandOff))
+        assertEquals(VirtualSandboxPhase.HandedOff, task().virtualSandbox?.phase)
+    }
+    suspend fun completeCoding() {
+        journal.load()
+        send(WorktreeIntent.Public.Prepare(CHAT, PROJECT))
+        send(WorktreeIntent.Public.RunStarted(CHAT, REQUEST))
+        send(WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN))
+        send(WorktreeIntent.Public.TaskCompleteSignaled(CHAT, SESSION, TURN, "Done"))
+        send(WorktreeIntent.Public.RunSettled(CHAT, REQUEST, SESSION, TURN, TurnOutcome.Completed))
+        assertEquals(WorktreePhase.AwaitingDecision, task().phase)
+    }
+}
+
+private const val CHAT = "chat"
+private val PROJECT = WorkspaceRef("project")
+private val CHECKOUT = WorkspaceRef("checkout")
+private val REQUEST = RequestId("request")
+private val TURN = TurnId("turn")
+private val MERGE_TURN = TurnId("merge-turn")
+private val SESSION = SessionRef(EngineId("test"), SessionSourceId("test"), "native")
+private val BUILD_IDENTITY = WorktreeRunIdentity(RequestId("build-turn"), SESSION, MERGE_TURN)
+
+private class FakeWorkspaces : LocalWorkspaces {
+    override val isAvailable = true
+    override fun observe(): Flow<List<LocalWorkspace>> = flowOf(emptyList())
+    override suspend fun register(directory: String): LocalWorkspace = error("Unused")
+    override suspend fun registerManaged(directory: String): LocalWorkspace = LocalWorkspace(CHECKOUT, "checkout")
+    override suspend fun resolve(ref: WorkspaceRef): String = "/source"
+}
+
+private class FakeGit : WorktreeGit {
+    override val isAvailable = true
+    override var isVirtualSupported = false
+    var handoffCount = 0
+    private var virtualState = VirtualSandboxState(baseCommit = "sha", snapshot = "snapshot")
+    override suspend fun virtualWorkspace(record: WorktreeRecord): WorkspaceRef? =
+        CHECKOUT.takeIf { record.task.virtualSandbox != null }
+    override suspend fun inspectVirtual(record: WorktreeRecord): VirtualSandboxState? =
+        virtualState.takeIf { record.task.virtualSandbox != null }
+    var reopenCount = 0
+    var handoffStarted: CompletableDeferred<Unit>? = null
+    var handoffGate: CompletableDeferred<Unit>? = null
+    override suspend fun handoffVirtual(record: WorktreeRecord): VirtualSandboxState {
+        handoffStarted?.complete(Unit)
+        handoffGate?.await()
+        handoffCount++
+        virtualState = virtualState.copy(
+            phase = VirtualSandboxPhase.HandedOff,
+            revision = virtualState.revision + 1,
+            resultCommit = "snapshot",
+        )
+        return virtualState
+    }
+    override suspend fun reopenVirtual(record: WorktreeRecord): VirtualSandboxState? {
+        if (virtualState.phase != VirtualSandboxPhase.HandedOff) return virtualState
+        reopenCount++
+        virtualState = virtualState.copy(
+            phase = VirtualSandboxPhase.Ready,
+            revision = virtualState.revision + 1,
+            resultCommit = null,
+        )
+        return virtualState
+    }
+    var hasPlanFailure = false
+    var promptCount = 0
+    var preflightCount = 0
+    var hasPromptFailure = false
+    var promptStarted: CompletableDeferred<Unit>? = null
+    var promptGate: CompletableDeferred<Unit>? = null
+    var isActionVerified = true
+    var existsStarted: CompletableDeferred<Unit>? = null
+    var existsGate: CompletableDeferred<Unit>? = null
+    var buildStarted: CompletableDeferred<Unit>? = null
+    var buildGate: CompletableDeferred<Unit>? = null
+    var snapshotCount = 0
+    override suspend fun plan(source: String, identity: String): WorktreeProvision {
+        check(!hasPlanFailure) { "GitProcessUnavailable" }
+        return WorktreeProvision("/source", "/checkout", "/common", "master", "heartbeat/task", "sha")
+    }
+    override suspend fun trackMain(source: String): WorktreeProvision = plan(source, "main")
+    override suspend fun materialize(record: WorktreeRecord) = Unit
+    override suspend fun exists(record: WorktreeRecord): Boolean {
+        val gate = existsGate
+        existsGate = null
+        if (gate != null) {
+            existsStarted?.complete(Unit)
+            gate.await()
         }
-        override suspend fun releaseLease(execution: BuildExecution): Boolean {
-            releaseCount++
-            return true
-        }
+        return isCheckoutPresent
     }
-
-    private class FakeToggles : FeatureToggles {
-        var isEnabled = true
-        var isSandbox = false
-
-        // This fake only hosts the feature's Boolean flags.
-        @Suppress("UNCHECKED_CAST")
-        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
-            (if (toggle == WorktreeSandboxEnabled) isSandbox else isEnabled) as T
-        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = error("Unused")
+    var isCheckoutPresent = true
+    override suspend fun validatePlan(record: WorktreeRecord, plan: WorktreeBuildPlan) = Unit
+    override suspend fun build(record: WorktreeRecord, id: String, command: String): BuildExecution {
+        buildStarted?.complete(Unit)
+        buildGate?.await()
+        return BuildExecution(
+            id,
+            WorktreeBuildCommand(command, "build"),
+            record.directory,
+            listOf(record.commonDirectory),
+            "/jobs/$id",
+            sandbox = if (record.task.isSandbox) SandboxBuild("", "/slots", record.directory) else null,
+        )
     }
-
-    private class FakeWorkspaces : LocalWorkspaces {
-        override val isAvailable = true
-        override fun observe(): Flow<List<LocalWorkspace>> = flowOf(emptyList())
-        override suspend fun register(directory: String): LocalWorkspace = error("Unused")
-        override suspend fun registerManaged(directory: String): LocalWorkspace = LocalWorkspace(CHECKOUT, "checkout")
-        override suspend fun resolve(ref: WorkspaceRef): String = "/source"
+    var reclaimCount = 0
+    var reclaimStarted: CompletableDeferred<Unit>? = null
+    var reclaimGate: CompletableDeferred<Unit>? = null
+    val discarded = mutableListOf<String>()
+    val pruned = mutableListOf<Set<String>>()
+    override suspend fun discardSnapshot(record: WorktreeRecord, id: String) {
+        discarded += id
     }
+    override suspend fun pruneSnapshots(record: WorktreeRecord, active: Set<String>) {
+        pruned += active
+    }
+    override suspend fun reclaim(record: WorktreeRecord) {
+        reclaimCount++
+        reclaimStarted?.complete(Unit)
+        reclaimGate?.await()
+    }
+    override suspend fun snapshot(record: WorktreeRecord, id: String): String {
+        snapshotCount++
+        return "snapshot-$id"
+    }
+    val sealed = mutableListOf<String>()
+    override suspend fun seal(record: WorktreeRecord, id: String): String {
+        check(!isVirtualSupported || virtualState.isReady) { "SandboxPaused" }
+        sealed += id
+        return "seal-$id"
+    }
+    override suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String {
+        promptCount++
+        promptStarted?.complete(Unit)
+        promptGate?.await()
+        check(!hasPromptFailure) { "ActionPromptFailed" }
+        return "action"
+    }
+    override suspend fun mergeLease(record: WorktreeRecord, id: String): BuildExecution = build(
+        record,
+        id,
+        "lease",
+    ).copy(isHold = true)
+    override suspend fun mergePreflight(record: WorktreeRecord): String {
+        preflightCount++
+        return "sha"
+    }
+    override suspend fun verifyAction(record: WorktreeRecord, merge: Boolean, pullRequestUrl: String?) =
+        isActionVerified
+}
+
+private class FakeBuilds : WorktreeBuildCoordinator {
+    var releaseCount = 0
+    var acquireCount = 0
+    var leaseStarted: CompletableDeferred<Unit>? = null
+    var leaseGate: CompletableDeferred<Unit>? = null
+    var phase = WorktreeBuildPhase.Completed
+    var executeCount = 0
+    val executed = mutableListOf<BuildExecution>()
+    override suspend fun execute(
+        execution: BuildExecution,
+        isReattachment: Boolean,
+        update: suspend (WorktreeBuildOperation) -> Unit,
+    ): WorktreeBuildOperation {
+        executeCount++
+        executed += execution
+        return WorktreeBuildOperation(execution.id, execution.command.id, phase)
+    }
+    override suspend fun cancel(id: String) = true
+    override suspend fun recover(execution: BuildExecution): WorktreeBuildOperation = WorktreeBuildOperation(
+        execution.id,
+        execution.command.id,
+        phase,
+    )
+    override suspend fun acquireLease(execution: BuildExecution) {
+        acquireCount++
+        leaseStarted?.complete(Unit)
+        leaseGate?.await()
+    }
+    override suspend fun releaseLease(execution: BuildExecution): Boolean {
+        releaseCount++
+        return true
+    }
+}
+
+private class FakeToggles : FeatureToggles {
+    var isEnabled = true
+    var isSandbox = false
+
+    // This fake only hosts the feature's Boolean flags.
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
+        (if (toggle == WorktreeSandboxEnabled) isSandbox else isEnabled) as T
+    override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = error("Unused")
 }
 
 private class MemoryStores : DataStores {

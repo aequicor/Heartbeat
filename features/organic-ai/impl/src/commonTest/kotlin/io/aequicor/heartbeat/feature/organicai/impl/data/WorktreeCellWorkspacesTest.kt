@@ -107,7 +107,7 @@ class WorktreeCellWorkspacesTest {
         val handedOff = VirtualSandboxState(VirtualSandboxPhase.HandedOff, baseCommit = "base", snapshot = "s")
         machine.publish(prepared(revision = 4).copy(virtualSandbox = handedOff))
         workspaces.awaitAvailable(sandboxed, C1)
-        assertEquals(listOf<WorktreeIntent.Public>(WorktreeIntent.Public.Recheck(key)), machine.sent)
+        assertEquals(listOf<WorktreeIntent.Public>(WorktreeIntent.Public.Recheck(key, isReopen = true)), machine.sent)
         assertEquals(VirtualSandboxPhase.Ready, machine.task(key).virtualSandbox?.phase)
         workspaces.awaitAvailable(sandboxed, C1)
         assertEquals(1, machine.sent.size)

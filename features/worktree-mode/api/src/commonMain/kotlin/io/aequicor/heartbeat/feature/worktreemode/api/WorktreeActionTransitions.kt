@@ -26,8 +26,31 @@ internal fun WorktreeTask.actionChosen(command: WorktreeIntent.Public.ChooseActi
             isCompletionDismissed = true,
         )
 
+        // The choice alone changes nothing: the journal publishes the branch and applies it through [handedOff].
+        command.action == WorktreeAction.HandOff -> this
+
         else -> this
     }
+} else {
+    this
+}
+
+/**
+ * Only the root of a virtual sandbox awaiting its completion decision can be handed off; a plain worktree, a child
+ * sandbox ([isChild]) or a task outside AwaitingDecision ignores the choice.
+ */
+public fun WorktreeTask.canHandOff(isChild: Boolean): Boolean = !isChild && virtualSandbox != null && canChooseAction()
+
+/**
+ * Applies a published handoff: HandedOff makes the task Retained. Ignored unless the decision it answered is still
+ * open for the same [expectedRun], so a run that started meanwhile is never retained under it.
+ */
+public fun WorktreeTask.handedOff(
+    state: VirtualSandboxState,
+    isChild: Boolean,
+    expectedRun: WorktreeRun?,
+): WorktreeTask = if (state.phase == VirtualSandboxPhase.HandedOff && canHandOff(isChild) && run == expectedRun) {
+    virtualChanged(state)
 } else {
     this
 }

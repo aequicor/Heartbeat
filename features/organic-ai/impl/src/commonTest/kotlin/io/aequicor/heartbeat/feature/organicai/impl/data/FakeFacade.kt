@@ -58,6 +58,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.organicai.impl.TARGET
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellHarnesses
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -262,5 +263,19 @@ internal class FakeFacade(
             MutableStateFlow(ModelCatalogSnapshot(catalog, Observation()))
 
         override suspend fun refresh(engine: EngineId, binding: EngineBindingId) = error("unused")
+    }
+}
+
+/** Cell sessions whose harness removals go nowhere. */
+internal fun cellSessions(facade: EngineFacade): FacadeCellSessions = FacadeCellSessions(facade, FakeCellHarnesses())
+
+/** Records harness removals of cell sessions; connections always succeed. */
+internal class FakeCellHarnesses : CellHarnesses {
+    val disconnected = mutableListOf<Pair<SessionRef, Set<String>>>()
+
+    override suspend fun connect(session: SessionRef, harnesses: Set<String>) = Unit
+
+    override suspend fun disconnect(session: SessionRef, harnesses: Set<String>, isReleased: suspend () -> Boolean) {
+        if (isReleased()) disconnected += session to harnesses
     }
 }

@@ -31,6 +31,10 @@ public data class VirtualSandboxState(
  * | Any | Pausing/Waiting/Manual/Conflicted | Retain run identity, block new coding |
  * | Any | Ready | Publish new base and snapshot |
  * | Any | HandedOff | Retained; the branch is owned by the user |
+ * | HandedOff | Ready after a reopen | Publish new base; the task stays Retained until a new run starts |
+ *
+ * A plain [WorktreeIntent.Public.Recheck] never reopens a handed-off sandbox; only a new run or a Recheck with
+ * `isReopen` does.
  */
 public fun WorktreeTask.virtualChanged(state: VirtualSandboxState): WorktreeTask {
     if (state.revision < (virtualSandbox?.revision ?: -1)) return this

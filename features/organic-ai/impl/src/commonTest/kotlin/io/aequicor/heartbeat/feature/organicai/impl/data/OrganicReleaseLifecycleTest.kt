@@ -49,7 +49,7 @@ class OrganicReleaseLifecycleTest {
         finish = null
         ignoresCancel = true
     }
-    private val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+    private val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
     private val journal = EncodedJournal()
     private val sent = mutableListOf<OrganicAiIntent>()
     private val recorder = object : EffectScope<OrganicAiIntent> {
@@ -108,7 +108,7 @@ class OrganicReleaseLifecycleTest {
         open()
         abort()
         journal.save(current())
-        val fresh = FacadeCellSessions(FakeFacade())
+        val fresh = cellSessions(FakeFacade())
         effects(fresh).handle(OrganicAiEffect.Restore, recorder)
         val restored = (sent.last() as OrganicAiIntent.Internal.Restored).organisms.single()
         assertEquals(SessionRelease.Released, restored.sessions)

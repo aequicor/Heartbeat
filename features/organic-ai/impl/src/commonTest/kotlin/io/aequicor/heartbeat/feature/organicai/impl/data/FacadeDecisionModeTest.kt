@@ -21,7 +21,7 @@ class FacadeDecisionModeTest {
     @Test
     fun `automatic cell route reaches the native prompt without raising trust`() = runTest {
         val native = FakeSession(session("automatic"))
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val automatic = route.copy(trust = TrustLevel.Ask, decisionMode = AgentToolDecisionMode.AutomaticSafety)
         cells.open(key, automatic, existing = null).submit(RequestId("first"), "work", TrustLevel.Ask)
         assertEquals(AgentToolDecisionMode.AutomaticSafety, native.prompts.single().decisionMode)

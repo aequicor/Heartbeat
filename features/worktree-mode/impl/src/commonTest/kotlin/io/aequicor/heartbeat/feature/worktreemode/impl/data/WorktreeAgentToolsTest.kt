@@ -145,6 +145,28 @@ class WorktreeAgentToolsTest {
     }
 
     @Test
+    fun `a rejected build preview still describes the build record for its cancellation`() = runTest {
+        val fixture = Fixture()
+        fixture.queue(WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))))
+        fixture.git.previewRejection = "UnknownBuildCommand"
+        val description = checkNotNull(fixture.approval("cancel_build", operationArguments()).description)
+        assertTrue("Command: \"test\"" in description, description)
+        assertTrue("Working directory" !in description, description)
+    }
+
+    @Test
+    fun `a preview of another configuration revision is not shown as the build being cancelled`() = runTest {
+        val fixture = Fixture()
+        fixture.queue(WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))))
+        fixture.git.previewRevision = 2
+        val approval = fixture.approval("cancel_build", operationArguments())
+        val description = checkNotNull(approval.description)
+        assertTrue("Configuration revision=1" in description, description)
+        assertTrue("revision=2" !in description && "Working directory" !in description, description)
+        assertEquals("operation:1", approval.binding)
+    }
+
+    @Test
     fun `another operation or native turn cannot produce a cancellation approval`() = runTest {
         val fixture = Fixture()
         fixture.queue(WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))))
@@ -270,7 +292,12 @@ class WorktreeAgentToolsTest {
         val operation = Json.decodeFromString<WorktreeBuildOperation>(pending.text.lineSequence().first()).id
         fixture.registry.finishBuilds(WorktreeBuildPhase.Completed)
         val result = fixture.execute(CONTEXT, "build_status", operationArguments("test"))
-        assertEquals(operation, Json.decodeFromString<WorktreeBuildOperation>(result.text).id)
+        // A command match may be an earlier run_build: the result says so instead of passing it off as current.
+        assertTrue(result.text.startsWith("Matched by command, not by operation"), result.text)
+        assertTrue("operation=$operation" in result.text, result.text)
+        assertEquals(operation, Json.decodeFromString<WorktreeBuildOperation>(result.text.lines().last()).id)
+        val exact = fixture.execute(CONTEXT, "build_status", operationArguments(operation))
+        assertEquals(operation, Json.decodeFromString<WorktreeBuildOperation>(exact.text).id)
         assertEquals("UnknownBuildOperation", fixture.execute(CONTEXT, "build_status", operationArguments("lint")).text)
     }
 
@@ -441,16 +468,24 @@ private class PreviewGit : WorktreeGit {
         rejection?.let { throw IllegalArgumentException(it) }
     }
     var previewFailure: String? = null
-    override suspend fun build(record: WorktreeRecord, id: String, command: String) = previewFailure
-        ?.takeIf { id == "approval" }?.let { error(it) } ?: BuildExecution(
-        id,
-        checkNotNull(record.task.buildPlan).commands.single { it.id == command },
-        record.directory,
-        listOf(record.commonDirectory),
-        "/jobs/$id",
-        configurationRevision = record.task.buildConfigurationRevision,
-        sandbox = if (record.task.isSandbox) SandboxBuild("", "/common/slots", "/source") else null,
-    )
+    var previewRejection: String? = null
+    var previewRevision: Long? = null
+    override suspend fun build(record: WorktreeRecord, id: String, command: String): BuildExecution {
+        if (id == "approval") {
+            previewFailure?.let { error(it) }
+            previewRejection?.let { throw IllegalArgumentException(it) }
+        }
+        return BuildExecution(
+            id,
+            checkNotNull(record.task.buildPlan).commands.single { it.id == command },
+            record.directory,
+            listOf(record.commonDirectory),
+            "/jobs/$id",
+            configurationRevision = previewRevision?.takeIf { id == "approval" }
+                ?: record.task.buildConfigurationRevision,
+            sandbox = if (record.task.isSandbox) SandboxBuild("", "/common/slots", "/source") else null,
+        )
+    }
     override suspend fun snapshot(record: WorktreeRecord, id: String): String = "snapshot-$id"
     override suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String = error("Unused")
     override suspend fun mergeLease(record: WorktreeRecord, id: String): BuildExecution = error("Unused")
@@ -489,7 +524,7 @@ private class PreviewToggles : FeatureToggles {
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(toggle.default)
 
     // The feature reads its Boolean flag; unrelated declarations keep their own value type.
-    @Suppress("UNCHECKED_CAST") // The fake serves only WorktreeMachineKey.
+    @Suppress("UNCHECKED_CAST")
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = when (toggle) {
         is FeatureToggle.Flag -> (toggle != WorktreeSandboxEnabled || isSandbox) as T
         is FeatureToggle.Choice -> toggle.default
@@ -510,7 +545,7 @@ private class PreviewStore : KeyValueStore {
     private val value = MutableStateFlow<String?>(null)
 
     // This journal stores only one string; the declaration owns its type.
-    @Suppress("UNCHECKED_CAST") // The fake serves only WorktreeMachineKey.
+    @Suppress("UNCHECKED_CAST")
     override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = value.map { it as T? }
 
     @Suppress("UNCHECKED_CAST") // The same single string declaration is read synchronously.

@@ -110,14 +110,18 @@ internal class WorktreeFake(private val isCutting: Boolean = false) :
                 }
             }
 
-            // The journal reopens a handed-off virtual sandbox for the next run.
-            is WorktreeIntent.Public.Recheck -> change(intent.chatId) { task ->
-                task.copy(virtualSandbox = task.virtualSandbox?.copy(phase = VirtualSandboxPhase.Ready))
-            }
+            is WorktreeIntent.Public.Recheck -> change(intent.chatId) { it.rechecked(intent) }
 
             else -> change(intent.runKey()) { it.transition(intent) }
         }
         return result
+    }
+
+    /** A recheck continues a paused sandbox; a handed-off one belongs to the user unless explicitly reopened. */
+    private fun WorktreeTask.rechecked(intent: WorktreeIntent.Public.Recheck): WorktreeTask {
+        val sandbox = virtualSandbox ?: return this
+        if (!intent.isReopen && sandbox.phase == VirtualSandboxPhase.HandedOff) return this
+        return copy(virtualSandbox = sandbox.copy(phase = VirtualSandboxPhase.Ready, resultCommit = null))
     }
 
     private fun change(key: String, transform: (WorktreeTask) -> WorktreeTask) {

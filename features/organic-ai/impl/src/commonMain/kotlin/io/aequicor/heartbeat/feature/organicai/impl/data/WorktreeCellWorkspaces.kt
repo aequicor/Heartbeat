@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.organicai.api.targetOf
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellResult
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRun
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellWorkspaces
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
@@ -200,7 +201,8 @@ internal class WorktreeCellWorkspaces(
         val phase = snapshot()[key]?.virtualSandbox?.takeUnless { it.isReady || it.isResolving }?.phase
         if (phase != null) {
             log.i { "organism ${organism.id.value} cell ${cell.value}: rechecking its $phase sandbox" }
-            dispatch(WorktreeIntent.Public.Recheck(key))
+            // Only a handed-off sandbox is reopened, and only here, right before the cell's next turn.
+            dispatch(WorktreeIntent.Public.Recheck(key, isReopen = phase == VirtualSandboxPhase.HandedOff))
         }
         machines.observe(WorktreeMachineKey).flatMapLatest { it?.state ?: flowOf(WorktreeState.Idle) }
             .first { state ->
