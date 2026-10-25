@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayInputStream;
@@ -13,6 +14,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
@@ -582,6 +584,8 @@ class LauncherTest {
     /** Каталог без права записи: удалить его содержимое нельзя (как jar, открытый воркером на Windows). */
     void withReadOnly(Path dir, ThrowingRunnable body) throws Exception {
         assumeTrue(Files.getFileStore(dir).supportsFileAttributeView("posix"));
+        // root обходит права доступа: каталог остался бы записываемым
+        assumeFalse("root".equals(System.getProperty("user.name")));
         Set<PosixFilePermission> before = Files.getPosixFilePermissions(dir);
         Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("r-xr-xr-x"));
         try {
@@ -729,5 +733,108 @@ class LauncherTest {
         assertFalse(Files.exists(launcherJar("a@t1")));
         launcher.store().stage(m, fetcher("t1"));
         assertEquals("a@t1", Files.readString(launcherJar("a@t1")));
+    }
+
+    @Test
+    void restoreFailingMidwayKeepsRollbackRequestAndBackup() throws Exception {
+        install("t1", 1, "a");
+        Files.writeString(data.resolve("app.db"), "v1");
+        install("t2", 2, "a");
+        Files.writeString(data.resolve("app.db"), "v2");
+        // Каталог без права записи не переносится (нужно обновить его ".."): замена срывается после app.db.
+        Path stuck = Files.createDirectories(data.resolve("z-cache"));
+        launcher.prepare();
+        assertEquals("t1", launcher.reportBundleFailure());
+        withReadOnly(stuck, () -> {
+            Launcher.Prepared blocked = launcher.prepare();
+            assertEquals("t2", blocked.train());
+            assertNull(blocked.rolledBackFrom());
+            assertEquals("v2", Files.readString(data.resolve("app.db")));
+            assertTrue(Files.isDirectory(stuck));
+            assertTrue(launcher.store().state().rollbackRequested);
+            assertTrue(Files.exists(root.resolve("backups").resolve("t2")));
+            launcher.markStable(); // запрос отката не даёт выбросить бэкап
+            assertTrue(Files.exists(root.resolve("backups").resolve("t2")));
+        });
+        Launcher.Prepared next = launcher.prepare();
+        assertEquals("t2", next.rolledBackFrom());
+        assertTrue(next.dbRestored());
+        assertEquals("v1", Files.readString(data.resolve("app.db")));
+        assertFalse(Files.exists(stuck));
+        assertFalse(launcher.store().state().rollbackRequested);
+        assertFalse(Files.exists(root.resolve("backups").resolve("t2")));
+        assertTrue(launcher.isBad("t2"));
+    }
+
+    @Test
+    void restoreDoesNotFollowSymlinksInData() throws Exception {
+        Path outside = Files.createDirectories(tmp.resolve("outside"));
+        Files.writeString(outside.resolve("keep.txt"), "keep");
+        install("t1", 1, "a");
+        Files.writeString(data.resolve("app.db"), "v1");
+        install("t2", 2, "a");
+        Path link = data.resolve("link");
+        try {
+            Files.createSymbolicLink(link, outside);
+        } catch (UnsupportedOperationException | IOException e) {
+            assumeTrue(false, "symlinks are unavailable: " + e);
+        }
+        launcher.prepare();
+        launcher.reportBundleFailure();
+        assertTrue(launcher.prepare().dbRestored());
+        assertFalse(Files.exists(link, LinkOption.NOFOLLOW_LINKS));
+        assertEquals("keep", Files.readString(outside.resolve("keep.txt")));
+    }
+
+    @Test
+    void migratingActivationWaitsForStorageLease() throws Exception {
+        install("t1", 1, "a");
+        Files.writeString(data.resolve("app.db"), "v1");
+        launcher.prepare();
+        launcher.markStable();
+        Path lockFile = data.resolve(DbBackup.OWNER_DIR).resolve(DbBackup.OWNER_LOCK);
+        assertTrue(Files.exists(lockFile)); // бэкап создаёт файл аренды и держит её
+        String m2 = manifest("t2", 1, 2, "a");
+        storeJars("t2", "a");
+        queuePending("t2", m2, 1_000);
+        try (FileChannel worker = FileChannel.open(lockFile, StandardOpenOption.WRITE);
+             FileLock held = worker.lock()) {
+            assertThrows(DbBackup.StorageInUseException.class, () -> install("t3", 3, "a"));
+            Launcher.Prepared blocked = launcher.prepare();
+            assertEquals("t1", blocked.train());
+            assertTrue(Files.exists(root.resolve("pending").resolve("t2").resolve("manifest.json")));
+            assertFalse(Files.exists(root.resolve("backups").resolve("t2")));
+            assertTrue(held.isValid());
+        }
+        Launcher.Prepared next = launcher.prepare();
+        assertEquals("t2", next.train());
+        assertFalse(Files.exists(root.resolve("pending").resolve("t2")));
+        assertEquals("v1", Files.readString(root.resolve("backups").resolve("t2").resolve("app.db")));
+    }
+
+    @Test
+    void backupRefusesDataInsideLauncherRoot() throws Exception {
+        launcher = new Launcher(root, root.resolve("data"));
+        install("t1", 0, "a"); // без миграции бэкап не нужен
+        assertThrows(DbBackup.UnsafeLayoutException.class, () -> install("t2", 1, "a"));
+        assertEquals("t1", launcher.store().state().current);
+        assertFalse(Files.exists(root.resolve("backups").resolve("t2")));
+    }
+
+    @Test
+    void backupRefusesLauncherRootInsideData() throws Exception {
+        Path nested = data.resolve("launcher");
+        launcher = new Launcher(nested, data);
+        assertThrows(DbBackup.UnsafeLayoutException.class, () -> install("t1", 1, "a"));
+        assertEquals("", launcher.store().state().current);
+        // Через symlink: реальные пути пересекаются, хотя записанные — нет.
+        Path alias = tmp.resolve("alias");
+        try {
+            Files.createSymbolicLink(alias, data);
+        } catch (UnsupportedOperationException | IOException e) {
+            assumeTrue(false, "symlinks are unavailable: " + e);
+        }
+        launcher = new Launcher(alias.resolve("launcher2"), data);
+        assertThrows(DbBackup.UnsafeLayoutException.class, () -> install("t1", 1, "a"));
     }
 }

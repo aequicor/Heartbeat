@@ -8,6 +8,7 @@ import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -415,11 +416,12 @@ public final class TrainStore {
         }
     }
 
+    /** Удаляет файл или каталог с содержимым; по symlink не переходит — удаляется сама ссылка. */
     static void deleteRecursively(Path path) throws IOException {
-        if (!Files.exists(path)) {
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
             return;
         }
-        if (Files.isDirectory(path)) {
+        if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
             try (DirectoryStream<Path> children = Files.newDirectoryStream(path)) {
                 for (Path child : children) {
                     deleteRecursively(child);

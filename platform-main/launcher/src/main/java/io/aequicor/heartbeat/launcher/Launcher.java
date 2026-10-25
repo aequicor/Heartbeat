@@ -20,9 +20,13 @@ import java.util.Set;
  * {@link #STABLE_AFTER_MILLIS} жизни → {@link #markCleanExit()} при штатном выходе. Процесс, снятый без
  * {@code markCleanExit} до {@code markStable}, считается крахом свежего поезда; {@link #CRASH_LIMIT} краха подряд —
  * откат. Исключение при инициализации бандла ({@link #reportBundleFailure}) до окна стабильности только запрашивает
- * откат: его вместе с восстановлением БД выполняет следующий {@code prepare()}. Восстановление требует аренды хранилища
- * ({@link DbBackup}): пока её держит другой процесс (задержавшийся воркер), откат откладывается — бэкап и запрос отката
- * сохраняются, текущий поезд остаётся, ожидающий поезд не активируется, следующий запуск пробует снова.
+ * откат: его вместе с восстановлением БД выполняет следующий {@code prepare()}. Запрос отката записывается до
+ * восстановления и снимается только записью самого отката (или когда откат недопустим), а бэкап удаляется лишь после
+ * неё. Восстановление требует аренды хранилища ({@link DbBackup}): пока её держит другой процесс (задержавшийся воркер)
+ * или замена сорвалась и откатилась ({@link DbBackup.DataUnchangedException}), откат откладывается — текущий поезд
+ * остаётся, ожидающий поезд не активируется, следующий запуск пробует снова. Если замена оборвалась посередине и
+ * данные частичные, {@code prepare()} бросает {@link IOException}: запуск на частичных данных не происходит, запрос и
+ * бэкап сохраняются для следующего запуска.
  *
  * <p>Откат не опускает схему БД: поезд с {@code dbSchema} ниже версии, под которую уже могла мигрировать БД,
  * становится текущим только вместе с восстановлением бэкапа, сделанного перед активацией откатываемого поезда, и только
@@ -99,7 +103,8 @@ public final class Launcher {
                 state.crashes++;
             }
             boolean rollback = state.rollbackRequested || crashed && state.crashes >= CRASH_LIMIT;
-            state.rollbackRequested = false;
+            // Запрос держится до записи отката (store.rollback снимает его): сбой восстановления его не теряет.
+            state.rollbackRequested = rollback;
             state.save(store.stateFile());
             if (rollback) {
                 String from = state.current;
@@ -109,13 +114,16 @@ public final class Launcher {
                         rolledBackFrom = from;
                         dbRestored = done.restored();
                     } else {
+                        dropRollbackRequest();
                         System.err.println("Train " + from + " fails, but there is no train to roll back to safely; "
                             + "keeping it");
                     }
-                } catch (DbBackup.StorageInUseException busy) {
-                    keepRollbackRequest();
-                    System.err.println("Train " + from + " rolls back at the next start: " + busy.getMessage());
+                } catch (DbBackup.DataUnchangedException deferred) {
+                    System.err.println("Train " + from + " rolls back at the next start: " + deferred.getMessage());
                     rollbackBlocked = true;
+                } catch (IOException | RuntimeException failed) {
+                    throw new IOException("Rollback of train " + from + " did not complete and is retried at the next "
+                        + "start; the DB backup is kept (" + failed.getMessage() + ")", failed);
                 }
             }
         }
@@ -140,6 +148,11 @@ public final class Launcher {
                     throw new IOException("Train " + state.current + " is damaged and its rollback restores data "
                         + "that another Heartbeat process still uses; close it and start again (" + e.getMessage()
                         + ")", busy);
+                } catch (IOException | RuntimeException failed) {
+                    keepRollbackRequest();
+                    throw new IOException("Train " + state.current + " is damaged and its rollback did not complete; "
+                        + "it is retried at the next start (" + e.getMessage() + "; " + failed.getMessage() + ")",
+                        failed);
                 }
                 if (done == null) {
                     throw new IOException("Train " + state.current + " is damaged and there is no train to roll back "
@@ -175,7 +188,9 @@ public final class Launcher {
     /**
      * Активирует самый свежий поезд из {@code pending/} (по времени изменения каталога), остальные удаляет. Все jar
      * ожидающего поезда уже в {@code store}: недостающий jar — ошибка, сеть не используется. Плохой, несовместимый или
-     * уже текущий поезд пропускается. Каталог ожидающего поезда удаляется при любом исходе.
+     * уже текущий поезд пропускается. Каталог ожидающего поезда удаляется при любом исходе, кроме отказа бэкапа
+     * мигрирующего поезда без изменения данных ({@link DbBackup.DataUnchangedException}: аренда хранилища занята,
+     * небезопасная раскладка) — тогда поезд остаётся ожидающим до следующего запуска.
      */
     private void applyPending() throws IOException {
         try {
@@ -201,6 +216,7 @@ public final class Launcher {
         if (newest == null) {
             return;
         }
+        boolean deferred = false;
         try {
             String json = Files.readString(newest, StandardCharsets.UTF_8);
             TrainManifest manifest = TrainManifest.parse(json);
@@ -213,18 +229,26 @@ public final class Launcher {
                         + " is missing from the store");
                 });
             }
+        } catch (DbBackup.DataUnchangedException e) {
+            deferred = true;
+            System.err.println("Pending train " + newest.getParent().getFileName() + " is activated at a later start, "
+                + "its DB backup was not made: " + e.getMessage());
         } catch (IOException | RuntimeException e) {
             System.err.println("Pending train " + newest.getParent().getFileName() + " not applied: " + e);
         } finally {
-            TrainStore.deleteRecursively(newest.getParent());
+            if (!deferred) {
+                TrainStore.deleteRecursively(newest.getParent());
+            }
         }
     }
 
     /**
      * Подготавливает и активирует поезд. Перед активацией, если версия схем БД растёт, делает бэкап данных; активация
-     * и привязка бэкапа записываются одной записью состояния.
+     * и привязка бэкапа записываются одной записью состояния. Бэкап снимается под арендой хранилища.
      *
      * @throws IncompatiblePlatformException если нужна более новая платформа
+     * @throws DbBackup.DataUnchangedException если бэкап мигрирующего поезда не сделан — аренду хранилища держит
+     *         другой процесс или раскладка каталогов небезопасна; поезд не активирован
      * @throws TrainStore.HashMismatchException если скачанный jar не совпал с манифестом
      */
     public void applyUpdate(String manifestJson, TrainStore.Fetcher fetcher) throws IOException {
@@ -389,7 +413,8 @@ public final class Launcher {
      * (см. {@link #plan}). Бэкап удаляется после записи отката; сбой удаления только печатается.
      *
      * @return итог отката, либо {@code null}, если откат недопустим (состояние при этом не меняется)
-     * @throws DbBackup.StorageInUseException если аренду хранилища держит другой процесс (ничего не изменено)
+     * @throws DbBackup.DataUnchangedException если восстановление отклонено или отменено (данные и состояние прежние)
+     * @throws IOException если замена данных оборвалась (данные частичные) или откат не записан; бэкап сохраняется
      */
     private Rollback rollbackAndRestore() throws IOException {
         Plan plan = plan(store.state());
@@ -412,10 +437,17 @@ public final class Launcher {
         return new Rollback(plan.target(), plan.restore());
     }
 
-    /** Откат отложен (хранилище занято): запрос сохраняется до следующего {@link #prepare()}. */
+    /** Откат не выполнен: запрос сохраняется до следующего {@link #prepare()}. */
     private void keepRollbackRequest() throws IOException {
         LauncherState state = store.state();
         state.rollbackRequested = true;
+        state.save(store.stateFile());
+    }
+
+    /** Откат недопустим: запрос снимается, чтобы не блокировать отметку стабильности. */
+    private void dropRollbackRequest() throws IOException {
+        LauncherState state = store.state();
+        state.rollbackRequested = false;
         state.save(store.stateFile());
     }
 
