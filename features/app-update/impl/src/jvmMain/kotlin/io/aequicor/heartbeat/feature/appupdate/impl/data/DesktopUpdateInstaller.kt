@@ -28,15 +28,17 @@ import java.nio.file.StandardCopyOption
  * Linux DEB installations belong to the system package manager: update offers lead to the release page for
  * manual installation, without downloading or trying to replace root-owned files from the desktop process.
  * A bundle train ([AppRelease.train]) is prepared for the platform launcher by [TrainUpdate] instead and activates at
- * the next start; there is no helper, so no mark is written and the launcher alone rolls a bad train back.
+ * the launcher's next start. Nothing is replaced, so the helper only waits for this process to quit and starts the
+ * same launcher again (macOS: an inline `sh` that `open`s the bundle; Windows: `apply-windows.ps1` without an
+ * installer). No mark is written: the app version does not change, and the launcher alone rolls a bad train back.
  */
 internal class DesktopUpdateInstaller(
     private val workspace: UpdateWorkspace,
     private val downloader: UpdateDownloader,
     private val mac: MacBundleUpdate,
     private val trains: TrainUpdate,
-    private val launch: LaunchProperties,
     private val io: CoroutineDispatcher,
+    private val launch: LaunchProperties = LaunchProperties(),
     private val processId: () -> Long = { ProcessHandle.current().pid() },
     private val startHelper: (command: List<String>, output: Path) -> Unit,
 ) : UpdateInstaller {
@@ -54,13 +56,11 @@ internal class DesktopUpdateInstaller(
         if (installation.platform.isManualInstallRequired) {
             updateFailure(AppUpdateFailure.ManualInstallRequired, "Linux updates use the system package manager")
         }
+        val launcher = launch.launcher ?: updateFailure(AppUpdateFailure.InstallFailed, "the launcher is unknown")
         if (release.train != null) {
-            // The platform launcher applies a train at its next start: nothing is replaced or started here.
-            val root = launch.launcherRoot ?: updateFailure(AppUpdateFailure.InstallFailed, "no launcher root")
-            trains.prepare(installation.repository, root, release, progress)
+            installTrain(installation, release, launcher, progress)
             return
         }
-        val launcher = launch.launcher ?: updateFailure(AppUpdateFailure.InstallFailed, "the launcher is unknown")
         val bundle = if (installation.platform.os == MAC_OS) {
             val bundle = mac.bundleOf(launcher)
                 ?: updateFailure(AppUpdateFailure.ManualInstallRequired, "the launcher is outside an app bundle")
@@ -90,6 +90,28 @@ internal class DesktopUpdateInstaller(
         }
     }
 
+    /** Queues the train for the launcher, then starts the helper that relaunches it once this process quits. */
+    private suspend fun installTrain(
+        installation: AppInstallation,
+        release: AppRelease,
+        launcher: Path,
+        progress: InstallProgressSink,
+    ) {
+        val root = launch.launcherRoot ?: updateFailure(AppUpdateFailure.InstallFailed, "no launcher root")
+        trains.prepare(installation.repository, root, release, progress)
+        withContext(io) {
+            val command = if (installation.platform.os == MAC_OS) {
+                relaunchMacCommand(processId(), mac.bundleOf(launcher) ?: launcher)
+            } else {
+                val script = script(workspace.helperDirectory(), WINDOWS_SCRIPT)
+                WindowsSetupUpdate.relaunchCommand(script, processId(), launcher)
+            }
+            // A helper that cannot start leaves the train queued: the next start of the app applies it all the same.
+            startHelper(command, workspace.helperLog)
+        }
+        log.i { "relaunch helper waits for the app to quit train=${release.version}" }
+    }
+
     private fun start(release: AppRelease, command: List<String>) {
         workspace.markStarted(release.version)
         var isStarted = false
@@ -116,6 +138,19 @@ internal class DesktopUpdateInstaller(
     }
 
     private companion object {
+        /**
+         * Waits up to ten minutes for process `$1` to quit, then starts `$2` again: `open` for an app bundle, the
+         * executable itself otherwise. Paths travel as arguments, never inside the script.
+         */
+        const val MAC_RELAUNCH = "pid=${'$'}1; app=${'$'}2; n=0; " +
+            "while kill -0 \"${'$'}pid\" 2>/dev/null; do " +
+            "if [ \"${'$'}n\" -ge 600 ]; then echo 'the app did not quit; not relaunched'; exit 1; fi; " +
+            "sleep 1; n=${'$'}((n + 1)); done; " +
+            "if [ -d \"${'$'}app\" ]; then exec open \"${'$'}app\"; else exec \"${'$'}app\"; fi"
+
+        fun relaunchMacCommand(pid: Long, target: Path): List<String> =
+            listOf("/bin/sh", "-c", MAC_RELAUNCH, "heartbeat-relaunch", "$pid", "$target")
+
         const val MAC_OS = "macos"
         const val MAC_SCRIPT = "apply-macos.sh"
         const val WINDOWS_SCRIPT = "apply-windows.ps1"

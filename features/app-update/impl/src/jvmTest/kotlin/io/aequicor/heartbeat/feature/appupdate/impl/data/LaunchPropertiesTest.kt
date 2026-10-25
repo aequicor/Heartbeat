@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppInstallation
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.InstallationCheck
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.ReleasePlatform
+import java.nio.file.Files
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -48,6 +50,29 @@ class LaunchPropertiesTest {
         assertEquals("t1", trainOf(train + ("heartbeat.launcher.root" to "/launcher")))
         assertNull(trainOf(train))
         assertNull(trainOf(release))
+    }
+
+    @Test
+    fun `rolled back and queued trains come from the launcher`() {
+        val launcherRoot = createTempDirectory("app-update-launcher")
+        try {
+            Files.createDirectories(launcherRoot.resolve("pending/t3"))
+            Files.writeString(launcherRoot.resolve("pending/t3/manifest.json"), "{}")
+            // A train without its manifest is not queued yet.
+            Files.createDirectories(launcherRoot.resolve("pending/t4"))
+            val properties = release + mapOf(
+                "heartbeat.train" to "t1",
+                "heartbeat.launcher.root" to "$launcherRoot",
+                "heartbeat.train.bad" to " t2, ,t5 ",
+            )
+
+            val installation = (probe(properties).current() as InstallationCheck.Supported).installation
+
+            assertEquals(setOf("t2", "t5"), installation.badTrains)
+            assertEquals(setOf("t3"), installation.pendingTrains)
+        } finally {
+            launcherRoot.toFile().deleteRecursively()
+        }
     }
 
     private fun trainOf(properties: Map<String, String>): String? =

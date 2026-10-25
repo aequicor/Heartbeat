@@ -37,6 +37,12 @@ internal class UpdateWorkspace(private val root: Path) {
         Files.createDirectories(root.resolve(version))
     }
 
+    /**
+     * A directory for a helper that installs nothing (the relaunch after a bundle train); removed with the other
+     * update files by the next launch.
+     */
+    fun helperDirectory(): Path = storage { Files.createDirectories(root.resolve(RELAUNCH)) }
+
     /** Records that the installer of [version] is about to start; the next launch reads it with [takeOutcome]. */
     fun markStarted(version: String): Unit = storage {
         val temporary = root.resolve("$MARKER.tmp")
@@ -108,6 +114,7 @@ internal class UpdateWorkspace(private val root: Path) {
     private companion object {
         const val MARKER = "pending-update"
         const val HELPER_LOG = "helper.log"
+        const val RELAUNCH = "relaunch"
     }
 }
 

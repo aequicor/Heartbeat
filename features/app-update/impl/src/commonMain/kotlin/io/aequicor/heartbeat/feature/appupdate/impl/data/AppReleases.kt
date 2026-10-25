@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
 import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.common.release.GitHubAsset
+import io.aequicor.heartbeat.core.common.release.GitHubRelease
 import io.aequicor.heartbeat.core.common.release.sha256FromSums
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
@@ -8,6 +10,7 @@ import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppInstallation
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppReleaseSource
+import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateException
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.ReleasePlatform
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.UpdateChannel
@@ -23,36 +26,82 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
     private val log = Log.tag("AppReleases")
 
     /**
-     * On the beta channel of a launch that knows its train: the newest train when it is not the installed one and the
-     * installed platform API suffices. A train that needs a newer platform is skipped, not failed: the platform
-     * cannot be updated by a train, so the check falls back to the full-installer release (which carries the new
-     * platform), and offers nothing when there is none. Everything else is the stable policy.
+     * On the beta channel of a launch that knows its train: the newest train newer than the installed one (see
+     * [newerTrain]). A train that needs a newer platform is skipped, not failed: the platform cannot be updated by a
+     * train, so the check falls back to the full-installer release (which carries the new platform), and offers nothing
+     * when there is none. A train check that fails falls back the same way: the stable path must keep working.
+     * Everything else is the stable policy.
      */
     override suspend fun newer(installation: AppInstallation): AppRelease? {
-        if (installation.channel == UpdateChannel.Beta && installation.train != null) {
-            newerTrain(installation.repository, installation.train)?.let { return it }
+        val installed = installation.train
+        if (installation.channel == UpdateChannel.Beta && installed != null) {
+            try {
+                newerTrain(installation, installed)?.let { return it }
+            } catch (e: AppUpdateException) {
+                log.w(e) { "train check failed, checking full releases failure=${e.failure}" }
+            }
         }
         return newer(installation.repository, installation.version, installation.platform)
     }
 
-    private suspend fun newerTrain(repository: GitHubRepository, installed: String): AppRelease? {
-        val (release, asset) = newestTrain(client.recent(repository)) ?: return null
-        val manifest = parseTrainManifest(client.document(asset.url))
+    /**
+     * The newest train published after the [installed] one. GitHub lists releases newest first, so only trains above
+     * the installed train (or above a train already queued for the launcher) are newer: the walk stops there and never
+     * offers an older train. Trains the launcher rolled back ([AppInstallation.badTrains]) are skipped. When the
+     * installed train is not among the recent releases its age is unknown and no train is offered: the full release
+     * path still updates the app. A train id is read from a `train-<id>` tag, otherwise from its manifest; the offered
+     * train's manifest is always read and must name the same train.
+     */
+    private suspend fun newerTrain(installation: AppInstallation, installed: String): AppRelease? {
+        val manifests = ManifestCache(client)
+        val walk = walkTrains(installation, installed, manifests)
+        val newest = walk.newest
         return when {
-            manifest.train == installed -> {
-                log.i { "installed train is the newest train=$installed" }
+            walk.stop == null -> {
+                log.i { "installed train is not among recent releases installed=$installed" }
                 null
             }
 
-            manifest.platformApi > INSTALLED_PLATFORM_API -> {
-                log.i { "train needs a newer platform train=${manifest.train} api=${manifest.platformApi}" }
+            newest == null -> {
+                log.i { "no train newer than train=${walk.stop} installed=$installed" }
                 null
             }
 
-            else -> {
-                log.i { "newer train=${manifest.train} installed=$installed" }
-                toTrainOffer(release, asset, manifest)
+            else -> offer(newest, manifests.of(newest.asset), installed)
+        }
+    }
+
+    /** Recent trains newest first down to the installed or a queued train, skipping the rolled back ones. */
+    private suspend fun walkTrains(
+        installation: AppInstallation,
+        installed: String,
+        manifests: ManifestCache,
+    ): TrainWalk {
+        val stops = installation.pendingTrains + installed
+        var newest: TrainCandidate? = null
+        for ((release, asset) in trains(client.recent(installation.repository))) {
+            val id = trainIdOfTag(release.tag) ?: manifests.of(asset).train
+            when {
+                id in stops -> return TrainWalk(newest, stop = id)
+                id in installation.badTrains -> log.i { "skip rolled back train=$id" }
+                newest == null -> newest = TrainCandidate(release, asset, id)
             }
+        }
+        return TrainWalk(newest, stop = null)
+    }
+
+    private fun offer(candidate: TrainCandidate, manifest: TrainManifest, installed: String): AppRelease? = when {
+        manifest.train != candidate.id ->
+            updateFailure(AppUpdateFailure.InvalidRelease, "train manifest differs from its tag")
+
+        manifest.platformApi > INSTALLED_PLATFORM_API -> {
+            log.i { "train needs a newer platform train=${manifest.train} api=${manifest.platformApi}" }
+            null
+        }
+
+        else -> {
+            log.i { "newer train=${manifest.train} installed=$installed" }
+            toTrainOffer(candidate.release, candidate.asset, manifest)
         }
     }
 
@@ -75,4 +124,18 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
         log.i { "newer release version=$version asset=${build.name} installed=$installed" }
         return latest.toAppRelease(version, build, sha256)
     }
+}
+
+/** A train of a release whose id is [id]. */
+private data class TrainCandidate(val release: GitHubRelease, val asset: GitHubAsset, val id: String)
+
+/** The newest acceptable train above [stop], the installed or queued train; [stop] is null when it was not found. */
+private data class TrainWalk(val newest: TrainCandidate?, val stop: String?)
+
+/** Each manifest of one check is read once. */
+private class ManifestCache(private val client: GitHubReleaseClient) {
+    private val manifests = mutableMapOf<String, TrainManifest>()
+
+    suspend fun of(asset: GitHubAsset): TrainManifest =
+        manifests[asset.url] ?: parseTrainManifest(client.document(asset.url)).also { manifests[asset.url] = it }
 }

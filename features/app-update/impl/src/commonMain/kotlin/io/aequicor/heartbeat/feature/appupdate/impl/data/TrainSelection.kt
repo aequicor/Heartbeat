@@ -14,11 +14,17 @@ internal fun GitHubRelease.trainManifestAsset(): GitHubAsset? = takeUnless { isD
     ?.takeIf { isTrustedReleaseUrl(it.url, GitHubDownloadHosts) }
 
 /**
- * The newest train of [releases] (newest first, as GitHub lists them): its release and manifest asset. Pre-releases
- * count, that is what trains are. Older trains are never looked at: a train always lists every bundle.
+ * The trains of [releases] (newest first, as GitHub lists them): each release with its manifest asset. Pre-releases
+ * count, that is what trains are.
  */
-internal fun newestTrain(releases: List<GitHubRelease>): Pair<GitHubRelease, GitHubAsset>? =
-    releases.firstNotNullOfOrNull { release -> release.trainManifestAsset()?.let { release to it } }
+internal fun trains(releases: List<GitHubRelease>): List<Pair<GitHubRelease, GitHubAsset>> =
+    releases.mapNotNull { release -> release.trainManifestAsset()?.let { release to it } }
+
+/** The train id a `train-<id>` tag names (as `prerelease.yml` publishes trains), or null for any other tag. */
+internal fun trainIdOfTag(tag: String): String? =
+    tag.removePrefix(TRAIN_TAG_PREFIX).takeIf { tag.startsWith(TRAIN_TAG_PREFIX) && isTrainId(it) }
+
+private const val TRAIN_TAG_PREFIX = "train-"
 
 /** The offer of the train [manifest] published as [asset] of [release]. */
 internal fun toTrainOffer(release: GitHubRelease, asset: GitHubAsset, manifest: TrainManifest): AppRelease = AppRelease(
@@ -43,9 +49,9 @@ internal data class TrainDownload(val bundle: TrainBundle, val asset: GitHubAsse
 internal fun TrainManifest.missingDownloads(
     releases: List<GitHubRelease>,
     isStored: (String) -> Boolean,
-): List<TrainDownload> = bundles.filterNot { isStored(it.sha256) }.distinctBy { it.sha256 }.map { bundle ->
+): List<TrainDownload> = bundles.asSequence().filterNot { isStored(it.sha256) }.distinctBy { it.sha256 }.map { bundle ->
     val asset = releases.firstNotNullOfOrNull { release ->
         release.assets.firstOrNull { it.name == bundle.jar && isTrustedReleaseUrl(it.url, GitHubDownloadHosts) }
     } ?: updateFailure(AppUpdateFailure.InvalidRelease, "train $train has no asset for bundle ${bundle.id}")
     TrainDownload(bundle, asset)
-}
+}.toList()

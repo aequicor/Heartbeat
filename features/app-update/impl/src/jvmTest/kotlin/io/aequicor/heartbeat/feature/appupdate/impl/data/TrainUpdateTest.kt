@@ -81,6 +81,8 @@ class TrainUpdateTest {
         }
         assertFalse(root.resolve("pending").exists())
         assertFalse(storeJar(root, sha256("other".toByteArray())).exists())
+        // The failed download leaves no staging files behind.
+        assertFalse(root.resolve("staging/t2").exists())
     }
 
     @Test

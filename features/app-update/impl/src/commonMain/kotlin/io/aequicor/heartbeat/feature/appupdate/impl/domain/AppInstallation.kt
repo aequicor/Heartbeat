@@ -15,7 +15,9 @@ internal enum class UpdateChannel {
 /**
  * An installed release build: its [version], where its updates are published and which build it installs. [train] is
  * the id of the bundle train the launcher started, null for a launch without a launcher (it is then never offered a
- * train). [channel] is the user's choice at the time of the check.
+ * train). [badTrains] are the trains the launcher rolled back after they failed to start: never offered again.
+ * [pendingTrains] are already queued for the launcher's next start: nothing older than or equal to them is offered.
+ * [channel] is the user's choice at the time of the check.
  */
 internal data class AppInstallation(
     val version: AppVersion,
@@ -23,6 +25,8 @@ internal data class AppInstallation(
     val platform: ReleasePlatform,
     val train: String? = null,
     val channel: UpdateChannel = UpdateChannel.Stable,
+    val badTrains: Set<String> = emptySet(),
+    val pendingTrains: Set<String> = emptySet(),
 )
 
 /** Whether this launch can update itself. */

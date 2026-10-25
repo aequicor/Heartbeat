@@ -21,6 +21,16 @@ class TrainManifestTest {
     }
 
     @Test
+    fun `the launcher's optional bundle url and unknown fields are ignored`() {
+        val withUrl = manifestJson("t-1", listOf("core.jar" to sha)).replace(
+            "\"jar\": \"core.jar\",",
+            "\"jar\": \"core.jar\", \"url\": \"https://example.com/core.jar\", \"future\": {\"a\": [1]},",
+        )
+
+        assertEquals(listOf(TrainBundle("core", "1.0", "core.jar", sha)), parseTrainManifest(withUrl).bundles)
+    }
+
+    @Test
     fun `an optional dbSchema is kept`() {
         assertEquals(3, parseTrainManifest(manifestJson("t-1", listOf("core.jar" to sha))).dbSchema)
     }

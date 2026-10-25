@@ -45,6 +45,13 @@ internal class LaunchProperties(private val property: (String) -> String? = Syst
     val trainId: String? get() = property(TRAIN)?.takeIf { it.isNotBlank() }
 
     /**
+     * The trains the platform launcher rolled back because they did not start (`heartbeat.train.bad`, comma-separated);
+     * empty for a launch without a launcher.
+     */
+    val badTrains: Set<String>
+        get() = property(BAD_TRAINS).orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+
+    /**
      * The launcher's root directory (`store/`, `staging/`, `pending/` below it), stated by the platform launcher;
      * null for a launch without one.
      */
@@ -60,6 +67,7 @@ internal class LaunchProperties(private val property: (String) -> String? = Syst
 
     private companion object {
         const val TRAIN = "heartbeat.train"
+        const val BAD_TRAINS = "heartbeat.train.bad"
         const val LAUNCHER_ROOT = "heartbeat.launcher.root"
         const val APP_VERSION = "heartbeat.app.version"
         const val UPDATE_REPOSITORY = "heartbeat.app.update.repository"
@@ -68,7 +76,10 @@ internal class LaunchProperties(private val property: (String) -> String? = Syst
     }
 }
 
-/** An installed release build on a desktop OS with a published build updates itself; any other launch does not. */
+/**
+ * An installed release build on a desktop OS with a published build updates itself; any other launch does not. The
+ * trains queued for the launcher are read on every check: a train queued by this launch counts at once.
+ */
 @Inject
 internal class DesktopInstallationProbe(private val platform: PlatformInfo, private val launch: LaunchProperties) :
     InstallationProbe {
@@ -81,8 +92,18 @@ internal class DesktopInstallationProbe(private val platform: PlatformInfo, priv
         val build = releasePlatform(platform.host, launch.architecture)
             ?: return InstallationCheck.Unsupported(UnsupportedReason.UnsupportedPlatform)
         // Trains need the launcher that applies them: without its root there is no train to compare or install.
-        val train = launch.trainId.takeIf { launch.launcherRoot != null }
-        return InstallationCheck.Supported(AppInstallation(version, repository, build, train))
+        val root = launch.launcherRoot
+        val train = launch.trainId.takeIf { root != null }
+        return InstallationCheck.Supported(
+            AppInstallation(
+                version = version,
+                repository = repository,
+                platform = build,
+                train = train,
+                badTrains = if (train != null) launch.badTrains else emptySet(),
+                pendingTrains = if (train != null && root != null) pendingTrains(root) else emptySet(),
+            ),
+        )
     }
 }
 

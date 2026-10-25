@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.InstallProgressSink
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.updateFailure
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.file.Files
@@ -60,6 +61,23 @@ internal class TrainUpdate(
                 Files.createDirectories(root.resolve(STORE))
             }
         }
+        try {
+            download(missing, staging, root, progress)
+            progress.preparing()
+            withContext(io) { storage { queue(root, manifest.train, text) } }
+        } finally {
+            // Also after a failure or cancellation: a partial download is never reused, the store keeps what was moved.
+            withContext(NonCancellable) { removeStaging(staging) }
+        }
+        log.i { "train queued for the launcher train=${manifest.train}" }
+    }
+
+    private suspend fun download(
+        missing: List<TrainDownload>,
+        staging: Path,
+        root: Path,
+        progress: InstallProgressSink,
+    ) {
         val total = missing.sumOf { it.asset.size }.takeIf { size -> size > 0 && missing.all { it.asset.size > 0 } }
         var done = 0L
         for (download in missing) {
@@ -74,14 +92,14 @@ internal class TrainUpdate(
             done += download.asset.size
             withContext(io) { storage { moveInto(staged, storeJar(root, download.bundle.sha256)) } }
         }
-        progress.preparing()
-        withContext(io) {
-            storage {
-                queue(root, manifest.train, text)
-                staging.deleteRecursively()
-            }
+    }
+
+    private suspend fun removeStaging(staging: Path) = withContext(io) {
+        try {
+            staging.deleteRecursively()
+        } catch (e: IOException) {
+            log.w(e.withoutDetails()) { "train staging files could not be removed" }
         }
-        log.i { "train queued for the launcher train=${manifest.train}" }
     }
 
     private fun queue(root: Path, train: String, manifest: String) {
@@ -113,3 +131,20 @@ internal class TrainUpdate(
 
 /** The store file of the jar with the lowercase hex [sha256] below the launcher [root]. */
 internal fun storeJar(root: Path, sha256: String): Path = root.resolve("store").resolve("$sha256.jar")
+
+/**
+ * The trains queued below the launcher [root] (`pending/<train>/manifest.json`) that the launcher has not applied yet.
+ * Unreadable means none: the check then may offer a queued train again, which re-queues it without new downloads.
+ */
+internal fun pendingTrains(root: Path): Set<String> {
+    val pending = root.resolve("pending")
+    if (!Files.isDirectory(pending)) return emptySet()
+    return try {
+        Files.newDirectoryStream(pending).use { entries ->
+            entries.filter { Files.isRegularFile(it.resolve("manifest.json")) }.map { it.fileName.toString() }.toSet()
+        }
+    } catch (e: IOException) {
+        Log.tag("TrainUpdate").w(e.withoutDetails()) { "queued trains could not be read" }
+        emptySet()
+    }
+}

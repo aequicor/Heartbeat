@@ -21,19 +21,36 @@ class TrainReleasesTest {
     private val list = "https://api.github.com/repos/aequicor/Heartbeat/releases?per_page=30"
     private val requested = mutableListOf<String>()
 
-    private fun installation(channel: UpdateChannel, train: String? = "t1") = AppInstallation(
+    private fun installation(
+        channel: UpdateChannel,
+        train: String? = "t1",
+        bad: Set<String> = emptySet(),
+        pending: Set<String> = emptySet(),
+    ) = AppInstallation(
         AppVersion(1, 3, 0),
         GitHubRepository("aequicor", "Heartbeat"),
         ReleasePlatform.MacOsArm64,
         train,
         channel,
+        badTrains = bad,
+        pendingTrains = pending,
     )
 
-    /** The release JSON and the `url to manifest` document of [train]. */
-    private fun trainRelease(train: String, platformApi: Int = 1): Pair<String, Pair<String, String>> {
-        val release = releaseJson("train-$train", listOf("train-manifest.json" to 10L, "core-$train.jar" to 100L))
+    /** The release JSON and the `url to manifest` document of [train], published under [tag]. */
+    private fun trainRelease(
+        train: String,
+        platformApi: Int = 1,
+        tag: String = "train-$train",
+    ): Pair<String, Pair<String, String>> {
+        val release = releaseJson(tag, listOf("train-manifest.json" to 10L, "core-$train.jar" to 100L))
         val manifest = manifestJson(train, listOf("core-$train.jar" to sha), platformApi)
-        return release to ("$TRAIN_DOWNLOADS/train-$train/train-manifest.json" to manifest)
+        return release to ("$TRAIN_DOWNLOADS/$tag/train-manifest.json" to manifest)
+    }
+
+    /** Releases of the trains [ids], newest first, and all their manifests. */
+    private fun trainReleases(vararg ids: String): AppReleases {
+        val published = ids.map { trainRelease(it) }
+        return releases(published.map { it.first }, published.associate { it.second })
     }
 
     private fun releases(published: List<String>, documents: Map<String, String> = emptyMap()): AppReleases {
@@ -62,11 +79,12 @@ class TrainReleasesTest {
     }
 
     @Test
-    fun `beta offers the newest train when it is not the installed one`() = runTest {
+    fun `beta offers the newest train above the installed one`() = runTest {
         val (newest, newestDocument) = trainRelease("t3")
         val (older, olderDocument) = trainRelease("t2")
+        val (installed, installedDocument) = trainRelease("t1")
 
-        val found = releases(listOf(newest, older), mapOf(newestDocument, olderDocument))
+        val found = releases(listOf(newest, older, installed), mapOf(newestDocument, olderDocument, installedDocument))
             .newer(installation(UpdateChannel.Beta))
 
         assertNotNull(found)
@@ -75,6 +93,68 @@ class TrainReleasesTest {
         assertEquals("train-manifest.json", found.assetName)
         assertEquals(newestDocument.first, found.url)
         assertEquals("https://github.com/aequicor/Heartbeat/releases/tag/train-t3", found.pageUrl)
+        // Ids come from the tags: only the offered train's manifest is read.
+        assertEquals(listOf(newestDocument.first), requested.filter { it.endsWith("train-manifest.json") })
+    }
+
+    @Test
+    fun `a train the launcher rolled back is never offered again`() = runTest {
+        val found = trainReleases("t3", "t2", "t1").newer(installation(UpdateChannel.Beta, bad = setOf("t3")))
+
+        assertEquals("t2", found?.train)
+    }
+
+    @Test
+    fun `only bad trains above the installed one fall back to full releases`() = runTest {
+        val found = trainReleases("t3", "t2", "t1").newer(installation(UpdateChannel.Beta, bad = setOf("t3", "t2")))
+
+        assertNull(found)
+        assertTrue("latest" in requested)
+    }
+
+    @Test
+    fun `a train older than the installed one is never offered`() = runTest {
+        // t3 is the newest but rolled back; t1 is older than the installed t2: nothing is a newer train.
+        val found = trainReleases("t3", "t2", "t1").newer(installation(UpdateChannel.Beta, "t2", bad = setOf("t3")))
+
+        assertNull(found)
+    }
+
+    @Test
+    fun `an installed train missing from the recent releases is not compared`() = runTest {
+        assertNull(trainReleases("t3", "t2").newer(installation(UpdateChannel.Beta, "t0")))
+    }
+
+    @Test
+    fun `a train already queued for the launcher is not offered again`() = runTest {
+        assertNull(trainReleases("t3", "t2", "t1").newer(installation(UpdateChannel.Beta, pending = setOf("t3"))))
+        assertEquals(
+            "t3",
+            trainReleases("t3", "t2", "t1").newer(installation(UpdateChannel.Beta, pending = setOf("t2")))?.train,
+        )
+    }
+
+    @Test
+    fun `the train of a full release is read from its manifest`() = runTest {
+        val (newest, newestDocument) = trainRelease("t3", tag = "v1.4.0")
+        val (installed, installedDocument) = trainRelease("t1")
+
+        val found = releases(listOf(newest, installed), mapOf(newestDocument, installedDocument))
+            .newer(installation(UpdateChannel.Beta))
+
+        assertEquals("t3", found?.train)
+    }
+
+    @Test
+    fun `a broken train manifest falls back to full releases`() = runTest {
+        val (newest, newestDocument) = trainRelease("t3")
+        val (installed, installedDocument) = trainRelease("t1")
+
+        val found = releases(listOf(newest, installed), mapOf(newestDocument.first to "{}", installedDocument))
+            .newer(installation(UpdateChannel.Beta))
+
+        assertNull(found)
+        assertTrue("latest" in requested)
     }
 
     @Test
@@ -90,8 +170,12 @@ class TrainReleasesTest {
     @Test
     fun `a train that needs a newer platform is not offered`() = runTest {
         val (release, document) = trainRelease("t2", platformApi = 2)
+        val (installed, installedDocument) = trainRelease("t1")
 
-        assertNull(releases(listOf(release), mapOf(document)).newer(installation(UpdateChannel.Beta)))
+        val found = releases(listOf(release, installed), mapOf(document, installedDocument))
+            .newer(installation(UpdateChannel.Beta))
+
+        assertNull(found)
     }
 
     @Test

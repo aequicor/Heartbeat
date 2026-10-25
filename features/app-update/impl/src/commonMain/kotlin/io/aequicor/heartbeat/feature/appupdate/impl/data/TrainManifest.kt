@@ -37,7 +37,8 @@ internal data class TrainBundle(val id: String, val version: String, val jar: St
  * Parses and validates [text]. Anything the launcher would refuse is [AppUpdateFailure.InvalidRelease] here, so a
  * broken train is never downloaded: a train id that is not a plain name (it names a directory), a non-positive
  * `platformApi`, no bundles, duplicate bundle ids or jars, a jar name with a path separator or without `.jar`, and a
- * SHA-256 that is not 64 hex digits. Unknown fields are ignored; digests are normalised to lowercase.
+ * SHA-256 that is not 64 hex digits. Unknown fields (such as the launcher's optional per-bundle `url`) are ignored;
+ * digests are normalised to lowercase.
  */
 internal fun parseTrainManifest(text: String): TrainManifest {
     val manifest = decode(text)
@@ -50,6 +51,9 @@ internal fun parseTrainManifest(text: String): TrainManifest {
     if (manifest.bundles.distinctBy { it.jar }.size != manifest.bundles.size) invalid("duplicate jar")
     return manifest.copy(bundles = manifest.bundles.map { it.copy(sha256 = it.sha256.lowercase()) })
 }
+
+/** Whether [id] is a valid train id: a plain name, because it names a directory of the launcher. */
+internal fun isTrainId(id: String): Boolean = TrainId.matches(id)
 
 private fun validate(bundle: TrainBundle) {
     if (bundle.id.isBlank() || bundle.version.isBlank()) invalid("bundle id or version")
