@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAuthOwner
@@ -122,6 +123,8 @@ public object KoogBindings {
                 RequestsPermissions.id,
                 AppliesTrustLevels.id,
                 ResumesSessions.id,
+                // The facade resumes a stored chat only through runtime attachment (KoogRuntime implements it).
+                AttachesSessions.id,
                 ListsSessions.id,
                 CompactsContext.id,
             ),
