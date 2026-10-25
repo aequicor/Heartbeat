@@ -11,14 +11,19 @@ import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ReplyPartUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SandboxPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreePhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -202,18 +207,6 @@ class StudioWorktreeFeedTest {
         val running = BuildUi("first", "compile", BuildPhaseUi.Running, "", null)
         val initial = timeline(task(WorktreePhaseUi.Idle, builds = listOf(running)))
         val placement = TimelineWeaves()
-        val timelineLabels = TimelineLabels(
-            section = "Session",
-            you = "You",
-            agent = "Agent",
-            studio = "Studio",
-            stoppedTemplate = "Stopped after %1\$s",
-            failed = FailureLabels(unknown = "Failed", limit = "Limit"),
-            durations = DurationLabels(secondsTemplate = "%1\$d s", minutesTemplate = "%1\$d min %2\$d s"),
-            compacted = "Context compacted",
-            rolledOver = "Continued in a new session",
-            collapsedTools = "Tool calls: %1\$d",
-        )
         TimelineCache(placement).update(emptyList(), timelineLabels, initial.messages, initial.retained)
         assertEquals(HbToolStatus.Running, initial.card("build:first").status)
         val builds = listOf(running.copy(phase = BuildPhaseUi.Failed, output = "Compile failed", failure = "Exit1")) +
@@ -246,6 +239,34 @@ class StudioWorktreeFeedTest {
             StudioIntent.CancelWorktreeBuild("chat", "first"),
             stillRunning.press("build:first", "cancel-build-first"),
         )
+    }
+
+    @Test
+    fun `an inline build card stays offered after newer builds push it out of the recent window`() {
+        val placement = TimelineWeaves()
+        val cache = TimelineCache(placement)
+        val prompt = MessageUi.Prompt("m1", Instant.fromEpochSeconds(0), "Build it")
+        var builds = emptyList<BuildUi>()
+        var calls = emptyList<ReplyPartUi>()
+        var current = WorktreeTimeline()
+        var shown = cache.update(emptyList(), timelineLabels)
+        for (index in 1..4) {
+            val phase = if (index == 1) BuildPhaseUi.Running else BuildPhaseUi.Completed
+            builds = builds + BuildUi("b$index", "verify", phase, "", null)
+            calls = calls + ReplyPartUi.Tool(
+                ToolUi("t$index", "run_build", ToolStatusUi.Done, "{\"id\":\"b$index\"}", null),
+            )
+            val reply = MessageUi.Reply("m2", Instant.fromEpochSeconds(1), "", persistentListOf(), isStreaming = true)
+                .copy(parts = calls.toImmutableList())
+            val task = task(WorktreePhaseUi.Idle, builds = builds)
+            val feed = WorktreeFeed("chat", "chat", task, WorktreeJournalUi.Ready, isPreparing = false)
+            current = worktreeTimeline(feed, labels, placement.shown)
+            shown = cache.update(listOf(prompt, reply), timelineLabels, current.messages, current.retained)
+        }
+
+        val parts = shown.messages.single { it.id == "m2" }.parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:b1", "t2", "build:b2", "t3", "build:b3", "t4", "build:b4"), parts)
+        assertEquals(StudioIntent.CancelWorktreeBuild("chat", "b1"), current.press("build:b1", "cancel-build-b1"))
     }
 
     @Test
@@ -396,6 +417,19 @@ class StudioWorktreeFeedTest {
         pullRequestUrl,
         failure,
         persistentListOf<BuildUi>().addAll(builds),
+    )
+
+    private val timelineLabels = TimelineLabels(
+        section = "Session",
+        you = "You",
+        agent = "Agent",
+        studio = "Studio",
+        stoppedTemplate = "Stopped after %1\$s",
+        failed = FailureLabels(unknown = "Failed", limit = "Limit"),
+        durations = DurationLabels(secondsTemplate = "%1\$d s", minutesTemplate = "%1\$d min %2\$d s"),
+        compacted = "Context compacted",
+        rolledOver = "Continued in a new session",
+        collapsedTools = "Tool calls: %1\$d",
     )
 
     private val labels = WorktreeLabels(

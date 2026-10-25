@@ -391,7 +391,7 @@ private fun paneFeed(content: PaneContent, timelineState: StudioTimelineState): 
         NoWorktree
     } else {
         val labels = worktreeLabels()
-        val shownCards = timelineState.session(feedId ?: worktreeFeed.key).cards.keys
+        val shownCards = timelineState.session(feedId ?: worktreeFeed.key).shown
         remember(worktreeFeed, labels, shownCards) { worktreeTimeline(worktreeFeed, labels, shownCards) }
     }
     val transcript = content.transcript ?: persistentListOf<MessageUi>().takeIf { worktree.messages.isNotEmpty() }

@@ -130,6 +130,7 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
     private var retained: Set<String> = emptySet()
     private var observedCards = placement.cards
     private var observedPositions = placement.positions
+    private val outputs = RunBuildOutputs()
 
     /** Build cards shown inside a reply, right after the run_build call that started them, by that call's id. */
     private var anchored: Map<String, HbChatMessage> = emptyMap()
@@ -160,7 +161,12 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         val sections = sectionsFor(next, nextLabels)
         val previousAnchored = anchored
         val positions = weaves.associateTo(HashMap()) { it.id to it.afterIndex }
-        anchored = anchoredCards(next, nextCards, nextCards.associate { it.id to (positions[it.id] ?: next.lastIndex) })
+        anchored = anchoredCards(
+            next,
+            nextCards,
+            nextCards.associate { it.id to (positions[it.id] ?: next.lastIndex) },
+            outputs,
+        )
         history = if (isPlacementChanged) {
             rebuild(next, sections, nextLabels)
         } else {
@@ -173,6 +179,7 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         cards = nextCards
         retained = nextRetained
         val inline = anchored.values.mapTo(HashSet()) { it.id }
+        placement.inline = inline
         val updated = weave(next, nextCards, nextRetained, inline, sections, nextLabels)
         observedCards = woven
         observedPositions = weaves
@@ -364,13 +371,15 @@ internal fun rememberStudioTimeline(
  * engine's tool timeout — takes the newest card of the command in its arguments; any card left goes after the
  * remaining waiting calls, newest to newest. Without an operation a call takes only a card that appeared after
  * its reply started: [appearedAfter] maps a card id to the index of the last message present when the card first
- * showed (a card missing from it appears now), so an older build never moves into a newer call. Keys are the
- * calls' ids; a card without such a visible call stays in the timeline.
+ * showed (a card missing from it appears now), so an older build never moves into a newer call. A card that
+ * showed before any message has no known start and may go to any call. Keys are the calls' ids; a card without
+ * such a visible call stays in the timeline. [outputs] keeps parsed call outputs between updates.
  */
 internal fun anchoredCards(
     messages: List<MessageUi>,
     cards: List<HbChatMessage>,
     appearedAfter: Map<String, Int> = emptyMap(),
+    outputs: RunBuildOutputs = RunBuildOutputs(),
 ): Map<String, HbChatMessage> {
     val builds = cards.filter { it.id.startsWith(BUILD_CARD_PREFIX) }
     if (builds.isEmpty()) return emptyMap()
@@ -378,9 +387,13 @@ internal fun anchoredCards(
         val reply = message as? MessageUi.Reply ?: return@flatMap emptyList()
         reply.parts.filterIsInstance<ReplyPartUi.Tool>()
             .filter { it.tool.title == RUN_BUILD_TOOL }
-            .map { RunBuildCall(it.tool, index) }
+            .map { RunBuildCall(it.tool, index, outputs.of(it.tool)) }
     }
-    fun RunBuildCall.mayTake(card: HbChatMessage) = (appearedAfter[card.id] ?: messages.lastIndex) >= replyIndex
+    outputs.retainOnly(calls.mapTo(HashSet()) { it.tool.id })
+    fun RunBuildCall.mayTake(card: HbChatMessage): Boolean {
+        val appeared = appearedAfter[card.id] ?: messages.lastIndex
+        return appeared < 0 || appeared >= replyIndex
+    }
     val anchored = LinkedHashMap<String, HbChatMessage>()
     builds.forEach { card ->
         val operation = card.id.removePrefix(BUILD_CARD_PREFIX)
@@ -414,9 +427,33 @@ private inline fun pairWaiting(
 }
 
 /** A run_build call of the transcript with the operations and commands its output names. */
-private class RunBuildCall(val tool: ToolUi, val replyIndex: Int) {
-    val operations: Set<String> = OPERATION_ID.findAll(tool.output).mapTo(HashSet()) { it.groupValues[1] }
-    val commands: Set<String> = BUILD_COMMAND.findAll(tool.output).mapTo(HashSet()) { it.groupValues[1] }
+private class RunBuildCall(val tool: ToolUi, val replyIndex: Int, output: RunBuildOutput) {
+    val operations: Set<String> = output.operations
+    val commands: Set<String> = output.commands
+}
+
+/** The operations and commands named by one run_build [output]. */
+internal class RunBuildOutput(val output: String) {
+    val operations: Set<String> = OPERATION_ID.findAll(output).mapTo(HashSet()) { it.groupValues[1] }
+    val commands: Set<String> = BUILD_COMMAND.findAll(output).mapTo(HashSet()) { it.groupValues[1] }
+}
+
+/**
+ * Parsed run_build outputs by call id. A streamed delta changes one message, so the other calls reuse their
+ * parse instead of matching every output again; calls that left the transcript are dropped.
+ */
+internal class RunBuildOutputs {
+    private val parsed = HashMap<String, RunBuildOutput>()
+
+    fun of(tool: ToolUi): RunBuildOutput {
+        val known = parsed[tool.id]
+        if (known != null && known.output == tool.output) return known
+        return RunBuildOutput(tool.output).also { parsed[tool.id] = it }
+    }
+
+    fun retainOnly(ids: Set<String>) {
+        parsed.keys.retainAll(ids)
+    }
 }
 
 private const val BUILD_CARD_PREFIX = "build:"

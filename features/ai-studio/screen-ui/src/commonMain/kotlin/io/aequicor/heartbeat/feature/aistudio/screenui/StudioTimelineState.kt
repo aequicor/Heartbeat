@@ -16,6 +16,13 @@ internal class StudioTimelineState {
 internal class TimelineWeaves {
     var cards: Map<String, HbChatMessage> = emptyMap()
     var positions: List<TimelineWeave> = emptyList()
+
+    /** Ids of the build cards drawn inside a reply instead of the timeline; [cards] does not list them. */
+    var inline: Set<String> = emptySet()
+
+    /** Every card the transcript draws, woven or inline: the host keeps offering these beyond its recent window. */
+    val shown: Set<String>
+        get() = cards.keys + inline
 }
 
 /** A host card follows the engine message at [afterIndex], or leads the transcript when it is negative. */

@@ -460,6 +460,33 @@ class StudioTimelineTest {
     }
 
     @Test
+    fun `a build card shown before the transcript loaded still joins the call waiting for it`() {
+        val cache = TimelineCache()
+        val early = card("build:early")
+        val empty = cache.update(emptyList(), labels, listOf(early), setOf(early.id))
+        assertEquals(listOf("build:early"), empty.messages.map { it.id })
+
+        val waiting = ReplyPartUi.Tool(ToolUi("t1", "run_build", ToolStatusUi.Running, "", null))
+        val turn = reply("", isStreaming = true).copy(parts = persistentListOf(waiting))
+        val loaded = cache.update(listOf(prompt, turn), labels, listOf(early), setOf(early.id))
+        assertEquals(listOf("m1", "m2"), loaded.messages.map { it.id })
+        val parts = loaded.messages.last().parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:early"), parts)
+    }
+
+    @Test
+    fun `cards drawn inside a reply count as shown for the host`() {
+        val placement = TimelineWeaves()
+        val cache = TimelineCache(placement)
+        val call = ReplyPartUi.Tool(ToolUi("t1", "run_build", ToolStatusUi.Done, "{\"id\":\"op1\"}", null))
+        val turn = reply("", isStreaming = true).copy(parts = persistentListOf(call))
+        cache.update(listOf(prompt, turn), labels, listOf(card("build:op1"), card("worktree:chat")))
+
+        assertEquals(setOf("worktree:chat"), placement.cards.keys)
+        assertEquals(setOf("build:op1", "worktree:chat"), placement.shown)
+    }
+
+    @Test
     fun `a card leaving its reply returns to the point it appeared at`() {
         val cache = TimelineCache()
         fun turn(status: ToolStatusUi, output: String) = reply("", isStreaming = true).copy(

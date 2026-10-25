@@ -192,17 +192,31 @@ internal class ClaudeRuntime(
     /**
      * Polls the observed subagent tree of [root]. Each login probe spawns the CLI, so polling must not do that twice
      * a second: the account is validated on the first poll and then every [CLAUDE_ACCOUNT_RECHECK_MILLIS], so a
-     * logout or account switch still ends a long subscription within that interval.
+     * logout or account switch still ends a long subscription within that interval. A recheck that cannot reach a
+     * verdict keeps the subscription and is retried at the next interval.
      */
     override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {
         var polls = 0L
         while (true) {
-            val isAccountChecked = polls % ACCOUNT_RECHECK_POLLS != 0L
-            emit(treeSession(root, access, isAccountChecked).treeSnapshot())
+            when {
+                polls == 0L -> validate(access.target)
+                polls % ACCOUNT_RECHECK_POLLS == 0L -> recheckAccount(access.target)
+            }
+            emit(treeSession(root, access, isAccountChecked = true).treeSnapshot())
             polls++
             delay(TREE_REFRESH_MILLIS)
         }
     }.distinctUntilChanged()
+
+    /** Only a confirmed logout or account change ends a running subscription; a failed probe is not a verdict. */
+    private suspend fun recheckAccount(target: EngineTarget) {
+        try {
+            validate(target)
+        } catch (e: EngineException) {
+            if (e.failure is EngineFailure.Authentication) throw e
+            log.w(e.redacted()) { "Claude login recheck failed; the session tree subscription continues" }
+        }
+    }
 
     override suspend fun history(root: SessionRef, ref: SessionRef, access: SessionTreeAccess): SessionHistory {
         val session = treeSession(root, access)
@@ -214,12 +228,21 @@ internal class ClaudeRuntime(
         }
     }
 
+    /**
+     * The login probe runs the CLI for up to [PROBE_TIMEOUT_MS], so it runs before the lock: creation, attach,
+     * lookups and close are not held behind it. Inside the lock only the cheap checks are repeated.
+     */
     private suspend fun treeSession(
         root: SessionRef,
         access: SessionTreeAccess,
         isAccountChecked: Boolean = false,
-    ): ClaudeSession = mutex.withLock {
-        validate(access.target, isAccountChecked)
+    ): ClaudeSession {
+        if (!isAccountChecked) validate(access.target)
+        return mutex.withLock { lockedTreeSession(root, access) }
+    }
+
+    private suspend fun lockedTreeSession(root: SessionRef, access: SessionTreeAccess): ClaudeSession {
+        validate(access.target, isAccountChecked = true)
         if (root.engine != identity.engine || root.source != ClaudeEngine.SessionSource) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
@@ -227,7 +250,7 @@ internal class ClaudeRuntime(
         if (session.route.binding != access.target.binding || session.route.workspace != access.workspace) {
             authFailure(AuthFailureReason.AuthMismatch)
         }
-        session
+        return session
     }
 
     private suspend fun find(ref: SessionRef): ClaudeSession? = sessions[ref] ?: restore(ref)
