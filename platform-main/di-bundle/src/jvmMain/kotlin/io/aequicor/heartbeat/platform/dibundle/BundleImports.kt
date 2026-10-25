@@ -5,6 +5,7 @@ import dev.zacsweers.metro.BindingContainer
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.ElementsIntoSet
 import dev.zacsweers.metro.Provides
+import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.bundles.BundleUnavailableException
 import io.aequicor.heartbeat.core.bundles.impl.BundleHost
 import io.aequicor.heartbeat.core.datastore.ProfileStorageCleaner
@@ -94,13 +95,20 @@ internal object UnavailablePermissionGuide : ComputerUsePermissionGuide {
     override fun dismiss() = Unit
 }
 
-/** Bridges bundle exports into the foundation graph. */
+/**
+ * Bridges bundle exports into the foundation graph.
+ *
+ * Single services with a fallback are app singletons: the window reads them on every recomposition, so an unscoped
+ * provider would ask the host (and log the fallback) each time and could swap a live instance for the stub mid-session.
+ * A bundle withdrawn later does not revoke the instance already handed out here.
+ */
 @ContributesTo(AppScope::class)
 @BindingContainer
 internal object BundleImportBindings {
     private val log = Log.tag("BundleImports")
 
     @Provides
+    @SingleIn(AppScope::class)
     fun plantUml(host: BundleHost): PlantUmlRenderer = try {
         host.foundationImports(FoundationBundleImports::class).plantUml
     } catch (e: BundleUnavailableException) {
@@ -117,6 +125,7 @@ internal object BundleImportBindings {
         host.foundationImports(FoundationBundleImports::class).acpStdio
 
     @Provides
+    @SingleIn(AppScope::class)
     fun capturePresentation(host: BundleHost): ComputerUseCapturePresentation = try {
         host.foundationImports(FoundationBundleImports::class).capturePresentation
     } catch (e: BundleUnavailableException) {
@@ -125,6 +134,7 @@ internal object BundleImportBindings {
     }
 
     @Provides
+    @SingleIn(AppScope::class)
     fun permissionGuide(host: BundleHost): ComputerUsePermissionGuide = try {
         host.foundationImports(FoundationBundleImports::class).permissionGuide
     } catch (e: BundleUnavailableException) {

@@ -469,4 +469,113 @@ class BundleHostTest {
     fun `foundation is not a bundle id`() {
         assertFailsWith<IllegalArgumentException> { BundleHost(listOf(entry("foundation") { Any() })) { Unit } }
     }
+
+    /** Profile bundle whose [ProfileExports.opener] is computed on every read from the profile's foundation. */
+    private fun readingProfileEntry(name: String, read: (foundation: Any, imports: ProfileImports) -> Opener) =
+        object : BundleEntry {
+            override val id = BundleId(name)
+            override val importsType: KClass<*>? = null
+            override val exportTypes = listOf(WebExports::class)
+            override fun createGraph(foundation: Any, imports: Any): Any = Web()
+            override val hasProfileGraph = true
+            override val profileImportsType: KClass<*> = ProfileImports::class
+            override val profileExportTypes = listOf(ProfileExports::class)
+            override fun createProfileGraph(appGraph: Any, foundation: Any, imports: Any): Any =
+                object : ProfileExports {
+                    override val opener: Opener get() = read(foundation, imports as ProfileImports)
+                }
+        }
+
+    @Test
+    fun `profile exporter failure removes it from that profile only`() {
+        val broken = Any()
+        val opener = object : Opener {}
+        val host = BundleHost(
+            listOf(
+                readingProfileEntry("web") { foundation, _ -> if (foundation === broken) error("boom") else opener },
+            ),
+        ) { Unit }
+        val first = FakeScope()
+        val second = FakeScope()
+        host.openProfile(broken, first)
+        host.openProfile(Any(), second)
+        val firstImports = host.foundationProfileImports(FoundationProfileImports::class, first)
+        val failure = assertFailsWith<BundleUnavailableException> { firstImports.opener }
+        assertEquals("boom", failure.cause?.message)
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("web")))
+        assertSame(opener, host.foundationProfileImports(FoundationProfileImports::class, second).opener)
+        assertEquals(null, assertFailsWith<BundleUnavailableException> { firstImports.opener }.cause)
+    }
+
+    @Test
+    fun `profile exporter failing while its profile closes keeps the app healthy`() {
+        val scope = FakeScope()
+        val host = BundleHost(
+            listOf(
+                readingProfileEntry("web") { _, _ ->
+                    scope.close()
+                    error("boom")
+                },
+            ),
+        ) { Unit }
+        host.openProfile(Any(), scope)
+        assertFailsWith<BundleUnavailableException> {
+            host.foundationProfileImports(FoundationProfileImports::class, scope).opener
+        }
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("web")))
+    }
+
+    @Test
+    fun `nested import failing withdraws only its exporter`() {
+        val opener = object : Opener {}
+        var bImports: CycleBImports? = null
+        var seen: WebImports? = null
+        val host = started(
+            entry("b", imports = CycleBImports::class, exports = listOf(CycleBExports::class)) { imports ->
+                bImports = imports as CycleBImports
+                object : CycleBExports {
+                    override val opener: Opener get() = bImports!!.renderer.let { opener }
+                }
+            },
+            entry("c", exports = listOf(WebExports::class)) {
+                object : WebExports {
+                    override val renderer: Renderer get() = error("c is broken")
+                    override val tools: Set<Tool> = emptySet()
+                }
+            },
+            entry("studio", imports = WebImports::class) { imports ->
+                seen = imports as WebImports
+                Any()
+            },
+        )
+        assertFailsWith<BundleUnavailableException> { seen?.opener }
+        assertIs<BundleHealth.Failed>(host.health.getValue(BundleId("c")))
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("b")))
+        assertFailsWith<BundleUnavailableException> { seen?.opener }
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("b")))
+    }
+
+    @Test
+    fun `host condition inside a nested import does not withdraw the asking exporter`() {
+        val scope = FakeScope()
+        val second = FakeScope()
+        val opener = object : Opener {}
+        val host = BundleHost(
+            listOf(
+                readingProfileEntry("web") { _, imports ->
+                    if (!scope.isClosed) scope.close()
+                    imports.renderer
+                    opener
+                },
+            ),
+        ) { Unit }
+        host.openProfile(Any(), scope)
+        host.openProfile(Any(), second)
+        val failure = assertFailsWith<BundleUnavailableException> {
+            host.foundationProfileImports(FoundationProfileImports::class, scope).opener
+        }
+        assertIs<BundleUnavailableException>(failure.cause)
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("web")))
+        assertSame(opener, host.foundationProfileImports(FoundationProfileImports::class, second).opener)
+    }
 }

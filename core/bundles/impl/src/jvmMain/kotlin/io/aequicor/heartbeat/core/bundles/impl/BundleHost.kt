@@ -30,7 +30,11 @@ import kotlin.reflect.KClass
  *
  * An exporter that throws while producing a binding is [BundleHealth.Failed] from then on (at app level; at profile
  * level only that profile loses it, like a failed profile graph): its exports are withdrawn and the consumer gets
- * [BundleUnavailableException] with the failure as the cause. A set collection skips such an exporter.
+ * [BundleUnavailableException] with the failure as the cause. A set collection skips such an exporter. The level is
+ * the one the exporter was registered at, not where the consumer looked it up. Only the failing exporter is withdrawn:
+ * a consumer that merely passes on an unavailable import, a cycle, or a host condition (bundles still being created,
+ * a profile still opening or already closed) is not at fault and stays. Withdrawal stops future resolution only:
+ * instances already handed out (for example app singletons of the foundation) stay with their holders.
  *
  * Profiles: [openProfile] repeats the same for the per-profile graphs of the bundles that have one. Profile
  * exports are visible only inside that profile and take precedence over app exports of the same key.
@@ -74,40 +78,44 @@ public class BundleHost internal constructor(
      * Runs once: a second call would register every export again and fail all bundles, so it is rejected.
      */
     public fun start() {
-        check(!isSealed) { "Host is already sealed" }
-        check(!isStarted) { "Bundles are already started" }
-        isStarted = true
-        isStarting = true
-        try {
-            for (entry in entries) {
-                runCatching { startBundle(entry) }.onFailure { e ->
-                    log.e(e) { "Bundle ${entry.id} failed to start" }
-                    markFailed(entry.id, e)
+        synchronized(lifecycleLock) {
+            check(!isSealed) { "Host is already sealed" }
+            check(!isStarted) { "Bundles are already started" }
+            isStarted = true
+            isStarting = true
+            try {
+                for (entry in entries) {
+                    runCatching { startBundle(entry) }.onFailure { e ->
+                        log.e(e) { "Bundle ${entry.id} failed to start" }
+                        markFailed(entry.id, e)
+                    }
                 }
+            } finally {
+                isStarting = false
             }
-        } finally {
-            isStarting = false
         }
     }
 
     /** Validates the wiring and opens [resolve] and [collect]. */
     public fun seal() {
-        check(!isSealed) { "Host is already sealed" }
-        for (entry in entries) {
-            if (healthById[entry.id] != BundleHealth.Healthy) continue
-            runCatching { checkSetOwnership(entry, entry.importsType, entry.exportTypes) }.onFailure { e ->
-                log.e(e) { "Bundle ${entry.id} violates the wiring rules" }
-                markFailed(entry.id, e)
-            }
-        }
-        for (entry in entries) {
-            if (healthById[entry.id] == BundleHealth.Healthy) {
-                markMissingImports(entry.id, appView, entry.importsType)?.let { degraded ->
-                    synchronized(healthById) { healthById[entry.id] = degraded }
+        synchronized(lifecycleLock) {
+            check(!isSealed) { "Host is already sealed" }
+            for (entry in entries) {
+                if (health[entry.id] != BundleHealth.Healthy) continue
+                runCatching { checkSetOwnership(entry, entry.importsType, entry.exportTypes) }.onFailure { e ->
+                    log.e(e) { "Bundle ${entry.id} violates the wiring rules" }
+                    markFailed(entry.id, e)
                 }
             }
+            for (entry in entries) {
+                if (health[entry.id] == BundleHealth.Healthy) {
+                    markMissingImports(entry.id, appView, entry.importsType)?.let { degraded ->
+                        synchronized(healthById) { healthById[entry.id] = degraded }
+                    }
+                }
+            }
+            isSealed = true
         }
-        isSealed = true
         log.i { "Bundles sealed: ${health.entries.joinToString { "${it.key}=${it.value::class.simpleName}" }}" }
     }
 
@@ -119,7 +127,11 @@ public class BundleHost internal constructor(
     public fun ensureStarted() {
         synchronized(lifecycleLock) {
             if (isSealed) return
-            check(!isStarting) { "Bundles are being created; imports cannot be resolved while graphs are created" }
+            if (isStarting) {
+                throw HostNotReadyException(
+                    "Bundles are being created; imports cannot be resolved while graphs are created",
+                )
+            }
             if (!isStarted) start()
             seal()
         }
@@ -135,9 +147,10 @@ public class BundleHost internal constructor(
         val view = View().apply { isOpen = false }
         synchronized(profileViews) { profileViews[scope] = view }
         val profileHealth = LinkedHashMap<BundleId, BundleHealth>()
-        val members = entries.filter { it.hasProfileGraph && healthById[it.id] != null }
+        val appHealth = health
+        val members = entries.filter { it.hasProfileGraph && appHealth[it.id] != null }
         for (entry in members) {
-            if (healthById[entry.id] is BundleHealth.Failed) continue
+            if (appHealth[entry.id] is BundleHealth.Failed) continue
             val failure = runCatching { startProfileBundle(entry, foundation, view) }.exceptionOrNull()
             profileHealth[entry.id] = if (failure == null) {
                 BundleHealth.Healthy
@@ -215,7 +228,8 @@ public class BundleHost internal constructor(
     private fun register(id: BundleId, graph: Any, types: List<KClass<*>>, view: View, parent: View?): Int {
         val own = types.flatMap { type ->
             accessorsOf(type.java).map { method ->
-                Exporter(id, bindingKeyOf(method.genericReturnType), method, graph)
+                val key = bindingKeyOf(method.genericReturnType)
+                Exporter(id, key, method, graph, profile = view.takeIf { parent != null })
             }
         }
         val duplicated = own.filter { it.key in foundationOwned }
@@ -273,34 +287,51 @@ public class BundleHost internal constructor(
         }
 
     private fun resolveFor(key: BindingKey, requestedBy: BundleId?, view: View?): Any {
-        ensureStarted()
-        check(view == null || view.isOpen) { "The profile graphs of the bundles are still being created or are closed" }
+        ensureReady(key, requestedBy, view)
         val exporter = (view ?: appView).find(key, appView).firstOrNull()
             ?: throw BundleUnavailableException(key, requestedBy)
-        return read(exporter, view, requestedBy)
+        return read(exporter, requestedBy)
     }
 
     private fun collectFor(key: BindingKey, excluding: BundleId?, view: View?): Set<Any> {
-        ensureStarted()
-        check(view == null || view.isOpen) { "The profile graphs of the bundles are still being created or are closed" }
+        ensureReady(key, excluding, view)
         val found = view?.snapshot(key).orEmpty() + appView.snapshot(key)
         return found.filter { it.owner != excluding }
             .flatMapTo(LinkedHashSet()) { exporter ->
-                val part = try {
-                    read(exporter, view, excluding) as Set<*>
+                try {
+                    (read(exporter, excluding) as Set<*>).filterNotNull()
                 } catch (e: BundleUnavailableException) {
-                    log.w(e) { "Set ${exporter.key} misses the part of ${exporter.owner}" }
-                    emptySet<Any>()
+                    // A withdrawn exporter is already logged with its own failure by [withdraw].
+                    if (exporter.isRegistered()) log.w(e) { "Set ${exporter.key} misses the part of ${exporter.owner}" }
+                    emptyList()
                 }
-                part.filterNotNull()
             }
     }
 
     /**
-     * Reads [exporter]; its failure withdraws the bundle (see the class docs) and surfaces as
-     * [BundleUnavailableException]. A cycle and an import the exporter itself misses do not fail the exporter.
+     * Host conditions are not the fault of the exporter whose binding asks: they surface as
+     * [BundleUnavailableException], which [read] passes on without withdrawing anybody.
      */
-    private fun read(exporter: Exporter, view: View?, requestedBy: BundleId?): Any = try {
+    private fun ensureReady(key: BindingKey, requestedBy: BundleId?, view: View?) {
+        try {
+            ensureStarted()
+        } catch (e: HostNotReadyException) {
+            throw BundleUnavailableException(key, requestedBy, e)
+        }
+        if (view != null && !view.isOpen) {
+            val reason = HostNotReadyException(
+                "The profile graphs of the bundles are still being created or are closed",
+            )
+            throw BundleUnavailableException(key, requestedBy, reason)
+        }
+    }
+
+    /**
+     * Reads [exporter]; its own failure withdraws it (see the class docs) and surfaces as
+     * [BundleUnavailableException]. A cycle propagates; an unavailable import of the exporter (including a host
+     * condition) does not fail the exporter.
+     */
+    private fun read(exporter: Exporter, requestedBy: BundleId?): Any = try {
         guarded(exporter.key) { exporter.read() }
     } catch (e: CancellationException) {
         throw e
@@ -309,18 +340,22 @@ public class BundleHost internal constructor(
     } catch (e: BundleUnavailableException) {
         throw BundleUnavailableException(exporter.key, requestedBy, e)
     } catch (e: Exception) {
-        withdraw(exporter, view, e)
+        withdraw(exporter, e)
         throw BundleUnavailableException(exporter.key, requestedBy, e)
     } catch (e: LinkageError) {
-        withdraw(exporter, view, e)
+        withdraw(exporter, e)
         throw BundleUnavailableException(exporter.key, requestedBy, e)
     }
 
-    private fun withdraw(exporter: Exporter, view: View?, cause: Throwable) {
-        val inProfile = view != null && view.snapshot(exporter.key).any { it === exporter }
-        if (inProfile) {
+    /** Whether [this] is still exported at its level, that is, not withdrawn (or its profile closed). */
+    private fun Exporter.isRegistered(): Boolean = (profile ?: appView).snapshot(key).any { it === this }
+
+    /** Withdraws [exporter] at the level it was registered at: its profile only, or the whole app. */
+    private fun withdraw(exporter: Exporter, cause: Throwable) {
+        val profile = exporter.profile
+        if (profile != null) {
             log.e(cause) { "Bundle ${exporter.owner} failed to export ${exporter.key}; it leaves this profile" }
-            removeOwnedBy(exporter.owner, checkNotNull(view))
+            removeOwnedBy(exporter.owner, profile)
         } else {
             log.e(cause) { "Bundle ${exporter.owner} failed to export ${exporter.key}; it is failed" }
             markFailed(exporter.owner, cause)
@@ -371,7 +406,17 @@ public class BundleHost internal constructor(
         }
     }
 
-    private class Exporter(val owner: BundleId, val key: BindingKey, val method: Method, val graph: Any) {
+    /** A host condition (not a bundle failure) that keeps a binding from resolving now. */
+    private class HostNotReadyException(message: String) : IllegalStateException(message)
+
+    /** [profile]: the profile view the exporter was registered in, `null` for an app-level exporter. */
+    private class Exporter(
+        val owner: BundleId,
+        val key: BindingKey,
+        val method: Method,
+        val graph: Any,
+        val profile: View?,
+    ) {
         fun read(): Any = try {
             checkNotNull(method.invoke(graph)) { "${owner.value} exported null for $key" }
         } catch (e: InvocationTargetException) {

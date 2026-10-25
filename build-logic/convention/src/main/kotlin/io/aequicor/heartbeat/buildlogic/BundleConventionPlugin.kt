@@ -174,11 +174,9 @@ class BundleConventionPlugin : Plugin<Project> {
         .distinct()
         .sorted()
 
-    /** Project dependencies of the common and JVM main source sets: what the desktop static graph compiles in. */
+    /** Project dependencies the desktop static graph compiles in (see [isFoundationOwnerConfiguration]). */
     private fun Project.desktopProjectDependencyPaths(): List<String> = configurations
-        .filter { configuration ->
-            DESKTOP_SOURCE_SETS.any { configuration.name.startsWith(it) } && "Test" !in configuration.name
-        }
+        .filter { configuration -> isFoundationOwnerConfiguration(configuration.name) }
         .flatMap { configuration -> configuration.dependencies.withType<ProjectDependency>().map { it.path } }
         .distinct()
         .sorted()
@@ -189,7 +187,6 @@ class BundleConventionPlugin : Plugin<Project> {
         const val JDK_VERSION = 17
         const val VERIFY_TASK = "verifyBundleMembership"
         const val FOUNDATION_PROJECT = ":platform-main:di-bundle"
-        val DESKTOP_SOURCE_SETS = listOf("commonMain", "jvmMain")
         const val ASSEMBLE_TASK = "assembleBundle"
         const val MANIFEST_TASK = "bundleManifest"
         const val AFFECTED_TASK = "affectedBundles"

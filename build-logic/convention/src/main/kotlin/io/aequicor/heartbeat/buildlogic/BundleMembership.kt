@@ -10,6 +10,17 @@ import org.gradle.api.tasks.TaskAction
 /** Owner name of the impls that the desktop static graph (`:platform-main:di-bundle`, common and JVM) compiles in. */
 internal const val FOUNDATION_OWNER = "foundation (:platform-main:di-bundle)"
 
+/** Source sets of the desktop static graph of the foundation. */
+private val FOUNDATION_SOURCE_SETS = listOf("commonMain", "jvmMain")
+
+/**
+ * Whether a configuration of `:platform-main:di-bundle` puts its project dependencies into the desktop static graph:
+ * the common and JVM main source sets, without tests and without `compileOnly` (compiled against, never shipped, so
+ * its Metro contributions do not reach the graph and it owns nothing).
+ */
+internal fun isFoundationOwnerConfiguration(name: String): Boolean =
+    FOUNDATION_SOURCE_SETS.any { name.startsWith(it) } && "Test" !in name && "CompileOnly" !in name
+
 /**
  * Impl modules that do not have exactly one owner on desktop. [membership] is `bundle path -> impl module paths`,
  * [foundation] the impls of the desktop static graph, [impls] every `…:impl` module of the build.

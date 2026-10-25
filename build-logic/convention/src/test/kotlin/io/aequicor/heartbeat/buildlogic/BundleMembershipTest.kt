@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.buildlogic
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BundleMembershipTest {
@@ -61,5 +62,16 @@ class BundleMembershipTest {
                 impls = listOf(":core:di:impl", ":features:browser:impl", ":features:orphan:impl"),
             ),
         )
+    }
+
+    @Test
+    fun `compile-only and test configurations of the foundation own nothing`() {
+        assertTrue(isFoundationOwnerConfiguration("commonMainImplementation"))
+        assertTrue(isFoundationOwnerConfiguration("jvmMainApi"))
+        assertFalse(isFoundationOwnerConfiguration("jvmMainCompileOnly"))
+        assertFalse(isFoundationOwnerConfiguration("commonMainCompileOnly"))
+        assertFalse(isFoundationOwnerConfiguration("commonMainCompileOnlyDependenciesMetadata"))
+        assertFalse(isFoundationOwnerConfiguration("jvmTestImplementation"))
+        assertFalse(isFoundationOwnerConfiguration("androidMainImplementation"))
     }
 }
