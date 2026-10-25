@@ -21,13 +21,16 @@ class TrainManifestTest {
     }
 
     @Test
-    fun `the launcher's optional bundle url and unknown fields are ignored`() {
+    fun `the optional bundle url is kept and unknown fields are ignored`() {
         val withUrl = manifestJson("t-1", listOf("core.jar" to sha)).replace(
             "\"jar\": \"core.jar\",",
             "\"jar\": \"core.jar\", \"url\": \"https://example.com/core.jar\", \"future\": {\"a\": [1]},",
         )
 
-        assertEquals(listOf(TrainBundle("core", "1.0", "core.jar", sha)), parseTrainManifest(withUrl).bundles)
+        assertEquals(
+            listOf(TrainBundle("core", "1.0", "core.jar", sha, "https://example.com/core.jar")),
+            parseTrainManifest(withUrl).bundles,
+        )
     }
 
     @Test

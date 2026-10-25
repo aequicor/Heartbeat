@@ -103,6 +103,59 @@ class TrainUpdateTest {
         assertEquals(emptyList<String>(), requestedFiles)
     }
 
+    @Test
+    fun `a jar is downloaded from the url its manifest states, however old its release`() = runTest {
+        val published = "$TRAIN_DOWNLOADS/v1.0.0/core.jar"
+        val withUrl = manifestJson(
+            "t2",
+            listOf("core.jar" to sha256(core), "ui.jar" to sha256(ui)),
+            urls = mapOf("core.jar" to published),
+        )
+
+        // The release that published core.jar is not among the recent ones any more.
+        update(manifestText = withUrl, publications = publications.take(1), extra = mapOf(published to core))
+            .prepare(repository, root, offer, progress())
+
+        assertEquals(listOf(published, "$TRAIN_DOWNLOADS/train-t2/ui.jar"), requestedFiles)
+        assertEquals("core-bytes", storeJar(root, sha256(core)).readText())
+        assertTrue(root.resolve("pending/t2/manifest.json").exists())
+    }
+
+    @Test
+    fun `a manifest url outside GitHub's download hosts falls back to the recent releases`() = runTest {
+        val elsewhere = manifestJson(
+            "t2",
+            listOf("core.jar" to sha256(core), "ui.jar" to sha256(ui)),
+            urls = mapOf("core.jar" to "https://example.com/core.jar"),
+        )
+
+        update(manifestText = elsewhere).prepare(repository, root, offer, progress())
+
+        assertEquals(listOf("$TRAIN_DOWNLOADS/train-t1/core.jar", "$TRAIN_DOWNLOADS/train-t2/ui.jar"), requestedFiles)
+    }
+
+    @Test
+    fun `a failed download removes the staging files and queues nothing`() = runTest {
+        assertUpdateFailure(AppUpdateFailure.Network) {
+            update(failing = setOf("$TRAIN_DOWNLOADS/train-t2/ui.jar")).prepare(repository, root, offer, progress())
+        }
+        assertFalse(root.resolve("staging/t2").exists())
+        assertFalse(root.resolve("pending").exists())
+        // What was verified before the failure stays in the store for the next attempt.
+        assertTrue(storeJar(root, sha256(core)).exists())
+    }
+
+    @Test
+    fun `a manifest of another train than the offered one is refused`() = runTest {
+        val other = manifestJson("t3", listOf("ui.jar" to sha256(ui)))
+
+        assertUpdateFailure(AppUpdateFailure.InvalidRelease) {
+            update(manifestText = other).prepare(repository, root, offer, progress())
+        }
+        assertEquals(emptyList<String>(), requestedFiles)
+        assertFalse(root.resolve("pending").exists())
+    }
+
     private fun progress() = object : InstallProgressSink {
         override suspend fun downloading(received: Long, total: Long?) {
             phases += "downloading $received/$total"
@@ -113,11 +166,16 @@ class TrainUpdateTest {
         }
     }
 
-    private fun update(manifestText: String = manifest, publications: List<String> = this.publications): TrainUpdate {
+    private fun update(
+        manifestText: String = manifest,
+        publications: List<String> = this.publications,
+        extra: Map<String, ByteArray> = emptyMap(),
+        failing: Set<String> = emptySet(),
+    ): TrainUpdate {
         val contents = mapOf(
             "$TRAIN_DOWNLOADS/train-t2/ui.jar" to ui,
             "$TRAIN_DOWNLOADS/train-t1/core.jar" to core,
-        )
+        ) + extra
         val files = object : VerifiedReleaseDownloader {
             override suspend fun download(
                 request: ReleaseDownload,
@@ -125,6 +183,7 @@ class TrainUpdateTest {
                 progress: suspend (Long, Long?) -> Unit,
             ) {
                 requestedFiles += request.url
+                if (request.url in failing) throw ReleaseException(ReleaseFailure.Network)
                 val bytes = contents.getValue(request.url)
                 if (sha256(bytes) != request.sha256) throw ReleaseException(ReleaseFailure.ChecksumMismatch)
                 Files.write(target, bytes)

@@ -29,16 +29,26 @@ internal data class TrainManifest(
     val bundles: List<TrainBundle>,
 )
 
-/** One bundle of a train: [jar] is a plain file name whose content has the lowercase hex [sha256]. */
+/**
+ * One bundle of a train: [jar] is a plain file name whose content has the lowercase hex [sha256]. [url] is the
+ * absolute address of the jar in the release that first published it (`scripts/train_manifest.py`), null in a train
+ * written before the field existed; it is only a hint where to download from, the digest decides what is accepted.
+ */
 @Serializable
-internal data class TrainBundle(val id: String, val version: String, val jar: String, val sha256: String)
+internal data class TrainBundle(
+    val id: String,
+    val version: String,
+    val jar: String,
+    val sha256: String,
+    val url: String? = null,
+)
 
 /**
  * Parses and validates [text]. Anything the launcher would refuse is [AppUpdateFailure.InvalidRelease] here, so a
  * broken train is never downloaded: a train id that is not a plain name (it names a directory), a non-positive
  * `platformApi`, no bundles, duplicate bundle ids or jars, a jar name with a path separator or without `.jar`, and a
- * SHA-256 that is not 64 hex digits. Unknown fields (such as the launcher's optional per-bundle `url`) are ignored;
- * digests are normalised to lowercase.
+ * SHA-256 that is not 64 hex digits. Unknown fields are ignored; digests are normalised to lowercase. A bundle `url`
+ * is kept as published: [missingDownloads] uses it only on GitHub's download hosts.
  */
 internal fun parseTrainManifest(text: String): TrainManifest {
     val manifest = decode(text)

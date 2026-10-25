@@ -31,6 +31,8 @@ import java.nio.file.StandardCopyOption
  * the launcher's next start. Nothing is replaced, so the helper only waits for this process to quit and starts the
  * same launcher again (macOS: an inline `sh` that `open`s the bundle; Windows: `apply-windows.ps1` without an
  * installer). No mark is written: the app version does not change, and the launcher alone rolls a bad train back.
+ * Once the train is queued the update has succeeded whatever happens to the relaunch: without a known launcher, or
+ * when the helper cannot start, the app still quits and the user starts it again, which applies the train.
  */
 internal class DesktopUpdateInstaller(
     private val workspace: UpdateWorkspace,
@@ -38,10 +40,9 @@ internal class DesktopUpdateInstaller(
     private val mac: MacBundleUpdate,
     private val trains: TrainUpdate,
     private val io: CoroutineDispatcher,
-    private val launch: LaunchProperties = LaunchProperties(),
-    private val processId: () -> Long = { ProcessHandle.current().pid() },
-    private val startHelper: (command: List<String>, output: Path) -> Unit,
+    private val host: InstallerLaunch,
 ) : UpdateInstaller {
+    private val launch: LaunchProperties get() = host.properties
     private val log = Log.tag("DesktopUpdateInstaller")
     private val outcome = Mutex()
     private var previous: PreviousAttempt? = null
@@ -56,11 +57,11 @@ internal class DesktopUpdateInstaller(
         if (installation.platform.isManualInstallRequired) {
             updateFailure(AppUpdateFailure.ManualInstallRequired, "Linux updates use the system package manager")
         }
-        val launcher = launch.launcher ?: updateFailure(AppUpdateFailure.InstallFailed, "the launcher is unknown")
         if (release.train != null) {
-            installTrain(installation, release, launcher, progress)
+            installTrain(installation, release, progress)
             return
         }
+        val launcher = launch.launcher ?: updateFailure(AppUpdateFailure.InstallFailed, "the launcher is unknown")
         val bundle = if (installation.platform.os == MAC_OS) {
             val bundle = mac.bundleOf(launcher)
                 ?: updateFailure(AppUpdateFailure.ManualInstallRequired, "the launcher is outside an app bundle")
@@ -76,11 +77,11 @@ internal class DesktopUpdateInstaller(
         withContext(io) {
             val command = if (bundle != null) {
                 val staged = mac.prepare(download, release.version, directory)
-                mac.helperCommand(script(directory, MAC_SCRIPT), processId(), bundle, staged)
+                mac.helperCommand(script(directory, MAC_SCRIPT), host.processId(), bundle, staged)
             } else {
                 WindowsSetupUpdate.helperCommand(
                     script(directory, WINDOWS_SCRIPT),
-                    processId(),
+                    host.processId(),
                     download,
                     launcher,
                     directory.resolve(INSTALL_LOG),
@@ -90,33 +91,46 @@ internal class DesktopUpdateInstaller(
         }
     }
 
-    /** Queues the train for the launcher, then starts the helper that relaunches it once this process quits. */
+    /**
+     * Queues the train for the launcher, then starts the helper that relaunches it once this process quits. Only the
+     * queue can fail the update: a launch that does not know its launcher queues the train without a helper, and a
+     * helper that cannot be prepared or started is logged, because the queued train applies at the next start anyway.
+     * Failing then would report an update that is in fact queued, and the next check would offer nothing.
+     */
     private suspend fun installTrain(
         installation: AppInstallation,
         release: AppRelease,
-        launcher: Path,
         progress: InstallProgressSink,
     ) {
         val root = launch.launcherRoot ?: updateFailure(AppUpdateFailure.InstallFailed, "no launcher root")
         trains.prepare(installation.repository, root, release, progress)
-        withContext(io) {
-            val command = if (installation.platform.os == MAC_OS) {
-                relaunchMacCommand(processId(), mac.bundleOf(launcher) ?: launcher)
-            } else {
-                val script = script(workspace.helperDirectory(), WINDOWS_SCRIPT)
-                WindowsSetupUpdate.relaunchCommand(script, processId(), launcher)
-            }
-            // A helper that cannot start leaves the train queued: the next start of the app applies it all the same.
-            startHelper(command, workspace.helperLog)
+        val launcher = launch.launcher
+        if (launcher == null) {
+            log.w { "train queued without a relaunch: the launcher is unknown train=${release.version}" }
+            return
         }
-        log.i { "relaunch helper waits for the app to quit train=${release.version}" }
+        try {
+            withContext(io) {
+                // The helper's log lives with it in the relaunch directory, which the next launch removes.
+                val directory = workspace.helperDirectory()
+                val command = if (installation.platform.os == MAC_OS) {
+                    relaunchMacCommand(host.processId(), mac.bundleOf(launcher) ?: launcher)
+                } else {
+                    WindowsSetupUpdate.relaunchCommand(script(directory, WINDOWS_SCRIPT), host.processId(), launcher)
+                }
+                host.startHelper(command, directory.resolve(RELAUNCH_LOG))
+            }
+            log.i { "relaunch helper waits for the app to quit train=${release.version}" }
+        } catch (e: AppUpdateException) {
+            log.w(e) { "train queued, the app is not relaunched train=${release.version} failure=${e.failure}" }
+        }
     }
 
     private fun start(release: AppRelease, command: List<String>) {
         workspace.markStarted(release.version)
         var isStarted = false
         try {
-            startHelper(command, workspace.helperLog)
+            host.startHelper(command, workspace.helperLog)
             isStarted = true
         } finally {
             // Without a running helper nothing is installed: the next launch must not report a failed attempt.
@@ -139,17 +153,21 @@ internal class DesktopUpdateInstaller(
 
     private companion object {
         /**
-         * Waits up to ten minutes for process `$1` to quit, then starts `$2` again: `open` for an app bundle, the
-         * executable itself otherwise. Paths travel as arguments, never inside the script.
+         * Waits up to ten minutes for process `$1` to quit, then starts `$2` again: [OPEN] (`$3`, a fixed path rather
+         * than whatever `open` comes first on PATH) for an app bundle, the executable itself otherwise. Paths travel as
+         * arguments, never inside the script.
          */
         const val MAC_RELAUNCH = "pid=${'$'}1; app=${'$'}2; n=0; " +
             "while kill -0 \"${'$'}pid\" 2>/dev/null; do " +
             "if [ \"${'$'}n\" -ge 600 ]; then echo 'the app did not quit; not relaunched'; exit 1; fi; " +
             "sleep 1; n=${'$'}((n + 1)); done; " +
-            "if [ -d \"${'$'}app\" ]; then exec open \"${'$'}app\"; else exec \"${'$'}app\"; fi"
+            "if [ -d \"${'$'}app\" ]; then exec \"${'$'}3\" \"${'$'}app\"; else exec \"${'$'}app\"; fi"
 
         fun relaunchMacCommand(pid: Long, target: Path): List<String> =
-            listOf("/bin/sh", "-c", MAC_RELAUNCH, "heartbeat-relaunch", "$pid", "$target")
+            listOf("/bin/sh", "-c", MAC_RELAUNCH, "heartbeat-relaunch", "$pid", "$target", OPEN)
+
+        const val OPEN = "/usr/bin/open"
+        const val RELAUNCH_LOG = "relaunch.log"
 
         const val MAC_OS = "macos"
         const val MAC_SCRIPT = "apply-macos.sh"
@@ -157,3 +175,13 @@ internal class DesktopUpdateInstaller(
         const val INSTALL_LOG = "install.log"
     }
 }
+
+/**
+ * This launch of the app as the installer sees it: what the launcher states ([properties]), its process id and how it
+ * starts a helper [command][startHelper] that outlives it, appending its output to a log file.
+ */
+internal data class InstallerLaunch(
+    val properties: LaunchProperties,
+    val startHelper: (command: List<String>, output: Path) -> Unit,
+    val processId: () -> Long = { ProcessHandle.current().pid() },
+)

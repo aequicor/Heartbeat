@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.appupdate.impl.data.CommandRunner
 import io.aequicor.heartbeat.feature.appupdate.impl.data.DesktopInstallationProbe
 import io.aequicor.heartbeat.feature.appupdate.impl.data.DesktopUpdateInstaller
 import io.aequicor.heartbeat.feature.appupdate.impl.data.GitHubReleaseClient
+import io.aequicor.heartbeat.feature.appupdate.impl.data.InstallerLaunch
 import io.aequicor.heartbeat.feature.appupdate.impl.data.LaunchProperties
 import io.aequicor.heartbeat.feature.appupdate.impl.data.MacBundleUpdate
 import io.aequicor.heartbeat.feature.appupdate.impl.data.TrainUpdate
@@ -81,9 +82,8 @@ public object AppUpdateBindings {
         downloader = downloader,
         mac = mac,
         trains = TrainUpdate(client, downloader, dispatchers.io),
-        launch = launch,
         io = dispatchers.io,
-        startHelper = commands::startDetached,
+        host = InstallerLaunch(properties = launch, startHelper = commands::startDetached),
     )
 }
 

@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -145,6 +146,10 @@ internal fun pendingTrains(root: Path): Set<String> {
         }
     } catch (e: IOException) {
         Log.tag("TrainUpdate").w(e.withoutDetails()) { "queued trains could not be read" }
+        emptySet()
+    } catch (e: DirectoryIteratorException) {
+        // Iterating the entries wraps the IOException of a directory that changes or fails while it is read.
+        Log.tag("TrainUpdate").w(e.withoutDetails()) { "queued trains could not be listed" }
         emptySet()
     }
 }

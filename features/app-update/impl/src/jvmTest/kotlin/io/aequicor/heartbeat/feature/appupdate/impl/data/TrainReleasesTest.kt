@@ -41,8 +41,13 @@ class TrainReleasesTest {
         train: String,
         platformApi: Int = 1,
         tag: String = "train-$train",
+        publishedAt: String? = null,
     ): Pair<String, Pair<String, String>> {
-        val release = releaseJson(tag, listOf("train-manifest.json" to 10L, "core-$train.jar" to 100L))
+        val release = releaseJson(
+            tag,
+            listOf("train-manifest.json" to 10L, "core-$train.jar" to 100L),
+            publishedAt = publishedAt,
+        )
         val manifest = manifestJson(train, listOf("core-$train.jar" to sha), platformApi)
         return release to ("$TRAIN_DOWNLOADS/$tag/train-manifest.json" to manifest)
     }
@@ -186,5 +191,56 @@ class TrainReleasesTest {
 
         assertNull(found)
         assertEquals(listOf("latest"), requested)
+    }
+
+    @Test
+    fun `trains are ordered by publication, not by the listed order`() = runTest {
+        val (installed, installedDocument) = trainRelease("t1", publishedAt = "2026-10-01T10:00:00Z")
+        val (newest, newestDocument) = trainRelease("t3", publishedAt = "2026-10-03T10:00:00Z")
+        val (older, olderDocument) = trainRelease("t2", publishedAt = "2026-10-02T10:00:00Z")
+
+        val found = releases(listOf(installed, older, newest), mapOf(installedDocument, olderDocument, newestDocument))
+            .newer(installation(UpdateChannel.Beta))
+
+        assertEquals("t3", found?.train)
+    }
+
+    @Test
+    fun `an older train listed above the installed one is never offered`() = runTest {
+        val (older, olderDocument) = trainRelease("t1", publishedAt = "2026-10-01T10:00:00Z")
+        val (installed, installedDocument) = trainRelease("t2", publishedAt = "2026-10-02T10:00:00Z")
+
+        val found = releases(listOf(older, installed), mapOf(olderDocument, installedDocument))
+            .newer(installation(UpdateChannel.Beta, "t2"))
+
+        assertNull(found)
+    }
+
+    @Test
+    fun `an untagged release with a broken manifest is skipped`() = runTest {
+        val (broken, brokenDocument) = trainRelease("t4", tag = "v1.5.0")
+        val (newest, newestDocument) = trainRelease("t3")
+        val (installed, installedDocument) = trainRelease("t1")
+
+        val found = releases(
+            listOf(broken, newest, installed),
+            mapOf(brokenDocument.first to "{}", newestDocument, installedDocument),
+        ).newer(installation(UpdateChannel.Beta))
+
+        assertEquals("t3", found?.train)
+        assertTrue("latest" !in requested)
+    }
+
+    @Test
+    fun `a manifest naming another train than its tag falls back to full releases`() = runTest {
+        val (newest, newestDocument) = trainRelease("t3")
+        val (installed, installedDocument) = trainRelease("t1")
+        val mismatch = manifestJson("t9", listOf("core-t3.jar" to sha))
+
+        val found = releases(listOf(newest, installed), mapOf(newestDocument.first to mismatch, installedDocument))
+            .newer(installation(UpdateChannel.Beta))
+
+        assertNull(found)
+        assertTrue("latest" in requested)
     }
 }

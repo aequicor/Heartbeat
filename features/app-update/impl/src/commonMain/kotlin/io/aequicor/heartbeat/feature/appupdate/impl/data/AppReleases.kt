@@ -45,12 +45,15 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
     }
 
     /**
-     * The newest train published after the [installed] one. GitHub lists releases newest first, so only trains above
-     * the installed train (or above a train already queued for the launcher) are newer: the walk stops there and never
-     * offers an older train. Trains the launcher rolled back ([AppInstallation.badTrains]) are skipped. When the
-     * installed train is not among the recent releases its age is unknown and no train is offered: the full release
-     * path still updates the app. A train id is read from a `train-<id>` tag, otherwise from its manifest; the offered
-     * train's manifest is always read and must name the same train.
+     * The newest train published after the [installed] one. Age is publication time: [GitHubReleaseClient.recent]
+     * sorts the releases by their publish timestamp, newest first, rather than trusting GitHub's undocumented list
+     * order, so only trains above the installed train (or above a train already queued for the launcher) are newer:
+     * the walk stops there and never offers an older train. This assumes trains are published in the order they are
+     * built, as `prerelease.yml` does. Trains the launcher rolled back ([AppInstallation.badTrains]) are skipped. When
+     * the installed train is not among the recent releases its age is unknown and no train is offered: the full
+     * release path still updates the app. A train id is read from a `train-<id>` tag, otherwise from its manifest; an
+     * untagged release whose manifest is invalid is skipped, it could never be offered. The offered train's manifest
+     * is always read and must name the same train.
      */
     private suspend fun newerTrain(installation: AppInstallation, installed: String): AppRelease? {
         val manifests = ManifestCache(client)
@@ -71,7 +74,11 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
         }
     }
 
-    /** Recent trains newest first down to the installed or a queued train, skipping the rolled back ones. */
+    /**
+     * Recent trains newest first down to the installed or a queued train, skipping the rolled back ones and untagged
+     * releases with an invalid manifest. Any other failure (network, rate limit) ends the check: a train whose id is
+     * unknown might be the installed one.
+     */
     private suspend fun walkTrains(
         installation: AppInstallation,
         installed: String,
@@ -80,7 +87,7 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
         val stops = installation.pendingTrains + installed
         var newest: TrainCandidate? = null
         for ((release, asset) in trains(client.recent(installation.repository))) {
-            val id = trainIdOfTag(release.tag) ?: manifests.of(asset).train
+            val id = trainIdOfTag(release.tag) ?: manifests.trainOrNull(asset) ?: continue
             when {
                 id in stops -> return TrainWalk(newest, stop = id)
                 id in installation.badTrains -> log.i { "skip rolled back train=$id" }
@@ -134,8 +141,18 @@ private data class TrainWalk(val newest: TrainCandidate?, val stop: String?)
 
 /** Each manifest of one check is read once. */
 private class ManifestCache(private val client: GitHubReleaseClient) {
+    private val log = Log.tag("AppReleases")
     private val manifests = mutableMapOf<String, TrainManifest>()
 
     suspend fun of(asset: GitHubAsset): TrainManifest =
         manifests[asset.url] ?: parseTrainManifest(client.document(asset.url)).also { manifests[asset.url] = it }
+
+    /** The train of [asset], or null when its manifest is invalid; other failures propagate. */
+    suspend fun trainOrNull(asset: GitHubAsset): String? = try {
+        of(asset).train
+    } catch (e: AppUpdateException) {
+        if (e.failure != AppUpdateFailure.InvalidRelease) throw e
+        log.w(e) { "skip a release with an invalid train manifest asset=${asset.name}" }
+        null
+    }
 }
