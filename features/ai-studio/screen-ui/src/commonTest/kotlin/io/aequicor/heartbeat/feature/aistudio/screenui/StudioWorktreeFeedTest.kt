@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SandboxPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
@@ -77,15 +78,48 @@ class StudioWorktreeFeedTest {
     @Test
     fun `a paused sandbox asks with its own card so it lands next to the composer`() {
         val conflicted = task(WorktreePhaseUi.Working)
-            .copy(sandboxPhase = "Conflicted", sandboxConflicts = persistentListOf("a.kt"))
+            .copy(sandboxPhase = SandboxPhaseUi.Conflicted, sandboxConflicts = persistentListOf("a.kt"))
         val result = timeline(conflicted)
         assertEquals(listOf("worktree:chat:paused"), result.messages.map { it.id })
         assertTrue(result.card("worktree:chat:paused").actions.any { it.id == "sandbox-continue" })
     }
 
     @Test
+    fun `sandbox cards address the worktree task and map every pause phase`() {
+        val cell = task(WorktreePhaseUi.Working).copy(taskId = "organism.chat.cell")
+        val waiting = timeline(cell.copy(sandboxPhase = SandboxPhaseUi.Waiting))
+        assertEquals(
+            StudioIntent.RecheckWorktree("organism.chat.cell", isResume = true),
+            waiting.press("worktree:chat:paused", SANDBOX_CONTINUE_ID),
+        )
+        assertEquals(HbToolStatus.Pending, waiting.card("worktree:chat:paused").status)
+        listOf(SandboxPhaseUi.Pausing, SandboxPhaseUi.Rebasing).forEach { phase ->
+            val busy = timeline(cell.copy(sandboxPhase = phase)).card("worktree:chat:paused")
+            assertEquals(HbToolStatus.Running, busy.status)
+            assertTrue(busy.actions.isEmpty())
+        }
+        val conflicts = (1..12).map { "f$it.kt" }
+        val conflicted = timeline(
+            cell.copy(
+                sandboxPhase = SandboxPhaseUi.Conflicted,
+                sandboxConflicts = persistentListOf<String>().addAll(conflicts),
+            ),
+        )
+        val card = conflicted.card("worktree:chat:paused")
+        assertEquals((conflicts.take(10) + "+2").joinToString("\n"), card.summary)
+        assertEquals(listOf(SANDBOX_CONTINUE_ID, SANDBOX_LEAVE_PAUSED_ID), card.actions.map { it.id })
+        assertEquals(
+            StudioIntent.RecheckWorktree("organism.chat.cell"),
+            conflicted.press("worktree:chat:paused", SANDBOX_LEAVE_PAUSED_ID),
+        )
+        val resolving = timeline(cell.copy(sandboxPhase = SandboxPhaseUi.Conflicted, isSandboxResolving = true))
+        assertEquals(listOf("worktree:chat:paused"), resolving.messages.map { it.id })
+        assertEquals(HbToolStatus.Running, resolving.card("worktree:chat:paused").status)
+    }
+
+    @Test
     fun `finished sandbox offers a branch hand off instead of a pull request or a merge`() {
-        val sandbox = task(WorktreePhaseUi.AwaitingDecision).copy(sandboxPhase = "Ready")
+        val sandbox = task(WorktreePhaseUi.AwaitingDecision).copy(sandboxPhase = SandboxPhaseUi.Ready)
         val call = timeline(sandbox).card("worktree:chat")
         assertEquals(listOf("Hand off to heartbeat/task", "Refine", "Leave"), call.actions.map { it.label })
         assertEquals(

@@ -73,7 +73,14 @@ internal class DesktopProjectFileIndex(
 
     override suspend fun readSkill(workspace: WorkspaceRef?, relativePath: String, name: String): String? {
         val ref = workspace ?: return null
-        val virtual = workspaces.virtual(ref)
+        val virtual = try {
+            workspaces.virtual(ref)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "workspace kind unknown for a linked skill" }
+            return null
+        }
         val root = if (virtual == null) workspaces.resolve(ref) else null
         return when {
             virtual != null -> readVirtualSkillBody(virtual, relativePath, name)

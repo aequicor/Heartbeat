@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.security.ShellActionAnalyzer
 import kotlinx.coroutines.currentCoroutineContext
@@ -200,7 +201,7 @@ internal class DesktopCodingTools(
         context: AgentToolContext,
         tool: CodingTool?,
         arguments: JsonObject,
-        virtual: io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace,
+        virtual: VirtualWorkspace,
     ): AgentToolResult {
         if (tool == null || tool.descriptor.name !in virtualMutations) return unavailable()
         val expected = virtual.revision()
@@ -271,7 +272,7 @@ internal class DesktopCodingTools(
 
 /** Virtual reads never touch the physical project, so the sandbox tree itself is the verified root. */
 private suspend fun virtualReadAnalysis(
-    virtual: io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace,
+    virtual: VirtualWorkspace,
     name: String,
     arguments: JsonObject,
 ): ActionAnalysis {
@@ -279,7 +280,7 @@ private suspend fun virtualReadAnalysis(
     val binding = "${virtual.ref.value}:$revision:$name:$arguments".encodeUtf8().sha256().hex()
     return ActionAnalysis.Known(
         ActionEvidence(
-            "Virtual project read $name: $arguments",
+            "Virtual project read $name: $arguments".take(MAX_APPROVAL_CHARS),
             listOf(ActionResource(ActionResourceKind.FileSystem, "virtual:${virtual.ref.value}", true)),
             setOf(ActionEffect.Read),
             binding,

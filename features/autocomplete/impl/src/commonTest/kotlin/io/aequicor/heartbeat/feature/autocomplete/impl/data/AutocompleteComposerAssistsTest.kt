@@ -609,6 +609,67 @@ class AutocompleteComposerAssistsTest {
         assertEquals(emptyList(), imported.referencedSkills(text, scope))
     }
 
+    @Test
+    fun `a sandbox not created yet gets host project skills unless its engine imports the sandbox tree`() = runTest {
+        var reads = 0
+        val files = object : ProjectFileIndex {
+            override suspend fun search(
+                workspace: WorkspaceRef?,
+                query: String,
+                limit: Int,
+                skillsOnly: Boolean,
+            ): List<ProjectFile> = listOf(
+                ProjectFile(".claude/skills/open-pr/SKILL.md", "", 1, "text/markdown", ProjectSkill("open-pr", "PR")),
+            ).filter { workspace == project }
+
+            override suspend fun readSkill(workspace: WorkspaceRef?, relativePath: String, name: String) =
+                "Open a pull request".takeIf { workspace == project }
+        }
+        val text = "[/open-pr](.claude/skills/open-pr/SKILL.md) now"
+        val pending = ComposerScope(target, project, isSandboxPending = true)
+        val trigger = ComposerTrigger.Command(0..4, "open")
+        val native = listOf(skill("open-pr", "open-pr"))
+
+        val hosted = service(assists = native, onRead = { reads++ }, files = files)
+        assertEquals(
+            listOf("project-skill:.claude/skills/open-pr/SKILL.md"),
+            hosted.suggest(trigger, pending).map { it.id },
+        )
+        assertEquals(listOf("/open-pr"), hosted.referencedSkills(text, pending).map { it.label })
+        assertEquals(0, reads)
+        // The same project outside a pending sandbox keeps the engine's own catalog.
+        assertEquals(listOf("engine:pi:open-pr"), hosted.suggest(trigger, ComposerScope(target, project)).map { it.id })
+
+        val imported = service(assists = native, files = files, isVirtualNative = true)
+        assertEquals(listOf("engine:pi:open-pr"), imported.suggest(trigger, pending).map { it.id })
+        assertEquals(emptyList(), imported.referencedSkills(text, pending))
+    }
+
+    @Test
+    fun `a remembered listing shows before the fresh one without an intermediate closed listing`() = runTest {
+        val clock = SteadyClock(Instant.parse("2026-01-01T00:00:00Z"))
+        var calls = 0
+        val source = EngineAssistsSource(
+            facade(listOf(command("/plan", "Plan")), onRead = { calls++ }),
+            clock,
+            TestSources(),
+        )
+        val first = mutableListOf<NativeAssists>()
+        val warm = launch { source.observe(target, project).collect { first += it } }
+        runCurrent()
+        warm.cancelAndJoin()
+        assertEquals(NativeAssists.Closed, first.first())
+        clock.set(clock.now() + 90.seconds)
+
+        val snapshots = mutableListOf<NativeAssists>()
+        val job = launch { source.observe(target, project).collect { snapshots += it } }
+        runCurrent()
+        job.cancelAndJoin()
+        assertEquals(2, calls)
+        assertEquals(listOf(listOf("plan"), listOf("plan")), snapshots.map { list -> list.items.map { it.id } })
+        assertTrue(snapshots.all { it.hasNativeCatalog })
+    }
+
     private fun skillFiles(skill: ProjectSkill) = object : ProjectFileIndex {
         override suspend fun search(
             workspace: WorkspaceRef?,

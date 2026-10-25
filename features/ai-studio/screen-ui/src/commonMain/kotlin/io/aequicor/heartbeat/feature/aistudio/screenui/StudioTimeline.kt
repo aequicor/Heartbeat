@@ -159,7 +159,8 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         }
         val sections = sectionsFor(next, nextLabels)
         val previousAnchored = anchored
-        anchored = anchoredCards(next, nextCards)
+        val positions = weaves.associateTo(HashMap()) { it.id to it.afterIndex }
+        anchored = anchoredCards(next, nextCards, nextCards.associate { it.id to (positions[it.id] ?: next.lastIndex) })
         history = if (isPlacementChanged) {
             rebuild(next, sections, nextLabels)
         } else {
@@ -168,8 +169,11 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         history = refreshAnchored(next, nextLabels, previousAnchored)
         messages = next
         labels = nextLabels
+        // The unfiltered inputs are kept so that an unchanged update short-circuits before anchoring again.
+        cards = nextCards
+        retained = nextRetained
         val inline = anchored.values.mapTo(HashSet()) { it.id }
-        val updated = weave(next, nextCards.filterNot { it.id in inline }, nextRetained - inline, sections, nextLabels)
+        val updated = weave(next, nextCards, nextRetained, inline, sections, nextLabels)
         observedCards = woven
         observedPositions = weaves
         return updated
@@ -215,41 +219,62 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         return updated
     }
 
-    /** Appends new cards at the current end, refreshes known ones in place and retires absent ones. */
+    /**
+     * Appends new cards at the current end, refreshes known ones in place and retires absent ones. A card shown
+     * [inline] in a reply still records the point it appeared at: once it leaves the reply it returns there.
+     */
     private fun weave(
         next: List<MessageUi>,
         nextCards: List<HbChatMessage>,
         nextRetained: Set<String>,
+        inline: Set<String>,
         sections: List<HbChatSection>,
         nextLabels: TimelineLabels,
     ): HbChatTimeline {
-        cards = nextCards
-        retained = nextRetained
         val offered = nextCards.mapTo(HashSet()) { it.id }
         offered.addAll(nextRetained)
+        val positioned = weaves.mapTo(HashSet()) { it.id }
         var updated = history
+        var isReturned = false
         for (card in nextCards) {
-            when (woven[card.id]) {
-                null -> {
-                    woven = woven + (card.id to card)
-                    weaves = weaves + TimelineWeave(card.id, next.lastIndex)
-                    updated = updated.append(cardSection(sections, nextLabels), card)
+            val isPositioned = card.id in positioned
+            if (!isPositioned) weaves = weaves + TimelineWeave(card.id, next.lastIndex)
+            val shown = woven[card.id]
+            when {
+                card.id in inline -> if (shown != null) {
+                    woven = woven - card.id
+                    updated = updated.remove(card.id)
                 }
 
-                card -> Unit
+                shown == null -> {
+                    woven = woven + (card.id to card)
+                    if (isPositioned) {
+                        isReturned = true
+                    } else {
+                        updated = updated.append(cardSection(sections, nextLabels), card)
+                    }
+                }
 
-                else -> {
+                shown != card -> {
                     woven = woven + (card.id to card)
                     updated = updated.replace(card.id, card)
                 }
             }
         }
-        for (id in woven.keys.filterNot(offered::contains)) {
+        updated = retire(updated, offered)
+        if (isReturned) updated = rebuild(next, sections, nextLabels)
+        history = updated
+        return updated
+    }
+
+    /** Drops the cards and invocation points that are neither offered nor retained. */
+    private fun retire(timeline: HbChatTimeline, offered: Set<String>): HbChatTimeline {
+        var updated = timeline
+        for (id in weaves.map { it.id }.filterNot(offered::contains)) {
+            if (id in woven) updated = updated.remove(id)
             woven = woven - id
             weaves = weaves.filterNot { it.id == id }
-            updated = updated.remove(id)
         }
-        history = updated
         return updated
     }
 
@@ -337,37 +362,67 @@ internal fun rememberStudioTimeline(
  * Build cards that belong inside a reply: a `build:<operation>` card goes right after the run_build call whose
  * result names that operation. A call that names no operation — still waiting for its build, or cut off by the
  * engine's tool timeout — takes the newest card of the command in its arguments; any card left goes after the
- * remaining waiting calls, newest to newest. Keys are the calls' ids; a card without such a visible call stays
- * in the timeline.
+ * remaining waiting calls, newest to newest. Without an operation a call takes only a card that appeared after
+ * its reply started: [appearedAfter] maps a card id to the index of the last message present when the card first
+ * showed (a card missing from it appears now), so an older build never moves into a newer call. Keys are the
+ * calls' ids; a card without such a visible call stays in the timeline.
  */
-internal fun anchoredCards(messages: List<MessageUi>, cards: List<HbChatMessage>): Map<String, HbChatMessage> {
+internal fun anchoredCards(
+    messages: List<MessageUi>,
+    cards: List<HbChatMessage>,
+    appearedAfter: Map<String, Int> = emptyMap(),
+): Map<String, HbChatMessage> {
     val builds = cards.filter { it.id.startsWith(BUILD_CARD_PREFIX) }
     if (builds.isEmpty()) return emptyMap()
-    val calls = messages.asSequence().filterIsInstance<MessageUi.Reply>()
-        .flatMap { reply -> reply.parts.asSequence().filterIsInstance<ReplyPartUi.Tool>().map { it.tool } }
-        .filter { it.title == RUN_BUILD_TOOL }
-        .toList()
+    val calls = messages.withIndex().flatMap { (index, message) ->
+        val reply = message as? MessageUi.Reply ?: return@flatMap emptyList()
+        reply.parts.filterIsInstance<ReplyPartUi.Tool>()
+            .filter { it.tool.title == RUN_BUILD_TOOL }
+            .map { RunBuildCall(it.tool, index) }
+    }
+    fun RunBuildCall.mayTake(card: HbChatMessage) = (appearedAfter[card.id] ?: messages.lastIndex) >= replyIndex
     val anchored = LinkedHashMap<String, HbChatMessage>()
     builds.forEach { card ->
         val operation = card.id.removePrefix(BUILD_CARD_PREFIX)
-        calls.firstOrNull { "\"id\":\"$operation\"" in it.output }?.let { anchored[it.id] = card }
+        calls.firstOrNull { operation in it.operations }?.let { anchored[it.tool.id] = card }
     }
-    val unnamedCalls = calls.filter { it.id !in anchored && OPERATION_ID !in it.output }
-    var unnamed = builds.filterNot { card -> anchored.values.any { it.id == card.id } }.asReversed()
-    unnamed = unnamed.filterNot { card ->
+    val unnamedCalls = calls.filter { it.tool.id !in anchored && it.operations.isEmpty() }
+    val taken = anchored.values.mapTo(HashSet()) { it.id }
+    val unnamed = builds.filterNot { it.id in taken }.asReversed().filterNot { card ->
         val command = (card.parts.firstOrNull() as? HbMessagePart.Tool)?.call?.title ?: return@filterNot false
-        val pattern = Regex("\"command\"\\s*:\\s*\"${Regex.escape(command)}\"")
-        unnamedCalls.lastOrNull { it.id !in anchored && pattern.containsMatchIn(it.output) }
-            ?.also { anchored[it.id] = card } != null
+        unnamedCalls.lastOrNull { it.tool.id !in anchored && command in it.commands && it.mayTake(card) }
+            ?.also { anchored[it.tool.id] = card } != null
     }
-    val waiting = unnamedCalls.filter { it.id !in anchored && it.status in waitingStatuses }
-    waiting.asReversed().zip(unnamed) { call, card -> anchored[call.id] = card }
+    val waiting = unnamedCalls.filter { it.tool.id !in anchored && it.tool.status in waitingStatuses }
+    pairWaiting(waiting.asReversed(), unnamed, anchored) { call, card -> call.mayTake(card) }
     return anchored
+}
+
+/** Newest waiting call first takes the newest remaining card it may take. */
+private inline fun pairWaiting(
+    newestFirst: List<RunBuildCall>,
+    cards: List<HbChatMessage>,
+    anchored: MutableMap<String, HbChatMessage>,
+    mayTake: (RunBuildCall, HbChatMessage) -> Boolean,
+) {
+    val left = cards.toMutableList()
+    for (call in newestFirst) {
+        val card = left.firstOrNull { mayTake(call, it) } ?: continue
+        left -= card
+        anchored[call.tool.id] = card
+    }
+}
+
+/** A run_build call of the transcript with the operations and commands its output names. */
+private class RunBuildCall(val tool: ToolUi, val replyIndex: Int) {
+    val operations: Set<String> = OPERATION_ID.findAll(tool.output).mapTo(HashSet()) { it.groupValues[1] }
+    val commands: Set<String> = BUILD_COMMAND.findAll(tool.output).mapTo(HashSet()) { it.groupValues[1] }
 }
 
 private const val BUILD_CARD_PREFIX = "build:"
 private const val RUN_BUILD_TOOL = "run_build"
-private const val OPERATION_ID = "\"id\":\""
+private val OPERATION_ID = Regex("\"id\"\\s*:\\s*\"([^\"\\\\]+)\"")
+private val BUILD_COMMAND = Regex("\"command\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 private val waitingStatuses = setOf(ToolStatusUi.Pending, ToolStatusUi.Running)
 
 internal fun MessageUi.toHb(labels: TimelineLabels, anchored: Map<String, HbChatMessage> = emptyMap()): HbChatMessage =

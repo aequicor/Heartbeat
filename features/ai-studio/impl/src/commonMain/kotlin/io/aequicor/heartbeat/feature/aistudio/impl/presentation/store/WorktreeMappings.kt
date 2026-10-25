@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SandboxPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreePhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
@@ -29,7 +30,7 @@ internal fun WorktreeTask.toUi(): WorktreeUi = WorktreeUi(
         .toImmutableList(),
     isSandbox = isSandbox,
     taskId = chatId,
-    sandboxPhase = virtualSandbox?.phase?.name,
+    sandboxPhase = virtualSandbox?.phase?.let { SandboxPhaseUi.valueOf(it.name) },
     isSandboxResolving = virtualSandbox?.isResolving == true,
     sandboxConflicts = virtualSandbox?.conflicts.orEmpty().toImmutableList(),
     resultCommit = virtualSandbox?.resultCommit,

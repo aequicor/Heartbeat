@@ -189,13 +189,17 @@ internal class ClaudeRuntime(
         session.stored(if (isReadOnly) null else { request -> attach(ref, request) })
     }
 
+    /**
+     * Polls the observed subagent tree of [root]. Each login probe spawns the CLI, so polling must not do that twice
+     * a second: the account is validated on the first poll and then every [CLAUDE_ACCOUNT_RECHECK_MILLIS], so a
+     * logout or account switch still ends a long subscription within that interval.
+     */
     override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {
-        // The login is probed once per subscription: each probe spawns the CLI,
-        // and polling must not do that twice a second.
-        var isAccountChecked = false
+        var polls = 0L
         while (true) {
+            val isAccountChecked = polls % ACCOUNT_RECHECK_POLLS != 0L
             emit(treeSession(root, access, isAccountChecked).treeSnapshot())
-            isAccountChecked = true
+            polls++
             delay(TREE_REFRESH_MILLIS)
         }
     }.distinctUntilChanged()
@@ -319,3 +323,7 @@ internal suspend fun requireClaudeEnabled(toggles: FeatureToggles) {
 }
 
 private const val TREE_REFRESH_MILLIS = 500L
+
+/** How often a session tree subscription re-validates the CLI login. */
+internal const val CLAUDE_ACCOUNT_RECHECK_MILLIS = 300_000L
+private const val ACCOUNT_RECHECK_POLLS = CLAUDE_ACCOUNT_RECHECK_MILLIS / TREE_REFRESH_MILLIS

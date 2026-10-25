@@ -14,6 +14,11 @@ public data class ComposerScope(
     public val inputSupport: PromptInputSupport? = null,
     /** Logical project owning learned skills; a worktree keeps its original project here. */
     public val project: WorkspaceRef? = workspace,
+    /**
+     * [workspace] is the source project of a sandbox that is not created yet: the engine's process will run in a
+     * virtual copy, so its skills are resolved as for a virtual workspace, not as native items of the project.
+     */
+    public val isSandboxPending: Boolean = false,
 )
 
 /** Host-authored command offered by the calling screen; [insert] replaces the typed token. */

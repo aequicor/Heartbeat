@@ -184,7 +184,7 @@ private fun JsonObject.activeModel(model: String): JsonObject? {
 
 /** Events without `utilization` still carry the warning threshold or a rejection; clamp to a valid fraction. */
 private fun JsonObject.fraction(key: String): Double? =
-    (get(key) as? JsonPrimitive)?.doubleOrNull?.takeIf { it.isFinite() && it >= 0 }
+    (get(key) as? JsonPrimitive)?.doubleOrNull?.takeIf { it.isFinite() && it >= 0 }?.coerceAtMost(1.0)
 
 private fun JsonObject.nonnegativeLong(key: String): Long? =
     (get(key) as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 }

@@ -36,9 +36,12 @@ internal fun AiStudioScreenState.composerScope(paneId: Int): ComposerScope {
         ?: session(sessionId)?.modelId?.takeIf(String::isNotBlank) ?: settings.modelId
     val project = (pane?.projectId ?: session(sessionId)?.projectId)?.takeIf(String::isNotEmpty)?.let(::WorkspaceRef)
     val execution = session(sessionId)?.executionWorkspace?.let(::WorkspaceRef)
-    // A sandbox snapshots its project, so before its first turn the project's own commands and skills apply.
-    val workspace = if (pane?.isWorktree == true || session(sessionId)?.isWorktree == true) {
-        execution ?: project.takeIf { pane?.isSandbox == true }
+    val isWorktree = pane?.isWorktree == true || session(sessionId)?.isWorktree == true
+    // A sandbox snapshots its project, so before its first turn the project's own commands and skills apply; its
+    // native process will still run in a virtual copy, so the scope says so to keep engine catalogs honest.
+    val isSandboxPending = isWorktree && execution == null && project != null && pane?.isSandbox == true
+    val workspace = if (isWorktree) {
+        execution ?: project.takeIf { isSandboxPending }
     } else {
         execution ?: project
     }
@@ -47,6 +50,7 @@ internal fun AiStudioScreenState.composerScope(paneId: Int): ComposerScope {
         workspace = workspace,
         inputSupport = models.firstOrNull { it.id == modelId }?.inputSupport?.toDomain(),
         project = project,
+        isSandboxPending = isSandboxPending,
     )
 }
 

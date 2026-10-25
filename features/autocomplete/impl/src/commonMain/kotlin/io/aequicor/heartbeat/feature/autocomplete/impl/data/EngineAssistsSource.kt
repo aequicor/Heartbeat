@@ -55,9 +55,16 @@ internal class EngineAssistsSource(
     private val mutex = Mutex()
     private val cache = mutableMapOf<Route, Entry>()
 
-    /** Drops stale rows before reloading when trust, engine availability or binding permissions change. */
+    /**
+     * Drops stale rows before reloading when trust, engine availability or binding permissions change.
+     * [isSandboxPending] marks [workspace] as the source project of a sandbox not created yet (see [assists]).
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
-    internal fun observe(target: EngineTarget, workspace: WorkspaceRef?): Flow<NativeAssists> = combine(
+    internal fun observe(
+        target: EngineTarget,
+        workspace: WorkspaceRef?,
+        isSandboxPending: Boolean = false,
+    ): Flow<NativeAssists> = combine(
         configuration.state,
         facade.bindings.state,
         facade.engines.state,
@@ -66,12 +73,16 @@ internal class EngineAssistsSource(
         listOf(config, bindings, engines, auth)
     }.transformLatest {
         // The last listing of this exact state shows at once, even past its TTL, while the fresh one loads.
-        emit(remembered(target, workspace) ?: NativeAssists.Closed)
-        emit(assists(target, workspace))
+        emit(remembered(target, workspace, isSandboxPending) ?: NativeAssists.Closed)
+        emit(assists(target, workspace, isSandboxPending))
     }
 
-    private suspend fun remembered(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists? {
-        val route = Route(target.engine.value, target.binding.value, workspace?.value)
+    private suspend fun remembered(
+        target: EngineTarget,
+        workspace: WorkspaceRef?,
+        isSandboxPending: Boolean,
+    ): NativeAssists? {
+        val route = Route(target.engine.value, target.binding.value, workspace?.value, isSandboxPending)
         val stamp = stamp()
         return mutex.withLock { cache[route]?.takeIf { it.stamp == stamp }?.assists }
     }
@@ -83,15 +94,23 @@ internal class EngineAssistsSource(
         sources.state.value,
     )
 
-    /** Native assists visible on [target]; a null [workspace] is a chat without a project. */
-    internal suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists {
-        val route = Route(target.engine.value, target.binding.value, workspace?.value)
+    /**
+     * Native assists visible on [target]; a null [workspace] is a chat without a project. With [isSandboxPending]
+     * the [workspace] is the source project of a sandbox not created yet and is treated as the virtual copy the
+     * engine's process will run in.
+     */
+    internal suspend fun assists(
+        target: EngineTarget,
+        workspace: WorkspaceRef?,
+        isSandboxPending: Boolean = false,
+    ): NativeAssists {
+        val route = Route(target.engine.value, target.binding.value, workspace?.value, isSandboxPending)
         val now = clock.now()
         val stamp = stamp()
         mutex.withLock {
             cache[route]?.takeIf { now - it.fetchedAt < TTL && it.stamp == stamp }?.let { return it.assists }
         }
-        val assists = read(target, workspace)
+        val assists = read(target, workspace, isSandboxPending)
         return mutex.withLock {
             if (stamp() != stamp) {
                 NativeAssists.Closed
@@ -107,18 +126,26 @@ internal class EngineAssistsSource(
      * Whether [target]'s engine owns skill discovery, decided by its declared feature alone: no listing runs, and an
      * engine whose feature is present but blocked still counts as a catalog.
      */
-    internal suspend fun hasNativeCatalog(target: EngineTarget, workspace: WorkspaceRef?): Boolean =
-        !isHostDelivered(target, workspace) &&
-            facade.engines.features(target.engine).resolve(ListsComposerAssists) != FeatureAccess.Unsupported
+    internal suspend fun hasNativeCatalog(
+        target: EngineTarget,
+        workspace: WorkspaceRef?,
+        isSandboxPending: Boolean = false,
+    ): Boolean = !isHostDelivered(target, workspace, isSandboxPending) &&
+        facade.engines.features(target.engine).resolve(ListsComposerAssists) != FeatureAccess.Unsupported
 
     /**
      * A native process of a virtual workspace starts in an empty directory and sees no project skills unless its
      * adapter imports them from the virtual tree; elsewhere the host delivers them like for an engine without a
-     * catalog. An unreadable workspace keeps the native route, which then fails closed.
+     * catalog. A pending sandbox counts as virtual already. An unreadable workspace keeps the native route, which
+     * then fails closed.
      */
-    private suspend fun isHostDelivered(target: EngineTarget, workspace: WorkspaceRef?): Boolean {
+    private suspend fun isHostDelivered(
+        target: EngineTarget,
+        workspace: WorkspaceRef?,
+        isSandboxPending: Boolean,
+    ): Boolean {
         val ref = workspace ?: return false
-        val isVirtual = try {
+        val isVirtual = isSandboxPending || try {
             workspaces?.virtual(ref) != null
         } catch (e: CancellationException) {
             throw e
@@ -130,8 +157,12 @@ internal class EngineAssistsSource(
         return isVirtual && descriptor?.areVirtualWorkspaceAssistsNative != true
     }
 
-    private suspend fun read(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists =
-        if (isHostDelivered(target, workspace)) NativeAssists.Unsupported else readNative(target, workspace)
+    private suspend fun read(target: EngineTarget, workspace: WorkspaceRef?, isSandboxPending: Boolean): NativeAssists =
+        if (isHostDelivered(target, workspace, isSandboxPending)) {
+            NativeAssists.Unsupported
+        } else {
+            readNative(target, workspace)
+        }
 
     private suspend fun readNative(target: EngineTarget, workspace: WorkspaceRef?): NativeAssists =
         when (val resolved = facade.engines.features(target.engine).resolve(ListsComposerAssists)) {
@@ -152,7 +183,12 @@ internal class EngineAssistsSource(
             FeatureAccess.Unsupported -> NativeAssists.Unsupported
         }
 
-    private data class Route(val engine: String, val binding: String, val workspace: String?)
+    private data class Route(
+        val engine: String,
+        val binding: String,
+        val workspace: String?,
+        val isSandboxPending: Boolean,
+    )
 
     private data class Entry(val fetchedAt: kotlin.time.Instant, val assists: NativeAssists, val stamp: List<Any>)
 

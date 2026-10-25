@@ -61,6 +61,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_refine
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_result
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SandboxPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreePhaseUi
@@ -385,56 +386,75 @@ private fun WorktreeFeed.taskCard(labels: WorktreeLabels): WorktreeCard? {
     return if (!isRestored) {
         linked
     } else {
-        task.virtualCard(id, session, labels) ?: task.phaseCard(id, session, labels, openPr) ?: linked
+        // The machine addresses the task by its own chat key, which an organism cell's sandbox does not share.
+        val chat = task.taskId ?: session
+        task.virtualCard(id, chat, labels) ?: task.phaseCard(id, chat, labels, openPr) ?: linked
     }
 }
 
-private fun WorktreeUi.virtualCard(id: String, session: String, labels: WorktreeLabels): WorktreeCard? = when {
-    sandboxPhase == "HandedOff" -> worktreeCard(
-        id,
-        labels.sandboxHandedOff,
-        HbToolStatus.Complete,
-        listOfNotNull(summary, branch, resultCommit).joinToString("\n"),
-    )
+/**
+ * The card of a virtual sandbox phase. [chat] is the worktree task's chat key: an organism cell's sandbox is keyed
+ * apart from the studio session that shows it. Every phase but the hand-off uses the `:paused` id, so the card joins
+ * the transcript where the pause happens, next to the composer, instead of updating the task card that stays where
+ * the chat started.
+ */
+private fun WorktreeUi.virtualCard(id: String, chat: String, labels: WorktreeLabels): WorktreeCard? {
+    val paused = "$id$PAUSED_SUFFIX"
+    val conflicts = sandboxConflicts.boundedLines()
+    if (isSandboxResolving && sandboxPhase != SandboxPhaseUi.HandedOff) {
+        return worktreeCard(paused, labels.sandboxResolve, HbToolStatus.Running, conflicts)
+    }
+    return when (sandboxPhase) {
+        null, SandboxPhaseUi.Ready -> null
 
-    isSandboxResolving -> worktreeCard(
-        id,
-        labels.sandboxResolve,
-        HbToolStatus.Running,
-        sandboxConflicts.joinToString("\n"),
-    )
-
-    sandboxPhase == null || sandboxPhase == "Ready" -> null
-
-    else -> pausedVirtualCard(id, taskId ?: session, labels)
-}
-
-private fun WorktreeUi.pausedVirtualCard(id: String, session: String, labels: WorktreeLabels): WorktreeCard {
-    val isConflicted = sandboxPhase == "Conflicted"
-    val resume = CardCommand(
-        HbToolAction("sandbox-continue", if (isConflicted) labels.sandboxResolve else labels.sandboxContinue),
-        WorktreeCommand.Send(
-            StudioIntent.RecheckWorktree(session, isResume = true, isConflictResolutionRequested = isConflicted),
-        ),
-    )
-    val leave = if (isConflicted) {
-        CardCommand(
-            HbToolAction("sandbox-leave-paused", labels.sandboxLeavePaused, HbButtonStyle.Ghost),
-            WorktreeCommand.Send(StudioIntent.RecheckWorktree(session)),
+        SandboxPhaseUi.HandedOff -> worktreeCard(
+            id,
+            labels.sandboxHandedOff,
+            HbToolStatus.Complete,
+            listOfNotNull(summary, branch, resultCommit).joinToString("\n"),
         )
-    } else {
-        null
+
+        SandboxPhaseUi.Pausing, SandboxPhaseUi.Rebasing ->
+            worktreeCard(paused, labels.sandboxPaused, HbToolStatus.Running, conflicts)
+
+        SandboxPhaseUi.Waiting, SandboxPhaseUi.Manual -> worktreeCard(
+            paused,
+            labels.sandboxPaused,
+            HbToolStatus.Pending,
+            conflicts,
+            commands = listOf(
+                CardCommand(
+                    HbToolAction(SANDBOX_CONTINUE_ID, labels.sandboxContinue),
+                    WorktreeCommand.Send(StudioIntent.RecheckWorktree(chat, isResume = true)),
+                ),
+            ),
+        )
+
+        SandboxPhaseUi.Conflicted -> worktreeCard(
+            paused,
+            labels.sandboxConflicted,
+            HbToolStatus.Pending,
+            conflicts,
+            commands = listOf(
+                CardCommand(
+                    HbToolAction(SANDBOX_CONTINUE_ID, labels.sandboxResolve),
+                    WorktreeCommand.Send(
+                        StudioIntent.RecheckWorktree(chat, isResume = true, isConflictResolutionRequested = true),
+                    ),
+                ),
+                CardCommand(
+                    HbToolAction(SANDBOX_LEAVE_PAUSED_ID, labels.sandboxLeavePaused, HbButtonStyle.Ghost),
+                    WorktreeCommand.Send(StudioIntent.RecheckWorktree(chat)),
+                ),
+            ),
+        )
     }
-    // Its own id joins the transcript where the pause happens, next to the composer, instead of updating the task
-    // card that stays where the chat started.
-    return worktreeCard(
-        "$id$PAUSED_SUFFIX",
-        if (isConflicted) labels.sandboxConflicted else labels.sandboxPaused,
-        HbToolStatus.Pending,
-        sandboxConflicts.joinToString("\n"),
-        commands = listOfNotNull(resume, leave),
-    )
 }
+
+/** The first [MAX_CONFLICTS] paths, one per line, and the count of the rest. */
+private fun List<String>.boundedLines(): String =
+    (take(MAX_CONFLICTS) + listOfNotNull((size - MAX_CONFLICTS).takeIf { it > 0 }?.let { "+$it" }))
+        .joinToString("\n")
 
 /**
  * The card of a restored phase; an idle or retained checkout only links its pull request. A verified pull request
@@ -520,7 +540,7 @@ private fun decisions(session: String, task: WorktreeUi, labels: WorktreeLabels)
 
 private fun WorktreeFeed.buildCards(labels: BuildLabels, shownCards: Set<String>): List<WorktreeCard> {
     val task = task ?: return emptyList()
-    val session = sessionId ?: return emptyList()
+    val session = sessionId?.let { task.taskId ?: it } ?: return emptyList()
     val isOperational = journal == WorktreeJournalUi.Ready
     val recentStart = task.builds.size - MAX_BUILDS
     return task.builds.filterIndexed { index, build ->
@@ -593,5 +613,9 @@ internal const val OPEN_PR_ID = "worktree-open-pr"
 private const val MAX_BUILDS = 3
 private const val BUILD_OUTPUT_CHARS = 4000
 private const val BUILD_OUTPUT_LINES = 40
+
+internal const val SANDBOX_CONTINUE_ID = "sandbox-continue"
+internal const val SANDBOX_LEAVE_PAUSED_ID = "sandbox-leave-paused"
+private const val MAX_CONFLICTS = 10
 
 private const val PAUSED_SUFFIX = ":paused"

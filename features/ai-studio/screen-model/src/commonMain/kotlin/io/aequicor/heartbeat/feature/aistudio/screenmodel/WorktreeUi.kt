@@ -4,6 +4,7 @@ package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 import androidx.compose.runtime.Immutable
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
@@ -32,6 +33,11 @@ enum class WorktreeActionUi { CreatePr, HandOff, Merge, Refine, Leave }
 @Serializable
 @SerialName("WorktreeJournalUi")
 enum class WorktreeJournalUi { Loading, Ready, Error }
+
+/** Phases of a virtual sandbox, mirroring the worktree journal; [Ready] needs no card of its own. */
+@Serializable
+@SerialName("SandboxPhaseUi")
+enum class SandboxPhaseUi { Ready, Pausing, Waiting, Manual, Rebasing, Conflicted, HandedOff }
 
 /** Queue and worker progress of a named build. */
 @Serializable
@@ -66,8 +72,9 @@ data class WorktreeUi(
     /** Source-only sandbox whose builds run in shared build slots of the repository. */
     val isSandbox: Boolean = false,
     val taskId: String? = null,
-    val sandboxPhase: String? = null,
+    /** Phase of a virtual sandbox; null for an ordinary worktree. */
+    val sandboxPhase: SandboxPhaseUi? = null,
     val isSandboxResolving: Boolean = false,
-    val sandboxConflicts: ImmutableList<String> = kotlinx.collections.immutable.persistentListOf(),
+    val sandboxConflicts: ImmutableList<String> = persistentListOf(),
     val resultCommit: String? = null,
 )

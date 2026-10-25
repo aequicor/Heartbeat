@@ -196,12 +196,18 @@ class ClaudeUsageTest {
         )
         provider.receive(
             parseClaudeObject(
+                """{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"seven_day_sonnet",
+                "utilization":1.4}}""",
+            ),
+        )
+        provider.receive(
+            parseClaudeObject(
                 """{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"seven_day_opus",
                 "status":"allowed"}}""",
             ),
         )
         val windows = provider.refresh().windows
-        assertEquals(listOf(75.0, 100.0), windows.map { it.usedPercent })
+        assertEquals(listOf(75.0, 100.0, 100.0), windows.map { it.usedPercent })
     }
 
     @Test

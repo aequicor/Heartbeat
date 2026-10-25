@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -65,6 +68,22 @@ class ClaudeRuntimeTest {
         assertEquals("image", content.single().jsonObject["type"]?.jsonPrimitive?.content)
         assertTrue("--input-format" in fixture.transport.calls.last())
         assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        runtime.close()
+    }
+
+    @Test
+    fun `a session tree subscription probes the login once and again only after the recheck interval`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        fun probes() = fixture.transport.calls.count { it == listOf("auth", "status") }
+        val before = probes()
+        val observing = launch { runtime.observe(session.ref, SessionTreeAccess(testTarget)).collect {} }
+        advanceTimeBy(10_000)
+        assertEquals(before + 1, probes())
+        advanceTimeBy(CLAUDE_ACCOUNT_RECHECK_MILLIS)
+        assertEquals(before + 2, probes())
+        observing.cancelAndJoin()
         runtime.close()
     }
 
