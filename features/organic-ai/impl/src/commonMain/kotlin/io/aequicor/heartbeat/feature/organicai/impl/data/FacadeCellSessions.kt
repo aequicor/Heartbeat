@@ -88,8 +88,8 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
 
     /**
      * Replaced handles still to be let go: once a handle is closed its session is archived and its harness
-     * connections removed. An entry leaves when the removal returns; a failed removal is retried at the cell's lysis.
-     * Guarded by [mutex].
+     * connections removed. An entry leaves when the removal returns; a failed removal is retried at the cell's next
+     * retirement, lysis or sleep, and a sleep drops the entries of closed handles after its retry. Guarded by [mutex].
      */
     private val replaced = mutableMapOf<ActiveSession, Replaced>()
 
@@ -133,9 +133,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
             val pending = mutex.withLock {
                 checkOpening(key, generation, awake)
                 generations[key] = generation
-                stale = handles[key]?.takeIf { it.isOpen() && existing == null && !it.runs(route) }
-                    ?.also { handles.remove(key) }
-                    ?.let { held -> held.takeUnless { detachBusy(key, held, route) } }
+                stale = takeOutdated(key, route, existing)
                 val cached = handles[key]?.takeIf { it.isOpen() } ?: recoverHeld(key, existing)
                 if (cached != null) {
                     val sending = submitting[cached]
@@ -152,21 +150,35 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         }
     }
 
+    /**
+     * Takes the cell's open handle out of the cache when it runs another target than [route]; returns it only when it
+     * is to be stopped now by [replaceStale]. Called only under [mutex].
+     */
+    private fun takeOutdated(key: CellKey, route: CellRoute, existing: SessionRef?): ActiveSession? {
+        val outdated = handles[key]?.takeIf { it.isOpen() && existing == null && !it.runs(route) } ?: return null
+        handles.remove(key)
+        val isKeptBusy = recordReplaced(key, outdated, route)
+        return outdated.takeIf { !isKeptBusy }
+    }
+
     /** Called only under [mutex]; a handle of unknown target falls back to its engine and binding. */
     private fun ActiveSession.runs(route: CellRoute): Boolean = targets[this]?.let { it == route.target }
         ?: (this.route.engine == route.target.engine && this.route.binding == route.target.binding)
 
     /**
      * Remembers the harnesses of a replaced handle, removed once it closes. A handle still sending or being stopped is
-     * neither stopped nor archived here: it is kept for the cell's next lysis or sleep and `true` is returned.
+     * neither stopped nor archived here: it is kept in [lingering] for the cell's next release and `true` is returned.
+     * Otherwise the handle is claimed as [stopping] for [replaceStale], so no release lets it go while it is stopped.
      * Called only under [mutex].
      */
-    private fun detachBusy(key: CellKey, stale: ActiveSession, route: CellRoute): Boolean {
+    private fun recordReplaced(key: CellKey, stale: ActiveSession, route: CellRoute): Boolean {
         replaced[stale] = Replaced(key, route.harnesses)
         val isBusy = stale in submitting || stale in stopping
         if (isBusy) {
             lingering.getOrPut(key) { mutableListOf() } += stale
             log.d { "replaced cell session on ${stale.ref.engine.value} is busy; kept for the next release" }
+        } else {
+            stopping += stale
         }
         return isBusy
     }
@@ -182,20 +194,29 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
     private suspend fun replaceStale(key: CellKey, stale: ActiveSession, route: CellRoute, generation: Int) =
         withContext(NonCancellable) {
             log.i { "cell session on ${stale.ref.engine.value} replaced for ${route.target.engine.value}" }
-            // Archived once closed, by [releaseReplaced].
-            discard(key, stale, generation, isStopped = true, isArchived = false)
+            try {
+                // Archived once closed, by [releaseReplaced].
+                discard(key, stale, generation, isStopped = true, isArchived = false)
+            } finally {
+                mutex.withLock { stopping -= stale }
+            }
         }
 
     /**
      * Archives the session of a replaced [handle] that is closed now and removes its harness connections; a failed
-     * removal keeps the entry for a retry.
+     * removal keeps the entry for a retry. A release already running for the handle is not repeated, and the session is
+     * archived at most once.
      */
     private suspend fun releaseReplaced(handle: ActiveSession) = withContext(NonCancellable) {
-        val entry = mutex.withLock { replaced[handle] } ?: return@withContext
-        if (!entry.isArchived) {
-            archiveQuietly(handle.ref)
-            entry.isArchived = true
-        }
+        var isToArchive = false
+        val entry = mutex.withLock {
+            replaced[handle]?.takeUnless { it.isReleasing }?.also {
+                it.isReleasing = true
+                isToArchive = !it.isArchived
+                it.isArchived = true
+            }
+        } ?: return@withContext
+        if (isToArchive) archiveQuietly(handle.ref)
         val key = entry.key
         val isReleased: suspend () -> Boolean = {
             mutex.withLock { handles[key] !== handle && lingering[key]?.contains(handle) != true }
@@ -206,19 +227,27 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.w(e) { "harness connections of a replaced cell session were not removed; retried at lysis" }
+            log.w(e) { "harness connections of a replaced cell session were not removed; retried later" }
+        } finally {
+            mutex.withLock { entry.isReleasing = false }
         }
     }
 
-    /** Retries removals that failed for closed replaced handles of [key]. */
-    private suspend fun retryReplaced(key: CellKey) {
-        val closed = mutex.withLock {
-            replaced.filter { (handle, owner) ->
-                owner.key == key && handles[key] !== handle && lingering[key]?.contains(handle) != true
-            }.keys.toList()
-        }
+    /** Retries removals that failed for closed replaced handles of the cells [of] selects. */
+    private suspend fun retryReplaced(of: (CellKey) -> Boolean) {
+        val closed = mutex.withLock { closedReplaced(of) }
         closed.forEach { releaseReplaced(it) }
     }
+
+    /** Replaced handles of the cells [of] selects that nothing holds or stops any more; called only under [mutex]. */
+    private fun closedReplaced(of: (CellKey) -> Boolean): List<ActiveSession> = replaced.filter { (handle, owner) ->
+        of(owner.key) && handles[owner.key] !== handle && lingering[owner.key]?.contains(handle) != true &&
+            handle !in stopping
+    }.keys.toList()
+
+    /** Lingering replaced handles of [key], whose turn may still run; called only under [mutex]. */
+    private fun lingeringReplaced(key: CellKey): List<ActiveSession> =
+        lingering[key].orEmpty().filter { it in replaced }
 
     /** Rechecks an opener after any admission wait; called only under [mutex]. */
     private fun checkOpening(key: CellKey, generation: Int, awake: Int) {
@@ -326,13 +355,17 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
             lingering[key]?.removeAll(duplicates.toSet())
             if (lingering[key]?.isEmpty() == true) lingering.remove(key)
             if (ref != null) retired[key] = ref to generation
-            all
+            all to lingeringReplaced(key).filter { it !in all }
         }
         return withContext(NonCancellable) {
             // Completion of this generation proves the shared native turn ended, even if an older wrapper is stale.
-            val isClosed = held.map { closeHeld(key, it) }.all { it }
+            val isClosed = held.first.map { closeHeld(key, it) }.all { it }
+            // A replaced session runs another native turn, which the cell's completion says nothing about: it is
+            // stopped like a lysed cell's, and a stop that is not confirmed keeps it for the next release.
+            val isStopped = held.second.map { stopHeld(key, it) }.all { it }
+            retryReplaced { it == key }
             log.d { "cell ${key.cell.value} of ${key.organism.value} released (${ReleaseMode.Retire})" }
-            if (isClosed) ReleaseOutcome.Stopped else ReleaseOutcome.Unconfirmed
+            if (isClosed && isStopped) ReleaseOutcome.Stopped else ReleaseOutcome.Unconfirmed
         }
     }
 
@@ -348,7 +381,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
             lingering[key].orEmpty().toList() to ((openers[key] ?: 0) > 0)
         }
         val isStopped = held.map { stopHeld(key, it) }.all { it } && !isOpening
-        retryReplaced(key)
+        retryReplaced { it == key }
         if (isStopped) session?.let { archiveQuietly(it) }
         log.d { "cell ${key.cell.value} of ${key.organism.value} released (${ReleaseMode.Lyse}, stopped=$isStopped)" }
         return if (isStopped) ReleaseOutcome.Stopped else ReleaseOutcome.Unconfirmed
@@ -410,6 +443,11 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
             coroutineScope {
                 all.forEach { (key, handle) -> launch { stopHeld(key, handle) } }
             }
+            retryReplaced { true }
+            // A removal that failed twice is not retried again: the entries stay bounded across sleeps. Replaced
+            // handles still held keep theirs for the release that finally closes them.
+            val dropped = mutex.withLock { closedReplaced { true }.onEach { replaced.remove(it) }.size }
+            if (dropped > 0) log.w { "$dropped replaced cell sessions keep harness connections that were not removed" }
         }
         log.i { "attempted release of ${all.size} cell sessions before sleep" }
     }
@@ -582,8 +620,16 @@ internal class FacadeCellSessions(private val facade: EngineFacade, private val 
     }
 }
 
-/** A replaced handle of [key] still to be archived ([isArchived]) and disconnected from [harnesses]. */
-private class Replaced(val key: CellKey, val harnesses: Set<String>, var isArchived: Boolean = false)
+/**
+ * A replaced handle of [key] still to be archived ([isArchived]) and disconnected from [harnesses]; [isReleasing] while
+ * a release runs. Mutated only under the owner's mutex.
+ */
+private class Replaced(
+    val key: CellKey,
+    val harnesses: Set<String>,
+    var isArchived: Boolean = false,
+    var isReleasing: Boolean = false,
+)
 
 /** One cell's open session; its turns run at the [route]'s effort and review model. */
 private class FacadeCellHandle(

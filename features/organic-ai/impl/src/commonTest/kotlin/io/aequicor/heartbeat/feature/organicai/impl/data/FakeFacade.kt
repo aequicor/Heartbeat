@@ -91,6 +91,7 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
     var items: List<SessionItem> = emptyList()
     var finish: TurnOutcome? = TurnOutcome.Completed
     var isArchived = false
+    var archivals = 0
     var closes = 0
     var closeFailure: Throwable? = null
 
@@ -160,6 +161,7 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
     val archives = object : ArchivesSessions {
         override suspend fun setArchived(archived: Boolean) {
             isArchived = archived
+            archivals++
         }
     }
 
