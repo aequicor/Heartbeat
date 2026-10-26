@@ -99,7 +99,7 @@ private val LEGACY_TOGGLE_BASELINE = listOf(
     "adaptive_subagents.session_tools", "autocomplete.enabled", "attachments.enabled", "ai.engine_management",
     "ai.engine_configuration", "browser.page_zoom", "browser.research_access", "project_config.enabled",
     "research_chat.enabled", "feedback.enabled", "context_optimization.continuation_brief",
-    "context_optimization.ledger_tools",
+    "context_optimization.ledger_tools", "planning_mode.enabled", "scheduler.task_graphs", "organic_ai.sandbox",
 )
 
 /**

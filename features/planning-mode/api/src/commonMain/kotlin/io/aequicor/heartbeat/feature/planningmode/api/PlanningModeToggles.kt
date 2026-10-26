@@ -9,7 +9,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 public val PlanningModeEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "planning_mode.enabled",
     "Режим планирования: план задачи в профиле, только чтение до реализации",
-    default = false,
+    default = true,
 )
 
 /** Names of the hosted tools of the planning agent. */

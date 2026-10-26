@@ -36,7 +36,7 @@ public val OrganicAiEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 public val OrganicAiSandbox: FeatureToggle.Flag = FeatureToggle.Flag(
     "organic_ai.sandbox",
     "Органический ИИ: каждая клетка работает в своей песочнице",
-    default = false,
+    default = true,
 )
 
 /** Caller-generated identity of an organism; never contains native paths, accounts or credentials. */

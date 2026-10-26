@@ -30,7 +30,6 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
@@ -53,9 +52,10 @@ class PlanningModeIntegrationTest {
     }
 
     @Test
-    fun `planning is a registered toggle that starts off and leaves storage untouched`() = runTest {
+    fun `planning is a registered toggle on by default and leaves storage untouched while overridden off`() = runTest {
         assertTrue(PlanningModeEnabled in toggles.toggleControl.registered)
-        assertFalse(PlanningModeEnabled.default)
+        assertTrue(PlanningModeEnabled.default)
+        toggles.toggleControl.setOverride(PlanningModeEnabled, false)
         val profile = app.profileSessions.open(ProfileId("planning-off"))
         assertIs<PlanningState.Idle>((profile.graph as TestPlanningAccessors).planning.state.value)
         app.profileSessions.close()
