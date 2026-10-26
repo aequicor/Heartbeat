@@ -135,6 +135,7 @@
     <string name="run_failed_request">The provider rejected the request. Check the model and connection in Settings → Models and engines; for a custom server, also check the base URL and API path.</string>
     <string name="run_failed_engine">The engine is unavailable on this device. In Settings → Models and engines, check that it is installed and enabled, then restart the engine.</string>
     <string name="run_failed_network">Could not reach the engine service. Check the connection and try again.</string>
+    <string name="run_failed_service">The provider service could not handle the request right now (server error). Try again later.</string>
     <string name="submit_failed">The session could not be created. Your prompt was restored.</string>
     <string name="duration_seconds">%1$d s</string>
     <string name="duration_minutes">%1$d min %2$d s</string>

@@ -27,6 +27,10 @@ class RunFailureKindsTest {
             RunFailureKind.Network,
             EngineFailure.Transport(TransportFailureReason.NetworkUnavailable).toRunFailureKind(),
         )
+        assertEquals(
+            RunFailureKind.ServiceUnavailable,
+            EngineFailure.Transport(TransportFailureReason.ServiceUnavailable).toRunFailureKind(),
+        )
         assertEquals(RunFailureKind.Unknown, EngineFailure.Session(SessionFailureReason.Busy).toRunFailureKind())
         assertEquals(RunFailureKind.Unknown, null.toRunFailureKind())
     }
