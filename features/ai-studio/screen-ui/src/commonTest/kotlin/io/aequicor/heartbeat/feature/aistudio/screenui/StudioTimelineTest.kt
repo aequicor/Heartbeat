@@ -355,6 +355,19 @@ class StudioTimelineTest {
     }
 
     @Test
+    fun `a reply streamed after a sent prompt copy still replaces only the latest message`() {
+        val cache = TimelineCache()
+        val sent = MessageUi.Prompt("sent:a", prompt.createdAt, "Next", isTimestampKnown = false)
+        val started = cache.update(listOf(prompt, sent, reply("partial", isStreaming = true)), labels)
+        val streamed = cache.update(listOf(prompt, sent, reply("partial answer", isStreaming = true)), labels)
+        assertEquals(listOf("m1", "sent:a", "m2"), streamed.messages.map { it.id })
+        assertEquals("partial answer", streamed.messages.last().text)
+        // The copy and the earlier prompt are carried over, not rebuilt.
+        assertSame(started.messages[0], streamed.messages[0])
+        assertSame(started.messages[1], streamed.messages[1])
+    }
+
+    @Test
     fun `a transcript without messages shows only its worktree cards`() {
         val cache = TimelineCache()
         val grouped = labels.copy(isGroupedByDate = true)

@@ -101,6 +101,15 @@ class SentPromptUiTest {
     }
 
     @Test
+    fun `the copy in an empty chat keeps its time while the screen clock ticks`() {
+        val page = AiStudioScreenState(panes = persistentListOf(PaneUi(0)), now = time)
+        val created = page.withDraft(0, "Hello").send("send").prepareSubmission("send", "fresh")
+        val later = created.copy(now = Instant.fromEpochSeconds(61))
+        assertEquals(created.withSentPrompts("fresh", null), later.withSentPrompts("fresh", null))
+        assertEquals(time, later.withSentPrompts("fresh", null)?.single()?.createdAt)
+    }
+
+    @Test
     fun `quick sends are replaced one echo at a time in send order`() {
         val first = chat.withDraft(0, "One").send("a").acceptSubmission("a")
         val both = first.withDraft(0, "Two").send("b").acceptSubmission("b")

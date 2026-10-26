@@ -22,7 +22,8 @@ import kotlin.time.Instant
  * streams before the echo come after the copy, so it is drawn at [position], moved past the echoes of earlier sent
  * prompts that arrived since, and the echo lands where the copy was. [sentAt] dates the copy in a chat without
  * earlier entries. [isRunEnded] marks a turn that ended before its echo: a turn that failed may never record
- * the prompt, so the copy leaves with the chat's next transcript change or its next sent message.
+ * the prompt, so the copy leaves with the chat's next transcript change, once the chat closes, or with its next sent
+ * message.
  */
 @Serializable
 @SerialName("SentPromptUi")
@@ -88,7 +89,7 @@ fun AiStudioScreenState.endSentPrompts(sessionId: String): AiStudioScreenState {
 /**
  * Replaces the open transcripts with [next]. Sent prompts the transcript of their chat now shows leave. Those of an
  * ended turn also leave once their chat's messages differ, or once the chat is not open; a closed chat keeps the
- * prompts of a running turn until it reopens.
+ * prompts of a running turn until it reopens or the turn ends.
  */
 fun AiStudioScreenState.withTranscripts(next: ImmutableMap<String, ImmutableList<MessageUi>>): AiStudioScreenState {
     if (sentPrompts.isEmpty()) return copy(transcripts = next)
