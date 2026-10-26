@@ -48,7 +48,35 @@ class SentPromptUiTest {
         val sent = chat.withDraft(0, "Next step").send("send").acceptSubmission("send")
         val streaming = MessageUi.Reply("r2", time, "Working", persistentListOf(), isStreaming = true)
         val next = sent.withTranscripts(persistentMapOf("chat" to (history + streaming)))
-        assertEquals(listOf("p1", "r1", "r2", "sent:send"), next.feed().map { it.id })
+        // The copy keeps its place before the turn's reply, where the echo lands.
+        assertEquals(listOf("p1", "r1", "sent:send", "r2"), next.feed().map { it.id })
+        val echoed = next.withTranscripts(persistentMapOf("chat" to (history + prompt("p2", "Next step") + streaming)))
+        assertEquals(listOf("p1", "r1", "p2", "r2"), echoed.feed().map { it.id })
+    }
+
+    @Test
+    fun `a chat whose transcript has not loaded yet gets no copy to mistake its history for the echo`() {
+        val loading = chat.copy(transcripts = persistentMapOf())
+        val sent = loading.withDraft(0, "Next step").send("send")
+        assertTrue(sent.sentPrompts.isEmpty())
+    }
+
+    @Test
+    fun `an ended turn keeps its copy through equal transcripts and drops it once the chat closes`() {
+        val ended = chat.withDraft(0, "Next step").send("send").acceptSubmission("send").endSentPrompts("chat")
+        val reemitted = ended.withTranscripts(persistentMapOf("chat" to history.toList().toImmutableList()))
+        assertEquals(1, reemitted.sentPrompts.size)
+        val closed = reemitted.withTranscripts(persistentMapOf())
+        assertTrue(closed.sentPrompts.isEmpty())
+    }
+
+    @Test
+    fun `a running chat that closes keeps its copy until the turn ends`() {
+        val sent = chat.withDraft(0, "Next step").send("send").acceptSubmission("send")
+        val closed = sent.withTranscripts(persistentMapOf())
+        assertEquals(1, closed.sentPrompts.size)
+        val ended = closed.endSentPrompts("chat").withTranscripts(persistentMapOf())
+        assertTrue(ended.sentPrompts.isEmpty())
     }
 
     @Test

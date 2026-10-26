@@ -10,15 +10,19 @@ import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
+import kotlin.time.Instant
 
 /**
  * A composer message sent to chat [sessionId] that the chat's transcript does not show yet. Engines echo the user's
- * message into their history late (Claude Code only at the end of the turn), so the feed draws this copy after the
- * transcript until the transcript holds more than [ordinal] prompts: the echo then takes its place in the same state.
+ * message into their history late (Claude Code only at the end of the turn), so the feed draws this copy until the
+ * transcript holds more than [ordinal] prompts: the echo then takes its place in the same state.
  *
  * [ordinal] is the number of prompts the chat showed when the message was sent, plus the sent prompts still waiting
- * before it. [isRunEnded] marks a turn that ended before its echo: a turn that failed may never record the prompt,
- * so the copy leaves with the chat's next transcript change or its next sent message.
+ * before it. [position] is the transcript size at that moment and [shownPrompts] its prompt count: entries the turn
+ * streams before the echo come after the copy, so it is drawn at [position], moved past the echoes of earlier sent
+ * prompts that arrived since, and the echo lands where the copy was. [sentAt] dates the copy in a chat without
+ * earlier entries. [isRunEnded] marks a turn that ended before its echo: a turn that failed may never record
+ * the prompt, so the copy leaves with the chat's next transcript change or its next sent message.
  */
 @Serializable
 @SerialName("SentPromptUi")
@@ -28,21 +32,42 @@ data class SentPromptUi(
     val text: String,
     val attachments: ImmutableList<AttachmentUi>,
     val ordinal: Int,
+    val position: Int,
+    val shownPrompts: Int,
+    val sentAt: Instant,
     val isRunEnded: Boolean = false,
 ) {
-    override fun toString(): String = "SentPromptUi(ordinal=$ordinal, files=${attachments.size}, ended=$isRunEnded)"
+    override fun toString(): String = "SentPromptUi(ordinal=$ordinal, position=$position, shown=$shownPrompts, " +
+        "files=${attachments.size}, ended=$isRunEnded)"
 }
 
 /**
  * Starts showing [submission] in the feed of its chat. A new chat's submission has no chat until its session is
- * created, so it is shown from [prepareSubmission]; organism chats show their cells and are left alone.
+ * created, so it is shown from [prepareSubmission] ([isNewChat]); organism chats show their cells and are left
+ * alone. An existing chat whose transcript has not loaded yet gets no copy: its first history could not be told
+ * apart from the echo.
  */
-internal fun AiStudioScreenState.withSentPrompt(id: String, submission: SubmissionUi): AiStudioScreenState {
+internal fun AiStudioScreenState.withSentPrompt(
+    id: String,
+    submission: SubmissionUi,
+    isNewChat: Boolean,
+): AiStudioScreenState {
     val chat = submission.sessionId ?: return this
     if (id in sentPrompts || sessions.any { it.id == chat && it.isOrganism }) return this
+    val messages = transcripts[chat]
+    if (messages == null && !isNewChat) return this
     val waiting = sentPrompts.filterValues { it.sessionId != chat || !it.isRunEnded }
-    val ordinal = transcripts[chat].promptCount() + waiting.values.count { it.sessionId == chat }
-    val sent = SentPromptUi(chat, submission.text.trim(), submission.attachments, ordinal)
+    val shown = messages.promptCount()
+    val ordinal = shown + waiting.values.count { it.sessionId == chat }
+    val sent = SentPromptUi(
+        sessionId = chat,
+        text = submission.text.trim(),
+        attachments = submission.attachments,
+        ordinal = ordinal,
+        position = messages?.size ?: 0,
+        shownPrompts = shown,
+        sentAt = now,
+    )
     return copy(sentPrompts = (waiting + (id to sent)).toImmutableMap())
 }
 
@@ -61,25 +86,26 @@ fun AiStudioScreenState.endSentPrompts(sessionId: String): AiStudioScreenState {
 }
 
 /**
- * Replaces the open transcripts with [next]. Sent prompts the transcript of their chat now shows leave, and so do
- * those of an ended turn once their chat's transcript changed; a closed chat keeps its prompts until it reopens.
+ * Replaces the open transcripts with [next]. Sent prompts the transcript of their chat now shows leave. Those of an
+ * ended turn also leave once their chat's messages differ, or once the chat is not open; a closed chat keeps the
+ * prompts of a running turn until it reopens.
  */
 fun AiStudioScreenState.withTranscripts(next: ImmutableMap<String, ImmutableList<MessageUi>>): AiStudioScreenState {
     if (sentPrompts.isEmpty()) return copy(transcripts = next)
     val kept = sentPrompts.filterValues { sent ->
         val messages = next[sent.sessionId]
         val isEchoed = messages != null && messages.promptCount() > sent.ordinal
-        // Lists of unchanged chats are carried over as the same instances.
-        val isChanged = messages !== transcripts[sent.sessionId]
-        !isEchoed && !(sent.isRunEnded && isChanged)
+        // Runtime-only updates re-emit equal lists; only a real change may drop the copy of an ended turn.
+        val isGone = sent.isRunEnded && (messages == null || messages != transcripts[sent.sessionId])
+        !isEchoed && !isGone
     }
     val remaining = if (kept.size == sentPrompts.size) sentPrompts else kept.toImmutableMap()
     return copy(transcripts = next, sentPrompts = remaining)
 }
 
 /**
- * [messages] of chat [sessionId] followed by its sent prompts they do not show yet, in send order; a chat whose
- * transcript is not loaded yet shows only those prompts.
+ * [messages] of chat [sessionId] with its sent prompts they do not show yet, each at its place
+ * ([SentPromptUi.position]) in send order; a chat whose transcript is not loaded yet shows only those prompts.
  */
 fun AiStudioScreenState.withSentPrompts(
     sessionId: String,
@@ -87,15 +113,30 @@ fun AiStudioScreenState.withSentPrompts(
 ): ImmutableList<MessageUi>? {
     if (sentPrompts.values.none { it.sessionId == sessionId }) return messages
     val shown = messages.promptCount()
+    val history = messages.orEmpty()
     val waiting = sentPrompts.entries
         .filter { (_, sent) -> sent.sessionId == sessionId && sent.ordinal >= shown }
         .sortedBy { it.value.ordinal }
     if (waiting.isEmpty()) return messages
-    val createdAt = messages?.lastOrNull()?.createdAt ?: now
-    val prompts = waiting.map { (id, sent) ->
-        MessageUi.Prompt(SENT_PROMPT_PREFIX + id, createdAt, sent.text, isTimestampKnown = false, sent.attachments)
+    val feed = ArrayList<MessageUi>(history.size + waiting.size)
+    var copied = 0
+    for ((id, sent) in waiting) {
+        // Prompts that arrived since the send are echoes of earlier sent prompts drawn before this one.
+        val arrived = (shown - sent.shownPrompts).coerceAtLeast(0)
+        val at = (sent.position + arrived).coerceIn(copied, history.size)
+        feed.addAll(history.subList(copied, at))
+        copied = at
+        val createdAt = history.getOrNull(at - 1)?.createdAt ?: sent.sentAt
+        feed += MessageUi.Prompt(
+            SENT_PROMPT_PREFIX + id,
+            createdAt,
+            sent.text,
+            isTimestampKnown = false,
+            sent.attachments,
+        )
     }
-    return (messages.orEmpty() + prompts).toImmutableList()
+    feed.addAll(history.subList(copied, history.size))
+    return feed.toImmutableList()
 }
 
 private fun List<MessageUi>?.promptCount(): Int = this?.count { it is MessageUi.Prompt } ?: 0

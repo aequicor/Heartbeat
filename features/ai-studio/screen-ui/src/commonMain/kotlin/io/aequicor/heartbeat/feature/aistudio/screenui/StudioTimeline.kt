@@ -274,7 +274,9 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         var previousDate: kotlinx.datetime.LocalDate? = null
         var section = HbChatSection("empty", "")
         return messages.mapIndexed { index, message ->
-            val date = labels.calendar.day(message.createdAt).takeIf { message.isTimestampKnown }
+            // An entry without its own time (a sent prompt before its echo, a stop marker) stays in the current day.
+            if (index > 0 && !message.isTimestampKnown) return@mapIndexed section
+            val date = if (message.isTimestampKnown) labels.calendar.day(message.createdAt) else null
             if (index == 0 || date != previousDate) {
                 section = HbChatSection(
                     "date:${message.id}",

@@ -126,7 +126,8 @@ data class SubmissionUi(
  */
 fun AiStudioScreenState.prepareSubmission(id: String, sessionId: String): AiStudioScreenState {
     val submitted = submissions[id]?.copy(sessionId = sessionId) ?: return this
-    return copy(submissions = (submissions + (id to submitted)).toImmutableMap()).withSentPrompt(id, submitted)
+    return copy(submissions = (submissions + (id to submitted)).toImmutableMap())
+        .withSentPrompt(id, submitted, isNewChat = true)
 }
 
 /** The submission pane [paneId] would send now, with its draft and attachments under [id]. */
@@ -163,7 +164,7 @@ fun AiStudioScreenState.queueSubmission(id: String, pending: SubmissionUi): AiSt
         attachmentRequests = attachmentRequests.mapValues { (_, key) ->
             if (key == currentKey) pending.draftKey else key
         }.toImmutableMap(),
-    ).withSentPrompt(id, pending)
+    ).withSentPrompt(id, pending, isNewChat = false)
 }
 
 /** Clear exactly the accepted snapshot; editing during native validation preserves the newer draft. */
