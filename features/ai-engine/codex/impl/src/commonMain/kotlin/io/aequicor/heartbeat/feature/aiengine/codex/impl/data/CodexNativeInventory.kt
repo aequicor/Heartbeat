@@ -85,7 +85,7 @@ internal fun requireCodexInventoryConfig(
         (key == "profile" || key !in CodexInventoryConfigKeys) && !isUnsetConfig(value) && !isDefault
     }.keys
     if (refused.isEmpty()) return
-    val names = refused.map { if (ConfigKeyName.matches(it)) it else "<unnamed>" }.toSortedSet()
+    val names = refused.map { if (ConfigKeyName.matches(it)) it else "<unnamed>" }.sorted().toSet()
     val log = Log.tag("CodexNativeInventory")
     if (refusals.isNew(names)) {
         log.w { "Codex config keys refused by native inventory: ${names.joinToString()}" }
