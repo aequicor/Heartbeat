@@ -299,6 +299,7 @@ internal class ClaudeSession(
 
     private suspend fun execute(submission: Submission, accepted: CompletableDeferred<TurnId>) {
         val observer = ClaudeTurnObserver(ref, submission.turn, submission.request, history, accepted, ::update)
+        observer.submitted()
         val hosted = hostedTurn(submission, observer)
         permissions = hosted.permissions
         val previousLaunch = launch
@@ -732,7 +733,7 @@ internal class ClaudeSession(
 
     /**
      * A turn that never reached a CLI process failed locally; any other displaced turn has an unknown outcome.
-     * Its TurnFinished may have no TurnStarted, because the CLI never accepted it.
+     * Its TurnStarted is published at submission, so it may precede a TurnFinished the CLI never accepted.
      */
     private fun displacedOutcome(turn: Turn): TurnOutcome =
         if (turn.id == undelivered) TurnOutcome.Failed(LAUNCH_FAILURE) else TurnOutcome.Unknown
