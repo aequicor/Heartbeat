@@ -122,15 +122,21 @@ class ChecklistUiTest {
             waitForIdle()
         }
         field.assertTextEquals(typed, includeEditableText = true)
-        // The owner then publishes its backlog in order, followed by a stale echo of an older draft.
+        // The owner then publishes its backlog in order, skipping some drafts.
         val answers = pending.toList()
         pending.clear()
-        val published = answers.map { intent -> state.predictDraft(intent).also { state = it } }
+        val published = answers.runningFold(state) { owner, intent -> owner.predictDraft(intent) }.drop(1)
         runOnIdle { state = published[2] }
+        field.assertTextEquals(typed, includeEditableText = true)
+        runOnIdle { state = published[10] }
         runOnIdle { state = published.last() }
         field.assertTextEquals(typed, includeEditableText = true)
         assertEquals(ChecklistScreenIntent.Text("text", typed), answers.last())
         assertEquals(typed, state.fields.first { it.isText }.text)
+        // Once answered, a change from another editor of the same card is shown, even if it repeats an older draft.
+        val elsewhere = typed.take(3)
+        runOnIdle { state = state.predictDraft(ChecklistScreenIntent.Text("text", elsewhere)) }
+        field.assertTextEquals(elsewhere, includeEditableText = true)
     }
 
     @Test

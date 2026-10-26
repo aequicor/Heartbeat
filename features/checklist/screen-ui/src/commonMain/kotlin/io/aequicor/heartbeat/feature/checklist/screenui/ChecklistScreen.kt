@@ -32,7 +32,6 @@ import io.aequicor.heartbeat.feature.checklist.screenmodel.ChecklistFieldUi
 import io.aequicor.heartbeat.feature.checklist.screenmodel.ChecklistPhaseUi
 import io.aequicor.heartbeat.feature.checklist.screenmodel.ChecklistScreenIntent
 import io.aequicor.heartbeat.feature.checklist.screenmodel.ChecklistScreenState
-import io.aequicor.heartbeat.feature.checklist.screenmodel.ChecklistTextDraft
 import org.jetbrains.compose.resources.stringResource
 
 /** An inline card, with no screen chrome or nested scrolling surface. */
@@ -120,10 +119,12 @@ private fun ChecklistField(field: ChecklistFieldUi, enabled: Boolean, onIntent: 
 @Composable
 private fun ChecklistTextInput(field: ChecklistFieldUi, enabled: Boolean, onIntent: (ChecklistScreenIntent) -> Unit) {
     var draft by remember(field.id, enabled) { mutableStateOf(ChecklistTextDraft(field.text)) }
-    val reconciled = draft.published(field.text)
-    SideEffect { draft = reconciled }
+    val shown = draft.published(field.text)
+    // Reconciles the applied draft, not this composition's copy: the editor's own effect (undo/redo) runs first
+    // and may already have recorded an edit.
+    SideEffect { draft = draft.published(field.text) }
     HbTextField(
-        if (enabled) reconciled.text else field.text,
+        if (enabled) shown.text else field.text,
         {
             draft = draft.edited(it)
             onIntent(ChecklistScreenIntent.Text(field.id, it))
