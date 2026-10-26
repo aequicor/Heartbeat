@@ -197,7 +197,7 @@ internal class DesktopVirtualWorkspaces(
             } else {
                 val head = git.text(record.source, "rev-parse", "HEAD")
                 when {
-                    record.branch != null -> resumeLoaded(record, head, explicit && resolveConflicts)
+                    record.branch != null -> resumeLoaded(record, head, explicit, resolveConflicts)
                     record.pendingSnapshot != null -> resumeConflicts(record, head, explicit, resolveConflicts)
                     else -> rebase(record, head, explicit)
                 }
@@ -206,13 +206,20 @@ internal class DesktopVirtualWorkspaces(
         }
 
     /**
-     * A kept merge conflict of a loaded branch continues like any other: resolution needs authorization ([isGranted]).
-     * Only a re-anchor revokes a granted one; a barrier-wide resume of an unchanged sandbox keeps it.
+     * A kept merge conflict of a loaded branch continues like any other conflict ([resumeConflicts]): an explicit
+     * resume grants resolution exactly when it [resolveConflicts] and revokes it otherwise. A barrier-wide
+     * (non-explicit) resume keeps a granted one only while nothing re-anchors: a moved source, or a sandbox that
+     * waited for or paused on a dirty source (even with an unchanged HEAD), re-anchors and revokes it.
      */
-    private suspend fun resumeLoaded(record: VirtualRecord, head: String, isGranted: Boolean): VirtualRecord {
+    private suspend fun resumeLoaded(
+        record: VirtualRecord,
+        head: String,
+        explicit: Boolean,
+        resolveConflicts: Boolean,
+    ): VirtualRecord {
         val current = anchored(record, head)
         if (!current.keepsConflict) return current
-        val isResolving = isGranted || (current == record && record.isResolving)
+        val isResolving = if (explicit) resolveConflicts else current == record && record.isResolving
         return current.copy(
             isResolving = isResolving,
             state = current.state.copy(phase = VirtualSandboxPhase.Conflicted, isResolving = isResolving),
@@ -346,10 +353,10 @@ internal class DesktopVirtualWorkspaces(
         val snapshot = current.state.snapshot
         val existing = git.call(current.source, "rev-parse", "--verify", "refs/heads/$branch", allowFailure = true)
         val tip = existing.text.trim().takeIf { existing.code == 0 }
-        // A reopened sandbox moves only the result branch it published itself.
+        // A reopened sandbox moves only the result branch it published itself, from the tip it left there.
         check(tip == null || tip == snapshot || tip == current.handedOff) { "SandboxBranchOccupied" }
         // Moving a branch checked out in another worktree would leave its files behind the new result: the pinned
-        // snapshot is the result then, and the branch stays where it is.
+        // snapshot is the result then, and the branch stays where it is (the next handoff moves it from there).
         val isCheckedOut = tip != null && tip != snapshot &&
             git.text(current.source, "worktree", "list", "--porcelain").lineSequence()
                 .any { it.trim() == "branch refs/heads/$branch" }
@@ -360,7 +367,14 @@ internal class DesktopVirtualWorkspaces(
         }
         log.i { "Virtual sandbox branch handed to user" }
         save(
-            current.copy(state = current.state.copy(phase = VirtualSandboxPhase.HandedOff, resultCommit = snapshot)),
+            current.copy(
+                state = current.state.copy(
+                    phase = VirtualSandboxPhase.HandedOff,
+                    resultCommit = snapshot,
+                    isBranchUnmoved = isCheckedOut,
+                ),
+                publishedTip = if (isCheckedOut) tip else snapshot,
+            ),
         ).state
     }
 
@@ -371,8 +385,13 @@ internal class DesktopVirtualWorkspaces(
         log.i { "Virtual sandbox reopened for a new run" }
         save(
             record.copy(
-                state = record.state.copy(phase = VirtualSandboxPhase.Ready, resultCommit = null),
-                handedOff = record.state.resultCommit,
+                state = record.state.copy(
+                    phase = VirtualSandboxPhase.Ready,
+                    resultCommit = null,
+                    isBranchUnmoved = false,
+                ),
+                // The tip the handoff actually left on the branch; records from before it was kept moved it.
+                handedOff = record.publishedTip ?: record.state.resultCommit,
             ),
         ).state
     }
@@ -393,7 +412,7 @@ internal class DesktopVirtualWorkspaces(
             committed
         }
         if (isPush) {
-            // A failed push propagates; the caller (the sandbox tool refusal) logs it once.
+            // A failed push propagates: the sandbox tool logs it once, as a refusal or as a failure.
             branches.push(committed, branch)
             log.i { "Virtual sandbox branch pushed to origin force=$isForce" }
             lock.withLock {
@@ -743,6 +762,11 @@ internal data class VirtualRecord(
     val branch: String? = null,
     /** Result branch tip of a handoff before [DesktopVirtualWorkspaces.reopen]; the next handoff may move it. */
     val handedOff: String? = null,
+    /**
+     * Tip the last handoff left on the result branch: its snapshot, or the old tip when the branch was checked out
+     * in another worktree and stayed unmoved. Null in records from before it was kept.
+     */
+    val publishedTip: String? = null,
     /** Merged tip that the next branch commit records as a second parent; a later merge supersedes it. */
     val mergeParent: String? = null,
     /** What produced [pendingSnapshot]; null in records from before it was recorded (see [keepsConflict]). */
@@ -756,7 +780,10 @@ internal data class VirtualRecord(
      * the forced push lease.
      */
     val origins: Map<String, String> = emptyMap(),
-    /** Local branch tip per branch observed by a checkout or written by a commit: a forced commit moves only it. */
+    /**
+     * Local branch tip per branch observed by a checkout, an own-branch merge or written by a commit: a forced commit
+     * moves only it. A checkout whose loaded tip lacks the local tip records a marker no tip equals.
+     */
     val localTips: Map<String, String> = emptyMap(),
 ) {
     /**
@@ -788,6 +815,8 @@ internal data class PendingMerge(
     val theirs: String,
     val isCatchUp: Boolean,
     val origin: String? = null,
+    /** Local tip of the sandbox's own branch the merged tip contains; observed once the merge applies. */
+    val localTip: String? = null,
 )
 
 /** Shared backend contract keeps both DI bindings on the same profile-owned instance. */

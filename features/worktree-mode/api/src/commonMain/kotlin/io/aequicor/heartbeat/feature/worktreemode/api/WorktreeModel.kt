@@ -66,7 +66,11 @@ public enum class WorktreePhase {
 @Serializable
 public enum class WorktreeRunKind { Coding, CreatePr, Merge }
 
-/** User choice after an explicitly completed coding task; [HandOff] publishes a virtual sandbox as a local branch. */
+/**
+ * User choice after an explicitly completed coding task. [HandOff] publishes a virtual sandbox as a local branch; a
+ * branch checked out in another worktree is left unmoved and the result is the sandbox commit alone
+ * ([VirtualSandboxState.isBranchUnmoved]), and a handoff after the sandbox is reopened moves it from that tip.
+ */
 @Serializable
 public enum class WorktreeAction { CreatePr, HandOff, Merge, Refine, Leave }
 

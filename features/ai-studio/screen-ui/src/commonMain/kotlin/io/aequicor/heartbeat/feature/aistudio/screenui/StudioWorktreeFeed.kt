@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_engine_unsu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_git_required
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_hand_off
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_handed_off
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_handed_off_unmoved
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_head_required
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_leave_paused
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_paused
@@ -110,6 +111,7 @@ internal data class WorktreeLabels(
     val sandboxResolve: String = "",
     val sandboxLeavePaused: String = "",
     val sandboxHandedOff: String = "",
+    val sandboxHandedOffUnmoved: String = "",
     val sandboxHandOffTemplate: String = "",
 )
 
@@ -307,6 +309,7 @@ internal fun worktreeLabels(): WorktreeLabels = WorktreeLabels(
     sandboxResolve = stringResource(Res.string.sandbox_resolve),
     sandboxLeavePaused = stringResource(Res.string.sandbox_leave_paused),
     sandboxHandedOff = stringResource(Res.string.sandbox_handed_off),
+    sandboxHandedOffUnmoved = stringResource(Res.string.sandbox_handed_off_unmoved),
     sandboxHandOffTemplate = stringResource(Res.string.sandbox_hand_off),
 )
 
@@ -407,11 +410,12 @@ private fun WorktreeUi.virtualCard(id: String, chat: String, labels: WorktreeLab
     return when (sandboxPhase) {
         null, SandboxPhaseUi.Ready -> null
 
+        // A branch left unmoved (checked out elsewhere) does not hold the result: only the commit is shown.
         SandboxPhaseUi.HandedOff -> worktreeCard(
             id,
-            labels.sandboxHandedOff,
+            if (isBranchUnmoved) labels.sandboxHandedOffUnmoved else labels.sandboxHandedOff,
             HbToolStatus.Complete,
-            listOfNotNull(summary, branch, resultCommit).joinToString("\n"),
+            listOfNotNull(summary, branch.takeUnless { isBranchUnmoved }, resultCommit).joinToString("\n"),
         )
 
         SandboxPhaseUi.Pausing, SandboxPhaseUi.Rebasing ->

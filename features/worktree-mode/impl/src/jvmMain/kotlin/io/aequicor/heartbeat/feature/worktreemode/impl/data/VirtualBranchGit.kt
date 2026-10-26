@@ -121,8 +121,10 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
      * Replaces the sandbox files with the tree of a branch of the real repository, so work that lives on a branch
      * the sandbox was not cut from can be continued. After a [fetch] ([isFetched]) the origin state wins over a
      * stale local branch. The source checkout, its index and its HEAD are untouched; the branch becomes the parent
-     * of the next [commit]. The local tip seen now guards a later forced [commit]; the origin state becomes the
-     * lease of a later forced push only when it is part of what was loaded (fetched now, or contained in the tip).
+     * of the next [commit]. The local tip seen now guards a later forced [commit] only when the loaded tip contains
+     * it; a local branch with commits the loaded tip lacks (origin won after a fetch) is recorded as unseen, so a
+     * forced commit refuses with `SandboxBranchMoved` instead of dropping them. The origin state becomes the lease
+     * of a later forced push only when it is part of what was loaded (fetched now, or contained in the tip).
      */
     suspend fun checkout(
         current: VirtualRecord,
@@ -138,6 +140,7 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
         git.pin(current.source, current.id, snapshot)
         val origin = observedOrigin(current, branch, head, isFetched)
         val local = knownCommit(current, "refs/heads/$branch")
+            ?.let { if (isAncestor(current.source, it, head)) it else UNSEEN_LOCAL_TIP }
         return current.copy(
             state = current.state.copy(snapshot = snapshot, revision = current.state.revision + 1),
             branchCommits = current.branchCommits + (branch to tip),
@@ -217,24 +220,31 @@ internal class VirtualBranchGit(private val git: VirtualGitObjects) {
      * records the merged tip as a second parent. Conflicts keep the sandbox unchanged until the user authorizes
      * their resolution, exactly like a child integration; the merge is recorded for the next commit only once
      * they are resolved. After a [fetch] ([isFetched]) the origin state of [branch] is merged, otherwise its local
-     * state wins.
+     * state wins. Merging the continued branch records the local tip it takes in (equal to or contained in the
+     * merged tip) as observed, so a forced commit refused with `SandboxBranchMoved` succeeds after the merge; null
+     * when nothing changes.
      */
     suspend fun merge(current: VirtualRecord, branch: String, isFetched: Boolean): VirtualRecord? {
         val theirs = branchTip(current, branch, isRemoteFirst = isFetched)
         val history = current.branch?.let { current.branchCommits[it] } ?: current.state.baseCommit
+        val isOwn = branch == current.branch
+        val local = if (isOwn) knownCommit(current, "refs/heads/$branch") else null
         if (isAncestor(current.source, theirs, history) || theirs == current.mergeParent) {
-            return null
+            // Nothing to merge; a local tip the continued commit already contains is observed from now on.
+            val seen = local?.takeIf { it != current.localTips[branch] && isAncestor(current.source, it, history) }
+            return seen?.let { current.copy(localTips = current.localTips + (branch to it)) }
         }
         val base = git.text(current.source, "merge-base", history, theirs)
         val merged = git.merge(current.source, base, current.state.snapshot, theirs)
         val snapshot = git.commit(current.source, merged.tree, current.state.baseCommit)
         git.pin(current.source, current.id, snapshot)
-        val isOwn = branch == current.branch
+        val isCatchUp = isOwn && !keepsLocalTip(current, branch, history, theirs)
         val pending = PendingMerge(
             branch,
             theirs,
-            isCatchUp = isOwn && !keepsLocalTip(current, branch, history, theirs),
+            isCatchUp = isCatchUp,
             origin = if (isOwn) observedOrigin(current, branch, theirs, isFetched) else null,
+            localTip = local?.takeIf { isCatchUp && isAncestor(current.source, it, theirs) },
         )
         return afterMerge(current, pending, snapshot, merged.conflicts)
     }
@@ -428,12 +438,19 @@ internal data class Committed(
     val lease: String? = null,
 )
 
-/** Applies a resolved or clean branch merge: a caught-up tip, or the second parent of the next commit. */
+/**
+ * Applies a resolved or clean branch merge: a caught-up tip (with the local tip it took in), or the second parent of
+ * the next commit.
+ */
 internal fun VirtualRecord.withMerge(merge: PendingMerge): VirtualRecord = copy(
     branchCommits = if (merge.isCatchUp) branchCommits + (merge.branch to merge.theirs) else branchCommits,
     mergeParent = if (merge.isCatchUp) mergeParent else merge.theirs,
     origins = merge.origin?.let { origins + (merge.branch to it) } ?: origins,
+    localTips = merge.localTip?.let { localTips + (merge.branch to it) } ?: localTips,
 )
+
+/** A [VirtualRecord.localTips] entry no local tip equals: the loaded tip did not contain the local branch. */
+private const val UNSEEN_LOCAL_TIP = "unseen"
 
 private const val MAX_COMMIT_MESSAGE = 8 * 1024
 private const val MAX_BRANCH_NAME = 200

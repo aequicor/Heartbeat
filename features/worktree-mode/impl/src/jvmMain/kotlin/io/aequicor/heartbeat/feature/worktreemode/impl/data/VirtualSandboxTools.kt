@@ -127,9 +127,14 @@ internal class VirtualSandboxTools(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            // Only coded store errors become a refusal and are logged here; any other one propagates to the caller.
+            // Coded store errors become a refusal; any other one (for example a git process that failed to start)
+            // propagates. Both are logged once, here.
             val refused = (error as? IllegalStateException ?: error as? IllegalArgumentException)
-                ?.let { sandboxRefusal(it, isRemoteEnabled) } ?: throw error
+                ?.let { sandboxRefusal(it, isRemoteEnabled) }
+            if (refused == null) {
+                log.w(error) { "Virtual sandbox tool failed name=$name" }
+                throw error
+            }
             log.w(error) { "Virtual sandbox tool refused name=$name" }
             refused
         }

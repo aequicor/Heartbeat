@@ -506,24 +506,6 @@ class VirtualSandboxBranchTest {
     }
 
     @Test
-    fun `a forced commit refuses a local branch that moved after the checkout`() = runTest {
-        val f = VirtualFixture()
-        try {
-            f.cmd("branch", "pr/force")
-            val ref = f.create("force")
-            f.backend.checkoutRef(ref, "pr/force", isFetch = false)
-            val moved = f.cmd("commit-tree", f.cmd("rev-parse", "pr/force^{tree}"), "-p", "pr/force", "-m", "other")
-            f.cmd("update-ref", "refs/heads/pr/force", moved)
-            val files = assertNotNull(f.backend.find(ref))
-            files.change(f.backend.state(ref).revision, listOf(VirtualFileChange("force.txt", "force")))
-            assertRefused("SandboxBranchMoved") { f.backend.commitToBranch(ref, "pr/force", "m", isForce = true) }
-            assertEquals(moved, f.cmd("rev-parse", "pr/force"))
-        } finally {
-            f.close()
-        }
-    }
-
-    @Test
     fun `a checkout without a fetch never leases on origin commits it did not load`() = runTest {
         val f = VirtualFixture()
         val remote = Files.createTempDirectory("heartbeat-virtual-remote-")
@@ -575,7 +557,18 @@ class VirtualSandboxBranchTest {
             assertEquals(VirtualSandboxPhase.Conflicted, f.backend.mergeRef(parent, "main", isFetch = false).phase)
             assertTrue(f.backend.resume(parent, explicit = true, resolveConflicts = true).isResolving)
             assertTrue(f.backend.resume(parent, explicit = false).isResolving)
-            assertTrue(f.backend.resume(parent, explicit = true).isResolving)
+            // Like any conflict, an explicit resume without resolving revokes the authorization.
+            assertFalse(f.backend.resume(parent, explicit = true).isResolving)
+            assertTrue(f.backend.resume(parent, explicit = true, resolveConflicts = true).isResolving)
+            // Waiting for a dirty source re-anchors on resume and revokes it, although HEAD did not move.
+            val dirty = f.project.resolve("dirty.txt")
+            Files.writeString(dirty, "dirty")
+            assertEquals(VirtualSandboxPhase.Waiting, f.backend.resume(parent, explicit = false).phase)
+            Files.delete(dirty)
+            val resumed = f.backend.resume(parent, explicit = false)
+            assertEquals(VirtualSandboxPhase.Conflicted, resumed.phase)
+            assertFalse(resumed.isResolving)
+            assertTrue(f.backend.resume(parent, explicit = true, resolveConflicts = true).isResolving)
             assertRefused("SandboxConflicted") { f.backend.integrate(parent, child) }
             val files = assertNotNull(f.backend.find(parent))
             assertTrue(assertNotNull(files.read("source.txt")).contains("<<<<<<<"))
@@ -648,6 +641,79 @@ class VirtualSandboxBranchTest {
             assertEquals("late", files.read("late.txt"))
         } finally {
             removeTempDirectories(remote)
+            f.close()
+        }
+    }
+}
+
+/** A forced commit never drops local commits the sandbox did not load. */
+class VirtualSandboxForcedCommitTest {
+    @Test
+    fun `a forced commit refuses a local branch that moved after the checkout`() = runTest {
+        val f = VirtualFixture()
+        try {
+            f.cmd("branch", "pr/force")
+            val ref = f.create("force")
+            f.backend.checkoutRef(ref, "pr/force", isFetch = false)
+            val moved = f.cmd("commit-tree", f.cmd("rev-parse", "pr/force^{tree}"), "-p", "pr/force", "-m", "other")
+            f.cmd("update-ref", "refs/heads/pr/force", moved)
+            val files = assertNotNull(f.backend.find(ref))
+            files.change(f.backend.state(ref).revision, listOf(VirtualFileChange("force.txt", "force")))
+            assertRefused("SandboxBranchMoved") { f.backend.commitToBranch(ref, "pr/force", "m", isForce = true) }
+            assertEquals(moved, f.cmd("rev-parse", "pr/force"))
+            // The refusal hint: merging the branch takes the moved tip in, and the forced commit keeps it.
+            f.backend.mergeRef(ref, "pr/force", isFetch = false)
+            val forced = f.backend.commitToBranch(ref, "pr/force", "m", isForce = true)
+            assertEquals(moved, f.cmd("show", "-s", "--format=%P", forced))
+            assertEquals(forced, f.cmd("rev-parse", "pr/force"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
+    fun `a fetching checkout over a diverged local branch keeps its unpushed commits from a forced commit`() = runTest {
+        val f = VirtualFixture()
+        val remote = Files.createTempDirectory("heartbeat-virtual-remote-")
+        val writer = Files.createTempDirectory("heartbeat-virtual-writer-")
+        try {
+            f.cmd("init", "--bare", remote.toString())
+            f.cmd("remote", "add", "origin", remote.toString())
+            f.cmd("branch", "pr/diverged")
+            f.cmd("push", "origin", "pr/diverged")
+            Files.delete(writer)
+            f.cmd("clone", "--branch", "pr/diverged", remote.toString(), writer.toString())
+            Files.writeString(writer.resolve("w.txt"), "w")
+            f.cmd("-C", writer.toString(), "add", "w.txt")
+            f.cmd(
+                "-C", writer.toString(), "-c", "user.name=W", "-c", "user.email=w@test.invalid",
+                "commit", "-m", "w",
+            )
+            f.cmd("-C", writer.toString(), "push", "origin", "pr/diverged")
+            // An unpushed local commit the origin state does not contain.
+            f.cmd("switch", "pr/diverged")
+            Files.writeString(f.project.resolve("l.txt"), "l")
+            f.cmd("add", "l.txt")
+            f.cmd("commit", "-m", "local only")
+            f.cmd("switch", "main")
+            val local = f.cmd("rev-parse", "pr/diverged")
+            val ref = f.create("diverged")
+            f.backend.checkoutRef(ref, "pr/diverged", isFetch = true)
+            val files = assertNotNull(f.backend.find(ref))
+            assertEquals("w", files.read("w.txt"))
+            files.change(f.backend.state(ref).revision, listOf(VirtualFileChange("mine.txt", "mine")))
+            assertRefused("SandboxBranchMoved") {
+                f.backend.commitToBranch(ref, "pr/diverged", "feat: mine", isForce = true)
+            }
+            assertEquals(local, f.cmd("rev-parse", "pr/diverged"))
+            // Merging the local branch takes its commit in; the forced commit then continues it.
+            f.backend.mergeRef(ref, "pr/diverged", isFetch = false)
+            val forced = f.backend.commitToBranch(ref, "pr/diverged", "feat: mine", isForce = true)
+            assertEquals(local, f.cmd("show", "-s", "--format=%P", forced))
+            assertEquals("l", f.cmd("show", "$forced:l.txt"))
+            assertEquals("mine", f.cmd("show", "$forced:mine.txt"))
+        } finally {
+            removeTempDirectories(remote, writer)
             f.close()
         }
     }

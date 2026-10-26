@@ -77,4 +77,6 @@ data class WorktreeUi(
     val isSandboxResolving: Boolean = false,
     val sandboxConflicts: ImmutableList<String> = persistentListOf(),
     val resultCommit: String? = null,
+    /** A handed-off result branch checked out elsewhere stayed unmoved: [resultCommit] alone is the result. */
+    val isBranchUnmoved: Boolean = false,
 )

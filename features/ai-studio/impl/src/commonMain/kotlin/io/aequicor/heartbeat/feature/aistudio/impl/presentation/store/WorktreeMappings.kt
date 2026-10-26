@@ -35,6 +35,7 @@ internal fun WorktreeTask.toUi(): WorktreeUi = WorktreeUi(
     isSandboxResolving = virtualSandbox?.isResolving == true,
     sandboxConflicts = virtualSandbox?.conflicts.orEmpty().toImmutableList(),
     resultCommit = virtualSandbox?.resultCommit,
+    isBranchUnmoved = virtualSandbox?.isBranchUnmoved == true,
 )
 
 /** Explicit so that a new journal phase fails compilation instead of crashing the screen at runtime. */

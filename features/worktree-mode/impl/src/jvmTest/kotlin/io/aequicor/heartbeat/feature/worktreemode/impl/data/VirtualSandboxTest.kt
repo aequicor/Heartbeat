@@ -426,9 +426,24 @@ class VirtualSandboxTest {
             files.change(reopened.revision, listOf(VirtualFileChange("source.txt", "second")))
             val second = f.backend.handoff(f.record("review"))
             assertEquals(VirtualSandboxPhase.HandedOff, second.phase)
+            assertTrue(second.isBranchUnmoved)
             val result = assertNotNull(second.resultCommit)
             assertEquals("second", f.cmd("show", "$result:source.txt"))
             assertEquals(first.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-review"))
+            // The branch kept its old tip, so the next handoffs start from it: unmoved while checked out ...
+            val again = f.backend.reopen(ref)
+            assertFalse(again.isBranchUnmoved)
+            files.change(again.revision, listOf(VirtualFileChange("source.txt", "third")))
+            assertTrue(f.backend.handoff(f.record("review")).isBranchUnmoved)
+            assertEquals(first.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-review"))
+            // ... and moved to the new snapshot once the other worktree is gone.
+            f.cmd("worktree", "remove", f.project.resolveSibling("review").toString())
+            val last = f.backend.reopen(ref)
+            files.change(last.revision, listOf(VirtualFileChange("source.txt", "fourth")))
+            val moved = f.backend.handoff(f.record("review"))
+            assertFalse(moved.isBranchUnmoved)
+            assertEquals(moved.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-review"))
+            assertEquals("fourth", f.cmd("show", "heartbeat/worktree-review:source.txt"))
         } finally {
             f.close()
         }

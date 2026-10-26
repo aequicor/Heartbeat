@@ -22,8 +22,10 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -103,6 +105,35 @@ class VirtualSandboxToolsTest {
             assertTrue(refused.text.startsWith("Refused: SandboxRemoteDisabled."), refused.text)
             val fetch = JsonObject(mapOf("branch" to JsonPrimitive("b"), "fetch" to JsonPrimitive(true)))
             assertTrue(tools.execute(context, "sandbox_merge", fetch).text.startsWith("Refused: SandboxRemoteDisabled"))
+        } finally {
+            sandbox.close()
+        }
+    }
+
+    @Test
+    fun `a failure that is not a coded refusal propagates from the tool`() = runTest {
+        val sandbox = VirtualFixture()
+        try {
+            val journal = WorktreeJournal(SettingsStores(), ToolGit(), ToolBuilds(), ToolWorkspaces(), ToolToggles())
+            journal.load()
+            listOf(
+                WorktreeIntent.Public.Prepare(CHAT, WorkspaceRef("project")),
+                WorktreeIntent.Public.RunStarted(CHAT, REQUEST),
+                WorktreeIntent.Public.RunAccepted(CHAT, REQUEST, SESSION, TURN),
+            ).forEach { journal.apply(it) {} }
+            // A git process that fails to start surfaces as an IOException, which is no coded refusal.
+            val store = object : VirtualSandboxStore by sandbox.backend {
+                override suspend fun branchHistory(
+                    ref: WorkspaceRef,
+                    branch: String,
+                    base: String,
+                    isStat: Boolean,
+                ): String = throw IOException("git did not start")
+            }
+            val tools = VirtualSandboxTools(store, journal, ToolToggles())
+            val context = AgentToolContext(SESSION, WorkspaceRef("checkout"), TURN, REQUEST)
+            val log = JsonObject(mapOf("branch" to JsonPrimitive("main"), "base" to JsonPrimitive("main")))
+            assertFailsWith<IOException> { tools.execute(context, "sandbox_log", log) }
         } finally {
             sandbox.close()
         }

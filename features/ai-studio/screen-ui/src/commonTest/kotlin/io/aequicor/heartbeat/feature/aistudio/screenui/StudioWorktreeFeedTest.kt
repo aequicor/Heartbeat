@@ -134,6 +134,16 @@ class StudioWorktreeFeedTest {
     }
 
     @Test
+    fun `a handed off sandbox names its branch unless the branch was left unmoved`() {
+        val handedOff = task(WorktreePhaseUi.Retained)
+            .copy(sandboxPhase = SandboxPhaseUi.HandedOff, resultCommit = "abc123")
+        val moved = timeline(handedOff).card("worktree:chat")
+        assertEquals("Handed off" to "heartbeat/task\nabc123", moved.title to moved.summary)
+        val unmoved = timeline(handedOff.copy(isBranchUnmoved = true)).card("worktree:chat")
+        assertEquals("Branch unmoved" to "abc123", unmoved.title to unmoved.summary)
+    }
+
+    @Test
     fun `failures explain known codes without exposing raw ones and offer a recheck`() {
         val dirty = timeline(task(WorktreePhaseUi.RecoveryRequired, failure = "OriginalCheckoutDirty"))
         assertEquals("Checkout is dirty", dirty.card("worktree:chat").summary)
@@ -451,6 +461,8 @@ class StudioWorktreeFeedTest {
         sandboxResolve = "Resolve",
         sandboxLeavePaused = "Leave paused",
         sandboxHandOffTemplate = "Hand off to %1\$s",
+        sandboxHandedOff = "Handed off",
+        sandboxHandedOffUnmoved = "Branch unmoved",
         openPr = "Open PR",
         actionWorking = "Applying action",
         failed = "Operation failed",
