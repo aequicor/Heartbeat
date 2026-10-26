@@ -53,6 +53,28 @@ class ChecklistTextDraftTest {
     }
 
     @Test
+    fun `in-flight echoes survive later edits`() {
+        var draft = ChecklistTextDraft("").edited("x").edited("").edited("y").edited("")
+        listOf("x", "", "y", "").forEach { value ->
+            draft = draft.published(value)
+            assertEquals("", draft.text)
+        }
+        assertEquals(emptyList(), draft.echoes)
+    }
+
+    @Test
+    fun `edit equal to a consumed echo still waits for the in-flight edits`() {
+        var draft = ChecklistTextDraft("a").edited("ab").edited("a")
+        draft = draft.published("ab")
+        draft = draft.edited("ab")
+        draft = draft.published("a")
+        assertEquals("ab", draft.text)
+        draft = draft.published("ab")
+        assertEquals("ab", draft.text)
+        assertEquals(emptyList(), draft.echoes)
+    }
+
+    @Test
     fun `conflated publication acknowledges every older edit`() {
         var draft = ChecklistTextDraft("").edited("a").edited("ab").edited("abc")
         draft = draft.published("abc")

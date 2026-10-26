@@ -120,8 +120,8 @@ private fun ChecklistField(field: ChecklistFieldUi, enabled: Boolean, onIntent: 
 private fun ChecklistTextInput(field: ChecklistFieldUi, enabled: Boolean, onIntent: (ChecklistScreenIntent) -> Unit) {
     var draft by remember(field.id, enabled) { mutableStateOf(ChecklistTextDraft(field.text)) }
     val shown = draft.published(field.text)
-    // Reconciles the applied draft, not this composition's copy: the editor's own effect (undo/redo) runs first
-    // and may already have recorded an edit.
+    // Reconciles the applied draft, not this composition's copy: the editor's own effect (undo/redo) may have
+    // recorded an edit since this composition.
     SideEffect { draft = draft.published(field.text) }
     HbTextField(
         if (enabled) shown.text else field.text,
