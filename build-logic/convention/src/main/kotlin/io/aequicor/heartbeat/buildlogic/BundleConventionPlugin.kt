@@ -128,7 +128,7 @@ class BundleConventionPlugin : Plugin<Project> {
                 baseArtifacts.putAll(
                     providers.gradleProperty(BASE_ARTIFACTS_PROPERTY).zip(baseVersion) { ids, version ->
                         ids.split(',').map(String::trim).filter(String::isNotEmpty).associateWith { version }
-                    },
+                    }.orElse(emptyMap()), // putAll of a provider without a value leaves the property unset
                 )
                 jars.from(root.baseArtifactJars())
             }
