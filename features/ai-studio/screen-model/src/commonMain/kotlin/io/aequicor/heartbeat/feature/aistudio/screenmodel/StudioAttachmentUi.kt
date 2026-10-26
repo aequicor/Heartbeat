@@ -120,10 +120,13 @@ data class SubmissionUi(
     val harnesses: ImmutableSet<String> = persistentSetOf(),
 )
 
-/** Creation binds a pending draft to its native session even when the pane later changes. */
+/**
+ * Creation binds a pending draft to its native session even when the pane later changes; the new chat's feed shows
+ * the sent message from now on.
+ */
 fun AiStudioScreenState.prepareSubmission(id: String, sessionId: String): AiStudioScreenState {
-    val submitted = submissions[id] ?: return this
-    return copy(submissions = (submissions + (id to submitted.copy(sessionId = sessionId))).toImmutableMap())
+    val submitted = submissions[id]?.copy(sessionId = sessionId) ?: return this
+    return copy(submissions = (submissions + (id to submitted)).toImmutableMap()).withSentPrompt(id, submitted)
 }
 
 /** The submission pane [paneId] would send now, with its draft and attachments under [id]. */
@@ -146,7 +149,10 @@ fun AiStudioScreenState.pendingSubmission(paneId: Int, id: String): SubmissionUi
     )
 }
 
-/** Moves only the owning new-page draft to a request key before the async machine operation starts. */
+/**
+ * Moves only the owning new-page draft to a request key before the async machine operation starts. A message sent
+ * to an existing chat shows in its feed at once ([SentPromptUi]).
+ */
 fun AiStudioScreenState.queueSubmission(id: String, pending: SubmissionUi): AiStudioScreenState {
     val currentKey = draftKey(pending.paneId)
     return copy(
@@ -157,7 +163,7 @@ fun AiStudioScreenState.queueSubmission(id: String, pending: SubmissionUi): AiSt
         attachmentRequests = attachmentRequests.mapValues { (_, key) ->
             if (key == currentKey) pending.draftKey else key
         }.toImmutableMap(),
-    )
+    ).withSentPrompt(id, pending)
 }
 
 /** Clear exactly the accepted snapshot; editing during native validation preserves the newer draft. */
@@ -191,9 +197,12 @@ fun AiStudioScreenState.acceptSubmission(id: String, sessionId: String = ""): Ai
 
 /**
  * Rejection never rewrites the current text or files. A new chat's draft returns to its pane together with the
- * harness choice that left with it, added to anything chosen there since.
+ * harness choice that left with it, added to anything chosen there since. The sent message leaves the feed.
  */
-fun AiStudioScreenState.rejectSubmission(id: String, sessionId: String = ""): AiStudioScreenState {
+fun AiStudioScreenState.rejectSubmission(id: String, sessionId: String = ""): AiStudioScreenState =
+    withoutSentPrompt(id).rejectDraft(id, sessionId)
+
+private fun AiStudioScreenState.rejectDraft(id: String, sessionId: String): AiStudioScreenState {
     val submitted = submissions[id] ?: return this
     val nextKey = sessionId.ifBlank { submitted.sessionId.orEmpty() }.ifBlank {
         if (submitted.isDisplayed && submitted.draftKey.startsWith("submission:")) {

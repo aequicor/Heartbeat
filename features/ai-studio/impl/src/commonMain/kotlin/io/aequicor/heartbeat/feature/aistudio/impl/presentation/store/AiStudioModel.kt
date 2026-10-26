@@ -57,6 +57,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneNoticeDismissals
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.revealNotice
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.startRename
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withTranscripts
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
@@ -408,7 +409,7 @@ class AiStudioModel(
             }
             .distinctUntilChanged()
             .flatMapLatest { ids -> transcriptsOf(ids) }
-            .collect { transcripts -> updateState { copy(transcripts = transcripts.toImmutableMap()) } }
+            .collect { transcripts -> updateState { withTranscripts(transcripts.toImmutableMap()) } }
     }
 
     private fun transcriptsOf(ids: List<String>): Flow<Map<String, ImmutableList<MessageUi>>> = if (ids.isEmpty()) {

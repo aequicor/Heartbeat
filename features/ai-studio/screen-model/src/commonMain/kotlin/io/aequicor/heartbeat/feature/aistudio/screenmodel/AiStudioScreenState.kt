@@ -69,6 +69,8 @@ data class AiStudioScreenState(
     val composerSuggestions: ImmutableMap<String, ComposerSuggestionsUi> = persistentMapOf(),
     val draftAttachments: ImmutableMap<String, ImmutableList<AttachmentUi>> = persistentMapOf(),
     val submissions: ImmutableMap<String, SubmissionUi> = persistentMapOf(),
+    /** Sent messages the transcripts of their chats do not show yet, by submission id; the feed draws them. */
+    val sentPrompts: ImmutableMap<String, SentPromptUi> = persistentMapOf(),
     /** Diagram messages awaiting native acceptance, independent of composer snapshots. */
     val diagramSubmissions: ImmutableMap<String, DiagramSubmissionUi> = persistentMapOf(),
     /** Pending requests to reveal an exact inline card; consumed only by its owning pane and sequence. */
