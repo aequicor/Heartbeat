@@ -1,3 +1,5 @@
+@file:OptIn(DelicateCoroutinesApi::class) // ATOMIC start of a turn: a cancelled turn still ends through execute.
+
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
@@ -48,10 +50,13 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
@@ -277,9 +282,8 @@ internal class ClaudeSession(
                 val submission =
                     Submission(request, text, turn, previous, areDetachedToolsEnabled, areSessionHooksEnabled)
                 update(ActiveSessionState.Submitting(request, turn))
-                operation = scope.launch {
-                    execute(submission, accepted)
-                }
+                // Atomic: a turn cancelled before it was dispatched still ends in execute (as cancelled).
+                operation = scope.launch(start = CoroutineStart.ATOMIC) { execute(submission, accepted) }
                 // The CLI may already have read the prompt when the runtime stops, so delivery is unknown.
                 operation?.invokeOnCompletion { cause ->
                     if (cause != null && !accepted.isCompleted) {
@@ -304,6 +308,8 @@ internal class ClaudeSession(
         val previousLaunch = launch
         var isTransportInvoked = false
         try {
+            // A turn cancelled before it started must not reach the CLI.
+            currentCoroutineContext().ensureActive()
             log.i { "Submitting Claude prompt effort=${submission.request.reasoningEffort ?: "default"}" }
             val preparedTools = hosted.prepare()
             val isResume = isConversationStarted()
@@ -498,13 +504,16 @@ internal class ClaudeSession(
 
     private suspend fun receive(observer: ClaudeTurnObserver, line: String) {
         val message = parseClaudeObject(line)
-        tree.receive(message, observer.turn.id)
-        observer.receive(message)
-        if (observer.hasMatchingSession) launch = ClaudeLaunch.Confirmed
+        // The tokens a cancelled turn spent are counted even though its output is dropped.
         if (toggles.get(EngineUsageEnabled)) {
             contextUsage.receive(message)
             environment.onUsage(message)
         }
+        // A stop was requested: output the CLI had already written belongs to the cancelled turn and is dropped.
+        if (cancelledTurn == observer.turn.id) return
+        tree.receive(message, observer.turn.id)
+        observer.receive(message)
+        if (observer.hasMatchingSession) launch = ClaudeLaunch.Confirmed
         persist()
     }
 
@@ -654,11 +663,18 @@ internal class ClaudeSession(
         environment.catalog.save(record)
     }
 
+    /**
+     * Stops the native process of [turn]. A submitted turn is cancellable before its first stream-json event: the
+     * CLI may work for the whole turn without one, and the facade already treats the submission as running.
+     * Its native `send` then fails with OutcomeUnknown (the prompt may have been read, or the process not started);
+     * the facade has left Submitting by then, so the turn ends only as [TurnOutcome.Cancelled].
+     */
     private suspend fun cancel(turn: TurnId, lease: Lease) = commands.withLock {
         lease.ensureAttached()
         ensureOpen()
         val pending = synchronized(lock) {
             val active = when (val state = current) {
+                is ActiveSessionState.Submitting -> state.turn
                 is ActiveSessionState.Running -> state.turn
                 is ActiveSessionState.AwaitingUserAction -> state.turn
                 is ActiveSessionState.Interrupting -> state.turn
@@ -669,7 +685,7 @@ internal class ClaudeSession(
             update(ActiveSessionState.Interrupting(active))
             operation
         }
-        log.i { "Stopping the current Claude native process" }
+        log.i { "Stopping the current Claude turn" }
         pending?.cancelAndJoin()
     }
 
