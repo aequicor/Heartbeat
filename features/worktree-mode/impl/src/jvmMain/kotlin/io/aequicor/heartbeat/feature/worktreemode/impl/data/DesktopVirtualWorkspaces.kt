@@ -206,10 +206,10 @@ internal class DesktopVirtualWorkspaces(
         }
 
     /**
-     * A kept merge conflict of a loaded branch continues like any other conflict ([resumeConflicts]): an explicit
-     * resume grants resolution exactly when it [resolveConflicts] and revokes it otherwise. A barrier-wide
-     * (non-explicit) resume keeps a granted one only while nothing re-anchors: a moved source, or a sandbox that
-     * waited for or paused on a dirty source (even with an unchanged HEAD), re-anchors and revokes it.
+     * A kept merge conflict of a loaded branch: an explicit resume with [resolveConflicts] grants resolution. A
+     * granted one survives any other resume while nothing re-anchors, because a barrier resume spreads one chat's
+     * explicit resume to every sandbox of the project; a moved source, or a sandbox that waited for or paused on a
+     * dirty source (even with an unchanged HEAD), re-anchors and revokes it.
      */
     private suspend fun resumeLoaded(
         record: VirtualRecord,
@@ -219,7 +219,7 @@ internal class DesktopVirtualWorkspaces(
     ): VirtualRecord {
         val current = anchored(record, head)
         if (!current.keepsConflict) return current
-        val isResolving = if (explicit) resolveConflicts else current == record && record.isResolving
+        val isResolving = (explicit && resolveConflicts) || (current == record && record.isResolving)
         return current.copy(
             isResolving = isResolving,
             state = current.state.copy(phase = VirtualSandboxPhase.Conflicted, isResolving = isResolving),

@@ -557,9 +557,8 @@ class VirtualSandboxBranchTest {
             assertEquals(VirtualSandboxPhase.Conflicted, f.backend.mergeRef(parent, "main", isFetch = false).phase)
             assertTrue(f.backend.resume(parent, explicit = true, resolveConflicts = true).isResolving)
             assertTrue(f.backend.resume(parent, explicit = false).isResolving)
-            // Like any conflict, an explicit resume without resolving revokes the authorization.
-            assertFalse(f.backend.resume(parent, explicit = true).isResolving)
-            assertTrue(f.backend.resume(parent, explicit = true, resolveConflicts = true).isResolving)
+            // Another chat's explicit Continue reaches this sandbox through the project barrier: it keeps resolving.
+            assertTrue(f.backend.resume(parent, explicit = true).isResolving)
             // Waiting for a dirty source re-anchors on resume and revokes it, although HEAD did not move.
             val dirty = f.project.resolve("dirty.txt")
             Files.writeString(dirty, "dirty")
