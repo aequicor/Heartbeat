@@ -683,7 +683,7 @@ internal class ClaudeSession(
             update(ActiveSessionState.Interrupting(active))
             operation
         }
-        log.i { "Stopping the current Claude native process" }
+        log.i { "Stopping the current Claude turn" }
         pending?.cancelAndJoin()
     }
 

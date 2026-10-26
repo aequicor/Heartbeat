@@ -25,6 +25,7 @@ import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -75,7 +76,9 @@ class ClaudeCancelTest {
             try {
                 awaitCancellation()
             } finally {
-                // Frames the CLI had already written when the stop was requested.
+                // Frames the CLI had already written when the stop was requested. The real transport stops reading
+                // once the job is cancelled; frames received between the stop request and that point (and duplex
+                // frames) still reach receive.
                 withContext(NonCancellable) {
                     line(initFrame(id))
                     line(usageFrame(id))
@@ -153,7 +156,7 @@ class ClaudeCancelTest {
         assertEquals(TurnOutcome.Cancelled, ready.lastTurn?.outcome)
         assertEquals(TurnOutcome.Cancelled, fixture.catalog.find(session.ref)?.lastTurn?.outcome)
         send.await()
-        assertTrue(!isInvoked, "the CLI never received the prompt")
+        assertFalse(isInvoked, "the CLI never received the prompt")
         runtime.close()
     }
 
