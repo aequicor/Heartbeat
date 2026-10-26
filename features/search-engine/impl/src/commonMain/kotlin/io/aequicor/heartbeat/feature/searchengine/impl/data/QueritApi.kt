@@ -70,7 +70,15 @@ internal class QueritApi(private val client: HttpClient, private val preferences
             else -> root["data"] as? JsonArray
         } ?: fail(SearchFailure.InvalidResponse)
         val item = items.firstOrNull() as? JsonObject ?: fail(SearchFailure.InvalidResponse)
-        if (root.pageStatus(item)?.lowercase() == "failed") fail(SearchFailure.Unavailable)
+        if (root.pageStatus(item)?.lowercase() == "failed") {
+            // Names the page, not the provider: a bare "Unavailable" reads like a dead service and ends the task.
+            throw SearchException(
+                SearchFailure.Unavailable,
+                "page_unreadable — url=$url — the search provider could not crawl this page " +
+                    "(sites such as github.com often block it); the search service itself is working, " +
+                    "so use another source for this page instead of retrying",
+            )
+        }
         val content = item.string("content") ?: item.string("text")
             ?: fail(SearchFailure.InvalidResponse)
         if (content.isBlank()) fail(SearchFailure.InvalidResponse)

@@ -161,13 +161,18 @@ public sealed interface WorktreeIntent : MachineIntent {
         /** Proven handoff failure before a matching native run exists; recovery never replays the prompt. */
         public data class ActionDeliveryFailed(val chatId: String, val operation: String, val reason: String) : Public
 
-        /** Checks checkout and pending workers explicitly without replaying a native prompt. */
+        /**
+         * Checks checkout and pending workers explicitly without replaying a native prompt. A handed-off virtual
+         * sandbox stays handed off (its branch belongs to the user) unless [isReopen] asks to continue it in a new
+         * run, which only a host about to start that run (an organism cell's follow-up) may request.
+         */
         public data class Recheck(
             val chatId: String,
             val isResume: Boolean = false,
             // Existing public named argument retained for source compatibility.
             @Suppress("BooleanPropertyNaming")
             val resolveConflicts: Boolean = false,
+            val isReopen: Boolean = false,
         ) : Public
 
         /** Proposed build declaration from the current native turn. */

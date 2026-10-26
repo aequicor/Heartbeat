@@ -46,8 +46,8 @@ internal class VirtualSandboxGit(private val dispatchers: DispatcherProvider) : 
                 .directory(Path.of(source).toFile()).redirectOutput(out.toFile()).redirectError(err.toFile())
                 .apply {
                     environment().keys.filter { it.startsWith("GIT_") }.forEach { environment().remove(it) }
-                    environment().putAll(environment)
                     environment().putAll(identity)
+                    environment().putAll(environment)
                     environment()["GIT_NO_REPLACE_OBJECTS"] = "1"
                     environment()["GIT_NO_LAZY_FETCH"] = "1"
                 }.start()
@@ -125,6 +125,45 @@ internal class VirtualSandboxGit(private val dispatchers: DispatcherProvider) : 
                     }
                 }
             }
+            call(
+                source,
+                "update-index",
+                "-z",
+                "--index-info",
+                input = updates.encodeToByteArray(),
+                environment = environment,
+            )
+            return commit(source, textWithEnvironment(source, environment, "write-tree"), commit)
+        } finally {
+            Files.deleteIfExists(index)
+            Files.deleteIfExists(Path.of("$index.lock"))
+        }
+    }
+
+    /**
+     * [paths] (files or directories, a trailing `/` allowed) take their entries from [from]; entries absent there
+     * are removed.
+     */
+    override suspend fun restore(source: String, commit: String, from: String, paths: List<String>): String {
+        val current = entries(source, commit)
+        val wanted = entries(source, from)
+        val roots = paths.map { it.trimEnd('/') }
+        fun covered(path: String) = roots.any { path == it || path.startsWith("$it/") }
+        val updates = buildString {
+            current.keys.filter { covered(it) && it !in wanted }.forEach {
+                append("0 ${"0".repeat(commit.length)}\t$it\u0000")
+            }
+            wanted.filter { covered(it.key) }.forEach { (path, entry) ->
+                append("${entry.mode} ${entry.objectId}\t$path\u0000")
+            }
+        }
+        if (updates.isEmpty()) return commit
+        validateFilePaths(current.keys.filterNot(::covered).toSet() + wanted.keys.filter(::covered))
+        val index = Files.createTempFile("sandbox-index-", ".index")
+        Files.delete(index)
+        val environment = mapOf("GIT_INDEX_FILE" to index.toString())
+        try {
+            call(source, "read-tree", commit, environment = environment)
             call(
                 source,
                 "update-index",
@@ -267,6 +306,7 @@ internal interface VirtualGitObjects {
     suspend fun edit(source: String, commit: String, edits: Map<String, String?>): String
     suspend fun move(source: String, commit: String, path: String, destination: String): String
     suspend fun commit(source: String, tree: String, parent: String): String
+    suspend fun restore(source: String, commit: String, from: String, paths: List<String>): String
     suspend fun merge(source: String, base: String, ours: String, theirs: String): GitMerge
     suspend fun pin(source: String, id: String, commit: String)
 }

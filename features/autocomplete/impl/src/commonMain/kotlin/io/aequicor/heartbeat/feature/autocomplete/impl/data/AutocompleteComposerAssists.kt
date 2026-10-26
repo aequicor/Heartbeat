@@ -38,6 +38,8 @@ private val log = Log.tag("Autocomplete/ComposerAssists")
  * item that duplicates a Heartbeat item's visible name drops, because the host item owns the semantics the
  * composer can guarantee. Project skill files are offered only to a route without native discovery: an engine with
  * its own catalog decides which skills are visible, and its exclusions are never replaced by a generic file row.
+ * In a virtual workspace a native process sees no project, so there only an engine importing the sandbox tree
+ * keeps its catalog; a sandbox not created yet ([ComposerScope.isSandboxPending]) already counts as virtual.
  */
 @Inject
 @ContributesBinding(ProfileScope::class)
@@ -50,7 +52,7 @@ internal class AutocompleteComposerAssists(
     override suspend fun isAvailable(suggestion: ComposerSuggestion, scope: ComposerScope): Boolean {
         val origin = suggestion.origin as? ComposerAssistOrigin.Engine ?: return true
         val target = scope.target?.takeIf { it.engine == origin.engine } ?: return false
-        return engineAssists.assists(target, scope.workspace).items.any {
+        return engineAssists.assists(target, scope.workspace, scope.isSandboxPending).items.any {
             suggestion.id == "engine:${target.engine.value}:${it.id}"
         }
     }
@@ -80,7 +82,9 @@ internal class AutocompleteComposerAssists(
     /** A native catalog decides which skills its engine runs; a link must not restore one it excluded. */
     private suspend fun isLinkDeliveryAllowed(scope: ComposerScope): Boolean {
         val isEnabled = toggles.get(AutocompleteEnabled)
-        val isNative = scope.target?.let(engineAssists::hasNativeCatalog) == true
+        val target = scope.target
+        val isNative = target != null &&
+            engineAssists.hasNativeCatalog(target, scope.workspace, scope.isSandboxPending)
         if (!isEnabled || isNative) {
             log.d { "Linked project skills not delivered: enabled=$isEnabled, native=$isNative" }
         }
@@ -97,7 +101,7 @@ internal class AutocompleteComposerAssists(
         hostCommands: List<HostCommand>,
     ): List<ComposerSuggestion> = coroutineScope {
         if (!toggles.get(AutocompleteEnabled)) return@coroutineScope emptyList()
-        val engine = async { scope.target?.let { engineAssists.assists(it, scope.workspace) } }
+        val engine = async { scope.target?.let { engineAssists.assists(it, scope.workspace, scope.isSandboxPending) } }
         val files = async { files(trigger, scope) }
         val host = hostItems(trigger, hostCommands) + learned(trigger, scope)
         val native = engine.await()
@@ -119,7 +123,7 @@ internal class AutocompleteComposerAssists(
         val native: Flow<NativeAssists?> = if (target == null) {
             flowOf(null)
         } else {
-            engineAssists.observe(target, scope.workspace)
+            engineAssists.observe(target, scope.workspace, scope.isSandboxPending)
         }
         val files = flow {
             emit(files(trigger, scope))

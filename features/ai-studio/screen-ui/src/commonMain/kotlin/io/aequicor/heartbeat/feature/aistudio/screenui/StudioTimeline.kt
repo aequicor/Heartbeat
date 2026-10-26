@@ -130,6 +130,10 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
     private var retained: Set<String> = emptySet()
     private var observedCards = placement.cards
     private var observedPositions = placement.positions
+    private val outputs = RunBuildOutputs()
+
+    /** Build cards shown inside a reply, right after the run_build call that started them, by that call's id. */
+    private var anchored: Map<String, HbChatMessage> = emptyMap()
 
     /** Cards already woven, by id; their insertion points replay full rebuilds in weave order. */
     private var woven: Map<String, HbChatMessage>
@@ -155,16 +159,60 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
             if (nextLabels == labels && nextRetained == retained) return history
         }
         val sections = sectionsFor(next, nextLabels)
+        val previousAnchored = anchored
+        anchored = anchoredCards(next, nextCards, appearedAfter(next, nextCards), outputs)
         history = if (isPlacementChanged) {
             rebuild(next, sections, nextLabels)
         } else {
             syncMessages(next, nextLabels, sections)
         }
+        history = refreshAnchored(next, nextLabels, previousAnchored)
         messages = next
         labels = nextLabels
-        val updated = weave(next, nextCards, nextRetained, sections, nextLabels)
+        // The unfiltered inputs are kept so that an unchanged update short-circuits before anchoring again.
+        cards = nextCards
+        retained = nextRetained
+        val inline = anchored.values.mapTo(HashSet()) { it.id }
+        placement.inline = inline
+        val updated = weave(next, nextCards, nextRetained, inline, sections, nextLabels)
         observedCards = woven
         observedPositions = weaves
+        return updated
+    }
+
+    /**
+     * The last message index present when each card first showed. A card placed before any message counts as
+     * appearing with the first transcript loaded after it, recorded once, so it never moves into a later turn.
+     */
+    private fun appearedAfter(next: List<MessageUi>, nextCards: List<HbChatMessage>): Map<String, Int> {
+        val positions = weaves.associateTo(HashMap()) { it.id to it.afterIndex }
+        val loaded = placement.loadedWith
+        val recorded = HashMap<String, Int>()
+        val appeared = nextCards.associate { card ->
+            val position = positions[card.id] ?: next.lastIndex
+            val index = if (position >= 0) {
+                position
+            } else {
+                loaded[card.id] ?: next.lastIndex.also { if (it >= 0) recorded[card.id] = it }
+            }
+            card.id to index
+        }
+        if (recorded.isNotEmpty()) placement.loadedWith = loaded + recorded
+        return appeared
+    }
+
+    /** Replies whose inline build cards changed are converted again; the rest of the timeline stays as it is. */
+    private fun refreshAnchored(
+        next: List<MessageUi>,
+        nextLabels: TimelineLabels,
+        previous: Map<String, HbChatMessage>,
+    ): HbChatTimeline {
+        if (previous == anchored) return history
+        val changed = (previous.keys + anchored.keys).filterTo(HashSet()) { previous[it] != anchored[it] }
+        var updated = history
+        next.filterIsInstance<MessageUi.Reply>()
+            .filter { reply -> reply.parts.any { it is ReplyPartUi.Tool && it.tool.id in changed } }
+            .forEach { updated = updated.replace(it.id, it.toHb(nextLabels, anchored)) }
         return updated
     }
 
@@ -185,49 +233,71 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         var updated = if (latest == messages.last()) {
             history
         } else {
-            history.replace(latest.id, latest.toHb(nextLabels))
+            history.replace(latest.id, latest.toHb(nextLabels, anchored))
         }
         for (index in messages.size until next.size) {
-            updated = updated.append(sections[index], next[index].toHb(nextLabels))
+            updated = updated.append(sections[index], next[index].toHb(nextLabels, anchored))
         }
         return updated
     }
 
-    /** Appends new cards at the current end, refreshes known ones in place and retires absent ones. */
+    /**
+     * Appends new cards at the current end, refreshes known ones in place and retires absent ones. A card shown
+     * [inline] in a reply still records the point it appeared at: once it leaves the reply it returns there.
+     */
     private fun weave(
         next: List<MessageUi>,
         nextCards: List<HbChatMessage>,
         nextRetained: Set<String>,
+        inline: Set<String>,
         sections: List<HbChatSection>,
         nextLabels: TimelineLabels,
     ): HbChatTimeline {
-        cards = nextCards
-        retained = nextRetained
         val offered = nextCards.mapTo(HashSet()) { it.id }
         offered.addAll(nextRetained)
+        val positioned = weaves.mapTo(HashSet()) { it.id }
         var updated = history
+        var isReturned = false
         for (card in nextCards) {
-            when (woven[card.id]) {
-                null -> {
-                    woven = woven + (card.id to card)
-                    weaves = weaves + TimelineWeave(card.id, next.lastIndex)
-                    updated = updated.append(cardSection(sections, nextLabels), card)
+            val isPositioned = card.id in positioned
+            if (!isPositioned) weaves = weaves + TimelineWeave(card.id, next.lastIndex)
+            val shown = woven[card.id]
+            when {
+                card.id in inline -> if (shown != null) {
+                    woven = woven - card.id
+                    updated = updated.remove(card.id)
                 }
 
-                card -> Unit
+                shown == null -> {
+                    woven = woven + (card.id to card)
+                    if (isPositioned) {
+                        isReturned = true
+                    } else {
+                        updated = updated.append(cardSection(sections, nextLabels), card)
+                    }
+                }
 
-                else -> {
+                shown != card -> {
                     woven = woven + (card.id to card)
                     updated = updated.replace(card.id, card)
                 }
             }
         }
-        for (id in woven.keys.filterNot(offered::contains)) {
+        updated = retire(updated, offered)
+        if (isReturned) updated = rebuild(next, sections, nextLabels)
+        history = updated
+        return updated
+    }
+
+    /** Drops the cards and invocation points that are neither offered nor retained. */
+    private fun retire(timeline: HbChatTimeline, offered: Set<String>): HbChatTimeline {
+        var updated = timeline
+        for (id in weaves.map { it.id }.filterNot(offered::contains)) {
+            if (id in woven) updated = updated.remove(id)
             woven = woven - id
             weaves = weaves.filterNot { it.id == id }
-            updated = updated.remove(id)
+            placement.loadedWith -= id
         }
-        history = updated
         return updated
     }
 
@@ -248,7 +318,7 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
             for (weave in leading) woven[weave.id]?.let { rebuilt = rebuilt.append(section, it) }
         }
         rebuilt = next.foldIndexed(rebuilt) { index, current, message ->
-            var appended = current.append(sections[index], message.toHb(nextLabels))
+            var appended = current.append(sections[index], message.toHb(nextLabels, anchored))
             for (weave in weaves) {
                 if (weave.afterIndex == index) woven[weave.id]?.let { appended = appended.append(sections[index], it) }
             }
@@ -311,65 +381,165 @@ internal fun rememberStudioTimeline(
     return cache.update(messages, labels, cards, retained)
 }
 
-internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this) {
-    is MessageUi.Prompt -> HbChatMessage(
-        id = id,
-        author = labels.you,
-        text = text,
-        role = HbChatRole.User,
-        appearance = labels.promptAppearance,
-        label = labels.calendar.timeLabel(createdAt).takeIf { isTimestampKnown },
-    )
-
-    is MessageUi.Reply -> HbChatMessage(
-        id = id,
-        hasEmbeddedContent = checklistIds.isNotEmpty() || cardIds.isNotEmpty() || tools.any { it.plan != null },
-        author = labels.agent,
-        text = text,
-        role = HbChatRole.Assistant,
-        kind = HbMessageKind.Markdown,
-        status = if (isStreaming) HbMessageStatus.Streaming else HbMessageStatus.Complete,
-        toolCalls = tools.map { it.toHb(labels) }.toImmutableList(),
-        appearance = labels.replyAppearance,
-        parts = parts.mapIndexed { index, part ->
-            part.toHb(labels, isStreaming = isStreaming && index == streamingPartIndex)
-        }.toImmutableList(),
-        label = labels.calendar.timeLabel(createdAt).takeIf { isTimestampKnown },
-    )
-
-    is MessageUi.OrganismResult -> HbChatMessage(
-        id = id,
-        author = labels.studio,
-        text = fill(labels.organismResult, branch, base, commit),
-        role = HbChatRole.System,
-        kind = HbMessageKind.Markdown,
-    )
-
-    is MessageUi.Stopped -> HbChatMessage(
-        id = id,
-        author = labels.studio,
-        text = fill(labels.stoppedTemplate, labels.durations.format(elapsed)),
-        role = HbChatRole.System,
-        kind = HbMessageKind.Notice,
-    )
-
-    is MessageUi.ContextNotice -> HbChatMessage(
-        id = id,
-        author = labels.studio,
-        text = noticeText(labels),
-        role = HbChatRole.System,
-        kind = HbMessageKind.Notice,
-    )
-
-    is MessageUi.Failed -> HbChatMessage(
-        id = id,
-        author = labels.studio,
-        text = labels.failed.of(kind),
-        role = HbChatRole.System,
-        kind = HbMessageKind.Notice,
-        appearance = HbMessageAppearance(tone = HbTone.Danger),
-    )
+/**
+ * Build cards that belong inside a reply: a `build:<operation>` card goes right after the run_build call whose
+ * result names that operation. A call that names no operation — still waiting for its build, or cut off by the
+ * engine's tool timeout — takes the newest card of the command in its arguments; any card left goes after the
+ * remaining waiting calls, newest to newest. Without an operation a call takes only a card that appeared after
+ * its reply started: [appearedAfter] maps a card id to the index of the last message present when the card first
+ * showed (a card missing from it appears now), so an older build never moves into a newer call; a negative index
+ * (no message yet) lets no call take it. Keys are the calls' ids; a card without
+ * such a visible call stays in the timeline. [outputs] keeps parsed call outputs between updates.
+ */
+internal fun anchoredCards(
+    messages: List<MessageUi>,
+    cards: List<HbChatMessage>,
+    appearedAfter: Map<String, Int> = emptyMap(),
+    outputs: RunBuildOutputs = RunBuildOutputs(),
+): Map<String, HbChatMessage> {
+    val builds = cards.filter { it.id.startsWith(BUILD_CARD_PREFIX) }
+    if (builds.isEmpty()) return emptyMap()
+    val calls = messages.withIndex().flatMap { (index, message) ->
+        val reply = message as? MessageUi.Reply ?: return@flatMap emptyList()
+        reply.parts.filterIsInstance<ReplyPartUi.Tool>()
+            .filter { it.tool.title == RUN_BUILD_TOOL }
+            .map { RunBuildCall(it.tool, index, outputs.of(it.tool)) }
+    }
+    outputs.retainOnly(calls.mapTo(HashSet()) { it.tool.id })
+    fun RunBuildCall.mayTake(card: HbChatMessage): Boolean {
+        val appeared = appearedAfter[card.id] ?: messages.lastIndex
+        return appeared >= replyIndex
+    }
+    val anchored = LinkedHashMap<String, HbChatMessage>()
+    builds.forEach { card ->
+        val operation = card.id.removePrefix(BUILD_CARD_PREFIX)
+        calls.firstOrNull { operation in it.operations }?.let { anchored[it.tool.id] = card }
+    }
+    val unnamedCalls = calls.filter { it.tool.id !in anchored && it.operations.isEmpty() }
+    val taken = anchored.values.mapTo(HashSet()) { it.id }
+    val unnamed = builds.filterNot { it.id in taken }.asReversed().filterNot { card ->
+        val command = (card.parts.firstOrNull() as? HbMessagePart.Tool)?.call?.title ?: return@filterNot false
+        unnamedCalls.lastOrNull { it.tool.id !in anchored && command in it.commands && it.mayTake(card) }
+            ?.also { anchored[it.tool.id] = card } != null
+    }
+    val waiting = unnamedCalls.filter { it.tool.id !in anchored && it.tool.status in waitingStatuses }
+    pairWaiting(waiting.asReversed(), unnamed, anchored) { call, card -> call.mayTake(card) }
+    return anchored
 }
+
+/** Newest waiting call first takes the newest remaining card it may take. */
+private inline fun pairWaiting(
+    newestFirst: List<RunBuildCall>,
+    cards: List<HbChatMessage>,
+    anchored: MutableMap<String, HbChatMessage>,
+    mayTake: (RunBuildCall, HbChatMessage) -> Boolean,
+) {
+    val left = cards.toMutableList()
+    for (call in newestFirst) {
+        val card = left.firstOrNull { mayTake(call, it) } ?: continue
+        left -= card
+        anchored[call.tool.id] = card
+    }
+}
+
+/** A run_build call of the transcript with the operations and commands its output names. */
+private class RunBuildCall(val tool: ToolUi, val replyIndex: Int, output: RunBuildOutput) {
+    val operations: Set<String> = output.operations
+    val commands: Set<String> = output.commands
+}
+
+/** The operations and commands named by one run_build [output]. */
+internal class RunBuildOutput(val output: String) {
+    val operations: Set<String> = OPERATION_ID.findAll(output).mapTo(HashSet()) { it.groupValues[1] }
+    val commands: Set<String> = BUILD_COMMAND.findAll(output).mapTo(HashSet()) { it.groupValues[1] }
+}
+
+/**
+ * Parsed run_build outputs by call id. A streamed delta changes one message, so the other calls reuse their
+ * parse instead of matching every output again; calls that left the transcript are dropped.
+ */
+internal class RunBuildOutputs {
+    private val parsed = HashMap<String, RunBuildOutput>()
+
+    fun of(tool: ToolUi): RunBuildOutput {
+        val known = parsed[tool.id]
+        if (known != null && known.output == tool.output) return known
+        return RunBuildOutput(tool.output).also { parsed[tool.id] = it }
+    }
+
+    fun retainOnly(ids: Set<String>) {
+        parsed.keys.retainAll(ids)
+    }
+}
+
+private const val BUILD_CARD_PREFIX = "build:"
+private const val RUN_BUILD_TOOL = "run_build"
+private val OPERATION_ID = Regex("\"id\"\\s*:\\s*\"([^\"\\\\]+)\"")
+private val BUILD_COMMAND = Regex("\"command\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
+private val waitingStatuses = setOf(ToolStatusUi.Pending, ToolStatusUi.Running)
+
+internal fun MessageUi.toHb(labels: TimelineLabels, anchored: Map<String, HbChatMessage> = emptyMap()): HbChatMessage =
+    when (this) {
+        is MessageUi.Prompt -> HbChatMessage(
+            id = id,
+            author = labels.you,
+            text = text,
+            role = HbChatRole.User,
+            appearance = labels.promptAppearance,
+            label = labels.calendar.timeLabel(createdAt).takeIf { isTimestampKnown },
+        )
+
+        is MessageUi.Reply -> HbChatMessage(
+            id = id,
+            hasEmbeddedContent = checklistIds.isNotEmpty() || cardIds.isNotEmpty() || tools.any { it.plan != null },
+            author = labels.agent,
+            text = text,
+            role = HbChatRole.Assistant,
+            kind = HbMessageKind.Markdown,
+            status = if (isStreaming) HbMessageStatus.Streaming else HbMessageStatus.Complete,
+            toolCalls = tools.map { it.toHb(labels) }.toImmutableList(),
+            appearance = labels.replyAppearance,
+            parts = parts.flatMapIndexed { index, part ->
+                val own = part.toHb(labels, isStreaming = isStreaming && index == streamingPartIndex)
+                val card = (part as? ReplyPartUi.Tool)?.let { anchored[it.tool.id] }
+                listOf(own) + card?.parts.orEmpty()
+            }.toImmutableList(),
+            label = labels.calendar.timeLabel(createdAt).takeIf { isTimestampKnown },
+        )
+
+        is MessageUi.OrganismResult -> HbChatMessage(
+            id = id,
+            author = labels.studio,
+            text = fill(labels.organismResult, branch, base, commit),
+            role = HbChatRole.System,
+            kind = HbMessageKind.Markdown,
+        )
+
+        is MessageUi.Stopped -> HbChatMessage(
+            id = id,
+            author = labels.studio,
+            text = fill(labels.stoppedTemplate, labels.durations.format(elapsed)),
+            role = HbChatRole.System,
+            kind = HbMessageKind.Notice,
+        )
+
+        is MessageUi.ContextNotice -> HbChatMessage(
+            id = id,
+            author = labels.studio,
+            text = noticeText(labels),
+            role = HbChatRole.System,
+            kind = HbMessageKind.Notice,
+        )
+
+        is MessageUi.Failed -> HbChatMessage(
+            id = id,
+            author = labels.studio,
+            text = labels.failed.of(kind),
+            role = HbChatRole.System,
+            kind = HbMessageKind.Notice,
+            appearance = HbMessageAppearance(tone = HbTone.Danger),
+        )
+    }
 
 /**
  * The part showing the reply's progress: the last one, unless the collapsed line already runs for hidden work that

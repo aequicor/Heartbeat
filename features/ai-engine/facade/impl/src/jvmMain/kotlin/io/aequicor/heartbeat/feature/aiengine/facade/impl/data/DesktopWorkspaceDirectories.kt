@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
+import java.nio.file.LinkOption
 import java.nio.file.Path
 
 @Inject
@@ -22,11 +23,12 @@ internal class DesktopWorkspaceDirectories(private val dispatchers: DispatcherPr
         try {
             val input = Path.of(directory)
             if (!input.isAbsolute) return@withContext null
-            val path = input.toRealPath()
-            if (!Files.isDirectory(path) || !Files.isReadable(path) || !Files.isExecutable(path)) {
+            if (Files.notExists(input, LinkOption.NOFOLLOW_LINKS)) {
+                // A stored project whose folder is gone is routine and re-checked often; no stack trace.
+                log.v { "Local project directory is missing" }
                 return@withContext null
             }
-            WorkspaceDirectory(path.toString(), path.fileName?.toString() ?: "Project")
+            accessible(input.toRealPath())
         } catch (error: IOException) {
             log.w(error.safeWorkspaceFailure()) { "Directory validation failed" }
             null
@@ -38,4 +40,11 @@ internal class DesktopWorkspaceDirectories(private val dispatchers: DispatcherPr
             null
         }
     }
+
+    private fun accessible(path: Path): WorkspaceDirectory? =
+        if (Files.isDirectory(path) && Files.isReadable(path) && Files.isExecutable(path)) {
+            WorkspaceDirectory(path.toString(), path.fileName?.toString() ?: "Project")
+        } else {
+            null
+        }
 }

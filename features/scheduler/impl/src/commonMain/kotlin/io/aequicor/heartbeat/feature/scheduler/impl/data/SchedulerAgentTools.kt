@@ -235,9 +235,9 @@ internal class SchedulerAgentTools(
             If no work remains running or queued and no external event or requested delay is pending, continue
             the task now or give the final report. A note saying that a command is running is not evidence.
             run_command is synchronous: an exit code is final, and a timeout terminates the command rather than
-            leaving a background job. Neither result is a reason to sleep. For run_build, use build_status with
-            the returned operation id and waitMs=10000 until a terminal result; these builds do not publish
-            scheduler events. Do not invent action or custom event keys for commands or builds. Background actions
+            leaving a background job. Neither result is a reason to sleep. run_build waits for the build itself; if
+            it returns a pending result, build_status with the operation id waits again. These builds do not
+            publish scheduler events. Do not invent action or custom event keys for commands or builds. Background actions
             started by ${SchedulerTools.START_ACTION} return their actual completion key.
             After a successful ${SchedulerTools.SLEEP}, end your turn. The session resumes with a new message when
             one of the events arrives or the deadline passes; the message repeats your note.

@@ -296,6 +296,8 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
                         io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled,
                     ),
                 off = request.off,
+                model = target.model.value,
+                tools = declarations,
             ),
         )
         return buildJsonObject {
@@ -313,9 +315,9 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         }
     }
 
-    private fun searchDeclarations(isEnabled: Boolean, policy: ResolvedToolPolicy): List<JsonElement> {
+    private fun searchDeclarations(isEnabled: Boolean, policy: ResolvedToolPolicy): List<JsonObject> {
         if (!isEnabled) return emptyList()
-        return searchToolSpecs().filter { (it as JsonObject).text("name") !in policy.hostedDenied }
+        return searchToolSpecs().map { it as JsonObject }.filter { it.text("name") !in policy.hostedDenied }
     }
 
     private suspend fun workspacePath(workspace: WorkspaceRef?): String? = workspace?.let {

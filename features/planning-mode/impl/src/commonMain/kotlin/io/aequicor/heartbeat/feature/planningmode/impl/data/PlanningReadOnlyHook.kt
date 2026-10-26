@@ -44,7 +44,8 @@ internal class PlanningReadOnlyHook(
             return ToolHookVerdict.Ask(LOADING_REASON)
         }
         if (state.planOf(call.context.session)?.mode != PlanMode.Planning) return ToolHookVerdict.Continue
-        // Only Heartbeat's own MCP prefix is dropped: a tool of another MCP server is never a planning tool.
+        // Only Heartbeat's own MCP prefixes (hosted tools and search) are dropped: a tool of another MCP server is
+        // never a planning tool.
         val name = hostedToolName(call.name)
         return when {
             name in PlanningTools.ALL || name in WEB_READS -> ToolHookVerdict.Continue

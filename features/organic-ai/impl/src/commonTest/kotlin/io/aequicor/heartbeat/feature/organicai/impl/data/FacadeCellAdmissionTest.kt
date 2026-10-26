@@ -32,7 +32,7 @@ class FacadeCellAdmissionTest {
     @Test
     fun `a wrapper acquired before lysis cannot submit afterwards`() = runTest {
         val native = FakeSession(session("new"))
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val handle = cells.open(key, route, null)
         assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Lyse))
         assertFailsWith<EngineException> { handle.submit(RequestId("late"), "work", null) }
@@ -46,7 +46,7 @@ class FacadeCellAdmissionTest {
             finish = null
             beforeSend = { proceed.await() }
         }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val handle = cells.open(key, route, null)
         val sending = launch { handle.submit(RequestId("pending"), "work", null) }
         runCurrent()
@@ -73,7 +73,7 @@ class FacadeCellAdmissionTest {
             finish = null
             beforeSend = { proceed.await() }
         }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val old = cells.open(key, route, null, generation = 1)
         val sending = launch { old.submit(RequestId("pending"), "work", null) }
         runCurrent()
@@ -96,7 +96,7 @@ class FacadeCellAdmissionTest {
     @Test
     fun `a newer generation revokes a wrapper without requiring sleep`() = runTest {
         val native = FakeSession(session("new"))
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val old = cells.open(key, route, null, generation = 1)
         val current = cells.open(key, route, native.ref, generation = 2)
         assertFailsWith<EngineException> { old.submit(RequestId("stale"), "work", null) }

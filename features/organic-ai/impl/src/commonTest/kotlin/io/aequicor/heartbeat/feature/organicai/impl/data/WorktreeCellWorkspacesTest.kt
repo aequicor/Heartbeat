@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.feature.organicai.impl.ZYGOTE
 import io.aequicor.heartbeat.feature.organicai.impl.cell
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellResult
 import io.aequicor.heartbeat.feature.organicai.impl.organism
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxPhase
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
@@ -98,6 +100,27 @@ class WorktreeCellWorkspacesTest {
     @Test
     fun `a sandbox organism without a project cannot prepare anything`() = runTest {
         assertFailsWith<IllegalStateException> { workspaces.prepare(sandboxed.copy(workspace = null), C1) }
+    }
+
+    @Test
+    fun `a handed-off sandbox is reopened before the next turn of its cell`() = runTest {
+        val handedOff = VirtualSandboxState(VirtualSandboxPhase.HandedOff, baseCommit = "base", snapshot = "s")
+        machine.publish(prepared(revision = 4).copy(virtualSandbox = handedOff))
+        workspaces.awaitAvailable(sandboxed, C1)
+        assertEquals(listOf<WorktreeIntent.Public>(WorktreeIntent.Public.Recheck(key, isReopen = true)), machine.sent)
+        assertEquals(VirtualSandboxPhase.Ready, machine.task(key).virtualSandbox?.phase)
+        workspaces.awaitAvailable(sandboxed, C1)
+        assertEquals(1, machine.sent.size)
+    }
+
+    @Test
+    fun `a paused sandbox is rechecked without an explicit resume before the next turn`() = runTest {
+        val conflicted = VirtualSandboxState(VirtualSandboxPhase.Conflicted, baseCommit = "base", snapshot = "s")
+        machine.publish(prepared(revision = 4).copy(virtualSandbox = conflicted))
+        val waiting = async { workspaces.awaitAvailable(sandboxed, C1) }
+        runCurrent()
+        assertEquals(listOf<WorktreeIntent.Public>(WorktreeIntent.Public.Recheck(key)), machine.sent)
+        waiting.await()
     }
 
     @Test

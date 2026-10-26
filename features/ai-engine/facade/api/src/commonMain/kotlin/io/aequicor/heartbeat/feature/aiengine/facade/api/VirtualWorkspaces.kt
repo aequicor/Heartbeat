@@ -14,6 +14,12 @@ public interface VirtualWorkspace {
     /** Empty host-owned process directory; it contains neither project sources nor executable project config. */
     public val processDirectory: String
 
+    /**
+     * Original project this workspace snapshots; project-level decisions such as trust belong to it.
+     * Null when the owner no longer knows the mapping: callers then treat the workspace as undecided.
+     */
+    public suspend fun sourceProject(): WorkspaceRef? = null
+
     /** Rechecks source availability and returns the current durable content revision. */
     public suspend fun revision(): Long
 

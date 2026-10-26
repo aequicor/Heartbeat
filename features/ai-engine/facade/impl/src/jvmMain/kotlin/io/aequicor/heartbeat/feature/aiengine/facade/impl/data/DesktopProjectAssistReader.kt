@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AssistDirectory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
@@ -42,12 +43,19 @@ internal class DesktopProjectAssistReader(
     ): List<EngineAssist> {
         val project = workspace ?: return emptyList()
         val before = launch.context(engine)
-        if (before.trust[project] != ProjectTrust.Trusted) return emptyList()
-        val directory = workspaces.resolve(project) ?: return emptyList()
+        // A sandbox snapshots its source project, so that project's trust decides; an unknown source stays closed.
+        val virtual = workspaces.virtual(project)
+        val trusted = if (virtual == null) project else virtual.sourceProject() ?: return emptyList()
+        if (before.trust[trusted] != ProjectTrust.Trusted) return emptyList()
+        val directory = if (virtual == null) workspaces.resolve(project) ?: return emptyList() else null
         val items = try {
             withTimeoutOrNull(2.seconds) {
-                val context = currentCoroutineContext()
-                runInterruptible(dispatchers.io) { scan(Path.of(directory), directories, context) }
+                if (directory == null) {
+                    scanVirtual(checkNotNull(virtual), directories)
+                } else {
+                    val context = currentCoroutineContext()
+                    runInterruptible(dispatchers.io) { scan(Path.of(directory), directories, context) }
+                }
             }.orEmpty()
         } catch (e: CancellationException) {
             throw e
@@ -64,6 +72,42 @@ internal class DesktopProjectAssistReader(
         val result = directories.flatMap { scanDirectory(canonical, it, context, budget) }
         if (budget.remaining == 0) log.w { "project assist metadata reached its entry limit" }
         return result.distinctBy { it.kind to it.label }.sortedBy { it.label }
+    }
+
+    /** The sandbox tree lists regular Git entries; the workspace itself rejects links and binary content. */
+    private suspend fun scanVirtual(
+        workspace: VirtualWorkspace,
+        directories: List<AssistDirectory>,
+    ): List<EngineAssist> {
+        val paths = workspace.paths()
+        val budget = ScanBudget(ENTRY_LIMIT)
+        val result = directories.flatMap { spec ->
+            val directory = Path.of(spec.path)
+            val prefix = spec.path.trimEnd('/') + "/"
+            paths.asSequence()
+                .filter { it.startsWith(prefix) && it.removePrefix(prefix).split('/').size <= MAX_DEPTH }
+                .takeWhile { budget.remaining > 0 }
+                .onEach { budget.visit() }
+                .filter { if (spec.isSkill) it.substringAfterLast('/') == "SKILL.md" else it.endsWith(".md") }
+                .toList()
+                .mapNotNull { path -> virtualMetadata(workspace, path, directory, spec) }
+        }
+        if (budget.remaining == 0) log.w { "project assist metadata reached its entry limit" }
+        return result.distinctBy { it.kind to it.label }.sortedBy { it.label }
+    }
+
+    private suspend fun virtualMetadata(
+        workspace: VirtualWorkspace,
+        path: String,
+        directory: Path,
+        spec: AssistDirectory,
+    ): EngineAssist? = try {
+        workspace.read(path)?.let { assist(it, Path.of(path), directory, spec) }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e.redactedFailure()) { "project assist file not readable" }
+        null
     }
 
     private fun scanDirectory(

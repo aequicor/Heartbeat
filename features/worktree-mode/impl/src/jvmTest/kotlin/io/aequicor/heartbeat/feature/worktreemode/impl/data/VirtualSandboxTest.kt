@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -391,6 +392,64 @@ class VirtualSandboxTest {
     }
 
     @Test
+    fun `a reopened sandbox edits again and its next handoff moves its own result branch`() = runTest {
+        val f = VirtualFixture()
+        try {
+            val ref = f.create("reopen")
+            val files = assertNotNull(f.backend.find(ref))
+            files.change(0, listOf(VirtualFileChange("source.txt", "first")))
+            val first = f.backend.handoff(f.record("reopen"))
+            val reopened = f.backend.reopen(ref)
+            assertEquals(VirtualSandboxPhase.Ready, reopened.phase)
+            assertEquals(null, reopened.resultCommit)
+            assertEquals(reopened, f.backend.reopen(ref))
+            files.change(reopened.revision, listOf(VirtualFileChange("source.txt", "second")))
+            val second = f.backend.handoff(f.record("reopen"))
+            assertNotEquals(first.resultCommit, second.resultCommit)
+            assertEquals(second.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-reopen"))
+            assertEquals("second", f.cmd("show", "heartbeat/worktree-reopen:source.txt"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
+    fun `a reopened sandbox hands off its snapshot without moving a result branch checked out elsewhere`() = runTest {
+        val f = VirtualFixture()
+        try {
+            val ref = f.create("review")
+            val files = assertNotNull(f.backend.find(ref))
+            files.change(0, listOf(VirtualFileChange("source.txt", "first")))
+            val first = f.backend.handoff(f.record("review"))
+            f.cmd("worktree", "add", f.project.resolveSibling("review").toString(), "heartbeat/worktree-review")
+            val reopened = f.backend.reopen(ref)
+            files.change(reopened.revision, listOf(VirtualFileChange("source.txt", "second")))
+            val second = f.backend.handoff(f.record("review"))
+            assertEquals(VirtualSandboxPhase.HandedOff, second.phase)
+            assertTrue(second.isBranchUnmoved)
+            val result = assertNotNull(second.resultCommit)
+            assertEquals("second", f.cmd("show", "$result:source.txt"))
+            assertEquals(first.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-review"))
+            // The branch kept its old tip, so the next handoffs start from it: unmoved while checked out ...
+            val again = f.backend.reopen(ref)
+            assertFalse(again.isBranchUnmoved)
+            files.change(again.revision, listOf(VirtualFileChange("source.txt", "third")))
+            assertTrue(f.backend.handoff(f.record("review")).isBranchUnmoved)
+            assertEquals(first.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-review"))
+            // ... and moved to the new snapshot once the other worktree is gone.
+            f.cmd("worktree", "remove", f.project.resolveSibling("review").toString())
+            val last = f.backend.reopen(ref)
+            files.change(last.revision, listOf(VirtualFileChange("source.txt", "fourth")))
+            val moved = f.backend.handoff(f.record("review"))
+            assertFalse(moved.isBranchUnmoved)
+            assertEquals(moved.resultCommit, f.cmd("rev-parse", "heartbeat/worktree-review"))
+            assertEquals("fourth", f.cmd("show", "heartbeat/worktree-review:source.txt"))
+        } finally {
+            f.close()
+        }
+    }
+
+    @Test
     fun `arbitrary ecosystems need no caches and slots roll back while preserving warm outputs`() = runTest {
         val f = VirtualFixture()
         try {
@@ -446,11 +505,12 @@ class VirtualSandboxTest {
     }
 }
 
-private class VirtualFixture {
+/** [wrap] lets a test observe or interleave the backend's git calls. */
+internal class VirtualFixture(wrap: (VirtualGitObjects) -> VirtualGitObjects = { it }) {
     private val root = Files.createTempDirectory("heartbeat-virtual-test-").toRealPath()
     val project: Path = Files.createDirectory(root.resolve("project"))
     private val stores = SettingsStores(root.resolve("state"))
-    private val git = VirtualSandboxGit(RealTestDispatchers)
+    private val git = wrap(VirtualSandboxGit(RealTestDispatchers))
     private val settings = StoredProjectBuildSettings(lazy { stores })
     var now = 1_000L
     private val clock = object : Clock {

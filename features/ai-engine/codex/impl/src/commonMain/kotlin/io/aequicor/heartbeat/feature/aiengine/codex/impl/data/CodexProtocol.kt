@@ -24,6 +24,14 @@ internal interface CodexWire : AutoCloseable {
     /** Read-only ownership snapshot; unsupported transports cannot supply evidence for a stored stop. */
     suspend fun processOwner(): CodexExecutionOwner? = null
 
+    /**
+     * Protected execution needs a fresh offline inventory of this executable and the working thread's surface.
+     * Only the desktop transport can run the probe; every other transport fails closed. An implementation must
+     * also refuse [CodexInventoryTarget.effective] with [requireCodexInventoryConfig] against the same executable's
+     * clean-home `config/read`, before any thread starts: the caller no longer checks the working config itself.
+     */
+    suspend fun verifyInventory(target: CodexInventoryTarget, off: CodexNativeOff): Unit = unsupported()
+
     suspend fun write(message: JsonObject)
     override fun close()
 }
@@ -33,7 +41,7 @@ internal interface PreparedCodexLaunch {
     /** Starts the captured executable with the captured home, arguments and environment. */
     suspend fun open(): CodexWire
 
-    /** Applies only the typed restrictions after validating the captured executable's protocol version. */
+    /** Applies only the typed restrictions for subsequent effective-config and inventory checks. */
     suspend fun open(off: CodexNativeOff): CodexWire {
         if (off.isRestricted) unsupported()
         return open()
@@ -53,7 +61,7 @@ internal interface PreparedCodexLaunch {
         record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
     ): Boolean = false
 
-    /** Reads the version of that same executable; an unknown version cannot authorize native policy support. */
+    /** Reads the version of that same executable; used for display and diagnostics only. */
     suspend fun version(): String? = null
 }
 

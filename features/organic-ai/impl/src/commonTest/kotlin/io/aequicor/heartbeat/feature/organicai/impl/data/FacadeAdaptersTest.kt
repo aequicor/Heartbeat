@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
@@ -60,7 +61,7 @@ class FacadeAdaptersTest {
     fun `a new cell session carries the detached tools its project and trust`() = runTest {
         val native = FakeSession(session("new"))
         val facade = FakeFacade(ArrayDeque(listOf(native)))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         val handle = cells.open(key, route, existing = null)
         assertSame(handle.session, cells.open(key, route, existing = null).session)
         assertEquals(1, facade.creations.size)
@@ -83,7 +84,7 @@ class FacadeAdaptersTest {
     fun `a cell turn carries its effort and review model while the model advertises the effort`() = runTest {
         val native = FakeSession(session("tuned"))
         val catalog = listOf(ModelInfo(TARGET, "Model", reasoningEfforts = listOf("low", "high")))
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native)), catalog = catalog))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native)), catalog = catalog))
         val parent = TARGET.copy(model = ModelId("strong"))
         val handle = cells.open(key, route.copy(reasoningEffort = "low", reviewTarget = parent), existing = null)
         handle.submit(RequestId("r1"), "work", TrustLevel.AutoEdits)
@@ -96,7 +97,7 @@ class FacadeAdaptersTest {
     @Test
     fun `late retirement cannot close the handle of a resumed cell`() = runTest {
         val native = FakeSession(session("continued"))
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         cells.open(key, route, existing = null, generation = 1)
         val resumed = cells.open(key, route, existing = native.ref, generation = 2)
         assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, native.ref, ReleaseMode.Retire, generation = 1))
@@ -111,7 +112,7 @@ class FacadeAdaptersTest {
     @Test
     fun `a session is let go for its resources only until a later turn or a handle takes it again`() = runTest {
         val native = FakeSession(session("continued"))
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         cells.open(key, route, existing = null, generation = 1)
         assertFalse(cells.isReleased(key, generation = 1))
         assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Retire, generation = 1))
@@ -131,7 +132,7 @@ class FacadeAdaptersTest {
     fun `a session is no longer let go as of an older turn once a newer turn starts to open it`() = runTest {
         val native = FakeSession(session("continued"))
         val facade = FakeFacade(ArrayDeque(listOf(native)))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         cells.open(key, route, existing = null, generation = 1)
         assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Retire, generation = 1))
         assertTrue(cells.isReleased(key, generation = 1))
@@ -156,7 +157,7 @@ class FacadeAdaptersTest {
         val facade = FakeFacade(stored = stored)
         val blocked = CompletableDeferred<Unit>()
         facade.onResume = { if (facade.resumptions.size == 1) blocked.await() }
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         val stale = async { assertFailsWith<EngineException> { cells.open(key, route, old.ref, generation = 1) } }
         runCurrent()
         stored[old.ref] = newer
@@ -181,7 +182,7 @@ class FacadeAdaptersTest {
                 throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
             }
         }
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         val opened = async { cells.open(key, route, existing = native.ref) }
         advanceUntilIdle()
         assertSame(native.ref, opened.await().session)
@@ -195,7 +196,7 @@ class FacadeAdaptersTest {
         facade.onResume = {
             throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
         }
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         val failed = async {
             assertFailsWith<EngineException> { cells.open(key, route, existing = native.ref) }
         }
@@ -214,7 +215,7 @@ class FacadeAdaptersTest {
         facade.onResume = {
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         assertFailsWith<EngineException> { cells.open(key, route, existing = native.ref) }
         assertEquals(1, facade.resumptions.size)
     }
@@ -223,7 +224,7 @@ class FacadeAdaptersTest {
     fun `a completed cell can reopen its retired session and still be lysed`() = runTest {
         val native = FakeSession(session("continued"))
         val facade = FakeFacade(ArrayDeque(listOf(native)), stored = mapOf(native.ref to native))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         cells.open(key, route, existing = null, generation = 1)
         cells.release(key, native.ref, ReleaseMode.Retire, generation = 1)
         cells.open(key, route, native.ref, generation = 2)
@@ -237,7 +238,7 @@ class FacadeAdaptersTest {
     fun `a stored cell session is resumed with the detached tools`() = runTest {
         val stored = FakeSession(session("stored"))
         val facade = FakeFacade(stored = mapOf(stored.ref to stored))
-        FacadeCellSessions(facade).open(key, route, existing = stored.ref)
+        cellSessions(facade).open(key, route, existing = stored.ref)
         assertTrue(facade.resumptions.single().areDetachedToolsEnabled)
         assertEquals(0, facade.creations.size)
     }
@@ -246,7 +247,7 @@ class FacadeAdaptersTest {
     fun `a new cell session declares the harnesses of its organism from its start`() = runTest {
         val chosen = setOf("compose", "verify")
         val facade = FakeFacade(ArrayDeque(listOf(FakeSession(session("harnessed")))))
-        FacadeCellSessions(facade).open(key, route.copy(harnesses = chosen), existing = null)
+        cellSessions(facade).open(key, route.copy(harnesses = chosen), existing = null)
         with(facade.creations.single()) {
             assertEquals(mapOf(HarnessTools.GROUP to chosen), preselected)
             assertTrue(areSessionHooksEnabled)
@@ -257,7 +258,7 @@ class FacadeAdaptersTest {
     @Test
     fun `a cell session without harnesses declares nothing and opts out of session hooks`() = runTest {
         val facade = FakeFacade(ArrayDeque(listOf(FakeSession(session("plain")))))
-        FacadeCellSessions(facade).open(key, route, existing = null)
+        cellSessions(facade).open(key, route, existing = null)
         with(facade.creations.single()) {
             assertEquals(emptyMap(), preselected)
             assertFalse(areSessionHooksEnabled)
@@ -268,9 +269,9 @@ class FacadeAdaptersTest {
     fun `a resumed cell session opts into session hooks exactly when it carries harnesses`() = runTest {
         val stored = FakeSession(session("stored"))
         val facade = FakeFacade(stored = mapOf(stored.ref to stored))
-        FacadeCellSessions(facade).open(key, route.copy(harnesses = setOf("compose")), existing = stored.ref)
+        cellSessions(facade).open(key, route.copy(harnesses = setOf("compose")), existing = stored.ref)
         assertTrue(facade.resumptions.single().areSessionHooksEnabled)
-        FacadeCellSessions(facade).open(CellKey(ORGANISM, CellId("c2")), route, existing = stored.ref)
+        cellSessions(facade).open(CellKey(ORGANISM, CellId("c2")), route, existing = stored.ref)
         assertFalse(facade.resumptions.last().areSessionHooksEnabled)
     }
 
@@ -397,7 +398,7 @@ class FacadeAdaptersTest {
             finish = null
             ignoresCancel = true
         }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         cells.open(key, route, null).submit(RequestId("r1"), "work", null)
         val sleeping = launch { cells.releaseAll() }
         runCurrent()
@@ -422,7 +423,7 @@ class FacadeAdaptersTest {
     @Test
     fun `the answer of a turn is read from history`() = runTest {
         val native = FakeSession(session("new"))
-        val handle = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native)))).open(key, route, null)
+        val handle = cellSessions(FakeFacade(ArrayDeque(listOf(native)))).open(key, route, null)
         // History carries the engine's own turn ids, not the ids the handle gave its submissions.
         native.items = listOf(
             message(MessageRole.User, "work", turn = "native-1", position = 0),
@@ -438,7 +439,7 @@ class FacadeAdaptersTest {
         val native = FakeSession(session("new")).apply {
             sendFailure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, RequestId("r2"))
         }
-        val handle = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native)))).open(key, route, null)
+        val handle = cellSessions(FakeFacade(ArrayDeque(listOf(native)))).open(key, route, null)
         val turn = handle.submit(RequestId("r2"), "more", null)
         native.items = listOf(
             message(MessageRole.User, "work", turn = "native-1", position = 0),
@@ -451,7 +452,7 @@ class FacadeAdaptersTest {
     @Test
     fun `a lysed cell's turn is cancelled its session archived and never reopened`() = runTest {
         val native = FakeSession(session("new")).apply { finish = null }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val handle = cells.open(key, route, null)
         val turn = handle.submit(RequestId("r1"), "work", null)
         assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Lyse))
@@ -464,7 +465,7 @@ class FacadeAdaptersTest {
     @Test
     fun `a lysed cell this process holds no handle of counts as stopped and is archived`() = runTest {
         val native = FakeSession(session("stored"))
-        val cells = FacadeCellSessions(FakeFacade(stored = mapOf(native.ref to native)))
+        val cells = cellSessions(FakeFacade(stored = mapOf(native.ref to native)))
         assertEquals(ReleaseOutcome.Stopped, cells.release(key, native.ref, ReleaseMode.Lyse))
         assertTrue(native.isArchived)
         assertEquals(ReleaseOutcome.Stopped, cells.release(key, null, ReleaseMode.Lyse))
@@ -476,7 +477,7 @@ class FacadeAdaptersTest {
             finish = null
             ignoresCancel = true
         }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val turn = cells.open(key, route, null).submit(RequestId("r1"), "work", null)
         assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, native.ref, ReleaseMode.Lyse))
         assertFalse(cells.isReleased(key, generation = 0))
@@ -499,7 +500,7 @@ class FacadeAdaptersTest {
     @Test
     fun `a session that stays unavailable leaves the lysis unconfirmed`() = runTest {
         val native = FakeSession(session("new")).apply { finish = null }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val turn = cells.open(key, route, null).submit(RequestId("r1"), "work", null)
         val running = Turn(turn, RequestId("r1"), TARGET)
         native.state.value = ActiveSessionState.Unavailable(EngineFailure.Unknown(), running)
@@ -517,7 +518,7 @@ class FacadeAdaptersTest {
     fun `a cell still being created is not confirmed stopped until its opener is done`() = runTest {
         val native = FakeSession(session("new"))
         val facade = FakeFacade(ArrayDeque(listOf(native)))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         var during: ReleaseOutcome? = null
         facade.onCreate = { during = cells.release(key, null, ReleaseMode.Lyse) }
         assertFailsWith<EngineException> { cells.open(key, route, null) }
@@ -533,7 +534,7 @@ class FacadeAdaptersTest {
             ignoresCancel = true
         }
         val facade = FakeFacade(stored = mapOf(stored.ref to stored))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         facade.onResume = { cells.release(key, stored.ref, ReleaseMode.Lyse) }
         assertFailsWith<EngineException> { cells.open(key, route, stored.ref) }
         assertEquals(0, stored.closes)
@@ -549,7 +550,7 @@ class FacadeAdaptersTest {
     fun `a cell lysed while its session was created leaves no listed session`() = runTest {
         val native = FakeSession(session("new"))
         val facade = FakeFacade(ArrayDeque(listOf(native)))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         facade.onCreate = { cells.release(key, null, ReleaseMode.Lyse) }
         assertFailsWith<EngineException> { cells.open(key, route, null) }
         assertEquals(1, native.closes)
@@ -561,7 +562,7 @@ class FacadeAdaptersTest {
         val running = Turn(TurnId("native"), RequestId("r0"), TARGET)
         val stored = FakeSession(session("stored")).apply { resumedAs = ActiveSessionState.Running(running) }
         val facade = FakeFacade(stored = mapOf(stored.ref to stored))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         facade.onResume = { cells.release(key, stored.ref, ReleaseMode.Lyse) }
         assertFailsWith<EngineException> { cells.open(key, route, stored.ref) }
         assertEquals(listOf(running.id), stored.cancelled)
@@ -574,7 +575,7 @@ class FacadeAdaptersTest {
         val first = FakeSession(session("first"))
         val second = FakeSession(session("second"))
         val facade = FakeFacade(ArrayDeque(listOf(first, second)))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         facade.onCreate = { cells.releaseAll() }
         assertFailsWith<EngineException> { cells.open(key, route, null) }
         assertEquals(1, first.closes)
@@ -586,14 +587,14 @@ class FacadeAdaptersTest {
     @Test
     fun `an unreadable history fails the answer instead of reading as empty`() = runTest {
         val native = FakeSession(session("new")).apply { historyFailure = EngineFailure.Unknown() }
-        val handle = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native)))).open(key, route, null)
+        val handle = cellSessions(FakeFacade(ArrayDeque(listOf(native)))).open(key, route, null)
         assertFailsWith<EngineException> { handle.answer(TurnId("turn-1")) }
     }
 
     @Test
     fun `a completed cell's session is closed but kept`() = runTest {
         val native = FakeSession(session("new"))
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         cells.open(key, route, null)
         cells.release(key, native.ref, ReleaseMode.Retire)
         assertEquals(1, native.closes)
@@ -603,7 +604,7 @@ class FacadeAdaptersTest {
     @Test
     fun `sleep stops every running turn and decisions reach open sessions`() = runTest {
         val native = FakeSession(session("new")).apply { finish = null }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val turn = cells.open(key, route, null).submit(RequestId("r1"), "work", null)
         val decision = PermissionDecision(turn, PermissionRequestId("p1"), PermissionOptionId("allow"))
         cells.respond(key, decision)

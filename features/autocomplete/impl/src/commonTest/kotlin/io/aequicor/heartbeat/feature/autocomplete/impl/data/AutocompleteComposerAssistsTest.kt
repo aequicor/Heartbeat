@@ -18,29 +18,37 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualFileChange
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
@@ -58,6 +66,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -565,6 +574,102 @@ class AutocompleteComposerAssistsTest {
         assertEquals(listOf("/a"), delivered.map { it.label })
     }
 
+    @Test
+    fun `a sandbox route gets host project skills unless its engine imports the sandbox tree`() = runTest {
+        val sandbox = WorkspaceRef("sandbox-1")
+        var reads = 0
+        val files = object : ProjectFileIndex {
+            override suspend fun search(
+                workspace: WorkspaceRef?,
+                query: String,
+                limit: Int,
+                skillsOnly: Boolean,
+            ): List<ProjectFile> = listOf(
+                ProjectFile(".claude/skills/open-pr/SKILL.md", "", 1, "text/markdown", ProjectSkill("open-pr", "PR")),
+            ).filter { workspace == sandbox }
+
+            override suspend fun readSkill(workspace: WorkspaceRef?, relativePath: String, name: String) =
+                "Open a pull request".takeIf { workspace == sandbox }
+        }
+        val text = "[/open-pr](.claude/skills/open-pr/SKILL.md) now"
+        val scope = ComposerScope(target, sandbox)
+        val trigger = ComposerTrigger.Command(0..4, "open")
+        val native = listOf(skill("open-pr", "open-pr"))
+
+        val hosted = service(assists = native, onRead = { reads++ }, files = files, virtual = setOf(sandbox))
+        assertEquals(
+            listOf("project-skill:.claude/skills/open-pr/SKILL.md"),
+            hosted.suggest(trigger, scope).map { it.id },
+        )
+        assertEquals(listOf("/open-pr"), hosted.referencedSkills(text, scope).map { it.label })
+        assertEquals(0, reads)
+
+        val imported = service(assists = native, files = files, virtual = setOf(sandbox), isVirtualNative = true)
+        assertEquals(listOf("engine:pi:open-pr"), imported.suggest(trigger, scope).map { it.id })
+        assertEquals(emptyList(), imported.referencedSkills(text, scope))
+    }
+
+    @Test
+    fun `a sandbox not created yet gets host project skills unless its engine imports the sandbox tree`() = runTest {
+        var reads = 0
+        val files = object : ProjectFileIndex {
+            override suspend fun search(
+                workspace: WorkspaceRef?,
+                query: String,
+                limit: Int,
+                skillsOnly: Boolean,
+            ): List<ProjectFile> = listOf(
+                ProjectFile(".claude/skills/open-pr/SKILL.md", "", 1, "text/markdown", ProjectSkill("open-pr", "PR")),
+            ).filter { workspace == project }
+
+            override suspend fun readSkill(workspace: WorkspaceRef?, relativePath: String, name: String) =
+                "Open a pull request".takeIf { workspace == project }
+        }
+        val text = "[/open-pr](.claude/skills/open-pr/SKILL.md) now"
+        val pending = ComposerScope(target, project, isSandboxPending = true)
+        val trigger = ComposerTrigger.Command(0..4, "open")
+        val native = listOf(skill("open-pr", "open-pr"))
+
+        val hosted = service(assists = native, onRead = { reads++ }, files = files)
+        assertEquals(
+            listOf("project-skill:.claude/skills/open-pr/SKILL.md"),
+            hosted.suggest(trigger, pending).map { it.id },
+        )
+        assertEquals(listOf("/open-pr"), hosted.referencedSkills(text, pending).map { it.label })
+        assertEquals(0, reads)
+        // The same project outside a pending sandbox keeps the engine's own catalog.
+        assertEquals(listOf("engine:pi:open-pr"), hosted.suggest(trigger, ComposerScope(target, project)).map { it.id })
+
+        val imported = service(assists = native, files = files, isVirtualNative = true)
+        assertEquals(listOf("engine:pi:open-pr"), imported.suggest(trigger, pending).map { it.id })
+        assertEquals(emptyList(), imported.referencedSkills(text, pending))
+    }
+
+    @Test
+    fun `a remembered listing shows before the fresh one without an intermediate closed listing`() = runTest {
+        val clock = SteadyClock(Instant.parse("2026-01-01T00:00:00Z"))
+        var calls = 0
+        val source = EngineAssistsSource(
+            facade(listOf(command("/plan", "Plan")), onRead = { calls++ }),
+            clock,
+            TestSources(),
+        )
+        val first = mutableListOf<NativeAssists>()
+        val warm = launch { source.observe(target, project).collect { first += it } }
+        runCurrent()
+        warm.cancelAndJoin()
+        assertEquals(NativeAssists.Closed, first.first())
+        clock.set(clock.now() + 90.seconds)
+
+        val snapshots = mutableListOf<NativeAssists>()
+        val job = launch { source.observe(target, project).collect { snapshots += it } }
+        runCurrent()
+        job.cancelAndJoin()
+        assertEquals(2, calls)
+        assertEquals(listOf(listOf("plan"), listOf("plan")), snapshots.map { list -> list.items.map { it.id } })
+        assertTrue(snapshots.all { it.hasNativeCatalog })
+    }
+
     private fun skillFiles(skill: ProjectSkill) = object : ProjectFileIndex {
         override suspend fun search(
             workspace: WorkspaceRef?,
@@ -611,6 +716,8 @@ class AutocompleteComposerAssistsTest {
         failWith: Exception? = null,
         onRead: suspend () -> Unit = {},
         isNativeSupported: Boolean = true,
+        virtual: Set<WorkspaceRef> = emptySet(),
+        isVirtualNative: Boolean = false,
         files: ProjectFileIndex = object : ProjectFileIndex {
             override suspend fun search(
                 workspace: WorkspaceRef?,
@@ -628,18 +735,59 @@ class AutocompleteComposerAssistsTest {
             learningRegistry(MutableStateFlow<AgentLearningState>(AgentLearningState.Ready(instructions = skills))),
         ),
         EngineAssistsSource(
-            facade(assists, onRead = onRead, failure = failWith, isSupported = isNativeSupported),
+            facade(
+                assists,
+                onRead = onRead,
+                failure = failWith,
+                isSupported = isNativeSupported,
+                engines = listOf(engineInfo(isVirtualNative)),
+            ),
             FakeClock,
             TestSources(),
+            workspaces = virtualWorkspaces(virtual),
         ),
         files,
     )
+
+    private fun engineInfo(isVirtualNative: Boolean) = EngineInfo(
+        EngineDescriptor(
+            pi,
+            "Pi",
+            EngineFamily.Vendor,
+            setOf(EnginePlatform.DesktopMacOs),
+            FeatureToggle.Flag("test.engine", "Test"),
+            areVirtualWorkspaceAssistsNative = isVirtualNative,
+        ),
+        EngineAvailability.Available,
+        emptyList(),
+    )
+
+    private fun virtualWorkspaces(refs: Set<WorkspaceRef>) = object : LocalWorkspaces {
+        override val isAvailable = true
+        override fun observe(): Flow<List<LocalWorkspace>> = flowOf(emptyList())
+        override suspend fun register(directory: String): LocalWorkspace = error("unused")
+        override suspend fun resolve(ref: WorkspaceRef): String? = null
+        override suspend fun virtual(ref: WorkspaceRef): VirtualWorkspace? = ref.takeIf { it in refs }?.let {
+            object : VirtualWorkspace {
+                override val ref = it
+                override val processDirectory = "unused"
+                override suspend fun revision() = 1L
+                override suspend fun paths(): List<String> = error("unused")
+                override suspend fun read(path: String): String = error("unused")
+                override suspend fun change(expectedRevision: Long, changes: List<VirtualFileChange>): Long =
+                    error("unused")
+                override suspend fun move(expectedRevision: Long, path: String, destination: String): Long =
+                    error("unused")
+            }
+        }
+    }
 
     private fun facade(
         assists: List<EngineAssist>,
         onRead: suspend () -> Unit,
         failure: Exception? = null,
         isSupported: Boolean = true,
+        engines: List<EngineInfo> = emptyList(),
     ): EngineFacade {
         val features = object : EngineFeatures {
             override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> {
@@ -656,7 +804,7 @@ class AutocompleteComposerAssistsTest {
             }
         }
         val catalog = object : EngineCatalog {
-            override val state = MutableStateFlow<List<EngineInfo>>(emptyList())
+            override val state = MutableStateFlow(engines)
             override suspend fun refresh(engine: EngineId) = error("unused")
             override fun features(engine: EngineId) = features
         }

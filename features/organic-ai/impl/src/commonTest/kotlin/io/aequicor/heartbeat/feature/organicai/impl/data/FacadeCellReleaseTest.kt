@@ -2,17 +2,25 @@ package io.aequicor.heartbeat.feature.organicai.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.impl.C1
+import io.aequicor.heartbeat.feature.organicai.impl.C2
 import io.aequicor.heartbeat.feature.organicai.impl.ORGANISM
 import io.aequicor.heartbeat.feature.organicai.impl.TARGET
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellKey
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRoute
 import io.aequicor.heartbeat.feature.organicai.impl.domain.ReleaseOutcome
 import io.aequicor.heartbeat.feature.organicai.impl.session
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,7 +40,7 @@ class FacadeCellReleaseTest {
             cancelFailure = IllegalStateException("cancel failed")
         }
         val facade = FakeFacade(stored = mapOf(stored.ref to stored))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         facade.onResume = { cells.release(key, stored.ref, ReleaseMode.Lyse) }
         assertFailsWith<EngineException> { cells.open(key, route, stored.ref) }
         assertEquals(0, stored.closes)
@@ -52,7 +60,7 @@ class FacadeCellReleaseTest {
             ignoresCancel = true
         }
         val facade = FakeFacade(ArrayDeque(listOf(native)))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         val turn = cells.open(key, route, null, generation = 1).submit(RequestId("r1"), "work", null)
         cells.releaseAll()
         val recovered = cells.open(key, route, native.ref, generation = 2)
@@ -70,7 +78,7 @@ class FacadeCellReleaseTest {
             ignoresCancel = true
         }
         val facade = FakeFacade(stored = mapOf(stored.ref to stored))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         facade.onResume = {
             cells.releaseAll()
             assertTrue(cells.hasPendingRelease(ORGANISM))
@@ -89,7 +97,7 @@ class FacadeCellReleaseTest {
             finish = null
             ignoresCancel = true
         }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         cells.open(key, route, null).submit(RequestId("r1"), "work", null)
         assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, native.ref, ReleaseMode.Lyse))
         cells.releaseAll()
@@ -100,4 +108,216 @@ class FacadeCellReleaseTest {
         assertEquals(1, native.closes)
         assertFalse(cells.hasPendingRelease(ORGANISM))
     }
+
+    @Test
+    fun `a cell moved to another engine gets a new session and its old one is closed`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own"))
+        val fallback = FakeSession(session("fallback"))
+        val facade = FakeFacade(ArrayDeque(listOf(own, fallback)))
+        val harnesses = FakeCellHarnesses()
+        val cells = FacadeCellSessions(facade, harnesses)
+        val ownRoute = route.copy(target = TARGET.copy(engine = EngineId("koog")), harnesses = setOf("h"))
+        cells.open(key, ownRoute, existing = null, generation = 1)
+        val moved = cells.open(key, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+        assertEquals(fallback.ref, moved.session)
+        assertEquals(2, facade.creations.size)
+        assertEquals(1, own.closes)
+        // The organism forgot the replaced session: it is released like a dead cell's, harness slots included.
+        assertTrue(own.isArchived)
+        assertFalse(fallback.isArchived)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+    }
+
+    @Test
+    fun `a cell moved to another model on the same engine and binding gets a new session`() = runTest {
+        val own = FakeSession(session("own"))
+        val fallback = FakeSession(session("fallback"))
+        val facade = FakeFacade(ArrayDeque(listOf(own, fallback)))
+        val cells = cellSessions(facade)
+        val ownRoute = route.copy(target = TARGET.copy(model = ModelId("cheap")))
+        cells.open(key, ownRoute, existing = null, generation = 1)
+        assertEquals(own.ref, cells.open(key, ownRoute, existing = null, generation = 1).session)
+        val moved = cells.open(key, route, existing = null, generation = 2)
+        assertEquals(fallback.ref, moved.session)
+        assertEquals(2, facade.creations.size)
+        assertEquals(1, own.closes)
+    }
+
+    @Test
+    fun `an unconfirmed replaced session is archived and loses its harnesses once a lysis stops it`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own")).apply {
+            finish = null
+            ignoresCancel = true
+        }
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses()
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        val ownRoute = route.copy(target = TARGET.copy(engine = EngineId("koog")), harnesses = setOf("h"))
+        cells.open(key, ownRoute, existing = null, generation = 1).submit(RequestId("r1"), "work", null)
+        cells.open(key, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+        assertEquals(0, own.closes)
+        assertFalse(own.isArchived)
+        assertTrue(harnesses.disconnected.isEmpty())
+
+        own.ignoresCancel = false
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, fallback.ref, ReleaseMode.Lyse))
+        assertEquals(1, own.closes)
+        assertTrue(own.isArchived)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+    }
+
+    @Test
+    fun `a failed harness removal of a replaced session is retried at the cell's lysis`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own"))
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses().apply { failures = 1 }
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        val ownRoute = route.copy(target = TARGET.copy(engine = EngineId("koog")), harnesses = setOf("h"))
+        cells.open(key, ownRoute, existing = null, generation = 1)
+        cells.open(key, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+        assertEquals(1, own.closes)
+        assertTrue(harnesses.disconnected.isEmpty())
+
+        cells.release(key, fallback.ref, ReleaseMode.Lyse)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+    }
+
+    @Test
+    fun `a replaced session that is still sending is not stopped until the cell is released`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own"))
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses()
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        val ownRoute = route.copy(target = TARGET.copy(engine = EngineId("koog")), harnesses = setOf("h"))
+        val handle = cells.open(key, ownRoute, existing = null, generation = 1)
+        val sent = CompletableDeferred<Unit>()
+        own.beforeSend = { sent.await() }
+        val sending = async { handle.submit(RequestId("r1"), "work", null) }
+        runCurrent()
+        assertEquals(fallback.ref, cells.open(key, route.copy(harnesses = setOf("h")), null, generation = 2).session)
+        assertEquals(0, own.closes)
+        assertFalse(own.isArchived)
+        assertTrue(own.cancelled.isEmpty())
+
+        sent.complete(Unit)
+        sending.await()
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, fallback.ref, ReleaseMode.Lyse))
+        assertEquals(1, own.closes)
+        assertTrue(own.isArchived)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+    }
+
+    @Test
+    fun `a busy replaced session is stopped and loses its harnesses when the cell retires`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own")).apply { finish = null }
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses()
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        val handle = cells.open(key, ownRoute(), existing = null, generation = 1)
+        val sent = CompletableDeferred<Unit>()
+        own.beforeSend = { sent.await() }
+        val sending = async { handle.submit(RequestId("r1"), "work", null) }
+        runCurrent()
+        cells.open(key, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+        sent.complete(Unit)
+        sending.await()
+
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, fallback.ref, ReleaseMode.Retire, generation = 2))
+        assertEquals(1, own.cancelled.size)
+        assertEquals(1, own.closes)
+        assertTrue(own.isArchived)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+        assertTrue(cells.isReleased(key, generation = 2))
+    }
+
+    @Test
+    fun `a retirement that cannot stop a replaced session stays unconfirmed and keeps it`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own")).apply {
+            finish = null
+            ignoresCancel = true
+        }
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses()
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        cells.open(key, ownRoute(), existing = null, generation = 1).submit(RequestId("r1"), "work", null)
+        cells.open(key, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+
+        assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, fallback.ref, ReleaseMode.Retire, generation = 2))
+        assertEquals(0, own.closes)
+        assertFalse(own.isArchived)
+        assertFalse(cells.isReleased(key, generation = 2))
+
+        own.ignoresCancel = false
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, fallback.ref, ReleaseMode.Lyse))
+        assertEquals(1, own.closes)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+    }
+
+    @Test
+    fun `a lysis leaves a replaced session alone while the replacement still stops it`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own")).apply { finish = null }
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses()
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        cells.open(key, ownRoute(), existing = null, generation = 1).submit(RequestId("r1"), "work", null)
+        val cancelling = CompletableDeferred<Unit>()
+        own.beforeCancel = { cancelling.await() }
+        val opening = async {
+            val fallbackRoute = route.copy(harnesses = setOf("h"))
+            assertFailsWith<EngineException> { cells.open(key, fallbackRoute, null, generation = 2) }
+        }
+        runCurrent()
+
+        assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, null, ReleaseMode.Lyse))
+        assertEquals(0, own.closes)
+        assertFalse(own.isArchived)
+        assertTrue(harnesses.disconnected.isEmpty())
+
+        cancelling.complete(Unit)
+        opening.await()
+        cells.release(key, null, ReleaseMode.Lyse)
+        assertEquals(1, own.closes)
+        assertEquals(1, own.archivals)
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+    }
+
+    @Test
+    fun `a failed harness removal of a replaced session is retried when the cell retires`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own"))
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses().apply { failures = 1 }
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        cells.open(key, ownRoute(), existing = null, generation = 1)
+        cells.open(key, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+        assertTrue(harnesses.disconnected.isEmpty())
+
+        assertEquals(ReleaseOutcome.Stopped, cells.release(key, fallback.ref, ReleaseMode.Retire, generation = 2))
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+        assertEquals(1, own.archivals)
+    }
+
+    @Test
+    fun `a sleep retries a failed harness removal once and then forgets it`() = runTest {
+        val own = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "own"))
+        val fallback = FakeSession(session("fallback"))
+        val harnesses = FakeCellHarnesses().apply { failures = 1 }
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(own, fallback))), harnesses)
+        cells.open(key, ownRoute(), existing = null, generation = 1)
+        cells.open(key, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+        cells.releaseAll()
+        assertEquals(listOf(own.ref to setOf("h")), harnesses.disconnected)
+
+        val other = CellKey(ORGANISM, C2)
+        val second = FakeSession(SessionRef(EngineId("koog"), SessionSourceId("local"), "second"))
+        val secondFallback = FakeSession(session("second-fallback"))
+        val dropping = FakeCellHarnesses().apply { failures = 2 }
+        val sleeping = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(second, secondFallback))), dropping)
+        sleeping.open(other, ownRoute(), existing = null, generation = 1)
+        sleeping.open(other, route.copy(harnesses = setOf("h")), existing = null, generation = 2)
+        sleeping.releaseAll()
+        sleeping.release(other, null, ReleaseMode.Lyse)
+        assertTrue(dropping.disconnected.isEmpty())
+    }
+
+    private fun ownRoute() = route.copy(target = TARGET.copy(engine = EngineId("koog")), harnesses = setOf("h"))
 }

@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class WorktreeMachineTest {
     @Test
@@ -124,6 +125,28 @@ class WorktreeMachineTest {
         assertFalse(checkNotNull(next.run).isCompletionSignaled)
         assertNull(next.run.session)
         assertEquals(next, next.transition(signal))
+    }
+
+    @Test
+    fun `hand off applies only to a sandbox root awaiting its decision for the same run`() {
+        val sandbox = VirtualSandboxState(baseCommit = "base", snapshot = "snapshot")
+        val handed = sandbox.copy(phase = VirtualSandboxPhase.HandedOff, resultCommit = "snapshot")
+        val done = running.copy(virtualSandbox = sandbox).transition(signal).transition(settled)
+        val choice = WorktreeIntent.Public.ChooseAction(task.chatId, WorktreeAction.HandOff)
+        assertEquals(done, done.transition(choice))
+        assertTrue(done.canHandOff(isChild = false))
+        val retained = done.handedOff(handed, isChild = false, expectedRun = done.run)
+        assertEquals(WorktreePhase.Retained, retained.phase)
+        assertEquals(VirtualSandboxPhase.HandedOff, retained.virtualSandbox?.phase)
+        val plain = running.transition(signal).transition(settled)
+        assertFalse(plain.canHandOff(isChild = false))
+        assertEquals(plain, plain.handedOff(handed, isChild = false, expectedRun = plain.run))
+        assertFalse(done.canHandOff(isChild = true))
+        assertEquals(done, done.handedOff(handed, isChild = true, expectedRun = done.run))
+        val working = done.transition(WorktreeIntent.Public.RunStarted(task.chatId, RequestId("next")))
+        assertFalse(working.canHandOff(isChild = false))
+        assertEquals(working, working.handedOff(handed, isChild = false, expectedRun = done.run))
+        assertEquals(done, done.handedOff(handed, isChild = false, expectedRun = working.run))
     }
 
     @Test

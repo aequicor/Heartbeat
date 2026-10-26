@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FailureUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ReplyPartUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlin.test.Test
@@ -18,6 +20,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
@@ -357,13 +360,182 @@ class StudioTimelineTest {
         assertEquals(cards, translated.messages)
     }
 
-    private fun card(id: String) = HbChatMessage(
+    @Test
+    fun `a build card follows the run_build call that started it inside the reply`() {
+        val cache = TimelineCache()
+        fun tool(id: String, title: String, output: String) =
+            ReplyPartUi.Tool(ToolUi(id, title, ToolStatusUi.Done, output, null))
+        val turn = reply("", isStreaming = true).copy(
+            parts = persistentListOf(
+                tool("t1", "run_build", "{\"id\":\"op1\",\"command\":\"verify\"}"),
+                tool("t2", "build_status", "{\"id\":\"op1\",\"phase\":\"Running\"}"),
+            ),
+        )
+        val running = card("build:op1")
+        val timeline = cache.update(
+            listOf(prompt, turn),
+            labels,
+            persistentListOf(running),
+            persistentSetOf("build:op1"),
+        )
+        assertEquals(listOf("m1", "m2"), timeline.messages.map { it.id })
+        val ids = timeline.messages.last().parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:op1", "t2"), ids)
+
+        val finished = running.copy(
+            parts = persistentListOf(HbMessagePart.Tool(HbToolCall("build:op1", "done", kind = HbToolKind.Worktree))),
+        )
+        val updated = cache.update(
+            listOf(prompt, turn),
+            labels,
+            persistentListOf(finished),
+            persistentSetOf("build:op1"),
+        )
+        val call = assertIs<HbMessagePart.Tool>(updated.messages.last().parts[1]).call
+        assertEquals("done", call.title)
+    }
+
+    @Test
+    fun `a build card follows the run_build call that still waits for it`() {
+        val cache = TimelineCache()
+        fun tool(id: String, status: ToolStatusUi, output: String) =
+            ReplyPartUi.Tool(ToolUi(id, "run_build", status, output, null))
+        val earlier = tool("t1", ToolStatusUi.Done, "{\"id\":\"op0\",\"phase\":\"Completed\"}")
+        fun turn(last: ReplyPartUi.Tool) = reply("", isStreaming = true).copy(parts = persistentListOf(earlier, last))
+        val cards = persistentListOf(card("build:op0"), card("build:stale"), card("build:op1"))
+        val retained = persistentSetOf("build:op0", "build:stale", "build:op1")
+
+        val waiting = cache.update(listOf(prompt, turn(tool("t2", ToolStatusUi.Running, ""))), labels, cards, retained)
+        val parts = waiting.messages.single { it.id == "m2" }.parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:op0", "t2", "build:op1"), parts)
+        assertTrue(waiting.messages.any { it.id == "build:stale" })
+
+        val done = tool("t2", ToolStatusUi.Done, "{\"id\":\"op1\",\"phase\":\"Completed\"}")
+        val finished = cache.update(listOf(prompt, turn(done)), labels, cards, retained)
+        val after = finished.messages.single { it.id == "m2" }.parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:op0", "t2", "build:op1"), after)
+    }
+
+    @Test
+    fun `a build card follows the run_build call the engine cut off by the command it ran`() {
+        val cache = TimelineCache()
+        val cut = ReplyPartUi.Tool(
+            ToolUi("t1", "run_build", ToolStatusUi.Failed, "{\"command\": \"wiring\"}\nThe operation timed out.", null),
+        )
+        val status = ReplyPartUi.Tool(ToolUi("t2", "build_status", ToolStatusUi.Failed, "UnknownBuildOperation", null))
+        val turn = reply("", isStreaming = true).copy(parts = persistentListOf(cut, status))
+        val cards = persistentListOf(
+            card("build:old", "wiring"),
+            card("build:check", "check"),
+            card("build:op9", "wiring"),
+        )
+        val retained = persistentSetOf("build:old", "build:check", "build:op9")
+
+        val timeline = cache.update(listOf(prompt, turn), labels, cards, retained)
+        val parts = timeline.messages.single { it.id == "m2" }.parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:op9", "t2"), parts)
+        assertTrue(timeline.messages.any { it.id == "build:check" } && timeline.messages.any { it.id == "build:old" })
+    }
+
+    @Test
+    fun `a waiting run_build call never takes a build card that appeared before its reply`() {
+        val cache = TimelineCache()
+        val done = reply("Built", isStreaming = false)
+        val older = card("build:old")
+        cache.update(listOf(prompt, done), labels, listOf(older), setOf(older.id))
+
+        val waiting = ReplyPartUi.Tool(ToolUi("t2", "run_build", ToolStatusUi.Running, "", null))
+        val next = MessageUi.Reply("m4", Instant.fromEpochSeconds(3), "", persistentListOf(), isStreaming = true)
+            .copy(parts = persistentListOf(waiting))
+        val messages = listOf(prompt, done, MessageUi.Prompt("m3", Instant.fromEpochSeconds(2), "Again"), next)
+        val kept = cache.update(messages, labels, listOf(older), setOf(older.id))
+        assertEquals(listOf("m1", "m2", "build:old", "m3", "m4"), kept.messages.map { it.id })
+        assertEquals(listOf("t2"), kept.messages.last().parts.map { assertIs<HbMessagePart.Tool>(it).call.id })
+
+        val newer = card("build:new")
+        val anchored = cache.update(messages, labels, listOf(older, newer), setOf(older.id, newer.id))
+        assertEquals(listOf("m1", "m2", "build:old", "m3", "m4"), anchored.messages.map { it.id })
+        val parts = anchored.messages.last().parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t2", "build:new"), parts)
+    }
+
+    @Test
+    fun `a build card shown before the transcript loaded still joins the call waiting for it`() {
+        val cache = TimelineCache()
+        val early = card("build:early")
+        val empty = cache.update(emptyList(), labels, listOf(early), setOf(early.id))
+        assertEquals(listOf("build:early"), empty.messages.map { it.id })
+
+        val waiting = ReplyPartUi.Tool(ToolUi("t1", "run_build", ToolStatusUi.Running, "", null))
+        val turn = reply("", isStreaming = true).copy(parts = persistentListOf(waiting))
+        val loaded = cache.update(listOf(prompt, turn), labels, listOf(early), setOf(early.id))
+        assertEquals(listOf("m1", "m2"), loaded.messages.map { it.id })
+        val parts = loaded.messages.last().parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:early"), parts)
+    }
+
+    @Test
+    fun `a build card shown before the transcript loaded does not join a call of a later turn`() {
+        val placement = TimelineWeaves()
+        val cache = TimelineCache(placement)
+        val early = card("build:early")
+        cache.update(emptyList(), labels, listOf(early), setOf(early.id))
+        val loaded = listOf(prompt, reply("Done", isStreaming = false))
+        cache.update(loaded, labels, listOf(early), setOf(early.id))
+        assertEquals(mapOf("build:early" to 1), placement.loadedWith)
+
+        val waiting = ReplyPartUi.Tool(ToolUi("t2", "run_build", ToolStatusUi.Running, "", null))
+        val later = reply("", isStreaming = true).copy(id = "m4", parts = persistentListOf(waiting))
+        val next = loaded + MessageUi.Prompt("m3", Instant.fromEpochSeconds(3), "Build again") + later
+        val timeline = cache.update(next, labels, listOf(early), setOf(early.id))
+        assertEquals(listOf("t2"), timeline.messages.last().parts.map { assertIs<HbMessagePart.Tool>(it).call.id })
+        assertEquals(listOf("build:early", "m1", "m2", "m3", "m4"), timeline.messages.map { it.id })
+        assertEquals(setOf("build:early"), placement.shown)
+    }
+
+    @Test
+    fun `cards drawn inside a reply count as shown for the host`() {
+        val placement = TimelineWeaves()
+        val cache = TimelineCache(placement)
+        val call = ReplyPartUi.Tool(ToolUi("t1", "run_build", ToolStatusUi.Done, "{\"id\":\"op1\"}", null))
+        val turn = reply("", isStreaming = true).copy(parts = persistentListOf(call))
+        cache.update(listOf(prompt, turn), labels, listOf(card("build:op1"), card("worktree:chat")))
+
+        assertEquals(setOf("worktree:chat"), placement.cards.keys)
+        assertEquals(setOf("build:op1", "worktree:chat"), placement.shown)
+    }
+
+    @Test
+    fun `a card leaving its reply returns to the point it appeared at`() {
+        val cache = TimelineCache()
+        fun turn(status: ToolStatusUi, output: String) = reply("", isStreaming = true).copy(
+            parts = persistentListOf(ReplyPartUi.Tool(ToolUi("t1", "run_build", status, output, null))),
+        )
+        val borrowed = card("build:a")
+        val first = cache.update(listOf(prompt, turn(ToolStatusUi.Running, "")), labels, listOf(borrowed))
+        assertEquals(listOf("m1", "m2"), first.messages.map { it.id })
+        assertEquals(
+            listOf("t1", "build:a"),
+            first.messages.last().parts.map { assertIs<HbMessagePart.Tool>(it).call.id },
+        )
+
+        val own = card("build:b")
+        val messages = listOf(prompt, turn(ToolStatusUi.Done, "{ \"id\" : \"b\" }"), stopped("m3", 4))
+        val cards = listOf(borrowed, own)
+        val returned = cache.update(messages, labels, cards)
+        assertEquals(listOf("m1", "m2", "build:a", "m3"), returned.messages.map { it.id })
+        val parts = returned.messages[1].parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:b"), parts)
+        assertSame(returned, cache.update(messages, labels, cards))
+    }
+
+    private fun card(id: String, command: String = id) = HbChatMessage(
         id,
         "Studio",
         "",
         role = HbChatRole.System,
         kind = HbMessageKind.Tool,
-        parts = persistentListOf(HbMessagePart.Tool(HbToolCall(id, id, kind = HbToolKind.Worktree))),
+        parts = persistentListOf(HbMessagePart.Tool(HbToolCall(id, command, kind = HbToolKind.Worktree))),
     )
 
     private fun reply(text: String, isStreaming: Boolean) =

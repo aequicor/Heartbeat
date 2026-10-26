@@ -5,6 +5,10 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionAnalysis
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionEffect
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionEvidence
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionResourceKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
@@ -14,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
+import io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.security.ShellActionAnalyzer
 import kotlinx.coroutines.currentCoroutineContext
@@ -22,6 +27,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import okio.ByteString.Companion.encodeUtf8
 import java.nio.file.Path
 
 /** Files and commands share host-bound interactive or independent automatic decisions across local engines. */
@@ -62,7 +68,14 @@ internal class DesktopCodingTools(
         arguments: JsonObject,
     ): ActionAnalysis {
         val workspace = context.workspace ?: return ActionAnalysis.Unknown("A project is required")
-        if (workspaces.virtual(workspace) != null) return ActionAnalysis.Unknown("Virtual action needs confirmation")
+        val virtual = workspaces.virtual(workspace)
+        if (virtual != null) {
+            return if (spec.name in VIRTUAL_READS) {
+                virtualReadAnalysis(virtual, spec.name, arguments)
+            } else {
+                ActionAnalysis.Unknown("Virtual action needs confirmation")
+            }
+        }
         val directory = workspaces.resolve(workspace) ?: return ActionAnalysis.Unknown("Project is unavailable")
         val snapshot = if (spec.name in MUTATIONS) {
             snapshots.snapshot(context, approval(spec, arguments), arguments)
@@ -188,7 +201,7 @@ internal class DesktopCodingTools(
         context: AgentToolContext,
         tool: CodingTool?,
         arguments: JsonObject,
-        virtual: io.aequicor.heartbeat.feature.aiengine.facade.api.VirtualWorkspace,
+        virtual: VirtualWorkspace,
     ): AgentToolResult {
         if (tool == null || tool.descriptor.name !in virtualMutations) return unavailable()
         val expected = virtual.revision()
@@ -256,6 +269,26 @@ internal class DesktopCodingTools(
         return AgentToolApproval(spec.name, "Изменить виртуальный файл", description, binding)
     }
 }
+
+/** Virtual reads never touch the physical project, so the sandbox tree itself is the verified root. */
+private suspend fun virtualReadAnalysis(
+    virtual: VirtualWorkspace,
+    name: String,
+    arguments: JsonObject,
+): ActionAnalysis {
+    val revision = virtual.revision()
+    val binding = "${virtual.ref.value}:$revision:$name:$arguments".encodeUtf8().sha256().hex()
+    return ActionAnalysis.Known(
+        ActionEvidence(
+            "Virtual project read $name: $arguments".take(MAX_APPROVAL_CHARS),
+            listOf(ActionResource(ActionResourceKind.FileSystem, "virtual:${virtual.ref.value}", true)),
+            setOf(ActionEffect.Read),
+            binding,
+        ),
+    )
+}
+
+private val VIRTUAL_READS = setOf("read_file", "list_dir", "glob", "grep")
 
 private fun unavailable() = AgentToolResult("Project tools are unavailable", isError = true)
 

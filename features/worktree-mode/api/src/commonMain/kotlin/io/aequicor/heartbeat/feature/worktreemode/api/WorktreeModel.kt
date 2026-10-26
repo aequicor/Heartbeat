@@ -29,6 +29,15 @@ public val WorktreeSandboxEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 )
 
 /**
+ * Lets virtual sandbox tools reach origin: `push` of `sandbox_commit` and `fetch` of `sandbox_checkout` /
+ * `sandbox_merge`. Off removes both arguments from the tool schemas and refuses them; local branch operations stay.
+ */
+public val WorktreeSandboxRemoteEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "worktree_mode.sandbox_remote",
+    "Песочницы: push и fetch веток в origin из инструментов песочницы",
+)
+
+/**
  * Weighs every coordinated build against the machine's CPU and memory budget (or the user limit in the "Builds"
  * settings section) and shares it fairly between projects. Off keeps the previous admission: builds wait only for
  * their exclusive resources.
@@ -57,9 +66,13 @@ public enum class WorktreePhase {
 @Serializable
 public enum class WorktreeRunKind { Coding, CreatePr, Merge }
 
-/** User choice after an explicitly completed coding task. */
+/**
+ * User choice after an explicitly completed coding task. [HandOff] publishes a virtual sandbox as a local branch; a
+ * branch checked out in another worktree is left unmoved and the result is the sandbox commit alone
+ * ([VirtualSandboxState.isBranchUnmoved]), and a handoff after the sandbox is reopened moves it from that tip.
+ */
 @Serializable
-public enum class WorktreeAction { CreatePr, Merge, Refine, Leave }
+public enum class WorktreeAction { CreatePr, HandOff, Merge, Refine, Leave }
 
 /** Trusted host correlation captured before queueing a hosted build/configuration effect. */
 public data class WorktreeRunIdentity(val request: RequestId, val session: SessionRef, val turn: TurnId)

@@ -23,6 +23,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +32,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -65,6 +69,74 @@ class ClaudeRuntimeTest {
         assertEquals("image", content.single().jsonObject["type"]?.jsonPrimitive?.content)
         assertTrue("--input-format" in fixture.transport.calls.last())
         assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        runtime.close()
+    }
+
+    @Test
+    fun `a session tree subscription probes the login once and again only after the recheck interval`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        fun probes() = fixture.transport.calls.count { it == listOf("auth", "status") }
+        val before = probes()
+        val observing = launch { runtime.observe(session.ref, SessionTreeAccess(testTarget)).collect {} }
+        advanceTimeBy(10_000)
+        assertEquals(before + 1, probes())
+        advanceTimeBy(CLAUDE_ACCOUNT_RECHECK_MILLIS)
+        assertEquals(before + 2, probes())
+        observing.cancelAndJoin()
+        runtime.close()
+    }
+
+    @Test
+    fun `a login recheck does not hold the runtime lock while the cli answers`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val observing = launch { runtime.observe(session.ref, SessionTreeAccess(testTarget)).collect {} }
+        advanceTimeBy(10_000)
+        val answer = CompletableDeferred<Unit>()
+        var isProbeHeld = false
+        fixture.transport.beforeRun = {
+            if (it == listOf("auth", "status") && !isProbeHeld) {
+                isProbeHeld = true
+                answer.await()
+            }
+        }
+        advanceTimeBy(CLAUDE_ACCOUNT_RECHECK_MILLIS - 10_000)
+        runCurrent()
+        assertTrue(isProbeHeld)
+
+        val lookup = async { runtime.stored(session.ref) }
+        runCurrent()
+        assertTrue(lookup.isCompleted)
+        answer.complete(Unit)
+        observing.cancelAndJoin()
+        runtime.close()
+    }
+
+    @Test
+    fun `a failed login recheck keeps the session tree subscription until a confirmed logout`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val ending = async {
+            assertFailsWith<EngineException> { runtime.observe(session.ref, SessionTreeAccess(testTarget)).collect {} }
+        }
+        advanceTimeBy(10_000)
+        fixture.transport.beforeRun = {
+            if (it == listOf("auth", "status")) {
+                throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
+            }
+        }
+        advanceTimeBy(CLAUDE_ACCOUNT_RECHECK_MILLIS)
+        assertTrue(ending.isActive)
+
+        fixture.transport.beforeRun = {}
+        fixture.transport.isLoggedIn = false
+        advanceTimeBy(CLAUDE_ACCOUNT_RECHECK_MILLIS)
+        val failure = ending.await().failure
+        assertEquals(AuthFailureReason.NotAuthenticated, assertIs<EngineFailure.Authentication>(failure).reason.reason)
         runtime.close()
     }
 

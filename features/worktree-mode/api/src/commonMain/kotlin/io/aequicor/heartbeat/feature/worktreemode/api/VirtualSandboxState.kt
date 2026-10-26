@@ -6,7 +6,11 @@ import kotlinx.serialization.Serializable
 @Serializable
 public enum class VirtualSandboxPhase { Ready, Pausing, Waiting, Manual, Rebasing, Conflicted, HandedOff }
 
-/** Content revision and source barrier projected without exposing host filesystem paths. */
+/**
+ * Content revision and source barrier projected without exposing host filesystem paths. [isBranchUnmoved] marks a
+ * [VirtualSandboxPhase.HandedOff] sandbox whose result branch is checked out in another worktree: [resultCommit] is
+ * the result, while the branch keeps its old tip until a later handoff moves it.
+ */
 @Serializable
 public data class VirtualSandboxState(
     val phase: VirtualSandboxPhase = VirtualSandboxPhase.Ready,
@@ -17,6 +21,7 @@ public data class VirtualSandboxState(
     val conflicts: List<String> = emptyList(),
     val resultCommit: String? = null,
     val isResolving: Boolean = false,
+    val isBranchUnmoved: Boolean = false,
 ) {
     /** Ordinary coding is permitted only while the source and virtual base agree. */
     public val isReady: Boolean get() = phase == VirtualSandboxPhase.Ready
@@ -31,6 +36,10 @@ public data class VirtualSandboxState(
  * | Any | Pausing/Waiting/Manual/Conflicted | Retain run identity, block new coding |
  * | Any | Ready | Publish new base and snapshot |
  * | Any | HandedOff | Retained; the branch is owned by the user |
+ * | HandedOff | Ready after a reopen | Publish new base; the task stays Retained until a new run starts |
+ *
+ * A plain [WorktreeIntent.Public.Recheck] never reopens a handed-off sandbox; only a new run or a Recheck with
+ * `isReopen` does.
  */
 public fun WorktreeTask.virtualChanged(state: VirtualSandboxState): WorktreeTask {
     if (state.revision < (virtualSandbox?.revision ?: -1)) return this

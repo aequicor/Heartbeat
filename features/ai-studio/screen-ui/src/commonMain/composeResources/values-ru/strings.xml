@@ -4,7 +4,9 @@
     <string name="sandbox_continue">Продолжить</string>
     <string name="sandbox_resolve">Поручить агенту разрешение и продолжить (рекомендуется)</string>
     <string name="sandbox_leave_paused">Оставить на паузе</string>
+    <string name="sandbox_hand_off">Передать в ветку %1$s</string>
     <string name="sandbox_handed_off">Ветка сохранена и передана вам</string>
+    <string name="sandbox_handed_off_unmoved">Коммит результата сохранён; ветка открыта в другом worktree и не сдвинута</string>
 
     <string name="miniapp_open">Открыть %1$s</string>
     <string name="session_tree_root">Корневая сессия</string>

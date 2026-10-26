@@ -4,6 +4,7 @@ package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 import androidx.compose.runtime.Immutable
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
@@ -26,12 +27,17 @@ enum class WorktreePhaseUi {
 /** Explicit result decisions, never inferred from an ordinary reply. */
 @Serializable
 @SerialName("WorktreeActionUi")
-enum class WorktreeActionUi { CreatePr, Merge, Refine, Leave }
+enum class WorktreeActionUi { CreatePr, HandOff, Merge, Refine, Leave }
 
 /** Restoration of the profile journal, separate from individual task failures. */
 @Serializable
 @SerialName("WorktreeJournalUi")
 enum class WorktreeJournalUi { Loading, Ready, Error }
+
+/** Phases of a virtual sandbox, mirroring the worktree journal; [Ready] needs no card of its own. */
+@Serializable
+@SerialName("SandboxPhaseUi")
+enum class SandboxPhaseUi { Ready, Pausing, Waiting, Manual, Rebasing, Conflicted, HandedOff }
 
 /** Queue and worker progress of a named build. */
 @Serializable
@@ -66,8 +72,11 @@ data class WorktreeUi(
     /** Source-only sandbox whose builds run in shared build slots of the repository. */
     val isSandbox: Boolean = false,
     val taskId: String? = null,
-    val sandboxPhase: String? = null,
+    /** Phase of a virtual sandbox; null for an ordinary worktree. */
+    val sandboxPhase: SandboxPhaseUi? = null,
     val isSandboxResolving: Boolean = false,
-    val sandboxConflicts: ImmutableList<String> = kotlinx.collections.immutable.persistentListOf(),
+    val sandboxConflicts: ImmutableList<String> = persistentListOf(),
     val resultCommit: String? = null,
+    /** A handed-off result branch checked out elsewhere stayed unmoved: [resultCommit] alone is the result. */
+    val isBranchUnmoved: Boolean = false,
 )

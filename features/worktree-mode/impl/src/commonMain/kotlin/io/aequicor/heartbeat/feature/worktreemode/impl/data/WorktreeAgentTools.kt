@@ -81,8 +81,9 @@ internal class WorktreeAgentTools(
             "inside a managed project workspace; cache paths are relative to the original " +
             "project or absolute, and {cache:id} " +
             "expands in argv/environment. Use run_build for builds, tests and related exclusive operations, and " +
-            "build_status with the returned operation id and waitMs=10000 to await completion. run_build " +
-            "acknowledges the durable queue immediately. Queued, WaitingForResource and Running are pending; " +
+            "run_build waits for the build and returns its terminal result; only when it is still pending after ten " +
+            "minutes, call build_status with the returned operation id (it waits again; do not poll in a loop " +
+            "with short waits). Queued, WaitingForResource and Running are pending; " +
             "Completed, Failed, Cancelled and Unknown are terminal. Once terminal, handle the result and continue " +
             "the task or give the final report. These operations do not publish scheduler events: use build_status, " +
             "not scheduler_sleep, to wait for them. Keep outputs and project state checkout-local; share only " +
@@ -183,17 +184,34 @@ internal class WorktreeAgentTools(
         val operation = arguments["operation"]?.jsonPrimitive?.content ?: error("MissingOperation")
         val task = journal.authenticated(context) ?: error("TurnUnavailable")
         val known = task.builds[operation] ?: error("UnknownBuildOperation")
-        val execution = journal.buildPreview(context, known.command) ?: error("BuildConfigurationUnavailable")
-        check(execution.configurationRevision == known.configurationRevision) { "BuildConfigurationChanged" }
+        // Cancelling only stops the task's own build, so it is never refused because the shared project
+        // configuration moved on since the build started: the build's own record then describes it.
+        val execution = try {
+            journal.buildPreview(context, known.command)
+                ?.takeIf { it.configurationRevision == known.configurationRevision }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: IllegalStateException) {
+            log.w(error) { "Build preview unavailable for a cancellation; describing the build record" }
+            null
+        } catch (error: IllegalArgumentException) {
+            log.w(error) { "Build preview rejected for a cancellation; describing the build record" }
+            null
+        }
+        val details = if (execution == null) {
+            "Command: ${approvalJson.encodeToString(known.command)}\n" +
+                "Configuration revision=${known.configurationRevision}"
+        } else {
+            "Configuration revision=${execution.configurationRevision}\n" +
+                "Working directory: ${approvalJson.encodeToString(execution.directory)}\n" +
+                "Command: ${approvalJson.encodeToString(execution.command)}\n" +
+                "Exclusive resources: ${approvalJson.encodeToString(execution.resources)}"
+        }
         return reviewableApproval(
             spec,
             "Cancel build",
             "Stop this build operation and its process tree:\n" +
-                "Operation: ${approvalJson.encodeToString(operation)}\n" +
-                "Configuration revision=${execution.configurationRevision}\n" +
-                "Working directory: ${approvalJson.encodeToString(execution.directory)}\n" +
-                "Command: ${approvalJson.encodeToString(execution.command)}\n" +
-                "Exclusive resources: ${approvalJson.encodeToString(execution.resources)}",
+                "Operation: ${approvalJson.encodeToString(operation)}\n" + details,
             binding = "$operation:${known.configurationRevision}",
         )
     }
@@ -340,36 +358,54 @@ internal class WorktreeAgentTools(
             ),
         )
         if (sent != SendResult.Accepted) return failure("WorktreeUnavailable")
-        // The enqueue acknowledgement is durable. Long work continues independently of this HTTP/MCP call.
-        val completed = withTimeoutOrNull(COMMAND_TIMEOUT) {
+        // The enqueue acknowledgement is durable: the build belongs to the queue, not to this call.
+        val queued = withTimeoutOrNull(COMMAND_TIMEOUT) {
             awaitTask(task.chatId) { operation in it.builds }
         } ?: return failure("BuildEnqueueTimedOut")
-        val result = checkNotNull(completed.builds[operation])
-        return AgentToolResult(
-            Json.encodeToString(result),
-            isError = result.phase in setOf(WorktreeBuildPhase.Failed, WorktreeBuildPhase.Unknown),
-        )
+        // Waiting here replaces a polling loop; cancelling the call stops only the wait, never the build.
+        return buildResult(awaitBuild(task.chatId, operation, BUILD_WAIT) ?: queued, operation)
+    }
+
+    private suspend fun awaitBuild(chatId: String, operation: String, wait: Long): WorktreeTask? =
+        withTimeoutOrNull(wait) { awaitTask(chatId) { it.builds[operation]?.phase in terminal } }
+            ?: journal.taskProjection(chatId)
+
+    private fun buildResult(task: WorktreeTask, operation: String, note: String = ""): AgentToolResult {
+        val build = checkNotNull(task.builds[operation])
+        val text = note + Json.encodeToString(build)
+        return if (build.phase in terminal) {
+            AgentToolResult(text, isError = build.phase in setOf(WorktreeBuildPhase.Failed, WorktreeBuildPhase.Unknown))
+        } else {
+            AgentToolResult(
+                "$text\nStill ${build.phase} after the wait; call build_status with this operation to keep waiting.",
+            )
+        }
     }
 
     private fun WorktreeTask.identity(context: AgentToolContext): WorktreeRunIdentity =
         WorktreeRunIdentity(checkNotNull(run).request, context.session, context.turn)
 
     private suspend fun status(task: WorktreeTask, arguments: JsonObject): AgentToolResult {
-        val operation = arguments["operation"]?.jsonPrimitive?.content ?: return failure("MissingOperation")
-        val known = task.builds[operation] ?: return failure("UnknownBuildOperation")
-        val wait = (arguments["waitMs"]?.jsonPrimitive?.longOrNull ?: 0L).coerceIn(0L, STATUS_TIMEOUT)
+        val requested = arguments["operation"]?.jsonPrimitive?.content ?: return failure("MissingOperation")
+        // A run_build cut off by the engine's own tool timeout leaves the agent only the command it ran.
+        val exact = task.builds[requested]
+        val known = exact ?: task.builds.values.lastOrNull { it.command == requested }
+            ?: return failure("UnknownBuildOperation")
+        val operation = known.id
+        // Builds do not record the turn that started them, so a command match may be an earlier run_build.
+        val note = if (exact == null) {
+            "Matched by command, not by operation: the latest build of this command (operation=$operation), " +
+                "possibly started by an earlier run_build call. Pass this operation id from now on.\n"
+        } else {
+            ""
+        }
+        val wait = (arguments["waitMs"]?.jsonPrimitive?.longOrNull ?: BUILD_WAIT).coerceIn(0L, BUILD_WAIT)
         val current = if (wait > 0 && known.phase !in terminal) {
-            withTimeoutOrNull(
-                wait,
-            ) {
-                awaitTask(
-                    task.chatId,
-                ) { it.builds[operation]?.phase in terminal }
-            } ?: journal.taskProjection(task.chatId) ?: task
+            awaitBuild(task.chatId, operation, wait) ?: task
         } else {
             task
         }
-        return AgentToolResult(Json.encodeToString(checkNotNull(current.builds[operation])))
+        return buildResult(current, operation, note)
     }
 
     private suspend fun cancel(task: WorktreeTask, arguments: JsonObject): AgentToolResult {
@@ -437,7 +473,9 @@ internal class WorktreeAgentTools(
         const val HEX_RADIX = 16
         const val UNICODE_ESCAPE_WIDTH = 4
         const val MAX_SUMMARY = 4_096
-        const val STATUS_TIMEOUT = 10_000L
+
+        /** Longest wait of one run_build/build_status call: as long as a synchronous run_command. */
+        const val BUILD_WAIT = 600_000L
         val approvalJson = Json { encodeDefaults = true }
         val invisibleApprovalRanges = listOf(0x00..0x1F, 0x7F..0x9F, 0x200B..0x200F, 0x2028..0x202E, 0x2060..0x206F)
         val invisibleApprovalCodes = setOf(0x061C, 0xFEFF)
@@ -450,7 +488,10 @@ internal class WorktreeAgentTools(
         val toolSpecs = listOf(
             AgentToolSpec(
                 "configure_build",
-                "Declare the actual foreground build commands, shared caches and exclusive resources.",
+                "Declare the actual foreground build commands, shared caches and exclusive resources. " +
+                    "Every declared cache must be referenced as {cache:<id>} in the arguments or environment " +
+                    "of at least one command (e.g. GRADLE_USER_HOME={cache:gradle}), otherwise the call fails " +
+                    "with UnusedBuildCache; omit caches you do not use.",
                 Json.parseToJsonElement(
                     """{
                         "type":"object","properties":{
@@ -477,23 +518,26 @@ internal class WorktreeAgentTools(
             ),
             AgentToolSpec(
                 "run_build",
-                "Queue one configured command in this Git project's reusable build-worktree pool.",
+                "Run one configured command in this Git project's reusable build-worktree pool and wait for its " +
+                    "terminal result (up to ten minutes). A pending result names the operation for build_status.",
                 schema("command"),
                 AgentToolAction.Command,
             ),
             AgentToolSpec(
                 "build_status",
-                "Read a build operation; use waitMs=10000 to wait up to ten seconds for a terminal result. " +
-                    "Completed, Failed, Cancelled and Unknown are terminal: process the result without sleeping.",
+                "Wait for a build operation that run_build left pending: by default up to ten minutes for a " +
+                    "terminal result; waitMs=0 reads it at once. Completed, Failed, Cancelled and Unknown are " +
+                    "terminal: process the result without sleeping. If run_build itself failed before naming the " +
+                    "operation, pass the command id to wait for its latest build.",
                 Json.parseToJsonElement(
                     """{"type":"object","properties":{
-                        "operation":{"type":"string"},"waitMs":{"type":"integer","minimum":0,"maximum":10000}
+                        "operation":{"type":"string"},"waitMs":{"type":"integer","minimum":0,"maximum":600000}
                     },"required":["operation"],"additionalProperties":false}""",
                 ).jsonObject,
             ),
             AgentToolSpec(
                 "cancel_build",
-                "Request cancellation of a build operation owned by this task; poll build_status for termination.",
+                "Request cancellation of a build operation owned by this task; build_status waits for termination.",
                 schema("operation"),
                 AgentToolAction.Command,
             ),

@@ -447,8 +447,15 @@ public interface AgentToolBridgeAttachment : AutoCloseable {
 /** Name of the MCP server through which a bridge serves hosted tools; MCP clients prefix tool names with it. */
 public const val HOSTED_TOOLS_SERVER: String = "heartbeat_tools"
 
-/** A hosted tool call [name] as an engine reports it, without an MCP client's `mcp__<server>__` prefix. */
-public fun hostedToolName(name: String): String = name.removePrefix("mcp__${HOSTED_TOOLS_SERVER}__")
+/** Name of the MCP server through which a bridge serves public web search and page reading. */
+public const val HOSTED_SEARCH_SERVER: String = "heartbeat_search"
+
+/**
+ * A Heartbeat tool call [name] as the program's own tool: an MCP client's `mcp__<server>__` prefix of the hosted
+ * tools and search servers is dropped, so transcripts show host tools like native ones. Other names stay as is.
+ */
+public fun hostedToolName(name: String): String = listOf(HOSTED_TOOLS_SERVER, HOSTED_SEARCH_SERVER)
+    .firstNotNullOfOrNull { server -> name.removePrefix("mcp__${server}__").takeIf { it != name } } ?: name
 
 /** Desktop transport for the same dispatcher; each call resolves the current trusted turn context. */
 public interface AgentToolBridge {

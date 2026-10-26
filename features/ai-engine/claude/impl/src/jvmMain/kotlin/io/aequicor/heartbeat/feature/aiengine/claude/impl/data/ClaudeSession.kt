@@ -436,10 +436,12 @@ internal class ClaudeSession(
             providerSearch = route.workspace == null,
             requiresActionAnalysis = isActionAnalysisRequired,
         )
-        val gated = requestedFlags.native.intersect(ClaudeNativeCatalog.filter { it.isGated }.map { it.name }.toSet())
+        val requestedGated =
+            requestedFlags.native.intersect(ClaudeNativeCatalog.filter { it.isGated }.map { it.name }.toSet())
         // A compaction runs no tools: it never needs the native gate.
-        val native = if (gated.isNotEmpty() && request.compaction == null) nativeWorkspace() else null
-        val flags = if (native == null) requestedFlags.copy(native = requestedFlags.native - gated) else requestedFlags
+        val native = if (requestedGated.isNotEmpty() && request.compaction == null) nativeWorkspace() else null
+        val gated = native?.supported(requestedGated).orEmpty()
+        val flags = requestedFlags.copy(native = requestedFlags.native - (requestedGated - gated))
         val arguments = claudeArguments(
             target.model,
             ref.nativeId,

@@ -39,7 +39,7 @@ class FacadeCellRecoveryOwnershipTest {
         }
         val unused = FakeSession(old.ref)
         val facade = FakeFacade(stored = mapOf(old.ref to old))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         facade.onResume = { cells.releaseAll() }
         assertFailsWith<EngineException> { cells.open(key, route, old.ref, generation = 1) }
         facade.onResume = {}
@@ -63,7 +63,7 @@ class FacadeCellRecoveryOwnershipTest {
         }
         val recovered = FakeSession(old.ref).apply { resumedAs = ActiveSessionState.Running(running) }
         val facade = FakeFacade(stored = mapOf(old.ref to old))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         facade.onResume = { cells.releaseAll() }
         val opening = launch {
             assertFailsWith<EngineException> { cells.open(key, route, old.ref, generation = 1) }
@@ -91,7 +91,7 @@ class FacadeCellRecoveryOwnershipTest {
             ignoresCancel = true
         }
         val facade = FakeFacade(ArrayDeque(listOf(first)))
-        val cells = FacadeCellSessions(facade)
+        val cells = cellSessions(facade)
         cells.open(key, route, null, generation = 1)
         cells.release(key, first.ref, ReleaseMode.Retire, generation = 1)
         facade.resumedHandles += second
@@ -108,7 +108,7 @@ class FacadeCellRecoveryOwnershipTest {
     @Test
     fun `a failed retirement close keeps its handle for a later release`() = runTest {
         val native = FakeSession(session("new")).apply { closeFailure = IllegalStateException("close failed") }
-        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        val cells = cellSessions(FakeFacade(ArrayDeque(listOf(native))))
         cells.open(key, route, null)
         assertEquals(ReleaseOutcome.Unconfirmed, cells.release(key, native.ref, ReleaseMode.Retire))
         assertTrue(cells.hasPendingRelease(ORGANISM))

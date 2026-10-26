@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.worktreemode.api.VirtualSandboxPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeAction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
@@ -25,7 +26,9 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.buildUpdated
 import io.aequicor.heartbeat.feature.worktreemode.api.canChooseAction
+import io.aequicor.heartbeat.feature.worktreemode.api.canHandOff
 import io.aequicor.heartbeat.feature.worktreemode.api.failed
+import io.aequicor.heartbeat.feature.worktreemode.api.handedOff
 import io.aequicor.heartbeat.feature.worktreemode.api.hasActiveBuilds
 import io.aequicor.heartbeat.feature.worktreemode.api.hasActiveRun
 import io.aequicor.heartbeat.feature.worktreemode.api.operationFailed
@@ -89,7 +92,6 @@ internal class WorktreeJournal(
             find = ::record,
             change = ::update,
             settle = { commitTransition(it) },
-            finishTask = ::finishVirtual,
         ),
     )
 
@@ -272,7 +274,14 @@ internal class WorktreeJournal(
 
     private suspend fun recheckCommand(command: WorktreeIntent.Public.Recheck, emit: suspend (WorktreeTask) -> Unit) {
         record(command.chatId)?.takeIf { it.task.virtualSandbox != null }?.let { selected ->
-            virtual.refresh(selected, command.isResume, command.resolveConflicts)
+            // A handed-off branch belongs to the user: only an explicit reopen continues the sandbox. Like a run
+            // start, the reopen is serialized with run preparation, seal and hand-off of the chat.
+            val target = if (command.isReopen) {
+                upkeep.prepareRun(command.chatId) { reopened(record(command.chatId) ?: selected) }
+            } else {
+                selected
+            }
+            virtual.refresh(target, command.isResume, command.resolveConflicts)
             virtual.related(selected.commonDirectory).forEach { emit(it.task) }
         } ?: recheck(command.chatId, emit)
     }
@@ -319,7 +328,7 @@ internal class WorktreeJournal(
                     it.descriptor.id == command.target?.engine
                 }
                 check(engine?.descriptor?.isVirtualWorkspaceSupported != false) { "VirtualWorkspaceUnsupported" }
-                val checked = virtual.refresh(captured, explicit = false)
+                val checked = virtual.refresh(reopened(captured), explicit = false)
                 check(checked?.task?.virtualSandbox?.let { it.isReady || it.isResolving } == true) { "SandboxPaused" }
                 update(command.chatId) { it.startingRun(command) } ?: return@prepareRun null
             } else {
@@ -335,6 +344,13 @@ internal class WorktreeJournal(
                 update(command.chatId) { it.copy(task = it.task.runPrepared(command.request)) }
             }
         }
+
+    /** A new run continues a handed-off sandbox, for example a follow-up to a completed organism. */
+    private suspend fun reopened(captured: WorktreeRecord): WorktreeRecord {
+        if (captured.task.virtualSandbox?.phase != VirtualSandboxPhase.HandedOff) return captured
+        val state = git.reopenVirtual(captured) ?: return captured
+        return update(captured.task.chatId) { it.copy(task = it.task.virtualChanged(state)) } ?: captured
+    }
 
     /** Serialized with run preparation, so a new native turn cannot start between the check and the capture. */
     private suspend fun seal(command: WorktreeIntent.Public.Seal, emit: suspend (WorktreeTask) -> Unit) {
@@ -391,13 +407,7 @@ internal class WorktreeJournal(
         } else {
             verified
         }
-        val ready = virtual.finish(released)
-        val captured = virtual.captureChild(ready, isMatching && command.outcome == TurnOutcome.Completed)
-        return captured
-    }
-
-    private suspend fun finishVirtual(chatId: String): WorktreeRecord? = upkeep.prepareRun(chatId) {
-        record(chatId)?.let { virtual.finish(it) }
+        return virtual.captureChild(released, isMatching && command.outcome == TurnOutcome.Completed)
     }
 
     private suspend fun rejectRun(command: WorktreeIntent.Public.RunRejected): WorktreeRecord? =
@@ -530,8 +540,25 @@ internal class WorktreeJournal(
             (command.action == WorktreeAction.Refine && command.refinement.isNullOrBlank())
         return when {
             !existing.task.canChooseAction() -> existing
+            command.action == WorktreeAction.HandOff -> handOff(existing)
             isSimpleChoice -> commitTransition(command)
             else -> actions.prepare(command, existing)
+        }
+    }
+
+    /**
+     * Publishes the finished sandbox as an immutable local branch; only a sandbox root can be handed off. Serialized
+     * with run preparation, so a new native turn cannot start while the branch is published and be retained by it.
+     */
+    private suspend fun handOff(existing: WorktreeRecord): WorktreeRecord? = upkeep.prepareRun(existing.task.chatId) {
+        val current = record(existing.task.chatId) ?: return@prepareRun null
+        val run = existing.task.run
+        if (!current.task.canHandOff(current.parentWorkspace != null) || current.task.run != run) {
+            return@prepareRun current
+        }
+        val state = git.handoffVirtual(current) ?: return@prepareRun current
+        update(existing.task.chatId) {
+            it.copy(task = it.task.handedOff(state, it.parentWorkspace != null, run))
         }
     }
 

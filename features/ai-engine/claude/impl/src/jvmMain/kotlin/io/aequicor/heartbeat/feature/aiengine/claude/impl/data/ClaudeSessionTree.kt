@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostedToolName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -208,7 +209,7 @@ internal class ClaudeSessionTree(
                 SessionItem.ToolCall(
                     it,
                     ToolCallId(part.text("id").orEmpty()),
-                    part.text("name").orEmpty(),
+                    hostedToolName(part.text("name").orEmpty()),
                     part["input"]?.toString().orEmpty(),
                     ToolCallStatus.Running,
                 )

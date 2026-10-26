@@ -26,7 +26,8 @@ internal class VirtualWorkspacePolicy(
         if (workspaces.virtual(workspace) == null) return null
         val engine = scope.engine ?: scope.target?.engine ?: scope.session?.engine
         val native = engines.value.engines.state.value.firstOrNull { it.descriptor.id == engine }
-            ?.descriptor?.nativeTools.orEmpty().associate { it.name to ToolSwitch.Off }
+            ?.descriptor?.nativeTools.orEmpty().filterNot { it.isGated && it.isWorkspaceFree }
+            .associate { it.name to ToolSwitch.Off }
         return ToolPolicy(
             hostedOff = tools.value.asSequence().flatMap { it.catalog }.map { it.name }.filterNot(
                 ::virtualToolAllowed,
@@ -39,8 +40,11 @@ internal class VirtualWorkspacePolicy(
 internal fun virtualToolAllowed(name: String): Boolean = name in setOf(
     "read_file", "list_dir", "glob", "grep", "write_file", "edit_file", "delete_file", "move_file",
     "configure_build", "run_build", "build_status", "cancel_build", "mark_task_complete",
-    "sandbox_integrate", "sandbox_resolve_conflict", "web_search", "web_fetch",
+    "sandbox_integrate", "sandbox_resolve_conflict", "sandbox_commit", "sandbox_checkout", "sandbox_merge",
+    "sandbox_log", "sandbox_restore", "web_search", "web_fetch",
     "organism_divide", "organism_complain", "organism_dispute", "organism_status", "organism_receive",
     "subagent_spawn", "subagent_receive",
     "plan_read", "plan_write", "plan_propose",
+    // Host-configured PR metadata only: no shell, files or project paths, so the sandbox boundary holds.
+    "github_pr_read", "github_pr_create", "github_pr_update", "github_pr_ready",
 )

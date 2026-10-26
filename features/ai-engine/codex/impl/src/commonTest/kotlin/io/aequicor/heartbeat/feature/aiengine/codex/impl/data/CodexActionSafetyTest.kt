@@ -31,16 +31,92 @@ import kotlin.test.assertTrue
 
 class CodexActionSafetyTest {
     @Test
-    fun `enhanced mode accepts only the build whose actual tool inventory was verified`() {
-        val off = CodexNativeOff(isActionAnalysisRequired = true)
-        off.requireVersion("0.163.0-alpha.10.2")
-        listOf(null, "", "0.160.0", "0.163.0", "0.163.0-alpha.10.1", "0.163.0-alpha.10.3", "1.0.0").forEach {
-            assertFailsWith<EngineException>(it) { off.requireVersion(it) }
+    fun `protected creation checks the selected model inventory before starting a thread`() = runTest {
+        val fixture = Fixture(this, tools = SafetyTools())
+        var checks = 0
+        fixture.wire.verifyInventory = { target, off ->
+            checks++
+            assertEquals("model", target.model)
+            assertTrue(off.isVerifiedInventoryRequired)
+            assertEquals(JsonPrimitive(false), target.effective.obj("features")["view_image"])
+            assertTrue(fixture.requests("thread/start").isEmpty())
         }
-        // The stronger contract must not change the existing protocol compatibility of legacy sessions.
-        CodexNativeOff(isShellDisabled = true).requireVersion("0.160.0")
-        CodexNativeOff(isShellDisabled = true).requireVersion("0.164.0")
-        CodexNativeOff().requireVersion(null)
+        fixture.open()
+        assertEquals(1, checks)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `protected probe receives the working thread config and hosted declarations`() = runTest {
+        val fixture = Fixture(this, tools = SafetyTools())
+        val workspace = WorkspaceRef("project")
+        fixture.workspacePaths[workspace] = "/project"
+        var probed: CodexInventoryTarget? = null
+        fixture.wire.verifyInventory = { target, _ -> probed = target }
+        fixture.open(workspace)
+        val start = fixture.requests("thread/start").single().obj("params")
+        val target = checkNotNull(probed)
+        assertEquals(start.obj("config"), target.thread)
+        assertEquals(assertIs<JsonArray>(start["dynamicTools"]).toList(), target.tools)
+        assertTrue(target.tools.any { it.text("name") == "read_file" })
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `protected creation refuses effective configuration the probe cannot reproduce`() = runTest {
+        for (extra in listOf(
+            "tools" to json("view_image" to JsonPrimitive(true)),
+            "profile" to "danger".json(),
+            "experimental_use_unified_exec_tool" to JsonPrimitive(true),
+        )) {
+            val fixture = Fixture(this, tools = SafetyTools())
+            fixture.nativeConfig = JsonObject(fixture.nativeConfig + extra)
+            var probed: CodexInventoryTarget? = null
+            // The probe compares the working effective config with its clean-home defaults before any thread.
+            fixture.wire.verifyInventory = { target, _ ->
+                probed = target
+                requireCodexInventoryConfig(target.effective, baseline = json())
+            }
+            assertFailsWith<EngineException>(extra.first) { fixture.open() }
+            assertEquals(extra.second, checkNotNull(probed).effective[extra.first])
+            assertTrue(fixture.requests("thread/start").isEmpty())
+            fixture.runtime.close()
+        }
+    }
+
+    @Test
+    fun `transports without an offline probe refuse protected inventory`() = runTest {
+        val wire = object : CodexWire {
+            override val messages = kotlinx.coroutines.flow.emptyFlow<JsonObject>()
+            override suspend fun write(message: JsonObject) = Unit
+            override fun close() = Unit
+        }
+        val target = CodexInventoryTarget("model", json(), json(), emptyList())
+        assertFailsWith<EngineException> { wire.verifyInventory(target, CodexNativeOff(isToolFree = true)) }
+    }
+
+    @Test
+    fun `protected sessions disable agents explicitly to override resumed delegation`() {
+        val off = CodexNativeOff(isActionAnalysisRequired = true)
+        val locked = off.applyTo(json())
+        assertTrue("agents.enabled=false" in off.arguments())
+        assertEquals(JsonPrimitive(false), locked.obj("agents")["enabled"])
+        val enabled = JsonObject(locked + ("agents" to json("enabled" to JsonPrimitive(true))))
+        for ((effective, flags) in listOf(enabled to locked, locked to enabled)) {
+            val layer = json("name" to json("type" to "sessionFlags".json()), "config" to flags)
+            val response = json("config" to effective, "layers" to JsonArray(listOf(layer)))
+            assertFailsWith<EngineException> { off.validateConfig(response) }
+        }
+    }
+
+    @Test
+    fun `unsafe inventory closes the candidate without creating a user thread`() = runTest {
+        val fixture = Fixture(this, tools = SafetyTools())
+        fixture.wire.verifyInventory = { _, _ -> inventoryFailure() }
+        assertFailsWith<EngineException> { fixture.open() }
+        assertTrue(fixture.requests("thread/start").isEmpty())
+        assertTrue(fixture.wire.peers.all { it.isClosed })
+        fixture.runtime.close()
     }
 
     @Test
@@ -48,8 +124,6 @@ class CodexActionSafetyTest {
         val off = CodexNativeOff(isToolFree = true)
         assertFalse(off.isActionAnalysisRequired)
         assertTrue(off.isVerifiedInventoryRequired)
-        off.requireVersion("0.163.0-alpha.10.2")
-        assertFailsWith<EngineException> { off.requireVersion("0.164.0") }
         val locked = off.applyTo(json())
         assertEquals(JsonPrimitive(false), locked.obj("features")["default_mode_request_user_input"])
         assertTrue("features.default_mode_request_user_input=false" in off.arguments())
@@ -124,21 +198,6 @@ class CodexActionSafetyTest {
         assertIs<ActiveSessionState.Running>(session.state.value)
         assertEquals(JsonObject(emptyMap()), fixture.questionResponse().obj("answers"))
         fixture.runtime.close()
-    }
-
-    @Test
-    fun `exact build probe never truncates extra suffixes or chooses between conflicting version lines`() {
-        val off = CodexNativeOff(isActionAnalysisRequired = true)
-        off.requireVersion(codexActionAnalysisVersion("warning\ncodex-cli 0.163.0-alpha.10.2\r\n"))
-        listOf(
-            "codex-cli 0.163.0-alpha.10.2+unverified",
-            "codex-cli 0.163.0-alpha.10.2_extra",
-            "codex-cli 0.163.0-alpha.10.2 ignored suffix",
-            "codex-cli 0.163.0-alpha.10.2\ncodex-cli 0.163.0-alpha.11",
-            "prefix codex-cli 0.163.0-alpha.10.2",
-        ).forEach { output ->
-            assertFailsWith<EngineException> { off.requireVersion(codexActionAnalysisVersion(output)) }
-        }
     }
 
     @Test

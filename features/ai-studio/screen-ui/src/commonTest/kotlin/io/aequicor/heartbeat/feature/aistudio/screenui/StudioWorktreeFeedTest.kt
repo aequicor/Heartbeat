@@ -11,13 +11,19 @@ import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ReplyPartUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SandboxPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreePhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -62,7 +68,7 @@ class StudioWorktreeFeedTest {
             call.actions.map { it.label },
         )
         assertEquals(HbButtonStyle.Primary, call.actions.first().style)
-        WorktreeActionUi.entries.forEach { action ->
+        WorktreeActionUi.entries.filter { it != WorktreeActionUi.HandOff }.forEach { action ->
             assertEquals(
                 StudioIntent.DecideWorktree("chat", action),
                 result.press("worktree:chat", "worktree-action-${action.name}"),
@@ -72,6 +78,69 @@ class StudioWorktreeFeedTest {
         val detached = timeline(task(WorktreePhaseUi.AwaitingDecision, sourceBranch = null)).card("worktree:chat")
         assertEquals("heartbeat/task", detached.summary)
         assertTrue(detached.actions.none { it.id == "worktree-action-Merge" })
+    }
+
+    @Test
+    fun `a paused sandbox asks with its own card so it lands next to the composer`() {
+        val conflicted = task(WorktreePhaseUi.Working)
+            .copy(sandboxPhase = SandboxPhaseUi.Conflicted, sandboxConflicts = persistentListOf("a.kt"))
+        val result = timeline(conflicted)
+        assertEquals(listOf("worktree:chat:paused"), result.messages.map { it.id })
+        assertTrue(result.card("worktree:chat:paused").actions.any { it.id == "sandbox-continue" })
+    }
+
+    @Test
+    fun `sandbox cards address the worktree task and map every pause phase`() {
+        val cell = task(WorktreePhaseUi.Working).copy(taskId = "organism.chat.cell")
+        val waiting = timeline(cell.copy(sandboxPhase = SandboxPhaseUi.Waiting))
+        assertEquals(
+            StudioIntent.RecheckWorktree("organism.chat.cell", isResume = true),
+            waiting.press("worktree:chat:paused", SANDBOX_CONTINUE_ID),
+        )
+        assertEquals(HbToolStatus.Pending, waiting.card("worktree:chat:paused").status)
+        listOf(SandboxPhaseUi.Pausing, SandboxPhaseUi.Rebasing).forEach { phase ->
+            val busy = timeline(cell.copy(sandboxPhase = phase)).card("worktree:chat:paused")
+            assertEquals(HbToolStatus.Running, busy.status)
+            assertTrue(busy.actions.isEmpty())
+        }
+        val conflicts = (1..12).map { "f$it.kt" }
+        val conflicted = timeline(
+            cell.copy(
+                sandboxPhase = SandboxPhaseUi.Conflicted,
+                sandboxConflicts = persistentListOf<String>().addAll(conflicts),
+            ),
+        )
+        val card = conflicted.card("worktree:chat:paused")
+        assertEquals((conflicts.take(10) + "+2").joinToString("\n"), card.summary)
+        assertEquals(listOf(SANDBOX_CONTINUE_ID, SANDBOX_LEAVE_PAUSED_ID), card.actions.map { it.id })
+        assertEquals(
+            StudioIntent.RecheckWorktree("organism.chat.cell"),
+            conflicted.press("worktree:chat:paused", SANDBOX_LEAVE_PAUSED_ID),
+        )
+        val resolving = timeline(cell.copy(sandboxPhase = SandboxPhaseUi.Conflicted, isSandboxResolving = true))
+        assertEquals(listOf("worktree:chat:paused"), resolving.messages.map { it.id })
+        assertEquals(HbToolStatus.Running, resolving.card("worktree:chat:paused").status)
+    }
+
+    @Test
+    fun `finished sandbox offers a branch hand off instead of a pull request or a merge`() {
+        val sandbox = task(WorktreePhaseUi.AwaitingDecision).copy(sandboxPhase = SandboxPhaseUi.Ready)
+        val call = timeline(sandbox).card("worktree:chat")
+        assertEquals(listOf("Hand off to heartbeat/task", "Refine", "Leave"), call.actions.map { it.label })
+        assertEquals(
+            StudioIntent.DecideWorktree("chat", WorktreeActionUi.HandOff),
+            timeline(sandbox).press("worktree:chat", "worktree-action-HandOff"),
+        )
+    }
+
+    @Test
+    fun `a handed off sandbox names its branch unless the branch was left unmoved`() {
+        val handedOff = task(WorktreePhaseUi.Retained)
+            .copy(sandboxPhase = SandboxPhaseUi.HandedOff, resultCommit = "abc123")
+        val moved = timeline(handedOff).card("worktree:chat")
+        assertEquals("Handed off" to "heartbeat/task\nabc123", moved.title to moved.summary)
+        val unmoved = timeline(handedOff.copy(isBranchUnmoved = true)).card("worktree:chat")
+        assertEquals("Branch unmoved" to "abc123", unmoved.title to unmoved.summary)
     }
 
     @Test
@@ -148,18 +217,6 @@ class StudioWorktreeFeedTest {
         val running = BuildUi("first", "compile", BuildPhaseUi.Running, "", null)
         val initial = timeline(task(WorktreePhaseUi.Idle, builds = listOf(running)))
         val placement = TimelineWeaves()
-        val timelineLabels = TimelineLabels(
-            section = "Session",
-            you = "You",
-            agent = "Agent",
-            studio = "Studio",
-            stoppedTemplate = "Stopped after %1\$s",
-            failed = FailureLabels(unknown = "Failed", limit = "Limit"),
-            durations = DurationLabels(secondsTemplate = "%1\$d s", minutesTemplate = "%1\$d min %2\$d s"),
-            compacted = "Context compacted",
-            rolledOver = "Continued in a new session",
-            collapsedTools = "Tool calls: %1\$d",
-        )
         TimelineCache(placement).update(emptyList(), timelineLabels, initial.messages, initial.retained)
         assertEquals(HbToolStatus.Running, initial.card("build:first").status)
         val builds = listOf(running.copy(phase = BuildPhaseUi.Failed, output = "Compile failed", failure = "Exit1")) +
@@ -192,6 +249,34 @@ class StudioWorktreeFeedTest {
             StudioIntent.CancelWorktreeBuild("chat", "first"),
             stillRunning.press("build:first", "cancel-build-first"),
         )
+    }
+
+    @Test
+    fun `an inline build card stays offered after newer builds push it out of the recent window`() {
+        val placement = TimelineWeaves()
+        val cache = TimelineCache(placement)
+        val prompt = MessageUi.Prompt("m1", Instant.fromEpochSeconds(0), "Build it")
+        var builds = emptyList<BuildUi>()
+        var calls = emptyList<ReplyPartUi>()
+        var current = WorktreeTimeline()
+        var shown = cache.update(emptyList(), timelineLabels)
+        for (index in 1..4) {
+            val phase = if (index == 1) BuildPhaseUi.Running else BuildPhaseUi.Completed
+            builds = builds + BuildUi("b$index", "verify", phase, "", null)
+            calls = calls + ReplyPartUi.Tool(
+                ToolUi("t$index", "run_build", ToolStatusUi.Done, "{\"id\":\"b$index\"}", null),
+            )
+            val reply = MessageUi.Reply("m2", Instant.fromEpochSeconds(1), "", persistentListOf(), isStreaming = true)
+                .copy(parts = calls.toImmutableList())
+            val task = task(WorktreePhaseUi.Idle, builds = builds)
+            val feed = WorktreeFeed("chat", "chat", task, WorktreeJournalUi.Ready, isPreparing = false)
+            current = worktreeTimeline(feed, labels, placement.shown)
+            shown = cache.update(listOf(prompt, reply), timelineLabels, current.messages, current.retained)
+        }
+
+        val parts = shown.messages.single { it.id == "m2" }.parts.map { assertIs<HbMessagePart.Tool>(it).call.id }
+        assertEquals(listOf("t1", "build:b1", "t2", "build:b2", "t3", "build:b3", "t4", "build:b4"), parts)
+        assertEquals(StudioIntent.CancelWorktreeBuild("chat", "b1"), current.press("build:b1", "cancel-build-b1"))
     }
 
     @Test
@@ -344,6 +429,19 @@ class StudioWorktreeFeedTest {
         persistentListOf<BuildUi>().addAll(builds),
     )
 
+    private val timelineLabels = TimelineLabels(
+        section = "Session",
+        you = "You",
+        agent = "Agent",
+        studio = "Studio",
+        stoppedTemplate = "Stopped after %1\$s",
+        failed = FailureLabels(unknown = "Failed", limit = "Limit"),
+        durations = DurationLabels(secondsTemplate = "%1\$d s", minutesTemplate = "%1\$d min %2\$d s"),
+        compacted = "Context compacted",
+        rolledOver = "Continued in a new session",
+        collapsedTools = "Tool calls: %1\$d",
+    )
+
     private val labels = WorktreeLabels(
         author = "Studio",
         worktree = "Worktree",
@@ -357,6 +455,14 @@ class StudioWorktreeFeedTest {
         mergeTargetTemplate = "Merge target: %1\$s",
         refine = "Refine",
         leave = "Leave",
+        sandboxPaused = "Sandbox paused",
+        sandboxConflicted = "Sandbox conflicts",
+        sandboxContinue = "Continue",
+        sandboxResolve = "Resolve",
+        sandboxLeavePaused = "Leave paused",
+        sandboxHandOffTemplate = "Hand off to %1\$s",
+        sandboxHandedOff = "Handed off",
+        sandboxHandedOffUnmoved = "Branch unmoved",
         openPr = "Open PR",
         actionWorking = "Applying action",
         failed = "Operation failed",

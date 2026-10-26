@@ -35,26 +35,24 @@ internal data class CodexNativeOff(
         if (isSearchOff) addAll(listOf("-c", "web_search=\"disabled\""))
         if (isLocalOff) virtualFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
         if (isVerifiedInventoryRequired) enhancedFeatures.forEach { addAll(listOf("-c", "features.$it=false")) }
+        if (isVerifiedInventoryRequired) addAll(listOf("-c", "agents.enabled=false"))
         if (isToolFree) addAll(listOf("-c", "features.default_mode_request_user_input=false"))
     }
 
     /**
-     * Enhanced execution and text-only isolation accept only a build whose model-facing inventory was checked.
-     * Its known flags are insufficient proof for any earlier, later or differently suffixed build. Legacy restrictions
-     * retain their existing 0.160.0 protocol baseline and effective-config checks.
+     * Legacy restrictions (without the offline inventory probe) rely on the 0.160.0 protocol baseline: older,
+     * 0.160.0 prereleases, malformed and unknown versions are refused before an app-server starts. The number is a
+     * floor, not proof of isolation: effective config and sessionFlags are still audited on every connection.
+     * Protected launches ([isVerifiedInventoryRequired]) are judged by the probe instead and skip this check.
      */
     fun requireVersion(version: String?) {
-        if (!isRestricted) return
-        if (isVerifiedInventoryRequired) {
-            if (version !in verifiedEnhancedVersions) unsupportedPolicy()
-        } else {
-            val match = version?.let { Version.matchEntire(it) } ?: unsupportedPolicy()
-            val numbers = (1..3).map { match.groupValues[it].toIntOrNull() ?: unsupportedPolicy() }
-            if (numbers[0] == 0 && numbers[1] < MIN_MINOR) unsupportedPolicy()
-            val isBaselinePrerelease = numbers == listOf(0, MIN_MINOR, 0) &&
-                match.groupValues[PRERELEASE_GROUP].isNotEmpty()
-            if (isBaselinePrerelease) unsupportedPolicy()
-        }
+        if (!isRestricted || isVerifiedInventoryRequired) return
+        val match = version?.let { Version.matchEntire(it) } ?: unsupportedPolicy()
+        val numbers = (1..3).map { match.groupValues[it].toIntOrNull() ?: unsupportedPolicy() }
+        if (numbers[0] == 0 && numbers[1] < MIN_MINOR) unsupportedPolicy()
+        val isBaselinePrerelease = numbers == listOf(0, MIN_MINOR, 0) &&
+            match.groupValues[PRERELEASE_GROUP].isNotEmpty()
+        if (isBaselinePrerelease) unsupportedPolicy()
     }
 
     /** Applies Off after adapter defaults, including the optional `web_search=live` default. */
@@ -64,6 +62,9 @@ internal data class CodexNativeOff(
             put("features", disabledFeatures(config))
         }
         if (isSearchOff) put("web_search", "disabled")
+        if (isVerifiedInventoryRequired) {
+            put("agents", JsonObject((config["agents"] as? JsonObject).orEmpty() + ("enabled" to JsonPrimitive(false))))
+        }
     }
 
     private fun disabledFeatures(config: JsonObject): JsonObject = buildJsonObject {
@@ -104,7 +105,8 @@ internal data class CodexNativeOff(
             if (isToolFree) add("default_mode_request_user_input")
         }
         return required.all { features?.get(it) == JsonPrimitive(false) } &&
-            (!isSearchOff || config["web_search"] == JsonPrimitive("disabled"))
+            (!isSearchOff || config["web_search"] == JsonPrimitive("disabled")) &&
+            (!isVerifiedInventoryRequired || (config["agents"] as? JsonObject)?.get("enabled") == JsonPrimitive(false))
     }
 
     private fun unsupportedPolicy(): Nothing = fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
@@ -117,22 +119,11 @@ internal data class CodexNativeOff(
         val virtualFeatures = listOf("view_image_tool", "apply_patch_freeform", "multi_agent")
 
         /**
-         * Windows CLI 0.163.0-alpha.10.2: `features list`, `config/read(includeLayers=true)` and an offline
-         * Responses fixture verified this registry and the actual declarations. `view_image_tool` alone is
-         * ignored; `view_image` removes local image reads. `code_mode_only` can expose exec/wait despite
-         * code_mode=false, and multi_agent_v2 can expose collaboration despite multi_agent=false. Goals also
-         * have native state mutations. The remaining feature variants are closed even when a user override
-         * enables them. Auth, storage, sandbox, proxy and presentation flags keep their captured values.
-         *
-         * After these restrictions the fixture declares only the host-provided dynamic tool and native
-         * request_user_input. The latter is a questionnaire routed to CodexSession.userInput, where the live
-         * turn and host availability are checked; it is not an autonomous filesystem or network operation.
-         * Text-only isolation also sets default_mode_request_user_input=false, although this verified build
-         * retains its declaration. CodexSession refuses every such callback while the applied launch or current
-         * policy is tool-free, so no human form is published.
-         * `native-inventory.test.mjs` repeats the capture without credentials or an external model service.
+         * Close alternate native entry points as well as their legacy flags. Effective configuration is
+         * checked on every execution connection; the desktop transport additionally captures the actual
+         * model-facing catalog on a local credential-free provider before protected thread creation.
+         * The CLI version alone never authorizes protected execution. Unknown native tools fail the inventory check.
          */
-        val verifiedEnhancedVersions = setOf("0.163.0-alpha.10.2")
         val enhancedFeatures = listOf(
             "view_image", "unified_exec", "unified_exec_tty", "shell_snapshot", "shell_snapshot_v2",
             "code_mode", "code_mode_host", "code_mode_host_grpc", "code_mode_only",
@@ -145,9 +136,3 @@ internal data class CodexNativeOff(
         )
     }
 }
-
-/** Retains the whole reported build identifier; the legacy parser can truncate an unverified suffix. */
-internal fun codexActionAnalysisVersion(output: String): String? = output.lineSequence()
-    .map(String::trim)
-    .singleOrNull { it.startsWith("codex-cli ") }
-    ?.removePrefix("codex-cli ")

@@ -189,12 +189,41 @@ internal class ClaudeRuntime(
         session.stored(if (isReadOnly) null else { request -> attach(ref, request) })
     }
 
+    /**
+     * Polls the observed subagent tree of [root]. Each login probe spawns the CLI, so polling must not do that twice
+     * a second: the account is validated on the first poll and then every [CLAUDE_ACCOUNT_RECHECK_MILLIS], so a
+     * logout or account switch still ends a long subscription within that interval. A recheck that cannot reach a
+     * verdict keeps the subscription and is retried at the next interval.
+     */
     override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {
+        var polls = 0L
         while (true) {
-            emit(treeSession(root, access).treeSnapshot())
+            when {
+                polls == 0L -> validate(access.target)
+                polls % ACCOUNT_RECHECK_POLLS == 0L -> recheckAccount(access.target)
+            }
+            emit(treeSession(root, access, isAccountChecked = true).treeSnapshot())
+            polls++
             delay(TREE_REFRESH_MILLIS)
         }
     }.distinctUntilChanged()
+
+    /**
+     * Only a confirmed logout or account change ends a running subscription; a failed probe is not a verdict.
+     * Each failure is logged once here, so the unlogged [checkRequest] is used instead of [validate].
+     */
+    private suspend fun recheckAccount(target: EngineTarget) {
+        try {
+            checkRequest(target, isAccountChecked = false)
+        } catch (e: EngineException) {
+            val isVerdict = e.failure is EngineFailure.Authentication
+            log.w(e.redacted()) {
+                val outcome = if (isVerdict) "ends" else "continues"
+                "Claude login recheck failed: ${e.failure::class.simpleName.orEmpty()}; the session tree subscription $outcome"
+            }
+            if (isVerdict) throw e
+        }
+    }
 
     override suspend fun history(root: SessionRef, ref: SessionRef, access: SessionTreeAccess): SessionHistory {
         val session = treeSession(root, access)
@@ -206,8 +235,21 @@ internal class ClaudeRuntime(
         }
     }
 
-    private suspend fun treeSession(root: SessionRef, access: SessionTreeAccess): ClaudeSession = mutex.withLock {
-        validate(access.target)
+    /**
+     * The login probe runs the CLI for up to [PROBE_TIMEOUT_MS], so it runs before the lock: creation, attach,
+     * lookups and close are not held behind it. Inside the lock only the cheap checks are repeated.
+     */
+    private suspend fun treeSession(
+        root: SessionRef,
+        access: SessionTreeAccess,
+        isAccountChecked: Boolean = false,
+    ): ClaudeSession {
+        if (!isAccountChecked) validate(access.target)
+        return mutex.withLock { lockedTreeSession(root, access) }
+    }
+
+    private suspend fun lockedTreeSession(root: SessionRef, access: SessionTreeAccess): ClaudeSession {
+        validate(access.target, isAccountChecked = true)
         if (root.engine != identity.engine || root.source != ClaudeEngine.SessionSource) {
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
@@ -215,7 +257,7 @@ internal class ClaudeRuntime(
         if (session.route.binding != access.target.binding || session.route.workspace != access.workspace) {
             authFailure(AuthFailureReason.AuthMismatch)
         }
-        session
+        return session
     }
 
     private suspend fun find(ref: SessionRef): ClaudeSession? = sessions[ref] ?: restore(ref)
@@ -288,16 +330,21 @@ internal class ClaudeRuntime(
         }
     }
 
-    private suspend fun validate(target: EngineTarget) {
+    private suspend fun validate(target: EngineTarget, isAccountChecked: Boolean = false) {
         try {
-            if (isClosed) throw EngineException(closeFailure)
-            requireClaudeEnabled(toggles)
-            if (target.engine != identity.engine) authFailure(AuthFailureReason.AuthMismatch)
-            account.validate(identity.revision)
+            checkRequest(target, isAccountChecked)
         } catch (e: EngineException) {
             log.w(e.redacted()) { "Claude session request rejected: ${e.failure::class.simpleName.orEmpty()}" }
             throw e
         }
+    }
+
+    /** The checks behind [validate], without its rejection log; callers log the failure themselves. */
+    private suspend fun checkRequest(target: EngineTarget, isAccountChecked: Boolean) {
+        if (isClosed) throw EngineException(closeFailure)
+        requireClaudeEnabled(toggles)
+        if (target.engine != identity.engine) authFailure(AuthFailureReason.AuthMismatch)
+        if (!isAccountChecked) account.validate(identity.revision)
     }
 }
 
@@ -311,3 +358,7 @@ internal suspend fun requireClaudeEnabled(toggles: FeatureToggles) {
 }
 
 private const val TREE_REFRESH_MILLIS = 500L
+
+/** How often a session tree subscription re-validates the CLI login. */
+internal const val CLAUDE_ACCOUNT_RECHECK_MILLIS = 300_000L
+private const val ACCOUNT_RECHECK_POLLS = CLAUDE_ACCOUNT_RECHECK_MILLIS / TREE_REFRESH_MILLIS

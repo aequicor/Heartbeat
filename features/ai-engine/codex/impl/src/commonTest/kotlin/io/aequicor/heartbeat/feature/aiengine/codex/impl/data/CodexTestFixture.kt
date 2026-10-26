@@ -84,6 +84,13 @@ internal class FakeWire private constructor(
     var owner: CodexExecutionOwner? = null
     var captureOwner: suspend () -> CodexExecutionOwner? = { owner }
     override suspend fun processOwner(): CodexExecutionOwner? = captureOwner()
+    var verifyInventory: suspend (CodexInventoryTarget, CodexNativeOff) -> Unit
+        get() = journal.verifyInventory
+        set(value) {
+            journal.verifyInventory = value
+        }
+    override suspend fun verifyInventory(target: CodexInventoryTarget, off: CodexNativeOff) =
+        verifyInventory.invoke(target, off)
     var isClosed = false
     override val messages = incoming.receiveAsFlow()
     fun fork(off: CodexNativeOff = CodexNativeOff()): FakeWire = FakeWire(journal, off).also { journal.peers += it }
@@ -131,6 +138,7 @@ internal class FakeWire private constructor(
         val origins = mutableListOf<Pair<JsonObject, FakeWire>>()
         val threads = mutableMapOf<String, FakeWire>()
         var handler: suspend (JsonObject) -> Unit = {}
+        var verifyInventory: suspend (CodexInventoryTarget, CodexNativeOff) -> Unit = { _, _ -> }
     }
     private companion object {
         const val INVALID_PARAMS = -32602

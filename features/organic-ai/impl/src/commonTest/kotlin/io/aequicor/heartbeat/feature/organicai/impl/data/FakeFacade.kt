@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.organicai.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
@@ -57,6 +58,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.organicai.impl.TARGET
+import io.aequicor.heartbeat.feature.organicai.impl.domain.CellHarnesses
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -89,10 +91,12 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
     var items: List<SessionItem> = emptyList()
     var finish: TurnOutcome? = TurnOutcome.Completed
     var isArchived = false
+    var archivals = 0
     var closes = 0
     var closeFailure: Throwable? = null
 
-    override val route: ExecutionRoute get() = error("unused")
+    override val route: ExecutionRoute =
+        ExecutionRoute(ref.engine, TARGET.binding, AuthSourceId("auth"), AuthRevision.Known("1"))
     override val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
 
     override suspend fun close() {
@@ -157,6 +161,7 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
     val archives = object : ArchivesSessions {
         override suspend fun setArchived(archived: Boolean) {
             isArchived = archived
+            archivals++
         }
     }
 
@@ -260,5 +265,24 @@ internal class FakeFacade(
             MutableStateFlow(ModelCatalogSnapshot(catalog, Observation()))
 
         override suspend fun refresh(engine: EngineId, binding: EngineBindingId) = error("unused")
+    }
+}
+
+/** Cell sessions whose harness removals go nowhere. */
+internal fun cellSessions(facade: EngineFacade): FacadeCellSessions = FacadeCellSessions(facade, FakeCellHarnesses())
+
+/** Records harness removals of cell sessions; connections always succeed, the next [failures] removals fail. */
+internal class FakeCellHarnesses : CellHarnesses {
+    val disconnected = mutableListOf<Pair<SessionRef, Set<String>>>()
+    var failures = 0
+
+    override suspend fun connect(session: SessionRef, harnesses: Set<String>) = Unit
+
+    override suspend fun disconnect(session: SessionRef, harnesses: Set<String>, isReleased: suspend () -> Boolean) {
+        if (failures > 0) {
+            failures--
+            error("removal failed")
+        }
+        if (isReleased()) disconnected += session to harnesses
     }
 }
