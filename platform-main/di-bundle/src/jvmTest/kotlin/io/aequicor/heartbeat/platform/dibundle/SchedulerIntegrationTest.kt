@@ -79,7 +79,7 @@ class SchedulerIntegrationTest {
         assertTrue(SchedulerEnabled in toggles.toggleControl.registered)
         assertTrue(SchedulerActions in toggles.toggleControl.registered)
         assertTrue(SchedulerTaskGraphs in toggles.toggleControl.registered)
-        assertFalse(SchedulerTaskGraphs.default)
+        assertTrue(SchedulerTaskGraphs.default)
         assertTrue(SchedulerEnabled.default && SchedulerActions.default)
         val profile = app.profileSessions.open(ProfileId("scheduler-off"))
         val names = (profile.graph as TestSchedulerAccessors).schedulerTools.specifications(null).map { it.name }
