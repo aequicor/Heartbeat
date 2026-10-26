@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReaso
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 
 /** Classes a failure for the transcript notice; unclassified or absent ones stay [RunFailureKind.Unknown]. */
@@ -16,7 +17,12 @@ internal fun EngineFailure?.toRunFailureKind(): RunFailureKind = when (this) {
 
     is EngineFailure.Authentication -> reason.reason.toRunFailureKind()
 
-    is EngineFailure.Transport -> RunFailureKind.Network
+    // The provider answered (5xx): telling the user to check their connection would mislead.
+    is EngineFailure.Transport -> if (reason == TransportFailureReason.ServiceUnavailable) {
+        RunFailureKind.ServiceUnavailable
+    } else {
+        RunFailureKind.Network
+    }
 
     is EngineFailure.Access -> RunFailureKind.Access
 

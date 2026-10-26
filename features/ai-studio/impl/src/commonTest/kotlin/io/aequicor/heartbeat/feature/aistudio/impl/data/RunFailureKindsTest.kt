@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.FailureUi
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -26,6 +27,10 @@ class RunFailureKindsTest {
         assertEquals(
             RunFailureKind.Network,
             EngineFailure.Transport(TransportFailureReason.NetworkUnavailable).toRunFailureKind(),
+        )
+        assertEquals(
+            RunFailureKind.ServiceUnavailable,
+            EngineFailure.Transport(TransportFailureReason.ServiceUnavailable).toRunFailureKind(),
         )
         assertEquals(RunFailureKind.Unknown, EngineFailure.Session(SessionFailureReason.Busy).toRunFailureKind())
         assertEquals(RunFailureKind.Unknown, null.toRunFailureKind())
@@ -71,5 +76,11 @@ class RunFailureKindsTest {
             RunFailureKind.Unknown,
             EngineFailure.Request(RequestFailureReason.OutcomeUnknown).toRunFailureKind(),
         )
+    }
+
+    /** The screen maps a kind by name (`FailureUi.valueOf`): a kind added to one enum only fails at runtime. */
+    @Test
+    fun `every run failure kind has a screen class of the same name`() {
+        assertEquals(RunFailureKind.entries.map { it.name }, FailureUi.entries.map { it.name })
     }
 }

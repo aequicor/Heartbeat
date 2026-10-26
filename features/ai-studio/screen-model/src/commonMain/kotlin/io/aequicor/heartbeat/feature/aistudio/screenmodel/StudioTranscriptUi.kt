@@ -86,6 +86,7 @@ enum class FailureUi {
     CredentialsMissing,
     ConnectionChanged,
     Network,
+    ServiceUnavailable,
     Access,
     RequestRejected,
     EngineUnavailable,

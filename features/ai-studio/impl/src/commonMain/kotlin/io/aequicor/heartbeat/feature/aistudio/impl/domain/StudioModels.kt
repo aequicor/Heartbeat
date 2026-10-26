@@ -176,6 +176,7 @@ enum class RunFailureKind {
     CredentialsMissing,
     ConnectionChanged,
     Network,
+    ServiceUnavailable,
     Access,
     RequestRejected,
     EngineUnavailable,

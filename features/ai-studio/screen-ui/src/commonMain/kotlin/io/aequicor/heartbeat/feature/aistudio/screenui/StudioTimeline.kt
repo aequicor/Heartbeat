@@ -66,6 +66,7 @@ internal data class FailureLabels(
     val context: String = unknown,
     val authentication: String = unknown,
     val network: String = unknown,
+    val serviceUnavailable: String = network,
     val quota: String = unknown,
     val credentialsMissing: String = unknown,
     val connectionChanged: String = unknown,
@@ -81,6 +82,7 @@ internal data class FailureLabels(
         FailureUi.CredentialsMissing -> credentialsMissing
         FailureUi.ConnectionChanged -> connectionChanged
         FailureUi.Network -> network
+        FailureUi.ServiceUnavailable -> serviceUnavailable
         FailureUi.Access -> access
         FailureUi.RequestRejected -> requestRejected
         FailureUi.EngineUnavailable -> engineUnavailable

@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import kotlinx.coroutines.CancellationException
@@ -25,6 +26,7 @@ import org.junit.Assume.assumeFalse
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.io.IOException
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -38,6 +40,16 @@ import kotlin.test.assertTrue
 class LocalCodexTransportTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
+
+    /** A broken local pipe is the app-server crashing, not a provider server error shown to the user. */
+    @Test
+    fun `broken app-server pipe is reported as an engine crash`() {
+        assertEquals(EngineFailure.Engine(EngineFailureReason.Crashed), IOException("Broken pipe").sanitized().failure)
+        assertEquals(
+            EngineFailure.Transport(TransportFailureReason.ProtocolViolation),
+            IllegalStateException("malformed").sanitized().failure,
+        )
+    }
 
     @Test
     fun `missing local CLI reports an installation failure instead of a network failure`() = runTest {

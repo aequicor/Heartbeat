@@ -105,6 +105,8 @@ class StudioTimelineTest {
                 access = "Check model access",
                 requestRejected = "Check the server address",
                 engineUnavailable = "Install or restart the engine",
+                network = "Check the connection",
+                serviceUnavailable = "Try the server later",
             ),
         )
         val failures = listOf(
@@ -115,6 +117,8 @@ class StudioTimelineTest {
             FailureUi.Access,
             FailureUi.RequestRejected,
             FailureUi.EngineUnavailable,
+            FailureUi.Network,
+            FailureUi.ServiceUnavailable,
         )
         val messages = TimelineCache().update(
             failures.map { MessageUi.Failed(it.name, Instant.fromEpochSeconds(0), it) },
@@ -129,6 +133,8 @@ class StudioTimelineTest {
                 "Check model access",
                 "Check the server address",
                 "Install or restart the engine",
+                "Check the connection",
+                "Try the server later",
             ),
             messages.map { it.text },
         )
