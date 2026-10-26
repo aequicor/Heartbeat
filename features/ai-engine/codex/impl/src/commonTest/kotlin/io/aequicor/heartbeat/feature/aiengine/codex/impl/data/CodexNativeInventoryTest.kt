@@ -187,7 +187,7 @@ class CodexNativeInventoryTest {
     fun `a persistent refusal warns once and again only when the refused key set changes`() {
         val refusals = CodexConfigRefusals()
         val tools = json("tools" to json("view_image" to JsonPrimitive(true)))
-        repeat(2) { assertFailsWith<EngineException> { requireCodexInventoryConfig(tools, refusals) } }
+        repeat(2) { assertFailsWith<EngineException> { requireCodexInventoryConfig(tools, json(), refusals) } }
         assertFalse(refusals.isNew(setOf("tools")))
         assertTrue(refusals.isNew(setOf("profile", "tools")))
         assertFalse(refusals.isNew(setOf("profile", "tools")))
@@ -222,6 +222,7 @@ class CodexNativeInventoryTest {
                 "feedback" to json("enabled" to JsonPrimitive(false)),
                 "otel" to json("exporter" to "none".json()),
             ),
+            baseline = json(),
         )
     }
 
@@ -239,6 +240,7 @@ class CodexNativeInventoryTest {
                 "project_doc_fallback_filenames" to JsonArray(emptyList()),
                 "sandbox_workspace_write" to json(),
             ),
+            baseline = json(),
         )
         listOf(
             json("tools" to json("view_image" to JsonPrimitive(true))),
@@ -250,7 +252,47 @@ class CodexNativeInventoryTest {
             json("experimental_use_unified_exec_tool" to JsonPrimitive(true)),
             json("include_apply_patch_tool" to JsonPrimitive(false)),
             json("unknown_future_key" to json("nested" to "value".json())),
-        ).forEach { config -> assertFailsWith<EngineException> { requireCodexInventoryConfig(config) } }
+        ).forEach { config -> assertFailsWith<EngineException> { requireCodexInventoryConfig(config, json()) } }
+    }
+
+    @Test
+    fun `defaults of the same executable are accepted while changed or new values fail closed`() {
+        // Clean-home config/read of a 0.163 build: keys added after the allowlist was written.
+        val baseline = json(
+            "allow_login_shell" to JsonPrimitive(true),
+            "background_terminal_max_timeout" to JsonPrimitive(300_000),
+            "include_apps_instructions" to JsonPrimitive(true),
+            "include_environment_context" to JsonPrimitive(true),
+            "tools" to json(),
+            "shell_policy" to json("mode" to "default".json(), "extra" to JsonArray(listOf("a".json()))),
+            "profile" to "baseline".json(),
+        )
+        requireCodexInventoryConfig(
+            json(
+                "allow_login_shell" to JsonPrimitive(true),
+                "background_terminal_max_timeout" to JsonPrimitive(300_000),
+                "include_apps_instructions" to JsonPrimitive(true),
+                "include_environment_context" to JsonPrimitive(true),
+                // An empty table is strict only when it is not the default itself.
+                "tools" to json(),
+                "shell_policy" to json("extra" to JsonArray(listOf("a".json())), "mode" to "default".json()),
+                "model" to "model".json(),
+            ),
+            baseline,
+        )
+        listOf(
+            json("allow_login_shell" to JsonPrimitive(false)),
+            json("background_terminal_max_timeout" to JsonPrimitive(1)),
+            json("include_environment_context" to JsonPrimitive(false)),
+            json("tools" to json("view_image" to JsonPrimitive(true))),
+            json("shell_policy" to json("mode" to "default".json(), "extra" to JsonArray(emptyList()))),
+            json("shell_policy" to json("mode" to "default".json())),
+            // Unknown non-default keys, including an explicit empty table, still fail closed.
+            json("unknown_future_key" to JsonPrimitive(true)),
+            json("unknown_future_key" to json()),
+            // An active profile is refused even if the baseline reports the same one.
+            json("profile" to "baseline".json()),
+        ).forEach { config -> assertFailsWith<EngineException> { requireCodexInventoryConfig(config, baseline) } }
     }
 
     private fun spec(name: String, schema: JsonObject = emptySchema) = json(

@@ -71,10 +71,14 @@ class CodexActionSafetyTest {
         )) {
             val fixture = Fixture(this, tools = SafetyTools())
             fixture.nativeConfig = JsonObject(fixture.nativeConfig + extra)
-            var checks = 0
-            fixture.wire.verifyInventory = { _, _ -> checks++ }
+            var probed: CodexInventoryTarget? = null
+            // The probe compares the working effective config with its clean-home defaults before any thread.
+            fixture.wire.verifyInventory = { target, _ ->
+                probed = target
+                requireCodexInventoryConfig(target.effective, baseline = json())
+            }
             assertFailsWith<EngineException>(extra.first) { fixture.open() }
-            assertEquals(0, checks)
+            assertEquals(extra.second, checkNotNull(probed).effective[extra.first])
             assertTrue(fixture.requests("thread/start").isEmpty())
             fixture.runtime.close()
         }

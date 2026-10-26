@@ -90,8 +90,7 @@ internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, settings:
         },
     )
     if (settings.off.isVerifiedInventoryRequired) {
-        // The probe reproduces only what it can see offline; anything else in the working config fails closed.
-        requireCodexInventoryConfig(effective)
+        // The probe also refuses working config it cannot reproduce, compared with its clean-home defaults.
         rpc.verifyInventory(CodexInventoryTarget(settings.model, effective, thread, settings.tools), settings.off)
     }
     return thread

@@ -99,7 +99,11 @@ internal object FakeCodexInventoryCli {
         }
     }
 
+    /** A default of the CLI build that is outside the inventory allowlist, as 0.163 reports allow_login_shell. */
+    const val DEFAULT_KEY = "allow_login_shell"
+
     private fun effectiveConfig(overrides: List<Pair<String, String>>): JsonObject = buildJsonObject {
+        put(DEFAULT_KEY, true)
         put(
             "features",
             JsonObject(

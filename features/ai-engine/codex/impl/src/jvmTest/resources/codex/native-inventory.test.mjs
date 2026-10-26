@@ -9,7 +9,7 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import { promisify } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
 import test from 'node:test';
 
 const executeFile = promisify(execFile);
@@ -24,9 +24,13 @@ const values = (text, name) => {
 };
 const enhanced = values(source, 'enhancedFeatures');
 const configKeys = new Set(values(inventory, 'CodexInventoryConfigKeys'));
-// Mirrors requireCodexInventoryConfig: an unknown key is unset only as null or a non-empty table of unset values.
+// Mirrors requireCodexInventoryConfig: an unknown key is unset only as null or a non-empty table of unset values,
+// and otherwise passes only with the clean-home default of the same executable (profile never does).
 const isUnset = value => value == null || (typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).length > 0 && Object.values(value).every(isUnset));
+const refusedKeys = (effective, baseline) => Object.entries(effective).filter(([key, value]) =>
+  (key === 'profile' || !configKeys.has(key)) && !isUnset(value)
+  && (key === 'profile' || !isDeepStrictEqual(value, baseline[key]))).map(([key]) => key);
 const fixtureTool = { name: 'heartbeat_fixture_read', description: 'Host fixture tool', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } };
 // Mirrors the structural comparison of validateCodexInventory: property names, required sets and array items
 // where the declaration has them (a default items the CLI adds for an array declared without one is ignored).
@@ -86,10 +90,6 @@ test('installed CLI closes actual image code mode delegation and goal ingress wh
   assert.equal(declared.description, fixtureTool.description);
   assert.ok(matchesShape(declared.parameters, fixtureTool.inputSchema), 'Declared parameter structure changed');
   for (const name of [...baseline, ...enhanced]) assert.equal(locked.features[name], false, name);
-  // A clean home must pass the protected allowlist; otherwise every protected session would fail closed.
-  for (const [key, value] of Object.entries(locked.config)) {
-    if (key !== 'profile' && !isUnset(value)) assert.ok(configKeys.has(key), `Effective config key ${key} is not allowlisted`);
-  }
   assert.equal(locked.nativeCalls, 0);
   const toolFree = await capture([
     ...baseline.map(name => [name, false]),
@@ -103,10 +103,21 @@ test('installed CLI closes actual image code mode delegation and goal ingress wh
   assert.equal(toolFree.features.default_mode_request_user_input, false);
   assert.equal(toolFree.nativeCalls, 0);
 
+  // A clean working home must pass against the probe's clean-home baseline, read by a separate process with
+  // other session flags; otherwise every protected session would fail closed on CLI defaults.
+  assert.deepEqual(refusedKeys(locked.config, toolFree.config), []);
+  const defaults = Object.keys(locked.config).filter(key => !configKeys.has(key) && !isUnset(locked.config[key]));
+  // A changed CLI default is a user setting the probe cannot reproduce and stays refused.
+  if (defaults.includes('allow_login_shell')) {
+    const changed = await capture(baseline.map(name => [name, false]), [`allow_login_shell=${!locked.config.allow_login_shell}`]);
+    assert.deepEqual(refusedKeys(changed.config, toolFree.config), ['allow_login_shell']);
+  }
+  console.log(`CLI defaults outside the allowlist, accepted by baseline equality: ${defaults.sort().join(', ') || 'none'}`);
+
   console.log(`Offline tool inventory of the selected CLI: ${locked.names.join(', ')}`);
 });
 
-async function capture(features) {
+async function capture(features, overrides = []) {
   const root = await mkdtemp(join(tmpdir(), 'heartbeat-codex-inventory-'));
   assert.equal(dirname(resolve(root)), resolve(tmpdir()));
   assert.ok(basename(root).startsWith('heartbeat-codex-inventory-'));
@@ -136,6 +147,7 @@ async function capture(features) {
     '-c', 'web_search="disabled"',
   ];
   for (const [name, value] of features) args.push('-c', `features.${name}=${value}`);
+  for (const override of overrides) args.push('-c', override);
   const retained = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL']);
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => retained.has(key.toUpperCase())));
   // CODEX_HOME retains its intended meaning and is assigned only in the isolated child's environment.

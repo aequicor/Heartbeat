@@ -51,9 +51,13 @@ internal fun codexExecutableIdentity(executable: String): String = try {
  *   (`web_search=disabled`, search features Off).
  * - MCP servers are absent in the probe home. The working thread disables every configured server by name, so the
  *   probe sends an empty `mcp_servers` table instead of entries that would be incomplete server definitions.
- * - Other user configuration does not enter the probe. Instead [requireCodexInventoryConfig] refuses any set
- *   top-level key of the working process's effective config that is not known to be reproduced or irrelevant to
- *   the tool catalog, and an active `profile`.
+ * - Other user configuration does not enter the probe. Instead, before the probe's thread starts (and so before
+ *   any protected working thread), [requireCodexInventoryConfig] refuses an active `profile` and any set top-level
+ *   key of the working process's effective config that is neither known to be reproduced or irrelevant to the
+ *   tool catalog nor equal to the probe's own clean-home `config/read` value (the executable's default).
+ * - Plugin, marketplace and app tables stay in the user's home and are not reproduced: their model-facing
+ *   contributions (bundled MCP servers, apps, skills) are gated by `features.plugins`, `apps` and `remote_plugin`,
+ *   which every protected launch sets Off and the working config audit requires to be effectively Off.
  * - On resume the declarations are the currently available subset of the thread's stored tool names.
  * Actual execution still validates its effective config and active sessionFlags before this probe.
  */
@@ -139,7 +143,9 @@ internal class CodexInventoryProbe(
                         rpc.initialize(experimentalApi = true)
                         val configuration = rpc.request("config/read", json("includeLayers" to JsonPrimitive(true)))
                         off.validateConfig(configuration)
-                        catalog.requireConfig(configuration.obj("config"))
+                        val baseline = configuration.obj("config")
+                        catalog.requireConfig(baseline)
+                        requireCodexInventoryConfig(target.effective, baseline)
                         val opened = rpc.request("thread/start", threadParams(root, target, tools))
                         rpc.request(
                             "turn/start",

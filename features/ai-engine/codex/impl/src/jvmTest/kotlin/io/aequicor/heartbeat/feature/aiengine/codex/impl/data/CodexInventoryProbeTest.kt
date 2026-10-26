@@ -25,6 +25,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class CodexInventoryProbeTest {
     @Test
@@ -100,6 +101,29 @@ class CodexInventoryProbeTest {
                 assertEquals(JsonObject(thread + ("mcp_servers" to json())), params["config"])
                 assertEquals(JsonArray(tools), params["dynamicTools"])
                 assertEquals(FakeCodexInventoryCli.MODEL, params.text("model"))
+            }
+        }
+    }
+
+    @Test
+    fun `working config equal to the clean-home default passes while a changed value is refused`() {
+        withFakeCli(FakeInventoryScenario.Faithful) { executable, record, dispatchers ->
+            CodexModelCatalog.create(executable, dispatchers).use { catalog ->
+                val off = CodexNativeOff(isToolFree = true)
+                val base = target(off, FakeCodexInventoryCli.MODEL)
+                fun with(value: Boolean): CodexInventoryTarget {
+                    val setting = FakeCodexInventoryCli.DEFAULT_KEY to JsonPrimitive(value)
+                    return base.copy(effective = JsonObject(base.effective + setting))
+                }
+                val identity = codexExecutableIdentity(executable)
+                val error = assertFailsWith<EngineException> {
+                    CodexInventoryProbe(dispatchers, catalog).verify(executable, identity, with(false), off)
+                }
+                assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), error.failure)
+                // Refused before the probe's own thread, so nothing reached thread/start.
+                assertFalse(Files.exists(record))
+                CodexInventoryProbe(dispatchers, catalog).verify(executable, identity, with(true), off)
+                assertTrue(Files.exists(record))
             }
         }
     }

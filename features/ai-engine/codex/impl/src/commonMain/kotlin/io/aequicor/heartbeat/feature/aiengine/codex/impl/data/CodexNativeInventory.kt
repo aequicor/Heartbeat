@@ -41,9 +41,10 @@ internal data class CodexInventoryTarget(
  * cannot add a native tool: feature flags and isolation keys the host overrides, keys whose tools are gated by
  * reproduced features (plugins, apps, hooks, skills), and inference, reasoning, prompt, authentication, storage,
  * logging, trust bookkeeping, notice and presentation settings that the Codex TUI commonly writes.
- * Everything else (for example `tools`, legacy `experimental_use_*` and `include_*` switches) can change the
- * catalog independently of features and fails closed. `profile` is refused separately: an active profile's
- * features apply after session flags and are absent from the effective `features`.
+ * Any other key (for example `tools`, legacy `experimental_use_*` and `include_*` switches) can change the
+ * catalog independently of features and passes only with the same binary's default value (see
+ * [requireCodexInventoryConfig]). `profile` is refused separately: an active profile's features apply after
+ * session flags and are absent from the effective `features`.
  */
 internal val CodexInventoryConfigKeys = setOf(
     "features", "web_search", "agents", "mcp_servers", "model_catalog_json", "approval_policy", "sandbox_mode",
@@ -62,15 +63,23 @@ internal val CodexInventoryConfigKeys = setOf(
 
 /**
  * Refuses a working configuration the probe cannot faithfully reproduce. Allowlisted keys pass with any value.
- * Any other key, including `profile`, passes only when unset: null or a non-empty table of unset values, as
- * `config/read` serializes absent optional fields; an explicitly declared `{}` or `[]` counts as set. The names
- * of refused top-level keys (never their values) are logged for support diagnostics: at WARN when the refused set
+ * Any other key passes when it is unset (null or a non-empty table of unset values, as `config/read` serializes
+ * absent optional fields; an explicitly declared `{}` or `[]` counts as set) or when its value deeply equals the
+ * same key in [baseline]: the `config/read` result of the same executable in the probe's empty `CODEX_HOME`, so
+ * defaults a new CLI build adds are not mistaken for user settings, while a changed or unknown user, project or
+ * managed value still fails closed. `profile` passes only when unset, whatever the baseline. The names of
+ * refused top-level keys (never their values) are logged for support diagnostics: at WARN when the refused set
  * differs from the last one [refusals] reported, otherwise at VERBOSE, so a persistent configuration does not
  * repeat the warning on every protected preparation.
  */
-internal fun requireCodexInventoryConfig(effective: JsonObject, refusals: CodexConfigRefusals = CodexRefusalLog) {
+internal fun requireCodexInventoryConfig(
+    effective: JsonObject,
+    baseline: JsonObject,
+    refusals: CodexConfigRefusals = CodexRefusalLog,
+) {
     val refused = effective.filter { (key, value) ->
-        (key == "profile" || key !in CodexInventoryConfigKeys) && !isUnsetConfig(value)
+        val isDefault = key != "profile" && baseline[key] == value
+        (key == "profile" || key !in CodexInventoryConfigKeys) && !isUnsetConfig(value) && !isDefault
     }.keys
     if (refused.isEmpty()) return
     val names = refused.map { if (ConfigKeyName.matches(it)) it else "<unnamed>" }.toSortedSet()
