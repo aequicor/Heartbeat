@@ -44,7 +44,6 @@ internal class ClaudeTurnObserver(
     @Volatile
     var isFinished: Boolean = false
         private set
-    private var isSubmitted = false
     private var isAccepted = false
     private var hasText = false
     private var apiError: String? = null
@@ -221,25 +220,14 @@ internal class ClaudeTurnObserver(
         history.item(turn.id) { SessionItem.Notice(it, CLAUDE_COMPACTED_NOTICE, NoticeKind.ContextCompacted) }
     }
 
-    /**
-     * The turn was handed to the CLI. Without partial messages the CLI may emit its first event only at the end of
-     * the turn, so the prompt enters the history now; acceptance still waits for a session frame.
-     */
-    @Synchronized
-    fun submitted() {
-        if (isSubmitted) return
-        isSubmitted = true
-        history.publish { SessionEvent.TurnStarted(it, turn) }
-        if (request.parts.isNotEmpty()) {
-            history.item(turn.id) { SessionItem.Message(it, MessageRole.User, request.parts) }
-        }
-    }
-
     private fun accept() {
         if (isAccepted) return
         if (!hasSession) protocolFailure()
         isAccepted = true
-        submitted()
+        history.publish { SessionEvent.TurnStarted(it, turn) }
+        if (request.parts.isNotEmpty()) {
+            history.item(turn.id) { SessionItem.Message(it, MessageRole.User, request.parts) }
+        }
         update(ActiveSessionState.Running(turn))
         accepted.complete(turn.id)
     }

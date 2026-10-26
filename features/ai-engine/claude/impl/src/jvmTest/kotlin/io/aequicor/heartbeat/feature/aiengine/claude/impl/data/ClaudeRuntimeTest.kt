@@ -10,7 +10,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
-import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -24,7 +23,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -112,40 +110,6 @@ class ClaudeRuntimeTest {
         assertEquals(2, history.items.size)
         assertEquals(HistoryCoverage.Partial, history.coverage)
         runtime.close()
-    }
-
-    @Test
-    fun `the prompt is in history while the CLI has not emitted its first event`() = runTest {
-        val fixture = ClaudeFixture(backgroundScope)
-        val respond = CompletableDeferred<Unit>()
-        fixture.transport.generation = { args, line ->
-            val id = args.last().substringAfter('=')
-            respond.await()
-            line(initFrame(id))
-            line(assistantFrame(id))
-            line(resultFrame(id))
-            0
-        }
-        val runtime = fixture.runtime()
-        val session = runtime.create(CreateSessionRequest(testTarget))
-        val history = session.features.available(SessionHistory)
-        val checkpoint = history.page().checkpoint
-        val send = async { session.features.available(SendsPrompts).send(prompt()) }
-        runCurrent()
-        val turn = assertIs<ActiveSessionState.Submitting>(session.state.value).turn
-        val pending = history.page().items.filterIsInstance<SessionItem.Message>().single()
-        assertEquals(MessageRole.User, pending.role)
-        assertEquals(listOf<ContentPart>(ContentPart.Text("Hello")), pending.parts)
-        assertEquals(turn.id, pending.info.turn)
-
-        respond.complete(Unit)
-        runCurrent()
-        assertEquals(turn.id, send.await())
-        val roles = history.page().items.filterIsInstance<SessionItem.Message>().map { it.role }
-        assertEquals(listOf(MessageRole.User, MessageRole.Assistant), roles)
-        runtime.close()
-        val started = history.watch(checkpoint).toList().filterIsInstance<SessionEvent.TurnStarted>()
-        assertEquals(listOf(turn.id), started.map { it.turn.id })
     }
 
     @Test
