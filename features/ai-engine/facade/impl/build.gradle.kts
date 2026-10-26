@@ -9,6 +9,10 @@ plugins {
 // индекс сессий, пул runtime, активные сессии на машине ActiveSessionMachineSpec и управление движками
 // (проверенные загрузки релизов, управляемые копии CLI). Подключается только в :platform-main:di-bundle.
 kotlin {
+    // Mobile fallbacks (Android, iOS) that Desktop must not compile: a desktop graph would resolve them instead of
+    // the Desktop implementations.
+    sourceSets.androidMain { kotlin.srcDir("src/mobileMain/kotlin") }
+    sourceSets.iosMain { kotlin.srcDir("src/mobileMain/kotlin") }
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.aiEngine.facade.api)

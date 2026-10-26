@@ -15,11 +15,11 @@ import kotlin.time.Clock
 /**
  * Desktop managed copies. Executables are machine-local: on Windows they live in `%LOCALAPPDATA%` (never in the
  * roaming `%APPDATA%` of the other app data), which the Windows installer removes on uninstall;
- * on macOS next to the app data.
+ * on macOS next to the app data. The only store of the Desktop graphs: the mobile fallback is not compiled here.
  */
 @Inject
 @SingleIn(AppScope::class)
-@ContributesBinding(AppScope::class, priority = 1)
+@ContributesBinding(AppScope::class)
 internal class DesktopManagedInstallStore(
     downloader: ReleaseDownloader,
     storage: StorageRoot,

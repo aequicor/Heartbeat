@@ -15,9 +15,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Hosts that cannot run downloaded executables (Android, iOS); the Desktop store has a higher priority. */
+/**
+ * Hosts that cannot run downloaded executables (Android, iOS). Mobile only, so Desktop has exactly one binding: as a
+ * common fallback ranked below the Desktop store it was picked by the profile graph of the `engines` bundle, and every
+ * install of Heartbeat's own CLI copy failed as unsupported (guarded by `EnginesBundleWiringTest`).
+ */
 @Inject
-@ContributesBinding(AppScope::class, priority = 0)
+@ContributesBinding(AppScope::class)
 internal class UnsupportedManagedInstallStore : ManagedInstallStore {
     private val log = Log.tag("UnsupportedManagedInstallStore")
     private val installs = MutableStateFlow(emptyMap<EngineId, ManagedInstall>())
