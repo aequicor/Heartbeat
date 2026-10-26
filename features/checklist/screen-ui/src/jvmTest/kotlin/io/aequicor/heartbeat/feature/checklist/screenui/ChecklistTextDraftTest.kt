@@ -75,6 +75,25 @@ class ChecklistTextDraftTest {
     }
 
     @Test
+    fun `answer to an earlier equal echo keeps the edits after it in flight`() {
+        var draft = ChecklistTextDraft("x").edited("xa").edited("x").edited("xa")
+        listOf("xa", "x", "xa").forEach { value ->
+            draft = draft.published(value)
+            assertEquals("xa", draft.text)
+        }
+        assertEquals(emptyList(), draft.pending)
+    }
+
+    @Test
+    fun `repeated returns to the published text never flicker`() {
+        var draft = ChecklistTextDraft("").edited("a").edited("").edited("a").edited("")
+        listOf("a", "", "a", "").forEach { value ->
+            draft = draft.published(value)
+            assertEquals("", draft.text)
+        }
+    }
+
+    @Test
     fun `conflated publication acknowledges every older edit`() {
         var draft = ChecklistTextDraft("").edited("a").edited("ab").edited("abc")
         draft = draft.published("abc")

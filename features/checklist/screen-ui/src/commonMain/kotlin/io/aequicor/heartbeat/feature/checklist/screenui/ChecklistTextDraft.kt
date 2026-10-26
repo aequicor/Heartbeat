@@ -50,24 +50,19 @@ internal data class ChecklistTextDraft(
     /** The owner published [value]: acknowledges pending edits, consumes own echoes, otherwise adopts it when idle. */
     fun published(value: String): ChecklistTextDraft {
         if (value == published) return this
-        val acknowledged = pending.lastIndexOf(value)
-        val echo = echoes.indexOf(value)
-        return when {
-            acknowledged >= 0 -> {
-                // With equal edits the owner may have answered the earlier one: values between them can still come.
-                val earliest = pending.indexOf(value)
-                copy(
-                    published = value,
-                    pending = pending.drop(acknowledged + 1),
-                    echoes = pending.slice(earliest + 1 until acknowledged),
-                )
-            }
-
-            echo >= 0 -> copy(published = value, echoes = echoes.drop(echo + 1))
-
-            pending.isEmpty() -> ChecklistTextDraft(value)
-
-            else -> copy(published = value)
-        }
+        // Echoes were sent before every pending edit: together they are all edits the owner may still publish.
+        val sent = echoes + pending
+        val earliest = sent.indexOf(value)
+        if (earliest < 0) return if (pending.isEmpty()) ChecklistTextDraft(value) else copy(published = value)
+        val latest = sent.lastIndexOf(value)
+        // The owner answered one of the equal edits: those after the earliest may still arrive but need no answer,
+        // edits after the latest keep their role.
+        val answered = sent.slice(earliest + 1..latest)
+        val laterEchoes = (echoes.size - latest - 1).coerceAtLeast(0)
+        return copy(
+            published = value,
+            pending = pending.takeLast(sent.size - latest - 1 - laterEchoes),
+            echoes = (answered + echoes.takeLast(laterEchoes)).takeLast(MAX_REMEMBERED_EDITS),
+        )
     }
 }
