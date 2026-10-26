@@ -4,6 +4,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbButton
@@ -83,14 +88,7 @@ private fun ChecklistField(field: ChecklistFieldUi, enabled: Boolean, onIntent: 
             )
         }
         if (field.isText) {
-            HbTextField(
-                field.text,
-                { onIntent(ChecklistScreenIntent.Text(field.id, it)) },
-                modifier = Modifier.fillMaxWidth().testTag("checklist-text-${field.id}"),
-                enabled = enabled,
-                singleLine = false,
-                accessibleLabel = field.title,
-            )
+            ChecklistTextInput(field, enabled, onIntent)
         } else {
             val choicesModifier = Modifier.testTag("checklist-choices-${field.id}")
             HbColumn(
@@ -111,4 +109,29 @@ private fun ChecklistField(field: ChecklistFieldUi, enabled: Boolean, onIntent: 
             }
         }
     }
+}
+
+/**
+ * The owner commits drafts asynchronously (durable journal, remote panel), so the editor keeps its own text: each
+ * keystroke is shown at once and sent, while late or stale published drafts never replace newer typing.
+ * A closed card shows exactly the committed answer.
+ */
+@Composable
+private fun ChecklistTextInput(field: ChecklistFieldUi, enabled: Boolean, onIntent: (ChecklistScreenIntent) -> Unit) {
+    var draft by remember(field.id, enabled) { mutableStateOf(ChecklistTextDraft(field.text)) }
+    val shown = draft.published(field.text)
+    // Reconciles the applied draft, not this composition's copy: the editor's own effect (undo/redo) may have
+    // recorded an edit since this composition.
+    SideEffect { draft = draft.published(field.text) }
+    HbTextField(
+        if (enabled) shown.text else field.text,
+        {
+            draft = draft.edited(it)
+            onIntent(ChecklistScreenIntent.Text(field.id, it))
+        },
+        modifier = Modifier.fillMaxWidth().testTag("checklist-text-${field.id}"),
+        enabled = enabled,
+        singleLine = false,
+        accessibleLabel = field.title,
+    )
 }

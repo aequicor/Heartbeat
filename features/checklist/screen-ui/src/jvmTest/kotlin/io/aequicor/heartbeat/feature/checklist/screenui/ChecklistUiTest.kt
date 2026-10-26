@@ -20,6 +20,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -40,6 +41,8 @@ import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.checklist.screenmodel.ChecklistPhaseUi
 import io.aequicor.heartbeat.feature.checklist.screenmodel.ChecklistScreenIntent
+import io.aequicor.heartbeat.feature.checklist.screenmodel.predictDraft
+import kotlinx.collections.immutable.toImmutableList
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
@@ -101,6 +104,39 @@ class ChecklistUiTest {
         onNodeWithTag("checklist-choice-check-dark").assertIsNotEnabled()
         onNodeWithTag("checklist-text-text").assertIsNotEnabled()
         onNodeWithTag("checklist-complete").assertDoesNotExist()
+    }
+
+    @Test
+    fun `fast typing survives late and stale owner answers`() = runSkikoComposeUiTest {
+        val typed = "the quick brown fox"
+        val initial = checklistSample().let { sample ->
+            sample.copy(fields = sample.fields.map { if (it.isText) it.copy(text = "") else it }.toImmutableList())
+        }
+        var state by mutableStateOf(initial)
+        val pending = mutableListOf<ChecklistScreenIntent>()
+        setContent { HbTheme { ChecklistScreen(state, pending::add) } }
+        val field = onNodeWithTag("checklist-text-text")
+        // A slow owner (durable journal) answers nothing while keys arrive; frames still pass between keys.
+        typed.forEach { char ->
+            field.performTextInput(char.toString())
+            waitForIdle()
+        }
+        field.assertTextEquals(typed, includeEditableText = true)
+        // The owner then publishes its backlog in order, skipping some drafts.
+        val answers = pending.toList()
+        pending.clear()
+        val published = answers.runningFold(state) { owner, intent -> owner.predictDraft(intent) }.drop(1)
+        runOnIdle { state = published[2] }
+        field.assertTextEquals(typed, includeEditableText = true)
+        runOnIdle { state = published[10] }
+        runOnIdle { state = published.last() }
+        field.assertTextEquals(typed, includeEditableText = true)
+        assertEquals(ChecklistScreenIntent.Text("text", typed), answers.last())
+        assertEquals(typed, state.fields.first { it.isText }.text)
+        // Once answered, a change from another editor of the same card is shown, even if it repeats an older draft.
+        val elsewhere = typed.take(3)
+        runOnIdle { state = state.predictDraft(ChecklistScreenIntent.Text("text", elsewhere)) }
+        field.assertTextEquals(elsewhere, includeEditableText = true)
     }
 
     @Test

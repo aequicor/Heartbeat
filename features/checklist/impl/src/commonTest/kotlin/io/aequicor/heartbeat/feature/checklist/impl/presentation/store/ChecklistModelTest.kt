@@ -70,7 +70,35 @@ class ChecklistModelTest {
         assertTrue(completed.revision > draft.revision)
         assertEquals("Tested", completed.fields.single().text)
     }
+
+    @Test
+    fun `rapid text edits behind a slow machine complete with the final text`() = runTest {
+        val machine = FakeChecklistMachine(ChecklistState.Ready(ChecklistJournal(listOf(textCard()))))
+        val model = ChecklistModel(
+            machine,
+            ChecklistRoute("card"),
+            object : ChecklistAccess {
+                override suspend fun isEnabled() = true
+            },
+            TestScopeHandle(backgroundScope),
+            HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(testScheduler))),
+        )
+        val typed = "e2e comment"
+        typed.indices.forEach { model.intent(ChecklistScreenIntent.Text("text", typed.take(it + 1))) }
+        runCurrent()
+        machine.gate.complete(Unit)
+        val completed = model.dispatch(ChecklistScreenIntent.Complete)
+        assertEquals(ChecklistPhaseUi.Completed, completed.phase)
+        assertEquals(typed, completed.fields.single().text)
+        val card = (machine.state.value as ChecklistState.Ready).journal.cards.single()
+        assertEquals(typed, card.answers.getValue("text").text)
+    }
 }
+
+private fun textCard() = Checklist(
+    "card", SessionRef(EngineId("test"), SessionSourceId("profile"), "s"), RequestId("r"), TurnId("t"),
+    null, null, null, "Check", listOf(ChecklistField("text", "Notes", ChecklistInput.Text)),
+)
 
 private class FakeChecklistMachine(initial: ChecklistState) :
     Machine<ChecklistState, ChecklistIntent, ChecklistOutput> {
