@@ -45,6 +45,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.isHarnessSelectionRead
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.noticeDismissal
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedHarnesses
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withSentPrompts
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -328,7 +329,10 @@ private fun SettingsUi.forOrganism(organism: OrganismUi?): SettingsUi = if (orga
     copy(modelId = organism.modelId ?: modelId, approval = organism.approval ?: approval)
 }
 
-/** An organism chat shows the live transcript of its chosen sub-session instead of a stored one. */
+/**
+ * An organism chat shows the live transcript of its chosen sub-session instead of a stored one; a chat shows the
+ * messages sent to it before its transcript does.
+ */
 private fun AiStudioScreenState.transcriptOf(sessionId: String?, session: SessionUi?): ImmutableList<MessageUi>? =
     when {
         sessionId == null -> null
@@ -338,7 +342,7 @@ private fun AiStudioScreenState.transcriptOf(sessionId: String?, session: Sessio
 
         session?.isOrganism == true -> subTranscripts[sessionId] ?: persistentListOf()
 
-        else -> transcripts[sessionId]
+        else -> withSentPrompts(sessionId, transcripts[sessionId])
     }
 
 private fun AiStudioScreenState.paneSettings(session: SessionUi?, configuration: SessionConfigurationUi?): SettingsUi =

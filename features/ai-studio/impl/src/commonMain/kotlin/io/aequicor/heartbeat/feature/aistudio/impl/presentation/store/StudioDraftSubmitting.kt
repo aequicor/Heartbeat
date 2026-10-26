@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.acceptSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.compactedChat
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.endSentPrompts
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.finishDiagramSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isHarnessSelectionReady
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pendingSubmission
@@ -152,8 +153,11 @@ internal suspend fun handleStudioSubmissionOutput(
             }
         }
 
+        // The engine may never echo the prompt of a failed turn; its sent message leaves with the next transcript.
+        is AiStudioOutput.RunEnded -> updateState { endSentPrompts(output.sessionId) }
+
         // Delivery results of engine questions are handled by the question bridge.
-        is AiStudioOutput.PermissionAnswerFailed, is AiStudioOutput.RunEnded -> Unit
+        is AiStudioOutput.PermissionAnswerFailed -> Unit
     }
 }
 

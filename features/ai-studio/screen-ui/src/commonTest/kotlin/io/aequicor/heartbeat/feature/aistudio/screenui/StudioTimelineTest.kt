@@ -347,6 +347,30 @@ class StudioTimelineTest {
     }
 
     @Test
+    fun `an entry without its own time stays in the current day section`() {
+        val grouped = labels.copy(isGroupedByDate = true)
+        val plain = TimelineCache().update(listOf(prompt, reply("answer", isStreaming = true)), grouped)
+        val sent = MessageUi.Prompt("sent:a", prompt.createdAt, "Next", isTimestampKnown = false)
+        val withCopy = TimelineCache().update(listOf(prompt, sent, reply("answer", isStreaming = true)), grouped)
+        assertEquals(listOf("m1", "sent:a", "m2"), withCopy.messages.map { it.id })
+        // One more message and no extra day heading before the reply.
+        assertEquals(plain.itemCount + 1, withCopy.itemCount)
+    }
+
+    @Test
+    fun `a reply streamed after a sent prompt copy still replaces only the latest message`() {
+        val cache = TimelineCache()
+        val sent = MessageUi.Prompt("sent:a", prompt.createdAt, "Next", isTimestampKnown = false)
+        val started = cache.update(listOf(prompt, sent, reply("partial", isStreaming = true)), labels)
+        val streamed = cache.update(listOf(prompt, sent, reply("partial answer", isStreaming = true)), labels)
+        assertEquals(listOf("m1", "sent:a", "m2"), streamed.messages.map { it.id })
+        assertEquals("partial answer", streamed.messages.last().text)
+        // The copy and the earlier prompt are carried over, not rebuilt.
+        assertSame(started.messages[0], streamed.messages[0])
+        assertSame(started.messages[1], streamed.messages[1])
+    }
+
+    @Test
     fun `a transcript without messages shows only its worktree cards`() {
         val cache = TimelineCache()
         val grouped = labels.copy(isGroupedByDate = true)
