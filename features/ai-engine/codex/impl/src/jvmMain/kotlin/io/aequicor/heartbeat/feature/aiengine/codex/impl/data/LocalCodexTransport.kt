@@ -339,15 +339,16 @@ internal class ProcessCodexWire(
     }
 }
 
-/** Native diagnostics can contain paths or response bodies; never retain the native exception. */
-private fun Exception.sanitized(): EngineException = EngineException(
-    EngineFailure.Transport(
-        if (this is IOException) {
-            TransportFailureReason.ServiceUnavailable
-        } else {
-            TransportFailureReason.ProtocolViolation
-        },
-    ),
+/**
+ * Native diagnostics can contain paths or response bodies; never retain the native exception. A broken stdio pipe
+ * means the local app-server is gone, like its clean EOF: the engine crashed, the provider never answered.
+ */
+internal fun Exception.sanitized(): EngineException = EngineException(
+    if (this is IOException) {
+        EngineFailure.Engine(EngineFailureReason.Crashed)
+    } else {
+        EngineFailure.Transport(TransportFailureReason.ProtocolViolation)
+    },
 )
 
 /** Captures inherited entries as well as overrides; subsequent launches cannot drift with profile settings. */
