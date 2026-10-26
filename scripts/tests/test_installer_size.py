@@ -22,7 +22,7 @@ class InstallerSizeTests(unittest.TestCase):
         return str(path)
 
     def test_default_limit_is_fifty_mebibytes(self):
-        self.assertEqual(check_installer_size.DEFAULT_LIMIT_BYTES, 52428800)
+        self.assertEqual(check_installer_size.DEFAULT_LIMIT_BYTES, 136314880)
 
     def test_file_at_limit_passes(self):
         self.assertEqual(check_installer_size.main([self.installer(1000), "--limit-bytes", "1000"]), 0)

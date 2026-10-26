@@ -130,11 +130,7 @@ class BundleConventionPlugin : Plugin<Project> {
                         ids.split(',').map(String::trim).filter(String::isNotEmpty).associateWith { version }
                     },
                 )
-                jars.from(
-                    providers.gradleProperty(BASE_ARTIFACT_DIR_PROPERTY).map { dir ->
-                        root.fileTree(dir) { include("*.jar") }
-                    },
-                )
+                jars.from(root.baseArtifactJars())
             }
         }
         val affected = if (AFFECTED_TASK in root.tasks.names) {
@@ -201,3 +197,12 @@ class BundleConventionPlugin : Plugin<Project> {
         const val JAR_DIR_MODE = "rwxr-xr-x"
     }
 }
+
+/**
+ * Prebuilt base jars of `-Pheartbeat.baseArtifactDir=<dir>`; an absent property is an empty collection, because a
+ * provider without a value fails the resolution of the task graph of every build that does not pass it.
+ */
+internal fun Project.baseArtifactJars(): Provider<Any> =
+    providers.gradleProperty("heartbeat.baseArtifactDir")
+        .map<Any> { dir -> fileTree(dir) { include("*.jar") } }
+        .orElse(emptyList<Any>())
