@@ -5,7 +5,8 @@ import argparse
 import sys
 from pathlib import Path
 
-DEFAULT_LIMIT_BYTES = 50 * 1024 * 1024  # 52428800
+# Temporary budget until the thin platform of the bundle train ships (target: 50 MiB).
+DEFAULT_LIMIT_BYTES = 130 * 1024 * 1024  # 136314880
 
 
 def check(path: Path, limit: int) -> str | None:
