@@ -66,8 +66,11 @@ internal val CodexInventoryConfigKeys = setOf(
  * Any other key passes when it is unset (null or a non-empty table of unset values, as `config/read` serializes
  * absent optional fields; an explicitly declared `{}` or `[]` counts as set) or when its value deeply equals the
  * same key in [baseline]: the `config/read` result of the same executable in the probe's empty `CODEX_HOME`, so
- * defaults a new CLI build adds are not mistaken for user settings, while a changed or unknown user, project or
- * managed value still fails closed. `profile` passes only when unset, whatever the baseline. The names of
+ * defaults a new CLI build adds are not mistaken for user settings, while a user or project value that differs
+ * from the probe's view, or a key the probe does not report, still fails closed. Layers outside `CODEX_HOME`
+ * (system and managed configuration) apply to both processes, so an equal value there is reproduced by the
+ * probe rather than refused. The probe's own `-c` overrides touch only allowlisted keys, so the baseline never
+ * holds a value the probe forced. `profile` passes only when unset, whatever the baseline. The names of
  * refused top-level keys (never their values) are logged for support diagnostics: at WARN when the refused set
  * differs from the last one [refusals] reported, otherwise at VERBOSE, so a persistent configuration does not
  * repeat the warning on every protected preparation.

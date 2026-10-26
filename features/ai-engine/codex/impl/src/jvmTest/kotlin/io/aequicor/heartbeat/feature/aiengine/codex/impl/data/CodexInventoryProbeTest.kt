@@ -111,17 +111,19 @@ class CodexInventoryProbeTest {
             CodexModelCatalog.create(executable, dispatchers).use { catalog ->
                 val off = CodexNativeOff(isToolFree = true)
                 val base = target(off, FakeCodexInventoryCli.MODEL)
-                fun with(value: Boolean): CodexInventoryTarget {
-                    val setting = FakeCodexInventoryCli.DEFAULT_KEY to JsonPrimitive(value)
-                    return base.copy(effective = JsonObject(base.effective + setting))
-                }
+                fun withSetting(key: String, value: Boolean): CodexInventoryTarget =
+                    base.copy(effective = JsonObject(base.effective + (key to JsonPrimitive(value))))
+                fun with(value: Boolean): CodexInventoryTarget = withSetting(FakeCodexInventoryCli.DEFAULT_KEY, value)
                 val identity = codexExecutableIdentity(executable)
-                val error = assertFailsWith<EngineException> {
-                    CodexInventoryProbe(dispatchers, catalog).verify(executable, identity, with(false), off)
+                // A changed default, a key the clean home does not report and an active profile are all refused.
+                listOf(with(false), withSetting("unknown_future_key", true), withSetting("profile", true)).forEach {
+                    val error = assertFailsWith<EngineException> {
+                        CodexInventoryProbe(dispatchers, catalog).verify(executable, identity, it, off)
+                    }
+                    assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), error.failure)
+                    // Refused before the probe's own thread, so nothing reached thread/start.
+                    assertFalse(Files.exists(record))
                 }
-                assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), error.failure)
-                // Refused before the probe's own thread, so nothing reached thread/start.
-                assertFalse(Files.exists(record))
                 CodexInventoryProbe(dispatchers, catalog).verify(executable, identity, with(true), off)
                 assertTrue(Files.exists(record))
             }

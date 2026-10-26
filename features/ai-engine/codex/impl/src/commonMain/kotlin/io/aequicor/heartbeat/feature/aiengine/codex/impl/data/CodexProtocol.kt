@@ -26,7 +26,9 @@ internal interface CodexWire : AutoCloseable {
 
     /**
      * Protected execution needs a fresh offline inventory of this executable and the working thread's surface.
-     * Only the desktop transport can run the probe; every other transport fails closed.
+     * Only the desktop transport can run the probe; every other transport fails closed. An implementation must
+     * also refuse [CodexInventoryTarget.effective] with [requireCodexInventoryConfig] against the same executable's
+     * clean-home `config/read`, before any thread starts: the caller no longer checks the working config itself.
      */
     suspend fun verifyInventory(target: CodexInventoryTarget, off: CodexNativeOff): Unit = unsupported()
 
