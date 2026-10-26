@@ -495,6 +495,8 @@ internal class ClaudeSession(
     }
 
     private suspend fun receive(observer: ClaudeTurnObserver, line: String) {
+        // A stop was requested: output the CLI had already written belongs to the cancelled turn and is dropped.
+        if (cancelledTurn == observer.turn.id) return
         val message = parseClaudeObject(line)
         tree.receive(message, observer.turn.id)
         observer.receive(message)
@@ -652,11 +654,16 @@ internal class ClaudeSession(
         environment.catalog.save(record)
     }
 
+    /**
+     * Stops the native process of [turn]. A submitted turn is cancellable before its first stream-json event: the
+     * CLI may work for the whole turn without one, and the facade already treats the submission as running.
+     */
     private suspend fun cancel(turn: TurnId, lease: Lease) = commands.withLock {
         lease.ensureAttached()
         ensureOpen()
         val pending = synchronized(lock) {
             val active = when (val state = current) {
+                is ActiveSessionState.Submitting -> state.turn
                 is ActiveSessionState.Running -> state.turn
                 is ActiveSessionState.AwaitingUserAction -> state.turn
                 is ActiveSessionState.Interrupting -> state.turn
