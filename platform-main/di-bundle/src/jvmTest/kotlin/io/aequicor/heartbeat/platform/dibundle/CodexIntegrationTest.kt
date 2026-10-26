@@ -13,7 +13,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
-import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -45,7 +44,8 @@ class CodexIntegrationTest {
     @Test
     fun `profile contributes lazy Codex registration and disabled gate prevents CLI startup`() = runTest {
         val profile = app.profileSessions.open(ProfileId("codex-test"))
-        val registration = (profile.graph as CodexTestAccessors).engines.single { it.descriptor.id == CodexEngine.Id }
+        val registrations = (profile.graph as CodexTestAccessors).registeredEngines.all
+        val registration = registrations.single { it.descriptor.id == CodexEngine.Id }
         assertEquals(CodexEngine.AuthOwner, registration.authOwner)
         assertTrue(CodexEngine.Enabled in (app as TestToggleAccessors).toggleControl.registered)
         val error = assertFailsWith<EngineException> {
@@ -64,5 +64,5 @@ class CodexIntegrationTest {
 
 @ContributesTo(ProfileScope::class)
 interface CodexTestAccessors {
-    val engines: Set<EngineRegistration>
+    val registeredEngines: RegisteredEngines
 }

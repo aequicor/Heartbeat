@@ -1,0 +1,154 @@
+name: Prerelease train
+
+# Every push to master that touches a desktop bundle publishes a bundle train as a GitHub pre-release `train-t<sha12>`
+# with `train-manifest.json` and the jars that changed since the previous train (features/app-update reads it on the
+# opt-in beta channel, toggle app_update.beta). Linux only, no installers: affectedBundles picks the bundles the
+# push changes, their tests gate the train, the Gradle build cache keeps the rest cheap (target: 20 minutes).
+# A push that changes no bundle (docs, CI, scripts) publishes nothing. release.yml promotes the train of its commit.
+run-name: "Prerelease train ${{ github.sha }}"
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Trains are diffed against the previous one: publish them in order, never cancel a running publication.
+  # GitHub still replaces a pending run by a newer one, so the affected bundles are diffed against the commit of the
+  # latest published train, not against the push: a skipped push's bundles are tested by the next run.
+  group: heartbeat-prerelease
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the train
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      publish: ${{ steps.affected.outputs.publish }}
+      train: ${{ steps.affected.outputs.train }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: microsoft
+          java-version: '17'
+      - uses: actions/setup-java@v6
+        with:
+          distribution: jetbrains
+          java-version: '21'
+      - uses: ./.github/actions/gradle-cache
+        with:
+          stage: prerelease
+          save-portable: 'true'
+          upstream: prerelease
+      - name: Find the affected bundles
+        id: affected
+        env:
+          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          train="t${GITHUB_SHA:0:12}"
+          echo "train=$train" >> "$GITHUB_OUTPUT"
+          # Base: the commit of the latest published train (its id is t<sha12> of that commit), so pushes whose runs
+          # were skipped or failed are diffed too; the push's own `before` only when there is no such ancestor.
+          last=$(gh release list --limit 100 --json tagName,isDraft \
+            --jq '[.[] | select(.isDraft | not) | select(.tagName | test("^train-t[0-9a-f]{12}$"))][0].tagName // ""')
+          base=""
+          if [ -n "$last" ]; then
+            base=$(git rev-parse --verify --quiet "${last#train-t}^{commit}" || true)
+            if [ -n "$base" ] && ! git merge-base --is-ancestor "$base" "$GITHUB_SHA"; then
+              base=""
+            fi
+          fi
+          if [ -z "$base" ] && ! [[ $BEFORE =~ ^0+$ ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            base=$BEFORE
+          fi
+          if [ -z "$base" ]; then
+            echo build.gradle.kts > changed.txt   # unknown base: treat the build itself as changed
+          else
+            echo "Diff base: $base (latest train: ${last:-none})"
+            git diff --name-only "$base" "$GITHUB_SHA" > changed.txt
+          fi
+          ./gradlew -Pheartbeat.changedFile=changed.txt affectedBundles --no-daemon --stacktrace
+          cat build/bundles/affected.txt
+          if [ -s build/bundles/affected.txt ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "No bundle is affected: nothing to publish" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Test the affected bundles
+        if: steps.affected.outputs.publish == 'true'
+        run: |
+          tasks=()
+          while read -r bundle; do
+            [ -n "$bundle" ] && tasks+=("$bundle:jvmTest")
+          done < build/bundles/affected.txt
+          env -u LD_LIBRARY_PATH xvfb-run --auto-servernum ./gradlew "${tasks[@]}" verifyBundleMembership \
+            -Porg.gradle.java.installations.auto-detect=false \
+            -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64 \
+            --no-daemon --continue --stacktrace --profile
+      - uses: ./.github/actions/bundle-train
+        if: steps.affected.outputs.publish == 'true'
+        with:
+          train: ${{ steps.affected.outputs.train }}
+          base-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/train-${{ steps.affected.outputs.train }}/
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@v7
+        if: steps.affected.outputs.publish == 'true'
+        with:
+          name: train
+          path: train-out/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Gradle timing and test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gradle-reports-prerelease
+          path: |
+            build/reports/profile/
+            **/build/test-results/**/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    name: Publish the pre-release
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: train
+          path: train-out
+      - name: Publish the train
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TRAIN: ${{ needs.build.outputs.train }}
+        run: |
+          tag="train-$TRAIN"
+          # A re-run continues a draft left by a failed run; a published train is never replaced.
+          if gh release view "$tag" --json isDraft --jq .isDraft > draft 2>/dev/null; then
+            if [ "$(cat draft)" != true ]; then
+              echo "Train $tag is already published"
+              exit 0
+            fi
+            gh release upload "$tag" train-out/* --clobber
+          else
+            gh release create "$tag" train-out/* --draft --prerelease --target "$GITHUB_SHA" \
+              --title "Train $TRAIN" --notes "Bundle train for $GITHUB_SHA (beta channel, app_update.beta)."
+          fi
+          # Public only with every asset: the manifest is what makes the release a train.
+          gh release edit "$tag" --draft=false --prerelease --latest=false

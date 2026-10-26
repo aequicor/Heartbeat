@@ -34,7 +34,9 @@ internal interface UpdateInstaller {
 
     /**
      * Downloads and verifies [release], prepares it and starts the installer that waits for this process to end,
-     * replaces the app and starts the new version. Returns once the installer is waiting; the app must then quit.
+     * replaces the app and starts the new version. A bundle train is queued for the platform launcher instead, and the
+     * helper only starts the launcher again, which applies it. Returns once the helper is waiting; the app must then
+     * quit.
      * Fails with [AppUpdateException] and leaves the installed app unchanged.
      */
     suspend fun install(installation: AppInstallation, release: AppRelease, progress: InstallProgressSink)

@@ -88,7 +88,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnginePreferences
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
@@ -125,8 +124,7 @@ interface AiEngineTestAccessors {
     val scheduledSessionHosts: Set<ScheduledSessionHost>
     val localWorkspaces: LocalWorkspaces
     val modelSelections: ModelSelections
-    val engineRegistrations: Set<EngineRegistration>
-    val enginePreferences: EnginePreferences
+    val registeredEngines: RegisteredEngines
     val engineManagement: EngineManagement
 }
 
@@ -447,7 +445,12 @@ class AiEngineFacadeIntegrationTest {
         val catalog = accessors.engineFacade.engines.state
         catalog.first { list -> list.any { it.descriptor.id == TestAdapter.engine } }
 
-        accessors.enginePreferences.update { it.copy(disabled = setOf(TestAdapter.engine)) }
+        toggles.toggleControl.setOverride(EngineManagementEnabled, true)
+        accessors.engineManagement.state.first { state -> state.engines.any { it.descriptor.id == TestAdapter.engine } }
+        accessors.engineManagement.execute(TestAdapter.engine, EngineCommand.SetEnabled(false))
+        catalog.first { list -> list.none { it.descriptor.id == TestAdapter.engine } }
+        toggles.toggleControl.setOverride(EngineManagementEnabled, false)
+        catalog.first { list -> list.any { it.descriptor.id == TestAdapter.engine } }
         assertTrue(catalog.value.any { it.descriptor.id == TestAdapter.engine }, "ignored while management is off")
 
         toggles.toggleControl.setOverride(EngineManagementEnabled, true)
@@ -455,7 +458,7 @@ class AiEngineFacadeIntegrationTest {
         val refused = assertFailsWith<EngineException> { accessors.engineFacade.engines.refresh(TestAdapter.engine) }
         assertEquals(EngineFailure.Engine(EngineFailureReason.Unavailable), refused.failure)
 
-        accessors.enginePreferences.update { it.copy(disabled = emptySet()) }
+        accessors.engineManagement.execute(TestAdapter.engine, EngineCommand.SetEnabled(true))
         catalog.first { list -> list.any { it.descriptor.id == TestAdapter.engine } }
     }
 
@@ -468,7 +471,7 @@ class AiEngineFacadeIntegrationTest {
         val accessors = app.profileSessions.open(ProfileId("management")).graph as AiEngineTestAccessors
         val management = accessors.engineManagement
         val listed = management.state.first { state -> state.engines.any { it.descriptor.id == TestAdapter.engine } }
-        assertEquals(accessors.engineRegistrations.size, listed.engines.size)
+        assertEquals(accessors.registeredEngines.all.size, listed.engines.size)
 
         management.execute(TestAdapter.engine, EngineCommand.SetEnabled(false))
 
@@ -482,7 +485,7 @@ class AiEngineFacadeIntegrationTest {
     @Test
     fun everyNonVendorEngineAcceptsCompatibleProviders() = runTest {
         val accessors = app.profileSessions.open(ProfileId("compatible")).graph as AiEngineTestAccessors
-        val nonVendor = accessors.engineRegistrations.map { it.descriptor }
+        val nonVendor = accessors.registeredEngines.all.map { it.descriptor }
             .filter { it.family.hasCompatibleProviders }
         assertTrue(nonVendor.isNotEmpty())
         nonVendor.forEach { descriptor ->

@@ -30,6 +30,23 @@ internal object WindowsSetupUpdate {
             "$installLog",
         )
 
+    /** The helper command that only starts [launcher] again after process [pid] quits: a train replaces nothing. */
+    fun relaunchCommand(script: Path, pid: Long, launcher: Path): List<String> = listOf(
+        powerShell(),
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Hidden",
+        "-File",
+        "$script",
+        "-ProcessId",
+        "$pid",
+        "-App",
+        "$launcher",
+    )
+
     /** Windows PowerShell by its system path, so that no `powershell.exe` earlier on PATH runs instead. */
     private fun powerShell(): String = System.getenv("SystemRoot")
         ?.let { Path.of(it, "System32", "WindowsPowerShell", "v1.0", "powershell.exe").toString() }

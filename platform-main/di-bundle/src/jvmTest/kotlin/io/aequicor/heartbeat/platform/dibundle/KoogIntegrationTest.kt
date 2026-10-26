@@ -55,7 +55,8 @@ class KoogIntegrationTest {
         assertTrue(KoogEngineEnabled in toggle.toggleControl.registered)
         val id = ProfileId("koog-integration")
         val first = app.profileSessions.open(id).graph as KoogAccessors
-        val registration = first.engineRegistrations.single { it.descriptor.id == KoogEngineId }
+        val registrations = (first as RegisteredEnginesAccess).registeredEngines.all
+        val registration = registrations.single { it.descriptor.id == KoogEngineId }
         val source = AuthSource.NoAuth(
             AuthSourceInfo(AuthSourceId("local"), "Ollama", AuthRevision.Known("1")),
             AuthScope(KoogProvider.Ollama.id, KoogProvider.Ollama.origin),
@@ -72,7 +73,8 @@ class KoogIntegrationTest {
         app.profileSessions.open(ProfileId("other"))
         val second = app.profileSessions.open(id).graph as KoogAccessors
         assertEquals(listOf(connection), second.koogConnections.list())
-        val reopened = second.engineRegistrations.single { it.descriptor.id == KoogEngineId }
+        val reopened = (second as RegisteredEnginesAccess).registeredEngines.all
+            .single { it.descriptor.id == KoogEngineId }
         val stored = reopened.sessionSources.single().get(session.ref)
         val history = (stored.features.resolve(SessionHistory) as FeatureAccess.Available).feature
         assertEquals(emptyList(), history.page().items)

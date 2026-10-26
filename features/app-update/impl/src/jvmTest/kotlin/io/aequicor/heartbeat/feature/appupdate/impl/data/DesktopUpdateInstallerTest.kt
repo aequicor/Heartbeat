@@ -1,11 +1,16 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import io.aequicor.heartbeat.core.common.release.GitHubRelease
 import io.aequicor.heartbeat.core.network.release.ReleaseDownload
+import io.aequicor.heartbeat.core.network.release.ReleaseException
+import io.aequicor.heartbeat.core.network.release.ReleaseFailure
+import io.aequicor.heartbeat.core.network.release.ReleaseSource
 import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppInstallation
+import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateException
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.InstallProgressSink
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.PreviousAttempt
@@ -17,10 +22,13 @@ import java.nio.file.Path
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.deleteRecursively
+import kotlin.io.path.exists
 import kotlin.io.path.readBytes
+import kotlin.io.path.readText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalPathApi::class)
@@ -28,7 +36,18 @@ class DesktopUpdateInstallerTest {
     private val root = createTempDirectory("app-update-installer")
     private val workspace = UpdateWorkspace(root.resolve("updates"))
     private val repository = GitHubRepository("aequicor", "Heartbeat")
+    private val launcherRoot = root.resolve("launcher")
+    private val trainOffer = AppRelease(
+        "t2",
+        "train-manifest.json",
+        "$TRAIN_DOWNLOADS/train-t2/train-manifest.json",
+        "",
+        null,
+        "",
+        train = "t2",
+    )
     private val started = mutableListOf<List<String>>()
+    private val helperLogs = mutableListOf<Path>()
     private var requests = 0
 
     @AfterTest
@@ -147,6 +166,75 @@ class DesktopUpdateInstallerTest {
     }
 
     @Test
+    fun `a queued train relaunches the same app bundle once the app quits`() = runTest {
+        val installed = fakeBundle(Files.createDirectories(root.resolve("Applications")), "1.3.0")
+
+        trainInstaller(installed.resolve("Contents/MacOS/Heartbeat"))
+            .install(installation(ReleasePlatform.MacOsArm64), trainOffer, recording(mutableListOf()))
+
+        assertTrue(Files.isRegularFile(launcherRoot.resolve("pending/t2/manifest.json")))
+        val command = started.single()
+        assertEquals(listOf("/bin/sh", "-c"), command.take(2))
+        assertEquals(listOf("heartbeat-relaunch", "$PROCESS_ID", "$installed", "/usr/bin/open"), command.drop(3))
+        // The relaunch logs next to its directory, which the next launch removes: helper.log does not grow.
+        assertEquals(root.resolve("updates/relaunch/relaunch.log"), helperLogs.single())
+        if (!isWindowsHost) {
+            val opened = root.resolve("opened")
+            val stubs = root.resolve("stubs")
+            val ended = command.mapIndexed { index, part ->
+                when (index) {
+                    4 -> "${endedProcessId()}"
+                    6 -> "${stubs.resolve("open")}"
+                    else -> part
+                }
+            }
+            assertEquals(0, runHelper(ended, stubs, opened))
+            assertEquals("$installed", opened.readText().trim())
+        }
+        // No installer runs: the next launch must not report an attempt of a version that never changes.
+        assertEquals(PreviousAttempt.None, workspace.takeOutcome(AppVersion(1, 3, 0)))
+        assertFalse(root.resolve("updates/relaunch").exists())
+        assertFalse(root.resolve("updates/helper.log").exists())
+    }
+
+    @Test
+    fun `a relaunch helper that cannot start still leaves the train queued`() = runTest {
+        val installed = fakeBundle(Files.createDirectories(root.resolve("Applications")), "1.3.0")
+
+        // Completes normally: the app quits and the user's next start applies the queued train.
+        trainInstaller(installed.resolve("Contents/MacOS/Heartbeat"), failHelper = true)
+            .install(installation(ReleasePlatform.MacOsArm64), trainOffer, recording(mutableListOf()))
+
+        assertTrue(Files.isRegularFile(launcherRoot.resolve("pending/t2/manifest.json")))
+        assertEquals(1, started.size)
+    }
+
+    @Test
+    fun `a launch without a known launcher queues the train without a relaunch`() = runTest {
+        trainInstaller(launcher = null)
+            .install(installation(ReleasePlatform.WindowsX64), trainOffer, recording(mutableListOf()))
+
+        assertTrue(Files.isRegularFile(launcherRoot.resolve("pending/t2/manifest.json")))
+        assertTrue(started.isEmpty())
+    }
+
+    @Test
+    fun `on Windows a queued train relaunches the launcher without an installer`() = runTest {
+        val launcher = root.resolve("Heartbeat/Heartbeat.exe")
+
+        trainInstaller(launcher)
+            .install(installation(ReleasePlatform.WindowsX64), trainOffer, recording(mutableListOf()))
+
+        val script = root.resolve("updates/relaunch/apply-windows.ps1")
+        assertEquals(
+            listOf("-File", "$script", "-ProcessId", "$PROCESS_ID", "-App", "$launcher"),
+            started.single().dropWhile { it != "-File" },
+        )
+        assertTrue(Files.isRegularFile(script))
+        assertTrue(Files.isRegularFile(launcherRoot.resolve("pending/t2/manifest.json")))
+    }
+
+    @Test
     fun `the outcome of an earlier attempt is read once per launch`() = runTest {
         workspace.releaseDirectory("1.4.0")
         workspace.markStarted("1.4.0")
@@ -158,9 +246,8 @@ class DesktopUpdateInstallerTest {
         assertEquals(PreviousAttempt.None, workspace.takeOutcome(AppVersion(1, 3, 0)))
     }
 
-    private fun installer(file: Path, launcher: Path) = DesktopUpdateInstaller(
-        workspace = workspace,
-        downloader = UpdateDownloader(
+    private fun installer(file: Path, launcher: Path): DesktopUpdateInstaller {
+        val downloader = UpdateDownloader(
             object : VerifiedReleaseDownloader {
                 override suspend fun download(
                     request: ReleaseDownload,
@@ -173,13 +260,60 @@ class DesktopUpdateInstallerTest {
                 }
             },
             TestDispatchers,
-        ),
-        mac = MacBundleUpdate(CommandRunner(TestDispatchers)),
-        launch = LaunchProperties(mapOf("jpackage.app-path" to "$launcher")::get),
-        io = Dispatchers.IO,
-        processId = { PROCESS_ID },
-        startHelper = { command, _ -> started += command },
-    )
+        )
+        return installer(downloader, launcher)
+    }
+
+    /**
+     * An installer whose train `t2` has every jar in the store already: nothing is downloaded. [failHelper] makes the
+     * relaunch helper fail to start.
+     */
+    private fun trainInstaller(launcher: Path?, failHelper: Boolean = false): DesktopUpdateInstaller {
+        val jar = "core-bytes".toByteArray()
+        Files.createDirectories(launcherRoot.resolve("store"))
+        Files.write(storeJar(launcherRoot, sha256(jar)), jar)
+        val list = "https://api.github.com/repos/aequicor/Heartbeat/releases?per_page=30"
+        val publications = releaseJson("train-t2", listOf("train-manifest.json" to 10L, "core.jar" to 10L))
+        val source = object : ReleaseSource {
+            override suspend fun latestGitHubRelease(owner: String, repository: String): GitHubRelease =
+                throw ReleaseException(ReleaseFailure.Network)
+
+            override suspend fun document(url: String, allowedHosts: Set<String>, maxBytes: Int): String = when (url) {
+                list -> "[$publications]"
+                trainOffer.url -> manifestJson("t2", listOf("core.jar" to sha256(jar)))
+                else -> throw ReleaseException(ReleaseFailure.Http, 404)
+            }
+        }
+        return installer(UpdateDownloader(NoDownloads, TestDispatchers), launcher, source, failHelper)
+    }
+
+    private fun installer(
+        downloader: UpdateDownloader,
+        launcher: Path?,
+        trainSource: ReleaseSource = NoReleases,
+        failHelper: Boolean = false,
+    ): DesktopUpdateInstaller {
+        val properties = listOfNotNull(
+            launcher?.let { "jpackage.app-path" to "$it" },
+            "heartbeat.launcher.root" to "$launcherRoot",
+        ).toMap()
+        return DesktopUpdateInstaller(
+            workspace = workspace,
+            downloader = downloader,
+            mac = MacBundleUpdate(CommandRunner(TestDispatchers)),
+            trains = TrainUpdate(GitHubReleaseClient(trainSource), downloader, Dispatchers.IO),
+            io = Dispatchers.IO,
+            host = InstallerLaunch(
+                properties = LaunchProperties(properties::get),
+                startHelper = { command, output ->
+                    started += command
+                    helperLogs.add(output)
+                    if (failHelper) throw AppUpdateException(AppUpdateFailure.InstallFailed, "helper did not start")
+                },
+                processId = { PROCESS_ID },
+            ),
+        )
+    }
 
     private fun installation(platform: ReleasePlatform) = AppInstallation(AppVersion(1, 3, 0), repository, platform)
 
@@ -211,7 +345,13 @@ class DesktopUpdateInstallerTest {
         return root.resolve("release-$version.dmg").also { diskImage(source, it) }
     }
 
+    private object NoDownloads : VerifiedReleaseDownloader {
+        override suspend fun download(request: ReleaseDownload, target: Path, progress: suspend (Long, Long?) -> Unit) =
+            error("nothing must be downloaded")
+    }
+
     private companion object {
         const val PROCESS_ID = 4242L
+        val isWindowsHost = System.getProperty("os.name").orEmpty().startsWith("Windows")
     }
 }

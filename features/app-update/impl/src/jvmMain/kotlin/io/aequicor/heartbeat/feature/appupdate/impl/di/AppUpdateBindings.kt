@@ -12,8 +12,10 @@ import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateBetaChannel
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateEnabled
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateMachineSpec
@@ -23,12 +25,16 @@ import io.aequicor.heartbeat.feature.appupdate.impl.data.AppReleases
 import io.aequicor.heartbeat.feature.appupdate.impl.data.CommandRunner
 import io.aequicor.heartbeat.feature.appupdate.impl.data.DesktopInstallationProbe
 import io.aequicor.heartbeat.feature.appupdate.impl.data.DesktopUpdateInstaller
+import io.aequicor.heartbeat.feature.appupdate.impl.data.GitHubReleaseClient
+import io.aequicor.heartbeat.feature.appupdate.impl.data.InstallerLaunch
 import io.aequicor.heartbeat.feature.appupdate.impl.data.LaunchProperties
 import io.aequicor.heartbeat.feature.appupdate.impl.data.MacBundleUpdate
+import io.aequicor.heartbeat.feature.appupdate.impl.data.TrainUpdate
 import io.aequicor.heartbeat.feature.appupdate.impl.data.UpdateDownloader
 import io.aequicor.heartbeat.feature.appupdate.impl.data.UpdateWorkspace
 import io.aequicor.heartbeat.feature.appupdate.impl.data.updatesRoot
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateEffects
+import io.aequicor.heartbeat.feature.appupdate.impl.domain.UpdateChannel
 
 /**
  * The update machine lives for the whole desktop launch (app scope). Only the desktop graph has it: mobile apps are
@@ -50,7 +56,10 @@ public object AppUpdateBindings {
         probe: DesktopInstallationProbe,
         releases: AppReleases,
         installer: DesktopUpdateInstaller,
-    ): AppUpdateEffects = AppUpdateEffects(probe, releases, installer)
+        toggles: FeatureToggles,
+    ): AppUpdateEffects = AppUpdateEffects(probe, releases, installer) {
+        if (toggles.get(AppUpdateBetaChannel)) UpdateChannel.Beta else UpdateChannel.Stable
+    }
 
     /** What the jpackage launcher states about this launch. */
     @Provides
@@ -64,6 +73,7 @@ public object AppUpdateBindings {
         storage: StorageRoot,
         downloader: UpdateDownloader,
         mac: MacBundleUpdate,
+        client: GitHubReleaseClient,
         commands: CommandRunner,
         launch: LaunchProperties,
         dispatchers: DispatcherProvider,
@@ -71,9 +81,9 @@ public object AppUpdateBindings {
         workspace = UpdateWorkspace(updatesRoot(platform.host, storage)),
         downloader = downloader,
         mac = mac,
-        launch = launch,
+        trains = TrainUpdate(client, downloader, dispatchers.io),
         io = dispatchers.io,
-        startHelper = commands::startDetached,
+        host = InstallerLaunch(properties = launch, startHelper = commands::startDetached),
     )
 }
 
@@ -85,4 +95,9 @@ public object AppUpdateToggleBindings {
     @Provides
     @IntoSet
     public fun appUpdate(): FeatureToggle<*> = AppUpdateEnabled
+
+    /** The beta update channel switch. */
+    @Provides
+    @IntoSet
+    public fun appUpdateBeta(): FeatureToggle<*> = AppUpdateBetaChannel
 }

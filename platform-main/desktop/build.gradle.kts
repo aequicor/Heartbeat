@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
 import io.aequicor.heartbeat.buildlogic.WriteComponentMetadata
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
+import org.jetbrains.compose.desktop.application.tasks.AbstractJLinkTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractProguardTask
@@ -23,6 +24,12 @@ plugins {
 
 dependencies {
     implementation(projects.platformMain.shared)
+    // Desktop bundles are discovered at runtime (ServiceLoader), so they only need to be on the runtime class path.
+    runtimeOnly(projects.bundles.agentRuntime)
+    runtimeOnly(projects.bundles.engines)
+    runtimeOnly(projects.bundles.shell)
+    runtimeOnly(projects.bundles.studio)
+    runtimeOnly(projects.bundles.web)
     implementation(projects.designSystem.tokens)
     implementation(projects.designSystem.theme)
     implementation(projects.designSystem.components)
@@ -84,6 +91,9 @@ val heartbeatUpdateRepository = providers.gradleProperty("heartbeat.updateReposi
 tasks.withType<Test>().configureEach {
     // Match launchHeartbeat's owned-window layers, including tests that do not enter main().
     systemProperties(heartbeatJcef.renderingProperties)
+    // BundleKeepRulesTest compares the release keep rules with the binding interfaces of core:bundles:api.
+    inputs.file("compose-desktop.pro").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(rootProject.file("core/bundles/api/src")).withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // SHA-256 of each Pi release asset for the version pinned as `pi` in gradle/libs.versions.toml.
@@ -361,6 +371,10 @@ afterEvaluate {
     }
     tasks.withType<AbstractCheckNativeDistributionRuntime>().configureEach {
         jdkHome.set(desktopJavaHome)
+    }
+    tasks.withType<AbstractJLinkTask>().configureEach {
+        // Compose strips debug info but leaves the runtime image uncompressed; the installer is capped at 50 MB.
+        freeArgs.add("--compress=zip-9")
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
         if (targetFormat == TargetFormat.Dmg) {

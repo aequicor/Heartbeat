@@ -1,0 +1,72 @@
+name: Bundle train
+description: >-
+  Assemble the desktop bundles and write train-manifest.json with only the jars that changed since the previous
+  train; every bundle carries the absolute url of the release that holds its jar.
+inputs:
+  train:
+    description: Train id (a plain name; the tag is train-<id>).
+    required: true
+  out:
+    description: Directory for train-manifest.json and the changed jars.
+    default: train-out
+  base-url:
+    description: >-
+      Download URL of the release that publishes this train, ending with '/'
+      (https://github.com/<repo>/releases/download/<tag>/): the url of every jar the train carries itself.
+    required: true
+  github-token:
+    description: Token that reads the previous train release.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Find the previous train
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REPO: ${{ github.repository }}
+        TRAIN: ${{ inputs.train }}
+      # No previous train is the only reason to go on without one: a failing gh call or a published train
+      # without its manifest stops the build instead of silently republishing every jar.
+      run: |
+        rm -rf train-previous
+        mkdir -p train-previous
+        # The same tag filter as prerelease.yml: only train-t<sha12> pre-releases are trains.
+        is_train='test("^train-t[0-9a-f]{12}$")'
+        tag=$(gh release list --limit 100 --json tagName,isDraft \
+          --jq "[.[] | select(.isDraft | not) | select(.tagName | $is_train) | select(.tagName != \"train-$TRAIN\")][0].tagName // \"\"")
+        if [ -n "$tag" ]; then
+          gh release download "$tag" --pattern train-manifest.json --dir train-previous
+          echo "Previous train: $tag"
+        else
+          echo "No previous train: every jar is published"
+        fi
+        ls train-previous
+    - name: Assemble the bundles
+      shell: bash
+      env:
+        TRAIN: ${{ inputs.train }}
+      # The jar name carries the train id; the build cache makes unchanged bundles cache hits, and
+      # train_manifest.py maps their identical jars back to the version of the train that first published them.
+      run: |
+        ./gradlew -Pheartbeat.bundleVersion="$TRAIN" \
+          -Porg.gradle.java.installations.auto-detect=false \
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64 \
+          assembleBundle bundleManifest --no-daemon --stacktrace --profile
+    - name: Write the train
+      shell: bash
+      env:
+        TRAIN: ${{ inputs.train }}
+        OUT: ${{ inputs.out }}
+        BASE_URL: ${{ inputs.base-url }}
+      run: |
+        rm -rf train-jars "$OUT"
+        mkdir train-jars
+        cp bundles/*/build/bundle/*.jar train-jars/
+        previous=()
+        if [ -f train-previous/train-manifest.json ]; then
+          previous=(--previous train-previous/train-manifest.json)
+        fi
+        python3 scripts/train_manifest.py --built build/bundles/manifest.json --jars train-jars \
+          "${previous[@]}" --train "$TRAIN" --base-url "$BASE_URL" --out "$OUT"
+        cat "$OUT/train-manifest.json"
