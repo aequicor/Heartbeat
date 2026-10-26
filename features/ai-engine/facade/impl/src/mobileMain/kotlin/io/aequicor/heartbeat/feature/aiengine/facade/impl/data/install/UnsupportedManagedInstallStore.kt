@@ -16,9 +16,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Hosts that cannot run downloaded executables (Android, iOS). Mobile only: a common fallback ranked below the Desktop
- * store would be the binding a profile graph extension re-resolves on Desktop (unscoped, so the extension instantiates
- * it itself), and every install of Heartbeat's own CLI copy would fail as unsupported.
+ * Hosts that cannot run downloaded executables (Android, iOS). Mobile only, so Desktop has exactly one binding: as a
+ * common fallback ranked below the Desktop store it was picked by the profile graph of the `engines` bundle, and every
+ * install of Heartbeat's own CLI copy failed as unsupported (guarded by `EnginesBundleWiringTest`).
  */
 @Inject
 @ContributesBinding(AppScope::class)

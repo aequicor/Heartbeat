@@ -139,7 +139,7 @@ class EnginesBundleWiringTest {
 
     @Test
     fun `the profile gets the facade and the adapters of the bundle`() = runTest {
-        val graph = app.profileSessions.open(io.aequicor.heartbeat.core.profilefacade.ProfileId("engines-wiring")).graph
+        val graph = app.profileSessions.open(ProfileId("engines-wiring")).graph
         val engines = (graph as RegisteredEnginesAccess).registeredEngines.all.map { it.descriptor.id.value }
         assertTrue(engines.isNotEmpty(), "the adapters of the bundle must reach the profile")
     }
@@ -149,8 +149,8 @@ class EnginesBundleWiringTest {
         val graph = app.profileSessions.open(ProfileId("engines-install")).graph
         val management = (graph as AiEngineTestAccessors).engineManagement
         val stores = dependenciesOfType(management, MANAGED_INSTALL_STORE).map { it.javaClass.name }
-        // Metro re-resolved the unscoped mobile fallback (priority 0) inside the profile graph of the bundle instead
-        // of the app-level desktop store (priority 1): every install failed with `Install(reason=Unsupported)`.
+        // Regression: while the mobile fallback was compiled on Desktop too (ranked below the desktop store), the
+        // profile graph of the bundle got the fallback and every install failed with `Install(reason=Unsupported)`.
         assertTrue(DESKTOP_MANAGED_INSTALL_STORE in stores, stores.toString())
         assertTrue(stores.none { it.endsWith(".UnsupportedManagedInstallStore") }, stores.toString())
     }
@@ -160,8 +160,8 @@ class EnginesBundleWiringTest {
         val graph = app.profileSessions.open(ProfileId("engines-bridge")).graph
         val pi = (graph as AiEngineAccessors).piEngine
         val bridges = dependenciesOfType(pi, AGENT_TOOL_BRIDGE, depth = 4).map { it.javaClass.name }
-        // Same kind of pair as the install store, at the profile level: an unscoped mobile fallback (priority 0)
-        // and the Desktop bridge (priority 1). The adapters of the bundle must get the Desktop one.
+        // Guard, not a regression test: a common fallback (priority 0) still competes with the Desktop bridge
+        // (priority 1), both in the profile scope. The adapters of the bundle must get the Desktop one.
         assertTrue(DESKTOP_AGENT_TOOL_BRIDGE in bridges, bridges.toString())
         assertTrue(bridges.none { it.endsWith(".UnsupportedAgentToolBridge") }, bridges.toString())
     }
@@ -178,6 +178,8 @@ class EnginesBundleWiringTest {
 /**
  * Values of type [typeName] that [root] holds in its fields, directly or through the fields of its fields up to
  * [depth] levels: the facade implementation is internal to the `engines` bundle, so the test reads it reflectively.
+ * `java.*`/`kotlin.*` holders are not walked, so a value behind `kotlin.Lazy` is not found (the assertion fails
+ * loudly).
  */
 private fun dependenciesOfType(root: Any, typeName: String, depth: Int = 3): List<Any> {
     val type = Class.forName(typeName, false, root.javaClass.classLoader)
