@@ -135,7 +135,7 @@ internal class CodexInventoryProbe(
                 var running: CodexProbeProcess? = null
                 try {
                     running = start(executable, root, features, off, endpoint.baseUrl)
-                    val rpc = CodexRpc(checkNotNull(running).wire, this)
+                    val rpc = CodexRpc(running.wire, this)
                     val events = launch {
                         rpc.notifications.collect { message -> message["id"]?.let { rpc.reject(it) } }
                     }

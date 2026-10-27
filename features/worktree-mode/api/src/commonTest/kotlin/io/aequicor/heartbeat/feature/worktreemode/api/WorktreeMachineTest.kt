@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.worktreemode.api
 
-import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId

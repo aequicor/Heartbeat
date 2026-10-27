@@ -227,6 +227,48 @@ class CodexNativeInventoryTest {
     }
 
     @Test
+    fun `Windows sandbox selection does not require the clean home default`() {
+        for (sandbox in listOf("elevated", "unelevated", "mxc")) {
+            val config = json("windows" to json("sandbox" to sandbox.json()))
+            for (baseline in listOf(
+                json(),
+                json("windows" to JsonNull),
+                json("windows" to json("sandbox" to JsonNull)),
+                json("windows" to json("sandbox" to "other".json())),
+            )) {
+                requireCodexInventoryConfig(config, baseline)
+            }
+        }
+    }
+
+    @Test
+    fun `Windows sandbox exception preserves checks for unknown sibling settings`() {
+        val baseline = json("windows" to json("future_tool" to JsonPrimitive(false)))
+        requireCodexInventoryConfig(
+            json(
+                "windows" to json(
+                    "sandbox" to "elevated".json(),
+                    "future_tool" to JsonPrimitive(false),
+                    "unset_option" to JsonNull,
+                ),
+            ),
+            baseline,
+        )
+        for (value in listOf(JsonPrimitive(true), json(), JsonArray(emptyList()))) {
+            val config = json("windows" to json("sandbox" to "elevated".json(), "future_tool" to value))
+            assertFailsWith<EngineException> { requireCodexInventoryConfig(config, baseline) }
+            assertFailsWith<EngineException> { requireCodexInventoryConfig(config, json()) }
+        }
+        for (windows in listOf("elevated".json(), JsonPrimitive(true), JsonArray(emptyList()))) {
+            assertFailsWith<EngineException> { requireCodexInventoryConfig(json("windows" to windows), json()) }
+        }
+        for ((key, value) in listOf("profile" to "work".json(), "tools" to json("view_image" to JsonPrimitive(true)))) {
+            val config = json("windows" to json("sandbox" to "elevated".json()), key to value)
+            assertFailsWith<EngineException> { requireCodexInventoryConfig(config, json()) }
+        }
+    }
+
+    @Test
     fun `effective config keys outside the reproduced surface fail closed`() {
         requireCodexInventoryConfig(
             json(

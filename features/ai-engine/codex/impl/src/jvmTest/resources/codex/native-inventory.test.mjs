@@ -28,9 +28,14 @@ const configKeys = new Set(values(inventory, 'CodexInventoryConfigKeys'));
 // and otherwise passes only with the clean-home default of the same executable (profile never does).
 const isUnset = value => value == null || (typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).length > 0 && Object.values(value).every(isUnset));
+// Only the Windows sandbox selector is catalog-neutral; unknown siblings still require baseline equality.
+const isWindowsConfig = (value, baseline) => value != null && typeof value === 'object' && !Array.isArray(value)
+  && Object.entries(value).every(([key, setting]) => key === 'sandbox' || isUnset(setting)
+    || isDeepStrictEqual(setting, baseline?.[key]));
 const refusedKeys = (effective, baseline) => Object.entries(effective).filter(([key, value]) =>
   (key === 'profile' || !configKeys.has(key)) && !isUnset(value)
-  && (key === 'profile' || !isDeepStrictEqual(value, baseline[key]))).map(([key]) => key);
+  && (key === 'profile' || !isDeepStrictEqual(value, baseline[key]))
+  && !(key === 'windows' && isWindowsConfig(value, baseline[key]))).map(([key]) => key);
 const fixtureTool = { name: 'heartbeat_fixture_read', description: 'Host fixture tool', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } };
 // Mirrors the structural comparison of validateCodexInventory: property names, required sets and array items
 // where the declaration has them (a default items the CLI adds for an array declared without one is ignored).
@@ -106,6 +111,17 @@ test('installed CLI closes actual image code mode delegation and goal ingress wh
   // A clean working home must pass against the probe's clean-home baseline, read by a separate process with
   // other session flags; otherwise every protected session would fail closed on CLI defaults.
   assert.deepEqual(refusedKeys(locked.config, toolFree.config), []);
+  // A persisted Windows sandbox selects execution isolation, not additional model-facing tools.
+  for (const sandbox of ['elevated', 'unelevated']) {
+    const windows = await capture([
+      ...baseline.map(name => [name, false]),
+      ...enhanced.map(name => [name, false]),
+    ], [`windows.sandbox="${sandbox}"`]);
+    assert.equal(windows.config.windows.sandbox, sandbox);
+    assert.deepEqual(windows.tools, locked.tools);
+    assert.equal(windows.nativeCalls, 0);
+    assert.deepEqual(refusedKeys(windows.config, toolFree.config), []);
+  }
   const defaults = Object.keys(locked.config).filter(key => !configKeys.has(key) && !isUnset(locked.config[key]));
   // A changed CLI default is a user setting the probe cannot reproduce and stays refused.
   if (defaults.includes('allow_login_shell')) {

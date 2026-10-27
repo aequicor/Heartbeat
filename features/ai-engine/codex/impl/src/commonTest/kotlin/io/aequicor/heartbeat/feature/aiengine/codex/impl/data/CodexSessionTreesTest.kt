@@ -270,10 +270,12 @@ class CodexSessionTreesTest {
         fixture.wire.handler = { message ->
             when (message.text("method")) {
                 "thread/read" -> fixture.wire.reply(message, json("thread" to thread("root", null)))
+
                 "thread/turns/list" -> fixture.wire.error(
                     message,
                     "thread root is not materialized yet; thread/turns/list is unavailable before first user message",
                 )
+
                 else -> delegate(message)
             }
         }

@@ -219,10 +219,11 @@ class CodexInventoryProbeTest {
 
     /** Uses config/read from the real working process before probing and creating a native thread. */
     @Test
-    fun `protected production launch creates a thread with the actual effective feature configuration`() {
+    fun `protected production launch creates a thread with a configured Windows sandbox`() {
         val executable = System.getenv("HEARTBEAT_CODEX_INVENTORY_EXECUTABLE") ?: return
         val directory = Files.createTempDirectory("heartbeat-codex-launch-test-")
         try {
+            Files.writeString(directory.resolve("config.toml"), "[windows]\nsandbox = \"elevated\"\n")
             withDispatchers { dispatchers ->
                 coroutineScope {
                     val transport = LocalCodexTransport(

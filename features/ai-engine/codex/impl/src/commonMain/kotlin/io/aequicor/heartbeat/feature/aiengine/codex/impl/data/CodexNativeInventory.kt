@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
@@ -43,7 +44,8 @@ internal data class CodexInventoryTarget(
  * logging, trust bookkeeping, notice and presentation settings that the Codex TUI commonly writes.
  * Any other key (for example `tools`, legacy `experimental_use_*` and `include_*` switches) can change the
  * catalog independently of features and passes only with the same binary's default value (see
- * [requireCodexInventoryConfig]). `profile` is refused separately: an active profile's features apply after
+ * [requireCodexInventoryConfig]). `windows.sandbox` is accepted separately as an execution isolation setting;
+ * other Windows keys still require the same binary's default. `profile` is refused separately: its features apply after
  * session flags and are absent from the effective `features`.
  */
 internal val CodexInventoryConfigKeys = setOf(
@@ -62,7 +64,8 @@ internal val CodexInventoryConfigKeys = setOf(
 )
 
 /**
- * Refuses a working configuration the probe cannot faithfully reproduce. Allowlisted keys pass with any value.
+ * Refuses a working configuration the probe cannot faithfully reproduce. Allowlisted keys and `windows.sandbox`
+ * pass with any value. Other Windows settings are checked individually against the baseline or for being unset.
  * Any other key passes when it is unset (null or a non-empty table of unset values, as `config/read` serializes
  * absent optional fields; an explicitly declared `{}` or `[]` counts as set) or when its value deeply equals the
  * same key in [baseline]: the `config/read` result of the same executable in the probe's empty `CODEX_HOME`, so
@@ -82,7 +85,9 @@ internal fun requireCodexInventoryConfig(
 ) {
     val refused = effective.filter { (key, value) ->
         val isDefault = key != "profile" && baseline[key] == value
-        (key == "profile" || key !in CodexInventoryConfigKeys) && !isUnsetConfig(value) && !isDefault
+        val isKnown = key in CodexInventoryConfigKeys ||
+            (key == "windows" && isKnownWindowsConfig(value, baseline[key]))
+        (key == "profile" || !isKnown) && !isUnsetConfig(value) && !isDefault
     }.keys
     if (refused.isEmpty()) return
     val names = refused.map { if (ConfigKeyName.matches(it)) it else "<unnamed>" }.sorted().toSet()
@@ -112,7 +117,20 @@ private val ConfigKeyName = Regex("[A-Za-z0-9_-]{1,64}")
 private fun isUnsetConfig(value: JsonElement): Boolean = when (value) {
     JsonNull -> true
     is JsonObject -> value.isNotEmpty() && value.values.all(::isUnsetConfig)
-    else -> false
+    is JsonPrimitive, is JsonArray -> false
+}
+
+/**
+ * `windows.sandbox` chooses native process isolation, not model-facing tools. The CLI validates its value;
+ * protected launches still close native execution and verify the actual inventory. Do not allow the entire
+ * table: future siblings may add tools and must remain unset or equal to the clean-home default.
+ */
+private fun isKnownWindowsConfig(value: JsonElement, baseline: JsonElement?): Boolean {
+    if (value !is JsonObject) return false
+    val defaults = baseline as? JsonObject
+    return value.all { (key, setting) ->
+        key == "sandbox" || isUnsetConfig(setting) || defaults?.get(key) == setting
+    }
 }
 
 /**
