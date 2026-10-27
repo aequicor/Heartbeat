@@ -4,6 +4,8 @@ import com.sun.jna.Native
 import com.sun.jna.Platform
 import com.sun.jna.win32.StdCallLibrary
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.desktopDataName
+import io.aequicor.heartbeat.core.logging.desktopDataNameLowercase
 import java.awt.EventQueue
 import java.io.IOException
 import java.net.StandardProtocolFamily
@@ -168,12 +170,12 @@ internal fun desktopInstanceDirectory(
 ): Path {
     val root = when {
         os.startsWith("Windows", ignoreCase = true) ->
-            Path.of(appData?.takeIf(String::isNotBlank) ?: "$home/AppData/Roaming", "Aequicor", "Heartbeat")
+            Path.of(appData?.takeIf(String::isNotBlank) ?: "$home/AppData/Roaming", "Aequicor", desktopDataName())
 
-        os.startsWith("Mac", ignoreCase = true) -> Path.of(home, "Library", "Application Support", "Heartbeat")
+        os.startsWith("Mac", ignoreCase = true) -> Path.of(home, "Library", "Application Support", desktopDataName())
 
         else -> Path.of(xdgDataHome?.takeIf { it.isNotBlank() && Path.of(it).isAbsolute } ?: "$home/.local/share")
-            .resolve("heartbeat")
+            .resolve(desktopDataNameLowercase())
     }
     return root.resolve("run")
 }

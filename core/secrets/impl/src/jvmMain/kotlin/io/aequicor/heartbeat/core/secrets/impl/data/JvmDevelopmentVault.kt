@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.core.secrets.impl.data
 
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
+import io.aequicor.heartbeat.core.logging.desktopDataName
 import io.aequicor.heartbeat.core.secrets.SecretStorageProtection
 import io.aequicor.heartbeat.core.secrets.impl.SecretsConfig
 import java.nio.ByteBuffer
@@ -84,14 +85,14 @@ private fun developmentRoot(platform: PlatformInfo, config: SecretsConfig): Path
     config.directory?.let { return Path.of(it, "development") }
     val home = System.getProperty("user.home")
     return when (platform.host) {
-        HostPlatform.MacOs -> Path.of(home, "Library/Application Support/Heartbeat/development-secrets")
+        HostPlatform.MacOs -> Path.of(home, "Library/Application Support/${desktopDataName()}/development-secrets")
 
         HostPlatform.Windows -> Path.of(
             System.getenv("LOCALAPPDATA") ?: "$home/AppData/Local",
-            "Aequicor/Heartbeat/development-secrets",
+            "Aequicor/${desktopDataName()}/development-secrets",
         )
 
-        HostPlatform.Linux -> Path.of(home, ".local/share/Heartbeat/development-secrets")
+        HostPlatform.Linux -> Path.of(home, ".local/share/${desktopDataName()}/development-secrets")
 
         HostPlatform.Android, HostPlatform.Ios -> error("Desktop development storage is unavailable")
     }

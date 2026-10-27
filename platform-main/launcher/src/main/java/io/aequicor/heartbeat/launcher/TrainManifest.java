@@ -11,7 +11,8 @@ import java.util.Set;
 /**
  * Манифест поезда бандлов (JSON): {@code {"train": "...", "platformApi": 1, "dbSchema": 3?,
  * "bundles": [{"id","version","jar","sha256","url"?}]}}. Поле {@code dbSchema} необязательно — версия схем БД набора
- * (для бэкапа перед миграцией). Порядок бандлов задаёт порядок classpath.
+ * (для бэкапа перед миграцией). Порядок бандлов задаёт порядок classpath. Необязательное поле {@code channel}
+ * ({@code "beta"}) ставит app-update в очередной копии поезда, взятого из pre-release; другие значения игнорируются.
  */
 public final class TrainManifest {
     /**
@@ -29,8 +30,13 @@ public final class TrainManifest {
     private final int platformApi;
     private final int dbSchema;
     private final List<Bundle> bundles;
+    private final boolean beta;
 
     public TrainManifest(String train, int platformApi, int dbSchema, List<Bundle> bundles) {
+        this(train, platformApi, dbSchema, bundles, false);
+    }
+
+    public TrainManifest(String train, int platformApi, int dbSchema, List<Bundle> bundles, boolean beta) {
         if (train == null || train.isEmpty() || !train.matches("[A-Za-z0-9._+-]+") || train.startsWith(".")) {
             throw new IllegalArgumentException("Invalid train id: " + train);
         }
@@ -49,6 +55,12 @@ public final class TrainManifest {
         this.platformApi = platformApi;
         this.dbSchema = dbSchema;
         this.bundles = List.copyOf(bundles);
+        this.beta = beta;
+    }
+
+    /** Поезд взят из beta-канала (pre-release). */
+    public boolean beta() {
+        return beta;
     }
 
     public String train() {
@@ -90,7 +102,8 @@ public final class TrainManifest {
             bundles.add(new Bundle(string(b, "id"), string(b, "version"), string(b, "jar"), string(b, "sha256"),
                 optionalString(b, "url")));
         }
-        return new TrainManifest(train, toInt("platformApi", api), toInt("dbSchema", schema), bundles);
+        boolean beta = "beta".equals(obj.get("channel"));
+        return new TrainManifest(train, toInt("platformApi", api), toInt("dbSchema", schema), bundles, beta);
     }
 
     private static void validate(Bundle bundle) {

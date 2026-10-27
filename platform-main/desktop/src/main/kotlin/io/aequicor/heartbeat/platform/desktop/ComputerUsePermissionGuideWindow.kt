@@ -1,16 +1,19 @@
 package io.aequicor.heartbeat.platform.desktop
 
-import androidx.compose.foundation.draganddrop.dragAndDropSource
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.window.Window
@@ -27,6 +30,7 @@ import io.aequicor.heartbeat.platform.shared.ComputerUsePermissionGuidePanel
 import io.aequicor.heartbeat.platform.shared.computerUsePermissionGuideTitle
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Dimension
 import java.awt.EventQueue
@@ -35,6 +39,7 @@ import java.awt.Point
 import java.awt.Rectangle
 import java.awt.Toolkit
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -132,10 +137,36 @@ internal fun ComputerUsePermissionGuideWindow(
                     }
                     if (window.size != measured) window.size = measured
                 },
-                tileModifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
-                    .dragAndDropSource { offset -> resolved.target.dragData(offset) },
+                tileModifier = Modifier.pointerHoverIcon(PointerIcon.Hand).dragApplication(
+                    onDrag = { resolved.target.drag(resolved.cocoa, title) },
+                    io = io,
+                ),
             )
         }
+    }
+}
+
+/** Runs [onDrag] on [io] once the pointer starts dragging; AppKit holds one drag at a time, so overlaps are dropped. */
+@Composable
+private fun Modifier.dragApplication(onDrag: () -> Unit, io: CoroutineDispatcher): Modifier {
+    val scope = rememberCoroutineScope()
+    val isDragging = remember { AtomicBoolean(false) }
+    val current by rememberUpdatedState(onDrag)
+    return pointerInput(Unit) {
+        detectDragGestures(
+            onDragStart = {
+                if (isDragging.compareAndSet(false, true)) {
+                    scope.launch(io) {
+                        try {
+                            current()
+                        } finally {
+                            isDragging.set(false)
+                        }
+                    }
+                }
+            },
+            onDrag = { _, _ -> },
+        )
     }
 }
 

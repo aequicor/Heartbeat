@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.datastore.StorageRoot
+import io.aequicor.heartbeat.core.logging.desktopDataName
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ManagedInstallStore
 import java.nio.file.Path
 import kotlin.time.Clock
@@ -40,7 +41,13 @@ internal class DesktopManagedInstallStore(
 internal fun managedRoot(host: HostPlatform, storage: StorageRoot): Path = when (host) {
     HostPlatform.Windows -> {
         val home = System.getProperty("user.home").orEmpty()
-        Path.of(System.getenv("LOCALAPPDATA") ?: "$home/AppData/Local", "Aequicor", "Heartbeat", "engines", "managed")
+        Path.of(
+            System.getenv("LOCALAPPDATA") ?: "$home/AppData/Local",
+            "Aequicor",
+            desktopDataName(),
+            "engines",
+            "managed",
+        )
     }
 
     HostPlatform.MacOs, HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios ->

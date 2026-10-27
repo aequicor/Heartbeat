@@ -139,7 +139,15 @@ private fun launchLoggedHeartbeat(
     val log = Log.tag("Desktop")
     classes.onFailure { log.w(it) { "Entry point location is unknown; treating the launch as packaged" } }
     classes.getOrNull()?.let(::attachLocalPiRuntime)
+    log.i { "launch channel=${AppChannel.current}" }
     val applicationIcons = runOnUiThread { loadDesktopIcons().also(::configureDockIcon) }
+    // Before the graph exists, so no secret has asked the Keychain yet.
+    showKeychainIntroIfNeeded(
+        isMac = isMacHost,
+        hasLocalSecrets = hasLocalSecrets || isDevelopment,
+        version = System.getProperty("heartbeat.app.version"),
+        directory = desktopInstanceDirectory().parent,
+    )
     val lifecycle = LifecycleRegistry()
     val graph = runOnUiThread { createHeartbeatGraph(isDevelopment, hasLocalSecrets) }
     withFailedDesktopLaunchCleanup(cleanup = { shutdownFailedDesktopLaunch(graph, lifecycle::destroy) }) {
@@ -253,7 +261,8 @@ private fun FrameWindowScope.HeartbeatWindowContent(
 
 /** Loads optical-size icons for both development launches and installed desktop applications. */
 private fun loadDesktopIcons(): List<BufferedImage> = desktopIconSizes.map { size ->
-    val directory = if (isMacHost) "/icons/macos" else "/icons"
+    // The icons of the dev and beta channels carry their badge in a directory of their own (see AppChannel).
+    val directory = listOfNotNull("/icons", AppChannel.current.id, "macos".takeIf { isMacHost }).joinToString("/")
     val resource = checkNotNull(object {}.javaClass.getResourceAsStream("$directory/heartbeat-$size.png")) {
         "Heartbeat desktop icon ($size px) is missing from application resources"
     }

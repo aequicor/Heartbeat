@@ -68,6 +68,41 @@ val heartbeatFlavor = providers.gradleProperty("heartbeat.flavor").orNull.also {
     require(flavor == null || flavor == "testing") { "heartbeat.flavor must be testing: $flavor" }
 }
 val isTestingFlavor = heartbeatFlavor == "testing"
+// The build channel (-Pheartbeat.channel=dev|beta, release by default) names the app and gives it its own icon with a
+// badge, so a dev or beta build installs next to Heartbeat: another package name, macOS bundle id and Linux package.
+// A dev build has its own data root, logs, Keychain service and single-instance lock (heartbeat.data.name), so it runs
+// beside an installed Heartbeat; a beta build shares them and only runs while Heartbeat is not running. Both still share
+// the Native Messaging host name of the Chromium bridge: registering the browser host from a dev build repoints the
+// extension at it. The Windows installer is refused (the Inno Setup AppId and file names are those of Heartbeat).
+data class BuildChannel(val id: String, val packageName: String, val displayName: String, val bundleId: String?)
+val heartbeatChannels = listOf(
+    BuildChannel("release", "Heartbeat", "Heartbeat", null),
+    BuildChannel("beta", "HeartbeatBeta", "Heartbeat Beta", "io.aequicor.heartbeat.platform.desktop.beta"),
+    BuildChannel("dev", "HeartbeatDev", "Heartbeat Dev", "io.aequicor.heartbeat.platform.desktop.dev"),
+)
+val heartbeatChannel = (providers.gradleProperty("heartbeat.channel").orNull ?: "release").let { id ->
+    requireNotNull(heartbeatChannels.firstOrNull { it.id == id }) {
+        "heartbeat.channel must be one of ${heartbeatChannels.map { it.id }}: $id"
+    }
+}
+require(!isTestingFlavor || heartbeatChannel.id == "release") {
+    "heartbeat.flavor=testing has its own name and icon; do not combine it with heartbeat.channel"
+}
+val isReleaseChannel = heartbeatChannel.id == "release"
+val channelIconDirectory = if (isReleaseChannel) "icons" else "icons/${heartbeatChannel.id}"
+if (!isReleaseChannel) {
+    val rejectChannelInstallers = tasks.register("rejectChannelInstallers") {
+        doFirst {
+            throw GradleException(
+                "The ${heartbeatChannel.id} channel has no Windows installer: its Inno Setup AppId and file names " +
+                    "are those of Heartbeat and would replace an installed one (so its " +
+                    "package(Release)DistributionForCurrentOS fails on Windows too)",
+            )
+        }
+    }
+    // Compose registers its packaging tasks after evaluation; the callback also covers those.
+    tasks.configureEach { if (Regex("package(Release)?InnoSetup").matches(name)) dependsOn(rejectChannelInstallers) }
+}
 if (isTestingFlavor) {
     val rejectTestingInstallers = tasks.register("rejectTestingInstallers") {
         doFirst {
@@ -251,6 +286,9 @@ compose.desktop {
         }
         jvmArgs += jcefJvmArgs
         jvmArgs("-Dheartbeat.app.version=$heartbeatApplicationVersion")
+        jvmArgs("-Dheartbeat.channel=${heartbeatChannel.id}")
+        // A dev build keeps its own data, logs and single-instance lock; beta and release share Heartbeat's.
+        if (heartbeatChannel.id == "dev") jvmArgs("-Dheartbeat.data.name=${heartbeatChannel.packageName}")
         buildTypes.release.proguard {
             configurationFiles.from(
                 layout.projectDirectory.file("compose-desktop.pro"),
@@ -276,23 +314,24 @@ compose.desktop {
             )
             // The installed app's name: Heartbeat.app on macOS, Heartbeat.exe on Windows (heartbeat.iss cleans up the
             // launcher of installations made before the rename).
-            packageName = if (isTestingFlavor) "HeartbeatE2E" else "Heartbeat"
+            packageName = if (isTestingFlavor) "HeartbeatE2E" else heartbeatChannel.packageName
             packageVersion = heartbeatApplicationVersion
             description = "Heartbeat AI Studio"
             vendor = "Aequicor"
             macOS {
-                iconFile.set(layout.projectDirectory.file("icons/heartbeat.icns"))
-                dockName = if (isTestingFlavor) "Heartbeat E2E" else "Heartbeat"
+                iconFile.set(layout.projectDirectory.file("$channelIconDirectory/heartbeat.icns"))
+                dockName = if (isTestingFlavor) "Heartbeat E2E" else heartbeatChannel.displayName
                 if (isTestingFlavor) bundleID = "io.aequicor.heartbeat.platform.desktop.testing"
+                heartbeatChannel.bundleId?.let { bundleID = it }
             }
             windows {
-                iconFile.set(layout.projectDirectory.file("icons/heartbeat.ico"))
+                iconFile.set(layout.projectDirectory.file("$channelIconDirectory/heartbeat.ico"))
             }
             linux {
                 // Debian package names are lowercase.
-                packageName = "heartbeat"
+                packageName = if (isReleaseChannel) "heartbeat" else "heartbeat-${heartbeatChannel.id}"
                 shortcut = true
-                iconFile.set(layout.projectDirectory.file("icons/heartbeat.png"))
+                iconFile.set(layout.projectDirectory.file("$channelIconDirectory/heartbeat.png"))
             }
             appResourcesRootDir.set(layout.dir(collectAppResources.map { it.destinationDir }))
         }
@@ -442,8 +481,11 @@ afterEvaluate {
                 releaseJars.flatMap { original -> prepared.outputDirectory.file(original.mainJar.get().asFile.name) }
             })
             // Only the release launcher names the update source: development launches never replace themselves,
-            // and the testing flavor must not swap itself for a published release.
-            if (!isTestingFlavor) launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
+            // and neither the testing flavor nor a dev or beta channel build may swap itself for a published release (it would turn
+            // into Heartbeat with another bundle id: a beta is the release app on the beta train, not a separate update line).
+            if (!isTestingFlavor && isReleaseChannel) {
+                launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
+            }
         }
     }
     tasks.withType<JavaExec>().configureEach {

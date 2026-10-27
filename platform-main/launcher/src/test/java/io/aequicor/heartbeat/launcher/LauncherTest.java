@@ -92,6 +92,34 @@ class LauncherTest {
     }
 
     @Test
+    void parsesBetaChannelOfManifest() throws Exception {
+        String beta = manifest("t1", 1, 0, "web").replace("{\"train\"", "{\"channel\":\"beta\",\"train\"");
+        assertTrue(TrainManifest.parse(beta).beta());
+        assertFalse(TrainManifest.parse(manifest("t1", 1, 0, "web")).beta());
+        assertFalse(TrainManifest.parse(beta.replace("\"beta\"", "\"nightly\"")).beta());
+    }
+
+    @Test
+    void exposesBetaChannelOfTheRunningTrain() throws Exception {
+        launcher.applyUpdate(
+            manifest("t1", 1, 0, "a").replace("{\"train\"", "{\"channel\":\"beta\",\"train\""), fetcher("t1"));
+        install("t2", 0, "a");
+        try {
+            launcher.exposeToApp(new Launcher.Prepared("t1", List.of(), null, false), root);
+            assertEquals("beta", System.getProperty("heartbeat.train.channel"));
+            launcher.exposeToApp(new Launcher.Prepared("t2", List.of(), null, false), root);
+            assertNull(System.getProperty("heartbeat.train.channel"));
+            launcher.exposeToApp(new Launcher.Prepared(null, List.of(), null, false), root);
+            assertNull(System.getProperty("heartbeat.train.channel"));
+        } finally {
+            System.clearProperty("heartbeat.train.channel");
+            System.clearProperty("heartbeat.train");
+            System.clearProperty("heartbeat.train.bad");
+            System.clearProperty("heartbeat.launcher.root");
+        }
+    }
+
+    @Test
     void rejectsPathTraversalInJarName() {
         assertThrows(IllegalArgumentException.class, () -> TrainManifest.parse("{\"train\":\"t\",\"platformApi\":1,"
             + "\"bundles\":[{\"id\":\"x\",\"version\":\"1\",\"jar\":\"../x.jar\",\"sha256\":\"" + "a".repeat(64) + "\"}]}"));

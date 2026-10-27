@@ -6,6 +6,8 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.datastore.StorageRoot
+import io.aequicor.heartbeat.core.logging.desktopDataName
+import io.aequicor.heartbeat.core.logging.desktopDataNameLowercase
 import java.io.File
 
 /** Per-user application data: `%APPDATA%` (Windows), `Application Support` (macOS), `$XDG_DATA_HOME` (Linux). */
@@ -21,9 +23,9 @@ public fun jvmStorageRootPath(): String {
     val os = System.getProperty("os.name").orEmpty()
     return when {
         os.startsWith("Windows", ignoreCase = true) ->
-            File(System.getenv("APPDATA") ?: "$home/AppData/Roaming", "Aequicor/Heartbeat")
+            File(System.getenv("APPDATA") ?: "$home/AppData/Roaming", "Aequicor/${desktopDataName()}")
 
-        os.startsWith("Mac", ignoreCase = true) -> File(home, "Library/Application Support/Heartbeat")
+        os.startsWith("Mac", ignoreCase = true) -> File(home, "Library/Application Support/${desktopDataName()}")
 
         else -> linuxStorageDirectory(home, System.getenv("XDG_DATA_HOME"))
     }.absolutePath
@@ -32,7 +34,7 @@ public fun jvmStorageRootPath(): String {
 /** XDG requires an absolute data home; empty or relative values use the user's standard data directory. */
 internal fun linuxStorageDirectory(home: String, xdgDataHome: String?): File {
     val dataHome = xdgDataHome?.takeIf { it.isNotBlank() && File(it).isAbsolute } ?: "$home/.local/share"
-    return File(dataHome, "heartbeat")
+    return File(dataHome, desktopDataNameLowercase())
 }
 
 @ContributesBinding(AppScope::class)
