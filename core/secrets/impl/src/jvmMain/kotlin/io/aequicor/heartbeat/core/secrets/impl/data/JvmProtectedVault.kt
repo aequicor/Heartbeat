@@ -15,6 +15,14 @@ internal class JvmProtectedVault(
     private val platform: PlatformInfo,
     private val config: SecretsConfig = SecretsConfig(),
 ) : ProtectedVault {
+    // One cached view per vault: the Keychain is asked for a profile's snapshot once per launch, not per operation.
+    private val keychain = CachedVault(
+        object : ProtectedVault {
+            override fun <T> transaction(profile: String, erase: Boolean, action: (ByteArray?) -> VaultUpdate<T>): T =
+                MacKeychain(config.service, config.isInteractionAllowed).transaction(profile, erase, action)
+        },
+    )
+
     override fun <T> transaction(profile: String, erase: Boolean, action: (ByteArray?) -> VaultUpdate<T>): T {
         val root = root()
         Files.createDirectories(root)
@@ -28,10 +36,7 @@ internal class JvmProtectedVault(
                 return when (platform.host) {
                     HostPlatform.Windows -> windows(root.resolve("$profile.vault"), profile, erase, action)
 
-                    HostPlatform.MacOs -> MacKeychain(
-                        config.service,
-                        config.isInteractionAllowed,
-                    ).transaction(profile, erase, action)
+                    HostPlatform.MacOs -> keychain.transaction(profile, erase, action)
 
                     HostPlatform.Linux -> LinuxKeyring(config.service).transaction(profile, erase, action)
 
