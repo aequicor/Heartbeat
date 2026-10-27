@@ -5,24 +5,20 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
-import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
-import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
+import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.appupdate.api.AppBuildInfo
 import io.aequicor.heartbeat.feature.appupdate.api.AppBuildInfoSource
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent
-import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateMachineKey
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateOutput
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdatePhase
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateState
 import io.aequicor.heartbeat.feature.appupdate.api.UnsupportedReason
 import io.aequicor.heartbeat.feature.appupdate.api.appUpdateOffer
 import io.aequicor.heartbeat.feature.appupdate.impl.di.scope.AppUpdatesScope
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
@@ -129,44 +125,25 @@ sealed interface AppUpdatesScreenAction : MVIAction
 @SingleIn(AppUpdatesScope::class)
 @Inject
 class AppUpdatesModel(
-    machines: MachineRegistry,
+    machine: Machine<AppUpdateState, AppUpdateIntent, AppUpdateOutput>,
     buildInfo: AppBuildInfoSource,
     @ForScope(AppUpdatesScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
 ) {
-    private val log = Log.tag("AppUpdates")
-
     private val screen = factory.createScreen<AppUpdatesScreenState, AppUpdatesScreenIntent, AppUpdatesScreenAction>(
         "AppUpdates",
-        AppUpdatesScreenState(),
+        AppUpdatesScreenState().withProjection(machine.state.value.toStage()),
         onError = { copy(stage = UpdateStageUi.CheckFailed, failure = UpdateFailureUi.InstallFailed) },
     ) {
         whileSubscribed {
             launch { buildInfo.read().toUi().let { build -> updateState { copy(build = build) } } }
-            @OptIn(ExperimentalCoroutinesApi::class)
-            machines.observe(AppUpdateMachineKey)
-                .flatMapLatest { ref -> ref?.state ?: flowOf(null) }
-                .map { state -> state.toStage() }
-                .distinctUntilChanged()
-                .collect { projection ->
-                    updateState {
-                        copy(
-                            stage = projection.stage,
-                            version = projection.version,
-                            percent = projection.percent,
-                            failure = projection.failure,
-                            pageUrl = projection.pageUrl,
-                        )
-                    }
-                }
         }
+        reflect(machine) { state -> withProjection(state.toStage()) }
         reduce { intent ->
-            val machine = when (intent) {
-                AppUpdatesScreenIntent.Check -> AppUpdateIntent.Public.Check
-                AppUpdatesScreenIntent.Install -> AppUpdateIntent.Public.Install
+            when (intent) {
+                AppUpdatesScreenIntent.Check -> sendTo(machine, AppUpdateIntent.Public.Check)
+                AppUpdatesScreenIntent.Install -> sendTo(machine, AppUpdateIntent.Public.Install)
             }
-            val result = machines.send(AppUpdateMachineKey, machine)
-            log.i { "update request $intent result=$result" }
         }
     }
 
@@ -179,6 +156,14 @@ class AppUpdatesModel(
         store.start(scope.coroutineScope)
     }
 }
+
+private fun AppUpdatesScreenState.withProjection(projection: UpdateProjection): AppUpdatesScreenState = copy(
+    stage = projection.stage,
+    version = projection.version,
+    percent = projection.percent,
+    failure = projection.failure,
+    pageUrl = projection.pageUrl,
+)
 
 /** The stage fields of [AppUpdatesScreenState] that come from the update machine. */
 internal data class UpdateProjection(

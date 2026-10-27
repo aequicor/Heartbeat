@@ -89,7 +89,7 @@ public final class LauncherMain {
             // No train is active: a fresh install for a worker, the packaging probe or a second launch, and for the
             // owner a seed train marked bad with nothing to roll back to. Run from the seed, read-only, rather
             // than fail with a missing application class.
-            classpath = FirstLaunch.seedClasspath(Path.of(seed));
+            classpath = FirstLaunch.seedClasspath(Path.of(seed), root.resolve("seed-verified"));
         }
         if (prepared.train() != null || !classpath.isEmpty()) {
             loader = trainLoader(classpath);

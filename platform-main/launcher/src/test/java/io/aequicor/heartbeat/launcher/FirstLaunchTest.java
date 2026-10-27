@@ -130,6 +130,26 @@ class FirstLaunchTest {
     }
 
     @Test
+    void verifiedStampSkipsHashingOfUnchangedJarsOnly() throws Exception {
+        writeSeed("t1", List.of("foundation", "web"), "foundation", "web");
+        Path stamp = tmp.resolve("state").resolve("seed-verified");
+        assertEquals(2, FirstLaunch.seedClasspath(seed, stamp).size());
+        assertTrue(Files.isRegularFile(stamp));
+        // same size and mtime, other content: the stamp is trusted only for what looks unchanged
+        Path web = seed.resolve("web.jar");
+        java.nio.file.attribute.FileTime time = Files.getLastModifiedTime(web);
+        Files.writeString(web, "x".repeat((int) Files.size(web)));
+        Files.setLastModifiedTime(web, time);
+        assertEquals(2, FirstLaunch.seedClasspath(seed, stamp).size());
+        // a different size cannot pass on the stamp
+        Files.writeString(web, "broken");
+        assertThrows(java.io.IOException.class, () -> FirstLaunch.seedClasspath(seed, stamp));
+        // an unreadable stamp means a full check
+        Files.writeString(stamp, "garbage");
+        assertThrows(java.io.IOException.class, () -> FirstLaunch.seedClasspath(seed, stamp));
+    }
+
+    @Test
     void downloadsMissingBundlesAndReportsProgress() throws Exception {
         writeSeed("t1", List.of("foundation"), "foundation", "web", "studio");
         firstLaunch.run(fetcher, listener);
