@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data
 
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Multibinds
+import io.aequicor.heartbeat.core.common.AlwaysFocused
+import io.aequicor.heartbeat.core.common.WindowFocus
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
@@ -75,9 +77,10 @@ internal class DefaultAgentTools(
     private val workspaces: LocalWorkspaces? = null,
     settings: AgentSecuritySettings = DefaultSecuritySettings,
     private val actionSafety: ActionSafetyGate? = null,
+    focus: WindowFocus = AlwaysFocused,
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
-    private val permissions = ToolPermissions(settings)
+    private val permissions = ToolPermissions(settings, focus)
     private val legacyNames: Map<String, Set<String>> by lazy {
         contributions.flatMap { it.legacyNames.entries }
             .groupBy({ it.key }, { it.value })

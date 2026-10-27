@@ -5,6 +5,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Multibinds
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.common.WindowFocus
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionAnalysis
@@ -54,6 +55,7 @@ public object AgentToolsBindings {
         settings: AgentSecuritySettings,
         workspaces: LocalWorkspaces,
         actionSafety: ActionSafetyGate,
+        focus: WindowFocus,
     ): ProfileAgentTools = DefaultAgentTools(
         contributions,
         hooks,
@@ -62,6 +64,7 @@ public object AgentToolsBindings {
         workspaces = workspaces,
         settings = settings,
         actionSafety = actionSafety,
+        focus = focus,
     )
 }
 

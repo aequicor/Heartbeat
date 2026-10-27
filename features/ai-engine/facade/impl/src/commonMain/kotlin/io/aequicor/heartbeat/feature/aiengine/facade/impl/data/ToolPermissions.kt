@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data
 
+import io.aequicor.heartbeat.core.common.AlwaysFocused
+import io.aequicor.heartbeat.core.common.WindowFocus
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionSafetyDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSecuritySettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
@@ -10,12 +13,25 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.selects.select
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
-/** One permission decision for native and hosted execution. Pending prompts follow saved mode changes. */
-internal class ToolPermissions(private val settings: AgentSecuritySettings) {
+/**
+ * One permission decision for native and hosted execution. Pending prompts follow saved mode changes and are
+ * declined once the window has been out of focus for [unattendedTimeout]: nobody is there to read them.
+ */
+internal class ToolPermissions(
+    private val settings: AgentSecuritySettings,
+    private val focus: WindowFocus = AlwaysFocused,
+    private val unattendedTimeout: Duration = UNATTENDED_TIMEOUT,
+) {
+    private val log = Log.tag("ToolPermissions")
+
     suspend fun mode(): SecurityMode = settings.modes.first()
 
     /** Watches mode changes throughout every suspending final check, rather than caching a read before it. */
@@ -86,18 +102,39 @@ internal class ToolPermissions(private val settings: AgentSecuritySettings) {
                     null
                 }
                 val decision = async { context.permissions.request(approval) }
+                val unattended = async { awaitUnattended() }
                 try {
                     select<Boolean?> {
                         changed.onAwait { it }
                         decision.onAwait { it }
+                        unattended.onAwait { it }
                     }
                 } finally {
                     changed.cancel()
                     decision.cancel()
+                    unattended.cancel()
                 }
             }
             if (isApproved != null && mode() == mode) return mode.takeIf { isApproved }
         }
+    }
+
+    /** Declines after an uninterrupted [unattendedTimeout] without window focus; regaining focus restarts the wait. */
+    private suspend fun awaitUnattended(): Boolean {
+        focus.isFocused.mapLatest { isFocused ->
+            if (isFocused) {
+                false
+            } else {
+                delay(unattendedTimeout)
+                true
+            }
+        }.first { it }
+        log.i { "Approval request declined: the window stayed out of focus for $unattendedTimeout" }
+        return false
+    }
+
+    private companion object {
+        val UNATTENDED_TIMEOUT = 30.seconds
     }
 }
 

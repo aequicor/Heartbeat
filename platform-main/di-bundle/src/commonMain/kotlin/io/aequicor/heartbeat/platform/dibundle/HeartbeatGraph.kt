@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.platform.dibundle
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.core.common.MutableWindowFocus
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
@@ -25,6 +26,9 @@ interface HeartbeatGraph {
 
     /** The macOS permission grant the desktop host guides with a draggable application tile. */
     val permissionGuide: ComputerUsePermissionGuide
+
+    /** The desktop window publishes its focus here; unattended approval requests expire by it. */
+    val windowFocus: MutableWindowFocus
 
     /** Running feature machines; the root observes computer use to present an agent's session. */
     val machines: MachineRegistry
