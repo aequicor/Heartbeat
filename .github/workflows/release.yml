@@ -708,9 +708,12 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
-          pattern: '{desktop-linux-x64,android-apk}'
+          name: desktop-linux-x64
           path: release
-          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-apk
+          path: release
       - name: Check the installer against the size budget
         run: python3 scripts/check_installer_size.py release/*.deb | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Write checksums
