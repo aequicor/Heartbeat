@@ -273,6 +273,12 @@ val prepareExtensionMetadata = tasks.register<WriteComponentMetadata>("prepareEx
 }
 // The first train of an installation: the train this build was made from, jars included, so a fresh install starts
 // offline (FirstLaunch of the platform launcher). A release build passes the published train with -Pheartbeat.trainId.
+// -Pheartbeat.seedDir=<dir> (release workflow): the seed of the published train from scripts/train_seed.py instead.
+val publishedSeed = providers.gradleProperty("heartbeat.seedDir").orNull?.let { path ->
+    layout.settingsDirectory.dir(path).also { dir ->
+        require(dir.file("manifest.json").asFile.isFile) { "heartbeat.seedDir has no manifest.json: $path" }
+    }
+}
 val trainSeed = tasks.register<WriteTrainSeed>("assembleTrainSeed") {
     group = "build"
     description = "Collects the jars and the manifest of the bundle train that an installer carries as its seed."
@@ -285,7 +291,7 @@ val trainSeed = tasks.register<WriteTrainSeed>("assembleTrainSeed") {
 }
 val collectAppResources = tasks.register<Sync>("collectAppResources") {
     from(prepareExtensionMetadata) { into("common") }
-    from(trainSeed) { into("common/seed") }
+    if (publishedSeed != null) from(publishedSeed) { into("common/seed") } else from(trainSeed) { into("common/seed") }
     from(layout.projectDirectory.file("pi/LICENSE")) { into("common/licenses/pi") }
     into(layout.buildDirectory.dir("generated/appResources"))
 }
@@ -508,6 +514,10 @@ afterEvaluate {
             // Stage the ProGuard output separately: development and verified upstream JCEF jars stay intact.
             // Compose still extracts and signs the host's Skiko dylib from the filtered jar on macOS.
             dependsOn(prepareReleaseRuntimeJars, collectAppResources)
+            // Compose marks the resources directory @Internal; a changed seed or extension must invalidate packaging.
+            inputs.dir(collectAppResources.map { it.destinationDir })
+                .withPropertyName("releaseAppResources")
+                .withPathSensitivity(PathSensitivity.RELATIVE)
             files.setFrom(fileTree(prepareReleaseRuntimeJars.flatMap { it.outputDirectory }))
             val launcherJar = project(":platform-main:launcher").tasks.named<org.gradle.jvm.tasks.Jar>("jar")
             launcherMainJar.set(prepareReleaseRuntimeJars.flatMap { prepared ->

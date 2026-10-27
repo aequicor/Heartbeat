@@ -5,8 +5,8 @@ import argparse
 import sys
 from pathlib import Path
 
-# Temporary budget until the thin platform of the bundle train ships (target: 50 MiB).
-DEFAULT_LIMIT_BYTES = 130 * 1024 * 1024  # 136314880
+# Budget of an installer that carries the platform and the whole seed train (target: 50 MiB once the seed is downloaded).
+DEFAULT_LIMIT_BYTES = 160 * 1024 * 1024  # 167772160
 
 
 def check(path: Path, limit: int) -> str | None:

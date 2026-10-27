@@ -42,8 +42,10 @@ for d in (data, root):
     shutil.rmtree(d, ignore_errors=True)
 print("first launch alive:", run(25))
 print("after first:", {k: state()[k] for k in ("current", "previous", "crashes")})
+assert state()["current"], "the seed train was not activated"
 
-seed = json.loads((root / "trains/seed-1.0.0/manifest.json").read_text())
+seed_train = state()["current"]
+seed = json.loads((root / "trains" / seed_train / "manifest.json").read_text())
 shell = next(b for b in seed["bundles"] if b["id"] == "shell")
 src = root / "store" / (shell["sha256"] + ".jar")
 tmp = SCRATCH / "shell2.jar"
