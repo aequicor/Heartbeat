@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +17,7 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
@@ -24,10 +26,12 @@ import com.arkivanov.decompose.DefaultComponentContext
 import com.arkivanov.decompose.extensions.compose.lifecycle.LifecycleController
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
+import io.aequicor.heartbeat.core.common.MutableWindowFocus
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbDesktopPopupRendering
 import io.aequicor.heartbeat.ds.components.HbInWindowDialogHost
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseActivity
 import io.aequicor.heartbeat.platform.dibundle.AppShutdownAccessors
 import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.PlantUmlAccessors
@@ -213,7 +217,7 @@ private fun launchDesktopApplication(
                 DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
             },
         ) {
-            HeartbeatWindowContent(windowState, applicationIcons, { hasModal = it }) {
+            HeartbeatWindowContent(windowState, applicationIcons, graph.windowFocus, computerUse, { hasModal = it }) {
                 App(root, diagramRenderer = diagrams.takeIf { areDiagramsAvailable })
             }
         }
@@ -245,6 +249,8 @@ private fun DesktopPermissionGuide(graph: HeartbeatGraph) {
 private fun FrameWindowScope.HeartbeatWindowContent(
     state: WindowState,
     icons: List<BufferedImage>,
+    focus: MutableWindowFocus,
+    computerUse: ComputerUseActivity,
     onModalChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
@@ -253,6 +259,9 @@ private fun FrameWindowScope.HeartbeatWindowContent(
         window.iconImages = icons
         onDispose { }
     }
+    // Approval requests nobody can see expire by this; an agent driving the computer keeps the user attending.
+    val isAttended = LocalWindowInfo.current.isWindowFocused || computerUse.isActive
+    LaunchedEffect(focus, isAttended) { focus.update(isAttended) }
     HbDesktopPopupRendering(window)
     HbInWindowDialogHost(window, modifier, onActiveChange = onModalChange) {
         DesktopWindowContent(state, content = content)

@@ -138,13 +138,14 @@ internal class NativeToolGate(
         checked: NativePreflight.Ask,
     ): NativePreflight? {
         if (!isEnabled(context, call)) return denied("Native tool became unavailable")
-        val accepted = permissions.authorize(context, checked.approval) {
+        val outcome = permissions.decide(context, checked.approval) {
             it != SecurityMode.Trust &&
                 (checked.isHookConfirmation || needsConfirmation(it, call.action, isOrdinaryEdit = false))
         }
+        val accepted = (outcome as? ApprovalOutcome.Approved)?.mode
         currentCoroutineContext().ensureActive()
         return when {
-            accepted == null -> denied("The user declined this action")
+            accepted == null -> denied(outcome.refusal)
             approval(call) != checked.approval -> denied("Native input changed while awaiting confirmation")
             !isEnabled(context, call) -> denied("Native tool became unavailable")
             permissions.mode() == accepted -> NativePreflight.Ready(NativeVerdict.Allow)

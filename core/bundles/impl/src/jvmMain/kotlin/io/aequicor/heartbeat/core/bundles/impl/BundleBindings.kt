@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.core.bundles.FoundationProfileBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileEngineBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileModelBindings
 import io.aequicor.heartbeat.core.bundles.FoundationProfileRuntimeBindings
+import io.aequicor.heartbeat.core.common.WindowFocus
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.RecordRetentions
 import io.aequicor.heartbeat.core.datastore.StorageRoot
@@ -214,7 +215,9 @@ internal class DefaultFoundationBindings(
     private val client: Provider<HttpClient>,
     private val secrets: Provider<SecretStorageInfo>,
     private val retentions: Provider<RecordRetentions>,
+    private val focus: Provider<WindowFocus>,
 ) : FoundationAppBindings {
+    override val windowFocus: WindowFocus get() = focus()
     override val recordRetentions: RecordRetentions get() = retentions()
     override val secretStorage: SecretStorageInfo get() = secrets()
     override val featureToggles: FeatureToggles get() = toggles()

@@ -21,6 +21,12 @@ public object FacadeToggleBindings {
     public fun actionSafetyToggle(): FeatureToggle<*> =
         io.aequicor.heartbeat.feature.aiengine.facade.api.ActionSafetyEnabled
 
+    /** Unattended confirmation requests expire; opt-in because it changes the shared security gate. */
+    @Provides
+    @IntoSet
+    public fun unattendedApprovalTimeoutToggle(): FeatureToggle<*> =
+        io.aequicor.heartbeat.feature.aiengine.facade.api.UnattendedApprovalTimeoutEnabled
+
     /** Native delegation is an explicit opt-in; native coding tools remain isolated. */
     @Provides
     @IntoSet

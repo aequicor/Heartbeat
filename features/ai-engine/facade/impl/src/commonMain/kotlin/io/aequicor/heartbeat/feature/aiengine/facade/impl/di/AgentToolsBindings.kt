@@ -5,6 +5,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Multibinds
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.common.WindowFocus
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionAnalysis
@@ -16,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnattendedApprovalTimeoutEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ActionSafetyGate
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
@@ -54,6 +56,8 @@ public object AgentToolsBindings {
         settings: AgentSecuritySettings,
         workspaces: LocalWorkspaces,
         actionSafety: ActionSafetyGate,
+        focus: WindowFocus,
+        toggles: FeatureToggles,
     ): ProfileAgentTools = DefaultAgentTools(
         contributions,
         hooks,
@@ -62,6 +66,8 @@ public object AgentToolsBindings {
         workspaces = workspaces,
         settings = settings,
         actionSafety = actionSafety,
+        focus = focus,
+        isUnattendedTimeoutEnabled = { toggles.get(UnattendedApprovalTimeoutEnabled) },
     )
 }
 

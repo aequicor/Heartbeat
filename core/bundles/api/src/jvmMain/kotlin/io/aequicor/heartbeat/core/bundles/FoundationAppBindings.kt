@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.core.bundles
 
 import dev.zacsweers.metro.AppScope
+import io.aequicor.heartbeat.core.common.WindowFocus
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.RecordRetentions
 import io.aequicor.heartbeat.core.datastore.StorageRoot
@@ -74,4 +75,7 @@ public interface FoundationAppBindings {
 
     /** Retention stamps of stored records (harness journals expire by them). */
     public val recordRetentions: RecordRetentions
+
+    /** Focus of the application window (unattended approval requests expire by it). */
+    public val windowFocus: WindowFocus
 }

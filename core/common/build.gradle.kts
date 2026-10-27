@@ -10,6 +10,7 @@ kotlin {
         commonMain.dependencies {
             api(libs.kotlinx.coroutines.core)
             api(libs.kotlinx.serialization.core)
+            implementation(projects.core.logging)
         }
         // Dispatchers.Main: Looper on Android, EDT on desktop (Compose Desktop), native main queue on iOS
         androidMain.dependencies {

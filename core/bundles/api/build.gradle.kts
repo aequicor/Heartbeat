@@ -9,6 +9,7 @@ plugins {
 kotlin {
     sourceSets {
         jvmMain.dependencies {
+            api(projects.core.common)
             api(projects.core.di.api)
             api(projects.core.featureToggles.api)
             api(projects.core.network.api)
