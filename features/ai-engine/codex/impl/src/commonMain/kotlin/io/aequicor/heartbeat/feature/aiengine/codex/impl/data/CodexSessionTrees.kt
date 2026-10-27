@@ -318,6 +318,11 @@ private suspend fun readTurns(rpc: CodexRpc, ref: SessionRef, thread: JsonObject
         val turns = read.obj("thread").array("turns").map { it as? JsonObject ?: protocolFailure() }
         return TreeReplay(turns, isCanonical = false)
     }
+    return readPagedTurns(rpc, ref)
+}
+
+@HighFrequency
+private suspend fun readPagedTurns(rpc: CodexRpc, ref: SessionRef): TreeReplay {
     val turns = mutableListOf<JsonObject>()
     var hasPendingItems = false
     var cursor: String? = null

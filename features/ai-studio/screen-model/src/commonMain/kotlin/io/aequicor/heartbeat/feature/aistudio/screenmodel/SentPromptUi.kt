@@ -44,9 +44,9 @@ data class SentPromptUi(
 
 /**
  * Starts showing [submission] in the feed of its chat. A new chat's submission has no chat until its session is
- * created, so it is shown from [prepareSubmission] ([isNewChat]), organism chats too (their zygote echoes the goal only
- * when its first turn starts); an existing organism chat shows its cells and is left alone. An existing chat whose transcript has not loaded yet gets no copy: its first history could not be told
- * apart from the echo.
+ * created, so it is shown from [prepareSubmission] ([isNewChat]), organism chats too (their zygote echoes the goal
+ * only when its first turn starts); an existing organism chat shows its cells and is left alone. An existing chat
+ * whose transcript has not loaded yet gets no copy: its first history could not be told apart from the echo.
  */
 internal fun AiStudioScreenState.withSentPrompt(
     id: String,
@@ -54,7 +54,8 @@ internal fun AiStudioScreenState.withSentPrompt(
     isNewChat: Boolean,
 ): AiStudioScreenState {
     val chat = submission.sessionId ?: return this
-    if (id in sentPrompts || (!isNewChat && sessions.any { it.id == chat && it.isOrganism })) return this
+    if (id in sentPrompts) return this
+    if (!isNewChat && sessions.any { it.id == chat && it.isOrganism }) return this
     val messages = transcripts[chat]
     if (messages == null && !isNewChat) return this
     val waiting = sentPrompts.filterValues { it.sessionId != chat || !it.isRunEnded }
