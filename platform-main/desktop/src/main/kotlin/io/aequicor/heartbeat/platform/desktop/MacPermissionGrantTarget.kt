@@ -19,8 +19,7 @@ internal class GrantTarget(private val file: File, val name: String, val icon: B
     fun drag(cocoa: MacWindowAccess, windowTitle: String) {
         log.i { "permission guide tile dragged" }
         val isStarted = permissionGuideOrNull("drag the application tile") {
-            MacFileDrag(cocoa).drag(cocoa.window(windowTitle), file.path)
-            true
+            MacFileDrag(cocoa).drag(windowTitle, file.path)
         }
         log.i { "permission guide tile drag ended started=${isStarted == true}" }
     }

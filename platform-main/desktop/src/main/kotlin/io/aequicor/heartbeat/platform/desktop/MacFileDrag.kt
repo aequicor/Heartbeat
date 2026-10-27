@@ -17,11 +17,19 @@ internal class MacFileDrag(private val cocoa: MacWindowAccess) {
     private val lookUpClass = objc.getFunction("objc_getClass")
 
     /**
-     * Drags [path] from [window] until the drop; the gesture is the mouse press already in progress, so the drag
-     * image starts at the pointer. Blocks the AppKit main thread meanwhile, so call it off the AWT event thread.
+     * Drags [path] from the window titled [windowTitle] until the drop; the gesture is the mouse press already in
+     * progress, so the drag image starts at the pointer. Returns `false` without dragging when the button was already
+     * released or AppKit refused. Blocks the AppKit main thread meanwhile, so call it off the AWT event thread.
      */
-    fun drag(window: Pointer, path: String) {
+    fun drag(windowTitle: String, path: String): Boolean {
+        var isStarted = false
         cocoa.onMainThread {
+            // A synthetic drag event with the button up would start a drag that no mouse-up can end.
+            val isPressed = message.invokeLong(
+                arrayOf(objcClass("NSEvent"), select("pressedMouseButtons")),
+            ) and 1L != 0L
+            if (!isPressed) return@onMainThread
+            val window = cocoa.window(windowTitle)
             val view = cocoa.pointer(window, "contentView")
             val at = message.invoke(
                 NsPoint::class.java,
@@ -45,8 +53,12 @@ internal class MacFileDrag(private val cocoa: MacWindowAccess) {
             )
             val rect = NsRect(at.x - ICON_SIDE / 2, at.y - ICON_SIDE / 2, ICON_SIDE, ICON_SIDE)
             val nsPath = cocoa.pointer(objcClass("NSString"), "stringWithUTF8String:", path)
-            message.invokeInt(arrayOf(view, select("dragFile:fromRect:slideBack:event:"), nsPath, rect, 1, event))
+            val result = message.invokeInt(
+                arrayOf(view, select("dragFile:fromRect:slideBack:event:"), nsPath, rect, 1, event),
+            )
+            isStarted = result and BOOLEAN_MASK != 0
         }
+        return isStarted
     }
 
     private fun select(name: String): Pointer = selector.invokePointer(arrayOf(name))
@@ -74,5 +86,7 @@ internal class MacFileDrag(private val cocoa: MacWindowAccess) {
         // NSEventTypeLeftMouseDragged and the side of the drag image rect
         const val LEFT_MOUSE_DRAGGED = 6L
         const val ICON_SIDE = 32.0
+        const val BOOLEAN_MASK = 0xff
+        const val LEFT_BUTTON = 1L
     }
 }
