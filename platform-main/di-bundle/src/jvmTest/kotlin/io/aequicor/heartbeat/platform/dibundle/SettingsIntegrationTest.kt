@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityMachineKey
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityState
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsMachineKey
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateEnabled
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelMachineKey
@@ -131,6 +132,7 @@ class SettingsIntegrationTest {
         val process = Process()
         advanceUntilIdle()
         (process.graph as TestToggleAccessors).toggleControl.setOverride(AppLogsEnabled, false)
+        (process.graph as TestToggleAccessors).toggleControl.setOverride(AppUpdateEnabled, false)
         process.root.handleDeepLink("heartbeat://settings/unknown")
         advanceUntilIdle()
         assertEquals(listOf<Route>(ProductionWelcomeRoute), process.host.routes, "an unknown section is rejected")
@@ -138,7 +140,7 @@ class SettingsIntegrationTest {
         process.root.handleDeepLink("heartbeat://settings")
         advanceUntilIdle()
         assertEquals(listOf(ProductionWelcomeRoute, SettingsRoute()), process.host.routes)
-        // With diagnostics disabled the guest flags section still waits for DataStore reads on IO.
+        // With diagnostics and updates disabled the guest flags section still waits for DataStore reads on IO.
         val section = process.graph.machines.observe(TogglesPanelMachineKey).filterNotNull().first()
         assertNotNull(section)
         process.close()
@@ -167,6 +169,25 @@ class SettingsIntegrationTest {
         advanceUntilIdle()
         assertEquals(listOf<Route>(ProductionWelcomeRoute), process.host.routes)
         assertNull(process.graph.machines.find(AppLogsMachineKey))
+        process.close()
+    }
+
+    @Test
+    fun `updates open inside guest settings and close with the window`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val process = Process()
+        advanceUntilIdle()
+
+        process.root.handleDeepLink("heartbeat://settings/updates")
+        advanceUntilIdle()
+        assertEquals(
+            listOf(ProductionWelcomeRoute, SettingsRoute(SettingsSection.Updates)),
+            process.host.routes,
+        )
+
+        process.host.onBack()
+        advanceUntilIdle()
+        assertEquals(listOf<Route>(ProductionWelcomeRoute), process.host.routes)
         process.close()
     }
 

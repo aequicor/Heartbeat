@@ -34,6 +34,7 @@ enum class SettingsSectionUi {
     Harness,
     Interfaces,
     ProjectConfig,
+    Updates,
     Logs,
     FeatureFlags,
 }

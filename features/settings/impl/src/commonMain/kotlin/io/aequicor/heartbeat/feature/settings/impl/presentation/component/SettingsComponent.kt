@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlPane
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlRoute
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityRoute
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdatesRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
@@ -175,6 +176,7 @@ class SettingsComponent(
             ProfileSettingsRoute::class,
             TogglesPanelRoute::class,
             AppLogsRoute::class,
+            AppUpdatesRoute::class,
         )
     }
 }
@@ -197,6 +199,7 @@ private val EMBEDDED_ROUTES: Map<SettingsSection, Route> = mapOf(
     SettingsSection.Harness to HarnessRoute(isEmbedded = true),
     SettingsSection.Interfaces to ServiceUiLibraryRoute(isEmbedded = true),
     SettingsSection.ProjectConfig to ProjectConfigRoute(isEmbedded = true),
+    SettingsSection.Updates to AppUpdatesRoute(isEmbedded = true),
     SettingsSection.Logs to AppLogsRoute(isEmbedded = true),
     SettingsSection.FeatureFlags to TogglesPanelRoute(isEmbedded = true),
 )

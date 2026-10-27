@@ -31,7 +31,7 @@ interface AppUpdatesGraph {
     @GraphExtension.Factory
     fun interface Factory {
         /** Creates the retained graph for one "Updates" page. */
-        fun create(
+        fun createAppUpdates(
             @Provides @ForScope(AppUpdatesScope::class) scope: ScopeHandle,
         ): AppUpdatesGraph
     }
@@ -45,6 +45,6 @@ internal class AppUpdatesRouteEntry(
     private val graphs: AppUpdatesGraph.Factory,
 ) : RouteEntry<AppUpdatesRoute>(AppUpdatesRoute::class, AppUpdatesRoute.serializer()) {
     override fun create(route: AppUpdatesRoute, context: ComponentContext, navigator: Navigator): NavComponent =
-        context.retainedGraph(scopes, app, name = "app-updates") { graphs.create(it) }
+        context.retainedGraph(scopes, app, name = "app-updates") { graphs.createAppUpdates(it) }
             .factory.create(context, navigator, route).let { AppUpdatesUiComponent(it) }
 }

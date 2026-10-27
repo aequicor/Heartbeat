@@ -63,6 +63,10 @@ public enum class SettingsSection {
     @SerialName("project_config")
     ProjectConfig,
 
+    /** Desktop application version, bundles of the running build and the check for updates. */
+    @SerialName("updates")
+    Updates,
+
     /** Desktop application diagnostics: recent logs, archive and the logs directory. */
     @SerialName("logs")
     Logs,
@@ -117,6 +121,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Harness -> "harness"
         SettingsSection.Interfaces -> "interfaces"
         SettingsSection.ProjectConfig -> "project_config"
+        SettingsSection.Updates -> "updates"
         SettingsSection.Logs -> "logs"
         SettingsSection.FeatureFlags -> "feature_flags"
     }

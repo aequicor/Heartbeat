@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsE
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateEnabled
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
@@ -75,14 +76,15 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             sessions.active,
             toggles.observe(AppLogsEnabled),
             toggles.observe(StudioEngineRuntime),
-        ) { session, logs, security -> Triple(session, logs, security) },
-    ) { (connections, management), search, (computerUse, chromium), profile, (session, logs, security) ->
+            toggles.observe(AppUpdateEnabled),
+        ) { session, logs, security, updates -> AppSections(session != null, logs, security, updates) },
+    ) { (connections, management), search, (computerUse, chromium), profile, app ->
         availableSections(
             isModelsEnabled = connections,
             isEnginesEnabled = management,
             isSearchEnabled = search,
-            hasProfile = session != null,
-            isSecurityEnabled = security,
+            hasProfile = app.hasProfile,
+            isSecurityEnabled = app.isSecurity,
             isComputerUseEnabled = computerUse,
             isChromiumBridgeEnabled = chromium,
             isLearningEnabled = profile.isLearning,
@@ -91,7 +93,8 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isInterfacesEnabled = profile.isInterfaces,
             isSubagentsEnabled = profile.isSubagents,
             isProjectConfigEnabled = profile.isProjectConfig,
-            isLogsEnabled = logs,
+            isLogsEnabled = app.isLogs,
+            isUpdatesEnabled = app.isUpdates,
             isDesktop = isDesktop,
             // Builds run only on Desktop; mobile hosts have no build queue to configure.
             isBuildsEnabled = profile.isBuilds && isDesktop,
@@ -101,6 +104,14 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
         // the list grew in steps. The window keeps its blank section until the toggles are read.
         .distinctUntilChanged()
 }
+
+/** The profile presence and the toggles read together with it. */
+private data class AppSections(
+    val hasProfile: Boolean,
+    val isLogs: Boolean,
+    val isSecurity: Boolean,
+    val isUpdates: Boolean,
+)
 
 /** Toggles of the profile sections beyond the five-flow overload of `combine`. */
 private data class ProfileSections(

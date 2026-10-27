@@ -15,5 +15,6 @@
     <string name="settings_section_project_config">Configuration</string>
     <string name="settings_section_harness">Harness</string>
     <string name="settings_section_logs">Application logs</string>
+    <string name="settings_section_updates">Updates</string>
     <string name="settings_section_security">Security</string>
 </resources>
