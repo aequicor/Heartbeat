@@ -19,6 +19,7 @@ dependencies {
     implementation(libs.kotlin.metadataJvm)
 
     testImplementation(libs.kotlin.gradlePlugin)
+    testImplementation(libs.proguard.base)
     testImplementation(libs.kotlin.testJunit)
     testImplementation(gradleTestKit())
     functionalTestClasspath(libs.kotlin.gradlePlugin)

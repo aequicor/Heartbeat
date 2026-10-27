@@ -74,6 +74,8 @@ internal fun uniqueJarNames(artifacts: List<Pair<String?, File>>): Map<String, F
  * `bundleManifest`. Third-party libraries are not part of the train ([TrainPlatformJars]).
  * The `heartbeatTrain { sdk(...) }` extension ([TrainSdkExtension]) declares the foundation modules bundles may compile
  * against; the root `verifyTrainSdk` task checks it and runs with `check` here and in every bundle.
+ * With `-Pheartbeat.trainShrink=shrink` `foundation` is processed by ProGuard (`shrinkFoundation`) after it is assembled
+ * ([ShrinkTrainJar]); `contracts` never is.
  */
 class TrainBaseConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) = with(target) {
@@ -100,13 +102,43 @@ class TrainBaseConventionPlugin : Plugin<Project> {
             }
         })
         val ownClasses = extensions.getByType<SourceSetContainer>().getByName("main").output
-        val foundation = registerBaseJar("foundation", version, jarsOf(TrainPart.Foundation), ownClasses)
-        val contracts = registerBaseJar("contracts", version, jarsOf(TrainPart.Contracts), null)
+        val mode = TrainShrinkMode.parse(providers.gradleProperty(TrainShrinkMode.PROPERTY).orNull)
+        val foundationDirectory = if (mode == TrainShrinkMode.Off) FINAL_JAR_DIRECTORY else RAW_JAR_DIRECTORY
+        val foundation = registerBaseJar(
+            "foundation",
+            version,
+            jarsOf(TrainPart.Foundation),
+            ownClasses,
+            foundationDirectory,
+            if (mode == TrainShrinkMode.Off) "assembleFoundation" else "assembleFoundationRaw",
+        )
+        // Contracts are the interface between processed jars and are used as assembled.
+        val contracts = registerBaseJar("contracts", version, jarsOf(TrainPart.Contracts), null, FINAL_JAR_DIRECTORY, "assembleContracts")
+        // The jar the manifest and the installer take: the processed foundation when the train is shrunk.
+        val foundationJar: Any = if (mode == TrainShrinkMode.Off) {
+            foundation
+        } else {
+            registerShrinkTrainJar(
+                "shrinkFoundation",
+                foundation.flatMap { it.archiveFile }.map { it.asFile },
+                version.map { bundleJarName("foundation", it) },
+            ) {
+                keptJars.from(contracts)
+                libraryJars.from(jarsOf(TrainPart.Platform))
+            }.also { shrunk ->
+                // `assembleFoundation` stays the task that gives the final jar.
+                tasks.register("assembleFoundation") {
+                    group = "build"
+                    description = "Assembles and shrinks the foundation jar of the bundle train."
+                    dependsOn(shrunk)
+                }
+            }
+        }
         rootProject.tasks.matching { it.name == MANIFEST_TASK }.configureEach {
             this as BundleManifest
             baseArtifacts.put("foundation", version)
             baseArtifacts.put("contracts", version)
-            jars.from(foundation, contracts)
+            jars.from(foundationJar, contracts)
         }
     }
 
@@ -115,11 +147,13 @@ class TrainBaseConventionPlugin : Plugin<Project> {
         version: Provider<String>,
         projectJars: Provider<List<File>>,
         ownClasses: Any?,
-    ): TaskProvider<Jar> = tasks.register<Jar>("assemble${id.replaceFirstChar(Char::uppercase)}") {
+        directory: String,
+        taskName: String,
+    ): TaskProvider<Jar> = tasks.register<Jar>(taskName) {
         group = "build"
         description = "Assembles the reproducible jar of the base artifact $id of the bundle train."
         archiveFileName.set(version.map { bundleJarName(id, it) })
-        destinationDirectory.set(layout.buildDirectory.dir("bundle"))
+        destinationDirectory.set(layout.buildDirectory.dir(directory))
         isPreserveFileTimestamps = false
         isReproducibleFileOrder = true
         duplicatesStrategy = DuplicatesStrategy.FAIL
