@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.appupdate.impl.data
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.desktopDataName
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateException
@@ -125,7 +126,12 @@ internal class UpdateWorkspace(private val root: Path) {
 internal fun updatesRoot(host: HostPlatform, storage: StorageRoot): Path = when (host) {
     HostPlatform.Windows -> {
         val home = System.getProperty("user.home").orEmpty()
-        Path.of(System.getenv("LOCALAPPDATA") ?: "$home/AppData/Local", "Aequicor", "Heartbeat", "updates")
+        Path.of(
+            System.getenv("LOCALAPPDATA") ?: "$home/AppData/Local",
+            "Aequicor",
+            desktopDataName(),
+            "updates",
+        )
     }
 
     HostPlatform.MacOs, HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios -> Path.of(storage.path(), "updates")

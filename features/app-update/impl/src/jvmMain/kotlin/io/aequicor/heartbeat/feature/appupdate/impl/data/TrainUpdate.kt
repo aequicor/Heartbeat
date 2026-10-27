@@ -28,7 +28,8 @@ import kotlin.io.path.deleteRecursively
  * - `store/<sha256-lowercase>.jar`: every jar the launcher may run, content-addressed. A jar that is already there is
  *   not downloaded again; a new one is downloaded to `staging/<train>/`, verified against the SHA-256 of the manifest
  *   and only then moved into `store/`.
- * - `pending/<train>/manifest.json`: the manifest as published, written last and atomically. Its presence means "all
+ * - `pending/<train>/manifest.json`: the manifest as published (a train of a pre-release gets `channel: beta`, see
+ *   [withChannel]), written last and atomically. Its presence means "all
  *   jars of this train are in `store/`"; the launcher activates the train at its next start (the user quits the app
  *   the way a full installer asks for) and rolls back on its own when the train does not start.
  *
@@ -56,7 +57,11 @@ internal class TrainUpdate(
         val recent = client.recent(repository)
         val releases = recent.sortedByDescending { it.trainManifestAsset()?.url == release.url }
         // A train published as a pre-release is a beta train: the launcher shows its app as Beta while it runs.
-        val isBeta = releases.firstOrNull { it.trainManifestAsset()?.url == release.url }?.isPrerelease == true
+        val published = recent.firstOrNull { it.trainManifestAsset()?.url == release.url }
+        if (published == null) {
+            log.w { "release of the offered train is not among the recent ones; queued as a release train" }
+        }
+        val isBeta = published?.isPrerelease == true
         val missing = withContext(io) {
             storage { manifest.missingDownloads(repository, releases) { Files.exists(storeJar(root, it)) } }
         }
@@ -72,12 +77,12 @@ internal class TrainUpdate(
         try {
             download(missing, staging, root, progress)
             progress.preparing()
-            withContext(io) { storage { queue(root, manifest.train, if (isBeta) withBetaChannel(text) else text) } }
+            withContext(io) { storage { queue(root, manifest.train, withChannel(text, isBeta)) } }
         } finally {
             // Also after a failure or cancellation: a partial download is never reused, the store keeps what was moved.
             withContext(NonCancellable) { removeStaging(staging) }
         }
-        log.i { "train queued for the launcher train=${manifest.train}" }
+        log.i { "train queued for the launcher train=${manifest.train} beta=$isBeta" }
     }
 
     private suspend fun download(
@@ -141,12 +146,15 @@ internal class TrainUpdate(
 }
 
 /**
- * [manifest] with the `channel` field the launcher reads (`TrainManifest.channel`): the train comes from the beta
- * channel. The field is added to the queued copy only; the published manifest and its jars stay as they are.
+ * [manifest] as queued for the launcher: with `channel: beta` (the launcher's `TrainManifest.beta()`) when the train is
+ * from a pre-release, otherwise without any `channel`, whatever the published copy says. Only this app decides it; the
+ * published manifest and its jars stay as they are. The label lasts until the next train is queued.
  */
-internal fun withBetaChannel(manifest: String): String {
+internal fun withChannel(manifest: String, isBeta: Boolean): String {
+    if (!isBeta && !manifest.contains("\"$TRAIN_CHANNEL\"")) return manifest
     val root = Json.parseToJsonElement(manifest).jsonObject
-    return JsonObject(root + (TRAIN_CHANNEL to JsonPrimitive(TRAIN_CHANNEL_BETA))).toString()
+    val fields = if (isBeta) root + (TRAIN_CHANNEL to JsonPrimitive(TRAIN_CHANNEL_BETA)) else root - TRAIN_CHANNEL
+    return JsonObject(fields).toString()
 }
 
 /** The manifest field that names the channel a queued train comes from, and its beta value. */

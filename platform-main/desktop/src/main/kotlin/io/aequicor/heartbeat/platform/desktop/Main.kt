@@ -139,6 +139,7 @@ private fun launchLoggedHeartbeat(
     val log = Log.tag("Desktop")
     classes.onFailure { log.w(it) { "Entry point location is unknown; treating the launch as packaged" } }
     classes.getOrNull()?.let(::attachLocalPiRuntime)
+    log.i { "launch channel=${AppChannel.current}" }
     val applicationIcons = runOnUiThread { loadDesktopIcons().also(::configureDockIcon) }
     // Before the graph exists, so no secret has asked the Keychain yet.
     showKeychainIntroIfNeeded(

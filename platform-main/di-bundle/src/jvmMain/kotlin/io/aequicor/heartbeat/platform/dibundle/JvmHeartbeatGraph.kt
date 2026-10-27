@@ -5,6 +5,7 @@ import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.bundles.impl.BundleHost
+import io.aequicor.heartbeat.core.logging.desktopDataName
 import io.aequicor.heartbeat.core.secrets.SecretStorageInfo
 import io.aequicor.heartbeat.core.secrets.impl.SecretsConfig
 
@@ -32,5 +33,17 @@ fun createHeartbeatGraph(
     hasLocalSecrets: Boolean = isDevelopment,
     allowSecretInteraction: Boolean = true,
 ): HeartbeatGraph = createGraphFactory<JvmHeartbeatGraph.Factory>().create(
-    SecretsConfig(isDevelopment = hasLocalSecrets, isInteractionAllowed = allowSecretInteraction),
+    SecretsConfig(
+        service = secretsService(),
+        isDevelopment = hasLocalSecrets,
+        isInteractionAllowed = allowSecretInteraction,
+    ),
 ).also { graph -> graph.bundleHost.ensureStarted() }
+
+/**
+ * The Keychain/keyring service of this build: the stable one of Heartbeat, or one of its own for a build with its own
+ * data name (the dev channel), so it never reads or rewrites the profiles' secrets of an installed Heartbeat.
+ */
+internal fun secretsService(dataName: String = desktopDataName()): String = SecretsConfig().service.let { service ->
+    if (dataName == "Heartbeat") service else "$service.${dataName.lowercase()}"
+}

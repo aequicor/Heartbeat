@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.core.secrets.impl.data
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class CachedVaultTest {
@@ -71,7 +72,7 @@ class CachedVaultTest {
     fun `an action that wipes its buffer does not corrupt the snapshot`() {
         backend.stored["p"] = byteArrayOf(5, 6)
         vault.transaction("p") { old ->
-            old?.fill(0);
+            old?.fill(0)
             VaultUpdate(null, false, Unit)
         }
 
@@ -80,13 +81,55 @@ class CachedVaultTest {
         assertContentEquals(byteArrayOf(5, 6), seen)
     }
 
+    @Test
+    fun `a failed write is not remembered after a backend read`() {
+        backend.stored["p"] = byteArrayOf(1)
+        backend.failWrites = true
+        assertFailsWith<IllegalStateException> {
+            vault.transaction("p") { VaultUpdate(byteArrayOf(7), true, Unit) }
+        }
+        backend.failWrites = false
+
+        val seen = vault.transaction("p") { old -> VaultUpdate(null, false, old?.copyOf()) }
+
+        assertContentEquals(byteArrayOf(1), seen)
+    }
+
+    @Test
+    fun `a failed write keeps the cached snapshot`() {
+        backend.stored["p"] = byteArrayOf(1)
+        vault.transaction("p") { old -> VaultUpdate(null, false, old?.size) }
+        backend.failWrites = true
+        assertFailsWith<IllegalStateException> {
+            vault.transaction("p") { VaultUpdate(byteArrayOf(7), true, Unit) }
+        }
+
+        val seen = vault.transaction("p") { old -> VaultUpdate(null, false, old?.copyOf()) }
+
+        assertContentEquals(byteArrayOf(1), seen)
+    }
+
+    @Test
+    fun `a deletion clears the snapshot`() {
+        backend.stored["p"] = byteArrayOf(1)
+        vault.transaction("p") { old -> VaultUpdate(null, false, old?.size) }
+        vault.transaction("p") { VaultUpdate(null, true, Unit) }
+
+        val seen = vault.transaction("p") { old -> VaultUpdate(null, false, old) }
+
+        assertNull(seen)
+        assertEquals(2, backend.reads)
+    }
+
     private class CountingVault : ProtectedVault {
         val stored = mutableMapOf<String, ByteArray>()
         var reads = 0
+        var failWrites = false
 
         override fun <T> transaction(profile: String, erase: Boolean, action: (ByteArray?) -> VaultUpdate<T>): T {
             val old = if (erase) null else stored[profile]?.copyOf().also { reads++ }
             val update = action(old)
+            if (update.hasChanges && failWrites) error("write failed")
             if (update.hasChanges) {
                 val bytes = update.bytes
                 if (bytes == null) stored.remove(profile) else stored[profile] = bytes.copyOf()

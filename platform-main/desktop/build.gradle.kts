@@ -70,8 +70,10 @@ val heartbeatFlavor = providers.gradleProperty("heartbeat.flavor").orNull.also {
 val isTestingFlavor = heartbeatFlavor == "testing"
 // The build channel (-Pheartbeat.channel=dev|beta, release by default) names the app and gives it its own icon with a
 // badge, so a dev or beta build installs next to Heartbeat: another package name, macOS bundle id and Linux package.
-// A dev build has its own data root, logs and single-instance lock (heartbeat.data.name), so it runs beside an
-// installed Heartbeat; a beta build shares them (it is the same app on the beta train). The Windows installer is refused (the Inno Setup AppId and file names are those of Heartbeat).
+// A dev build has its own data root, logs, Keychain service and single-instance lock (heartbeat.data.name), so it runs
+// beside an installed Heartbeat; a beta build shares them and only runs while Heartbeat is not running. Both still share
+// the Native Messaging host name of the Chromium bridge: registering the browser host from a dev build repoints the
+// extension at it. The Windows installer is refused (the Inno Setup AppId and file names are those of Heartbeat).
 data class BuildChannel(val id: String, val packageName: String, val displayName: String, val bundleId: String?)
 val heartbeatChannels = listOf(
     BuildChannel("release", "Heartbeat", "Heartbeat", null),
@@ -89,17 +91,17 @@ require(!isTestingFlavor || heartbeatChannel.id == "release") {
 val isReleaseChannel = heartbeatChannel.id == "release"
 val channelIconDirectory = if (isReleaseChannel) "icons" else "icons/${heartbeatChannel.id}"
 if (!isReleaseChannel) {
-    // Compose registers its packaging tasks after evaluation; the callback also covers those.
-    tasks.configureEach {
-        if (Regex("package(Release)?InnoSetup").matches(name)) {
-            doFirst {
-                throw GradleException(
-                    "The ${heartbeatChannel.id} channel has no Windows installer: its Inno Setup AppId and file names " +
-                        "are those of Heartbeat and would replace an installed one",
-                )
-            }
+    val rejectChannelInstallers = tasks.register("rejectChannelInstallers") {
+        doFirst {
+            throw GradleException(
+                "The ${heartbeatChannel.id} channel has no Windows installer: its Inno Setup AppId and file names " +
+                    "are those of Heartbeat and would replace an installed one (so its " +
+                    "package(Release)DistributionForCurrentOS fails on Windows too)",
+            )
         }
     }
+    // Compose registers its packaging tasks after evaluation; the callback also covers those.
+    tasks.configureEach { if (Regex("package(Release)?InnoSetup").matches(name)) dependsOn(rejectChannelInstallers) }
 }
 if (isTestingFlavor) {
     val rejectTestingInstallers = tasks.register("rejectTestingInstallers") {
@@ -479,8 +481,9 @@ afterEvaluate {
                 releaseJars.flatMap { original -> prepared.outputDirectory.file(original.mainJar.get().asFile.name) }
             })
             // Only the release launcher names the update source: development launches never replace themselves,
-            // and neither the testing flavor nor a dev build may swap itself for a published release.
-            if (!isTestingFlavor && heartbeatChannel.id != "dev") {
+            // and neither the testing flavor nor a dev or beta channel build may swap itself for a published release (it would turn
+            // into Heartbeat with another bundle id: a beta is the release app on the beta train, not a separate update line).
+            if (!isTestingFlavor && isReleaseChannel) {
                 launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
             }
         }

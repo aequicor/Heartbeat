@@ -103,6 +103,23 @@ class TrainUpdateTest {
     }
 
     @Test
+    fun `a published channel mark is dropped from a stable train`() = runTest {
+        val marked = manifest.replaceFirst("{", "{\"channel\": \"beta\", ")
+        val stable = listOf(
+            releaseJson(
+                "train-t2",
+                listOf("train-manifest.json" to 10L, "ui.jar" to ui.size.toLong()),
+                isStable = true,
+            ),
+            releaseJson("train-t1", listOf("train-manifest.json" to 10L, "core.jar" to core.size.toLong())),
+        )
+        update(manifestText = marked, publications = stable).prepare(repository, root, offer, progress())
+
+        val queued = Json.parseToJsonElement(root.resolve("pending/t2/manifest.json").readText()).jsonObject
+        assertFalse("channel" in queued)
+    }
+
+    @Test
     fun `a jar with the wrong hash is corrupted and the train is not queued`() = runTest {
         val tampered = manifestJson("t2", listOf("core.jar" to sha256(core), "ui.jar" to sha256("other".toByteArray())))
 
