@@ -16,7 +16,7 @@ import org.gradle.api.tasks.TaskAction
 
 /**
  * The seed of an installer (`FirstLaunch` of the platform launcher): the `manifest.json` of a whole train and the jars
- * it lists, so a fresh installation starts offline and activates its first train from them. The manifest is the output of
+ * it lists as `<jar>.seed` files, so a fresh installation starts offline and activates its first train from them. The manifest is the output of
  * `bundleManifest` with the train id the launcher requires.
  */
 abstract class WriteTrainSeed : DefaultTask() {
@@ -50,13 +50,15 @@ abstract class WriteTrainSeed : DefaultTask() {
         output.mkdirs()
         listed.forEach { name ->
             val jar = byName[name] ?: throw GradleException("Jar $name of the manifest is missing")
-            jar.copyTo(output.resolve(name))
+            // `.seed`: jpackage puts every `.jar` of the app on the installer's class path, where a train jar would shadow the train.
+            jar.copyTo(output.resolve(name + SEED_SUFFIX))
         }
         output.resolve(MANIFEST).writeText(withTrainId(text, id))
     }
 
     internal companion object {
         const val MANIFEST = "manifest.json"
+        const val SEED_SUFFIX = ".seed"
         private val TRAIN_ID = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
         private val JAR_ENTRY = Regex("\"jar\":\\s*\"([^\"]+)\"")
 

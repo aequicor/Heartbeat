@@ -71,6 +71,14 @@ class LauncherMainTest {
     }
 
     @Test
+    void withoutTheAgentTheTrainGetsItsOwnLoader() throws Exception {
+        assertFalse(LauncherAgent.isAvailable());
+        ClassLoader loader = LauncherMain.trainLoader(java.util.List.of());
+        assertTrue(loader instanceof java.net.URLClassLoader);
+        assertThrows(IllegalStateException.class, () -> LauncherAgent.appendToSystemClassLoader(java.util.List.of()));
+    }
+
+    @Test
     void workerArgumentsAreAuxiliary() {
         assertTrue(LauncherMain.isAuxiliary(new String[] {"--heartbeat-plantuml-worker"}));
         assertTrue(LauncherMain.isAuxiliary(new String[] {"--verify-window-runtime"}));

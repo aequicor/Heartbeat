@@ -85,7 +85,7 @@ public final class LauncherMain {
         launcher.exposeToApp(prepared, root);
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         if (prepared.train() != null) {
-            loader = Launcher.newClassLoader(prepared.classpath(), ClassLoader.getSystemClassLoader());
+            loader = trainLoader(prepared.classpath());
             Thread.currentThread().setContextClassLoader(loader);
         }
         AtomicBoolean returned = new AtomicBoolean();
@@ -136,6 +136,18 @@ public final class LauncherMain {
     /** Корень лаунчера рядом с каталогом данных, вне его: так требует {@link DbBackup}. */
     static Path launcherRootBeside(Path dataDir) {
         return dataDir.resolveSibling(dataDir.getFileName() + "-launcher");
+    }
+
+    /**
+     * Загрузчик поезда: с агентом ({@link LauncherAgent}) jar дописываются в системный загрузчик, и всё приложение
+     * видит один загрузчик; без агента (тесты, запуск без установщика) — отдельный загрузчик поверх системного.
+     */
+    static ClassLoader trainLoader(java.util.List<Path> classpath) throws IOException {
+        if (LauncherAgent.isAvailable()) {
+            LauncherAgent.appendToSystemClassLoader(classpath);
+            return ClassLoader.getSystemClassLoader();
+        }
+        return Launcher.newClassLoader(classpath, ClassLoader.getSystemClassLoader());
     }
 
     /** Запрашивает откат поезда; собственный сбой не заслоняет исключение приложения {@code failure}. */

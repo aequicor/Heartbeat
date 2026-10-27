@@ -43,11 +43,11 @@ class WriteTrainSeedTest {
         task.write()
 
         val seed = temporaryFolder.root.resolve("seed")
-        assertEquals(listOf("bundle-foundation-1.jar", "bundle-web-1.jar", "manifest.json"), seed.list()!!.sorted())
+        assertEquals(listOf("bundle-foundation-1.jar.seed", "bundle-web-1.jar.seed", "manifest.json"), seed.list()!!.sorted())
         val text = seed.resolve("manifest.json").readText()
         assertTrue(text.startsWith("{\n  \"train\": \"seed-1.0.0\","), text)
         assertTrue("\"platformApi\": 1" in text)
-        assertFalse(seed.resolve("bundle-old-0.jar").exists())
+        assertFalse(seed.resolve("bundle-old-0.jar.seed").exists())
     }
 
     @Test

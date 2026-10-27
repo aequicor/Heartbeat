@@ -24,6 +24,12 @@ public final class FirstLaunch {
     public static final String MANIFEST = "manifest.json";
     public static final String PROPERTIES = "seed.properties";
     public static final String BASE_URL_KEY = "baseUrl";
+    /**
+     * Суффикс seed-файла: {@code <jar>.seed}. jpackage добавляет в classpath установщика каждый {@code .jar} внутри
+     * приложения, а jar поезда там быть не должны (родительский загрузчик перекрыл бы поезд), поэтому установщик
+     * кладёт seed под другим расширением. Файл без суффикса тоже принимается.
+     */
+    public static final String SEED_SUFFIX = ".seed";
 
     /** Наблюдатель за ходом первого запуска; вызывается из потока {@link #run}. */
     public interface Listener {
@@ -140,7 +146,10 @@ public final class FirstLaunch {
         if (Files.isRegularFile(target) && TrainStore.sha256(target).equals(sha)) {
             return true;
         }
-        Path source = seedDir.resolve(bundle.jar());
+        Path source = seedDir.resolve(bundle.jar() + SEED_SUFFIX);
+        if (!Files.isRegularFile(source)) {
+            source = seedDir.resolve(bundle.jar());
+        }
         if (!Files.isRegularFile(source)) {
             return false;
         }

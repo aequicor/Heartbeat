@@ -43,4 +43,18 @@ class TrainPartTest {
         val names = uniqueJarNames(listOf("org.jetbrains.compose.runtime" to a, "androidx.compose.runtime" to b, "x" to c))
         assertEquals(setOf("org.jetbrains.compose.runtime-saveable.jar", "androidx.compose.runtime-saveable.jar", "other.jar"), names.keys)
     }
+
+    @Test
+    fun `only the launcher may bring project classes to the platform class path`() {
+        val clean = sequenceOf(
+            "io/aequicor/heartbeat/launcher/LauncherMain.class",
+            "androidx/compose/runtime/Composer.class",
+            "io/aequicor/heartbeat/data.txt",
+        )
+        assertEquals(emptyList(), projectClassesIn(clean))
+        assertEquals(
+            listOf("io/aequicor/heartbeat/core/common/Foo.class"),
+            projectClassesIn(sequenceOf("io/aequicor/heartbeat/core/common/Foo.class")),
+        )
+    }
 }

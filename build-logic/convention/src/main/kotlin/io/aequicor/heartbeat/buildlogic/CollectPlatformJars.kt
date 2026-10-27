@@ -14,6 +14,26 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
+/** Packages of the project: only the platform launcher may be on the installer's class path. */
+private const val PROJECT_PREFIX = "io/aequicor/heartbeat/"
+private const val LAUNCHER_PREFIX = "io/aequicor/heartbeat/launcher/"
+
+/**
+ * The class path of the installer is the parent of the train's class loader and wins over it: a project class there
+ * would shadow the train, and an update would silently keep running the old code.
+ */
+internal fun projectClassesIn(entryNames: Sequence<String>): List<String> = entryNames
+    .filter { it.endsWith(".class") && it.startsWith(PROJECT_PREFIX) && !it.startsWith(LAUNCHER_PREFIX) }
+    .take(MAX_REPORTED)
+    .toList()
+
+private fun checkNoProjectCode(name: String, jar: File) {
+    val found = java.util.zip.ZipFile(jar).use { zip -> projectClassesIn(zip.entries().asSequence().map { it.name }) }
+    check(found.isEmpty()) { "Platform jar $name carries project classes that would shadow the train: $found" }
+}
+
+private const val MAX_REPORTED = 5
+
 /** Copies the platform jars of the installer into one directory under the unique [names] ([uniqueJarNames]). */
 abstract class CollectPlatformJars : DefaultTask() {
     /** Installed file name -> jar. */
@@ -36,6 +56,7 @@ abstract class CollectPlatformJars : DefaultTask() {
 
     @TaskAction
     fun copy() {
+        names.get().forEach { (name, path) -> checkNoProjectCode(name, File(path)) }
         val output = outputDirectory.get().asFile
         output.deleteRecursively()
         output.mkdirs()

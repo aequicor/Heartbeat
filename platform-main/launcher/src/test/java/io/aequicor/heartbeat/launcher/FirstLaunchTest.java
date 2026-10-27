@@ -111,6 +111,16 @@ class FirstLaunchTest {
     }
 
     @Test
+    void seedJarsMayCarryTheSeedSuffix() throws Exception {
+        writeSeed("t1", List.of("foundation"), "foundation");
+        Path plain = seed.resolve("foundation.jar");
+        Files.move(plain, seed.resolve("foundation.jar" + FirstLaunch.SEED_SUFFIX));
+        assertEquals("t1", firstLaunch.run(fetcher, listener));
+        assertTrue(fetched.isEmpty());
+        assertEquals("t1", launcher.prepare().train());
+    }
+
+    @Test
     void downloadsMissingBundlesAndReportsProgress() throws Exception {
         writeSeed("t1", List.of("foundation"), "foundation", "web", "studio");
         firstLaunch.run(fetcher, listener);
