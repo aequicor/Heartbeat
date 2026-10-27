@@ -27,6 +27,9 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
         private set
     private var nextId = 0L
     private val pending = mutableMapOf<String, CompletableDeferred<JsonObject>>()
+
+    /** The engine's own words for a rejected request, kept until its caller has read them. */
+    private val rejections = mutableMapOf<String, String>()
     private val events = Channel<JsonObject>(EVENT_CAPACITY)
     val notifications = events.receiveAsFlow()
     private var failure: EngineException? = null
@@ -65,7 +68,29 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
 
     /** Shared by user operations and background polling; per-request diagnostics belong to trace. */
     @HighFrequency
-    suspend fun request(method: String, params: JsonObject = JsonObject(emptyMap())): JsonObject {
+    suspend fun request(method: String, params: JsonObject = JsonObject(emptyMap())): JsonObject =
+        request(method, params, null)
+
+    /**
+     * A thread's history exists only once its first message is recorded; before that the engine rejects history reads
+     * as "not materialized yet", which is an empty history and not a failure. Null answers exactly that rejection.
+     */
+    @HighFrequency
+    suspend fun requestHistory(method: String, params: JsonObject): JsonObject? {
+        val rejection = StringBuilder()
+        return try {
+            request(method, params, rejection)
+        } catch (e: EngineException) {
+            if (e.failure == EngineFailure.Request(RequestFailureReason.Invalid) && NOT_MATERIALIZED in rejection) {
+                null
+            } else {
+                throw e
+            }
+        }
+    }
+
+    @HighFrequency
+    private suspend fun request(method: String, params: JsonObject, rejection: StringBuilder?): JsonObject {
         failure?.let { throw it }
         val id = (++nextId).toString()
         val result = CompletableDeferred<JsonObject>()
@@ -77,6 +102,7 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
                 ?: fail(EngineFailure.Transport(TransportFailureReason.Timeout))
         } finally {
             pending.remove(id)
+            rejections.remove(id)?.let { rejection?.append(it) }
         }
     }
 
@@ -114,6 +140,8 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
         } else {
             val result = pending[message.text("id")] ?: return
             if (message["error"] != null) {
+                val reason = (message["error"] as? JsonObject)?.text("message")
+                if (reason != null) rejections[message.text("id").orEmpty()] = reason
                 result.completeExceptionally(EngineException(EngineFailure.Request(RequestFailureReason.Invalid)))
             } else {
                 result.complete(message.obj("result"))
@@ -137,6 +165,7 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
     private companion object {
         const val METHOD_NOT_FOUND = -32601
         const val REQUEST_TIMEOUT = 30_000L
+        const val NOT_MATERIALIZED = "not materialized yet"
         const val EVENT_CAPACITY = 1024
     }
 }

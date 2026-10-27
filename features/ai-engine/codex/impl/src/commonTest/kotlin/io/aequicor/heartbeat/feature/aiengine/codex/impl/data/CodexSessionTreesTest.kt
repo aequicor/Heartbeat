@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -9,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -19,6 +21,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -259,6 +262,40 @@ class CodexSessionTreesTest {
     ).jsonObject
 
     private fun JsonObject.items(): List<JsonObject> = array("items").map { it as JsonObject }
+
+    @Test
+    fun `a thread without its first message is an empty partial family and not a failure`() = runTest {
+        val fixture = Fixture(this)
+        val delegate = fixture.wire.handler
+        fixture.wire.handler = { message ->
+            when (message.text("method")) {
+                "thread/read" -> fixture.wire.reply(message, json("thread" to thread("root", null)))
+                "thread/turns/list" -> fixture.wire.error(
+                    message,
+                    "thread root is not materialized yet; thread/turns/list is unavailable before first user message",
+                )
+                else -> delegate(message)
+            }
+        }
+        val snapshot = CodexSessionTrees(fixture.runtime, fixture.rpc).snapshot(root, SessionTreeAccess(fixture.target))
+        assertEquals(listOf(root), snapshot.nodes.map { it.ref })
+        assertEquals(SessionTreeCoverage.Partial, snapshot.coverage)
+    }
+
+    @Test
+    fun `any other rejected history read still fails`() = runTest {
+        val fixture = Fixture(this)
+        val delegate = fixture.wire.handler
+        fixture.wire.handler = { message ->
+            when (message.text("method")) {
+                "thread/read" -> fixture.wire.reply(message, json("thread" to thread("root", null)))
+                "thread/turns/list" -> fixture.wire.error(message, "thread root is gone")
+                else -> delegate(message)
+            }
+        }
+        val trees = CodexSessionTrees(fixture.runtime, fixture.rpc)
+        assertFailsWith<EngineException> { trees.snapshot(root, SessionTreeAccess(fixture.target)) }
+    }
 
     @Test
     fun `noncanonical child replay stays empty and partial so saved transcripts survive`() = runTest {

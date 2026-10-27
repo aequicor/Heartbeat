@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | LoadError | RetryLoad | Loading | Load |
  * | Ready | Public command | stay | Apply |
  * | Ready | Updated (newer revision) | stay | Changed output |
+ * | Ready | Updated (same or older revision) | stay, unchanged | |
  *
  * Individual task transitions use pure reducers in this API against the journaled phase. Keeping the
  * machine in Ready prevents one chat's progress from cancelling another chat's accepted IO.
@@ -65,6 +66,10 @@ public val WorktreeMachineSpec: MachineSpec<WorktreeState, WorktreeIntent, Workt
                 stay { WorktreeState.Ready(state.tasks + (intent.task.chatId to intent.task)) }
                 output { WorktreeOutput.Changed(intent.task.chatId) }
             }
+            // A task result reaches the machine from both the command that made it and the worker observation.
+            on<WorktreeIntent.Internal.Updated>(guard = {
+                intent.task.revision <= (state.tasks[intent.task.chatId]?.revision ?: -1)
+            }) { stay { state } }
         }
         onEffectFailure { effect, _ ->
             when (effect) {

@@ -107,9 +107,17 @@ internal class FakeWire private constructor(
         }
         source.incoming.send(json("id" to checkNotNull(request["id"]), "result" to result))
     }
-    suspend fun error(request: JsonObject) {
+    suspend fun error(request: JsonObject, message: String? = null) {
         origin(request).incoming.send(
-            json("id" to checkNotNull(request["id"]), "error" to json("code" to JsonPrimitive(INVALID_PARAMS))),
+            json(
+                "id" to checkNotNull(request["id"]),
+                "error" to json(
+                    *listOfNotNull(
+                        "code" to JsonPrimitive(INVALID_PARAMS),
+                        message?.let { "message" to JsonPrimitive(it) },
+                    ).toTypedArray(),
+                ),
+            ),
         )
     }
     suspend fun event(method: String, params: JsonObject, id: JsonElement? = null) {

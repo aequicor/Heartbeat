@@ -39,6 +39,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.attachmentSupport
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.availableHarnesses
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.contextPanelFor
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.creatingPrompts
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.dismissedNotices
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isHarnessSelectionReady
@@ -240,7 +241,7 @@ private fun AiStudioScreenState.projectPaneContent(
     session = session,
     project = project(pane.projectId ?: session?.projectId),
     projects = projects,
-    transcript = transcriptOf(pane.sessionId, session)?.collapsed(feedCollapse),
+    transcript = (transcriptOf(pane.sessionId, session) ?: creatingPrompts(pane))?.collapsed(feedCollapse),
     isFocused = pane.id == focusedPaneId,
     isStopping = session != null && session.id in stopping,
     elapsed = elapsed(session),
@@ -330,8 +331,8 @@ private fun SettingsUi.forOrganism(organism: OrganismUi?): SettingsUi = if (orga
 }
 
 /**
- * An organism chat shows the live transcript of its chosen sub-session instead of a stored one; a chat shows the
- * messages sent to it before its transcript does.
+ * An organism chat shows the live transcript of its chosen sub-session instead of a stored one; a chat (and an
+ * organism's default sub-session) shows the messages sent to it before its transcript does.
  */
 private fun AiStudioScreenState.transcriptOf(sessionId: String?, session: SessionUi?): ImmutableList<MessageUi>? =
     when {
@@ -340,7 +341,11 @@ private fun AiStudioScreenState.transcriptOf(sessionId: String?, session: Sessio
         selectedNative(sessionId) != PRIMARY_SUB_SESSION -> nativeTranscripts[sessionId]
             ?.takeIf { it.key == selectedNative(sessionId) }?.messages ?: persistentListOf()
 
-        session?.isOrganism == true -> subTranscripts[sessionId] ?: persistentListOf()
+        // The zygote echoes the goal only when its first turn starts: until then the sent message stands in for it.
+        session?.isOrganism == true -> {
+            val cells = subTranscripts[sessionId] ?: persistentListOf()
+            if (subSessions[sessionId] == null) withSentPrompts(sessionId, cells) ?: cells else cells
+        }
 
         else -> withSentPrompts(sessionId, transcripts[sessionId])
     }

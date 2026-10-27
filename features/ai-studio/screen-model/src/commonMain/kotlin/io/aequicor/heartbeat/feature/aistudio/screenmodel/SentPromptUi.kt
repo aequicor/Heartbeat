@@ -44,9 +44,9 @@ data class SentPromptUi(
 
 /**
  * Starts showing [submission] in the feed of its chat. A new chat's submission has no chat until its session is
- * created, so it is shown from [prepareSubmission] ([isNewChat]); organism chats show their cells and are left
- * alone. An existing chat whose transcript has not loaded yet gets no copy: its first history could not be told
- * apart from the echo.
+ * created, so it is shown from [prepareSubmission] ([isNewChat]), organism chats too (their zygote echoes the goal
+ * only when its first turn starts); an existing organism chat shows its cells and is left alone. An existing chat
+ * whose transcript has not loaded yet gets no copy: its first history could not be told apart from the echo.
  */
 internal fun AiStudioScreenState.withSentPrompt(
     id: String,
@@ -54,7 +54,8 @@ internal fun AiStudioScreenState.withSentPrompt(
     isNewChat: Boolean,
 ): AiStudioScreenState {
     val chat = submission.sessionId ?: return this
-    if (id in sentPrompts || sessions.any { it.id == chat && it.isOrganism }) return this
+    if (id in sentPrompts) return this
+    if (!isNewChat && sessions.any { it.id == chat && it.isOrganism }) return this
     val messages = transcripts[chat]
     if (messages == null && !isNewChat) return this
     val waiting = sentPrompts.filterValues { it.sessionId != chat || !it.isRunEnded }
@@ -76,8 +77,12 @@ internal fun AiStudioScreenState.withSentPrompt(
 internal fun AiStudioScreenState.withoutSentPrompt(id: String): AiStudioScreenState =
     if (id in sentPrompts) copy(sentPrompts = (sentPrompts - id).toImmutableMap()) else this
 
-/** The turn of [sessionId] ended: its prompts not echoed yet leave with the chat's next transcript change. */
+/**
+ * The turn of [sessionId] ended: its prompts not echoed yet leave with the chat's next transcript change. An organism
+ * chat's run ends as soon as the organism accepts the goal, long before its zygote echoes it, so its copy stays.
+ */
 fun AiStudioScreenState.endSentPrompts(sessionId: String): AiStudioScreenState {
+    if (sessions.any { it.id == sessionId && it.isOrganism }) return this
     if (sentPrompts.values.none { it.sessionId == sessionId && !it.isRunEnded }) return this
     return copy(
         sentPrompts = sentPrompts.mapValues { (_, sent) ->
@@ -140,7 +145,29 @@ fun AiStudioScreenState.withSentPrompts(
     return feed.toImmutableList()
 }
 
+/**
+ * What [pane] is sending while its new chat is created: there is no chat to carry the message yet, but the user's
+ * message must not wait for the worktree or sandbox to be prepared. Null once the pane has its chat (its feed then
+ * draws [SentPromptUi]) or when nothing is being sent.
+ */
+fun AiStudioScreenState.creatingPrompts(pane: PaneUi): ImmutableList<MessageUi>? {
+    if (!pane.isCreating || pane.sessionId != null) return null
+    return submissions.values.filter { it.paneId == pane.id && it.sessionId == null }
+        .mapIndexed { index, sent ->
+            MessageUi.Prompt(
+                "$CREATING_PROMPT_PREFIX${pane.id}:$index",
+                now,
+                sent.text.trim(),
+                isTimestampKnown = false,
+                sent.attachments,
+            )
+        }.takeIf { it.isNotEmpty() }?.toImmutableList()
+}
+
 private fun List<MessageUi>?.promptCount(): Int = this?.count { it is MessageUi.Prompt } ?: 0
 
 /** Feed ids of sent prompts, distinct from every transcript entry. */
 private const val SENT_PROMPT_PREFIX = "sent:"
+
+/** Feed ids of messages shown while their chat is created. */
+private const val CREATING_PROMPT_PREFIX = "creating:"
