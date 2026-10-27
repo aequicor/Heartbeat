@@ -11,13 +11,18 @@ import kotlin.coroutines.cancellation.CancellationException
  * Ad-hoc signed builds are identified by their code hash, so after an update the old entry stays in the list with
  * its switch on while the probe reports the permission as missing. Resetting that entry before the guide opens
  * System Settings lets the user add the current build instead of toggling a row that no longer applies. Only an
- * installed bundle is reset: a development launch is attributed to the IDE or terminal, whose entry is not ours.
+ * installed bundle is reset: one in `/Applications` or the user's `~/Applications`. A development launch is
+ * attributed to the IDE or terminal, whose entry is not ours, and a locally built distributable shares the bundle
+ * identifier of the installed release, so it must not erase that entry.
  */
 internal object MacStaleGrantReset {
     private val log = Log.tag("MacStaleGrantReset")
 
-    /** The `.app` directory when [command] is the launcher inside it (`X.app/Contents/MacOS/X`); otherwise `null`. */
-    fun installedBundle(command: String?): File? {
+    /**
+     * The `.app` directory when [command] is the launcher inside it (`X.app/Contents/MacOS/X`) and the bundle sits
+     * directly in an Applications folder ([userHome]`/Applications` or `/Applications`); otherwise `null`.
+     */
+    fun installedBundle(command: String?, userHome: String? = System.getProperty("user.home")): File? {
         val executable = command?.let(::File) ?: return null
         val macOsDir = executable.parentFile ?: return null
         val contents = macOsDir.parentFile ?: return null
@@ -25,7 +30,8 @@ internal object MacStaleGrantReset {
         val isLauncher = macOsDir.name == MAC_OS_DIR &&
             contents.name == CONTENTS_DIR &&
             bundle.name.endsWith(APP_SUFFIX)
-        return bundle.takeIf { isLauncher }
+        val folders = listOfNotNull("/Applications", userHome?.let { "$it/Applications" })
+        return bundle.takeIf { isLauncher && bundle.parentFile?.path in folders }
     }
 
     /** `CFBundleIdentifier` of an XML `Info.plist`; `null` for a binary or malformed one. */
@@ -39,8 +45,12 @@ internal object MacStaleGrantReset {
     }
 
     /** The reset command for the installed bundle that runs this process; `null` outside such a bundle. */
-    fun command(permission: ComputerUsePermission, executable: String? = currentExecutable()): List<String>? {
-        val bundle = installedBundle(executable) ?: return null
+    fun command(
+        permission: ComputerUsePermission,
+        executable: String? = currentExecutable(),
+        userHome: String? = System.getProperty("user.home"),
+    ): List<String>? {
+        val bundle = installedBundle(executable, userHome) ?: return null
         val id = try {
             bundleId(File(bundle, "Contents/Info.plist").readText())
         } catch (e: CancellationException) {
@@ -50,7 +60,7 @@ internal object MacStaleGrantReset {
             null
         }
         if (id == null) {
-            log.i { "stale grant reset skipped: bundle identifier is unknown" }
+            log.d { "stale grant reset skipped: bundle identifier is unknown" }
             return null
         }
         return listOf(TCCUTIL, "reset", service(permission), id)
@@ -62,5 +72,5 @@ internal object MacStaleGrantReset {
     private const val MAC_OS_DIR = "MacOS"
     private const val CONTENTS_DIR = "Contents"
     private const val APP_SUFFIX = ".app"
-    const val TCCUTIL = "tccutil"
+    private const val TCCUTIL = "/usr/bin/tccutil"
 }

@@ -29,20 +29,39 @@ class MacStaleGrantResetTest {
     }
 
     @Test
+    fun `local distributable outside Applications is not an installed bundle`() {
+        val home = "/Users/me"
+        assertNull(
+            MacStaleGrantReset.installedBundle("/Users/me/work/build/Heartbeat.app/Contents/MacOS/Heartbeat", home),
+        )
+        assertEquals(
+            "/Users/me/Applications/Heartbeat.app",
+            MacStaleGrantReset.installedBundle(
+                "/Users/me/Applications/Heartbeat.app/Contents/MacOS/Heartbeat",
+                home,
+            )?.path,
+        )
+    }
+
+    @Test
     fun `reset command names the service and the bundle identifier`() {
         val root = Files.createTempDirectory("stale-grant").toFile()
         try {
-            val contents = root.resolve("Heartbeat.app/Contents").apply { resolve("MacOS").mkdirs() }
+            val contents = root.resolve("Applications/Heartbeat.app/Contents").apply { resolve("MacOS").mkdirs() }
+            val executable = contents.resolve("MacOS/Heartbeat").path
+            val home = root.path
+            assertNull(MacStaleGrantReset.command(ComputerUsePermission.Accessibility, executable, home))
+            contents.resolve("Info.plist").writeText("bplist00")
+            assertNull(MacStaleGrantReset.command(ComputerUsePermission.Accessibility, executable, home))
             contents.resolve("Info.plist")
                 .writeText("<key>CFBundleIdentifier</key><string>io.example.app</string>")
-            val executable = contents.resolve("MacOS/Heartbeat").path
             assertEquals(
-                listOf("tccutil", "reset", "Accessibility", "io.example.app"),
-                MacStaleGrantReset.command(ComputerUsePermission.Accessibility, executable),
+                listOf("/usr/bin/tccutil", "reset", "Accessibility", "io.example.app"),
+                MacStaleGrantReset.command(ComputerUsePermission.Accessibility, executable, home),
             )
             assertEquals(
-                listOf("tccutil", "reset", "ScreenCapture", "io.example.app"),
-                MacStaleGrantReset.command(ComputerUsePermission.ScreenRecording, executable),
+                listOf("/usr/bin/tccutil", "reset", "ScreenCapture", "io.example.app"),
+                MacStaleGrantReset.command(ComputerUsePermission.ScreenRecording, executable, home),
             )
         } finally {
             root.deleteRecursively()
