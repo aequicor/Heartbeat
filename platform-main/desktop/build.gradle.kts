@@ -20,6 +20,7 @@ plugins {
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.heartbeat.detekt)
     alias(libs.plugins.heartbeat.jcef)
+    alias(libs.plugins.heartbeat.train)
 }
 
 dependencies {
