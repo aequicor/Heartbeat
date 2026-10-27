@@ -80,6 +80,7 @@ class TrainBaseConventionPlugin : Plugin<Project> {
         pluginManager.apply("org.jetbrains.kotlin.jvm")
         val sdk = extensions.create("heartbeatTrain", TrainSdkExtension::class.java)
         registerVerifyTrainSdk(sdk)
+        registerGenerateTrainSdkRules(sdk)
         tasks.matching { it.name == "check" }.configureEach { dependsOn(rootProject.tasks.named(VERIFY_TRAIN_SDK_TASK)) }
         val version = providers.gradleProperty(VERSION_PROPERTY).orElse(provider { project.version.toString() })
         val artifacts = configurations.named("runtimeClasspath").map { configuration ->

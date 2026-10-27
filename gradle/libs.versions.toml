@@ -80,6 +80,8 @@ haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 macos = { module = "dev.nucleusframework:compose-macos-ui", version.ref = "macos" }
 kotlinx-collectionsImmutable = { module = "org.jetbrains.kotlinx:kotlinx-collections-immutable", version.ref = "kotlinx-collectionsImmutable" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+# Чтение метаданных Kotlin-классов в build-logic (генератор keep-правил SDK поезда)
+kotlin-metadataJvm = { module = "org.jetbrains.kotlin:kotlin-metadata-jvm", version.ref = "kotlin" }
 kotlin-testJunit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }

@@ -16,6 +16,8 @@ dependencies {
     compileOnly(libs.metro.gradlePlugin)
     compileOnly(libs.room.gradlePlugin)
 
+    implementation(libs.kotlin.metadataJvm)
+
     testImplementation(libs.kotlin.gradlePlugin)
     testImplementation(libs.kotlin.testJunit)
     testImplementation(gradleTestKit())
