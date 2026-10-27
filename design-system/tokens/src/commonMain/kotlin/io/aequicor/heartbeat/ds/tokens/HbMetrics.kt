@@ -98,6 +98,8 @@ data class HbDimensions(
     val computerUsePermissionGuideWidth: Dp = 340.dp,
     /** Application icon on the guide's draggable tile, as large as a Finder list icon. */
     val computerUsePermissionGuideIconSize: Dp = 32.dp,
+    /** First-launch window that explains the macOS Keychain prompt before the system shows it. */
+    val keychainIntroWidth: Dp = 420.dp,
     val compactBreakpoint: Dp = 720.dp,
     val compactHeightBreakpoint: Dp = 640.dp,
     val expandedBreakpoint: Dp = 1200.dp,
