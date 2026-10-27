@@ -32,6 +32,23 @@ class TrainSeedTest(unittest.TestCase):
     def manifest(self, *bundles):
         return {"train": "t1", "platformApi": 1, "bundles": list(bundles)}
 
+    def test_train_id_that_could_escape_a_directory_is_rejected(self):
+        manifest = self.manifest(entry("web", b"web"))
+        manifest["train"] = "../evil"
+        with self.assertRaises(ValueError):
+            train_seed.build_seed(manifest, self.train, self.out)
+
+    def test_an_existing_directory_that_is_not_a_seed_is_not_deleted(self):
+        (self.train / "train-manifest.json").write_text(
+            json.dumps(self.manifest(entry("web", b"web"))), encoding="utf-8")
+        (self.train / "bundle-web-t1.jar").write_bytes(b"web")
+        self.out.mkdir()
+        precious = self.out / "keep.txt"
+        precious.write_text("x", encoding="utf-8")
+        status = train_seed.main(["--train-dir", str(self.train), "--out", str(self.out)])
+        self.assertEqual(1, status)
+        self.assertTrue(precious.exists())
+
     def test_carried_jars_are_copied_and_the_others_downloaded(self):
         (self.train / "bundle-web-t1.jar").write_bytes(b"web")
         fetched = []

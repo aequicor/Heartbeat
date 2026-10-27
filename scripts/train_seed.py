@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import sys
 import urllib.request
@@ -48,8 +49,8 @@ def build_seed(
     """Write the seed of [manifest] to [out]; return the names of the jars that had to be downloaded."""
     check_manifest(manifest, "train manifest")
     train = manifest.get(TRAIN_ID)
-    if not isinstance(train, str) or not train:
-        raise ValueError("train manifest has no train id")
+    if not isinstance(train, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", train):
+        raise ValueError("train manifest has no valid train id")
     out.mkdir(parents=True, exist_ok=True)
     downloaded = []
     for bundle in manifest["bundles"]:
@@ -78,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         manifest = json.loads((args.train_dir / MANIFEST_ASSET).read_text(encoding="utf-8"))
         if args.out.exists():
+            if not (args.out / MANIFEST).is_file():
+                raise ValueError(f"{args.out} exists and is not a seed directory; refusing to delete it")
             shutil.rmtree(args.out)
         downloaded = build_seed(manifest, args.train_dir, args.out)
     except (ValueError, OSError) as error:  # json.JSONDecodeError and URLError are ValueError / OSError

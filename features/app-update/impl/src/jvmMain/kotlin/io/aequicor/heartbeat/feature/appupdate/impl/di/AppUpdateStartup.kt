@@ -59,9 +59,17 @@ internal class AppUpdateStartup(
     private suspend fun checkPeriodically(updates: Machine<AppUpdateState, AppUpdateIntent, AppUpdateOutput>) =
         coroutineScope {
             // A changed channel offers other releases: ask again now instead of at the next tick.
-            launch { toggles.observe(AppUpdateBetaChannel).drop(1).collect { requestCheck(updates) } }
+            launch { toggles.observe(AppUpdateBetaChannel).drop(1).collect { recheckAfterChannelChange(updates) } }
             while (requestCheck(updates)) delay(CHECK_INTERVAL)
         }
+
+    /** A check that is running (or an install) used the previous channel: wait for it to end, then ask again. */
+    private suspend fun recheckAfterChannelChange(updates: Machine<AppUpdateState, AppUpdateIntent, AppUpdateOutput>) {
+        if (updates.state.value is AppUpdateState.Checking) {
+            updates.state.first { it !is AppUpdateState.Checking }
+        }
+        requestCheck(updates)
+    }
 
     /** Asks for a check unless the machine is busy; false when this launch cannot update itself. */
     private suspend fun requestCheck(updates: Machine<AppUpdateState, AppUpdateIntent, AppUpdateOutput>): Boolean {

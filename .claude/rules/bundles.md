@@ -81,7 +81,7 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
 - **Артефакты поезда.** `foundation` и `contracts` описываются в `bundleManifest` как базовые артефакты (`"kind": "base"`;
   у `contracts` зависимость `foundation`; у обычных бандлов поле `kind` не пишется). Готовые jar-ы подаются
   `-Pheartbeat.baseArtifacts=foundation,contracts -Pheartbeat.baseArtifactDir=<каталог с bundle-<id>-<версия>.jar>`;
-  версия — `heartbeat.bundleVersion`. Сборка самих jar-ов фундамента и контрактов пока не автоматизирована.
+  версия — `heartbeat.bundleVersion`. Jar-ы собирает плагин `heartbeat.train` (`:platform-main:desktop`): `assembleFoundation` (код проекта, не вошедший в контракты и бандлы) и `assembleContracts` (`:features:*:api`) попадают в `bundleManifest`; сторонние библиотеки остаются в платформе установщика, а не в поезде.
 - **Профильный граф бандла.** Фичи профиля (`ProfileScope`) живут в `@GraphExtension(ProfileScope::class)` бандла
   (`WebProfileGraph`), который создаётся из app-графа бандла (`val profileGraphs: …Graph.Factory`) и получает
   `@Includes FoundationProfileBindings`. `BundleEntry.hasProfileGraph = true`, `createProfileGraph` и

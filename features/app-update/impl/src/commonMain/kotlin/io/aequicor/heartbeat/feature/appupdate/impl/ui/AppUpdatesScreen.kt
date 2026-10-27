@@ -180,7 +180,11 @@ private fun StatusSection(
             style = HbTheme.typography.body,
         )
         if (state.stage == UpdateStageUi.Downloading && state.percent != null) {
-            HbProgressBar(state.percent / PERCENT, Modifier.testTag("updates-progress"))
+            HbProgressBar(
+                state.percent / PERCENT,
+                Modifier.testTag("updates-progress"),
+                stringResource(Res.string.updates_downloading, state.version.orEmpty()),
+            )
         }
         state.failure?.let { failure ->
             HbBanner(stringResource(failure.message()), Modifier.testTag("updates-failure"))

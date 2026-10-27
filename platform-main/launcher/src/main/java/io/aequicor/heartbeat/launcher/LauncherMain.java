@@ -85,9 +85,10 @@ public final class LauncherMain {
         launcher.exposeToApp(prepared, root);
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         java.util.List<Path> classpath = prepared.classpath();
-        if (prepared.train() == null && !owner && seed != null) {
-            // The owner has not activated a train yet (a fresh install: the packaging probe, a worker, a second
-            // launch during the first one): run from the seed, read-only.
+        if (prepared.train() == null && seed != null) {
+            // No train is active: a fresh install for a worker, the packaging probe or a second launch, and for the
+            // owner a seed train marked bad with nothing to roll back to. Run from the seed, read-only, rather
+            // than fail with a missing application class.
             classpath = FirstLaunch.seedClasspath(Path.of(seed));
         }
         if (prepared.train() != null || !classpath.isEmpty()) {

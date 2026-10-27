@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateBetaChannel
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateMachineSpec
@@ -79,8 +80,51 @@ class AppUpdateStartupTest {
         assertTrue(fixture.machine.requests.isEmpty())
     }
 
-    private fun TestScope.startInstalling(): Fixture {
-        val machine = UpdateMachine(AppUpdateState.Installing(release, InstallProgress.Downloading()))
+    @Test
+    fun `a beta channel change asks for a check at once and the launch asks only once`() = runTest {
+        val fixture = start(AppUpdateState.UpToDate())
+        assertEquals(listOf<AppUpdateIntent.Public>(AppUpdateIntent.Public.Check), fixture.machine.requests)
+
+        fixture.machine.state.value = AppUpdateState.UpToDate()
+        fixture.toggles.beta.value = true
+        runCurrent()
+
+        assertEquals(
+            listOf<AppUpdateIntent.Public>(AppUpdateIntent.Public.Check, AppUpdateIntent.Public.Check),
+            fixture.machine.requests,
+        )
+    }
+
+    @Test
+    fun `a beta channel change during a check asks again when the check ends`() = runTest {
+        val fixture = start(AppUpdateState.Checking())
+        assertTrue(fixture.machine.requests.isEmpty())
+
+        fixture.toggles.beta.value = true
+        runCurrent()
+        assertTrue(fixture.machine.requests.isEmpty())
+
+        fixture.machine.state.value = AppUpdateState.UpToDate()
+        runCurrent()
+
+        assertEquals(listOf<AppUpdateIntent.Public>(AppUpdateIntent.Public.Check), fixture.machine.requests)
+    }
+
+    @Test
+    fun `a beta channel change never interrupts an installation`() = runTest {
+        val fixture = start(AppUpdateState.Installing(release, InstallProgress.Downloading()))
+
+        fixture.toggles.beta.value = true
+        runCurrent()
+
+        assertTrue(fixture.machine.requests.isEmpty())
+    }
+
+    private fun TestScope.startInstalling(): Fixture =
+        start(AppUpdateState.Installing(release, InstallProgress.Downloading()))
+
+    private fun TestScope.start(initial: AppUpdateState): Fixture {
+        val machine = UpdateMachine(initial)
         val toggles = Toggles()
         val dispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
@@ -111,14 +155,17 @@ class AppUpdateStartupTest {
 
     private class Toggles : FeatureToggles {
         val enabled = MutableStateFlow(true)
+        val beta = MutableStateFlow(false)
 
-        // This fixture supplies only the Boolean app-update toggle.
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = enabled as Flow<T>
+        private fun flowOf(toggle: FeatureToggle<*>) = if (toggle === AppUpdateBetaChannel) beta else enabled
 
-        // This fixture supplies only the Boolean app-update toggle.
+        // This fixture supplies only the Boolean app-update toggles.
         @Suppress("UNCHECKED_CAST")
-        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = enabled.value as T
+        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(toggle) as Flow<T>
+
+        // This fixture supplies only the Boolean app-update toggles.
+        @Suppress("UNCHECKED_CAST")
+        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = flowOf(toggle).value as T
     }
 
     private class AppScope(override val coroutineScope: CoroutineScope) : ScopeHandle {

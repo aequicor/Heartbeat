@@ -525,9 +525,10 @@ afterEvaluate {
             })
             launcherMainClass.set("io.aequicor.heartbeat.launcher.LauncherMain")
             // $APPDIR is the installed app directory; the launcher finds the data directory of the user itself.
+            // The agent lets the launcher append the train to the system class loader (LauncherAgent); it is the
+            // launcher jar itself, so the argument follows the jar name instead of repeating it.
+            launcherJvmArgs.add(launcherJar.map { jar -> "-javaagent:\$APPDIR/${jar.archiveFileName.get()}" })
             launcherJvmArgs.addAll(
-                // The agent lets the launcher append the train to the system class loader (LauncherAgent).
-                "-javaagent:\$APPDIR/launcher.jar",
                 "-Dheartbeat.launcher.default.root=true",
                 "-Dheartbeat.seed.dir=\$APPDIR/resources/seed",
                 "-Dheartbeat.app.main=" + if (isTestingFlavor) {
