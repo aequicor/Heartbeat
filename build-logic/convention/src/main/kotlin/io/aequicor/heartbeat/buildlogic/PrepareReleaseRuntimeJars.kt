@@ -93,7 +93,8 @@ abstract class PrepareReleaseRuntimeJars : DefaultTask() {
 
     private fun findDeferredJars(jars: List<File>): Set<File> = deferredJarPrefixes.get().map { prefix ->
         require(prefix.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]*-"))) { "Invalid deferred artifact prefix" }
-        val matches = jars.filter { it.name.startsWith(prefix) }
+        // ProGuard output names carry a suffix after the prefix; unshrunk platform jars are exactly <artifact>-<version>.jar.
+        val matches = jars.filter { it.name.startsWith(prefix) || it.name == prefix.dropLast(1) + ".jar" }
         check(matches.size == 1) { "Expected one deferred artifact $prefix, found ${matches.size}" }
         matches.single()
     }.toSet()

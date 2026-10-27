@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.buildlogic
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.artifacts.ProjectDependency
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.artifacts.result.ResolvedArtifactResult
 import org.gradle.api.file.DuplicatesStrategy
@@ -49,6 +50,21 @@ internal fun trainPartOf(projectPath: String?, bundleImpls: Set<String>): TrainP
 interface TrainPlatformJars {
     /** Third-party runtime jars, without any project code. */
     val jars: Provider<List<File>>
+
+    /**
+     * [jars] by the file name they get in the installer: two libraries may publish a jar of the same name (the
+     * AndroidX and JetBrains builds of one Compose module), then the group id is put in front of the file name.
+     */
+    val installedNames: Provider<Map<String, File>>
+}
+
+/** Unique file names for [artifacts] given as `group to file`; only a name that occurs twice is prefixed. */
+internal fun uniqueJarNames(artifacts: List<Pair<String?, File>>): Map<String, File> {
+    val counts = artifacts.groupingBy { it.second.name }.eachCount()
+    return artifacts.associate { (group, file) ->
+        val name = if (counts.getValue(file.name) > 1 && group != null) "$group-${file.name}" else file.name
+        name to file
+    }.also { check(it.size == artifacts.size) { "Platform jars have duplicate names: ${counts.filterValues { c -> c > 1 }}" } }
 }
 
 /**
@@ -68,8 +84,14 @@ class TrainBaseConventionPlugin : Plugin<Project> {
         fun jarsOf(part: TrainPart): Provider<List<File>> = artifacts.zip(bundleImpls) { all, impls ->
             all.filter { trainPartOf(it.projectPath(), impls) == part }.map { it.file }
         }
+        val platform = artifacts.zip(bundleImpls) { all, impls ->
+            all.filter { trainPartOf(it.projectPath(), impls) == TrainPart.Platform }
+        }
         extensions.add(TrainPlatformJars::class.java, "trainPlatform", object : TrainPlatformJars {
             override val jars = jarsOf(TrainPart.Platform)
+            override val installedNames = platform.map { all ->
+                uniqueJarNames(all.map { ((it.id.componentIdentifier as? ModuleComponentIdentifier)?.group) to it.file })
+            }
         })
         val ownClasses = extensions.getByType<SourceSetContainer>().getByName("main").output
         val foundation = registerBaseJar("foundation", version, jarsOf(TrainPart.Foundation), ownClasses)

@@ -34,4 +34,13 @@ class TrainPartTest {
             ":features:ai-studio:screen-model",
         ).forEach { assertEquals(TrainPart.Foundation, trainPartOf(it, bundleImpls), it) }
     }
+
+    @Test
+    fun `jar names stay unless two libraries publish the same one`() {
+        val a = java.io.File("/cache/a/saveable.jar")
+        val b = java.io.File("/cache/b/saveable.jar")
+        val c = java.io.File("/cache/c/other.jar")
+        val names = uniqueJarNames(listOf("org.jetbrains.compose.runtime" to a, "androidx.compose.runtime" to b, "x" to c))
+        assertEquals(setOf("org.jetbrains.compose.runtime-saveable.jar", "androidx.compose.runtime-saveable.jar", "other.jar"), names.keys)
+    }
 }
