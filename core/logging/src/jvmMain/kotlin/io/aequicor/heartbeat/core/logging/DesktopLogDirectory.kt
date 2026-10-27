@@ -9,13 +9,13 @@ public fun desktopLogDirectory(
     localAppData: String? = System.getenv("LOCALAPPDATA"),
     stateHome: String? = System.getenv("XDG_STATE_HOME"),
 ): Path = when {
-    os.startsWith("Mac", ignoreCase = true) -> Path.of(home, "Library", "Logs", "Heartbeat")
+    os.startsWith("Mac", ignoreCase = true) -> Path.of(home, "Library", "Logs", desktopDataName())
 
     os.startsWith("Windows", ignoreCase = true) -> legacyLogDirectory(home, localAppData)
 
     else -> stateHome?.takeIf { it.isNotBlank() && Path.of(it).isAbsolute }
-        ?.let { Path.of(it, "heartbeat", "logs") }
-        ?: Path.of(home, ".local", "state", "heartbeat", "logs")
+        ?.let { Path.of(it, desktopDataNameLowercase(), "logs") }
+        ?: Path.of(home, ".local", "state", desktopDataNameLowercase(), "logs")
 }
 
 /** Previous Linux releases used the Windows fallback; retained records there remain exportable. */
@@ -30,5 +30,5 @@ public fun desktopLegacyLogDirectories(
 }
 
 private fun legacyLogDirectory(home: String, localAppData: String?): Path =
-    localAppData?.takeIf(String::isNotBlank)?.let { Path.of(it, "Aequicor", "Heartbeat", "logs") }
-        ?: Path.of(home, "AppData", "Local", "Aequicor", "Heartbeat", "logs")
+    localAppData?.takeIf(String::isNotBlank)?.let { Path.of(it, "Aequicor", desktopDataName(), "logs") }
+        ?: Path.of(home, "AppData", "Local", "Aequicor", desktopDataName(), "logs")

@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.core.secrets.impl.data
 import com.sun.jna.platform.win32.Crypt32Util
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
+import io.aequicor.heartbeat.core.logging.desktopDataName
 import io.aequicor.heartbeat.core.secrets.impl.SecretsConfig
 import java.nio.channels.FileChannel
 import java.nio.file.Files
@@ -48,15 +49,15 @@ internal class JvmProtectedVault(
         return when (platform.host) {
             HostPlatform.Windows -> Path.of(
                 System.getenv("LOCALAPPDATA") ?: "$home/AppData/Local",
-                "Aequicor/Heartbeat/secrets",
+                "Aequicor/${desktopDataName()}/secrets",
             )
 
-            HostPlatform.MacOs -> Path.of(home, "Library/Application Support/Heartbeat/secrets")
+            HostPlatform.MacOs -> Path.of(home, "Library/Application Support/${desktopDataName()}/secrets")
 
             HostPlatform.Linux -> Path.of(
                 System.getenv("XDG_DATA_HOME")?.takeIf { it.isNotBlank() && Path.of(it).isAbsolute }
                     ?: "$home/.local/share",
-                "Heartbeat/secrets",
+                "${desktopDataName()}/secrets",
             )
 
             HostPlatform.Android, HostPlatform.Ios -> error(

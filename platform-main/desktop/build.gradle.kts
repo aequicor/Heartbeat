@@ -70,8 +70,8 @@ val heartbeatFlavor = providers.gradleProperty("heartbeat.flavor").orNull.also {
 val isTestingFlavor = heartbeatFlavor == "testing"
 // The build channel (-Pheartbeat.channel=dev|beta, release by default) names the app and gives it its own icon with a
 // badge, so a dev or beta build installs next to Heartbeat: another package name, macOS bundle id and Linux package.
-// Like the testing flavor it shares the data root and the single-instance lock with an installed Heartbeat, and its
-// Windows installer is refused (the Inno Setup AppId and file names are those of Heartbeat).
+// A dev build has its own data root, logs and single-instance lock (heartbeat.data.name), so it runs beside an
+// installed Heartbeat; a beta build shares them (it is the same app on the beta train). The Windows installer is refused (the Inno Setup AppId and file names are those of Heartbeat).
 data class BuildChannel(val id: String, val packageName: String, val displayName: String, val bundleId: String?)
 val heartbeatChannels = listOf(
     BuildChannel("release", "Heartbeat", "Heartbeat", null),
@@ -285,6 +285,8 @@ compose.desktop {
         jvmArgs += jcefJvmArgs
         jvmArgs("-Dheartbeat.app.version=$heartbeatApplicationVersion")
         jvmArgs("-Dheartbeat.channel=${heartbeatChannel.id}")
+        // A dev build keeps its own data, logs and single-instance lock; beta and release share Heartbeat's.
+        if (heartbeatChannel.id == "dev") jvmArgs("-Dheartbeat.data.name=${heartbeatChannel.packageName}")
         buildTypes.release.proguard {
             configurationFiles.from(
                 layout.projectDirectory.file("compose-desktop.pro"),
