@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.bundles.impl.BundleHost
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateEnabled
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdatesRoute
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.UnifiedSettings
@@ -103,7 +104,13 @@ class ShellBundleWiringTest {
     fun `routes and deep links of the shell features reach the guest registry`() {
         val shell = app as TestShellAccessors
         val routes = shell.appRoutes.map { it.routeClass }
-        val expected = listOf(SettingsRoute::class, WelcomeRoute::class, TogglesPanelRoute::class, AppLogsRoute::class)
+        val expected = listOf(
+            SettingsRoute::class,
+            WelcomeRoute::class,
+            TogglesPanelRoute::class,
+            AppLogsRoute::class,
+            AppUpdatesRoute::class,
+        )
         assertTrue(expected.all { it in routes }, routes.toString())
         assertEquals(2, shell.appDeepLinks.count { it.pattern.startsWith("settings") }, shell.appDeepLinks.toString())
     }

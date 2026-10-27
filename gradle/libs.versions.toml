@@ -166,3 +166,4 @@ heartbeat-metro = { id = "heartbeat.metro" }
 heartbeat-room = { id = "heartbeat.room" }
 heartbeat-jcef = { id = "heartbeat.jcef" }
 heartbeat-bundle = { id = "heartbeat.bundle" }
+heartbeat-train = { id = "heartbeat.train" }

@@ -41,6 +41,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class LauncherMain {
     static final String ROOT = "heartbeat.launcher.root";
     static final String DATA_DIR = "heartbeat.data.dir";
+    /** Корень и данные берутся из пользовательских каталогов ОС: путь установки известен только при запуске. */
+    static final String DEFAULT_ROOT = "heartbeat.launcher.default.root";
+    static final String DATA_NAME = "heartbeat.data.name";
     static final String SEED_DIR = "heartbeat.seed.dir";
     static final String APP_MAIN = "heartbeat.app.main";
     static final String EXIT_CLEAN = "heartbeat.exit.clean";
@@ -54,11 +57,20 @@ public final class LauncherMain {
 
     public static void main(String[] args) throws Exception {
         String rootValue = System.getProperty(ROOT);
-        if (rootValue == null) {
+        Path root;
+        Path dataDir;
+        if (rootValue != null) {
+            root = Path.of(rootValue);
+            dataDir = Path.of(System.getProperty(DATA_DIR, root.resolve("data").toString()));
+        } else if (Boolean.getBoolean(DEFAULT_ROOT)) {
+            dataDir = Path.of(System.getProperty(DATA_DIR, userDataDir(System.getProperty("os.name", ""),
+                System.getProperty("user.home", ""), System.getenv("APPDATA"), System.getenv("XDG_DATA_HOME"),
+                System.getProperty(DATA_NAME)).toString()));
+            root = launcherRootBeside(dataDir);
+            System.setProperty(ROOT, root.toString());
+        } else {
             throw new IllegalStateException("System property " + ROOT + " is required");
         }
-        Path root = Path.of(rootValue);
-        Path dataDir = Path.of(System.getProperty(DATA_DIR, root.resolve("data").toString()));
         Launcher launcher = new Launcher(root, dataDir);
         boolean owner = false;
         if (!isAuxiliary(args)) {
@@ -72,8 +84,15 @@ public final class LauncherMain {
         Launcher.Prepared prepared = owner ? launcher.prepare() : launcher.prepareReadOnly();
         launcher.exposeToApp(prepared, root);
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
-        if (prepared.train() != null) {
-            loader = Launcher.newClassLoader(prepared.classpath(), ClassLoader.getSystemClassLoader());
+        java.util.List<Path> classpath = prepared.classpath();
+        if (prepared.train() == null && seed != null) {
+            // No train is active: a fresh install for a worker, the packaging probe or a second launch, and for the
+            // owner a seed train marked bad with nothing to roll back to. Run from the seed, read-only, rather
+            // than fail with a missing application class.
+            classpath = FirstLaunch.seedClasspath(Path.of(seed), root.resolve("seed-verified"));
+        }
+        if (prepared.train() != null || !classpath.isEmpty()) {
+            loader = trainLoader(classpath);
             Thread.currentThread().setContextClassLoader(loader);
         }
         AtomicBoolean returned = new AtomicBoolean();
@@ -100,6 +119,42 @@ public final class LauncherMain {
             }
             throw e;
         }
+    }
+
+    /**
+     * Каталог данных приложения; повторяет {@code jvmStorageRootPath()} модуля {@code core:datastore:impl}
+     * ({@code %APPDATA%\Aequicor\<имя>}, {@code Application Support/<имя>}, {@code $XDG_DATA_HOME/<имя в нижнем регистре>}).
+     * Имя — {@code heartbeat.data.name}, если оно допустимо, иначе {@code Heartbeat}.
+     */
+    static Path userDataDir(String os, String home, String appData, String xdgDataHome, String dataName) {
+        String name = dataName != null && dataName.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,31}") ? dataName : "Heartbeat";
+        if (os.toLowerCase(java.util.Locale.ROOT).startsWith("windows")) {
+            Path base = appData != null ? Path.of(appData) : Path.of(home, "AppData", "Roaming");
+            return base.resolve("Aequicor").resolve(name);
+        }
+        if (os.toLowerCase(java.util.Locale.ROOT).startsWith("mac")) {
+            return Path.of(home, "Library", "Application Support", name);
+        }
+        Path dataHome = xdgDataHome != null && !xdgDataHome.isBlank() && Path.of(xdgDataHome).isAbsolute()
+            ? Path.of(xdgDataHome) : Path.of(home, ".local", "share");
+        return dataHome.resolve(name.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    /** Корень лаунчера рядом с каталогом данных, вне его: так требует {@link DbBackup}. */
+    static Path launcherRootBeside(Path dataDir) {
+        return dataDir.resolveSibling(dataDir.getFileName() + "-launcher");
+    }
+
+    /**
+     * Загрузчик поезда: с агентом ({@link LauncherAgent}) jar дописываются в системный загрузчик, и всё приложение
+     * видит один загрузчик; без агента (тесты, запуск без установщика) — отдельный загрузчик поверх системного.
+     */
+    static ClassLoader trainLoader(java.util.List<Path> classpath) throws IOException {
+        if (LauncherAgent.isAvailable()) {
+            LauncherAgent.appendToSystemClassLoader(classpath);
+            return ClassLoader.getSystemClassLoader();
+        }
+        return Launcher.newClassLoader(classpath, ClassLoader.getSystemClassLoader());
     }
 
     /** Запрашивает откат поезда; собственный сбой не заслоняет исключение приложения {@code failure}. */

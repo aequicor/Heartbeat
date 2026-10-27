@@ -20,7 +20,7 @@ class AppUpdateMachineTest {
 
     @Test
     fun `check from every idle state fetches the newest release`() {
-        listOf(AppUpdateState.Inactive, AppUpdateState.UpToDate, AppUpdateState.CheckFailed(AppUpdateFailure.Network))
+        listOf(AppUpdateState.Inactive, AppUpdateState.UpToDate(), AppUpdateState.CheckFailed(AppUpdateFailure.Network))
             .forEach { idle ->
                 AppUpdateMachineSpec.assertTransition(
                     from = idle,
@@ -87,7 +87,7 @@ class AppUpdateMachineTest {
         AppUpdateMachineSpec.assertTransition(
             from = AppUpdateState.Checking(offered = release),
             intent = Internal.Checked(null),
-            to = AppUpdateState.UpToDate,
+            to = AppUpdateState.UpToDate(),
         )
     }
 
@@ -133,7 +133,7 @@ class AppUpdateMachineTest {
     @Test
     fun `install needs an offered release`() {
         AppUpdateMachineSpec.assertIgnored(AppUpdateState.Checking(), Public.Install)
-        AppUpdateMachineSpec.assertIgnored(AppUpdateState.UpToDate, Public.Install)
+        AppUpdateMachineSpec.assertIgnored(AppUpdateState.UpToDate(), Public.Install)
         AppUpdateMachineSpec.assertIgnored(AppUpdateState.Inactive, Public.Install)
     }
 
@@ -181,7 +181,7 @@ class AppUpdateMachineTest {
     fun `switching off forgets the offer`() {
         listOf(
             AppUpdateState.Checking(offered = release),
-            AppUpdateState.UpToDate,
+            AppUpdateState.UpToDate(),
             AppUpdateState.CheckFailed(AppUpdateFailure.Network),
             AppUpdateState.Available(release),
         ).forEach { state ->

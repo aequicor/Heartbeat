@@ -16,7 +16,7 @@ paths:
     она компилирует; браузерные тесты выключены — `commonTest` идёт на JVM, `check` только компилирует тесты под wasm;
   - `heartbeat.feature.api` / `heartbeat.feature.impl` — зависимости и ограничения для фич;
   - `heartbeat.metro` — Metro-плагин;
-  - `heartbeat.bundle` — сборщик бандла desktop (`:bundles:<name>`, только JVM), см. `bundles.md`; задачи: `:bundles:<name>:assembleBundle` (воспроизводимый jar), корневые `bundleManifest`
+  - `heartbeat.train` — доля поезда в `:platform-main:desktop`: `assembleFoundation`/`assembleContracts`, `trainSeed` (seed установщика, `.seed`-jar вне classpath); `heartbeat.bundle` — сборщик бандла desktop (`:bundles:<name>`, только JVM), см. `bundles.md`; задачи: `:bundles:<name>:assembleBundle` (воспроизводимый jar), корневые `bundleManifest`
      (JSON поезда: id, версия, jar, SHA-256, `platformApi`) и `affectedBundles`
      (`-Pheartbeat.changedPaths=a,b` или `-Pheartbeat.changedFile=<файл>`);
   - `heartbeat.detekt` — detekt + ktlint-wrapper + compose-rules;

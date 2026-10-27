@@ -21,8 +21,11 @@ public sealed interface AppUpdateState : MachineState {
     /** Asking for the newest release; [offered] stays available with its existing installation [failure]. */
     public data class Checking(val offered: AppRelease? = null, val failure: AppUpdateFailure? = null) : AppUpdateState
 
-    /** The installed version is the newest release. */
-    public data object UpToDate : AppUpdateState
+    /**
+     * The installed version is the newest release. [isPlatformUpdateRequired]: the beta channel is on, but this launch
+     * has no launcher that applies bundle trains, so only a full installer can move it to the beta channel.
+     */
+    public data class UpToDate(val isPlatformUpdateRequired: Boolean = false) : AppUpdateState
 
     /** The newest release is unknown; the next check retries. */
     public data class CheckFailed(val failure: AppUpdateFailure) : AppUpdateState
@@ -130,7 +133,11 @@ public sealed interface AppUpdateIntent : MachineIntent {
          * [AppUpdateFailure.ManualInstallRequired] for system packages or [AppUpdateFailure.PreviousAttemptFailed]
          * when an installation of an earlier launch did not finish.
          */
-        public data class Checked(val release: AppRelease?, val failure: AppUpdateFailure? = null) : Internal
+        public data class Checked(
+            val release: AppRelease?,
+            val failure: AppUpdateFailure? = null,
+            val isPlatformUpdateRequired: Boolean = false,
+        ) : Internal
 
         /** The newest release could not be determined. */
         public data class CheckFailed(val failure: AppUpdateFailure) : Internal

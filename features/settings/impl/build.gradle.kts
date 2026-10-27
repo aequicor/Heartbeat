@@ -10,6 +10,7 @@ kotlin {
             implementation(projects.features.settings.api)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.appLogs.api)
+            implementation(projects.features.appUpdate.api)
             implementation(projects.core.common)
             implementation(projects.features.togglesPanel.api)
             implementation(projects.features.searchEngine.api)

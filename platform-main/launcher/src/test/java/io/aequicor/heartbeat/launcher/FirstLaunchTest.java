@@ -111,6 +111,49 @@ class FirstLaunchTest {
     }
 
     @Test
+    void seedJarsMayCarryTheSeedSuffix() throws Exception {
+        writeSeed("t1", List.of("foundation"), "foundation");
+        Path plain = seed.resolve("foundation.jar");
+        Files.move(plain, seed.resolve("foundation.jar" + FirstLaunch.SEED_SUFFIX));
+        assertEquals("t1", firstLaunch.run(fetcher, listener));
+        assertTrue(fetched.isEmpty());
+        assertEquals("t1", launcher.prepare().train());
+    }
+
+    @Test
+    void seedClasspathServesAnAuxiliaryProcessBeforeActivation() throws Exception {
+        assertEquals(List.of(), FirstLaunch.seedClasspath(seed));
+        writeSeed("t1", List.of("foundation", "web"), "foundation", "web");
+        assertEquals(2, FirstLaunch.seedClasspath(seed).size());
+        Files.writeString(seed.resolve("web.jar"), "broken");
+        assertThrows(java.io.IOException.class, () -> FirstLaunch.seedClasspath(seed));
+    }
+
+    @Test
+    void verifiedStampSkipsHashingOfUnchangedJarsOnly() throws Exception {
+        writeSeed("t1", List.of("foundation", "web"), "foundation", "web");
+        Path stamp = tmp.resolve("state").resolve("seed-verified");
+        assertEquals(2, FirstLaunch.seedClasspath(seed, stamp).size());
+        assertTrue(Files.isRegularFile(stamp));
+        // same size and mtime, other content: the stamp is trusted only for what looks unchanged
+        Path web = seed.resolve("web.jar");
+        java.nio.file.attribute.FileTime time = Files.getLastModifiedTime(web);
+        int size = (int) Files.size(web);
+        Files.writeString(web, "x".repeat(size));
+        Files.setLastModifiedTime(web, time);
+        assertEquals(2, FirstLaunch.seedClasspath(seed, stamp).size());
+        // a different size cannot pass on the stamp
+        Files.writeString(web, "broken");
+        assertThrows(java.io.IOException.class, () -> FirstLaunch.seedClasspath(seed, stamp));
+        // an unreadable stamp means a full check
+        Files.writeString(web, "x".repeat(size));
+        Files.setLastModifiedTime(web, time);
+        assertEquals(2, FirstLaunch.seedClasspath(seed, stamp).size());
+        Files.writeString(stamp, "garbage");
+        assertThrows(java.io.IOException.class, () -> FirstLaunch.seedClasspath(seed, stamp));
+    }
+
+    @Test
     void downloadsMissingBundlesAndReportsProgress() throws Exception {
         writeSeed("t1", List.of("foundation"), "foundation", "web", "studio");
         firstLaunch.run(fetcher, listener);

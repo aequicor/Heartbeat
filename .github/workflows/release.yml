@@ -11,7 +11,8 @@ name: Release
 # names are what the app looks for (ReleasePlatform in features/app-update/impl): keep them in sync.
 # The release is also a channel of bundles: it carries the train of its commit (train-manifest.json and the jars
 # that changed), promoted from the pre-release that prerelease.yml tested, or built here when there is none. Every
-# installer must fit the size budget (scripts/check_installer_size.py) before anything is published.
+# installer is the platform plus the whole train as its seed (scripts/train_seed.py) and must fit the size budget
+# (scripts/check_installer_size.py) before anything is published.
 # dry_run builds and checks everything without creating a tag or publishing:
 #   gh workflow run release.yml --ref <branch> -f release_level=patch -F dry_run=true
 run-name: "Release ${{ inputs.release_level }}${{ inputs.dry_run && ' (dry run)' || '' }}"
@@ -175,10 +176,20 @@ jobs:
           path: train-out/
           if-no-files-found: error
           retention-days: 7
+      # The installers start offline: their seed is the whole train, with the jars of earlier trains downloaded by
+      # the url of the manifest and every jar checked against its SHA-256.
+      - name: Assemble the seed of the installers
+        run: python3 scripts/train_seed.py --train-dir train-out --out train-seed
+      - uses: actions/upload-artifact@v7
+        with:
+          name: train-seed
+          path: train-seed/
+          if-no-files-found: error
+          retention-days: 7
 
   desktop-linux:
     name: Desktop Linux x64
-    needs: [version, checks]
+    needs: [version, checks, train]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -198,6 +209,10 @@ jobs:
           stage: desktop-linux
           save-portable: 'true'
           upstream: checks
+      - uses: actions/download-artifact@v8
+        with:
+          name: train-seed
+          path: .release-seed
       - name: Install Linux runtime dependencies
         run: |
           sudo apt-get update
@@ -223,6 +238,7 @@ jobs:
             :features:browser:impl:browserNativeTest :features:browser:impl:browserDocumentNativeTest \
             :platform-main:desktop:verifyReleaseHarnessCompiler :platform-main:desktop:packageReleaseDeb \
             :chromium-plugin:panel:prepareChromiumPanelArtifact \
+            -Pheartbeat.seedDir=.release-seed \
             --no-daemon --stacktrace --profile
           TEST
       - uses: actions/upload-artifact@v7
@@ -439,7 +455,7 @@ jobs:
 
   desktop:
     name: Desktop ${{ matrix.platform }}
-    needs: [version, desktop-linux]
+    needs: [version, desktop-linux, train]
     strategy:
       fail-fast: false
       matrix:
@@ -478,6 +494,10 @@ jobs:
         with:
           name: chromium-panel
           path: .release-panel
+      - uses: actions/download-artifact@v8
+        with:
+          name: train-seed
+          path: .release-seed
       - name: Install Inno Setup
         if: runner.os == 'Windows'
         shell: pwsh
@@ -493,6 +513,7 @@ jobs:
           -Porg.gradle.java.installations.auto-detect=false
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           -Pheartbeat.chromiumPanelDir=.release-panel
+          -Pheartbeat.seedDir=.release-seed
           :platform-main:desktop:verifyReleaseHarnessCompiler ":platform-main:desktop:$TASK"
           --no-daemon --stacktrace --profile
       - name: Name the installer

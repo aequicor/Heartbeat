@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlRoute
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityRoute
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdatesRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
@@ -49,6 +50,7 @@ class SettingsSectionsTest {
                 isSubagentsEnabled = true,
                 isProjectConfigEnabled = true,
                 isLogsEnabled = true,
+                isUpdatesEnabled = true,
                 isDesktop = true,
                 isBuildsEnabled = true,
             ),
@@ -243,6 +245,26 @@ class SettingsSectionsTest {
         }
         assertEquals(AppLogsRoute(isEmbedded = true), SettingsSection.Logs.route())
         assertEquals(SettingsSection.Logs, settingsSectionOf("logs"))
+    }
+
+    @Test
+    fun `updates need desktop and their toggle but no profile`() {
+        for (desktop in listOf(false, true)) {
+            for (enabled in listOf(false, true)) {
+                for (profile in listOf(false, true)) {
+                    val sections = availableSections(
+                        false,
+                        false,
+                        profile,
+                        isUpdatesEnabled = enabled,
+                        isDesktop = desktop,
+                    )
+                    assertEquals(desktop && enabled, SettingsSection.Updates in sections)
+                }
+            }
+        }
+        assertEquals(AppUpdatesRoute(isEmbedded = true), SettingsSection.Updates.route())
+        assertEquals(SettingsSection.Updates, settingsSectionOf("updates"))
     }
 
     @Test

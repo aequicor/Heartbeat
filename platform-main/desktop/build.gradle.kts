@@ -1,10 +1,13 @@
+import io.aequicor.heartbeat.buildlogic.CollectPlatformJars
 import io.aequicor.heartbeat.buildlogic.CompressReleaseDmg
 import io.aequicor.heartbeat.buildlogic.HarnessProbeArguments
 import io.aequicor.heartbeat.buildlogic.PackageInnoSetup
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
 import io.aequicor.heartbeat.buildlogic.PrepareReleaseRuntimeJars
+import io.aequicor.heartbeat.buildlogic.TrainPlatformJars
 import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
 import io.aequicor.heartbeat.buildlogic.WriteComponentMetadata
+import io.aequicor.heartbeat.buildlogic.WriteTrainSeed
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
 import org.jetbrains.compose.desktop.application.tasks.AbstractJLinkTask
@@ -20,6 +23,7 @@ plugins {
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.heartbeat.detekt)
     alias(libs.plugins.heartbeat.jcef)
+    alias(libs.plugins.heartbeat.train)
 }
 
 dependencies {
@@ -39,6 +43,9 @@ dependencies {
     implementation(libs.compose.uiToolingPreview)
     implementation(libs.jbr.api)
     implementation(libs.jna.platform)
+    // The platform launcher starts the app from the installed seed or the active train (LauncherMain); it stays on the
+    // installer's class path, the project code does not.
+    runtimeOnly(projects.platformMain.launcher)
     testImplementation(libs.kotlin.testJunit)
     testImplementation(libs.kotlinx.coroutines.test)
 }
@@ -264,8 +271,27 @@ val prepareExtensionMetadata = tasks.register<WriteComponentMetadata>("prepareEx
     )
     outputFile.set(layout.buildDirectory.file("generated/extensionMetadata/chromium-extension.properties"))
 }
+// The first train of an installation: the train this build was made from, jars included, so a fresh install starts
+// offline (FirstLaunch of the platform launcher). A release build passes the published train with -Pheartbeat.trainId.
+// -Pheartbeat.seedDir=<dir> (release workflow): the seed of the published train from scripts/train_seed.py instead.
+val publishedSeed = providers.gradleProperty("heartbeat.seedDir").orNull?.let { path ->
+    layout.settingsDirectory.dir(path).also { dir ->
+        require(dir.file("manifest.json").asFile.isFile) { "heartbeat.seedDir has no manifest.json: $path" }
+    }
+}
+val trainSeed = tasks.register<WriteTrainSeed>("assembleTrainSeed") {
+    group = "build"
+    description = "Collects the jars and the manifest of the bundle train that an installer carries as its seed."
+    trainId.set(providers.gradleProperty("heartbeat.trainId").orElse("seed-$heartbeatApplicationVersion"))
+    manifest.set(rootProject.layout.buildDirectory.file("bundles/manifest.json"))
+    jars.from(rootProject.fileTree("bundles") { include("*/build/bundle/*.jar") })
+    jars.from(layout.buildDirectory.dir("bundle").map { fileTree(it) { include("*.jar") } })
+    seedDirectory.set(layout.buildDirectory.dir("generated/trainSeed"))
+    dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts")
+}
 val collectAppResources = tasks.register<Sync>("collectAppResources") {
     from(prepareExtensionMetadata) { into("common") }
+    if (publishedSeed != null) from(publishedSeed) { into("common/seed") } else from(trainSeed) { into("common/seed") }
     from(layout.projectDirectory.file("pi/LICENSE")) { into("common/licenses/pi") }
     into(layout.buildDirectory.dir("generated/appResources"))
 }
@@ -355,11 +381,23 @@ tasks.withType<ComposeHotRun>().configureEach {
 // testing flavor).
 // Configure after Compose has registered and initialized its tasks, without an environment/property escape hatch.
 afterEvaluate {
-    val releaseJars = tasks.named<AbstractProguardTask>("proguardReleaseJars")
+    // The installer holds the platform only: the launcher and the third-party libraries of this OS. The project code
+    // (foundation, contracts, bundles) is the train. Libraries are neither shrunk nor renamed, as the train is
+    // compiled against their original classes, so ProGuard does not run on a release.
+    tasks.named<AbstractProguardTask>("proguardReleaseJars") { enabled = false }
+    val platformJars = extensions.getByType<TrainPlatformJars>().installedNames
+    val collectPlatformJars = tasks.register<CollectPlatformJars>("collectPlatformJars") {
+        group = "compose desktop"
+        description = "Collects the third-party jars and the launcher that the installer carries."
+        // The jars are picked from the resolved runtime classpath at execution time: build every project it holds.
+        dependsOn(configurations.named("runtimeClasspath"))
+        collect(platformJars)
+        outputDirectory.set(layout.buildDirectory.dir("compose/tmp/platform-jars"))
+    }
     val prepareReleaseRuntimeJars = tasks.register<PrepareReleaseRuntimeJars>("prepareReleaseRuntimeJars") {
         group = "compose desktop"
         description = "Removes native libraries for other hosts from release jars before packaging."
-        inputDirectory.set(releaseJars.flatMap { it.destinationDir })
+        inputDirectory.set(collectPlatformJars.flatMap { it.outputDirectory })
         outputDirectory.set(layout.buildDirectory.dir("compose/tmp/host-release-jars"))
         targetOs.set(if (piOs == "darwin") "macos" else piOs.orEmpty())
         targetArch.set(piArch.orEmpty())
@@ -475,11 +513,30 @@ afterEvaluate {
         } else {
             // Stage the ProGuard output separately: development and verified upstream JCEF jars stay intact.
             // Compose still extracts and signs the host's Skiko dylib from the filtered jar on macOS.
-            dependsOn(prepareReleaseRuntimeJars)
+            dependsOn(prepareReleaseRuntimeJars, collectAppResources)
+            // Compose marks the resources directory @Internal; a changed seed or extension must invalidate packaging.
+            inputs.dir(collectAppResources.map { it.destinationDir })
+                .withPropertyName("releaseAppResources")
+                .withPathSensitivity(PathSensitivity.RELATIVE)
             files.setFrom(fileTree(prepareReleaseRuntimeJars.flatMap { it.outputDirectory }))
+            val launcherJar = project(":platform-main:launcher").tasks.named<org.gradle.jvm.tasks.Jar>("jar")
             launcherMainJar.set(prepareReleaseRuntimeJars.flatMap { prepared ->
-                releaseJars.flatMap { original -> prepared.outputDirectory.file(original.mainJar.get().asFile.name) }
+                launcherJar.flatMap { jar -> prepared.outputDirectory.file(jar.archiveFileName) }
             })
+            launcherMainClass.set("io.aequicor.heartbeat.launcher.LauncherMain")
+            // $APPDIR is the installed app directory; the launcher finds the data directory of the user itself.
+            // The agent lets the launcher append the train to the system class loader (LauncherAgent); it is the
+            // launcher jar itself, so the argument follows the jar name instead of repeating it.
+            launcherJvmArgs.add(launcherJar.map { jar -> "-javaagent:\$APPDIR/${jar.archiveFileName.get()}" })
+            launcherJvmArgs.addAll(
+                "-Dheartbeat.launcher.default.root=true",
+                "-Dheartbeat.seed.dir=\$APPDIR/resources/seed",
+                "-Dheartbeat.app.main=" + if (isTestingFlavor) {
+                    "io.aequicor.heartbeat.platform.desktop.TestingMainKt"
+                } else {
+                    "io.aequicor.heartbeat.platform.desktop.MainKt"
+                },
+            )
             // Only the release launcher names the update source: development launches never replace themselves,
             // and neither the testing flavor nor a dev or beta channel build may swap itself for a published release (it would turn
             // into Heartbeat with another bundle id: a beta is the release app on the beta train, not a separate update line).

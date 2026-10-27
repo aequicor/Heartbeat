@@ -24,6 +24,12 @@ public final class FirstLaunch {
     public static final String MANIFEST = "manifest.json";
     public static final String PROPERTIES = "seed.properties";
     public static final String BASE_URL_KEY = "baseUrl";
+    /**
+     * Суффикс seed-файла: {@code <jar>.seed}. jpackage добавляет в classpath установщика каждый {@code .jar} внутри
+     * приложения, а jar поезда там быть не должны (родительский загрузчик перекрыл бы поезд), поэтому установщик
+     * кладёт seed под другим расширением. Файл без суффикса тоже принимается.
+     */
+    public static final String SEED_SUFFIX = ".seed";
 
     /** Наблюдатель за ходом первого запуска; вызывается из потока {@link #run}. */
     public interface Listener {
@@ -57,6 +63,101 @@ public final class FirstLaunch {
             return false;
         }
         return !state.bad.contains(TrainManifest.parse(Files.readString(manifestFile, StandardCharsets.UTF_8)).train());
+    }
+
+    /**
+     * Classpath поезда из seed без активации: для процесса, который не владеет состоянием лаунчера (проба упаковки,
+     * воркер свежей установки), пока владелец не активировал поезд. Пусто, если seed-манифеста нет. Каждый jar
+     * проверяется по SHA-256.
+     *
+     * @throws IOException если seed неполон или jar повреждён
+     */
+    public static List<Path> seedClasspath(Path seedDir) throws IOException {
+        return seedClasspath(seedDir, null);
+    }
+
+    /**
+     * То же, но уже проверенные jar не хэшируются повторно: после успешной проверки в {@code stamp} пишутся размер,
+     * время изменения и SHA-256 из манифеста для каждого jar, и следующий вызов пропускает хэш для jar с теми же
+     * размером и временем. Печать лежит в каталоге пользователя и не доверенная граница, а ускорение: подмена
+     * содержимого с тем же размером и временем ею не ловится; устаревшая или нечитаемая печать означает полную
+     * проверку, а сбой её записи не мешает запуску.
+     */
+    public static List<Path> seedClasspath(Path seedDir, Path stamp) throws IOException {
+        Path manifestFile = seedDir.resolve(MANIFEST);
+        if (!Files.isRegularFile(manifestFile)) {
+            return List.of();
+        }
+        java.util.Map<String, String> known = readStamp(stamp);
+        List<Path> result = new ArrayList<>();
+        StringBuilder fresh = new StringBuilder();
+        for (TrainManifest.Bundle bundle : TrainManifest.parse(Files.readString(manifestFile, StandardCharsets.UTF_8)).bundles()) {
+            Path jar = seedDir.resolve(bundle.jar() + SEED_SUFFIX);
+            if (!Files.isRegularFile(jar)) {
+                jar = seedDir.resolve(bundle.jar());
+            }
+            if (!Files.isRegularFile(jar)) {
+                throw new IOException("Seed jar " + bundle.jar() + " is missing or corrupted");
+            }
+            String sha = TrainManifest.normalizedSha(bundle);
+            String identity = Files.size(jar) + ":" + Files.getLastModifiedTime(jar).toMillis() + ":" + sha;
+            if (!identity.equals(known.get(bundle.jar())) && !TrainStore.sha256(jar).equals(sha)) {
+                throw new IOException("Seed jar " + bundle.jar() + " is missing or corrupted");
+            }
+            fresh.append(bundle.jar()).append('\t').append(identity).append('\n');
+            result.add(jar);
+        }
+        if (!fresh.toString().equals(stampText(known))) {
+            writeStamp(stamp, fresh.toString());
+        }
+        return result;
+    }
+
+    private static java.util.Map<String, String> readStamp(Path stamp) {
+        java.util.Map<String, String> known = new java.util.HashMap<>();
+        if (stamp == null) {
+            return known;
+        }
+        try {
+            for (String line : Files.readAllLines(stamp, StandardCharsets.UTF_8)) {
+                int tab = line.indexOf('\t');
+                if (tab > 0) {
+                    known.put(line.substring(0, tab), line.substring(tab + 1));
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            // no usable stamp: every jar is hashed
+            known.clear();
+        }
+        return known;
+    }
+
+    private static String stampText(java.util.Map<String, String> known) {
+        StringBuilder text = new StringBuilder();
+        known.forEach((jar, identity) -> text.append(jar).append('\t').append(identity).append('\n'));
+        return text.toString();
+    }
+
+    private static void writeStamp(Path stamp, String content) {
+        if (stamp == null) {
+            return;
+        }
+        Path tmp = null;
+        try {
+            Files.createDirectories(stamp.getParent());
+            tmp = Files.createTempFile(stamp.getParent(), "seed-verified", ".tmp");
+            Files.writeString(tmp, content, StandardCharsets.UTF_8);
+            Files.move(tmp, stamp, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException | RuntimeException e) {
+            // only a speed-up: the next process verifies the jars again
+            if (tmp != null) {
+                try {
+                    Files.deleteIfExists(tmp);
+                } catch (IOException ignored) {
+                    // a leftover temporary file is harmless
+                }
+            }
+        }
     }
 
     /** Адрес скачивания из {@code seed.properties}, либо {@code null}. */
@@ -140,7 +241,10 @@ public final class FirstLaunch {
         if (Files.isRegularFile(target) && TrainStore.sha256(target).equals(sha)) {
             return true;
         }
-        Path source = seedDir.resolve(bundle.jar());
+        Path source = seedDir.resolve(bundle.jar() + SEED_SUFFIX);
+        if (!Files.isRegularFile(source)) {
+            source = seedDir.resolve(bundle.jar());
+        }
         if (!Files.isRegularFile(source)) {
             return false;
         }

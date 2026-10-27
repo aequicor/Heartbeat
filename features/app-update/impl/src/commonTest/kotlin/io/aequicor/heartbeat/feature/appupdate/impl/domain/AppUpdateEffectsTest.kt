@@ -76,6 +76,34 @@ class AppUpdateEffectsTest {
     }
 
     @Test
+    fun `the beta channel without a launcher reports that the platform must be updated`() = runTest {
+        for (hasLauncher in listOf(false, true)) {
+            val machine = RecordingScope()
+            val beta = installation.copy(hasLauncher = hasLauncher, channel = UpdateChannel.Beta)
+
+            effects(InstallationCheck.Supported(beta), channel = UpdateChannel.Beta)
+                .handle(AppUpdateEffect.FetchLatest, machine)
+
+            assertEquals(
+                listOf<AppUpdateIntent>(Internal.Checked(null, isPlatformUpdateRequired = !hasLauncher)),
+                machine.sent,
+            )
+        }
+    }
+
+    @Test
+    fun `the stable channel never asks for a platform update`() = runTest {
+        val machine = RecordingScope()
+
+        effects(InstallationCheck.Supported(installation.copy(hasLauncher = false))).handle(
+            AppUpdateEffect.FetchLatest,
+            machine,
+        )
+
+        assertEquals(listOf<AppUpdateIntent>(Internal.Checked(null)), machine.sent)
+    }
+
+    @Test
     fun `the newest release is reported with a failed earlier attempt`() = runTest {
         val machine = RecordingScope()
         val installer = FakeInstaller(previous = PreviousAttempt.Failed)
@@ -143,7 +171,8 @@ class AppUpdateEffectsTest {
         check: InstallationCheck = InstallationCheck.Supported(installation),
         releases: AppReleaseSource = FakeReleases(null),
         installer: FakeInstaller = FakeInstaller(),
-    ) = AppUpdateEffects({ check }, releases, installer)
+        channel: UpdateChannel = UpdateChannel.Stable,
+    ) = AppUpdateEffects({ check }, releases, installer) { channel }
 
     private class RecordingScope : EffectScope<AppUpdateIntent> {
         val sent = mutableListOf<AppUpdateIntent>()

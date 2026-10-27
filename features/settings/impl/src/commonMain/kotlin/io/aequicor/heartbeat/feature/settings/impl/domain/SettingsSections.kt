@@ -27,6 +27,7 @@ internal fun availableSections(
     isSubagentsEnabled: Boolean = false,
     isProjectConfigEnabled: Boolean = false,
     isLogsEnabled: Boolean = false,
+    isUpdatesEnabled: Boolean = false,
     isDesktop: Boolean = false,
     isBuildsEnabled: Boolean = false,
 ): ImmutableList<SettingsSection> {
@@ -49,6 +50,8 @@ internal fun availableSections(
         // App diagnostics and feature flags need no profile; other sections belong to the active profile.
         when (section) {
             SettingsSection.Logs -> isLogsEnabled && isDesktop
+
+            SettingsSection.Updates -> isUpdatesEnabled && isDesktop
 
             SettingsSection.FeatureFlags -> true
 

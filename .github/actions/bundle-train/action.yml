@@ -62,7 +62,7 @@ runs:
       run: |
         rm -rf train-jars "$OUT"
         mkdir train-jars
-        cp bundles/*/build/bundle/*.jar train-jars/
+        cp bundles/*/build/bundle/*.jar platform-main/desktop/build/bundle/*.jar train-jars/
         previous=()
         if [ -f train-previous/train-manifest.json ]; then
           previous=(--previous train-previous/train-manifest.json)

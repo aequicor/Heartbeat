@@ -61,6 +61,10 @@ gradlePlugin {
             id = libs.plugins.heartbeat.bundle.get().pluginId
             implementationClass = "io.aequicor.heartbeat.buildlogic.BundleConventionPlugin"
         }
+        register("heartbeatTrain") {
+            id = libs.plugins.heartbeat.train.get().pluginId
+            implementationClass = "io.aequicor.heartbeat.buildlogic.TrainBaseConventionPlugin"
+        }
         register("heartbeatJcef") {
             id = libs.plugins.heartbeat.jcef.get().pluginId
             implementationClass = "io.aequicor.heartbeat.buildlogic.JcefConventionPlugin"
