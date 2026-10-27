@@ -7,8 +7,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * Локальное состояние лаунчера (файл {@code state.properties}): текущий и предыдущий поезд, плохие поезда,
@@ -16,8 +18,28 @@ import java.util.Set;
  * Записывается атомарно (временный файл + move); изменения (чтение → правка → запись) идут под
  * {@link TrainStore#locked}. Повреждённый файл не роняет запуск: нечитаемые числа берутся по умолчанию, а нечитаемый
  * файл целиком — как пустое состояние.
+ *
+ * <p>Файл несёт версию формата ({@code format}): состояние пишут разные версии лаунчера по очереди (слоты, откат
+ * лаунчера), поэтому лаунчер, который не знает формат, не должен ни читать его как пустое состояние, ни перезаписывать.
+ * Формат без поля — первый ({@value #FORMAT}). Файл новее поддерживаемого формата не читается
+ * ({@link UnsupportedFormatException}), а неизвестные поля поддерживаемого формата сохраняются при записи.
  */
 final class LauncherState {
+    /** Версия формата, которую читает и пишет этот лаунчер. */
+    static final int FORMAT = 1;
+
+    private static final Set<String> KNOWN = Set.of("format", "current", "previous", "crashes", "running", "stable",
+        "dbSchema", "backupOf", "backupSchema", "rollbackRequested", "bad");
+
+    /** Файл состояния записан более новым лаунчером: этот его не читает и не затирает. */
+    static final class UnsupportedFormatException extends IOException {
+        UnsupportedFormatException(Path file, int found) {
+            super("Launcher state " + file + " has format " + found + ", supported " + FORMAT);
+        }
+    }
+
+    /** Поля файла, которых этот лаунчер не знает: пишутся обратно без изменений. */
+    final Map<String, String> unknown = new TreeMap<>();
     String current = "";
     String previous = "";
     int crashes;
@@ -45,6 +67,15 @@ final class LauncherState {
             System.err.println("Launcher state is corrupted, starting from an empty state: " + e);
             return state;
         }
+        int format = formatOf(props);
+        if (format < 1 || format > FORMAT) {
+            throw new UnsupportedFormatException(file, format);
+        }
+        for (String key : props.stringPropertyNames()) {
+            if (!KNOWN.contains(key)) {
+                state.unknown.put(key, props.getProperty(key));
+            }
+        }
         state.current = props.getProperty("current", "");
         state.previous = props.getProperty("previous", "");
         state.crashes = intOf(props, "crashes");
@@ -65,6 +96,8 @@ final class LauncherState {
 
     void save(Path file) throws IOException {
         Properties props = new Properties();
+        props.putAll(unknown);
+        props.setProperty("format", Integer.toString(FORMAT));
         props.setProperty("current", current);
         props.setProperty("previous", previous);
         props.setProperty("crashes", Integer.toString(crashes));
@@ -83,6 +116,19 @@ final class LauncherState {
             props.store(out, null);
         }
         Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+    }
+
+    /** Формат файла: без поля — первый; нечитаемое значение — {@code -1} (такой файл не читается). */
+    private static int formatOf(Properties props) {
+        String value = props.getProperty("format");
+        if (value == null) {
+            return 1;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     private static int intOf(Properties props, String key) {
