@@ -499,7 +499,8 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > проходят отдельный прогон ProGuard по явной SDK-границе (`heartbeatTrain { sdk(...) }`, `verifyTrainSdk`); keep-правила SDK
 > генерирует `generateTrainSdkRules`, остальное — `platform-main/desktop/train-rules.pro`. `verifyShrunkTrain` запускает
 > обработанный поезд headless (все бандлы `Healthy`), маппинги — `build/train/mapping-*.txt`, имена в логах
-> восстанавливает `scripts/retrace.py` (в логе строка `Launch: train=…`). CI пока собирает необработанный поезд.
+> восстанавливает `scripts/retrace.py` (в логе строка `Launch: train=…`). CI (`bundle-train`) собирает поезд с `obfuscate`,
+> гоняет `verifyShrunkTrain` перед записью и публикует маппинги ассетами пре-релиза `train-*`.
 > Правила и ограничения — `.claude/rules/bundles.md`.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 

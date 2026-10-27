@@ -101,10 +101,15 @@ CI проверяет необходимый минимум. Автоматич�
   jobs скачивают артефакт `chromium-panel` этого запуска и передают `-Pheartbeat.chromiumPanelDir=.release-panel`.
   При неполном артефакте упаковка завершается ошибкой. Без свойства локальная сборка собирает панель сама.
 - ProGuard остаётся отдельным для каждой ОС: его результаты не объявляются переносимыми принудительно.
-  Обработка поезда (`-Pheartbeat.trainShrink=shrink|obfuscate`, `shrinkFoundation`/`shrinkBundle`, смоук `verifyShrunkTrain`,
-  правила в `.claude/rules/bundles.md`) локальная проверка и опция сборки; пока workflow не передают это свойство, CI
-  собирает необработанный поезд. Включая его в `prerelease.yml`/`release.yml`, держи вместе: `verifyShrunkTrain` перед
-  публикацией, маппинги ассетами `train-*` того пре-релиза, который первым опубликовал jar, и правку `scripts/train_manifest.py`.
+  Поезд обрабатывается ProGuard (`.github/actions/bundle-train`, вход `shrink`, по умолчанию `obfuscate`; правила и режимы —
+  `.claude/rules/bundles.md`): `assembleBundle` идёт с `-Pheartbeat.trainShrink`, затем `:platform-main:desktop:verifyShrunkTrain`
+  под xvfb (все бандлы `Healthy`, иначе поезд не пишется), затем `scripts/train_manifest.py --mappings`: маппинг каждого jar
+  (`mapping-bundle-<id>-<версия>.txt`) публикуется ассетом того пре-релиза `train-*`, который первым опубликовал jar
+  (контракты не обрабатываются и маппинга не имеют; неизменный jar маппинг не повторяет), по нему `scripts/retrace.py`
+  восстанавливает стек-трейсы из лога с `Launch: train=<id>`. ProGuard требует JBR 21 с `jmods` (по расчёту его даёт `setup-java`
+  `jetbrains`; на CI не проверено) и до 2 ГБ кучи; в пределы 20 минут `prerelease.yml` обработка пока не измерена на CI — при превышении
+  проверь время `shrink*`-задач в `--profile`. Меняя состав поезда, SDK или правила, держи вместе `bundles.md`, `train-rules.pro`
+  и `train_manifest.py` с тестом.
   `--profile` и артефакты `gradle-reports-*` сохраняют длительности задач и XML результатов тестов.
 - Linux x64 (Ubuntu 24.04, X11/XWayland) публикуется как `desktop-linux-x64` вместе с остальными установщиками.
   Перед упаковкой проходят нативные проверки Secret Service в изолированной D-Bus-сессии и встроенного браузера

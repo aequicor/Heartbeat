@@ -7,6 +7,10 @@ jars that changed: a bundle whose SHA-256 equals the one in the previous train k
 name and `url` (the release that first published it), and its jar is not copied to the output. A changed bundle
 gets `--base-url` (the download URL of the release being published) plus its jar name. A previous entry without
 `url` is published again: the release holding its jar is not known. A change of `platformApi` republishes everything.
+
+With `--mappings <dir>` (an obfuscated train) the ProGuard mapping of every jar the train carries is published next to
+it as `mapping-<jar name without .jar>.txt`, in the release that first published the jar: that release is the one
+`scripts/retrace.py` finds the mapping in. `contracts` is not processed and has none; any other missing mapping fails.
 """
 
 from __future__ import annotations
@@ -25,6 +29,8 @@ SHA256 = re.compile(r"[0-9a-f]{64}")
 BASE_URL = re.compile(r"https://[^\s?#/]+/(?:[^\s?#]*/)?")
 MANIFEST_ASSET = "train-manifest.json"
 FIELDS = ("id", "version", "jar", "sha256")
+MAPPING_NAME = "mapping-{}.txt"
+UNPROCESSED_JAR_PREFIX = "bundle-contracts-"
 
 
 def check_base_url(url: str, name: str) -> str:
@@ -102,6 +108,19 @@ def build_train(
     return {"train": train, "platformApi": built["platformApi"], "bundles": bundles}, carried
 
 
+def mapping_files(carried: list[str], directory: Path) -> list[Path]:
+    """The mapping files of the carried jars; every processed jar needs one."""
+    found, missing = [], []
+    for jar in carried:
+        if jar.startswith(UNPROCESSED_JAR_PREFIX):
+            continue
+        file = directory / MAPPING_NAME.format(jar.removesuffix(".jar"))
+        (found if file.is_file() else missing).append(file)
+    if missing:
+        raise ValueError("no ProGuard mapping for: " + ", ".join(file.name for file in missing))
+    return found
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--built", type=Path, required=True, help="build/bundles/manifest.json from Gradle")
@@ -112,20 +131,24 @@ def main(argv: list[str] | None = None) -> int:
         "--base-url", required=True,
         help="download URL of the release being published, ending with '/' (https://github.com/<repo>/releases/download/<tag>/)",
     )
+    parser.add_argument("--mappings", type=Path, help="directory with the mapping-<jar>.txt files of an obfuscated train")
     parser.add_argument("--out", type=Path, required=True, help="output directory")
     args = parser.parse_args(argv)
     try:
         built = json.loads(args.built.read_text(encoding="utf-8"))
         previous = json.loads(args.previous.read_text(encoding="utf-8")) if args.previous else None
         manifest, carried = build_train(built, previous, args.train, args.base_url)
+        mappings = mapping_files(carried, args.mappings) if args.mappings else []
     except (ValueError, OSError) as error:  # json.JSONDecodeError is a ValueError
         print(error, file=sys.stderr)
         return 1
     args.out.mkdir(parents=True, exist_ok=True)
     for name in carried:
         shutil.copy2(args.jars / name, args.out / name)
+    for file in mappings:
+        shutil.copy2(file, args.out / file.name)
     (args.out / MANIFEST_ASSET).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    print(f"train {args.train}: {len(carried)} of {len(manifest['bundles'])} bundles changed")
+    print(f"train {args.train}: {len(carried)} of {len(manifest['bundles'])} bundles changed, {len(mappings)} mappings")
     return 0
 
 

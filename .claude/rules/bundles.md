@@ -108,7 +108,8 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   классов и методов в стек-трейсах.
   Проверка: `./gradlew -Pheartbeat.trainShrink=shrink|obfuscate :platform-main:desktop:verifyShrunkTrain` — headless-запуск
   production-графа на обработанных jar, открытие профиля, все бандлы обязаны быть `Healthy` (смоук `TrainSmoke` в тестах
-  desktop; не покрывает UI и JCEF-браузер, поэтому перед включением в CI нужен `e2e-regression`).
+  desktop; не покрывает UI и JCEF-браузер). Перед включением `obfuscate` в CI прогнан `e2e-regression` (core) на упакованном
+  `HeartbeatE2E`; в CI смоук идёт перед записью поезда, маппинги публикуются вместе с jar (`ci.md`).
 - **Профильный граф бандла.** Фичи профиля (`ProfileScope`) живут в `@GraphExtension(ProfileScope::class)` бандла
   (`WebProfileGraph`), который создаётся из app-графа бандла (`val profileGraphs: …Graph.Factory`) и получает
   `@Includes FoundationProfileBindings`. `BundleEntry.hasProfileGraph = true`, `createProfileGraph` и
