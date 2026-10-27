@@ -89,6 +89,10 @@ CI подтверждает проверенный результат, а не �
   Опция `dry_run` — пробный прогон без тега и публикации, в том числе из рабочей ветки:
   `gh workflow run release.yml --ref <branch> -f release_level=patch -F dry_run=true`.
   Push тега релиз не запускает. Агент теги не создаёт и релизный workflow не запускает без просьбы пользователя.
+- **Бета полных установщиков — `beta-release.yml`, только по решению пользователя.** Run workflow из `master`
+  (`dry_run` — пробный прогон из ветки): Linux DEB и Android APK (без подписи) публикуются pre-release'ом
+  `Heartbeat <следующий patch>.<n>` (`--prerelease --latest=false`, тег `beta-<версия>.<n>`). Windows и macOS получают
+  бету поездами `prerelease.yml`; iOS установщика не имеет. Стабильный канал и версию `release_version.py` бета не трогает.
 - **Рантайм JCEF** (`native/jcef`) собирается не `module-build.yml`, а `jcef-runtime.yml`: все пять хостов, проба
   и артефакт `jcef-release`. Запуск — метка `jcef-runtime` на PR (снимается вручную) или
   `gh workflow run jcef-runtime.yml --ref <branch>`, когда подготовлен выпуск в `native/jcef/next` или по просьбе

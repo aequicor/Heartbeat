@@ -1,0 +1,30 @@
+name: Beta release
+
+# Run workflow on master to publish a beta of the full installers for the platforms without bundles and self-update:
+# the Linux DEB and the Android APK (iOS has no installer to ship). It is release.yml with beta=true: the same version,
+# test and build jobs, published as the GitHub pre-release `Heartbeat <next patch>.<n>` (--prerelease --latest=false),
+# so it is neither Latest nor offered by the update channel. Windows and macOS get betas as bundle trains (prerelease.yml).
+# dry_run builds and checks everything without publishing and allows a working branch:
+#   gh workflow run beta-release.yml --ref <branch> -F dry_run=true
+run-name: "Beta release${{ inputs.dry_run && ' (dry run)' || '' }}"
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only build and check, without publishing / Пробный прогон'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  beta:
+    name: Beta
+    # The called jobs ask for contents: write only where they publish; the caller must allow it.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      beta: true
+      dry_run: ${{ inputs.dry_run }}

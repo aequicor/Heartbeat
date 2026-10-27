@@ -20,6 +20,7 @@ CI проверяет необходимый минимум. Автоматич�
 | `review-approve.yml`, `close-fixed-issues.yml` | `/reviewed`, мерж PR | действия бота, без сборки |
 | `prerelease.yml` | push в `master` | только Linux, ≤ 20 мин: `affectedBundles` по diff пуша → `jvmTest` затронутых бандлов и `verifyBundleMembership` → `assembleBundle` + `bundleManifest` → `scripts/train_manifest.py` → pre-release `train-t<sha12>` с `train-manifest.json` и только изменившимися jar. Пуш без затронутых бандлов ничего не публикует |
 | `release.yml` | вручную из `master`: уровень `patch` / `minor` / `major`; `dry_run` — без публикации, допускает рабочую ветку | версия → JVM-тесты на Linux → Linux DEB и общая Wasm-панель → параллельно отдельные Android и iOS, остальные desktop-сборки и платформенные тесты → поезд бандлов (продвижение `train-t<sha12>` этого коммита или сборка) → гейт `scripts/check_installer_size.py` (≤ 130 МиБ временно, цель — 50 МиБ; пять установщиков) → публикация установщиков macOS/Windows/Linux и поезда; без detekt; тег вычисленной версии и релиз для автообновления |
+| `beta-release.yml` | вручную из `master`: только `dry_run` | вызывает `release.yml` с `beta=true`: версия (следующий patch) → JVM-тесты → Linux DEB и Android APK без подписи; macOS/Windows, iOS, платформенные тесты и поезд пропускаются → pre-release `beta-<версия>.<n>` с названием `Heartbeat <версия>.<n>` (`--prerelease --latest=false`) |
 
 Новые workflow, джобы, шаги сборки, платформы, матрицы и триггеры, расширение `paths` — только с согласия
 пользователя. Изменяя или добавляя workflow:
@@ -37,6 +38,10 @@ CI проверяет необходимый минимум. Автоматич�
     задачи отладки и проверки PR туда не добавляй. Detekt (включая ktlint и compose-rules)
     при сборке релиза не запускай: они проверяют изменения локально через `verify`.
     Тесты правил `:lint:detekt-rules:test` сохраняются — это unit-тесты, а не запуск линтера по проекту.
+  - `beta-release.yml` — тот же `release.yml` (джобы версии, тестов, Linux и Android не дублируются), запущенный
+    вручную с `beta=true` для платформ без бандлов и автообновления. Бета не создаёт тег `vX.Y.Z`, не `Latest` и без
+    `train-manifest.json`, поэтому канал обновления её игнорирует, а `scripts/release_version.py` не учитывает.
+    Название и счётчик общие с поездами — `scripts/prerelease_title.py`. Android-пакет не подписан, iOS не входит.
   - `jcef-runtime.yml` собирает нативный рантайм JCEF, который не является Gradle-модулем, на всех пяти
     хостах сразу, без входов; запуск по метке исполняет копию из PR.
 - **`paths`** — только файлы, меняющие результат проверки; тесты, ресурсы, схемы и документацию, которые проверка

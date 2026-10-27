@@ -90,3 +90,39 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BetaWorkflowTests(unittest.TestCase):
+    """The beta is release.yml with beta=true: it must publish only as a non-latest pre-release."""
+
+    def setUp(self):
+        self.release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.beta = (ROOT / ".github" / "workflows" / "beta-release.yml").read_text(encoding="utf-8")
+
+    def job(self, name):
+        start = self.release.index(f"\n  {name}:\n")
+        end = self.release.find("\n  ", start + 1)
+        while end != -1 and self.release[end + 3] == " ":
+            end = self.release.find("\n  ", end + 1)
+        return self.release[start:] if end == -1 else self.release[start:end]
+
+    def test_beta_is_started_only_by_hand_and_calls_release_with_beta(self):
+        self.assertIn("workflow_dispatch:", self.beta)
+        for trigger in ("push:", "pull_request", "schedule:"):
+            self.assertNotIn(trigger, self.beta)
+        self.assertIn("uses: ./.github/workflows/release.yml", self.beta)
+        self.assertIn("beta: true", self.beta)
+
+    def test_stable_only_jobs_are_skipped_in_beta(self):
+        for name in ("train", "platform-tests", "ios", "desktop", "installer-size"):
+            with self.subTest(job=name):
+                self.assertIn("if: ${{ !inputs.beta }}", self.job(name))
+        self.assertIn("!inputs.beta", self.job("publish"))
+
+    def test_beta_publication_is_a_prerelease_that_is_never_latest(self):
+        publish = self.job("publish-beta")
+        self.assertIn("inputs.beta", publish)
+        self.assertIn("--prerelease --latest=false", publish)
+        self.assertNotIn("--latest\n", publish)
+        self.assertNotIn("--latest ", publish.replace("--latest=false", ""))
+        self.assertNotIn("train-manifest", publish)
