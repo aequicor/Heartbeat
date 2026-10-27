@@ -56,6 +56,14 @@ public final class LauncherMain {
     }
 
     public static void main(String[] args) throws Exception {
+        start(args, () -> { });
+    }
+
+    /**
+     * Запуск через селектор слотов: как {@link #main}, но {@code applicationStarted} вызывается непосредственно перед
+     * входом в приложение, когда его класс уже загружен. Это момент, в который селектор подтверждает слот лаунчера.
+     */
+    public static void start(String[] args, Runnable applicationStarted) throws Exception {
         String rootValue = System.getProperty(ROOT);
         Path root;
         Path dataDir;
@@ -111,7 +119,7 @@ public final class LauncherMain {
             }, "heartbeat-launcher-exit"));
         }
         try {
-            invokeMain(loader, System.getProperty(APP_MAIN, DEFAULT_APP_MAIN), args);
+            invokeMain(loader, System.getProperty(APP_MAIN, DEFAULT_APP_MAIN), args, applicationStarted);
             returned.set(true);
         } catch (InvocationTargetException e) {
             if (owner && prepared.train() != null) {
@@ -259,7 +267,13 @@ public final class LauncherMain {
     }
 
     static void invokeMain(ClassLoader loader, String className, String[] args) throws Exception {
+        invokeMain(loader, className, args, () -> { });
+    }
+
+    static void invokeMain(ClassLoader loader, String className, String[] args, Runnable applicationStarted)
+        throws Exception {
         Method main = Class.forName(className, true, loader).getMethod("main", String[].class);
+        applicationStarted.run();
         main.invoke(null, (Object) args);
     }
 }
