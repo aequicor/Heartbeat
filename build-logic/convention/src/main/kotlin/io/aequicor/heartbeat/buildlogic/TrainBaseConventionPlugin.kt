@@ -29,6 +29,9 @@ internal enum class TrainPart {
     Platform,
 }
 
+/** The platform launcher starts the train, so it is on the installer's class path, not in the train. */
+private const val LAUNCHER_PROJECT = ":platform-main:launcher"
+
 private val FEATURE_API = Regex("""^:features:.+:api$""")
 
 /**
@@ -36,7 +39,7 @@ private val FEATURE_API = Regex("""^:features:.+:api$""")
  * [bundleImpls] are the `…:impl` modules that bundle jars carry.
  */
 internal fun trainPartOf(projectPath: String?, bundleImpls: Set<String>): TrainPart = when {
-    projectPath == null -> TrainPart.Platform
+    projectPath == null || projectPath == LAUNCHER_PROJECT -> TrainPart.Platform
     projectPath.startsWith(":bundles:") || projectPath in bundleImpls -> TrainPart.Bundle
     FEATURE_API.matches(projectPath) -> TrainPart.Contracts
     else -> TrainPart.Foundation

@@ -48,6 +48,29 @@ class LauncherMainTest {
     }
 
     @Test
+    void userDataDirFollowsTheOsConventions() {
+        assertEquals(Path.of("/Users/me/Library/Application Support/Heartbeat"),
+            LauncherMain.userDataDir("Mac OS X", "/Users/me", null, null, null));
+        assertEquals(Path.of("C:\\Users\\me\\AppData\\Roaming").resolve("Aequicor").resolve("Heartbeat"),
+            LauncherMain.userDataDir("Windows 11", "C:\\Users\\me", "C:\\Users\\me\\AppData\\Roaming", null, null));
+        assertEquals(Path.of("/home/me/.local/share/heartbeat"),
+            LauncherMain.userDataDir("Linux", "/home/me", null, null, null));
+        assertEquals(Path.of("/data/heartbeat-dev"),
+            LauncherMain.userDataDir("Linux", "/home/me", null, "/data", "Heartbeat-Dev"));
+        assertEquals(Path.of("/home/me/.local/share/heartbeat"),
+            LauncherMain.userDataDir("Linux", "/home/me", null, "relative", "bad name!"));
+    }
+
+    @Test
+    void launcherRootLiesBesideTheDataDirectory() {
+        Path data = Path.of("/Users/me/Library/Application Support/Heartbeat");
+        Path root = LauncherMain.launcherRootBeside(data);
+        assertEquals(Path.of("/Users/me/Library/Application Support/Heartbeat-launcher"), root);
+        assertFalse(root.startsWith(data));
+        assertFalse(data.startsWith(root));
+    }
+
+    @Test
     void workerArgumentsAreAuxiliary() {
         assertTrue(LauncherMain.isAuxiliary(new String[] {"--heartbeat-plantuml-worker"}));
         assertTrue(LauncherMain.isAuxiliary(new String[] {"--verify-window-runtime"}));

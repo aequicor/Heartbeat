@@ -9,6 +9,7 @@ class TrainPartTest {
     @Test
     fun `third-party artifacts stay in the platform`() {
         assertEquals(TrainPart.Platform, trainPartOf(null, bundleImpls))
+        assertEquals(TrainPart.Platform, trainPartOf(":platform-main:launcher", bundleImpls))
     }
 
     @Test

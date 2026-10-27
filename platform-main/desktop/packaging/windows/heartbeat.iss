@@ -85,6 +85,8 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; F
 ; Keep in sync with the data folders of core:datastore (JvmStorageRoot) and core:secrets (JvmProtectedVault and
 ; JvmDevelopmentVault, which development builds use), and DesktopManagedInstallStore's machine-local copies.
 Type: filesandordirs; Name: "{userappdata}\Aequicor\Heartbeat"
+; The platform launcher keeps its bundle trains beside the data (platform-main/launcher, LauncherMain.launcherRootBeside).
+Type: filesandordirs; Name: "{userappdata}\Aequicor\Heartbeat-launcher"
 Type: filesandordirs; Name: "{localappdata}\Aequicor\Heartbeat"
 Type: dirifempty; Name: "{userappdata}\Aequicor"
 Type: dirifempty; Name: "{localappdata}\Aequicor"
