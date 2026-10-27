@@ -5,13 +5,13 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * The bundle host calls the accessors of the `core:bundles:api` binding interfaces reflectively, so the release
- * shrinker must keep each of them: a new interface without a rule works in development and breaks the release.
+ * The bundle host calls the accessors of the `core:bundles:api` binding interfaces reflectively, so the shrunk train
+ * must keep each of them: a new interface without a rule works in development and breaks the release.
  */
 class BundleKeepRulesTest {
     @Test
     fun `every binding interface of core bundles api is kept in the release build`() {
-        val rules = File("compose-desktop.pro").readText()
+        val rules = File("train-rules.pro").readText()
         val sources = File("../../core/bundles/api/src")
         val declared = sources.walk().filter { it.extension == "kt" }
             .flatMap { file -> INTERFACE.findAll(file.readText()).map { it.groupValues[1] } }
@@ -19,7 +19,7 @@ class BundleKeepRulesTest {
             .toList()
         assertTrue(declared.isNotEmpty(), "no binding interfaces found in ${sources.absolutePath}")
         val missing = declared.filter { "-keep interface io.aequicor.heartbeat.core.bundles.$it { *; }" !in rules }
-        assertTrue(missing.isEmpty(), "compose-desktop.pro has no keep rule for $missing")
+        assertTrue(missing.isEmpty(), "train-rules.pro has no keep rule for $missing")
     }
 
     private companion object {

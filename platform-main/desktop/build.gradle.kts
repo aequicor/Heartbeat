@@ -168,7 +168,7 @@ tasks.withType<Test>().configureEach {
     // Match launchHeartbeat's owned-window layers, including tests that do not enter main().
     systemProperties(heartbeatJcef.renderingProperties)
     // BundleKeepRulesTest compares the release keep rules with the binding interfaces of core:bundles:api.
-    inputs.file("compose-desktop.pro").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file("train-rules.pro").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir(rootProject.file("core/bundles/api/src")).withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
@@ -349,12 +349,6 @@ compose.desktop {
         jvmArgs("-Dheartbeat.channel=${heartbeatChannel.id}")
         // A dev build keeps its own data, logs and single-instance lock; beta and release share Heartbeat's.
         if (heartbeatChannel.id == "dev") jvmArgs("-Dheartbeat.data.name=${heartbeatChannel.packageName}")
-        buildTypes.release.proguard {
-            configurationFiles.from(
-                layout.projectDirectory.file("compose-desktop.pro"),
-                layout.projectDirectory.file("proguard-rules.pro"),
-            )
-        }
         nativeDistributions {
             // Windows: Inno Setup installer, see `packageInnoSetup` below.
             targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
@@ -417,7 +411,8 @@ tasks.withType<ComposeHotRun>().configureEach {
 afterEvaluate {
     // The installer holds the platform only: the launcher and the third-party libraries of this OS. The project code
     // (foundation, contracts, bundles) is the train. Libraries are neither shrunk nor renamed, as the train is
-    // compiled against their original classes, so ProGuard does not run on a release.
+    // compiled against their original classes, so Compose's ProGuard does not run on a release: the train is shrunk by
+    // `shrinkFoundation`/`shrinkBundle` with `train-rules.pro` (-Pheartbeat.trainShrink=shrink).
     tasks.named<AbstractProguardTask>("proguardReleaseJars") { enabled = false }
     val platformJars = extensions.getByType<TrainPlatformJars>().installedNames
     val collectPlatformJars = tasks.register<CollectPlatformJars>("collectPlatformJars") {

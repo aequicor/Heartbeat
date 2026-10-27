@@ -33,15 +33,15 @@ paths:
   дерево в `HbDiagramsProvider` с подписями из ресурсов `shared`. Что и как рисовать, решает фича; мобильные хосты
   рендерера не передают — fence остаётся кодом. Рисует процесс-воркер фичи: в упакованном jlink-рантайме нет `java`,
   поэтому `Main`/`DevelopmentMain`/`TestingMain` до любой инициализации передают аргумент `--heartbeat-plantuml-worker` в
-  `runPackagedPlantUmlWorker` (как `runPackagedBuildWorker`), а `compose-desktop.pro` сохраняет его `main`.
+  `runPackagedPlantUmlWorker` (как `runPackagedBuildWorker`), а `train-rules.pro` сохраняет его `main`.
   Так же K2 харнесса компилирует в процессе-воркере: аргумент `--heartbeat-harness-compiler-worker` →
-  `runPackagedHarnessCompilerWorker`, `main` воркера сохраняет `compose-desktop.pro`.
+  `runPackagedHarnessCompilerWorker`, `main` воркера сохраняет `train-rules.pro`.
   Так же Chromium-браузеры запускают хост Native Messaging моста `chromium-bridge`: обёртка, записанная регистрацией,
   передаёт аргумент `--heartbeat-chromium-host <сокет>` и аргументы браузера → `runChromiumHost`; `main` хоста
-  сохраняет `compose-desktop.pro`. Хост только ретранслирует кадры между stdio браузера и сокетом приложения.
+  сохраняет `train-rules.pro`. Хост только ретранслирует кадры между stdio браузера и сокетом приложения.
   Исключение для пробы компилятора харнесса: упакованный desktop с аргументом `--heartbeat-harness-probe`
   (`HarnessCompilerProbe`) до создания графа вызывает `HarnessHostProbe` из `harness:impl` по имени класса
-  (`Class.forName`), без compile-зависимости на impl; `compose-desktop.pro` сохраняет этот класс. Проба проверяет
+  (`Class.forName`), без compile-зависимости на impl; `train-rules.pro` сохраняет этот класс. Проба проверяет
   компиляцию в упакованном воркере и исполнение в приложении. Новые такие входы не добавляй — проба нужна только
   релизной проверке компилятора в CI.
 - Модули: `platform-main:shared` (общий вход `createAppRoot` + `App`, статический iOS framework `Shared`), `platform-main:android`, `platform-main:desktop`, Xcode-проект `platform-main/ios` (build phase — `:platform-main:shared:embedAndSignAppleFrameworkForXcode`). Пакеты — `io.aequicor.heartbeat.platform.<модуль>`; applicationId `io.aequicor` не меняй без согласования (id в сторах).

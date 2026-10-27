@@ -79,6 +79,8 @@ internal fun trainProguardConfiguration(
     add("-dontobfuscate")
     add("-dontoptimize")
     add("-dontpreverify")
+    // Notes only (duplicate library classes, rules naming library classes): warnings stay fatal.
+    add("-dontnote")
     add("-keepattributes *")
     add("-printmapping ${quoted(mapping)}")
     rules.forEach { add("-include ${quoted(it)}") }
