@@ -1,16 +1,8 @@
 package io.aequicor.heartbeat.platform.desktop
 
-import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.draganddrop.DragAndDropTransferAction
-import androidx.compose.ui.draganddrop.DragAndDropTransferData
-import androidx.compose.ui.draganddrop.DragAndDropTransferable
-import androidx.compose.ui.geometry.Offset
 import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 import io.aequicor.heartbeat.core.logging.Log
-import java.awt.datatransfer.DataFlavor
-import java.awt.datatransfer.Transferable
-import java.awt.datatransfer.UnsupportedFlavorException
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -20,16 +12,17 @@ import javax.imageio.ImageIO
 internal class GrantTarget(private val file: File, val name: String, val icon: ByteArray?) {
     private val log = Log.tag("GrantTarget")
 
-    /** Starts dragging the application from the tile; [offset] keeps the tile under the pointer. */
-    @OptIn(ExperimentalComposeUiApi::class)
-    fun dragData(offset: Offset): DragAndDropTransferData {
+    /**
+     * Starts dragging the application out of the window titled [windowTitle] and returns when the drag ends.
+     * Must not run on the AWT event thread; a failure is logged and ends only this drag.
+     */
+    fun drag(cocoa: MacWindowAccess, windowTitle: String) {
         log.i { "permission guide tile dragged" }
-        return DragAndDropTransferData(
-            DragAndDropTransferable(ApplicationTransferable(file)),
-            supportedActions = listOf(DragAndDropTransferAction.Copy, DragAndDropTransferAction.Link),
-            dragDecorationOffset = offset,
-            onTransferCompleted = { action -> log.i { "permission guide tile dropped action=${action ?: "none"}" } },
-        )
+        val isStarted = permissionGuideOrNull("drag the application tile") {
+            MacFileDrag(cocoa).drag(cocoa.window(windowTitle), file.path)
+            true
+        }
+        log.i { "permission guide tile drag ended started=${isStarted == true}" }
     }
 
     override fun toString(): String = "GrantTarget(isBundle=${file.name.endsWith(APP_SUFFIX)})"
@@ -147,27 +140,5 @@ private const val ICON_MAX_BYTES = 1_048_576L
 /** The innermost `.app` bundle holding [executable], or `null` for a bare command-line tool. */
 internal fun applicationBundle(executable: File): File? =
     generateSequence(executable.parentFile) { it.parentFile }.firstOrNull { it.name.endsWith(APP_SUFFIX) }
-
-/**
- * Offers the application as a dragged file, the way Finder does: System Settings' privacy lists accept it as a
- * file list or as a file URL.
- */
-internal class ApplicationTransferable(private val file: File) : Transferable {
-    private val flavors = arrayOf(DataFlavor.javaFileListFlavor, URL_FLAVOR)
-
-    override fun getTransferDataFlavors(): Array<DataFlavor> = flavors.copyOf()
-
-    override fun isDataFlavorSupported(flavor: DataFlavor): Boolean = flavor in flavors
-
-    override fun getTransferData(flavor: DataFlavor): Any = when (flavor) {
-        DataFlavor.javaFileListFlavor -> listOf(file)
-        URL_FLAVOR -> file.toURI().toURL()
-        else -> throw UnsupportedFlavorException(flavor)
-    }
-
-    private companion object {
-        val URL_FLAVOR = DataFlavor("application/x-java-url;class=java.net.URL")
-    }
-}
 
 private const val APP_SUFFIX = ".app"
