@@ -23,7 +23,7 @@ internal fun installDesktopTray(image: Image, onOpen: () -> Unit, onQuit: () -> 
                 addSeparator()
                 add(trayMenuItem(labels.quit, onQuit))
             }
-            val icon = TrayIcon(image, "Heartbeat", menu).apply {
+            val icon = TrayIcon(image, AppChannel.current.title, menu).apply {
                 isImageAutoSize = true
                 addActionListener { onOpen() }
             }

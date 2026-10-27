@@ -335,7 +335,9 @@ public final class Launcher {
     /**
      * Сообщает приложению текущий поезд, корень лаунчера и плохие поезда через системные свойства
      * {@code heartbeat.train}, {@code heartbeat.launcher.root} и {@code heartbeat.train.bad} (через запятую; пусто —
-     * свойство снято). Их читает app-update, чтобы не предлагать откаченные поезда снова.
+     * свойство снято). Их читает app-update, чтобы не предлагать откаченные поезда снова. Поезд из beta-канала
+     * ({@code channel} в его манифесте) добавляет {@code heartbeat.train.channel=beta}: по нему desktop показывает
+     * приложение как Beta (имя и иконка); у поезда релиза свойство снято.
      */
     public void exposeToApp(Prepared prepared, Path root) throws IOException {
         System.setProperty("heartbeat.launcher.root", root.toAbsolutePath().toString());
@@ -349,6 +351,21 @@ public final class Launcher {
             System.setProperty("heartbeat.train", prepared.train());
         } else {
             System.clearProperty("heartbeat.train");
+        }
+        if (prepared.train() != null && isBetaTrain(prepared.train())) {
+            System.setProperty("heartbeat.train.channel", "beta");
+        } else {
+            System.clearProperty("heartbeat.train.channel");
+        }
+    }
+
+    /** Манифест поезда читается без ошибок и называет beta-канал; нечитаемый манифест — не beta. */
+    private boolean isBetaTrain(String train) {
+        try {
+            return store.readManifest(train).beta();
+        } catch (IOException | RuntimeException e) {
+            System.err.println("Channel of train " + train + " is unknown, showing the release app: " + e);
+            return false;
         }
     }
 

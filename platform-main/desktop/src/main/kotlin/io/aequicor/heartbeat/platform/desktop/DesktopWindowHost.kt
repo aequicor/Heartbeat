@@ -34,7 +34,7 @@ internal fun DesktopWindowHost(
         onCloseRequest = onCloseRequest,
         state = state,
         visible = isVisible,
-        title = "Heartbeat",
+        title = AppChannel.current.title,
         icon = icon,
         alwaysOnTop = isAlwaysOnTop,
         onPreviewKeyEvent = onPreviewKeyEvent,

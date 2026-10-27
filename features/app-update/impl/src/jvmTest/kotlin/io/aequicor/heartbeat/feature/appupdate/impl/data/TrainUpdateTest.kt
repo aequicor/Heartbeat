@@ -12,6 +12,9 @@ import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.InstallProgressSink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.ExperimentalPathApi
@@ -56,7 +59,10 @@ class TrainUpdateTest {
         assertEquals(listOf("$TRAIN_DOWNLOADS/train-t1/core.jar", "$TRAIN_DOWNLOADS/train-t2/ui.jar"), requestedFiles)
         assertEquals("core-bytes", storeJar(root, sha256(core)).readText())
         assertEquals("ui-bytes", storeJar(root, sha256(ui)).readText())
-        assertEquals(manifest, root.resolve("pending/t2/manifest.json").readText())
+        assertEquals(
+            parseTrainManifest(manifest),
+            parseTrainManifest(root.resolve("pending/t2/manifest.json").readText()),
+        )
         assertFalse(root.resolve("staging/t2").exists())
         assertEquals("preparing", phases.last())
     }
@@ -70,6 +76,30 @@ class TrainUpdateTest {
 
         assertEquals(listOf("$TRAIN_DOWNLOADS/train-t2/ui.jar"), requestedFiles)
         assertTrue(root.resolve("pending/t2/manifest.json").exists())
+    }
+
+    @Test
+    fun `a train of a pre-release is queued with the beta channel`() = runTest {
+        update().prepare(repository, root, offer, progress())
+
+        val queued = Json.parseToJsonElement(root.resolve("pending/t2/manifest.json").readText()).jsonObject
+        assertEquals("beta", queued.getValue("channel").jsonPrimitive.content)
+        assertEquals("t2", queued.getValue("train").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `a train of a stable release is queued as published`() = runTest {
+        val stable = listOf(
+            releaseJson(
+                "train-t2",
+                listOf("train-manifest.json" to 10L, "ui.jar" to ui.size.toLong()),
+                isStable = true,
+            ),
+            releaseJson("train-t1", listOf("train-manifest.json" to 10L, "core.jar" to core.size.toLong())),
+        )
+        update(publications = stable).prepare(repository, root, offer, progress())
+
+        assertEquals(manifest, root.resolve("pending/t2/manifest.json").readText())
     }
 
     @Test
