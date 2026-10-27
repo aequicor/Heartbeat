@@ -52,6 +52,9 @@ internal class AppUpdateEffects(
 
                     else -> null
                 },
+                // Trains need the launcher: without it the beta channel can only be reached by a full installer.
+                isPlatformUpdateRequired = release == null &&
+                    installation.channel == UpdateChannel.Beta && !installation.hasLauncher,
             )
         } catch (e: AppUpdateException) {
             log.w(e) { "update check failed failure=${e.failure}" }

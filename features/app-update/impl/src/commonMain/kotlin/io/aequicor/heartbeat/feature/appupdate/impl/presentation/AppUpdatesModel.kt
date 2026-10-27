@@ -45,6 +45,9 @@ enum class UpdateStageUi {
     UnsupportedPlatform,
     Checking,
     UpToDate,
+
+    /** The beta channel is on, but only a full installer can bring the launcher that applies beta bundles. */
+    PlatformUpdateRequired,
     CheckFailed,
     Available,
 
@@ -57,7 +60,13 @@ enum class UpdateStageUi {
 
 /** The build of this launch as the page shows it. [version] is null for a development launch. */
 @Immutable
-data class AppBuildUi(val version: String?, val train: String?, val isBeta: Boolean, val bundles: List<BundleUi>)
+data class AppBuildUi(
+    val version: String?,
+    val train: String?,
+    val isBeta: Boolean,
+    val bundles: List<BundleUi>,
+    val pendingTrains: List<String> = emptyList(),
+)
 
 /** One bundle of the running train. */
 @Immutable
@@ -91,6 +100,7 @@ data class AppUpdatesScreenState(
         get() = when (stage) {
             UpdateStageUi.Idle,
             UpdateStageUi.UpToDate,
+            UpdateStageUi.PlatformUpdateRequired,
             UpdateStageUi.CheckFailed,
             UpdateStageUi.Available,
             UpdateStageUi.ManualInstall,
@@ -180,7 +190,7 @@ internal data class UpdateProjection(
 )
 
 internal fun AppBuildInfo.toUi(): AppBuildUi =
-    AppBuildUi(version, train, isBeta, bundles.map { BundleUi(it.id, it.version) })
+    AppBuildUi(version, train, isBeta, bundles.map { BundleUi(it.id, it.version) }, pendingTrains)
 
 internal fun AppUpdateFailure.toUi(): UpdateFailureUi = when (this) {
     AppUpdateFailure.Network -> UpdateFailureUi.Network
@@ -207,7 +217,9 @@ internal fun AppUpdateState?.toStage(): UpdateProjection = when (this) {
         },
     )
 
-    AppUpdateState.UpToDate -> UpdateProjection(UpdateStageUi.UpToDate)
+    is AppUpdateState.UpToDate -> UpdateProjection(
+        if (isPlatformUpdateRequired) UpdateStageUi.PlatformUpdateRequired else UpdateStageUi.UpToDate,
+    )
 
     is AppUpdateState.CheckFailed -> UpdateProjection(UpdateStageUi.CheckFailed, failure = failure.toUi())
 

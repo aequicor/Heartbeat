@@ -14,6 +14,8 @@
     <string name="updates_disabled">Обновления отключены в флагах функций.</string>
     <string name="updates_not_release">Это не установленная релизная сборка, поэтому она не обновляется сама.</string>
     <string name="updates_unsupported_platform">Для этой системы релизная сборка не публикуется.</string>
+    <string name="updates_pending">Подготовлено к следующему запуску</string>
+    <string name="updates_platform_required">Бета-обновлениям нужна более новая версия приложения. Один раз установите последнюю полную версию Heartbeat — дальше бета-бандлы обновляются отсюда.</string>
     <string name="updates_checking">Проверяем наличие обновлений…</string>
     <string name="updates_up_to_date">У вас последняя версия.</string>
     <string name="updates_check_failed">Не удалось проверить наличие обновлений.</string>

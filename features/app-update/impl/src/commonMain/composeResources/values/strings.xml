@@ -14,6 +14,8 @@
     <string name="updates_disabled">Updates are switched off in feature flags.</string>
     <string name="updates_not_release">This is not an installed release build, so it does not update itself.</string>
     <string name="updates_unsupported_platform">No release build is published for this system.</string>
+    <string name="updates_pending">Prepared for the next launch</string>
+    <string name="updates_platform_required">Beta updates need a newer app. Install the latest full version of Heartbeat once; after that beta bundles update from here.</string>
     <string name="updates_checking">Checking for updates…</string>
     <string name="updates_up_to_date">You are on the latest version.</string>
     <string name="updates_check_failed">Could not check for updates.</string>

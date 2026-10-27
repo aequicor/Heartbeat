@@ -46,7 +46,7 @@ public fun AppUpdateState.appUpdateOffer(): AppUpdateOffer? = when (this) {
     is AppUpdateState.Restarting -> release.offer(AppUpdatePhase.Restarting)
 
     AppUpdateState.Inactive,
-    AppUpdateState.UpToDate,
+    is AppUpdateState.UpToDate,
     is AppUpdateState.CheckFailed,
     is AppUpdateState.Unsupported,
     -> null

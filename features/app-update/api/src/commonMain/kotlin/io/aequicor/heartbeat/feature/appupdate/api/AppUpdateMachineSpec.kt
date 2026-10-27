@@ -16,7 +16,7 @@ import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent.Public
  * | Available | Check | | Checking (offered = release, failure) | FetchLatest |
  * | Checking | Internal.Unsupported | | Unsupported | |
  * | Checking | Checked | release found | Available (release, failure) | |
- * | Checking | Checked | no newer release | UpToDate | |
+ * | Checking | Checked | no newer release | UpToDate (isPlatformUpdateRequired from the check) | |
  * | Checking | CheckFailed | a release is offered | Available (offered, existing failure) | |
  * | Checking | CheckFailed | nothing offered | CheckFailed | |
  * | Checking | Install | a release is offered | Installing (Downloading) | Install |
@@ -73,7 +73,7 @@ public val AppUpdateMachineSpec: MachineSpec<AppUpdateState, AppUpdateIntent, Ap
                 }
             }
             on<Internal.Checked>(guard = { intent.release == null }) {
-                goto<AppUpdateState.UpToDate> { AppUpdateState.UpToDate }
+                goto<AppUpdateState.UpToDate> { AppUpdateState.UpToDate(intent.isPlatformUpdateRequired) }
             }
             on<Internal.CheckFailed>(guard = { state.offered != null }) {
                 goto<AppUpdateState.Available> { AppUpdateState.Available(checkNotNull(state.offered), state.failure) }

@@ -41,6 +41,7 @@ internal class DesktopAppBuildInfoSource(
             train = train,
             isBeta = manifest?.isBeta == true,
             bundles = manifest?.bundles.orEmpty().map { BundleBuild(it.id, it.version) },
+            pendingTrains = root?.let { withContext(dispatchers.io) { pendingTrains(it) } }.orEmpty().sorted(),
         )
     }
 

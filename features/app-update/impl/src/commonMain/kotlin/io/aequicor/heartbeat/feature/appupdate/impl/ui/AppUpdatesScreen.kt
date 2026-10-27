@@ -62,6 +62,8 @@ import io.aequicor.heartbeat.feature.appupdate.impl.resources.updates_idle
 import io.aequicor.heartbeat.feature.appupdate.impl.resources.updates_install
 import io.aequicor.heartbeat.feature.appupdate.impl.resources.updates_not_release
 import io.aequicor.heartbeat.feature.appupdate.impl.resources.updates_open_page
+import io.aequicor.heartbeat.feature.appupdate.impl.resources.updates_pending
+import io.aequicor.heartbeat.feature.appupdate.impl.resources.updates_platform_required
 import io.aequicor.heartbeat.feature.appupdate.impl.resources.updates_preparing
 import io.aequicor.heartbeat.feature.appupdate.impl.resources.updates_restarting
 import io.aequicor.heartbeat.feature.appupdate.impl.resources.updates_status
@@ -130,6 +132,16 @@ private fun BuildSection(build: AppBuildUi?, modifier: Modifier = Modifier) {
             HbDivider()
             HbSettingsRow(stringResource(Res.string.updates_train), Modifier.testTag("updates-train")) {
                 HbText(build.train.orEmpty(), style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
+            }
+        }
+        if (build?.pendingTrains?.isNotEmpty() == true) {
+            HbDivider()
+            HbSettingsRow(stringResource(Res.string.updates_pending), Modifier.testTag("updates-pending")) {
+                HbText(
+                    build.pendingTrains.joinToString(),
+                    style = HbTheme.typography.caption,
+                    color = HbTheme.colors.textSecondary,
+                )
             }
         }
     }
@@ -220,6 +232,8 @@ private fun statusText(state: AppUpdatesScreenState): String = when (state.stage
     UpdateStageUi.Checking -> stringResource(Res.string.updates_checking)
 
     UpdateStageUi.UpToDate -> stringResource(Res.string.updates_up_to_date)
+
+    UpdateStageUi.PlatformUpdateRequired -> stringResource(Res.string.updates_platform_required)
 
     UpdateStageUi.CheckFailed -> stringResource(Res.string.updates_check_failed)
 }

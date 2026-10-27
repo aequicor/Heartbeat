@@ -80,6 +80,14 @@ class AppUpdatesProjectionTest {
     }
 
     @Test
+    fun `an up to date launch that needs a newer platform is told so`() {
+        assertEquals(UpdateStageUi.UpToDate, AppUpdateState.UpToDate().toStage().stage)
+        val required = AppUpdateState.UpToDate(isPlatformUpdateRequired = true).toStage()
+        assertEquals(UpdateStageUi.PlatformUpdateRequired, required.stage)
+        assertTrue(AppUpdatesScreenState(stage = required.stage).canCheck)
+    }
+
+    @Test
     fun `a failed check can be repeated`() {
         val projection = AppUpdateState.CheckFailed(AppUpdateFailure.Network).toStage()
         assertEquals(UpdateStageUi.CheckFailed, projection.stage)

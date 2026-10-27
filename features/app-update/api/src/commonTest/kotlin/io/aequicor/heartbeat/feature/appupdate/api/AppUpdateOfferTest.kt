@@ -21,7 +21,7 @@ class AppUpdateOfferTest {
         listOf(
             AppUpdateState.Inactive,
             AppUpdateState.Checking(),
-            AppUpdateState.UpToDate,
+            AppUpdateState.UpToDate(),
             AppUpdateState.CheckFailed(AppUpdateFailure.Network),
             AppUpdateState.Unsupported(UnsupportedReason.NotReleaseBuild),
         ).forEach { assertNull(it.appUpdateOffer(), it.toString()) }
