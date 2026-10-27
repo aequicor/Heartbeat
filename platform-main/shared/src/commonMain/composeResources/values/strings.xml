@@ -6,6 +6,7 @@
     <string name="computer_use_guide_screen_recording">Allow screen recording</string>
     <string name="computer_use_guide_accessibility">Allow accessibility access</string>
     <string name="computer_use_guide_instruction">Drag %1$s into the list in System Settings, then turn its switch on.</string>
+    <string name="computer_use_guide_stale_hint">Already in the list but still not working after an update? Select %1$s, click “−” to remove it, then drag it in again.</string>
     <string name="computer_use_guide_tile">%1$s: drag into System Settings</string>
     <string name="computer_use_guide_close">Close</string>
     <string name="diagram_rendering">Rendering diagram…</string>

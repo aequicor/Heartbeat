@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_access
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_close
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_instruction
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_screen_recording
+import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_stale_hint
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_tile
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_title
 import org.jetbrains.compose.resources.stringResource
@@ -63,6 +64,12 @@ fun ComputerUsePermissionGuidePanel(
                     )
                     HbText(
                         stringResource(Res.string.computer_use_guide_instruction, appName),
+                        style = HbTheme.typography.caption,
+                        color = HbTheme.colors.textSecondary,
+                    )
+                    HbText(
+                        stringResource(Res.string.computer_use_guide_stale_hint, appName),
+                        Modifier.testTag("computer-use-guide-stale-hint"),
                         style = HbTheme.typography.caption,
                         color = HbTheme.colors.textSecondary,
                     )

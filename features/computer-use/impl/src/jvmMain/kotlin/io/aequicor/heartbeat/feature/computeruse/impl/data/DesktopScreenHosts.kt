@@ -32,6 +32,7 @@ import java.awt.MouseInfo
 import java.awt.Rectangle
 import java.awt.Robot
 import java.awt.image.BufferedImage
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 
 /** Enumerates and activates windows through the platform backend of this desktop host. */
@@ -276,6 +277,7 @@ internal class DesktopOsPermissions(
     private val dispatchers: DispatcherProvider,
 ) : OsPermissions {
     private val log = Log.tag("DesktopOsPermissions")
+    private val resetPermissions = ConcurrentHashMap.newKeySet<ComputerUsePermission>()
 
     override suspend fun probe(): ComputerUseCapabilities = withContext(dispatchers.io) {
         val runtime = HostRuntime(platform.host, GraphicsEnvironment.isHeadless())
@@ -316,6 +318,7 @@ internal class DesktopOsPermissions(
             ComputerUsePermission.ScreenRecording -> MAC_OS_SCREEN_CAPTURE_SETTINGS
             ComputerUsePermission.Accessibility -> MAC_OS_ACCESSIBILITY_SETTINGS
         }
+        resetStaleGrant(permission)
         try {
             runDesktopProcess(listOf(SYSTEM_OPEN_COMMAND, target), SETTINGS_TIMEOUT_SECONDS * MILLIS_PER_SECOND).also {
                 log.i { "system settings opened=$it for permission=$permission" }
@@ -325,6 +328,29 @@ internal class DesktopOsPermissions(
         } catch (e: Exception) {
             log.w(e) { "system settings could not be opened" }
             false
+        }
+    }
+
+    /**
+     * Drops an Accessibility entry left by an earlier build before the guide opens. Only Accessibility: its probe
+     * reflects a grant at once, so "missing" means a stale entry, while Screen Recording stays missing until the
+     * restart macOS offers, and a reset there would erase a fresh grant. Once per launch.
+     */
+    private suspend fun resetStaleGrant(permission: ComputerUsePermission) {
+        if (permission != ComputerUsePermission.Accessibility || permission in resetPermissions) return
+        try {
+            val command = MacStaleGrantReset.command(permission) ?: return
+            val isReset = runDesktopProcess(command, SETTINGS_TIMEOUT_SECONDS * MILLIS_PER_SECOND)
+            resetPermissions.add(permission)
+            if (isReset) {
+                log.i { "stale permission entry reset for permission=$permission" }
+            } else {
+                log.w { "stale permission entry was not reset for permission=$permission" }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "stale permission entry reset failed for permission=$permission" }
         }
     }
 
