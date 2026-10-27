@@ -63,7 +63,10 @@ internal class AppUpdateStartup(
             while (requestCheck(updates)) delay(CHECK_INTERVAL)
         }
 
-    /** A check that is running (or an install) used the previous channel: wait for it to end, then ask again. */
+    /**
+     * A check that is running used the previous channel: wait for it to end, then ask again.
+     * An install is left alone.
+     */
     private suspend fun recheckAfterChannelChange(updates: Machine<AppUpdateState, AppUpdateIntent, AppUpdateOutput>) {
         if (updates.state.value is AppUpdateState.Checking) {
             updates.state.first { it !is AppUpdateState.Checking }

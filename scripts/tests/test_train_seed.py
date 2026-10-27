@@ -43,11 +43,21 @@ class TrainSeedTest(unittest.TestCase):
             json.dumps(self.manifest(entry("web", b"web"))), encoding="utf-8")
         (self.train / "bundle-web-t1.jar").write_bytes(b"web")
         self.out.mkdir()
-        precious = self.out / "keep.txt"
+        precious = self.out / "keep.txt"  # not a seed file
         precious.write_text("x", encoding="utf-8")
         status = train_seed.main(["--train-dir", str(self.train), "--out", str(self.out)])
         self.assertEqual(1, status)
         self.assertTrue(precious.exists())
+
+    def test_an_unfinished_seed_directory_is_rebuilt(self):
+        (self.train / "train-manifest.json").write_text(
+            json.dumps(self.manifest(entry("web", b"web"))), encoding="utf-8")
+        (self.train / "bundle-web-t1.jar").write_bytes(b"web")
+        self.out.mkdir()
+        (self.out / "old.jar.seed").write_bytes(b"half")
+        self.assertEqual(0, train_seed.main(["--train-dir", str(self.train), "--out", str(self.out)]))
+        self.assertFalse((self.out / "old.jar.seed").exists())
+        self.assertTrue((self.out / "bundle-web-t1.jar.seed").exists())
 
     def test_carried_jars_are_copied_and_the_others_downloaded(self):
         (self.train / "bundle-web-t1.jar").write_bytes(b"web")

@@ -79,7 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         manifest = json.loads((args.train_dir / MANIFEST_ASSET).read_text(encoding="utf-8"))
         if args.out.exists():
-            if not (args.out / MANIFEST).is_file():
+            leftovers = [p for p in args.out.iterdir() if p.name != MANIFEST and not p.name.endswith(SEED_SUFFIX)]
+            if leftovers:
                 raise ValueError(f"{args.out} exists and is not a seed directory; refusing to delete it")
             shutil.rmtree(args.out)
         downloaded = build_seed(manifest, args.train_dir, args.out)

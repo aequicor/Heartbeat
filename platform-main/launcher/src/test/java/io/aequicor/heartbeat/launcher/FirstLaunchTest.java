@@ -138,13 +138,17 @@ class FirstLaunchTest {
         // same size and mtime, other content: the stamp is trusted only for what looks unchanged
         Path web = seed.resolve("web.jar");
         java.nio.file.attribute.FileTime time = Files.getLastModifiedTime(web);
-        Files.writeString(web, "x".repeat((int) Files.size(web)));
+        int size = (int) Files.size(web);
+        Files.writeString(web, "x".repeat(size));
         Files.setLastModifiedTime(web, time);
         assertEquals(2, FirstLaunch.seedClasspath(seed, stamp).size());
         // a different size cannot pass on the stamp
         Files.writeString(web, "broken");
         assertThrows(java.io.IOException.class, () -> FirstLaunch.seedClasspath(seed, stamp));
         // an unreadable stamp means a full check
+        Files.writeString(web, "x".repeat(size));
+        Files.setLastModifiedTime(web, time);
+        assertEquals(2, FirstLaunch.seedClasspath(seed, stamp).size());
         Files.writeString(stamp, "garbage");
         assertThrows(java.io.IOException.class, () -> FirstLaunch.seedClasspath(seed, stamp));
     }

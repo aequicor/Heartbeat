@@ -78,9 +78,10 @@ public final class FirstLaunch {
 
     /**
      * То же, но уже проверенные jar не хэшируются повторно: после успешной проверки в {@code stamp} пишутся размер,
-     * время изменения и SHA-256 каждого jar, и следующий вызов пропускает хэш для jar, которые не изменились.
-     * Печать не доверенная граница, а ускорение: устаревшая или нечитаемая печать означает полную проверку, а сбой
-     * её записи не мешает запуску.
+     * время изменения и SHA-256 из манифеста для каждого jar, и следующий вызов пропускает хэш для jar с теми же
+     * размером и временем. Печать лежит в каталоге пользователя и не доверенная граница, а ускорение: подмена
+     * содержимого с тем же размером и временем ею не ловится; устаревшая или нечитаемая печать означает полную
+     * проверку, а сбой её записи не мешает запуску.
      */
     public static List<Path> seedClasspath(Path seedDir, Path stamp) throws IOException {
         Path manifestFile = seedDir.resolve(MANIFEST);
@@ -106,7 +107,9 @@ public final class FirstLaunch {
             fresh.append(bundle.jar()).append('\t').append(identity).append('\n');
             result.add(jar);
         }
-        writeStamp(stamp, fresh.toString());
+        if (!fresh.toString().equals(stampText(known))) {
+            writeStamp(stamp, fresh.toString());
+        }
         return result;
     }
 
@@ -129,17 +132,31 @@ public final class FirstLaunch {
         return known;
     }
 
+    private static String stampText(java.util.Map<String, String> known) {
+        StringBuilder text = new StringBuilder();
+        known.forEach((jar, identity) -> text.append(jar).append('\t').append(identity).append('\n'));
+        return text.toString();
+    }
+
     private static void writeStamp(Path stamp, String content) {
         if (stamp == null) {
             return;
         }
+        Path tmp = null;
         try {
             Files.createDirectories(stamp.getParent());
-            Path tmp = Files.createTempFile(stamp.getParent(), "seed-verified", ".tmp");
+            tmp = Files.createTempFile(stamp.getParent(), "seed-verified", ".tmp");
             Files.writeString(tmp, content, StandardCharsets.UTF_8);
             Files.move(tmp, stamp, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException | RuntimeException e) {
             // only a speed-up: the next process verifies the jars again
+            if (tmp != null) {
+                try {
+                    Files.deleteIfExists(tmp);
+                } catch (IOException ignored) {
+                    // a leftover temporary file is harmless
+                }
+            }
         }
     }
 

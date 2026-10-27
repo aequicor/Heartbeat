@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
@@ -130,6 +131,8 @@ class AppUpdatesModel(
     @ForScope(AppUpdatesScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
 ) {
+    private val log = Log.tag("AppUpdates")
+
     private val screen = factory.createScreen<AppUpdatesScreenState, AppUpdatesScreenIntent, AppUpdatesScreenAction>(
         "AppUpdates",
         AppUpdatesScreenState().withProjection(machine.state.value.toStage()),
@@ -140,6 +143,7 @@ class AppUpdatesModel(
         }
         reflect(machine) { state -> withProjection(state.toStage()) }
         reduce { intent ->
+            log.i { "update request $intent" }
             when (intent) {
                 AppUpdatesScreenIntent.Check -> sendTo(machine, AppUpdateIntent.Public.Check)
                 AppUpdatesScreenIntent.Install -> sendTo(machine, AppUpdateIntent.Public.Install)
