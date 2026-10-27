@@ -149,13 +149,16 @@ class BundleConventionPlugin : Plugin<Project> {
                 projectDependencies.set(
                     root.provider { root.subprojects.associate { it.path to it.projectDependencyPaths() } },
                 )
+                // addAll of a provider without a value leaves the whole property unset: each source falls back to an
+                // empty list, so that giving only one of the two properties (CI passes only changedFile) still works.
                 changedPaths.addAll(
-                    providers.gradleProperty(CHANGED_PATHS_PROPERTY).map { value -> value.split(',') },
+                    providers.gradleProperty(CHANGED_PATHS_PROPERTY).map { value -> value.split(',') }
+                        .orElse(emptyList()),
                 )
                 changedPaths.addAll(
                     providers.gradleProperty(CHANGED_FILE_PROPERTY).flatMap { file ->
                         providers.fileContents(root.layout.projectDirectory.file(file)).asText.map { it.lines() }
-                    },
+                    }.orElse(emptyList()),
                 )
                 resultFile.set(root.layout.buildDirectory.file("bundles/affected.txt"))
             }
