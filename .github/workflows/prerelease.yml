@@ -158,9 +158,9 @@ jobs:
               [.[] | select(.isDraft | not)] as $all
               | ([$all[] | select(.isPrerelease | not) | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))]
                  | max_by(.tagName[1:] | split(".") | map(tonumber))) as $stable
-              | "\($stable.tagName // "") \([$all[] | select(.tagName | test("^train-t[0-9a-f]{12}$"))
+              | "\($stable.tagName // "none") \([$all[] | select(.tagName | test("^train-t[0-9a-f]{12}$"))
                  | select(.publishedAt > ($stable.publishedAt // ""))] | length)"')
-            if [ -n "$stable" ]; then
+            if [ "$stable" != none ]; then
               IFS=. read -r major minor patch <<< "${stable#v}"
               title="Heartbeat $major.$minor.$((patch + 1)).$((count + 1))"
             else
