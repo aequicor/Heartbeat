@@ -78,9 +78,10 @@ internal class DefaultAgentTools(
     settings: AgentSecuritySettings = DefaultSecuritySettings,
     private val actionSafety: ActionSafetyGate? = null,
     focus: WindowFocus = AlwaysFocused,
+    isUnattendedTimeoutEnabled: suspend () -> Boolean = { false },
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
-    private val permissions = ToolPermissions(settings, focus)
+    private val permissions = ToolPermissions(settings, focus, isTimeoutEnabled = isUnattendedTimeoutEnabled)
     private val legacyNames: Map<String, Set<String>> by lazy {
         contributions.flatMap { it.legacyNames.entries }
             .groupBy({ it.key }, { it.value })
@@ -507,7 +508,7 @@ internal class DefaultAgentTools(
             }?.let { AgentToolResult(it, isError = true) }
         }
         while (true) {
-            val accepted = permissions.authorize(
+            val outcome = permissions.decide(
                 context,
                 operation.approval.copy(
                     description = listOfNotNull(
@@ -516,8 +517,9 @@ internal class DefaultAgentTools(
                     ).joinToString("\n\n"),
                 ),
             ) { requiresConfirmation(context, operation, it) }
+            val accepted = (outcome as? ApprovalOutcome.Approved)?.mode
             val failure = if (accepted == null) {
-                "The user declined this action"
+                outcome.refusal
             } else {
                 changedOperation(
                     context,

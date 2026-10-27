@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data
 
 import io.aequicor.heartbeat.core.common.WindowFocusState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActionSafetyDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
@@ -19,7 +20,9 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class UnattendedApprovalTest {
@@ -35,7 +38,7 @@ class UnattendedApprovalTest {
     @Test
     fun `request is declined after thirty seconds without window focus`() = runTest {
         val focus = WindowFocusState().apply { update(false) }
-        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask), focus)
+        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask), focus, isTimeoutEnabled = { true })
         val result = async { permissions.authorize(context { awaitCancellation() }, approval) { true } }
         runCurrent()
         advanceTimeBy(29.seconds)
@@ -48,7 +51,7 @@ class UnattendedApprovalTest {
     @Test
     fun `request stays pending while the window is focused`() = runTest {
         val focus = WindowFocusState()
-        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask), focus)
+        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask), focus, isTimeoutEnabled = { true })
         val answer = CompletableDeferred<Boolean>()
         val result = async { permissions.authorize(context { answer.await() }, approval) { true } }
         runCurrent()
@@ -61,7 +64,7 @@ class UnattendedApprovalTest {
     @Test
     fun `regaining focus restarts the wait`() = runTest {
         val focus = WindowFocusState().apply { update(false) }
-        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask), focus)
+        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask), focus, isTimeoutEnabled = { true })
         val answer = CompletableDeferred<Boolean>()
         val result = async { permissions.authorize(context { answer.await() }, approval) { true } }
         runCurrent()
@@ -81,12 +84,71 @@ class UnattendedApprovalTest {
     @Test
     fun `an answer before the timeout wins even without focus`() = runTest {
         val focus = WindowFocusState().apply { update(false) }
-        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask), focus)
+        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask), focus, isTimeoutEnabled = { true })
         val answer = CompletableDeferred<Boolean>()
         val result = async { permissions.authorize(context { answer.await() }, approval) { true } }
         runCurrent()
         advanceTimeBy(10.seconds)
         answer.complete(true)
         assertEquals(SecurityMode.Ask, result.await())
+    }
+
+    @Test
+    fun `timeout is not a refusal of the action and says so`() = runTest {
+        val focus = WindowFocusState().apply { update(false) }
+        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask), focus, isTimeoutEnabled = { true })
+        val result = async {
+            permissions.authorizeAction(context { awaitCancellation() }, approval) { ActionSafetyDecision.Ask }
+        }
+        runCurrent()
+        advanceTimeBy(31.seconds)
+        runCurrent()
+        val denied = assertIs<ToolAuthorization.Denied>(result.await())
+        assertTrue("out of focus" in denied.reason, denied.reason)
+    }
+
+    @Test
+    fun `a deliberate refusal keeps its own reason`() = runTest {
+        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask))
+        val result = permissions.authorizeAction(context { false }, approval) { ActionSafetyDecision.Ask }
+        assertEquals(ToolAuthorization.Denied("The user declined this action"), result)
+    }
+
+    @Test
+    fun `nothing expires while the toggle is off`() = runTest {
+        val focus = WindowFocusState().apply { update(false) }
+        val permissions = ToolPermissions(TestSecuritySettings(SecurityMode.Ask), focus)
+        val answer = CompletableDeferred<Boolean>()
+        val result = async { permissions.authorize(context { answer.await() }, approval) { true } }
+        runCurrent()
+        advanceTimeBy(600.seconds)
+        assertFalse(result.isCompleted)
+        answer.complete(true)
+        assertEquals(SecurityMode.Ask, result.await())
+    }
+
+    @Test
+    fun `a mode change during the wait asks again with a fresh timeout`() = runTest {
+        val focus = WindowFocusState().apply { update(false) }
+        val settings = TestSecuritySettings(SecurityMode.Ask)
+        val permissions = ToolPermissions(settings, focus, isTimeoutEnabled = { true })
+        var requests = 0
+        val result = async {
+            val asking = context {
+                requests++
+                awaitCancellation()
+            }
+            permissions.authorize(asking, approval) { it != SecurityMode.Trust }
+        }
+        runCurrent()
+        advanceTimeBy(20.seconds)
+        settings.save(SecurityMode.Automatic)
+        runCurrent()
+        advanceTimeBy(20.seconds)
+        assertFalse(result.isCompleted)
+        assertEquals(2, requests)
+        advanceTimeBy(11.seconds)
+        runCurrent()
+        assertNull(result.await())
     }
 }

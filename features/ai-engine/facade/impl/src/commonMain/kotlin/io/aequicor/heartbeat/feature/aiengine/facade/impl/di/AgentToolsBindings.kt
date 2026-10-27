@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeActionAnalysis
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnattendedApprovalTimeoutEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ActionSafetyGate
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
@@ -56,6 +57,7 @@ public object AgentToolsBindings {
         workspaces: LocalWorkspaces,
         actionSafety: ActionSafetyGate,
         focus: WindowFocus,
+        toggles: FeatureToggles,
     ): ProfileAgentTools = DefaultAgentTools(
         contributions,
         hooks,
@@ -65,6 +67,7 @@ public object AgentToolsBindings {
         settings = settings,
         actionSafety = actionSafety,
         focus = focus,
+        isUnattendedTimeoutEnabled = { toggles.get(UnattendedApprovalTimeoutEnabled) },
     )
 }
 
