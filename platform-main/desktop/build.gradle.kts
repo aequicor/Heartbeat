@@ -50,6 +50,40 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 }
 
+// The train SDK: foundation modules that bundles compile against. Their public API stays by name in processed jars;
+// a bundle reaching any other foundation module fails `verifyTrainSdk`.
+heartbeatTrain {
+    sdk(
+        projects.core.bundles.api,
+        projects.core.common,
+        projects.core.datastore.api,
+        projects.core.desktopDialogs,
+        projects.core.di.api,
+        projects.core.di.ext,
+        projects.core.featureToggles.api,
+        projects.core.logging,
+        projects.core.mvi,
+        projects.core.navigation.api,
+        projects.core.navigation.compose,
+        projects.core.network.api,
+        projects.core.profileFacade.api,
+        projects.core.secrets.api,
+        projects.core.stateMachine.api,
+        projects.core.stateMachine.flowmviExt,
+        projects.designSystem.components,
+        projects.designSystem.layouts,
+        projects.designSystem.theme,
+        projects.designSystem.tokens,
+        projects.designSystem.adaptive,
+        // Shared modules of the Chromium panel (Wasm) and the desktop bundles.
+        projects.features.checklist.screenModel,
+        projects.features.checklist.screenUi,
+        projects.features.questionnaire.screenModel,
+        projects.features.questionnaire.screenUi,
+        projects.features.chromiumBridge.protocol,
+    )
+}
+
 // The app runtime is independent of Gradle's daemon and shared modules' compilation toolchains.
 val desktopRuntime = javaToolchains.launcherFor {
     languageVersion.set(JavaLanguageVersion.of(libs.versions.desktop.jdk.get().toInt()))

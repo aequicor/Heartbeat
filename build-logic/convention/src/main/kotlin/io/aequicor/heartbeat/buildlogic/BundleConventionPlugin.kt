@@ -66,7 +66,11 @@ class BundleConventionPlugin : Plugin<Project> {
             }
         }
         verify.configure { membership.put(bundlePath, implDependencies()) }
-        tasks.matching { it.name == "check" }.configureEach { dependsOn(verify) }
+        tasks.matching { it.name == "check" }.configureEach {
+            dependsOn(verify)
+            // Registered by `heartbeat.train` in the desktop module; absent in builds without it.
+            dependsOn(root.tasks.matching { it.name == VERIFY_TRAIN_SDK_TASK })
+        }
 
         val bundleVersion = providers.gradleProperty(BUNDLE_VERSION_PROPERTY).orElse(provider { version.toString() })
         val assemble = registerAssembleBundle(bundleVersion)

@@ -72,10 +72,15 @@ internal fun uniqueJarNames(artifacts: List<Pair<String?, File>>): Map<String, F
  * parts of the bundle train: `assembleFoundation` (project code outside bundles and contracts) and `assembleContracts`
  * (the `:features:*:api` modules) are reproducible jars named like bundle jars and listed as base artifacts in the root
  * `bundleManifest`. Third-party libraries are not part of the train ([TrainPlatformJars]).
+ * The `heartbeatTrain { sdk(...) }` extension ([TrainSdkExtension]) declares the foundation modules bundles may compile
+ * against; the root `verifyTrainSdk` task checks it and runs with `check` here and in every bundle.
  */
 class TrainBaseConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) = with(target) {
         pluginManager.apply("org.jetbrains.kotlin.jvm")
+        val sdk = extensions.create("heartbeatTrain", TrainSdkExtension::class.java)
+        registerVerifyTrainSdk(sdk)
+        tasks.matching { it.name == "check" }.configureEach { dependsOn(rootProject.tasks.named(VERIFY_TRAIN_SDK_TASK)) }
         val version = providers.gradleProperty(VERSION_PROPERTY).orElse(provider { project.version.toString() })
         val artifacts = configurations.named("runtimeClasspath").map { configuration ->
             configuration.incoming.artifacts.resolvedArtifacts.get().toList()
