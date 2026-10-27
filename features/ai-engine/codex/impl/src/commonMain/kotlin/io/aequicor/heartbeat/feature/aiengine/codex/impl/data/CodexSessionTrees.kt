@@ -311,11 +311,11 @@ internal fun JsonObject.isTreeChange(): Boolean {
 @HighFrequency
 private suspend fun readTurns(rpc: CodexRpc, ref: SessionRef, thread: JsonObject): TreeReplay {
     if (thread.text("historyMode") != "paginated") {
-        val turns = rpc.request(
+        val read = rpc.requestHistory(
             "thread/read",
             json("threadId" to ref.nativeId.json(), "includeTurns" to JsonPrimitive(true)),
-        )
-            .obj("thread").array("turns").map { it as? JsonObject ?: protocolFailure() }
+        ) ?: return TreeReplay(emptyList(), isCanonical = false)
+        val turns = read.obj("thread").array("turns").map { it as? JsonObject ?: protocolFailure() }
         return TreeReplay(turns, isCanonical = false)
     }
     val turns = mutableListOf<JsonObject>()
@@ -323,7 +323,7 @@ private suspend fun readTurns(rpc: CodexRpc, ref: SessionRef, thread: JsonObject
     var cursor: String? = null
     val seen = mutableSetOf<String>()
     do {
-        val response = rpc.request(
+        val response = rpc.requestHistory(
             "thread/turns/list",
             buildJsonObject {
                 put("threadId", ref.nativeId)
@@ -332,7 +332,7 @@ private suspend fun readTurns(rpc: CodexRpc, ref: SessionRef, thread: JsonObject
                 put("limit", 100)
                 put("cursor", cursor?.json() ?: JsonNull)
             },
-        )
+        ) ?: return TreeReplay(emptyList(), isCanonical = false)
         turns += response.array("data").map { it as? JsonObject ?: protocolFailure() }
         hasPendingItems = hasPendingItems || response.text("itemsBackwardsCursor") != null
         cursor = response.text("nextCursor")

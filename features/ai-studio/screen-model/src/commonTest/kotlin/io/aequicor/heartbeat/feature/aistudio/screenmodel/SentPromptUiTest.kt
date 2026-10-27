@@ -101,6 +101,34 @@ class SentPromptUiTest {
     }
 
     @Test
+    fun `a new organism chat shows the message before its zygote echoes the goal`() {
+        val page = AiStudioScreenState(panes = persistentListOf(PaneUi(0)))
+        val created = page.withDraft(0, "Hello").send("send")
+            .copy(sessions = persistentListOf(SessionUi("fresh", "Hello", null, time, isOrganism = true)))
+            .prepareSubmission("send", "fresh")
+        val shown = created.withSentPrompts("fresh", persistentListOf())
+        assertEquals(listOf("Hello"), shown?.map { (it as MessageUi.Prompt).text })
+        val echoed = persistentListOf<MessageUi>(prompt("p1", "Hello"))
+        assertEquals(listOf("p1"), created.withSentPrompts("fresh", echoed)?.map { it.id })
+        // The organism accepts the goal at once and its run ends; the zygote's echo comes much later.
+        val ended = created.endSentPrompts("fresh").withTranscripts(persistentMapOf("fresh" to persistentListOf()))
+        val kept = ended.withSentPrompts("fresh", persistentListOf())
+        assertEquals(listOf("Hello"), kept?.map { (it as MessageUi.Prompt).text })
+    }
+
+    @Test
+    fun `a new chat shows its message while the chat is still being created`() {
+        val page = AiStudioScreenState(panes = persistentListOf(PaneUi(0)))
+        val sending = page.withDraft(0, "Hello").send("send")
+        val creating = PaneUi(0, isCreating = true)
+        assertEquals(null, sending.creatingPrompts(PaneUi(0)))
+        assertEquals(listOf("Hello"), sending.creatingPrompts(creating)?.map { (it as MessageUi.Prompt).text })
+        val created = sending.prepareSubmission("send", "fresh")
+        assertEquals(null, created.creatingPrompts(PaneUi(0, sessionId = "fresh", isCreating = true)))
+        assertEquals(null, created.creatingPrompts(creating))
+    }
+
+    @Test
     fun `the copy in an empty chat keeps its time while the screen clock ticks`() {
         val page = AiStudioScreenState(panes = persistentListOf(PaneUi(0)), now = time)
         val created = page.withDraft(0, "Hello").send("send").prepareSubmission("send", "fresh")

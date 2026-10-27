@@ -33,7 +33,7 @@ class WorktreeMachineTest {
     }
 
     @Test
-    fun `one task update preserves sibling tasks and stale revisions are ignored`() {
+    fun `one task update preserves sibling tasks and stale revisions change nothing`() {
         val other = task.copy(chatId = "other")
         val ready = WorktreeState.Ready(mapOf(task.chatId to task, other.chatId to other))
         val changed = task.copy(revision = 2)
@@ -43,7 +43,7 @@ class WorktreeMachineTest {
             WorktreeState.Ready(mapOf(task.chatId to changed, other.chatId to other)),
             outputs = listOf(WorktreeOutput.Changed(task.chatId)),
         )
-        WorktreeMachineSpec.assertIgnored(ready, WorktreeIntent.Internal.Updated(task))
+        WorktreeMachineSpec.assertTransition(ready, WorktreeIntent.Internal.Updated(task), ready)
     }
 
     @Test
