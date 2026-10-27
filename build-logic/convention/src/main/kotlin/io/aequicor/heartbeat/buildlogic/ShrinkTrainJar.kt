@@ -17,19 +17,27 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import java.io.File
+import java.security.MessageDigest
 import java.time.LocalDateTime
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 
-/** How much the artifacts of the train are processed: `-Pheartbeat.trainShrink=off|shrink`, `off` by default. */
+/** How much the artifacts of the train are processed: `-Pheartbeat.trainShrink=off|shrink|obfuscate`, `off` by default. */
 internal enum class TrainShrinkMode(val id: String) {
     /** The jars are used as assembled. */
     Off("off"),
 
     /** Unused classes and members are removed; nothing is renamed or optimized. */
     Shrink("shrink"),
+
+    /**
+     * [Shrink] and the names of the internals are shortened: classes and members that no keep rule names. Packages stay,
+     * and every artifact draws its class names from a dictionary of its own, so jars loaded by one class loader never
+     * meet the same class name. Nothing is optimized.
+     */
+    Obfuscate("obfuscate"),
     ;
 
     companion object {
@@ -38,6 +46,7 @@ internal enum class TrainShrinkMode(val id: String) {
         fun parse(value: String?): TrainShrinkMode = when (value?.trim()?.lowercase()) {
             null, "", Off.id -> Off
             Shrink.id -> Shrink
+            Obfuscate.id -> Obfuscate
             else -> throw GradleException("-P$PROPERTY must be one of ${entries.joinToString("|") { it.id }}, got '$value'")
         }
     }
@@ -55,7 +64,8 @@ internal const val FINAL_JAR_DIRECTORY = "bundle"
  * [input] is processed into [output]. [keptInputs] are program jars that are read in the same run so that what they
  * reference stays reachable, but that are kept whole and written under [scratchDirectory] only to satisfy ProGuard
  * (the contracts jar is used as it is, see [keptPackages]). [libraryJars] and the [jmods] of the JDK are not changed.
- * Warnings are never silenced: a reference that cannot be resolved fails the run.
+ * Warnings are never silenced: a reference that cannot be resolved fails the run. With a [classDictionary] the run
+ * obfuscates: class names come from it, packages keep their names (see [TrainShrinkMode.Obfuscate]).
  */
 internal fun trainProguardConfiguration(
     input: File,
@@ -67,6 +77,7 @@ internal fun trainProguardConfiguration(
     rules: List<File>,
     keptPackages: Collection<String>,
     mapping: File,
+    classDictionary: File? = null,
 ): List<String> = buildList {
     add("-injars ${quoted(input)}")
     add("-outjars ${quoted(output)}")
@@ -76,7 +87,13 @@ internal fun trainProguardConfiguration(
     }
     jmods.forEach { add("-libraryjars ${quoted(it)}(!**.jar;!module-info.class)") }
     libraryJars.forEach { add("-libraryjars ${quoted(it)}") }
-    add("-dontobfuscate")
+    if (classDictionary == null) {
+        add("-dontobfuscate")
+    } else {
+        add("-classobfuscationdictionary ${quoted(classDictionary)}")
+        add("-keeppackagenames **")
+        add("-dontusemixedcaseclassnames")
+    }
     add("-dontoptimize")
     // Notes only (duplicate library classes, rules naming library classes): warnings stay fatal.
     add("-dontnote")
@@ -85,6 +102,29 @@ internal fun trainProguardConfiguration(
     rules.forEach { add("-include ${quoted(it)}") }
     keptPackages.sorted().forEach { add("-keep,includedescriptorclasses class $it.* { *; }") }
 }
+
+/**
+ * Short, stable prefix of the obfuscated class names of the artifact [id] (`k3q` for `web`): a letter and two letters or
+ * digits taken from the SHA-256 of the id. Artifacts with different tags never get the same class name, however their
+ * packages overlap.
+ */
+internal fun obfuscationTag(id: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(id.toByteArray())
+    val letters = ('a'..'z').toList()
+    val alphabet = letters + ('0'..'9')
+    return buildString {
+        append(letters[(digest[0].toInt() and 0xFF) % letters.size])
+        append(alphabet[(digest[1].toInt() and 0xFF) % alphabet.size])
+        append(alphabet[(digest[2].toInt() and 0xFF) % alphabet.size])
+    }
+}
+
+/** The names `<tag>0`, `<tag>1`, … `<tag>z`, `<tag>10`, …: [count] class names that ProGuard hands out in order. */
+internal fun classDictionary(tag: String, count: Int): String =
+    (0 until count).joinToString("\n", postfix = "\n") { tag + it.toString(CLASS_NAME_RADIX) }
+
+private const val CLASS_NAME_RADIX = 36
+private const val CLASS_DICTIONARY_SIZE = 20_000
 
 private fun quoted(file: File): String = "\"${file.absolutePath}\""
 
@@ -132,6 +172,14 @@ abstract class ShrinkTrainJar @Inject constructor(private val exec: ExecOperatio
     @get:PathSensitive(PathSensitivity.NAME_ONLY)
     abstract val rules: ConfigurableFileCollection
 
+    /** The id of the artifact (`foundation`, a bundle id): its class names are drawn from a dictionary of its own. */
+    @get:Input
+    abstract val artifactId: Property<String>
+
+    /** Whether the names are shortened ([TrainShrinkMode.Obfuscate]) or only unused code is removed. */
+    @get:Input
+    abstract val obfuscate: Property<Boolean>
+
     /** Home of the JDK whose `jmods` are the platform classes. */
     @get:Input
     abstract val javaHome: Property<String>
@@ -159,6 +207,9 @@ abstract class ShrinkTrainJar @Inject constructor(private val exec: ExecOperatio
         }
         val kept = keptJars.files.sortedBy { it.name }
         val processed = File(temporaryDir, "processed.jar")
+        val dictionary = File(temporaryDir, "classes.dict").takeIf { obfuscate.get() }?.apply {
+            writeText(classDictionary(obfuscationTag(artifactId.get()), CLASS_DICTIONARY_SIZE))
+        }
         val configuration = trainProguardConfiguration(
             input = input.get().asFile,
             output = processed,
@@ -169,6 +220,7 @@ abstract class ShrinkTrainJar @Inject constructor(private val exec: ExecOperatio
             rules = rules.files.sortedBy { it.name },
             keptPackages = kept.flatMap(::jarPackages),
             mapping = mappingFile,
+            classDictionary = dictionary,
         )
         val configurationFile = File(temporaryDir, "proguard.pro").apply { writeText(configuration.joinToString("\n", postfix = "\n")) }
         exec.javaexec {
@@ -240,10 +292,14 @@ internal fun Project.registerShrinkTrainJar(
     taskName: String,
     input: Provider<File>,
     jarName: Provider<String>,
+    artifactId: String,
+    mode: TrainShrinkMode,
     configure: ShrinkTrainJar.() -> Unit,
 ) = tasks.register(taskName, ShrinkTrainJar::class.java) {
     group = "build"
-    description = "Shrinks the assembled jar of the bundle train with ProGuard (-P${TrainShrinkMode.PROPERTY}=shrink)."
+    description = "Processes the assembled jar of the bundle train with ProGuard (-P${TrainShrinkMode.PROPERTY}=${mode.id})."
+    this.artifactId.set(artifactId)
+    obfuscate.set(mode == TrainShrinkMode.Obfuscate)
     this.input.fileProvider(input)
     output.set(layout.buildDirectory.file(jarName.map { "$FINAL_JAR_DIRECTORY/$it" }))
     mapping.set(layout.buildDirectory.file(jarName.map { "train/mapping-${it.removeSuffix(".jar")}.txt" }))

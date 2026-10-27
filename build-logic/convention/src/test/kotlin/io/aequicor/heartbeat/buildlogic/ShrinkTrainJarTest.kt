@@ -30,7 +30,8 @@ class ShrinkTrainJarTest {
         assertEquals(TrainShrinkMode.Off, TrainShrinkMode.parse(" "))
         assertEquals(TrainShrinkMode.Off, TrainShrinkMode.parse("off"))
         assertEquals(TrainShrinkMode.Shrink, TrainShrinkMode.parse("Shrink"))
-        assertFailsWith<GradleException> { TrainShrinkMode.parse("obfuscate") }
+        assertEquals(TrainShrinkMode.Obfuscate, TrainShrinkMode.parse("obfuscate"))
+        assertFailsWith<GradleException> { TrainShrinkMode.parse("optimize") }
     }
 
     @Test
@@ -57,6 +58,38 @@ class ShrinkTrainJarTest {
             listOf("-keep,includedescriptorclasses class a.api.* { *; }", "-keep,includedescriptorclasses class b.api.* { *; }"),
             lines.takeLast(2),
         )
+    }
+
+    @Test
+    fun `obfuscation takes class names from the dictionary and keeps packages`() {
+        val lines = trainProguardConfiguration(
+            input = File("/in/web.jar"),
+            output = File("/out/web.jar"),
+            keptInputs = emptyList(),
+            scratchDirectory = File("/scratch"),
+            libraryJars = emptyList(),
+            jmods = emptyList(),
+            rules = emptyList(),
+            keptPackages = emptyList(),
+            mapping = File("/out/mapping.txt"),
+            classDictionary = File("/tmp/classes.dict"),
+        )
+        assertTrue("-dontobfuscate" !in lines, lines.toString())
+        assertTrue("-classobfuscationdictionary \"/tmp/classes.dict\"" in lines, lines.toString())
+        assertTrue("-keeppackagenames **" in lines && "-dontusemixedcaseclassnames" in lines, lines.toString())
+        assertTrue("-dontoptimize" in lines && "-printmapping \"/out/mapping.txt\"" in lines, lines.toString())
+    }
+
+    @Test
+    fun `every artifact of the train has its own class name prefix`() {
+        val ids = listOf("foundation", "agent-runtime", "engines", "shell", "studio", "web")
+        val tags = ids.map(::obfuscationTag)
+        assertEquals(ids.size, tags.toSet().size, tags.toString())
+        tags.forEach { assertTrue(Regex("[a-z][a-z0-9]{2}").matches(it), it) }
+        assertEquals(obfuscationTag("web"), obfuscationTag("web"))
+        assertEquals(listOf("k3q0", "k3q1", "k3qa", "k3qz", "k3q10"), classDictionary("k3q", 38).lines().let {
+            listOf(it[0], it[1], it[10], it[35], it[36])
+        })
     }
 
     @Test

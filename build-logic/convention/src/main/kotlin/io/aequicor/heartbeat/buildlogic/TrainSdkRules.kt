@@ -33,7 +33,7 @@ private const val KIND_SYNTHETIC_CLASS = 3
 private const val KIND_MULTI_FILE_FACADE = 4
 private const val KIND_MULTI_FILE_PART = 5
 private const val DEFAULT_SUFFIX = "\$default"
-private const val DEFAULT_IMPLS = "\$DefaultImpls"
+private const val DEFAULT_IMPLS = "DefaultImpls"
 
 /**
  * `-keep` rules that preserve the public API of the SDK modules of the train by name: the classes reachable from

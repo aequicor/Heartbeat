@@ -62,11 +62,12 @@ find features -path '*/impl/build.gradle.kts' -exec grep -nE 'projects\.features
 
 ```bash
 ./gradlew -Pheartbeat.trainShrink=shrink :platform-main:desktop:verifyShrunkTrain
+./gradlew -Pheartbeat.trainShrink=obfuscate :platform-main:desktop:verifyShrunkTrain   # с укорочением имён внутренностей
 ```
 
-Без `-Pheartbeat.trainShrink=shrink` задача падает сразу: она проверяет именно обработанный поезд. Причина падения — в
+Без `-Pheartbeat.trainShrink=shrink|obfuscate` задача падает сразу: она проверяет именно обработанный поезд. Причина падения — в
 сообщении (`BundleHealth.Failed`, `VerifyError`, `Warning` ProGuard о ссылке за пределы SDK); не добавляй `-dontwarn` —
-исправь правило или границу.
+исправь правило или границу. Стек-трейс обфусцированного поезда восстанавливает `python3 scripts/retrace.py` (маппинги — в `build/train/mapping-*.txt` артефактов).
 
 ## 5. Политика коммитов
 

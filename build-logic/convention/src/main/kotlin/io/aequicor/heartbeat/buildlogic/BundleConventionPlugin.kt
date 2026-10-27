@@ -81,7 +81,7 @@ class BundleConventionPlugin : Plugin<Project> {
         )
         val bundleId = name
         // The jar the manifest takes: the processed one when the train is shrunk.
-        val bundleJar: Any = if (mode == TrainShrinkMode.Off) assemble else registerShrinkBundle(assemble, bundleVersion)
+        val bundleJar: Any = if (mode == TrainShrinkMode.Off) assemble else registerShrinkBundle(assemble, bundleVersion, mode)
         registerTrainTasks(root).first.configure {
             versions.put(bundleId, bundleVersion)
             jars.from(bundleJar)
@@ -126,7 +126,11 @@ class BundleConventionPlugin : Plugin<Project> {
      * third-party libraries of the installed platform. Any reference outside them fails the run: bundles may use the
      * train SDK only. `assembleBundle` then depends on it, so building a bundle gives the final jar.
      */
-    private fun Project.registerShrinkBundle(assemble: TaskProvider<Jar>, bundleVersion: Provider<String>): TaskProvider<ShrinkTrainJar> {
+    private fun Project.registerShrinkBundle(
+        assemble: TaskProvider<Jar>,
+        bundleVersion: Provider<String>,
+        mode: TrainShrinkMode,
+    ): TaskProvider<ShrinkTrainJar> {
         val desktop = rootProject.project(DESKTOP_PROJECT)
         val trainJars = desktop.layout.buildDirectory.dir(FINAL_JAR_DIRECTORY)
         // The third-party jars of the installed platform, not the bundle's own resolution: the two may differ in versions.
@@ -136,6 +140,8 @@ class BundleConventionPlugin : Plugin<Project> {
             "shrinkBundle",
             assemble.flatMap { it.archiveFile }.map { it.asFile },
             bundleVersion.map { bundleJarName(bundleId, it) },
+            bundleId,
+            mode,
         ) {
             libraryJars.from(libraries)
             libraryJars.from(
@@ -149,7 +155,7 @@ class BundleConventionPlugin : Plugin<Project> {
             // `assembleBundle` stays the task that gives the final jar.
             tasks.register(ASSEMBLE_TASK) {
                 group = "build"
-                description = "Assembles and shrinks the jar of bundle $bundleId."
+                description = "Assembles and processes the jar of bundle $bundleId."
                 dependsOn(shrunk)
             }
         }

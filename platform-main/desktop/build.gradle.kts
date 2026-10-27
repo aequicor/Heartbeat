@@ -329,10 +329,10 @@ val trainSeed = tasks.register<WriteTrainSeed>("assembleTrainSeed") {
 // module but the smoke main) starts every bundle and opens a profile. Data, logs and secrets go to a throwaway home.
 val trainBundleIds = rootProject.subprojects.filter { it.parent?.path == ":bundles" }.map { it.name }.sorted()
 val trainThirdPartyJars = extensions.getByType<TrainPlatformJars>().jars
-val isTrainShrunk = providers.gradleProperty("heartbeat.trainShrink").map { it == "shrink" }.orElse(false)
+val isTrainShrunk = providers.gradleProperty("heartbeat.trainShrink").map { it == "shrink" || it == "obfuscate" }.orElse(false)
 tasks.register<JavaExec>("verifyShrunkTrain") {
     group = "verification"
-    description = "Starts every bundle of the train shrunk with -Pheartbeat.trainShrink=shrink and requires it healthy."
+    description = "Starts every bundle of the train processed with -Pheartbeat.trainShrink=shrink|obfuscate; all must be healthy."
     // Locals: the actions below must not capture the script object (configuration cache).
     val bundleIds = trainBundleIds
     val shrunk = isTrainShrunk
@@ -350,7 +350,7 @@ tasks.register<JavaExec>("verifyShrunkTrain") {
     argumentProviders.add(CommandLineArgumentProvider { listOf(report.get().asFile.absolutePath) + bundleIds })
     isIgnoreExitValue = true
     doFirst {
-        check(shrunk.get()) { "verifyShrunkTrain checks the shrunk train: pass -Pheartbeat.trainShrink=shrink" }
+        check(shrunk.get()) { "verifyShrunkTrain checks the processed train: pass -Pheartbeat.trainShrink=shrink or obfuscate" }
         val homeDirectory = home.get().asFile.apply {
             deleteRecursively()
             mkdirs()
@@ -363,7 +363,7 @@ tasks.register<JavaExec>("verifyShrunkTrain") {
     doLast {
         if (executionResult.get().exitValue != 0) {
             val findings = report.get().asFile.takeIf { it.isFile }?.readText() ?: "the smoke wrote no report"
-            throw GradleException("The shrunk train does not run:\n$findings")
+            throw GradleException("The processed train does not run:\n$findings")
         }
     }
 }

@@ -122,6 +122,8 @@ class TrainBaseConventionPlugin : Plugin<Project> {
                 "shrinkFoundation",
                 foundation.flatMap { it.archiveFile }.map { it.asFile },
                 version.map { bundleJarName("foundation", it) },
+                "foundation",
+                mode,
             ) {
                 keptJars.from(contracts)
                 libraryJars.from(jarsOf(TrainPart.Platform))
@@ -129,7 +131,7 @@ class TrainBaseConventionPlugin : Plugin<Project> {
                 // `assembleFoundation` stays the task that gives the final jar.
                 tasks.register("assembleFoundation") {
                     group = "build"
-                    description = "Assembles and shrinks the foundation jar of the bundle train."
+                    description = "Assembles and processes the foundation jar of the bundle train."
                     dependsOn(shrunk)
                 }
             }
