@@ -65,6 +65,32 @@ public final class FirstLaunch {
         return !state.bad.contains(TrainManifest.parse(Files.readString(manifestFile, StandardCharsets.UTF_8)).train());
     }
 
+    /**
+     * Classpath поезда из seed без активации: для процесса, который не владеет состоянием лаунчера (проба упаковки,
+     * воркер свежей установки), пока владелец не активировал поезд. Пусто, если seed-манифеста нет. Каждый jar
+     * проверяется по SHA-256.
+     *
+     * @throws IOException если seed неполон или jar повреждён
+     */
+    public static List<Path> seedClasspath(Path seedDir) throws IOException {
+        Path manifestFile = seedDir.resolve(MANIFEST);
+        if (!Files.isRegularFile(manifestFile)) {
+            return List.of();
+        }
+        List<Path> result = new ArrayList<>();
+        for (TrainManifest.Bundle bundle : TrainManifest.parse(Files.readString(manifestFile, StandardCharsets.UTF_8)).bundles()) {
+            Path jar = seedDir.resolve(bundle.jar() + SEED_SUFFIX);
+            if (!Files.isRegularFile(jar)) {
+                jar = seedDir.resolve(bundle.jar());
+            }
+            if (!Files.isRegularFile(jar) || !TrainStore.sha256(jar).equals(TrainManifest.normalizedSha(bundle))) {
+                throw new IOException("Seed jar " + bundle.jar() + " is missing or corrupted");
+            }
+            result.add(jar);
+        }
+        return result;
+    }
+
     /** Адрес скачивания из {@code seed.properties}, либо {@code null}. */
     public String baseUrl() throws IOException {
         Path file = seedDir.resolve(PROPERTIES);

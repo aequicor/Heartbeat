@@ -121,6 +121,15 @@ class FirstLaunchTest {
     }
 
     @Test
+    void seedClasspathServesAnAuxiliaryProcessBeforeActivation() throws Exception {
+        assertEquals(List.of(), FirstLaunch.seedClasspath(seed));
+        writeSeed("t1", List.of("foundation", "web"), "foundation", "web");
+        assertEquals(2, FirstLaunch.seedClasspath(seed).size());
+        Files.writeString(seed.resolve("web.jar"), "broken");
+        assertThrows(java.io.IOException.class, () -> FirstLaunch.seedClasspath(seed));
+    }
+
+    @Test
     void downloadsMissingBundlesAndReportsProgress() throws Exception {
         writeSeed("t1", List.of("foundation"), "foundation", "web", "studio");
         firstLaunch.run(fetcher, listener);

@@ -84,8 +84,14 @@ public final class LauncherMain {
         Launcher.Prepared prepared = owner ? launcher.prepare() : launcher.prepareReadOnly();
         launcher.exposeToApp(prepared, root);
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
-        if (prepared.train() != null) {
-            loader = trainLoader(prepared.classpath());
+        java.util.List<Path> classpath = prepared.classpath();
+        if (prepared.train() == null && !owner && seed != null) {
+            // The owner has not activated a train yet (a fresh install: the packaging probe, a worker, a second
+            // launch during the first one): run from the seed, read-only.
+            classpath = FirstLaunch.seedClasspath(Path.of(seed));
+        }
+        if (prepared.train() != null || !classpath.isEmpty()) {
+            loader = trainLoader(classpath);
             Thread.currentThread().setContextClassLoader(loader);
         }
         AtomicBoolean returned = new AtomicBoolean();
