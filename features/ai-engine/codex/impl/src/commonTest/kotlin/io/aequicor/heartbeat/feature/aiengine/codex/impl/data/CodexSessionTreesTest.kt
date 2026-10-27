@@ -285,6 +285,21 @@ class CodexSessionTreesTest {
     }
 
     @Test
+    fun `a thread that is just starting its first turn is an empty partial family too`() = runTest {
+        val fixture = Fixture(this)
+        val delegate = fixture.wire.handler
+        fixture.wire.handler = { message ->
+            when (message.text("method")) {
+                "thread/read" -> fixture.wire.reply(message, json("thread" to thread("root", null)))
+                "thread/turns/list" -> fixture.wire.error(message, "paginated_threads is not supported yet")
+                else -> delegate(message)
+            }
+        }
+        val snapshot = CodexSessionTrees(fixture.runtime, fixture.rpc).snapshot(root, SessionTreeAccess(fixture.target))
+        assertEquals(SessionTreeCoverage.Partial, snapshot.coverage)
+    }
+
+    @Test
     fun `any other rejected history read still fails`() = runTest {
         val fixture = Fixture(this)
         val delegate = fixture.wire.handler

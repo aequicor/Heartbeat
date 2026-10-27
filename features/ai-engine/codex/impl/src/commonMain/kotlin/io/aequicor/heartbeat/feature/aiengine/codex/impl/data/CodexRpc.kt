@@ -72,8 +72,9 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
         request(method, params, null)
 
     /**
-     * A thread's history exists only once its first message is recorded; before that the engine rejects history reads
-     * as "not materialized yet", which is an empty history and not a failure. Null answers exactly that rejection.
+     * A thread's history exists only once its first message is recorded, and the engine answers history reads of a
+     * thread that is just starting with a transient "not supported yet": both are an empty history for now and not a
+     * failure. Null answers exactly those rejections; the next refresh reads the real history.
      */
     @HighFrequency
     suspend fun requestHistory(method: String, params: JsonObject): JsonObject? {
@@ -81,7 +82,7 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
         return try {
             request(method, params, rejection)
         } catch (e: EngineException) {
-            if (e.failure == EngineFailure.Request(RequestFailureReason.Invalid) && NOT_MATERIALIZED in rejection) {
+            if (e.failure == EngineFailure.Request(RequestFailureReason.Invalid) && rejection.isHistoryUnavailable()) {
                 null
             } else {
                 throw e
@@ -162,10 +163,12 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
         reader.cancel()
     }
 
+    private fun CharSequence.isHistoryUnavailable(): Boolean = HISTORY_UNAVAILABLE.any { it in this }
+
     private companion object {
         const val METHOD_NOT_FOUND = -32601
         const val REQUEST_TIMEOUT = 30_000L
-        const val NOT_MATERIALIZED = "not materialized yet"
+        val HISTORY_UNAVAILABLE = listOf("not materialized yet", "paginated_threads is not supported yet")
         const val EVENT_CAPACITY = 1024
     }
 }
