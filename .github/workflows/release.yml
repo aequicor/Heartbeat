@@ -14,8 +14,20 @@ name: Release
 # installer must fit the size budget (scripts/check_installer_size.py) before anything is published.
 # dry_run builds and checks everything without creating a tag or publishing:
 #   gh workflow run release.yml --ref <branch> -f release_level=patch -F dry_run=true
+# beta-release.yml calls this workflow with beta=true: the same version, test and build jobs, but only for the platforms
+# that have no bundles and no self-update (the Linux DEB and the Android APK). Nothing is promoted or tagged as a stable
+# release: the result is the pre-release `beta-<next patch>.<n>` (--prerelease --latest=false), which the update channel
+# ignores (no train-manifest.json) and which does not take part in the version history (scripts/prerelease_title.py).
 run-name: "Release ${{ inputs.release_level }}${{ inputs.dry_run && ' (dry run)' || '' }}"
 on:
+  workflow_call:
+    inputs:
+      beta:
+        type: boolean
+        default: false
+      dry_run:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       release_level:
@@ -43,14 +55,33 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.beta.outputs.version || steps.version.outputs.version }}
+      tag: ${{ steps.beta.outputs.tag || steps.version.outputs.tag }}
+      label: ${{ steps.beta.outputs.label || steps.version.outputs.version }}
+      title: ${{ steps.beta.outputs.title }}
+      stable: ${{ steps.beta.outputs.stable }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Choose the next beta
+        if: ${{ inputs.beta }}
+        id: beta
+        shell: bash
+        env:
+          REF: ${{ github.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # version is the next patch (the build needs MAJOR.MINOR.PATCH); label/title add the pre-release counter.
+          gh release list --limit 200 --json tagName,isDraft,isPrerelease,publishedAt \
+            | python3 scripts/prerelease_title.py --ref="$REF" --dry-run="$DRY_RUN" > version.txt
+          cat version.txt >> "$GITHUB_OUTPUT"
+          cat version.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Choose the next version
+        if: ${{ !inputs.beta }}
         id: version
         shell: bash
         env:
@@ -117,6 +148,7 @@ jobs:
 
   train:
     name: Bundle train
+    if: ${{ !inputs.beta }}
     needs: [version, checks]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -234,6 +266,7 @@ jobs:
       - name: Name the Linux installer
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          LABEL: ${{ needs.version.outputs.label }}
         run: |
           shopt -s nullglob
           packages=(platform-main/desktop/build/compose/binaries/main-release/deb/*.deb)
@@ -242,7 +275,7 @@ jobs:
             exit 1
           fi
           mkdir release
-          cp "${packages[0]}" "release/Heartbeat-$VERSION-linux-x64.deb"
+          cp "${packages[0]}" "release/Heartbeat-$LABEL-linux-x64.deb"
           # The installers pin this portable first-use component; publish it in the same release and checksum set.
           cp "platform-main/desktop/build/release-components/Heartbeat-$VERSION-chromium-extension.zip" release/
       - uses: actions/upload-artifact@v7
@@ -265,6 +298,7 @@ jobs:
 
   platform-tests:
     name: All platform tests
+    if: ${{ !inputs.beta }}
     needs: [version, desktop-linux]
     runs-on: macos-15
     timeout-minutes: 150
@@ -337,6 +371,26 @@ jobs:
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           :platform-main:android:assembleRelease
           --no-daemon --stacktrace --profile
+      - name: Name the Android package
+        if: ${{ inputs.beta }}
+        env:
+          LABEL: ${{ needs.version.outputs.label }}
+        run: |
+          shopt -s nullglob
+          packages=(platform-main/android/build/outputs/apk/release/*.apk)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "::error::Expected one Android package"
+            exit 1
+          fi
+          mkdir release
+          cp "${packages[0]}" "release/Heartbeat-$LABEL-android-unsigned.apk"
+      - uses: actions/upload-artifact@v7
+        if: ${{ inputs.beta }}
+        with:
+          name: android-apk
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload Gradle timing and test reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -350,6 +404,7 @@ jobs:
 
   ios:
     name: iOS framework
+    if: ${{ !inputs.beta }}
     needs: [version, desktop-linux]
     # The Intel runner has 14 GiB RAM; the 7 GiB arm64 runner cannot fit the release linker heap.
     runs-on: macos-15-intel
@@ -439,6 +494,7 @@ jobs:
 
   desktop:
     name: Desktop ${{ matrix.platform }}
+    if: ${{ !inputs.beta }}
     needs: [version, desktop-linux]
     strategy:
       fail-fast: false
@@ -533,6 +589,7 @@ jobs:
 
   installer-size:
     name: Installer size
+    if: ${{ !inputs.beta }}
     needs: [desktop-linux, desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -559,7 +616,7 @@ jobs:
   publish:
     name: Publish
     needs: [version, checks, train, installer-size, desktop-linux, desktop, platform-tests, android, ios]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !inputs.dry_run && !inputs.beta }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -636,3 +693,65 @@ jobs:
           fi
           # Public only with every asset: installed apps take the latest release as soon as it appears.
           gh release edit "$TAG" --draft=false --latest
+
+  publish-beta:
+    name: Publish the beta
+    needs: [version, checks, desktop-linux, android]
+    if: ${{ !inputs.dry_run && inputs.beta }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-linux-x64
+          path: release
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-apk
+          path: release
+      - name: Check the installer against the size budget
+        run: python3 scripts/check_installer_size.py release/*.deb | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Write checksums
+        working-directory: release
+        run: |
+          sha256sum Heartbeat-* > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.version.outputs.tag }}
+          TITLE: ${{ needs.version.outputs.title }}
+          STABLE: ${{ needs.version.outputs.stable }}
+        run: |
+          cat > notes.md <<'NOTES'
+          Бета-сборка полных установщиков для платформ без бандлов и автообновления. Это не стабильный релиз: он не
+          становится `Latest`, не предлагается кнопкой «Обновить» и не влияет на следующую версию. Собрана вручную
+          администратором из `master`.
+
+          - Linux: Ubuntu 24.04 x64, X11 или XWayland, разблокированное хранилище Secret Service.
+            `sudo apt install ./Heartbeat-*-linux-x64.deb`.
+          - Android: `…-android-unsigned.apk` не подписан, перед установкой подпишите его своим ключом (`apksigner`).
+          - iOS в бету не входит: сборка даёт только framework без подписанного приложения.
+
+          `SHA256SUMS` — контрольные суммы всех файлов.
+          NOTES
+          # A re-run continues a draft left by a failed run; a published beta is never replaced.
+          if gh release view "$TAG" --json isDraft --jq .isDraft > draft 2>/dev/null; then
+            if [ "$(cat draft)" != true ]; then
+              echo "::error::Release $TAG is already published"
+              exit 1
+            fi
+            gh release upload "$TAG" release/* --clobber
+          else
+            args=(--title "$TITLE" --notes-file notes.md --generate-notes)
+            if [ -n "$STABLE" ]; then args+=(--notes-start-tag "$STABLE"); fi
+            gh release create "$TAG" release/* --draft --prerelease --target "$GITHUB_SHA" "${args[@]}"
+          fi
+          # Never Latest: the stable channel of installed apps takes the latest release.
+          gh release edit "$TAG" --draft=false --prerelease --latest=false
