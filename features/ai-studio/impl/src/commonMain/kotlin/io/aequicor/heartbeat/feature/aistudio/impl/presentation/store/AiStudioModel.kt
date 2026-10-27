@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAutoContinuePort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
@@ -138,6 +139,7 @@ class AiStudioModel(
     configuration: EngineConfiguration = UnavailableEngineConfiguration(),
     planning: StudioPlanning = StudioPlanning.None,
     private val files: StudioFileLinkOpener = StudioFileLinkOpener(StudioFileLinks.None),
+    autoContinuePort: StudioAutoContinuePort = StudioAutoContinuePort.None,
 ) {
     private val log = Log.tag("AiStudioModel")
     private val inputContexts = StudioInputContexts()
@@ -156,6 +158,7 @@ class AiStudioModel(
 
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
     private val plans = StudioPlanView(machine, planning)
+    private val autoContinue = StudioAutoContinueView(autoContinuePort)
     private val appUpdate = StudioAppUpdate(machines)
     private val projectTrust = StudioProjectTrust(configuration, facade)
 
@@ -219,24 +222,8 @@ class AiStudioModel(
                 launch {
                     compactions.compacting.collect { updateState { copy(compactingChats = it.toImmutableSet()) } }
                 }
-                launch {
-                    compactions.feed.collect {
-                        updateState {
-                            copy(
-                                feedCollapse = FeedCollapseUi(it.isReasoningCollapsed, it.isToolCallsCollapsed),
-                            )
-                        }
-                    }
-                }
-                launch {
-                    entries.showsOrganism.collect {
-                        updateState {
-                            copy(
-                                isOrganismEnabled = it && host == StudioScreenHost.Window,
-                            )
-                        }
-                    }
-                }
+                launch { observeFeedCollapse(pipeline, compactions) }
+                launch { observeOrganismEntry(pipeline, entries, host) }
                 launch { harnessSelection.observe(pipeline) }
                 launch {
                     surfaceBinding.observe(pipeline) { paneId, isCurrent ->
@@ -245,6 +232,7 @@ class AiStudioModel(
                 }
                 launch { organisms.observe(pipeline) }
                 launch { plans.observe(pipeline) }
+                launch { autoContinue.observe(pipeline) }
                 launch { observeResearch(pipeline) }
                 if (host == StudioScreenHost.Window) launch { appUpdate.observe(pipeline) }
                 launch { projectTrust.observe(pipeline) }
@@ -268,7 +256,10 @@ class AiStudioModel(
                 launch { observeClock(pipeline) }
             }
         }
-        reduce { intent -> handle(this, intent, inputContexts.take(intent)) }
+        reduce { intent ->
+            autoContinue.typed(this, intent)
+            handle(this, intent, inputContexts.take(intent))
+        }
     }
 
     init {
@@ -483,7 +474,7 @@ class AiStudioModel(
             is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent, environment)
             is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
             is AiStudioScreenIntent.Sidebar -> pipeline.updateState { copy(sidebar = sidebar.reduce(intent)) }
-            is AiStudioScreenIntent.ChatMode -> chatMode(pipeline, intent)
+            is AiStudioScreenIntent.ChatMode -> chatMode(pipeline, intent, environment)
             is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
             is AiStudioScreenIntent.RemoteApplied -> pipeline.updateState { copy(remoteSeq = intent.seq) }
             is AiStudioScreenIntent.Embed -> embeddedScreens.handle(pipeline, intent, environment)
@@ -494,9 +485,18 @@ class AiStudioModel(
     private suspend fun beside(pipeline: StudioPipeline, intent: AiStudioScreenIntent) =
         openBeside(pipeline, intent, surfaceBinding, files)
 
-    private suspend fun chatMode(pipeline: StudioPipeline, intent: AiStudioScreenIntent.ChatMode) = when (intent) {
+    private suspend fun chatMode(
+        pipeline: StudioPipeline,
+        intent: ChatModeIntent,
+        environment: StudioChatEnvironment?,
+    ) = when (intent) {
         is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
+
         is AiStudioScreenIntent.Plan -> plans.handle(pipeline, intent)
+
+        is AiStudioScreenIntent.AutoContinue -> autoContinue.handle(pipeline, intent) {
+            submit(pipeline, it, environment)
+        }
     }
 
     private suspend fun installAppUpdate() {
@@ -804,3 +804,22 @@ private fun StudioSecurityLevel.toUi(): SecurityLevelUi = when (this) {
     StudioSecurityLevel.Automatic -> SecurityLevelUi.Automatic
     StudioSecurityLevel.Trust -> SecurityLevelUi.Trust
 }
+
+private typealias ChatModeIntent = AiStudioScreenIntent.ChatMode
+
+private suspend fun observeFeedCollapse(pipeline: StudioPipeline, compactions: StudioCompactionPort) = with(pipeline) {
+    compactions.feed.collect {
+        updateState { copy(feedCollapse = FeedCollapseUi(it.isReasoningCollapsed, it.isToolCallsCollapsed)) }
+    }
+}
+
+private suspend fun observeOrganismEntry(pipeline: StudioPipeline, entries: StudioEntries, host: StudioScreenHost) =
+    with(pipeline) {
+        entries.showsOrganism.collect {
+            updateState {
+                copy(
+                    isOrganismEnabled = it && host == StudioScreenHost.Window,
+                )
+            }
+        }
+    }

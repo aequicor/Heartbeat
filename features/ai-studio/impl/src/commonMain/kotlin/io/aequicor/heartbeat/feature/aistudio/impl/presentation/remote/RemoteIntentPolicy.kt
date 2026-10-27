@@ -49,6 +49,7 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.RetryWorktreeJournal,
     is AiStudioScreenIntent.CancelWorktreeBuild,
     is AiStudioScreenIntent.DiagramAction,
+    is AiStudioScreenIntent.AutoContinue,
     is AiStudioScreenIntent.Submit,
     is AiStudioScreenIntent.Stop,
     is AiStudioScreenIntent.RefreshUsage,

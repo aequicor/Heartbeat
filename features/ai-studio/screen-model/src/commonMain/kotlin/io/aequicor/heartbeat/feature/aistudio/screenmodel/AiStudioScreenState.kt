@@ -101,6 +101,8 @@ data class AiStudioScreenState(
     val harnessChoices: HarnessChoicesUi = HarnessChoicesUi(),
     /** Whether chats can develop a plan in planning mode. */
     val isPlanningEnabled: Boolean = false,
+    /** Suggestions and autopilot of the chats. */
+    val autoContinue: AutoContinueScreenUi = AutoContinueScreenUi(),
     /** Plans of the chats shown in panes, by chat id; detached plans are not shown. */
     val plans: ImmutableMap<String, PlanUi> = persistentMapOf(),
     /** Organisms of organism chats, by chat id. */
