@@ -68,6 +68,39 @@ val heartbeatFlavor = providers.gradleProperty("heartbeat.flavor").orNull.also {
     require(flavor == null || flavor == "testing") { "heartbeat.flavor must be testing: $flavor" }
 }
 val isTestingFlavor = heartbeatFlavor == "testing"
+// The build channel (-Pheartbeat.channel=dev|beta, release by default) names the app and gives it its own icon with a
+// badge, so a dev or beta build installs next to Heartbeat: another package name, macOS bundle id and Linux package.
+// Like the testing flavor it shares the data root and the single-instance lock with an installed Heartbeat, and its
+// Windows installer is refused (the Inno Setup AppId and file names are those of Heartbeat).
+data class BuildChannel(val id: String, val packageName: String, val displayName: String, val bundleId: String?)
+val heartbeatChannels = listOf(
+    BuildChannel("release", "Heartbeat", "Heartbeat", null),
+    BuildChannel("beta", "HeartbeatBeta", "Heartbeat Beta", "io.aequicor.heartbeat.platform.desktop.beta"),
+    BuildChannel("dev", "HeartbeatDev", "Heartbeat Dev", "io.aequicor.heartbeat.platform.desktop.dev"),
+)
+val heartbeatChannel = (providers.gradleProperty("heartbeat.channel").orNull ?: "release").let { id ->
+    requireNotNull(heartbeatChannels.firstOrNull { it.id == id }) {
+        "heartbeat.channel must be one of ${heartbeatChannels.map { it.id }}: $id"
+    }
+}
+require(!isTestingFlavor || heartbeatChannel.id == "release") {
+    "heartbeat.flavor=testing has its own name and icon; do not combine it with heartbeat.channel"
+}
+val isReleaseChannel = heartbeatChannel.id == "release"
+val channelIconDirectory = if (isReleaseChannel) "icons" else "icons/${heartbeatChannel.id}"
+if (!isReleaseChannel) {
+    // Compose registers its packaging tasks after evaluation; the callback also covers those.
+    tasks.configureEach {
+        if (Regex("package(Release)?InnoSetup").matches(name)) {
+            doFirst {
+                throw GradleException(
+                    "The ${heartbeatChannel.id} channel has no Windows installer: its Inno Setup AppId and file names " +
+                        "are those of Heartbeat and would replace an installed one",
+                )
+            }
+        }
+    }
+}
 if (isTestingFlavor) {
     val rejectTestingInstallers = tasks.register("rejectTestingInstallers") {
         doFirst {
@@ -251,6 +284,7 @@ compose.desktop {
         }
         jvmArgs += jcefJvmArgs
         jvmArgs("-Dheartbeat.app.version=$heartbeatApplicationVersion")
+        jvmArgs("-Dheartbeat.channel=${heartbeatChannel.id}")
         buildTypes.release.proguard {
             configurationFiles.from(
                 layout.projectDirectory.file("compose-desktop.pro"),
@@ -276,23 +310,24 @@ compose.desktop {
             )
             // The installed app's name: Heartbeat.app on macOS, Heartbeat.exe on Windows (heartbeat.iss cleans up the
             // launcher of installations made before the rename).
-            packageName = if (isTestingFlavor) "HeartbeatE2E" else "Heartbeat"
+            packageName = if (isTestingFlavor) "HeartbeatE2E" else heartbeatChannel.packageName
             packageVersion = heartbeatApplicationVersion
             description = "Heartbeat AI Studio"
             vendor = "Aequicor"
             macOS {
-                iconFile.set(layout.projectDirectory.file("icons/heartbeat.icns"))
-                dockName = if (isTestingFlavor) "Heartbeat E2E" else "Heartbeat"
+                iconFile.set(layout.projectDirectory.file("$channelIconDirectory/heartbeat.icns"))
+                dockName = if (isTestingFlavor) "Heartbeat E2E" else heartbeatChannel.displayName
                 if (isTestingFlavor) bundleID = "io.aequicor.heartbeat.platform.desktop.testing"
+                heartbeatChannel.bundleId?.let { bundleID = it }
             }
             windows {
-                iconFile.set(layout.projectDirectory.file("icons/heartbeat.ico"))
+                iconFile.set(layout.projectDirectory.file("$channelIconDirectory/heartbeat.ico"))
             }
             linux {
                 // Debian package names are lowercase.
-                packageName = "heartbeat"
+                packageName = if (isReleaseChannel) "heartbeat" else "heartbeat-${heartbeatChannel.id}"
                 shortcut = true
-                iconFile.set(layout.projectDirectory.file("icons/heartbeat.png"))
+                iconFile.set(layout.projectDirectory.file("$channelIconDirectory/heartbeat.png"))
             }
             appResourcesRootDir.set(layout.dir(collectAppResources.map { it.destinationDir }))
         }
@@ -442,8 +477,10 @@ afterEvaluate {
                 releaseJars.flatMap { original -> prepared.outputDirectory.file(original.mainJar.get().asFile.name) }
             })
             // Only the release launcher names the update source: development launches never replace themselves,
-            // and the testing flavor must not swap itself for a published release.
-            if (!isTestingFlavor) launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
+            // and neither the testing flavor nor a dev build may swap itself for a published release.
+            if (!isTestingFlavor && heartbeatChannel.id != "dev") {
+                launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
+            }
         }
     }
     tasks.withType<JavaExec>().configureEach {

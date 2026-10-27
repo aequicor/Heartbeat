@@ -253,7 +253,9 @@ private fun FrameWindowScope.HeartbeatWindowContent(
 
 /** Loads optical-size icons for both development launches and installed desktop applications. */
 private fun loadDesktopIcons(): List<BufferedImage> = desktopIconSizes.map { size ->
-    val directory = if (isMacHost) "/icons/macos" else "/icons"
+    // The icons of the dev and beta channels carry their badge in a directory of their own.
+    val channel = System.getProperty("heartbeat.channel")?.takeIf { it == "dev" || it == "beta" }
+    val directory = listOfNotNull("/icons", channel, "macos".takeIf { isMacHost }).joinToString("/")
     val resource = checkNotNull(object {}.javaClass.getResourceAsStream("$directory/heartbeat-$size.png")) {
         "Heartbeat desktop icon ($size px) is missing from application resources"
     }
