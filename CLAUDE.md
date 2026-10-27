@@ -495,6 +495,12 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > «Загрузить» или «Перезаписать», без правок подтягивает новую ревизию; «Открыть» доступна только при тогле. «Реализовать» переключает тот же чат (`ImplementPlan`, `StudioPlanImplementer`): маршрут того же движка и
 > подключения применяется к текущей сессии, иначе или со свежим контекстом — rollover с выжимкой; режимы Worktree/Sandbox
 > готовят изолированную копию для чата, Organism делает чат чатом организма с планом в цели (обрезка до 20 000 символов).
+> Обработка поезда desktop (`-Pheartbeat.trainShrink=off|shrink|obfuscate`, по умолчанию `off`): `foundation` и каждый бандл
+> проходят отдельный прогон ProGuard по явной SDK-границе (`heartbeatTrain { sdk(...) }`, `verifyTrainSdk`); keep-правила SDK
+> генерирует `generateTrainSdkRules`, остальное — `platform-main/desktop/train-rules.pro`. `verifyShrunkTrain` запускает
+> обработанный поезд headless (все бандлы `Healthy`), маппинги — `build/train/mapping-*.txt`, имена в логах
+> восстанавливает `scripts/retrace.py` (в логе строка `Launch: train=…`). CI пока собирает необработанный поезд.
+> Правила и ограничения — `.claude/rules/bundles.md`.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)
