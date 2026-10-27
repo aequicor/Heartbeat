@@ -1,0 +1,36 @@
+<resources>
+    <string name="updates_title">Обновления</string>
+    <string name="updates_back">Назад</string>
+    <string name="updates_description">Версия этой сборки, запущенные бандлы и проверка наличия новой версии.</string>
+    <string name="updates_build">Эта сборка</string>
+    <string name="updates_version">Версия</string>
+    <string name="updates_development">Сборка для разработки</string>
+    <string name="updates_beta">Бета</string>
+    <string name="updates_train">Поезд бандлов</string>
+    <string name="updates_bundles">Бандлы</string>
+    <string name="updates_bundles_unknown">Не удалось прочитать состав бандлов этого поезда.</string>
+    <string name="updates_status">Обновления</string>
+    <string name="updates_idle">Проверка ещё не выполнялась.</string>
+    <string name="updates_disabled">Обновления отключены в флагах функций.</string>
+    <string name="updates_not_release">Это не установленная релизная сборка, поэтому она не обновляется сама.</string>
+    <string name="updates_unsupported_platform">Для этой системы релизная сборка не публикуется.</string>
+    <string name="updates_checking">Проверяем наличие обновлений…</string>
+    <string name="updates_up_to_date">У вас последняя версия.</string>
+    <string name="updates_check_failed">Не удалось проверить наличие обновлений.</string>
+    <string name="updates_available">Доступна версия %1$s.</string>
+    <string name="updates_downloading">Загружаем версию %1$s…</string>
+    <string name="updates_preparing">Подготавливаем версию %1$s…</string>
+    <string name="updates_restarting">Перезапуск для завершения установки версии %1$s…</string>
+    <string name="updates_check">Проверить обновления</string>
+    <string name="updates_install">Обновить и перезапустить</string>
+    <string name="updates_open_page">Открыть страницу релиза</string>
+    <string name="updates_failure_network">GitHub недоступен. Проверьте соединение и повторите.</string>
+    <string name="updates_failure_rate_limited">GitHub сейчас ограничивает запросы. Повторите позже.</string>
+    <string name="updates_failure_invalid">В новейшем релизе нет сборки для этой системы.</string>
+    <string name="updates_failure_corrupted">Загруженный файл не совпал с опубликованной контрольной суммой.</string>
+    <string name="updates_failure_space">Недостаточно места на диске для загрузки и распаковки обновления.</string>
+    <string name="updates_failure_storage">Не удалось записать обновление на диск.</string>
+    <string name="updates_failure_manual">Эта установка не может заменить себя сама. Установите новую версию вручную со страницы релиза.</string>
+    <string name="updates_failure_install">Обновление не удалось подготовить или запустить. Приложение не изменено.</string>
+    <string name="updates_failure_previous">Предыдущая установка не завершилась. Этот запуск всё ещё на старой версии.</string>
+</resources>

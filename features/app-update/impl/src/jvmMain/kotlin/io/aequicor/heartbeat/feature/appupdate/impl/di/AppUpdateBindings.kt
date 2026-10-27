@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.feature.appupdate.api.AppBuildInfoSource
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateBetaChannel
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateEnabled
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent
@@ -23,6 +24,7 @@ import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateOutput
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateState
 import io.aequicor.heartbeat.feature.appupdate.impl.data.AppReleases
 import io.aequicor.heartbeat.feature.appupdate.impl.data.CommandRunner
+import io.aequicor.heartbeat.feature.appupdate.impl.data.DesktopAppBuildInfoSource
 import io.aequicor.heartbeat.feature.appupdate.impl.data.DesktopInstallationProbe
 import io.aequicor.heartbeat.feature.appupdate.impl.data.DesktopUpdateInstaller
 import io.aequicor.heartbeat.feature.appupdate.impl.data.GitHubReleaseClient
@@ -64,6 +66,10 @@ public object AppUpdateBindings {
     /** What the jpackage launcher states about this launch. */
     @Provides
     internal fun launch(): LaunchProperties = LaunchProperties()
+
+    /** The version, train and bundles of this launch for the "Updates" page. */
+    @Provides
+    internal fun buildInfo(source: DesktopAppBuildInfoSource): AppBuildInfoSource = source
 
     /** One installer per launch: it reads the outcome of an earlier attempt once. */
     @Provides
