@@ -24,6 +24,7 @@ class TrainReleasesTest {
     private fun installation(
         channel: UpdateChannel,
         train: String? = "t1",
+        hasLauncher: Boolean = train != null,
         bad: Set<String> = emptySet(),
         pending: Set<String> = emptySet(),
     ) = AppInstallation(
@@ -31,6 +32,7 @@ class TrainReleasesTest {
         GitHubRepository("aequicor", "Heartbeat"),
         ReleasePlatform.MacOsArm64,
         train,
+        hasLauncher,
         channel,
         badTrains = bad,
         pendingTrains = pending,
@@ -191,6 +193,31 @@ class TrainReleasesTest {
 
         assertNull(found)
         assertEquals(listOf("latest"), requested)
+    }
+
+    @Test
+    fun `a full-installer launch is offered the train published after its own release`() = runTest {
+        val (own, ownDocument) = trainRelease("t1", tag = "v1.3.0")
+        val (newer, newerDocument) = trainRelease("t2")
+        val (older, olderDocument) = trainRelease("t0")
+
+        val found = releases(
+            listOf(newer, own, older),
+            mapOf(newerDocument, ownDocument, olderDocument),
+        ).newer(installation(UpdateChannel.Beta, train = null, hasLauncher = true))
+
+        assertEquals("t2", found?.train)
+    }
+
+    @Test
+    fun `a full-installer launch is offered nothing when its own release is the newest`() = runTest {
+        val (own, ownDocument) = trainRelease("t1", tag = "v1.3.0")
+        val (older, olderDocument) = trainRelease("t0")
+
+        val found = releases(listOf(own, older), mapOf(ownDocument, olderDocument))
+            .newer(installation(UpdateChannel.Beta, train = null, hasLauncher = true))
+
+        assertNull(found)
     }
 
     @Test

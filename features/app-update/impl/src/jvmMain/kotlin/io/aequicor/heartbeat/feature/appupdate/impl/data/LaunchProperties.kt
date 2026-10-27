@@ -100,8 +100,9 @@ internal class DesktopInstallationProbe(private val platform: PlatformInfo, priv
                 repository = repository,
                 platform = build,
                 train = train,
-                badTrains = if (train != null) launch.badTrains else emptySet(),
-                pendingTrains = if (train != null && root != null) pendingTrains(root) else emptySet(),
+                hasLauncher = root != null,
+                badTrains = if (root != null) launch.badTrains else emptySet(),
+                pendingTrains = if (root != null) pendingTrains(root) else emptySet(),
             ),
         )
     }
