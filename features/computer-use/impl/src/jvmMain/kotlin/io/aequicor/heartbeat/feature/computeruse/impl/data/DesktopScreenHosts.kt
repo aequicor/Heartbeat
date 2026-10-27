@@ -316,6 +316,7 @@ internal class DesktopOsPermissions(
             ComputerUsePermission.ScreenRecording -> MAC_OS_SCREEN_CAPTURE_SETTINGS
             ComputerUsePermission.Accessibility -> MAC_OS_ACCESSIBILITY_SETTINGS
         }
+        resetStaleGrant(permission)
         try {
             runDesktopProcess(listOf(SYSTEM_OPEN_COMMAND, target), SETTINGS_TIMEOUT_SECONDS * MILLIS_PER_SECOND).also {
                 log.i { "system settings opened=$it for permission=$permission" }
@@ -326,6 +327,13 @@ internal class DesktopOsPermissions(
             log.w(e) { "system settings could not be opened" }
             false
         }
+    }
+
+    /** The guide opens only for a missing permission, so an entry left by an earlier build is dropped first. */
+    private suspend fun resetStaleGrant(permission: ComputerUsePermission) {
+        val command = MacStaleGrantReset.command(permission) ?: return
+        val isReset = runDesktopProcess(command, SETTINGS_TIMEOUT_SECONDS * MILLIS_PER_SECOND)
+        log.i { "stale permission entry reset=$isReset for permission=$permission" }
     }
 
     private fun monitors(): List<MonitorInfo> {
