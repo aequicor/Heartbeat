@@ -47,6 +47,8 @@ dependencies {
     // installer's class path, the project code does not.
     runtimeOnly(projects.platformMain.launcher)
     testImplementation(libs.kotlin.testJunit)
+    // The headless smoke of the shrunk train reads the health of the bundles (verifyShrunkTrain).
+    testImplementation(projects.core.bundles.api)
     testImplementation(libs.kotlinx.coroutines.test)
 }
 
@@ -322,6 +324,48 @@ val trainSeed = tasks.register<WriteTrainSeed>("assembleTrainSeed") {
     jars.from(layout.buildDirectory.dir("bundle").map { fileTree(it) { include("*.jar") } })
     seedDirectory.set(layout.buildDirectory.dir("generated/trainSeed"))
     dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts")
+}
+// Headless smoke of the shrunk train: the production graph over the processed jars of the train (no classes of this
+// module but the smoke main) starts every bundle and opens a profile. Data, logs and secrets go to a throwaway home.
+val trainBundleIds = rootProject.subprojects.filter { it.parent?.path == ":bundles" }.map { it.name }.sorted()
+val trainThirdPartyJars = extensions.getByType<TrainPlatformJars>().jars
+val isTrainShrunk = providers.gradleProperty("heartbeat.trainShrink").map { it == "shrink" }.orElse(false)
+tasks.register<JavaExec>("verifyShrunkTrain") {
+    group = "verification"
+    description = "Starts every bundle of the train shrunk with -Pheartbeat.trainShrink=shrink and requires it healthy."
+    // Locals: the actions below must not capture the script object (configuration cache).
+    val bundleIds = trainBundleIds
+    val shrunk = isTrainShrunk
+    val smokeDirectory = layout.buildDirectory.dir("train-smoke")
+    val report = smokeDirectory.map { it.file("report.txt") }
+    val home = smokeDirectory.map { it.dir("home") }
+    dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts", "testClasses")
+    javaLauncher.set(desktopRuntime)
+    classpath(sourceSets.test.get().output.classesDirs)
+    classpath(layout.buildDirectory.dir("bundle").map { fileTree(it) { include("*.jar") } })
+    classpath(rootProject.fileTree("bundles") { include("*/build/bundle/*.jar") })
+    classpath(trainThirdPartyJars)
+    mainClass.set("io.aequicor.heartbeat.platform.desktop.TrainSmokeKt")
+    jvmArgs("-Djava.awt.headless=true", "-Dheartbeat.data.name=HeartbeatTrainSmoke")
+    argumentProviders.add(CommandLineArgumentProvider { listOf(report.get().asFile.absolutePath) + bundleIds })
+    isIgnoreExitValue = true
+    doFirst {
+        check(shrunk.get()) { "verifyShrunkTrain checks the shrunk train: pass -Pheartbeat.trainShrink=shrink" }
+        val homeDirectory = home.get().asFile.apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        report.get().asFile.delete()
+        systemProperty("user.home", homeDirectory.absolutePath)
+        listOf("APPDATA", "LOCALAPPDATA", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME")
+            .forEach { environment(it, homeDirectory.absolutePath) }
+    }
+    doLast {
+        if (executionResult.get().exitValue != 0) {
+            val findings = report.get().asFile.takeIf { it.isFile }?.readText() ?: "the smoke wrote no report"
+            throw GradleException("The shrunk train does not run:\n$findings")
+        }
+    }
 }
 val collectAppResources = tasks.register<Sync>("collectAppResources") {
     from(prepareExtensionMetadata) { into("common") }

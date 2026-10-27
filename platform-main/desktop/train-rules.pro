@@ -29,6 +29,11 @@
     public static java.util.concurrent.CompletionStage run(java.lang.String,java.lang.String,java.lang.String[]);
 }
 
+# The headless smoke of the shrunk train (verifyShrunkTrain) reads the health of the bundles through this function.
+-keep class io.aequicor.heartbeat.platform.dibundle.BundleHealthProbeKt {
+    public static java.util.Map bundleHealth(io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph);
+}
+
 # The isolated worker loads its feature classes by name after the pinned engine JAR has been prepared.
 -keep class io.aequicor.heartbeat.feature.plantumlsupport.impl.** { *; }
 

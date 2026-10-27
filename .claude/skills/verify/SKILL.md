@@ -54,6 +54,20 @@ git status --porcelain
 find features -path '*/impl/build.gradle.kts' -exec grep -nE 'projects\.features\.[A-Za-z0-9.]+\.impl' {} +
 ```
 
+## 4а. Поезд бандлов (обработка ProGuard)
+
+Если изменены `build-logic` (`heartbeat.train`, `heartbeat.bundle`, `ShrinkTrainJar`), `platform-main/desktop/train-rules.pro`,
+границы SDK (`heartbeatTrain { sdk(...) }`), сборщики `bundles/*` или код, который грузится по имени (воркеры, `ServiceLoader`,
+сериализаторы, Room), — проверь обработанный поезд: headless-запуск всех бандлов и открытие профиля на jar после ProGuard.
+
+```bash
+./gradlew -Pheartbeat.trainShrink=shrink :platform-main:desktop:verifyShrunkTrain
+```
+
+Без `-Pheartbeat.trainShrink=shrink` задача падает сразу: она проверяет именно обработанный поезд. Причина падения — в
+сообщении (`BundleHealth.Failed`, `VerifyError`, `Warning` ProGuard о ссылке за пределы SDK); не добавляй `-dontwarn` —
+исправь правило или границу.
+
 ## 5. Политика коммитов
 
 PR содержит фичу целиком, коммиты — логические, собираемые шаги с тестами изменённого поведения.

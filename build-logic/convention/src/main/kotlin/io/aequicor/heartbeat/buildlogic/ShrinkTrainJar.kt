@@ -78,7 +78,6 @@ internal fun trainProguardConfiguration(
     libraryJars.forEach { add("-libraryjars ${quoted(it)}") }
     add("-dontobfuscate")
     add("-dontoptimize")
-    add("-dontpreverify")
     // Notes only (duplicate library classes, rules naming library classes): warnings stay fatal.
     add("-dontnote")
     add("-keepattributes *")
