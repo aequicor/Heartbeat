@@ -26,17 +26,16 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
     private val log = Log.tag("AppReleases")
 
     /**
-     * On the beta channel of a launch that knows its train: the newest train newer than the installed one (see
+     * On the beta channel of a launch with a launcher: the newest train newer than the installed one (see
      * [newerTrain]). A train that needs a newer platform is skipped, not failed: the platform cannot be updated by a
      * train, so the check falls back to the full-installer release (which carries the new platform), and offers nothing
      * when there is none. A train check that fails falls back the same way: the stable path must keep working.
      * Everything else is the stable policy.
      */
     override suspend fun newer(installation: AppInstallation): AppRelease? {
-        val installed = installation.train
-        if (installation.channel == UpdateChannel.Beta && installed != null) {
+        if (installation.channel == UpdateChannel.Beta && installation.hasLauncher) {
             try {
-                newerTrain(installation, installed)?.let { return it }
+                newerTrain(installation)?.let { return it }
             } catch (e: AppUpdateException) {
                 log.w(e) { "train check failed, checking full releases failure=${e.failure}" }
             }
@@ -45,7 +44,9 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
     }
 
     /**
-     * The newest train published after the [installed] one. Age is publication time: [GitHubReleaseClient.recent]
+     * The newest train published after the installed one; a launch that runs no train yet (a fresh full installer)
+     * counts the train its own release `v<version>` carries as installed. Age is publication time:
+     * [GitHubReleaseClient.recent]
      * sorts the releases by their publish timestamp, newest first, rather than trusting GitHub's undocumented list
      * order, so only trains above the installed train (or above a train already queued for the launcher) are newer:
      * the walk stops there and never offers an older train. This assumes trains are published in the order they are
@@ -55,7 +56,8 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
      * untagged release whose manifest is invalid is skipped, it could never be offered. The offered train's manifest
      * is always read and must name the same train.
      */
-    private suspend fun newerTrain(installation: AppInstallation, installed: String): AppRelease? {
+    private suspend fun newerTrain(installation: AppInstallation): AppRelease? {
+        val installed = installation.train ?: "v${installation.version}"
         val manifests = ManifestCache(client)
         val walk = walkTrains(installation, installed, manifests)
         val newest = walk.newest
@@ -87,7 +89,10 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
         val stops = installation.pendingTrains + installed
         var newest: TrainCandidate? = null
         for ((release, asset) in trains(client.recent(installation.repository))) {
-            val id = trainIdOfTag(release.tag) ?: manifests.trainOrNull(asset) ?: continue
+            val id = installed.takeIf { installation.train == null && release.tag == it }
+                ?: trainIdOfTag(release.tag)
+                ?: manifests.trainOrNull(asset)
+                ?: continue
             when {
                 id in stops -> return TrainWalk(newest, stop = id)
                 id in installation.badTrains -> log.i { "skip rolled back train=$id" }
