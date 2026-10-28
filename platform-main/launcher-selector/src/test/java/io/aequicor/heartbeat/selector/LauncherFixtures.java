@@ -48,6 +48,35 @@ final class LauncherFixtures {
             + "}\n");
     }
 
+    /** Лаунчер откладывает операцию с данными: ставит признак и отказывается, как пробный лаунчер при повреждённом поезде. */
+    static Path deferring(Path jar, String tag) throws Exception {
+        return build(jar, body("log(\"" + tag + "\"); System.setProperty(\"heartbeat.slot.deferred\", \"true\"); "
+            + "throw new java.io.IOException(\"deferred\");"));
+    }
+
+    /** Рабочий лаунчер с {@code LauncherAgent}: {@code premain} записывает, получил ли он {@code Instrumentation}. */
+    static Path withAgent(Path jar, String tag) throws Exception {
+        return build(jar, body("log(\"" + tag + "\"); applicationStarted.run();"), AGENT);
+    }
+
+    /** Лаунчер без метода {@code start}, но с агентом: до {@code premain} дело дойти не должно. */
+    static Path withoutStartButWithAgent(Path jar) throws Exception {
+        return build(jar, "package io.aequicor.heartbeat.launcher;\n"
+            + "public final class LauncherMain {\n"
+            + "  static void log(String tag) {\n"
+            + "    System.setProperty(\"" + LOG + "\", System.getProperty(\"" + LOG + "\", \"\") + tag + \";\");\n"
+            + "  }\n"
+            + "  public static void main(String[] args) { }\n"
+            + "}\n", AGENT);
+    }
+
+    private static final String AGENT = "package io.aequicor.heartbeat.launcher;\n"
+        + "public final class LauncherAgent {\n"
+        + "  public static void premain(String args, java.lang.instrument.Instrumentation inst) {\n"
+        + "    LauncherMain.log(\"premain:\" + (inst != null));\n"
+        + "  }\n"
+        + "}\n";
+
     /** Лаунчер бросает исключение до подтверждения. */
     static Path failingBeforeConfirmation(Path jar, String tag) throws Exception {
         return build(jar, body("log(\"" + tag + "\"); throw new IllegalStateException(\"boom\");"));
@@ -86,16 +115,36 @@ final class LauncherFixtures {
             + "}\n";
     }
 
-    private static Path build(Path jar, String source) throws Exception {
+    /** Файл не jar: байты, которые не читаются как zip. */
+    static Path garbage(Path jar) throws IOException {
+        Files.createDirectories(jar.toAbsolutePath().getParent());
+        Files.writeString(jar, "this is not a zip archive", StandardCharsets.UTF_8);
+        return jar;
+    }
+
+    private static Path build(Path jar, String main, String... others) throws Exception {
         Files.createDirectories(jar.toAbsolutePath().getParent());
         Path work = Files.createTempDirectory(jar.toAbsolutePath().getParent(), "fixture");
         Path src = work.resolve("src/io/aequicor/heartbeat/launcher");
         Files.createDirectories(src);
-        Path file = src.resolve("LauncherMain.java");
-        Files.writeString(file, source, StandardCharsets.UTF_8);
+        java.util.List<String> sources = new java.util.ArrayList<>();
+        java.util.List<String> all = new java.util.ArrayList<>();
+        all.add(main);
+        all.addAll(java.util.List.of(others));
+        for (String source : all) {
+            java.util.regex.Matcher name = java.util.regex.Pattern.compile("final class (\\w+)").matcher(source);
+            if (!name.find()) {
+                throw new IllegalStateException("Fixture source has no class");
+            }
+            Path file = src.resolve(name.group(1) + ".java");
+            Files.writeString(file, source, StandardCharsets.UTF_8);
+            sources.add(file.toString());
+        }
         Path classes = Files.createDirectories(work.resolve("classes"));
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-        if (compiler == null || compiler.run(null, null, null, "-d", classes.toString(), file.toString()) != 0) {
+        java.util.List<String> command = new java.util.ArrayList<>(java.util.List.of("-d", classes.toString()));
+        command.addAll(sources);
+        if (compiler == null || compiler.run(null, null, null, command.toArray(new String[0])) != 0) {
             throw new IllegalStateException("Fixture launcher does not compile");
         }
         Files.createDirectories(jar.getParent());

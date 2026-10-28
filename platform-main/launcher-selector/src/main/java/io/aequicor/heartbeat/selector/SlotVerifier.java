@@ -2,20 +2,30 @@ package io.aequicor.heartbeat.selector;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 
 /**
  * Проверка слота перед запуском и перед активацией: запись подписана доверенным ключом, это запись лаунчера, SHA-256
- * jar совпадает с подписанным, а уровень лаунчера не ниже порога ({@link SlotState#floor}). Любой отказ означает, что
- * слот запускать нельзя; селектор отвергает его и берёт следующий.
+ * jar совпадает с подписанным, а уровень лаунчера не ниже порога ({@link SlotState#floor}). Отказ означает, что слот
+ * запускать нельзя. {@link VerificationException} окончательный (подпись, тип, уровень, хэш, нет файла): селектор
+ * отвергает слот. {@link UnreadableException} — слот сейчас не прочитать (антивирус, занятый файл на Windows): запись
+ * может быть верной, поэтому слот пропускается на этот запуск и не отвергается.
  */
 final class SlotVerifier {
     /** Слот не прошёл проверку; сообщение называет причину. */
-    static final class VerificationException extends Exception {
+    static class VerificationException extends Exception {
         VerificationException(String message) {
             super(message);
         }
 
         VerificationException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /** Файл слота не прочитать сейчас; о самом слоте это ничего не говорит. */
+    static final class UnreadableException extends VerificationException {
+        UnreadableException(String message, Throwable cause) {
             super(message, cause);
         }
     }
@@ -52,8 +62,10 @@ final class SlotVerifier {
         SlotRecord record;
         try {
             record = SlotRecord.read(store.slotDir(slot).resolve(SlotRecord.FILE_NAME));
-        } catch (IOException e) {
+        } catch (NoSuchFileException | SlotRecord.InvalidRecordException e) {
             throw new VerificationException("Slot " + slot + " has no valid record: " + e.getMessage(), e);
+        } catch (IOException e) {
+            throw new UnreadableException("Record of slot " + slot + " cannot be read now: " + e.getMessage(), e);
         }
         verifyRecord(record, "Slot " + slot, floor);
         if (!Files.isRegularFile(store.jar(slot))) {
@@ -65,7 +77,7 @@ final class SlotVerifier {
                 throw new VerificationException("Jar of slot " + slot + " does not match its signed record");
             }
         } catch (IOException e) {
-            throw new VerificationException("Jar of slot " + slot + " is unreadable: " + e.getMessage(), e);
+            throw new UnreadableException("Jar of slot " + slot + " cannot be read now: " + e.getMessage(), e);
         }
         return record;
     }

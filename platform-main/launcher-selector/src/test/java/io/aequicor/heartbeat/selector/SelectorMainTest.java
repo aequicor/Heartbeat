@@ -186,4 +186,74 @@ class SelectorMainTest {
             clearRequest();
         }
     }
+
+    @Test
+    void deferredDataOperationReleasesTheTrialAndTheConfirmedLauncherRunsInTheSameProcess() throws Exception {
+        slot("A", LauncherFixtures.working(tmp.resolve("built/a.jar"), "A"));
+        selector.activateTrial("A");
+        SelectorMain.run(selector, ARGS, null, embedded, true);
+        System.clearProperty(LauncherFixtures.LOG);
+        slot("B", LauncherFixtures.deferring(tmp.resolve("built/b.jar"), "B"));
+        selector.activateTrial("B");
+        SelectorMain.run(selector, ARGS, null, embedded, true);
+        assertEquals("B;A;", System.getProperty(LauncherFixtures.LOG));
+        SlotState state = selector.store().state();
+        assertEquals("A", state.active);
+        assertEquals("A", state.confirmed);
+        assertTrue(state.bad.isEmpty());
+        assertTrue(selector.store().hasJar("B"));
+        assertNull(System.getProperty(SelectorMain.DEFERRED));
+    }
+
+    @Test
+    void deferralWithoutAConfirmedSlotFallsBackToTheEmbeddedLauncher() throws Exception {
+        slot("A", LauncherFixtures.deferring(tmp.resolve("built/a.jar"), "A"));
+        selector.activateTrial("A");
+        SelectorMain.run(selector, ARGS, null, embedded, true);
+        assertEquals("A;embedded;", System.getProperty(LauncherFixtures.LOG));
+        assertEquals("", selector.store().state().active);
+        assertTrue(selector.store().state().bad.isEmpty());
+    }
+
+    @Test
+    void failureOfANonTrialLauncherIsNotTreatedAsDeferral() throws Exception {
+        slot("A", LauncherFixtures.working(tmp.resolve("built/a.jar"), "A"));
+        selector.activateTrial("A");
+        SelectorMain.run(selector, ARGS, null, embedded, true);
+        slot("A", LauncherFixtures.deferring(tmp.resolve("built/a2.jar"), "A2"));   // the confirmed slot itself fails
+        assertThrows(java.io.IOException.class, () -> SelectorMain.run(selector, ARGS, null, embedded, true));
+    }
+
+    @Test
+    void corruptJarIsAbandonedForGood() throws Exception {
+        slot("A", LauncherFixtures.garbage(tmp.resolve("built/a.jar")));
+        selector.activateTrial("A");
+        SelectorMain.run(selector, ARGS, null, embedded, true);
+        assertEquals("embedded;", System.getProperty(LauncherFixtures.LOG));
+        assertEquals(1, selector.store().state().bad.size());
+    }
+
+    @Test
+    void launcherReceivesInstrumentationAfterItsStartMethodIsFound() throws Exception {
+        java.lang.instrument.Instrumentation inst = (java.lang.instrument.Instrumentation) java.lang.reflect.Proxy
+            .newProxyInstance(getClass().getClassLoader(), new Class<?>[] {java.lang.instrument.Instrumentation.class},
+                (proxy, method, args) -> null);
+        slot("A", LauncherFixtures.withAgent(tmp.resolve("built/a.jar"), "A"));
+        selector.activateTrial("A");
+        SelectorMain.run(selector, ARGS, inst, embedded, true);
+        assertEquals("premain:true;A;", System.getProperty(LauncherFixtures.LOG));
+    }
+
+    @Test
+    void launcherWithoutStartNeverRunsItsAgent() throws Exception {
+        java.lang.instrument.Instrumentation inst = (java.lang.instrument.Instrumentation) java.lang.reflect.Proxy
+            .newProxyInstance(getClass().getClassLoader(), new Class<?>[] {java.lang.instrument.Instrumentation.class},
+                (proxy, method, args) -> null);
+        slot("A", LauncherFixtures.withoutStartButWithAgent(tmp.resolve("built/a.jar")));
+        selector.activateTrial("A");
+        Path embeddedWithAgent = LauncherFixtures.withAgent(tmp.resolve("embedded/with-agent.jar"), "embedded");
+        SelectorMain.run(selector, ARGS, inst, embeddedWithAgent, true);
+        // only the embedded launcher's premain ran: the slot was refused before its agent was called
+        assertEquals("premain:true;embedded;", System.getProperty(LauncherFixtures.LOG));
+    }
 }

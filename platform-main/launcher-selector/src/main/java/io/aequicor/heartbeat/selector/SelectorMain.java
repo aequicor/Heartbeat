@@ -19,6 +19,8 @@ import java.util.function.Predicate;
 public final class SelectorMain {
     /** Системное свойство для лаунчера: запущенный слот пробный и не подтверждён. */
     static final String TRIAL = "heartbeat.slot.trial";
+    /** Лаунчер ставит его перед отказом: операция с данными отложена до подтверждённого лаунчера, слот не виноват. */
+    static final String DEFERRED = "heartbeat.slot.deferred";
     /** Путь к jar встроенного лаунчера: он лежит в установщике файлом, а не на classpath. */
     static final String EMBEDDED = "heartbeat.selector.embedded";
 
@@ -42,6 +44,7 @@ public final class SelectorMain {
             }
             // a trial launcher must not touch irreversible data (DB restore, migration) until it is confirmed
             System.setProperty(TRIAL, Boolean.toString(owner && choice.trial()));
+            System.clearProperty(DEFERRED);
             try {
                 SlotLauncher.launch(jar, args, inst, confirmation(selector, choice, owner), owner ? stager(selector) : null);
                 return;
@@ -49,11 +52,37 @@ public final class SelectorMain {
                 if (choice.kind() == Choice.Kind.EMBEDDED) {
                     throw e;
                 }
-                System.err.println("Slot " + choice.slot() + " is abandoned: " + e.getMessage());
                 failed.add(choice.slot());
-                selector.abandon(choice.slot());
+                if (e.permanent()) {
+                    System.err.println("Slot " + choice.slot() + " is abandoned: " + e.getMessage());
+                    update(() -> selector.abandon(choice.slot()));
+                } else {
+                    System.err.println("Slot " + choice.slot() + " is skipped for this start: " + e.getMessage());
+                }
+            } catch (Exception e) {
+                if (!(choice.trial() && Boolean.getBoolean(DEFERRED))) {
+                    throw e;
+                }
+                // a trial launcher postponed an irreversible data operation: it did not fail, the confirmed launcher
+                // does that operation, so the trial slot is released without a mark and the next launcher starts
+                System.err.println("Slot " + choice.slot() + " waits for a confirmed launcher: " + e.getMessage());
+                failed.add(choice.slot());
+                update(() -> selector.release(choice.slot()));
             }
         }
+    }
+
+    /** Запись состояния слотов не должна мешать запуску: сбой пишется в журнал. */
+    private static void update(SlotUpdateAction action) {
+        try {
+            action.run();
+        } catch (IOException | RuntimeException e) {
+            System.err.println("Slot state was not updated: " + e);
+        }
+    }
+
+    private interface SlotUpdateAction {
+        void run() throws IOException;
     }
 
     /** Приём предложений нового лаунчера: сбой записи в слот пишется в журнал и не мешает работе. */

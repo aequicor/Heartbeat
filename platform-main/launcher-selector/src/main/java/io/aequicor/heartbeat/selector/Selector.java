@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -58,7 +60,18 @@ final class Selector {
      *
      * @param excluded слоты, которые не удалось запустить в этом процессе: их не выбирают снова
      */
-    synchronized Choice choose(Set<String> excluded) throws IOException {
+    synchronized Choice choose(Set<String> excluded) {
+        try {
+            return chooseInState(excluded);
+        } catch (IOException e) {
+            // the selector must never keep the app from starting: without a readable and writable state it runs the
+            // embedded launcher and changes nothing
+            System.err.println("Slots are unavailable, the embedded launcher starts: " + e);
+            return Choice.embedded();
+        }
+    }
+
+    private Choice chooseInState(Set<String> excluded) throws IOException {
         SlotState state;
         try {
             state = store.state();
@@ -155,6 +168,26 @@ final class Selector {
     }
 
     /**
+     * Пробный слот не виноват в отказе (лаунчер отложил операцию с данными до подтверждённого лаунчера): слот
+     * освобождается без отвержения и без счёта крахов, активным снова становится подтверждённый. Jar остаётся в слоте.
+     */
+    synchronized void release(String slot) throws IOException {
+        if (!owner) {
+            return;
+        }
+        SlotState state = readForUpdate();
+        if (state == null) {
+            return;
+        }
+        if (slot.equals(state.active) && !slot.equals(state.confirmed)) {
+            state.active = state.confirmed;
+        }
+        state.crashes = 0;
+        state.launching = false;
+        state.save(store.stateFile());
+    }
+
+    /**
      * Лаунчер предлагает jar нового лаунчера из поезда (запрос — строки {@code SlotUpdate} лаунчера). Принятый jar
      * копируется в соседний слот и становится пробным: запустится при следующем старте. Принимается только когда:
      * запись подписана доверенным ключом и её уровень не ниже порога, jar не отвергался раньше и не совпадает с уже
@@ -207,13 +240,16 @@ final class Selector {
         Path dir = store.slotDir(slot);
         Files.createDirectories(dir);
         Path tmp = dir.resolve(SlotStore.JAR_NAME + ".tmp");
-        Files.copy(source, tmp, StandardCopyOption.REPLACE_EXISTING);
-        if (!SlotStore.sha256(tmp).equals(record.sha256())) {
+        try {
+            Files.copy(source, tmp, StandardCopyOption.REPLACE_EXISTING);
+            if (!SlotStore.sha256(tmp).equals(record.sha256())) {
+                throw new IOException("Jar " + source + " does not match its record");
+            }
+            Files.deleteIfExists(dir.resolve(SlotRecord.FILE_NAME));
+            Files.move(tmp, store.jar(slot), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } finally {
             Files.deleteIfExists(tmp);
-            throw new IOException("Jar " + source + " does not match its record");
         }
-        Files.deleteIfExists(dir.resolve(SlotRecord.FILE_NAME));
-        Files.move(tmp, store.jar(slot), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         record.write(dir.resolve(SlotRecord.FILE_NAME));
     }
 
@@ -239,9 +275,13 @@ final class Selector {
     }
 
     /** Отвергает {@code slot}: его jar запоминается как плохой, активным становится подтверждённый слот. */
-    private void reject(SlotState state, String slot) throws IOException {
+    private void reject(SlotState state, String slot) {
         if (store.hasJar(slot)) {
-            state.bad.add(SlotStore.sha256(store.jar(slot)));
+            try {
+                state.bad.add(SlotStore.sha256(store.jar(slot)));
+            } catch (IOException e) {
+                System.err.println("The jar of slot " + slot + " is rejected, but its hash is not remembered: " + e);
+            }
         }
         if (slot.equals(state.confirmed)) {
             state.confirmed = "";
@@ -257,13 +297,17 @@ final class Selector {
      * Лаунчер для запуска по состоянию: активный слот, иначе подтверждённый, иначе встроенный. Слот должен пройти
      * проверку; не прошедший владелец отвергает (его jar запоминается), не владелец только пропускает.
      */
-    private Choice pick(SlotState state, Set<String> excluded) throws IOException {
-        for (String slot : new String[] {state.active, state.confirmed}) {
-            if (slot.isEmpty() || !usable(slot, excluded) || !slot.equals(state.active) && !slot.equals(state.confirmed)) {
+    private Choice pick(SlotState state, Set<String> excluded) {
+        for (String slot : new LinkedHashSet<>(List.of(state.active, state.confirmed))) {
+            if (!usable(slot, excluded)) {
                 continue;
             }
             try {
                 verifier.verify(store, slot, state.floor);
+            } catch (SlotVerifier.UnreadableException e) {
+                // temporary: the slot is skipped for this start and stays as it was
+                System.err.println("Slot " + slot + " is skipped: " + e.getMessage());
+                continue;
             } catch (SlotVerifier.VerificationException e) {
                 System.err.println("Slot " + slot + " is not started: " + e.getMessage());
                 if (owner) {

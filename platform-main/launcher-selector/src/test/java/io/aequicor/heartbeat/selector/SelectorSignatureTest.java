@@ -169,4 +169,57 @@ class SelectorSignatureTest {
         assertEquals("A", other.choose(NONE).slot());
         assertTrue(java.util.Arrays.equals(before, Files.readAllBytes(selector.store().stateFile())));
     }
+
+    @Test
+    void everyFieldOfTheRecordIsBoundBySignatureAndJar() throws IOException {
+        SlotRecord signed = install("A", "v1", signing.primary, 5);
+        Path file = selector.store().slotDir("A").resolve(SlotRecord.FILE_NAME);
+        SlotRecord[] tampered = {
+            new SlotRecord("other", signed.version(), signed.sha256(), signed.kind(), signed.launcherApi(), signed.signature()),
+            new SlotRecord(signed.id(), "t999", signed.sha256(), signed.kind(), signed.launcherApi(), signed.signature()),
+            new SlotRecord(signed.id(), signed.version(), signed.sha256(), "base", signed.launcherApi(), signed.signature()),
+            new SlotRecord(signed.id(), signed.version(), "f".repeat(64), signed.kind(), signed.launcherApi(), signed.signature()),
+        };
+        for (SlotRecord record : tampered) {
+            record.write(file);
+            assertFalse(selector.activateTrial("A"), record.toString());
+        }
+        signed.write(file);
+        assertTrue(selector.activateTrial("A"));
+    }
+
+    @Test
+    void unreadableRecordSkipsTheSlotWithoutRejectingIt() throws IOException {
+        confirmed("A", 1);
+        Path record = selector.store().slotDir("A").resolve(SlotRecord.FILE_NAME);
+        byte[] before = Files.readAllBytes(record);
+        Files.delete(record);
+        Files.createDirectory(record);   // cannot be read now, which says nothing about the slot
+        assertEquals(Choice.Kind.EMBEDDED, selector.choose(NONE).kind());
+        SlotState state = state();
+        assertEquals("A", state.confirmed);
+        assertTrue(state.bad.isEmpty());
+        Files.delete(record);
+        Files.write(record, before);
+        assertEquals("A", selector.choose(NONE).slot());
+    }
+
+    @Test
+    void unreadableJarSkipsTheSlotWithoutRejectingIt() throws IOException {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+            java.nio.file.FileSystems.getDefault().supportedFileAttributeViews().contains("posix")
+                && !"root".equals(System.getProperty("user.name")));
+        confirmed("A", 1);
+        Path jar = selector.store().jar("A");
+        java.util.Set<java.nio.file.attribute.PosixFilePermission> before = Files.getPosixFilePermissions(jar);
+        Files.setPosixFilePermissions(jar, java.util.Set.of());
+        try {
+            assertEquals(Choice.Kind.EMBEDDED, selector.choose(NONE).kind());
+            assertEquals("A", state().confirmed);
+            assertTrue(state().bad.isEmpty());
+        } finally {
+            Files.setPosixFilePermissions(jar, before);
+        }
+        assertEquals("A", selector.choose(NONE).slot());
+    }
 }

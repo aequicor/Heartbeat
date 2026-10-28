@@ -1,11 +1,10 @@
 package io.aequicor.heartbeat.selector;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Properties;
@@ -61,6 +60,11 @@ final class SlotState {
         if (!Files.exists(file)) {
             return state;
         }
+        if (Files.size(file) == 0) {
+            // a torn write: the confirmed slot and the rejected jars are forgotten, the embedded launcher is the safe start
+            System.err.println("Slot state is empty, starting from an empty state");
+            return state;
+        }
         Properties props = new Properties();
         try (InputStream in = Files.newInputStream(file)) {
             props.load(in);
@@ -100,12 +104,9 @@ final class SlotState {
         props.setProperty("crashes", Integer.toString(crashes));
         props.setProperty("floor", Integer.toString(floor));
         props.setProperty("bad", String.join(",", bad));
-        Files.createDirectories(file.toAbsolutePath().getParent());
-        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-        try (OutputStream out = Files.newOutputStream(tmp)) {
-            props.store(out, null);
-        }
-        Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        props.store(out, null);
+        SlotStore.writeAtomically(file, out.toByteArray());
     }
 
     /** Формат файла: без поля — первый; нечитаемое значение — {@code -1} (такой файл не читается). */

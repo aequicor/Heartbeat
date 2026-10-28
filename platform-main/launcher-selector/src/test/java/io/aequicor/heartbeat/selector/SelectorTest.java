@@ -249,4 +249,56 @@ class SelectorTest {
         Files.writeString(selector.store().stateFile(), "active=../evil\nconfirmed=Z\n", StandardCharsets.UTF_8);
         assertEquals(Choice.Kind.EMBEDDED, selector.choose(NONE).kind());
     }
+
+    @Test
+    void unreadableStateStartsTheEmbeddedLauncherInsteadOfFailing() throws IOException {
+        confirmedSlot("A");
+        Path state = selector.store().stateFile();
+        byte[] before = Files.readAllBytes(state);
+        Files.delete(state);
+        Files.createDirectory(state);   // reading a directory fails like a locked or damaged file
+        assertEquals(Choice.Kind.EMBEDDED, selector.choose(NONE).kind());
+        Files.delete(state);
+        Files.write(state, before);
+        assertEquals("A", selector.choose(NONE).slot());
+    }
+
+    @Test
+    void emptyStateFileIsAnEmptyStateNotAFailure() throws IOException {
+        confirmedSlot("A");
+        Files.write(selector.store().stateFile(), new byte[0]);
+        assertEquals(Choice.Kind.EMBEDDED, selector.choose(NONE).kind());
+    }
+
+    @Test
+    void releasedTrialIsNotRejected() throws IOException {
+        confirmedSlot("A");
+        jar("B", "v2", 2);
+        selector.activateTrial("B");
+        selector.choose(NONE);
+        selector.release("B");
+        SlotState state = state();
+        assertEquals("A", state.active);
+        assertEquals("A", state.confirmed);
+        assertFalse(state.launching);
+        assertTrue(state.bad.isEmpty());
+        assertTrue(selector.store().hasJar("B"));
+        assertTrue(selector.activateTrial("B"));   // the same jar may be tried again
+    }
+
+    @Test
+    void secondStoreOfTheSameDirectoryNeverBecomesOwnerWhileTheFirstHoldsIt() {
+        Selector other = new Selector(slots, signing.trusted());
+        assertFalse(other.becomeOwner());
+        assertFalse(new Selector(slots, signing.trusted()).becomeOwner());
+        selector.store().releaseOwnerLock();
+        assertTrue(other.becomeOwner());
+        other.store().releaseOwnerLock();
+    }
+
+    @Test
+    void stateWriteLeavesNoTemporaryFile() throws IOException {
+        confirmedSlot("A");
+        assertFalse(Files.exists(selector.store().stateFile().resolveSibling("state.properties.tmp")));
+    }
 }

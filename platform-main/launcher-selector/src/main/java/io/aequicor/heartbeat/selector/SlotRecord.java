@@ -1,12 +1,11 @@
 package io.aequicor.heartbeat.selector;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Properties;
 
 /**
@@ -40,19 +39,30 @@ record SlotRecord(String id, String version, String sha256, String kind, int lau
             + "\nlauncherApi=" + launcherApi + "\n").getBytes(StandardCharsets.UTF_8);
     }
 
+    /** Файл записи прочитан, но его содержимое неверно: в отличие от сбоя чтения, это окончательно. */
+    static final class InvalidRecordException extends IOException {
+        InvalidRecordException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * @throws InvalidRecordException содержимое не запись лаунчера
+     * @throws IOException файл не читается (нет файла, занят, нет прав): запись может быть верной
+     */
     static SlotRecord read(Path file) throws IOException {
         Properties props = new Properties();
         try (InputStream in = Files.newInputStream(file)) {
             props.load(in);
         } catch (IllegalArgumentException e) {
-            throw new IOException("Slot record " + file + " is corrupted: " + e.getMessage(), e);
+            throw new InvalidRecordException("Slot record " + file + " is corrupted: " + e.getMessage(), e);
         }
         try {
             return new SlotRecord(props.getProperty("id", ""), props.getProperty("version", ""),
                 props.getProperty("sha256", ""), props.getProperty("kind", ""),
                 Integer.parseInt(props.getProperty("launcherApi", "-1").trim()), props.getProperty("signature", ""));
         } catch (IllegalArgumentException e) {
-            throw new IOException("Slot record " + file + " is invalid: " + e.getMessage(), e);
+            throw new InvalidRecordException("Slot record " + file + " is invalid: " + e.getMessage(), e);
         }
     }
 
@@ -64,12 +74,9 @@ record SlotRecord(String id, String version, String sha256, String kind, int lau
         props.setProperty("kind", kind);
         props.setProperty("launcherApi", Integer.toString(launcherApi));
         props.setProperty("signature", signature);
-        Files.createDirectories(file.toAbsolutePath().getParent());
-        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-        try (OutputStream out = Files.newOutputStream(tmp)) {
-            props.store(out, null);
-        }
-        Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        props.store(out, null);
+        SlotStore.writeAtomically(file, out.toByteArray());
     }
 
     private static void require(boolean valid, String field) {

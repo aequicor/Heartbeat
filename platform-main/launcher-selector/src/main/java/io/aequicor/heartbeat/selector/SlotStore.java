@@ -1,14 +1,18 @@
 package io.aequicor.heartbeat.selector;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Раскладка слотов на диске: {@code slots/A/launcher.jar}, {@code slots/B/launcher.jar}, {@code slots/state.properties}
@@ -18,6 +22,12 @@ final class SlotStore {
     /** Имена слотов; соседний слот — другой элемент списка. */
     static final List<String> SLOTS = List.of("A", "B");
     static final String JAR_NAME = "launcher.jar";
+
+    /**
+     * Блокировки владельца, которые держит этот процесс. Второй дескриптор того же файла открывать нельзя: закрытие
+     * любого дескриптора снимает блокировки процесса на этот файл (POSIX), поэтому второй владелец отказывается заранее.
+     */
+    private static final Set<Path> HELD = ConcurrentHashMap.newKeySet();
 
     private final Path dir;
     /** Держится до конца процесса (поле не даёт сборщику освободить блокировку). */
@@ -66,27 +76,62 @@ final class SlotStore {
         if (ownerLock != null) {
             return true;
         }
+        Path lockFile = dir.resolve("owner.lock");
+        if (!HELD.add(lockFile)) {
+            return false;
+        }
         FileChannel channel = null;
         try {
             Files.createDirectories(dir);
-            channel = FileChannel.open(dir.resolve("owner.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
             if (channel.tryLock() != null) {
                 ownerLock = channel;
                 return true;
             }
         } catch (OverlappingFileLockException e) {
-            // этот процесс уже держит блокировку через другой экземпляр хранилища: второй владелец не нужен
+            // another channel of this process holds it: a second owner is not needed
         } catch (IOException e) {
             System.err.println("Slot owner lock is unavailable, slots are read-only: " + e);
         }
         close(channel);
+        HELD.remove(lockFile);
         return false;
     }
 
     /** Отпускает блокировку владельца (в продовом пути она живёт до конца процесса; нужна тестам). */
     void releaseOwnerLock() {
-        close(ownerLock);
+        if (ownerLock != null) {
+            close(ownerLock);
+            HELD.remove(dir.resolve("owner.lock"));
+        }
         ownerLock = null;
+    }
+
+    /**
+     * Пишет файл целиком: временный файл рядом, {@code fsync}, атомарное переименование. Оборванная запись (сбой,
+     * потеря питания) оставляет прежний файл, а не пустой; временный файл при сбое удаляется.
+     */
+    static void writeAtomically(Path file, byte[] content) throws IOException {
+        Files.createDirectories(file.toAbsolutePath().getParent());
+        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+        try {
+            try (FileChannel channel = FileChannel.open(tmp, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                ByteBuffer buffer = ByteBuffer.wrap(content);
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
+                channel.force(true);
+            }
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException | RuntimeException e) {
+            try {
+                Files.deleteIfExists(tmp);
+            } catch (IOException cleanup) {
+                e.addSuppressed(cleanup);
+            }
+            throw e;
+        }
     }
 
     static String sha256(Path file) throws IOException {
