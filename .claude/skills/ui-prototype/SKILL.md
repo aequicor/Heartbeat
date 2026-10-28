@@ -28,7 +28,7 @@ argument-hint: "<feature> <что проектируем>"
 
 - Файл `design/features/<feature>/<feature>.pen`, секции `Screens` / `Components` / `Transitions` / `Notes`,
   кадры `<Screen> / <State>` в размере хоста (desktop 1280×800 и ширина 420; mobile 390×844 — если экран есть на
-  Android/iOS), `id` без `/`.
+  Android/iOS), `id` без `/`; тёмная тема — `ref` на кадр с `theme`; `width`/`height` без `$`-переменных (README 4.4).
 - Только `ref` на компоненты и `$`-переменные библиотеки. Чего нет — сначала компонент или предложение токена
   (`proposal.<name>` + заметка) в библиотеке. Библиотеки ещё нет (#591) — значения токенов литералами с заметкой
   `token: <name>`, без `ref` на библиотеку (README 2.4).
@@ -39,7 +39,9 @@ argument-hint: "<feature> <что проектируем>"
 
 ## 3. Посмотри сам
 
-Открой файл в pen.dev и сними окно приложения: Claude Code desktop — computer-use по окну pen.dev; Heartbeat —
+Открой файл в pen.dev (`open -g -a Pen <file>`; уже открытую вкладку сначала закрой `File → Close Tab` —
+приложение не перечитывает файл с диска) и сними окно: Claude Code desktop — computer-use в фоне по
+`dev.pencil.desktop` (`app_screenshot`/`app_zoom`), панель свойств слоя — проверка размеров и привязок; Heartbeat —
 `computer_status` → `window_list` → `window_capture` → `window_screenshot`/`window_zoom` → `window_release`
 (скилл `computer-use`; переходы по холсту — ввод, он подтверждается по режиму безопасности). Приблизь каждый
 изменённый кадр, исправь перекрытия, обрезанный текст, неровные отступы, лишние элементы. Файл не открылся —
