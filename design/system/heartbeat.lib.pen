@@ -4042,7 +4042,7 @@
      "type": "frame",
      "name": "HbDivider",
      "reusable": true,
-     "width": 480,
+     "width": 200,
      "height": 1,
      "fill": "$colors.outlineSubtle",
      "x": 40,

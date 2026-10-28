@@ -10379,18 +10379,29 @@
          "children": [
           {
            "id": "doc-hb-button-primary-sample",
-           "type": "ref",
-           "ref": "hb:hb-button-primary",
-           "x": 137.6,
-           "y": 16,
-           "width": 104.7,
+           "type": "frame",
+           "name": "HbButton / Primary / Regular",
            "height": 32,
-           "descendants": {
-            "hb:hb-button-primary-label": {
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "doc-hb-button-primary-sample-hb-button-primary-label",
+             "type": "text",
+             "content": "Подключить",
+             "fill": "$hb:colors.onPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500",
              "x": 12,
              "y": 7
             }
-           }
+           ],
+           "fill": "$hb:colors.primary",
+           "x": 137.6,
+           "y": 16,
+           "width": 104.7,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -10458,7 +10469,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 230
+       "y": 230,
+       "width": 1104
       },
       {
        "id": "doc-hb-button-secondary",
@@ -10474,18 +10486,29 @@
          "children": [
           {
            "id": "doc-hb-button-secondary-sample",
-           "type": "ref",
-           "ref": "hb:hb-button-secondary",
-           "x": 158.4,
-           "y": 16,
-           "width": 63.2,
+           "type": "frame",
+           "name": "HbButton / Secondary / Regular",
            "height": 32,
-           "descendants": {
-            "hb:hb-button-secondary-label": {
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "doc-hb-button-secondary-sample-hb-button-secondary-label",
+             "type": "text",
+             "content": "Назад",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500",
              "x": 12,
              "y": 7
             }
-           }
+           ],
+           "fill": "$hb:colors.buttonFill",
+           "x": 158.4,
+           "y": 16,
+           "width": 63.2,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -10553,7 +10576,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 335
+       "y": 335,
+       "width": 1104
       },
       {
        "id": "doc-hb-button-ghost",
@@ -10569,18 +10593,28 @@
          "children": [
           {
            "id": "doc-hb-button-ghost-sample",
-           "type": "ref",
-           "ref": "hb:hb-button-ghost",
-           "x": 153.3,
-           "y": 16,
-           "width": 73.4,
+           "type": "frame",
+           "name": "HbButton / Ghost / Regular",
            "height": 32,
-           "descendants": {
-            "hb:hb-button-ghost-label": {
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "doc-hb-button-ghost-sample-hb-button-ghost-label",
+             "type": "text",
+             "content": "Отмена",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500",
              "x": 12,
              "y": 7
             }
-           }
+           ],
+           "x": 153.3,
+           "y": 16,
+           "width": 73.4,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -10648,7 +10682,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 440
+       "y": 440,
+       "width": 1104
       },
       {
        "id": "doc-hb-button-danger",
@@ -10664,18 +10699,29 @@
          "children": [
           {
            "id": "doc-hb-button-danger-sample",
-           "type": "ref",
-           "ref": "hb:hb-button-danger",
-           "x": 151.4,
-           "y": 16,
-           "width": 77.3,
+           "type": "frame",
+           "name": "HbButton / Danger / Regular",
            "height": 32,
-           "descendants": {
-            "hb:hb-button-danger-label": {
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "doc-hb-button-danger-sample-hb-button-danger-label",
+             "type": "text",
+             "content": "Удалить",
+             "fill": "$hb:colors.onError",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "500",
              "x": 12,
              "y": 7
             }
-           }
+           ],
+           "fill": "$hb:colors.error",
+           "x": 151.4,
+           "y": 16,
+           "width": 77.3,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -10743,7 +10789,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 545
+       "y": 545,
+       "width": 1104
       },
       {
        "id": "doc-hb-icon-button",
@@ -10759,18 +10806,27 @@
          "children": [
           {
            "id": "doc-hb-icon-button-sample",
-           "type": "ref",
-           "ref": "hb:hb-icon-button",
-           "x": 176,
-           "y": 16,
+           "type": "frame",
+           "name": "HbIconButton",
            "width": 28,
            "height": 28,
-           "descendants": {
-            "hb:hb-icon-button-icon": {
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "doc-hb-icon-button-sample-hb-icon-button-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-plus",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
              "x": 5,
              "y": 5
             }
-           }
+           ],
+           "x": 176,
+           "y": 16,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -10838,7 +10894,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 649
+       "y": 649,
+       "width": 1104
       },
       {
        "id": "doc-hb-nav-item",
@@ -10854,22 +10911,39 @@
          "children": [
           {
            "id": "doc-hb-nav-item-sample",
-           "type": "ref",
-           "ref": "hb:hb-nav-item",
-           "x": 16,
-           "y": 16,
-           "width": 480,
+           "type": "frame",
+           "name": "HbNavigationItem",
+           "width": 380,
            "height": 28,
-           "descendants": {
-            "hb:hb-nav-item-icon": {
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "doc-hb-nav-item-sample-hb-nav-item-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-folder",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
              "x": 8,
              "y": 5
             },
-            "hb:hb-nav-item-label": {
+            {
+             "id": "doc-hb-nav-item-sample-hb-nav-item-label",
+             "type": "text",
+             "content": "Heartbeat",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
              "x": 38,
              "y": 5
             }
-           }
+           ],
+           "x": 16,
+           "y": 16,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -10937,7 +11011,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 753
+       "y": 753,
+       "width": 1104
       },
       {
        "id": "doc-hb-search-field",
@@ -10953,22 +11028,40 @@
          "children": [
           {
            "id": "doc-hb-search-field-sample",
-           "type": "ref",
-           "ref": "hb:hb-search-field",
-           "x": 16,
-           "y": 16,
-           "width": 480,
+           "type": "frame",
+           "name": "HbSearchField",
+           "width": 380,
            "height": 28,
-           "descendants": {
-            "hb:hb-search-field-icon": {
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "fill": "$hb:colors.inputFill",
+           "children": [
+            {
+             "id": "doc-hb-search-field-sample-hb-search-field-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-search",
+             "width": 14,
+             "height": 14,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 0.98,
              "x": 8,
              "y": 7
             },
-            "hb:hb-search-field-placeholder": {
+            {
+             "id": "doc-hb-search-field-sample-hb-search-field-placeholder",
+             "type": "text",
+             "content": "Поиск провайдеров",
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
              "x": 28,
              "y": 5
             }
-           }
+           ],
+           "x": 16,
+           "y": 16,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -11036,7 +11129,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 857
+       "y": 857,
+       "width": 1104
       },
       {
        "id": "doc-hb-text-field",
@@ -11052,18 +11146,29 @@
          "children": [
           {
            "id": "doc-hb-text-field-sample",
-           "type": "ref",
-           "ref": "hb:hb-text-field",
-           "x": 16,
-           "y": 16,
-           "width": 480,
+           "type": "frame",
+           "name": "HbTextField",
+           "width": 380,
            "height": 32,
-           "descendants": {
-            "hb:hb-text-field-value": {
+           "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+           "fill": "$hb:colors.inputFill",
+           "children": [
+            {
+             "id": "doc-hb-text-field-sample-hb-text-field-value",
+             "type": "text",
+             "content": "Вставьте ключ",
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
              "x": 10,
              "y": 7
             }
-           }
+           ],
+           "x": 16,
+           "y": 16,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -11131,7 +11236,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 962
+       "y": 962,
+       "width": 1104
       },
       {
        "id": "doc-hb-badge-success",
@@ -11147,18 +11253,32 @@
          "children": [
           {
            "id": "doc-hb-badge-success-sample",
-           "type": "ref",
-           "ref": "hb:hb-badge-success",
-           "x": 150.1,
-           "y": 16,
-           "width": 79.8,
+           "type": "frame",
+           "name": "HbBadge / Success",
            "height": 20,
-           "descendants": {
-            "hb:hb-badge-success-label": {
+           "cornerRadius": 4,
+           "fill": "$hb:colors.successContainer",
+           "stroke": "$hb:colors.success",
+           "strokeWidth": 1,
+           "strokeAlignment": "inner",
+           "children": [
+            {
+             "id": "doc-hb-badge-success-sample-hb-badge-success-label",
+             "type": "text",
+             "content": "Установлен",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.caption.size",
+             "lineHeight": "$hb:typography.caption.lineHeight",
+             "fontWeight": "$hb:typography.caption.weight",
              "x": 6,
              "y": 2
             }
-           }
+           ],
+           "x": 150.1,
+           "y": 16,
+           "width": 79.8,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -11226,7 +11346,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 1066
+       "y": 1066,
+       "width": 1104
       },
       {
        "id": "doc-hb-switch-on",
@@ -11242,18 +11363,26 @@
          "children": [
           {
            "id": "doc-hb-switch-on-sample",
-           "type": "ref",
-           "ref": "hb:hb-switch-on",
-           "x": 176,
-           "y": 16,
+           "type": "frame",
+           "name": "HbSwitch / On",
            "width": 28,
            "height": 16,
-           "descendants": {
-            "hb:hb-switch-on-knob": {
+           "cornerRadius": 8,
+           "fill": "$hb:colors.brand",
+           "layout": "none",
+           "children": [
+            {
+             "id": "doc-hb-switch-on-sample-hb-switch-on-knob",
+             "type": "ellipse",
              "x": 14,
-             "y": 2
+             "y": 2,
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.onBrand"
             }
-           }
+           ],
+           "x": 176,
+           "y": 16
           }
          ],
          "x": 0,
@@ -11321,7 +11450,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 1170
+       "y": 1170,
+       "width": 1104
       },
       {
        "id": "doc-hb-tool-row-done",
@@ -11337,40 +11467,89 @@
          "children": [
           {
            "id": "doc-hb-tool-row-done-sample",
-           "type": "ref",
-           "ref": "hb:hb-tool-row-done",
-           "x": 16,
-           "y": 16,
-           "width": 480,
-           "height": 50,
-           "descendants": {
-            "hb:hb-tool-row-done-icon": {
+           "type": "frame",
+           "name": "HbToolCall / Done",
+           "width": 380,
+           "cornerRadius": 8,
+           "fill": "$hb:surfaces.tool",
+           "stroke": "$hb:surfaces.outline",
+           "strokeWidth": 1,
+           "strokeAlignment": "inner",
+           "children": [
+            {
+             "id": "doc-hb-tool-row-done-sample-hb-tool-row-done-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-success",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:surfaces.success",
+             "strokeWidth": 1.26,
              "x": 8,
              "y": 16
             },
-            "hb:hb-tool-row-done-text": {
+            {
+             "id": "doc-hb-tool-row-done-sample-hb-tool-row-done-text",
+             "type": "frame",
+             "width": 256.2,
+             "layout": "none",
+             "children": [
+              {
+               "id": "doc-hb-tool-row-done-sample-hb-tool-row-done-title",
+               "type": "text",
+               "content": "Прочитан файл",
+               "fill": "$hb:colors.textPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "$hb:typography.label.weight",
+               "x": 0,
+               "y": 0
+              },
+              {
+               "id": "doc-hb-tool-row-done-sample-hb-tool-row-done-summary",
+               "type": "text",
+               "content": "StudioComposer.kt",
+               "fill": "$hb:colors.textSecondary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.caption.size",
+               "lineHeight": "$hb:typography.caption.lineHeight",
+               "fontWeight": "$hb:typography.caption.weight",
+               "x": 0,
+               "y": 18
+              }
+             ],
              "x": 38,
              "y": 8,
-             "width": 356.2,
              "height": 34
             },
-            "hb:hb-tool-row-done-title": {
-             "x": 0,
-             "y": 0
-            },
-            "hb:hb-tool-row-done-summary": {
-             "x": 0,
-             "y": 18
-            },
-            "hb:hb-tool-row-done-status": {
-             "x": 406.2,
+            {
+             "id": "doc-hb-tool-row-done-sample-hb-tool-row-done-status",
+             "type": "text",
+             "content": "Готово",
+             "fill": "$hb:surfaces.success",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.caption.size",
+             "lineHeight": "$hb:typography.caption.lineHeight",
+             "fontWeight": "$hb:typography.caption.weight",
+             "x": 306.2,
              "y": 17
             },
-            "hb:hb-tool-row-done-chevron": {
-             "x": 458,
+            {
+             "id": "doc-hb-tool-row-done-sample-hb-tool-row-done-chevron",
+             "type": "ref",
+             "ref": "hb:hb-icon-chevron-right",
+             "width": 14,
+             "height": 14,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 0.98,
+             "x": 358,
              "y": 18
             }
-           }
+           ],
+           "x": 16,
+           "y": 16,
+           "height": 50,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -11438,7 +11617,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 1293
+       "y": 1293,
+       "width": 1104
       },
       {
        "id": "doc-hb-composer-pill",
@@ -11454,26 +11634,51 @@
          "children": [
           {
            "id": "doc-hb-composer-pill-sample",
-           "type": "ref",
-           "ref": "hb:hb-composer-pill",
-           "x": 131.2,
-           "y": 16,
-           "width": 117.6,
+           "type": "frame",
+           "name": "HbComposerMenuButton / Pill",
            "height": 32,
-           "descendants": {
-            "hb:hb-composer-pill-icon": {
+           "cornerRadius": "$hb:shapes.small",
+           "fill": "$hb:surfaces.composerPill",
+           "children": [
+            {
+             "id": "doc-hb-composer-pill-sample-hb-composer-pill-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-layers",
+             "width": 14,
+             "height": 14,
+             "stroke": "$hb:colors.textPrimary",
+             "strokeWidth": 0.98,
              "x": 8,
              "y": 9
             },
-            "hb:hb-composer-pill-label": {
+            {
+             "id": "doc-hb-composer-pill-sample-hb-composer-pill-label",
+             "type": "text",
+             "content": "Sonnet 5.5",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
              "x": 26,
              "y": 7
             },
-            "hb:hb-composer-pill-chevron": {
+            {
+             "id": "doc-hb-composer-pill-sample-hb-composer-pill-chevron",
+             "type": "ref",
+             "ref": "hb:hb-icon-chevron-down",
+             "width": 14,
+             "height": 14,
+             "stroke": "$hb:colors.textPrimary",
+             "strokeWidth": 0.98,
              "x": 95.6,
              "y": 9
             }
-           }
+           ],
+           "x": 131.2,
+           "y": 16,
+           "width": 117.6,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -11541,7 +11746,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 1398
+       "y": 1398,
+       "width": 1104
       },
       {
        "id": "doc-hb-composer-send",
@@ -11557,18 +11763,28 @@
          "children": [
           {
            "id": "doc-hb-composer-send-sample",
-           "type": "ref",
-           "ref": "hb:hb-composer-send",
-           "x": 174,
-           "y": 16,
+           "type": "frame",
+           "name": "HbComposer / Send",
            "width": 32,
            "height": 32,
-           "descendants": {
-            "hb:hb-composer-send-icon": {
+           "cornerRadius": "$hb:shapes.small",
+           "fill": "$hb:surfaces.composerAction",
+           "children": [
+            {
+             "id": "doc-hb-composer-send-sample-hb-composer-send-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-arrow-up",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:surfaces.onComposerAction",
+             "strokeWidth": 1.26,
              "x": 7,
              "y": 7
             }
-           }
+           ],
+           "x": 174,
+           "y": 16,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -11636,7 +11852,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 1503
+       "y": 1503,
+       "width": 1104
       },
       {
        "id": "doc-hb-banner-error",
@@ -11652,22 +11869,40 @@
          "children": [
           {
            "id": "doc-hb-banner-error-sample",
-           "type": "ref",
-           "ref": "hb:hb-banner-error",
-           "x": 16,
-           "y": 16,
-           "width": 480,
-           "height": 34,
-           "descendants": {
-            "hb:hb-banner-error-icon": {
+           "type": "frame",
+           "name": "HbBanner / Error",
+           "width": 380,
+           "cornerRadius": "$hb:shapes.medium",
+           "fill": "$hb:colors.errorContainer",
+           "children": [
+            {
+             "id": "doc-hb-banner-error-sample-hb-banner-error-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-alert",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.error",
+             "strokeWidth": 1.26,
              "x": 12,
              "y": 8
             },
-            "hb:hb-banner-error-message": {
+            {
+             "id": "doc-hb-banner-error-sample-hb-banner-error-message",
+             "type": "text",
+             "content": "Введите API-ключ",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
              "x": 38,
              "y": 8
             }
-           }
+           ],
+           "x": 16,
+           "y": 16,
+           "height": 34,
+           "layout": "none"
           }
          ],
          "x": 0,
@@ -11735,7 +11970,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 1610
+       "y": 1610,
+       "width": 1104
       },
       {
        "id": "doc-hb-studio-mark",
@@ -11751,22 +11987,43 @@
          "children": [
           {
            "id": "doc-hb-studio-mark-sample",
-           "type": "ref",
-           "ref": "hb:hb-studio-mark",
-           "x": 176,
-           "y": 16,
+           "type": "frame",
+           "name": "HbStudioMark · dimensions.avatarSize",
            "width": 28,
            "height": 28,
-           "descendants": {
-            "hb:hb-studio-mark-disc": {
+           "layout": "none",
+           "children": [
+            {
+             "id": "doc-hb-studio-mark-sample-hb-studio-mark-disc",
+             "type": "ellipse",
              "x": 0.5,
-             "y": 0.5
+             "y": 0.5,
+             "width": 27,
+             "height": 27,
+             "fill": "$hb:surfaces.avatar"
             },
-            "hb:hb-studio-mark-wave": {
+            {
+             "id": "doc-hb-studio-mark-sample-hb-studio-mark-wave",
+             "type": "path",
+             "geometry": "M20,52 C37,55 32,29 43,29 C56,29 50,73 63,73 C74,73 68,48 81,49",
+             "viewBox": [
+              0,
+              0,
+              100,
+              100
+             ],
              "x": 0,
-             "y": 0
+             "y": 0,
+             "width": 28,
+             "height": 28,
+             "stroke": "$hb:surfaces.accent",
+             "strokeWidth": 2,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
             }
-           }
+           ],
+           "x": 176,
+           "y": 16
           }
          ],
          "x": 0,
@@ -11834,7 +12091,8 @@
        "type": "ref",
        "ref": "hb:hb-divider",
        "x": 48,
-       "y": 1714
+       "y": 1714,
+       "width": 1104
       }
      ],
      "x": 0,

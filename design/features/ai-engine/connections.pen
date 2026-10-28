@@ -29,26 +29,42 @@
        "children": [
         {
          "id": "settings-sidebar-lights",
-         "type": "ref",
-         "ref": "hb:window-traffic-lights",
-         "x": 4,
-         "y": 8,
+         "type": "frame",
+         "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
          "width": 96,
          "height": 28,
-         "descendants": {
-          "hb:window-traffic-lights-0": {
+         "children": [
+          {
+           "id": "settings-sidebar-lights-window-traffic-lights-0",
+           "type": "ellipse",
+           "width": 12,
+           "height": 12,
+           "fill": "$hb:colors.outline",
            "x": 8,
            "y": 8
           },
-          "hb:window-traffic-lights-1": {
+          {
+           "id": "settings-sidebar-lights-window-traffic-lights-1",
+           "type": "ellipse",
+           "width": 12,
+           "height": 12,
+           "fill": "$hb:colors.outline",
            "x": 28,
            "y": 8
           },
-          "hb:window-traffic-lights-2": {
+          {
+           "id": "settings-sidebar-lights-window-traffic-lights-2",
+           "type": "ellipse",
+           "width": 12,
+           "height": 12,
+           "fill": "$hb:colors.outline",
            "x": 48,
            "y": 8
           }
-         }
+         ],
+         "x": 4,
+         "y": 8,
+         "layout": "none"
         }
        ],
        "x": 0,
@@ -772,9 +788,748 @@
      "children": [
       {
        "id": "wizard-engine-sidebar",
-       "type": "ref",
-       "ref": "settings-sidebar",
+       "type": "frame",
+       "name": "Settings / Sidebar · dimensions.sidebarWidth",
+       "width": 264,
        "height": 800,
+       "layout": "none",
+       "fill": "$hb:surfaces.sidebar",
+       "children": [
+        {
+         "id": "wizard-engine-sidebar-settings-sidebar-header",
+         "type": "frame",
+         "width": 264,
+         "height": 44,
+         "children": [
+          {
+           "id": "wizard-engine-sidebar-settings-sidebar-lights",
+           "type": "frame",
+           "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
+           "width": 96,
+           "height": 28,
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-sidebar-lights-window-traffic-lights-0",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 8,
+             "y": 8
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-sidebar-lights-window-traffic-lights-1",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 28,
+             "y": 8
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-sidebar-lights-window-traffic-lights-2",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 48,
+             "y": 8
+            }
+           ],
+           "x": 4,
+           "y": 8,
+           "layout": "none"
+          }
+         ],
+         "x": 0,
+         "y": 0,
+         "layout": "none"
+        },
+        {
+         "id": "wizard-engine-sidebar-settings-sidebar-list",
+         "type": "frame",
+         "width": 264,
+         "height": 756,
+         "layout": "none",
+         "children": [
+          {
+           "id": "wizard-engine-sidebar-settings-back",
+           "type": "frame",
+           "name": "Назад",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-back-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-arrow-left",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-back-label",
+             "type": "text",
+             "content": "Назад",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 6,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-heading",
+           "type": "frame",
+           "name": "Настройки",
+           "width": 248,
+           "height": 28,
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-heading-label",
+             "type": "text",
+             "content": "Настройки",
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.caption.size",
+             "lineHeight": "$hb:typography.caption.lineHeight",
+             "fontWeight": "$hb:typography.caption.weight",
+             "x": 8,
+             "y": 6
+            }
+           ],
+           "x": 8,
+           "y": 36,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-0",
+           "type": "frame",
+           "name": "Модели и движки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "fill": "$hb:surfaces.selected",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-0-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-layers",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:surfaces.onSelected",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-0-label",
+             "type": "text",
+             "content": "Модели и движки",
+             "fill": "$hb:surfaces.onSelected",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 66,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-1",
+           "type": "frame",
+           "name": "Движки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-1-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-terminal",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-1-label",
+             "type": "text",
+             "content": "Движки",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 96,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-2",
+           "type": "frame",
+           "name": "Безопасность",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-2-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-shield",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-2-label",
+             "type": "text",
+             "content": "Безопасность",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 126,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-3",
+           "type": "frame",
+           "name": "Субагенты",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-3-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-users",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-3-label",
+             "type": "text",
+             "content": "Субагенты",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 156,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-4",
+           "type": "frame",
+           "name": "Поиск",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-4-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-search",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-4-label",
+             "type": "text",
+             "content": "Поиск",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 186,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-5",
+           "type": "frame",
+           "name": "Управление компьютером",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-5-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-layers",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-5-label",
+             "type": "text",
+             "content": "Управление компьютером",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 216,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-6",
+           "type": "frame",
+           "name": "Браузер Chrome",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-6-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-globe",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-6-label",
+             "type": "text",
+             "content": "Браузер Chrome",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 246,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-7",
+           "type": "frame",
+           "name": "Самообучение",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-7-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-sparkles",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-7-label",
+             "type": "text",
+             "content": "Самообучение",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 276,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-8",
+           "type": "frame",
+           "name": "Контекст",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-8-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-minimize",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-8-label",
+             "type": "text",
+             "content": "Контекст",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 306,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-9",
+           "type": "frame",
+           "name": "Автопродолжение",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-9-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-play",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-9-label",
+             "type": "text",
+             "content": "Автопродолжение",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 336,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-10",
+           "type": "frame",
+           "name": "Сборки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-10-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-terminal",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-10-label",
+             "type": "text",
+             "content": "Сборки",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 366,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-11",
+           "type": "frame",
+           "name": "Харнесс",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-11-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-code",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-11-label",
+             "type": "text",
+             "content": "Харнесс",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 396,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-12",
+           "type": "frame",
+           "name": "Интерфейсы",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-12-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-grid",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-12-label",
+             "type": "text",
+             "content": "Интерфейсы",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 426,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-13",
+           "type": "frame",
+           "name": "Конфигурация",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-13-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-folder-open",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-13-label",
+             "type": "text",
+             "content": "Конфигурация",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 456,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-14",
+           "type": "frame",
+           "name": "Обновления",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-14-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-download",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-14-label",
+             "type": "text",
+             "content": "Обновления",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 486,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-15",
+           "type": "frame",
+           "name": "Логи приложения",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-15-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-file-text",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-15-label",
+             "type": "text",
+             "content": "Логи приложения",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 516,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-engine-sidebar-settings-item-16",
+           "type": "frame",
+           "name": "Фича-флаги",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-engine-sidebar-settings-item-16-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-sliders",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-engine-sidebar-settings-item-16-label",
+             "type": "text",
+             "content": "Фича-флаги",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 546,
+           "layout": "none"
+          }
+         ],
+         "x": 0,
+         "y": 44
+        }
+       ],
        "x": 0,
        "y": 0
       },
@@ -899,19 +1654,32 @@
                 },
                 {
                  "id": "wizard-engine-pi-badge",
-                 "type": "ref",
-                 "ref": "hb:hb-badge-success",
-                 "descendants": {
-                  "hb:hb-badge-success-label": {
+                 "type": "frame",
+                 "name": "HbBadge / Success",
+                 "height": 20,
+                 "cornerRadius": 4,
+                 "fill": "$hb:colors.successContainer",
+                 "stroke": "$hb:colors.success",
+                 "strokeWidth": 1,
+                 "strokeAlignment": "inner",
+                 "children": [
+                  {
+                   "id": "wizard-engine-pi-badge-hb-badge-success-label",
+                   "type": "text",
                    "content": "Установлен",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
                    "x": 6,
                    "y": 2
                   }
-                 },
+                 ],
                  "x": 602.2,
                  "y": 13,
                  "width": 79.8,
-                 "height": 20
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-engine-pi-chevron",
@@ -935,7 +1703,8 @@
                "type": "ref",
                "ref": "hb:hb-divider",
                "x": 0,
-               "y": 46
+               "y": 46,
+               "width": 720
               },
               {
                "id": "wizard-engine-koog",
@@ -981,19 +1750,32 @@
                 },
                 {
                  "id": "wizard-engine-koog-badge",
-                 "type": "ref",
-                 "ref": "hb:hb-badge-neutral",
-                 "descendants": {
-                  "hb:hb-badge-neutral-label": {
+                 "type": "frame",
+                 "name": "HbBadge / Neutral",
+                 "height": 20,
+                 "cornerRadius": 4,
+                 "fill": "$hb:colors.surfaceElevated",
+                 "stroke": "$hb:colors.outlineSubtle",
+                 "strokeWidth": 1,
+                 "strokeAlignment": "inner",
+                 "children": [
+                  {
+                   "id": "wizard-engine-koog-badge-hb-badge-neutral-label",
+                   "type": "text",
                    "content": "Не проверен",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
                    "x": 6,
                    "y": 2
                   }
-                 },
+                 ],
                  "x": 593.9,
                  "y": 13,
-                 "width": 79.8,
-                 "height": 20
+                 "width": 88.1,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-engine-koog-chevron",
@@ -1017,7 +1799,8 @@
                "type": "ref",
                "ref": "hb:hb-divider",
                "x": 0,
-               "y": 93
+               "y": 93,
+               "width": 720
               },
               {
                "id": "wizard-engine-codex",
@@ -1063,19 +1846,32 @@
                 },
                 {
                  "id": "wizard-engine-codex-badge",
-                 "type": "ref",
-                 "ref": "hb:hb-badge-warning",
-                 "descendants": {
-                  "hb:hb-badge-warning-label": {
+                 "type": "frame",
+                 "name": "HbBadge / Warning",
+                 "height": 20,
+                 "cornerRadius": 4,
+                 "fill": "$hb:colors.warningContainer",
+                 "stroke": "$hb:colors.warning",
+                 "strokeWidth": 1,
+                 "strokeAlignment": "inner",
+                 "children": [
+                  {
+                   "id": "wizard-engine-codex-badge-hb-badge-warning-label",
+                   "type": "text",
                    "content": "Требует установки",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
                    "x": 6,
                    "y": 2
                   }
-                 },
+                 ],
                  "x": 558.7,
                  "y": 13,
-                 "width": 79.8,
-                 "height": 20
+                 "width": 123.3,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-engine-codex-chevron",
@@ -1099,7 +1895,8 @@
                "type": "ref",
                "ref": "hb:hb-divider",
                "x": 0,
-               "y": 140
+               "y": 140,
+               "width": 720
               },
               {
                "id": "wizard-engine-claude",
@@ -1145,19 +1942,32 @@
                 },
                 {
                  "id": "wizard-engine-claude-badge",
-                 "type": "ref",
-                 "ref": "hb:hb-badge-success",
-                 "descendants": {
-                  "hb:hb-badge-success-label": {
+                 "type": "frame",
+                 "name": "HbBadge / Success",
+                 "height": 20,
+                 "cornerRadius": 4,
+                 "fill": "$hb:colors.successContainer",
+                 "stroke": "$hb:colors.success",
+                 "strokeWidth": 1,
+                 "strokeAlignment": "inner",
+                 "children": [
+                  {
+                   "id": "wizard-engine-claude-badge-hb-badge-success-label",
+                   "type": "text",
                    "content": "Установлен",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
                    "x": 6,
                    "y": 2
                   }
-                 },
+                 ],
                  "x": 602.2,
                  "y": 13,
                  "width": 79.8,
-                 "height": 20
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-engine-claude-chevron",
@@ -1193,19 +2003,28 @@
            "children": [
             {
              "id": "wizard-engine-cancel",
-             "type": "ref",
-             "ref": "hb:hb-button-ghost",
-             "descendants": {
-              "hb:hb-button-ghost-label": {
+             "type": "frame",
+             "name": "HbButton / Ghost / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-engine-cancel-hb-button-ghost-label",
+               "type": "text",
                "content": "Отмена",
+               "fill": "$hb:colors.textPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
              "x": 0,
              "y": 0,
              "width": 73.4,
-             "height": 32
+             "layout": "none"
             }
            ],
            "x": 0,
@@ -1243,9 +2062,748 @@
      "children": [
       {
        "id": "wizard-auth-sidebar",
-       "type": "ref",
-       "ref": "settings-sidebar",
+       "type": "frame",
+       "name": "Settings / Sidebar · dimensions.sidebarWidth",
+       "width": 264,
        "height": 800,
+       "layout": "none",
+       "fill": "$hb:surfaces.sidebar",
+       "children": [
+        {
+         "id": "wizard-auth-sidebar-settings-sidebar-header",
+         "type": "frame",
+         "width": 264,
+         "height": 44,
+         "children": [
+          {
+           "id": "wizard-auth-sidebar-settings-sidebar-lights",
+           "type": "frame",
+           "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
+           "width": 96,
+           "height": 28,
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-sidebar-lights-window-traffic-lights-0",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 8,
+             "y": 8
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-sidebar-lights-window-traffic-lights-1",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 28,
+             "y": 8
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-sidebar-lights-window-traffic-lights-2",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 48,
+             "y": 8
+            }
+           ],
+           "x": 4,
+           "y": 8,
+           "layout": "none"
+          }
+         ],
+         "x": 0,
+         "y": 0,
+         "layout": "none"
+        },
+        {
+         "id": "wizard-auth-sidebar-settings-sidebar-list",
+         "type": "frame",
+         "width": 264,
+         "height": 756,
+         "layout": "none",
+         "children": [
+          {
+           "id": "wizard-auth-sidebar-settings-back",
+           "type": "frame",
+           "name": "Назад",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-back-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-arrow-left",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-back-label",
+             "type": "text",
+             "content": "Назад",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 6,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-heading",
+           "type": "frame",
+           "name": "Настройки",
+           "width": 248,
+           "height": 28,
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-heading-label",
+             "type": "text",
+             "content": "Настройки",
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.caption.size",
+             "lineHeight": "$hb:typography.caption.lineHeight",
+             "fontWeight": "$hb:typography.caption.weight",
+             "x": 8,
+             "y": 6
+            }
+           ],
+           "x": 8,
+           "y": 36,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-0",
+           "type": "frame",
+           "name": "Модели и движки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "fill": "$hb:surfaces.selected",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-0-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-layers",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:surfaces.onSelected",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-0-label",
+             "type": "text",
+             "content": "Модели и движки",
+             "fill": "$hb:surfaces.onSelected",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 66,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-1",
+           "type": "frame",
+           "name": "Движки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-1-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-terminal",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-1-label",
+             "type": "text",
+             "content": "Движки",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 96,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-2",
+           "type": "frame",
+           "name": "Безопасность",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-2-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-shield",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-2-label",
+             "type": "text",
+             "content": "Безопасность",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 126,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-3",
+           "type": "frame",
+           "name": "Субагенты",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-3-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-users",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-3-label",
+             "type": "text",
+             "content": "Субагенты",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 156,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-4",
+           "type": "frame",
+           "name": "Поиск",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-4-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-search",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-4-label",
+             "type": "text",
+             "content": "Поиск",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 186,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-5",
+           "type": "frame",
+           "name": "Управление компьютером",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-5-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-layers",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-5-label",
+             "type": "text",
+             "content": "Управление компьютером",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 216,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-6",
+           "type": "frame",
+           "name": "Браузер Chrome",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-6-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-globe",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-6-label",
+             "type": "text",
+             "content": "Браузер Chrome",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 246,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-7",
+           "type": "frame",
+           "name": "Самообучение",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-7-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-sparkles",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-7-label",
+             "type": "text",
+             "content": "Самообучение",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 276,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-8",
+           "type": "frame",
+           "name": "Контекст",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-8-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-minimize",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-8-label",
+             "type": "text",
+             "content": "Контекст",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 306,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-9",
+           "type": "frame",
+           "name": "Автопродолжение",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-9-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-play",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-9-label",
+             "type": "text",
+             "content": "Автопродолжение",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 336,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-10",
+           "type": "frame",
+           "name": "Сборки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-10-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-terminal",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-10-label",
+             "type": "text",
+             "content": "Сборки",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 366,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-11",
+           "type": "frame",
+           "name": "Харнесс",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-11-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-code",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-11-label",
+             "type": "text",
+             "content": "Харнесс",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 396,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-12",
+           "type": "frame",
+           "name": "Интерфейсы",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-12-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-grid",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-12-label",
+             "type": "text",
+             "content": "Интерфейсы",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 426,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-13",
+           "type": "frame",
+           "name": "Конфигурация",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-13-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-folder-open",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-13-label",
+             "type": "text",
+             "content": "Конфигурация",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 456,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-14",
+           "type": "frame",
+           "name": "Обновления",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-14-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-download",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-14-label",
+             "type": "text",
+             "content": "Обновления",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 486,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-15",
+           "type": "frame",
+           "name": "Логи приложения",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-15-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-file-text",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-15-label",
+             "type": "text",
+             "content": "Логи приложения",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 516,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-sidebar-settings-item-16",
+           "type": "frame",
+           "name": "Фича-флаги",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-sidebar-settings-item-16-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-sliders",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-sidebar-settings-item-16-label",
+             "type": "text",
+             "content": "Фича-флаги",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 546,
+           "layout": "none"
+          }
+         ],
+         "x": 0,
+         "y": 44
+        }
+       ],
        "x": 0,
        "y": 0
       },
@@ -1338,22 +2896,40 @@
               },
               {
                "id": "wizard-auth-search",
-               "type": "ref",
-               "ref": "hb:hb-search-field",
-               "x": 0,
-               "y": 26,
-               "width": 480,
+               "type": "frame",
+               "name": "HbSearchField",
+               "width": 720,
                "height": 28,
-               "descendants": {
-                "hb:hb-search-field-icon": {
+               "cornerRadius": "$hb:dimensions.controlCornerRadius",
+               "fill": "$hb:colors.inputFill",
+               "children": [
+                {
+                 "id": "wizard-auth-search-hb-search-field-icon",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-search",
+                 "width": 14,
+                 "height": 14,
+                 "stroke": "$hb:colors.textSecondary",
+                 "strokeWidth": 0.98,
                  "x": 8,
                  "y": 7
                 },
-                "hb:hb-search-field-placeholder": {
+                {
+                 "id": "wizard-auth-search-hb-search-field-placeholder",
+                 "type": "text",
+                 "content": "Поиск провайдеров",
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.label.size",
+                 "lineHeight": "$hb:typography.label.lineHeight",
+                 "fontWeight": "$hb:typography.label.weight",
                  "x": 28,
                  "y": 5
                 }
-               }
+               ],
+               "x": 0,
+               "y": 26,
+               "layout": "none"
               },
               {
                "id": "wizard-auth-provider-list",
@@ -1632,20 +3208,29 @@
                   },
                   {
                    "id": "wizard-auth-key-input",
-                   "type": "ref",
-                   "ref": "hb:hb-text-field",
-                   "descendants": {
-                    "hb:hb-text-field-value": {
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 704,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "wizard-auth-key-input-hb-text-field-value",
+                     "type": "text",
                      "content": "Вставьте ключ",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
                      "x": 10,
                      "y": 7
                     }
-                   },
+                   ],
                    "x": 0,
                    "y": 22,
-                   "width": 480,
-                   "height": 32
+                   "layout": "none"
                   },
                   {
                    "id": "wizard-auth-key-hint",
@@ -1668,19 +3253,28 @@
                 },
                 {
                  "id": "wizard-auth-get-key",
-                 "type": "ref",
-                 "ref": "hb:hb-button-ghost-small",
-                 "descendants": {
-                  "hb:hb-button-ghost-small-label": {
+                 "type": "frame",
+                 "name": "HbButton / Ghost / Small",
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "wizard-auth-get-key-hb-button-ghost-small-label",
+                   "type": "text",
                    "content": "Получить API-ключ",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500",
                    "x": 8,
                    "y": 5
                   }
-                 },
+                 ],
                  "x": 8,
                  "y": 80,
-                 "width": 65.4,
-                 "height": 28
+                 "width": 141.6,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-auth-address",
@@ -1702,20 +3296,29 @@
                   },
                   {
                    "id": "wizard-auth-address-input",
-                   "type": "ref",
-                   "ref": "hb:hb-text-field",
-                   "descendants": {
-                    "hb:hb-text-field-value": {
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 704,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "wizard-auth-address-input-hb-text-field-value",
+                     "type": "text",
                      "content": "https://api.anthropic.com",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
                      "x": 10,
                      "y": 7
                     }
-                   },
+                   ],
                    "x": 0,
                    "y": 22,
-                   "width": 480,
-                   "height": 32
+                   "layout": "none"
                   },
                   {
                    "id": "wizard-auth-address-hint",
@@ -1756,20 +3359,29 @@
                   },
                   {
                    "id": "wizard-auth-name-input",
-                   "type": "ref",
-                   "ref": "hb:hb-text-field",
-                   "descendants": {
-                    "hb:hb-text-field-value": {
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 704,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "wizard-auth-name-input-hb-text-field-value",
+                     "type": "text",
                      "content": "Anthropic",
                      "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
                      "x": 10,
                      "y": 7
                     }
-                   },
+                   ],
                    "x": 0,
                    "y": 22,
-                   "width": 480,
-                   "height": 32
+                   "layout": "none"
                   }
                  ],
                  "x": 8,
@@ -1798,19 +3410,28 @@
            "children": [
             {
              "id": "wizard-auth-cancel",
-             "type": "ref",
-             "ref": "hb:hb-button-ghost",
-             "descendants": {
-              "hb:hb-button-ghost-label": {
+             "type": "frame",
+             "name": "HbButton / Ghost / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-auth-cancel-hb-button-ghost-label",
+               "type": "text",
                "content": "Отмена",
+               "fill": "$hb:colors.textPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
              "x": 0,
              "y": 0,
              "width": 73.4,
-             "height": 32
+             "layout": "none"
             },
             {
              "id": "wizard-auth-footer-gap",
@@ -1823,51 +3444,81 @@
             },
             {
              "id": "wizard-auth-back",
-             "type": "ref",
-             "ref": "hb:hb-button-secondary",
-             "descendants": {
-              "hb:hb-button-secondary-label": {
+             "type": "frame",
+             "name": "HbButton / Secondary / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-auth-back-hb-button-secondary-label",
+               "type": "text",
                "content": "Назад",
+               "fill": "$hb:colors.textPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
+             "fill": "$hb:colors.buttonFill",
              "x": 354.4,
              "y": 0,
              "width": 63.2,
-             "height": 32
+             "layout": "none"
             },
             {
              "id": "wizard-auth-check",
-             "type": "ref",
-             "ref": "hb:hb-button-secondary",
-             "descendants": {
-              "hb:hb-button-secondary-label": {
+             "type": "frame",
+             "name": "HbButton / Secondary / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-auth-check-hb-button-secondary-label",
+               "type": "text",
                "content": "Проверить подключение",
+               "fill": "$hb:colors.textPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
+             "fill": "$hb:colors.buttonFill",
              "x": 423.5,
              "y": 0,
-             "width": 63.2,
-             "height": 32
+             "width": 185.8,
+             "layout": "none"
             },
             {
              "id": "wizard-auth-connect",
-             "type": "ref",
-             "ref": "hb:hb-button-primary",
-             "descendants": {
-              "hb:hb-button-primary-label": {
+             "type": "frame",
+             "name": "HbButton / Primary / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-auth-connect-hb-button-primary-label",
+               "type": "text",
                "content": "Подключить",
+               "fill": "$hb:colors.onPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
+             "fill": "$hb:colors.primary",
              "x": 615.3,
              "y": 0,
              "width": 104.7,
-             "height": 32
+             "layout": "none"
             }
            ],
            "x": 0,
@@ -1905,9 +3556,748 @@
      "children": [
       {
        "id": "wizard-auth-error-sidebar",
-       "type": "ref",
-       "ref": "settings-sidebar",
+       "type": "frame",
+       "name": "Settings / Sidebar · dimensions.sidebarWidth",
+       "width": 264,
        "height": 800,
+       "layout": "none",
+       "fill": "$hb:surfaces.sidebar",
+       "children": [
+        {
+         "id": "wizard-auth-error-sidebar-settings-sidebar-header",
+         "type": "frame",
+         "width": 264,
+         "height": 44,
+         "children": [
+          {
+           "id": "wizard-auth-error-sidebar-settings-sidebar-lights",
+           "type": "frame",
+           "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
+           "width": 96,
+           "height": 28,
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-sidebar-lights-window-traffic-lights-0",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 8,
+             "y": 8
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-sidebar-lights-window-traffic-lights-1",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 28,
+             "y": 8
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-sidebar-lights-window-traffic-lights-2",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 48,
+             "y": 8
+            }
+           ],
+           "x": 4,
+           "y": 8,
+           "layout": "none"
+          }
+         ],
+         "x": 0,
+         "y": 0,
+         "layout": "none"
+        },
+        {
+         "id": "wizard-auth-error-sidebar-settings-sidebar-list",
+         "type": "frame",
+         "width": 264,
+         "height": 756,
+         "layout": "none",
+         "children": [
+          {
+           "id": "wizard-auth-error-sidebar-settings-back",
+           "type": "frame",
+           "name": "Назад",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-back-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-arrow-left",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-back-label",
+             "type": "text",
+             "content": "Назад",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 6,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-heading",
+           "type": "frame",
+           "name": "Настройки",
+           "width": 248,
+           "height": 28,
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-heading-label",
+             "type": "text",
+             "content": "Настройки",
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.caption.size",
+             "lineHeight": "$hb:typography.caption.lineHeight",
+             "fontWeight": "$hb:typography.caption.weight",
+             "x": 8,
+             "y": 6
+            }
+           ],
+           "x": 8,
+           "y": 36,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-0",
+           "type": "frame",
+           "name": "Модели и движки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "fill": "$hb:surfaces.selected",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-0-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-layers",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:surfaces.onSelected",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-0-label",
+             "type": "text",
+             "content": "Модели и движки",
+             "fill": "$hb:surfaces.onSelected",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 66,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-1",
+           "type": "frame",
+           "name": "Движки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-1-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-terminal",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-1-label",
+             "type": "text",
+             "content": "Движки",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 96,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-2",
+           "type": "frame",
+           "name": "Безопасность",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-2-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-shield",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-2-label",
+             "type": "text",
+             "content": "Безопасность",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 126,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-3",
+           "type": "frame",
+           "name": "Субагенты",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-3-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-users",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-3-label",
+             "type": "text",
+             "content": "Субагенты",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 156,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-4",
+           "type": "frame",
+           "name": "Поиск",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-4-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-search",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-4-label",
+             "type": "text",
+             "content": "Поиск",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 186,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-5",
+           "type": "frame",
+           "name": "Управление компьютером",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-5-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-layers",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-5-label",
+             "type": "text",
+             "content": "Управление компьютером",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 216,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-6",
+           "type": "frame",
+           "name": "Браузер Chrome",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-6-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-globe",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-6-label",
+             "type": "text",
+             "content": "Браузер Chrome",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 246,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-7",
+           "type": "frame",
+           "name": "Самообучение",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-7-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-sparkles",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-7-label",
+             "type": "text",
+             "content": "Самообучение",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 276,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-8",
+           "type": "frame",
+           "name": "Контекст",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-8-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-minimize",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-8-label",
+             "type": "text",
+             "content": "Контекст",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 306,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-9",
+           "type": "frame",
+           "name": "Автопродолжение",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-9-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-play",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-9-label",
+             "type": "text",
+             "content": "Автопродолжение",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 336,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-10",
+           "type": "frame",
+           "name": "Сборки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-10-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-terminal",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-10-label",
+             "type": "text",
+             "content": "Сборки",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 366,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-11",
+           "type": "frame",
+           "name": "Харнесс",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-11-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-code",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-11-label",
+             "type": "text",
+             "content": "Харнесс",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 396,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-12",
+           "type": "frame",
+           "name": "Интерфейсы",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-12-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-grid",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-12-label",
+             "type": "text",
+             "content": "Интерфейсы",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 426,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-13",
+           "type": "frame",
+           "name": "Конфигурация",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-13-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-folder-open",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-13-label",
+             "type": "text",
+             "content": "Конфигурация",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 456,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-14",
+           "type": "frame",
+           "name": "Обновления",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-14-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-download",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-14-label",
+             "type": "text",
+             "content": "Обновления",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 486,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-15",
+           "type": "frame",
+           "name": "Логи приложения",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-15-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-file-text",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-15-label",
+             "type": "text",
+             "content": "Логи приложения",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 516,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-auth-error-sidebar-settings-item-16",
+           "type": "frame",
+           "name": "Фича-флаги",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-16-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-sliders",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-auth-error-sidebar-settings-item-16-label",
+             "type": "text",
+             "content": "Фича-флаги",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 546,
+           "layout": "none"
+          }
+         ],
+         "x": 0,
+         "y": 44
+        }
+       ],
        "x": 0,
        "y": 0
       },
@@ -2000,22 +4390,40 @@
               },
               {
                "id": "wizard-auth-error-search",
-               "type": "ref",
-               "ref": "hb:hb-search-field",
-               "x": 0,
-               "y": 26,
-               "width": 480,
+               "type": "frame",
+               "name": "HbSearchField",
+               "width": 720,
                "height": 28,
-               "descendants": {
-                "hb:hb-search-field-icon": {
+               "cornerRadius": "$hb:dimensions.controlCornerRadius",
+               "fill": "$hb:colors.inputFill",
+               "children": [
+                {
+                 "id": "wizard-auth-error-search-hb-search-field-icon",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-search",
+                 "width": 14,
+                 "height": 14,
+                 "stroke": "$hb:colors.textSecondary",
+                 "strokeWidth": 0.98,
                  "x": 8,
                  "y": 7
                 },
-                "hb:hb-search-field-placeholder": {
+                {
+                 "id": "wizard-auth-error-search-hb-search-field-placeholder",
+                 "type": "text",
+                 "content": "Поиск провайдеров",
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.label.size",
+                 "lineHeight": "$hb:typography.label.lineHeight",
+                 "fontWeight": "$hb:typography.label.weight",
                  "x": 28,
                  "y": 5
                 }
-               }
+               ],
+               "x": 0,
+               "y": 26,
+               "layout": "none"
               },
               {
                "id": "wizard-auth-error-provider-list",
@@ -2294,20 +4702,29 @@
                   },
                   {
                    "id": "wizard-auth-error-key-input",
-                   "type": "ref",
-                   "ref": "hb:hb-text-field",
-                   "descendants": {
-                    "hb:hb-text-field-value": {
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 704,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "wizard-auth-error-key-input-hb-text-field-value",
+                     "type": "text",
                      "content": "Вставьте ключ",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
                      "x": 10,
                      "y": 7
                     }
-                   },
+                   ],
                    "x": 0,
                    "y": 22,
-                   "width": 480,
-                   "height": 32
+                   "layout": "none"
                   },
                   {
                    "id": "wizard-auth-error-key-hint",
@@ -2330,38 +4747,65 @@
                 },
                 {
                  "id": "wizard-auth-error-error",
-                 "type": "ref",
-                 "ref": "hb:hb-banner-error",
-                 "x": 8,
-                 "y": 80,
-                 "width": 480,
-                 "height": 34,
-                 "descendants": {
-                  "hb:hb-banner-error-icon": {
+                 "type": "frame",
+                 "name": "HbBanner / Error",
+                 "width": 720,
+                 "cornerRadius": "$hb:shapes.medium",
+                 "fill": "$hb:colors.errorContainer",
+                 "children": [
+                  {
+                   "id": "wizard-auth-error-error-hb-banner-error-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-alert",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.error",
+                   "strokeWidth": 1.26,
                    "x": 12,
                    "y": 8
                   },
-                  "hb:hb-banner-error-message": {
+                  {
+                   "id": "wizard-auth-error-error-hb-banner-error-message",
+                   "type": "text",
+                   "content": "Введите API-ключ",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
                    "x": 38,
                    "y": 8
                   }
-                 }
+                 ],
+                 "x": 8,
+                 "y": 80,
+                 "height": 34,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-auth-error-get-key",
-                 "type": "ref",
-                 "ref": "hb:hb-button-ghost-small",
-                 "descendants": {
-                  "hb:hb-button-ghost-small-label": {
+                 "type": "frame",
+                 "name": "HbButton / Ghost / Small",
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "wizard-auth-error-get-key-hb-button-ghost-small-label",
+                   "type": "text",
                    "content": "Получить API-ключ",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500",
                    "x": 8,
                    "y": 5
                   }
-                 },
+                 ],
                  "x": 8,
                  "y": 120,
-                 "width": 65.4,
-                 "height": 28
+                 "width": 141.6,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-auth-error-address",
@@ -2383,20 +4827,29 @@
                   },
                   {
                    "id": "wizard-auth-error-address-input",
-                   "type": "ref",
-                   "ref": "hb:hb-text-field",
-                   "descendants": {
-                    "hb:hb-text-field-value": {
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 704,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "wizard-auth-error-address-input-hb-text-field-value",
+                     "type": "text",
                      "content": "https://api.anthropic.com",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
                      "x": 10,
                      "y": 7
                     }
-                   },
+                   ],
                    "x": 0,
                    "y": 22,
-                   "width": 480,
-                   "height": 32
+                   "layout": "none"
                   },
                   {
                    "id": "wizard-auth-error-address-hint",
@@ -2437,20 +4890,29 @@
                   },
                   {
                    "id": "wizard-auth-error-name-input",
-                   "type": "ref",
-                   "ref": "hb:hb-text-field",
-                   "descendants": {
-                    "hb:hb-text-field-value": {
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 704,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "wizard-auth-error-name-input-hb-text-field-value",
+                     "type": "text",
                      "content": "Anthropic",
                      "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
                      "x": 10,
                      "y": 7
                     }
-                   },
+                   ],
                    "x": 0,
                    "y": 22,
-                   "width": 480,
-                   "height": 32
+                   "layout": "none"
                   }
                  ],
                  "x": 8,
@@ -2479,19 +4941,28 @@
            "children": [
             {
              "id": "wizard-auth-error-cancel",
-             "type": "ref",
-             "ref": "hb:hb-button-ghost",
-             "descendants": {
-              "hb:hb-button-ghost-label": {
+             "type": "frame",
+             "name": "HbButton / Ghost / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-auth-error-cancel-hb-button-ghost-label",
+               "type": "text",
                "content": "Отмена",
+               "fill": "$hb:colors.textPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
              "x": 0,
              "y": 0,
              "width": 73.4,
-             "height": 32
+             "layout": "none"
             },
             {
              "id": "wizard-auth-error-footer-gap",
@@ -2504,51 +4975,81 @@
             },
             {
              "id": "wizard-auth-error-back",
-             "type": "ref",
-             "ref": "hb:hb-button-secondary",
-             "descendants": {
-              "hb:hb-button-secondary-label": {
+             "type": "frame",
+             "name": "HbButton / Secondary / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-auth-error-back-hb-button-secondary-label",
+               "type": "text",
                "content": "Назад",
+               "fill": "$hb:colors.textPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
+             "fill": "$hb:colors.buttonFill",
              "x": 354.4,
              "y": 0,
              "width": 63.2,
-             "height": 32
+             "layout": "none"
             },
             {
              "id": "wizard-auth-error-check",
-             "type": "ref",
-             "ref": "hb:hb-button-secondary",
-             "descendants": {
-              "hb:hb-button-secondary-label": {
+             "type": "frame",
+             "name": "HbButton / Secondary / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-auth-error-check-hb-button-secondary-label",
+               "type": "text",
                "content": "Проверить подключение",
+               "fill": "$hb:colors.textPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
+             "fill": "$hb:colors.buttonFill",
              "x": 423.5,
              "y": 0,
-             "width": 63.2,
-             "height": 32
+             "width": 185.8,
+             "layout": "none"
             },
             {
              "id": "wizard-auth-error-connect",
-             "type": "ref",
-             "ref": "hb:hb-button-primary",
-             "descendants": {
-              "hb:hb-button-primary-label": {
+             "type": "frame",
+             "name": "HbButton / Primary / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-auth-error-connect-hb-button-primary-label",
+               "type": "text",
                "content": "Подключить",
+               "fill": "$hb:colors.onPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
+             "fill": "$hb:colors.primary",
              "x": 615.3,
              "y": 0,
              "width": 104.7,
-             "height": 32
+             "layout": "none"
             }
            ],
            "x": 0,
@@ -2586,9 +5087,748 @@
      "children": [
       {
        "id": "wizard-models-sidebar",
-       "type": "ref",
-       "ref": "settings-sidebar",
+       "type": "frame",
+       "name": "Settings / Sidebar · dimensions.sidebarWidth",
+       "width": 264,
        "height": 800,
+       "layout": "none",
+       "fill": "$hb:surfaces.sidebar",
+       "children": [
+        {
+         "id": "wizard-models-sidebar-settings-sidebar-header",
+         "type": "frame",
+         "width": 264,
+         "height": 44,
+         "children": [
+          {
+           "id": "wizard-models-sidebar-settings-sidebar-lights",
+           "type": "frame",
+           "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
+           "width": 96,
+           "height": 28,
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-sidebar-lights-window-traffic-lights-0",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 8,
+             "y": 8
+            },
+            {
+             "id": "wizard-models-sidebar-settings-sidebar-lights-window-traffic-lights-1",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 28,
+             "y": 8
+            },
+            {
+             "id": "wizard-models-sidebar-settings-sidebar-lights-window-traffic-lights-2",
+             "type": "ellipse",
+             "width": 12,
+             "height": 12,
+             "fill": "$hb:colors.outline",
+             "x": 48,
+             "y": 8
+            }
+           ],
+           "x": 4,
+           "y": 8,
+           "layout": "none"
+          }
+         ],
+         "x": 0,
+         "y": 0,
+         "layout": "none"
+        },
+        {
+         "id": "wizard-models-sidebar-settings-sidebar-list",
+         "type": "frame",
+         "width": 264,
+         "height": 756,
+         "layout": "none",
+         "children": [
+          {
+           "id": "wizard-models-sidebar-settings-back",
+           "type": "frame",
+           "name": "Назад",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-back-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-arrow-left",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-back-label",
+             "type": "text",
+             "content": "Назад",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 6,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-heading",
+           "type": "frame",
+           "name": "Настройки",
+           "width": 248,
+           "height": 28,
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-heading-label",
+             "type": "text",
+             "content": "Настройки",
+             "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.caption.size",
+             "lineHeight": "$hb:typography.caption.lineHeight",
+             "fontWeight": "$hb:typography.caption.weight",
+             "x": 8,
+             "y": 6
+            }
+           ],
+           "x": 8,
+           "y": 36,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-0",
+           "type": "frame",
+           "name": "Модели и движки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "fill": "$hb:surfaces.selected",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-0-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-layers",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:surfaces.onSelected",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-0-label",
+             "type": "text",
+             "content": "Модели и движки",
+             "fill": "$hb:surfaces.onSelected",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 66,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-1",
+           "type": "frame",
+           "name": "Движки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-1-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-terminal",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-1-label",
+             "type": "text",
+             "content": "Движки",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 96,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-2",
+           "type": "frame",
+           "name": "Безопасность",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-2-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-shield",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-2-label",
+             "type": "text",
+             "content": "Безопасность",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 126,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-3",
+           "type": "frame",
+           "name": "Субагенты",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-3-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-users",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-3-label",
+             "type": "text",
+             "content": "Субагенты",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 156,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-4",
+           "type": "frame",
+           "name": "Поиск",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-4-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-search",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-4-label",
+             "type": "text",
+             "content": "Поиск",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 186,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-5",
+           "type": "frame",
+           "name": "Управление компьютером",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-5-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-layers",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-5-label",
+             "type": "text",
+             "content": "Управление компьютером",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 216,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-6",
+           "type": "frame",
+           "name": "Браузер Chrome",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-6-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-globe",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-6-label",
+             "type": "text",
+             "content": "Браузер Chrome",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 246,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-7",
+           "type": "frame",
+           "name": "Самообучение",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-7-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-sparkles",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-7-label",
+             "type": "text",
+             "content": "Самообучение",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 276,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-8",
+           "type": "frame",
+           "name": "Контекст",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-8-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-minimize",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-8-label",
+             "type": "text",
+             "content": "Контекст",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 306,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-9",
+           "type": "frame",
+           "name": "Автопродолжение",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-9-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-play",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-9-label",
+             "type": "text",
+             "content": "Автопродолжение",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 336,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-10",
+           "type": "frame",
+           "name": "Сборки",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-10-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-terminal",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-10-label",
+             "type": "text",
+             "content": "Сборки",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 366,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-11",
+           "type": "frame",
+           "name": "Харнесс",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-11-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-code",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-11-label",
+             "type": "text",
+             "content": "Харнесс",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 396,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-12",
+           "type": "frame",
+           "name": "Интерфейсы",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-12-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-grid",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-12-label",
+             "type": "text",
+             "content": "Интерфейсы",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 426,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-13",
+           "type": "frame",
+           "name": "Конфигурация",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-13-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-folder-open",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-13-label",
+             "type": "text",
+             "content": "Конфигурация",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 456,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-14",
+           "type": "frame",
+           "name": "Обновления",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-14-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-download",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-14-label",
+             "type": "text",
+             "content": "Обновления",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 486,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-15",
+           "type": "frame",
+           "name": "Логи приложения",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-15-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-file-text",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-15-label",
+             "type": "text",
+             "content": "Логи приложения",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 516,
+           "layout": "none"
+          },
+          {
+           "id": "wizard-models-sidebar-settings-item-16",
+           "type": "frame",
+           "name": "Фича-флаги",
+           "width": 248,
+           "height": 28,
+           "cornerRadius": "$hb:dimensions.controlCornerRadius",
+           "children": [
+            {
+             "id": "wizard-models-sidebar-settings-item-16-icon",
+             "type": "ref",
+             "ref": "hb:hb-icon-sliders",
+             "width": 18,
+             "height": 18,
+             "stroke": "$hb:colors.textSecondary",
+             "strokeWidth": 1.26,
+             "x": 8,
+             "y": 5
+            },
+            {
+             "id": "wizard-models-sidebar-settings-item-16-label",
+             "type": "text",
+             "content": "Фича-флаги",
+             "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
+             "fontSize": "$hb:typography.label.size",
+             "lineHeight": "$hb:typography.label.lineHeight",
+             "fontWeight": "$hb:typography.label.weight",
+             "x": 38,
+             "y": 5
+            }
+           ],
+           "x": 8,
+           "y": 546,
+           "layout": "none"
+          }
+         ],
+         "x": 0,
+         "y": 44
+        }
+       ],
        "x": 0,
        "y": 0
       },
@@ -2670,23 +5910,40 @@
              "children": [
               {
                "id": "wizard-models-search",
-               "type": "ref",
-               "ref": "hb:hb-search-field",
-               "descendants": {
-                "hb:hb-search-field-placeholder": {
-                 "content": "Поиск моделей",
-                 "x": 28,
-                 "y": 5
-                },
-                "hb:hb-search-field-icon": {
+               "type": "frame",
+               "name": "HbSearchField",
+               "width": 720,
+               "height": 28,
+               "cornerRadius": "$hb:dimensions.controlCornerRadius",
+               "fill": "$hb:colors.inputFill",
+               "children": [
+                {
+                 "id": "wizard-models-search-hb-search-field-icon",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-search",
+                 "width": 14,
+                 "height": 14,
+                 "stroke": "$hb:colors.textSecondary",
+                 "strokeWidth": 0.98,
                  "x": 8,
                  "y": 7
+                },
+                {
+                 "id": "wizard-models-search-hb-search-field-placeholder",
+                 "type": "text",
+                 "content": "Поиск моделей",
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.label.size",
+                 "lineHeight": "$hb:typography.label.lineHeight",
+                 "fontWeight": "$hb:typography.label.weight",
+                 "x": 28,
+                 "y": 5
                 }
-               },
+               ],
                "x": 0,
                "y": 0,
-               "width": 480,
-               "height": 28
+               "layout": "none"
               },
               {
                "id": "wizard-models-selected",
@@ -2702,35 +5959,53 @@
               },
               {
                "id": "wizard-models-all",
-               "type": "ref",
-               "ref": "hb:hb-button-ghost-small",
-               "descendants": {
-                "hb:hb-button-ghost-small-label": {
+               "type": "frame",
+               "name": "HbButton / Ghost / Small",
+               "height": 28,
+               "cornerRadius": "$hb:dimensions.controlCornerRadius",
+               "children": [
+                {
+                 "id": "wizard-models-all-hb-button-ghost-small-label",
+                 "type": "text",
                  "content": "Выбрать все",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.label.size",
+                 "lineHeight": "$hb:typography.label.lineHeight",
+                 "fontWeight": "500",
                  "x": 8,
                  "y": 5
                 }
-               },
+               ],
                "x": 536,
                "y": 0,
-               "width": 65.4,
-               "height": 28
+               "width": 97.6,
+               "layout": "none"
               },
               {
                "id": "wizard-models-none",
-               "type": "ref",
-               "ref": "hb:hb-button-ghost-small",
-               "descendants": {
-                "hb:hb-button-ghost-small-label": {
+               "type": "frame",
+               "name": "HbButton / Ghost / Small",
+               "height": 28,
+               "cornerRadius": "$hb:dimensions.controlCornerRadius",
+               "children": [
+                {
+                 "id": "wizard-models-none-hb-button-ghost-small-label",
+                 "type": "text",
                  "content": "Снять все",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.label.size",
+                 "lineHeight": "$hb:typography.label.lineHeight",
+                 "fontWeight": "500",
                  "x": 8,
                  "y": 5
                 }
-               },
+               ],
                "x": 639.6,
                "y": 0,
-               "width": 65.4,
-               "height": 28
+               "width": 80.4,
+               "layout": "none"
               }
              ],
              "x": 0,
@@ -2788,18 +6063,26 @@
                 },
                 {
                  "id": "wizard-models-m-opus-switch",
-                 "type": "ref",
-                 "ref": "hb:hb-switch-on",
-                 "x": 684,
-                 "y": 15,
+                 "type": "frame",
+                 "name": "HbSwitch / On",
                  "width": 28,
                  "height": 16,
-                 "descendants": {
-                  "hb:hb-switch-on-knob": {
+                 "cornerRadius": 8,
+                 "fill": "$hb:colors.brand",
+                 "layout": "none",
+                 "children": [
+                  {
+                   "id": "wizard-models-m-opus-switch-hb-switch-on-knob",
+                   "type": "ellipse",
                    "x": 14,
-                   "y": 2
+                   "y": 2,
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.onBrand"
                   }
-                 }
+                 ],
+                 "x": 684,
+                 "y": 15
                 }
                ],
                "x": 0,
@@ -2851,18 +6134,26 @@
                 },
                 {
                  "id": "wizard-models-m-sonnet-switch",
-                 "type": "ref",
-                 "ref": "hb:hb-switch-on",
-                 "x": 684,
-                 "y": 15,
+                 "type": "frame",
+                 "name": "HbSwitch / On",
                  "width": 28,
                  "height": 16,
-                 "descendants": {
-                  "hb:hb-switch-on-knob": {
+                 "cornerRadius": 8,
+                 "fill": "$hb:colors.brand",
+                 "layout": "none",
+                 "children": [
+                  {
+                   "id": "wizard-models-m-sonnet-switch-hb-switch-on-knob",
+                   "type": "ellipse",
                    "x": 14,
-                   "y": 2
+                   "y": 2,
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.onBrand"
                   }
-                 }
+                 ],
+                 "x": 684,
+                 "y": 15
                 }
                ],
                "x": 0,
@@ -2914,18 +6205,26 @@
                 },
                 {
                  "id": "wizard-models-m-haiku-switch",
-                 "type": "ref",
-                 "ref": "hb:hb-switch-off",
-                 "x": 684,
-                 "y": 15,
+                 "type": "frame",
+                 "name": "HbSwitch / Off",
                  "width": 28,
                  "height": 16,
-                 "descendants": {
-                  "hb:hb-switch-off-knob": {
+                 "cornerRadius": 8,
+                 "fill": "$hb:colors.outline",
+                 "layout": "none",
+                 "children": [
+                  {
+                   "id": "wizard-models-m-haiku-switch-hb-switch-off-knob",
+                   "type": "ellipse",
                    "x": 2,
-                   "y": 2
+                   "y": 2,
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.onBrand"
                   }
-                 }
+                 ],
+                 "x": 684,
+                 "y": 15
                 }
                ],
                "x": 0,
@@ -2977,18 +6276,26 @@
                 },
                 {
                  "id": "wizard-models-m-fable-switch",
-                 "type": "ref",
-                 "ref": "hb:hb-switch-off",
-                 "x": 684,
-                 "y": 15,
+                 "type": "frame",
+                 "name": "HbSwitch / Off",
                  "width": 28,
                  "height": 16,
-                 "descendants": {
-                  "hb:hb-switch-off-knob": {
+                 "cornerRadius": 8,
+                 "fill": "$hb:colors.outline",
+                 "layout": "none",
+                 "children": [
+                  {
+                   "id": "wizard-models-m-fable-switch-hb-switch-off-knob",
+                   "type": "ellipse",
                    "x": 2,
-                   "y": 2
+                   "y": 2,
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.onBrand"
                   }
-                 }
+                 ],
+                 "x": 684,
+                 "y": 15
                 }
                ],
                "x": 0,
@@ -3013,19 +6320,28 @@
            "children": [
             {
              "id": "wizard-models-cancel",
-             "type": "ref",
-             "ref": "hb:hb-button-ghost",
-             "descendants": {
-              "hb:hb-button-ghost-label": {
+             "type": "frame",
+             "name": "HbButton / Ghost / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-models-cancel-hb-button-ghost-label",
+               "type": "text",
                "content": "Отмена",
+               "fill": "$hb:colors.textPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
              "x": 0,
              "y": 0,
              "width": 73.4,
-             "height": 32
+             "layout": "none"
             },
             {
              "id": "wizard-models-footer-gap",
@@ -3038,19 +6354,29 @@
             },
             {
              "id": "wizard-models-done",
-             "type": "ref",
-             "ref": "hb:hb-button-primary",
-             "descendants": {
-              "hb:hb-button-primary-label": {
+             "type": "frame",
+             "name": "HbButton / Primary / Regular",
+             "height": 32,
+             "cornerRadius": "$hb:dimensions.controlCornerRadius",
+             "children": [
+              {
+               "id": "wizard-models-done-hb-button-primary-label",
+               "type": "text",
                "content": "Готово",
+               "fill": "$hb:colors.onPrimary",
+               "fontFamily": "$hb:typography.family",
+               "fontSize": "$hb:typography.label.size",
+               "lineHeight": "$hb:typography.label.lineHeight",
+               "fontWeight": "500",
                "x": 12,
                "y": 7
               }
-             },
+             ],
+             "fill": "$hb:colors.primary",
              "x": 652.5,
              "y": 0,
-             "width": 104.7,
-             "height": 32
+             "width": 67.5,
+             "layout": "none"
             }
            ],
            "x": 0,
