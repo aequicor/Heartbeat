@@ -15,18 +15,6 @@
    },
    "children": [
     {
-     "id": "section-screens-title",
-     "type": "text",
-     "content": "Экраны",
-     "fill": "$hb:colors.textPrimary",
-     "fontFamily": "$hb:typography.family",
-     "fontSize": "$hb:typography.display.size",
-     "lineHeight": "$hb:typography.display.lineHeight",
-     "fontWeight": "$hb:typography.display.weight",
-     "x": 60,
-     "y": 60
-    },
-    {
      "id": "g-studio-empty",
      "type": "frame",
      "name": "Studio / Empty — новый чат без сообщений",
@@ -2913,7 +2901,7 @@
       }
      ],
      "x": 60,
-     "y": 210,
+     "y": 60,
      "width": 2664,
      "height": 2332
     },
@@ -6866,7 +6854,7 @@
       }
      ],
      "x": 60,
-     "y": 2662,
+     "y": 2512,
      "width": 2664,
      "height": 2332
     },
@@ -11214,7 +11202,7 @@
       }
      ],
      "x": 60,
-     "y": 5113.9,
+     "y": 4963.9,
      "width": 2664,
      "height": 2332
     },
@@ -12656,7 +12644,7 @@
       }
      ],
      "x": 60,
-     "y": 7565.9,
+     "y": 7415.9,
      "width": 390,
      "height": 1796
     }
@@ -12664,7 +12652,7 @@
    "x": 0,
    "y": 0,
    "width": 2784,
-   "height": 9421.9
+   "height": 9271.9
   },
   {
    "id": "section-flows",
@@ -12677,18 +12665,6 @@
    },
    "children": [
     {
-     "id": "section-flows-title",
-     "type": "text",
-     "content": "Пользовательские пути",
-     "fill": "$hb:colors.textPrimary",
-     "fontFamily": "$hb:typography.family",
-     "fontSize": "$hb:typography.display.size",
-     "lineHeight": "$hb:typography.display.lineHeight",
-     "fontWeight": "$hb:typography.display.weight",
-     "x": 60,
-     "y": 60
-    },
-    {
      "id": "flow-studio-chat-title",
      "type": "text",
      "content": "Чат: от пустого экрана до ответа агента",
@@ -12698,7 +12674,7 @@
      "lineHeight": "$hb:typography.title.lineHeight",
      "fontWeight": "600",
      "x": 60,
-     "y": 138
+     "y": 60
     },
     {
      "id": "flow-studio-chat",
@@ -12982,7 +12958,7 @@
       }
      ],
      "x": 60,
-     "y": 206,
+     "y": 128,
      "width": 6320,
      "height": 832,
      "layout": "none"
@@ -12991,14 +12967,14 @@
    "x": 3024,
    "y": 0,
    "width": 6440,
-   "height": 1098
+   "height": 1020
   },
   {
    "id": "hl-st-0-0",
    "type": "frame",
    "name": "Изменилось · новое: лента сообщений",
    "x": 5022,
-   "y": 276,
+   "y": 198,
    "width": 1028,
    "height": 633,
    "layout": "none",
@@ -13012,7 +12988,7 @@
    "type": "text",
    "name": "Подпись · новое: лента сообщений",
    "x": 5022,
-   "y": 250,
+   "y": 172,
    "content": "новое: лента сообщений",
    "fill": "$hb:colors.error",
    "fontFamily": "$hb:typography.family",
@@ -13024,7 +13000,7 @@
    "type": "frame",
    "name": "Изменилось · новое: статус хода, «Стоп», вызов в процессе",
    "x": 7145.2,
-   "y": 883.0,
+   "y": 805.0,
    "width": 141.7,
    "height": 28,
    "layout": "none",
@@ -13038,7 +13014,7 @@
    "type": "frame",
    "name": "Изменилось · новое: статус хода, «Стоп», вызов в процессе",
    "x": 7550,
-   "y": 984.0,
+   "y": 906.0,
    "width": 44,
    "height": 44,
    "layout": "none",
@@ -13052,7 +13028,7 @@
    "type": "frame",
    "name": "Изменилось · новое: статус хода, «Стоп», вызов в процессе",
    "x": 6886,
-   "y": 706.0,
+   "y": 628.0,
    "width": 700,
    "height": 62.0,
    "layout": "none",
@@ -13066,7 +13042,7 @@
    "type": "text",
    "name": "Подпись · новое: статус хода, «Стоп», вызов в процессе",
    "x": 7145.2,
-   "y": 857.0,
+   "y": 779.0,
    "content": "новое: статус хода, «Стоп», вызов в процессе",
    "fill": "$hb:colors.error",
    "fontFamily": "$hb:typography.family",
@@ -13078,7 +13054,7 @@
    "type": "frame",
    "name": "Изменилось · кнопка снова «Отправить»",
    "x": 9230,
-   "y": 984,
+   "y": 906,
    "width": 44,
    "height": 44,
    "layout": "none",
@@ -13092,7 +13068,7 @@
    "type": "text",
    "name": "Подпись · кнопка снова «Отправить»",
    "x": 9230,
-   "y": 958,
+   "y": 880,
    "content": "кнопка снова «Отправить»",
    "fill": "$hb:colors.error",
    "fontFamily": "$hb:typography.family",

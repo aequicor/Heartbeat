@@ -15,18 +15,6 @@
    },
    "children": [
     {
-     "id": "section-screens-title",
-     "type": "text",
-     "content": "Экраны",
-     "fill": "$hb:colors.textPrimary",
-     "fontFamily": "$hb:typography.family",
-     "fontSize": "$hb:typography.display.size",
-     "lineHeight": "$hb:typography.display.lineHeight",
-     "fontWeight": "$hb:typography.display.weight",
-     "x": 60,
-     "y": 60
-    },
-    {
      "id": "g-wizard-engine",
      "type": "frame",
      "name": "Wizard / Engine — шаг 1: выбор движка",
@@ -3377,7 +3365,7 @@
       }
      ],
      "x": 60,
-     "y": 210,
+     "y": 60,
      "width": 2664,
      "height": 2332
     },
@@ -7383,7 +7371,7 @@
       }
      ],
      "x": 60,
-     "y": 2662,
+     "y": 2512,
      "width": 2664,
      "height": 2332
     },
@@ -10908,7 +10896,7 @@
       }
      ],
      "x": 60,
-     "y": 5113.9,
+     "y": 4963.9,
      "width": 2664,
      "height": 2332
     },
@@ -12561,7 +12549,7 @@
       }
      ],
      "x": 60,
-     "y": 7565.9,
+     "y": 7415.9,
      "width": 1280,
      "height": 1708
     }
@@ -12569,7 +12557,7 @@
    "x": 0,
    "y": 0,
    "width": 2784,
-   "height": 9333.9
+   "height": 9183.9
   },
   {
    "id": "section-flows",
@@ -12582,18 +12570,6 @@
    },
    "children": [
     {
-     "id": "section-flows-title",
-     "type": "text",
-     "content": "Пользовательские пути",
-     "fill": "$hb:colors.textPrimary",
-     "fontFamily": "$hb:typography.family",
-     "fontSize": "$hb:typography.display.size",
-     "lineHeight": "$hb:typography.display.lineHeight",
-     "fontWeight": "$hb:typography.display.weight",
-     "x": 60,
-     "y": 60
-    },
-    {
      "id": "flow-wizard-connect-title",
      "type": "text",
      "content": "Подключение движка: движок → авторизация → модели",
@@ -12603,7 +12579,7 @@
      "lineHeight": "$hb:typography.title.lineHeight",
      "fontWeight": "600",
      "x": 60,
-     "y": 138
+     "y": 60
     },
     {
      "id": "flow-wizard-connect",
@@ -12807,7 +12783,7 @@
       }
      ],
      "x": 60,
-     "y": 206,
+     "y": 128,
      "width": 4640,
      "height": 832,
      "layout": "none"
@@ -12822,7 +12798,7 @@
      "lineHeight": "$hb:typography.title.lineHeight",
      "fontWeight": "600",
      "x": 60,
-     "y": 1086
+     "y": 1008
     },
     {
      "id": "flow-wizard-error",
@@ -12946,7 +12922,7 @@
       }
      ],
      "x": 60,
-     "y": 1154,
+     "y": 1076,
      "width": 2960,
      "height": 832,
      "layout": "none"
@@ -12955,14 +12931,14 @@
    "x": 3024,
    "y": 0,
    "width": 4760,
-   "height": 2046
+   "height": 1968
   },
   {
    "id": "hl-cn-0-0",
    "type": "frame",
    "name": "Изменилось · новое: провайдеры и форма",
    "x": 5170,
-   "y": 298,
+   "y": 220,
    "width": 732,
    "height": 255.9,
    "layout": "none",
@@ -12976,7 +12952,7 @@
    "type": "frame",
    "name": "Изменилось · новое: провайдеры и форма",
    "x": 5170,
-   "y": 557.9,
+   "y": 479.9,
    "width": 732,
    "height": 302,
    "layout": "none",
@@ -12990,7 +12966,7 @@
    "type": "text",
    "name": "Подпись · новое: провайдеры и форма",
    "x": 5170,
-   "y": 272,
+   "y": 194,
    "content": "новое: провайдеры и форма",
    "fill": "$hb:colors.error",
    "fontFamily": "$hb:typography.family",
@@ -13002,7 +12978,7 @@
    "type": "frame",
    "name": "Изменилось · новое: список моделей",
    "x": 6850,
-   "y": 332.0,
+   "y": 254.0,
    "width": 732,
    "height": 40,
    "layout": "none",
@@ -13016,7 +12992,7 @@
    "type": "frame",
    "name": "Изменилось · новое: список моделей",
    "x": 6850,
-   "y": 376.0,
+   "y": 298.0,
    "width": 732,
    "height": 195.9,
    "layout": "none",
@@ -13030,7 +13006,7 @@
    "type": "text",
    "name": "Подпись · новое: список моделей",
    "x": 6850,
-   "y": 306.0,
+   "y": 228.0,
    "content": "новое: список моделей",
    "fill": "$hb:colors.error",
    "fontFamily": "$hb:typography.family",
@@ -13042,7 +13018,7 @@
    "type": "frame",
    "name": "Изменилось · новое: баннер ошибки",
    "x": 5178,
-   "y": 1627.9,
+   "y": 1549.9,
    "width": 716,
    "height": 46,
    "layout": "none",
@@ -13056,7 +13032,7 @@
    "type": "text",
    "name": "Подпись · новое: баннер ошибки",
    "x": 5178,
-   "y": 1601.9,
+   "y": 1523.9,
    "content": "новое: баннер ошибки",
    "fill": "$hb:colors.error",
    "fontFamily": "$hb:typography.family",
