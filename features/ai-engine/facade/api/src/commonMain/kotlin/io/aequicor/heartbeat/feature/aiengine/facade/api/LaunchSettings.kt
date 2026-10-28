@@ -1,6 +1,14 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.api
 
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import kotlinx.serialization.Serializable
+
+/** Rollout gate for native MCP access; individual engines additionally require their saved opt-in. */
+public val EngineMcpEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "ai.engine_mcp",
+    "MCP-серверы, подключённые в ИИ-движках",
+    default = false,
+)
 
 /**
  * How an engine's processes start in this profile; empty values keep the adapter's defaults. Values may name the
@@ -23,12 +31,14 @@ public data class LaunchSettings(
      * [RuntimePreference.HostApp].
      */
     val hostRuntimeVersion: String? = null,
+    /** Allows MCP servers configured in this engine; off by default and never used by tool-free services. */
+    val isMcpEnabled: Boolean = false,
 ) {
     /** Nothing differs from the adapter's defaults. */
     val isDefault: Boolean
         get() = executable.isNullOrBlank() && homeDirectory.isNullOrBlank() &&
             configOverrides.isEmpty() && environment.isEmpty() && runtime == RuntimePreference.Auto &&
-            hostRuntimeVersion.isNullOrBlank()
+            hostRuntimeVersion.isNullOrBlank() && !isMcpEnabled
 
     override fun toString(): String = "LaunchSettings(***)"
 }
@@ -66,7 +76,7 @@ public enum class RuntimePreference {
 }
 
 /** Launch settings an engine accepts. */
-public enum class LaunchOption { Executable, HomeDirectory, ConfigOverrides, Environment, Runtime }
+public enum class LaunchOption { Executable, HomeDirectory, ConfigOverrides, Environment, Runtime, Mcp }
 
 /**
  * The launch settings an engine honors. [homeVariable] names what [LaunchSettings.homeDirectory] sets. Reserved
@@ -168,6 +178,9 @@ public fun validateLaunchSettings(
     addAll(overrideProblems(settings.configOverrides, spec))
     addAll(environmentProblems(settings.environment, spec))
     addAll(runtimeProblems(settings, spec))
+    if (settings.isMcpEnabled && LaunchOption.Mcp !in spec.options) {
+        add(LaunchProblem(LaunchOption.Mcp, LaunchProblemReason.Unsupported))
+    }
 }
 
 /** Whether [name] looks like a credential variable, which launch settings never carry. */

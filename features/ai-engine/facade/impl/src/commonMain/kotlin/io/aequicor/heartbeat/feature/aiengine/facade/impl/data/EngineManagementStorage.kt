@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationEnab
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineMcpEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
@@ -102,7 +103,13 @@ class ToggleEngineFlags(private val toggles: FeatureToggles) : EngineFlags {
     override fun configuration(): Flow<Boolean> = toggles.observe(EngineConfigurationEnabled).distinctUntilChanged()
 
     override fun developer(descriptor: EngineDescriptor): Flow<DeveloperFlags> =
-        combine(toggles.observe(AiEngines), toggles.observe(descriptor.toggle), ::DeveloperFlags).distinctUntilChanged()
+        combine(toggles.observe(AiEngines), toggles.observe(descriptor.toggle), toggles.observe(EngineMcpEnabled)) {
+            catalog,
+            own,
+            mcp,
+            ->
+            DeveloperFlags(catalog, own, mcp)
+        }.distinctUntilChanged()
 }
 
 /**
@@ -128,7 +135,12 @@ class ProfileLaunchConfig(
             }
         }
         val isConfigured = toggles.get(EngineConfigurationEnabled)
-        val context = preferences.load().contextOf(engine, installs.state.value[engine], isConfigured)
+        val saved = preferences.load().contextOf(engine, installs.state.value[engine], isConfigured)
+        val context = if (toggles.get(EngineMcpEnabled)) {
+            saved
+        } else {
+            saved.copy(settings = saved.settings.copy(isMcpEnabled = false))
+        }
         log.d { "launch context engine=${engine.value} $context" }
         return context
     }

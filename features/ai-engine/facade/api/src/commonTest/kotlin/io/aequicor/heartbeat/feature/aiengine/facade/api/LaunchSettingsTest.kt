@@ -7,6 +7,23 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class LaunchSettingsTest {
+    @Test
+    fun `MCP remains off for legacy records and roundtrips only explicit opt-in`() {
+        val legacy = Json.decodeFromString<LaunchSettings>("{}")
+        assertFalse(legacy.isMcpEnabled)
+        val enabled = legacy.copy(isMcpEnabled = true)
+        assertFalse(enabled.isDefault)
+        assertEquals(
+            enabled,
+            Json.decodeFromString<LaunchSettings>(Json.encodeToString(LaunchSettings.serializer(), enabled)),
+        )
+        assertEquals(
+            listOf(LaunchProblem(LaunchOption.Mcp, LaunchProblemReason.Unsupported)),
+            validateLaunchSettings(enabled, LaunchSpec(), null),
+        )
+        assertTrue(validateLaunchSettings(enabled, LaunchSpec(setOf(LaunchOption.Mcp)), null).isEmpty())
+    }
+
     private val spec = LaunchSpec(
         options = LaunchOption.entries.toSet(),
         homeVariable = "CODEX_HOME",

@@ -108,8 +108,11 @@ class PiProcessPreparationTest {
             ).jsonObject
             withLauncher(
                 context = { root ->
-                    managedContext(root, "0.88.0").copy(
+                    managedContext(root, "1.0.4").copy(
                         isConfigured = true,
+                        settings = io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings(
+                            isMcpEnabled = true,
+                        ),
                         config = EngineConfigValues(mapOf(PiDocuments.Mcp to ConfigDocument.Json(mcp))),
                         trust = mapOf(WorkspaceRef("project") to ProjectTrust.Trusted),
                     )
@@ -125,7 +128,7 @@ class PiProcessPreparationTest {
                         root.toString().takeIf { stage == "trust" },
                         event = {},
                         failed = {},
-                        plan = PiLaunchPlan(ResolvedToolPolicy(), null, emptySet()),
+                        plan = PiLaunchPlan(ResolvedToolPolicy(nativeOn = setOf("mcp")), null, emptySet()),
                     )
                 }
                 if (stage == "cancel") {

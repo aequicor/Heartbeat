@@ -25,7 +25,7 @@ internal val PiManagementSpec = ManagementSpec(
     install = InstallSupport.Bundled,
     login = LoginSupport.Connections,
     launch = LaunchSpec(
-        options = setOf(LaunchOption.Executable, LaunchOption.Environment),
+        options = setOf(LaunchOption.Executable, LaunchOption.Environment, LaunchOption.Mcp),
         reservedEnvironmentPrefixes = setOf("PI_", "HEARTBEAT_"),
     ),
     hasPackages = true,

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.network.release.ReleaseException
 import io.aequicor.heartbeat.core.network.release.ReleaseFailure
+import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.secrets.SecretKey
 import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
@@ -213,7 +214,14 @@ internal class PiProcessLauncher(
         failed: suspend (EngineFailure) -> Unit,
         plan: PiLaunchPlan?,
     ): PiConnection {
-        val startup = prepare()
+        val selected = prepare()
+        val startup = if (selected.runtimeVersion != null) {
+            selected
+        } else {
+            withContext(dispatchers.io) {
+                selected.copy(runtimeVersion = readPiRuntimeVersion(selected))
+            }
+        }
         // Fetched before the non-cancellable launch so a slow compatible server stays cancellable.
         val modelsJson = modelsJson(source, plan?.selectedModel)
         return launch(source, workspace, modelsJson, event, failed, plan ?: discoveryPlan(), startup)
@@ -273,7 +281,13 @@ internal class PiProcessLauncher(
                 val workingDir = workspace?.let(Path::of) ?: Files.createDirectories(root.resolve("workspace"))
                 val hosted = plan.hosted
                 val areSearchToolsEnabled = plan.search.isNotEmpty()
-                val (agent, flags) = configuredAgent(startup, workspace, storage.profileHome(owner.id.value), agentDir)
+                val (agent, flags) = configuredAgent(
+                    startup,
+                    workspace,
+                    storage.profileHome(owner.id.value),
+                    agentDir,
+                    plan,
+                )
                 val extensions = piExtensions(agentDir, areSearchToolsEnabled, hosted != null)
                 val launchFlags = PiLaunchFlags(workspace != null, plan.emptySessionId, flags)
                 val command = piCommand(executable, sessionDir, extensions, plan.tools(agent), launchFlags)
@@ -285,13 +299,7 @@ internal class PiProcessLauncher(
                 installExtension(PI_POWERSHELL_RESOURCE, agentDir.resolve(PI_POWERSHELL_RESOURCE))
                 modelsJson?.let { Files.writeString(agentDir.resolve("models.json"), it) }
                 writeAgentFiles(agentDir, agent)
-                val started = try {
-                    credential.reveal { chars -> variables[provider.variable] = String(chars) }
-                    log.i { "Starting Pi process source=${startup.source}" }
-                    builder.start()
-                } finally {
-                    variables.remove(provider.variable)
-                }
+                val started = startProcess(builder, credential, provider.variable, startup.source)
                 process = started
                 started.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
                 val rpc = connect(started, workingDir, modelsJson, event, failed, controlledShell)
@@ -312,6 +320,20 @@ internal class PiProcessLauncher(
                 }
             }
         }
+    }
+
+    /** The parent environment retains the provider credential only while the child is starting. */
+    private fun startProcess(
+        builder: ProcessBuilder,
+        credential: Secret,
+        variable: String,
+        source: InstallSource,
+    ): Process = try {
+        credential.reveal { chars -> builder.environment()[variable] = String(chars) }
+        log.i { "Starting Pi process source=$source" }
+        builder.start()
+    } finally {
+        builder.environment().remove(variable)
     }
 
     private fun prepareControlledShell(
@@ -344,15 +366,19 @@ internal class PiProcessLauncher(
         workspace: String?,
         home: Path,
         agentDir: Path,
+        plan: PiLaunchPlan,
     ): Pair<PiAgentConfig, PiFlags> {
+        val isMcpEnabled = piMcpAllowed(startup, plan)
+        val mcpArguments = piMcpArguments(startup.runtimeVersion, isMcpEnabled)
         val content = workspace?.let { projectContent(startup, it) }
         val agent = piAgentConfig(
             startup.config,
             home,
             isProjectTrusted = startup.isConfigured && workspace != null && content == null,
+            isMcpEnabled = isMcpEnabled,
             secret = ::configSecret,
         )
-        return agent to agent.flags(agentDir, content)
+        return agent to agent.flags(agentDir, content).copy(mcpArguments = mcpArguments)
     }
 
     /** The child environment is populated inside the launch cleanup boundary. */
@@ -560,6 +586,7 @@ internal fun piCommand(
     flags: PiFlags = PiFlags(),
 ): List<String> = buildList {
     addAll(listOf(executable.toString(), "--mode", "rpc", "--session-dir", sessionDir.toString()))
+    addAll(flags.mcpArguments)
     if (!flags.isDiscovering) add("--no-extensions")
     extensions.forEach { addAll(listOf("-e", it.toString())) }
     flags.builtins.forEach { addAll(listOf("-e", it)) }
@@ -612,6 +639,8 @@ private fun projectFlags(isProject: Boolean, flags: PiFlags): List<String> = bui
  */
 internal data class PiFlags(
     val builtins: List<String> = emptyList(),
+    /** Authoritative process switch; project extension settings cannot override it. */
+    val mcpArguments: List<String> = emptyList(),
     val isDiscovering: Boolean = false,
     val isSkillsLoaded: Boolean = false,
     val isPromptsLoaded: Boolean = false,

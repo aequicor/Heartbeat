@@ -101,6 +101,29 @@ class EngineManagementServiceTest {
     private var launchContext = LaunchContext()
 
     @Test
+    fun `editing other launch fields while MCP rollout is off preserves the saved opt-in`() = runTest {
+        val mcpSpec = cliSpec.copy(launch = cliSpec.launch.copy(options = cliSpec.launch.options + LaunchOption.Mcp))
+        val mcpRegistry = EngineRegistry(
+            listOf(registration(id = cliId, owner = AuthOwnerId("cli")).withManagement(mcpSpec, manager)),
+            EnginePlatform.DesktopMacOs,
+        )
+        val saved = LaunchSettings(executable = "/old/cli", isMcpEnabled = true)
+        preferences.update { it.copy(launch = mapOf(cliId to saved)) }
+        val service = service(mcpRegistry)
+        runCurrent()
+        assertFalse(service.state.value.engine(cliId).launch.settings.isMcpEnabled)
+        assertFalse(LaunchOption.Mcp in service.state.value.engine(cliId).spec.launch.options)
+
+        val changed = LaunchSettings(executable = "/new/cli")
+        service.execute(cliId, EngineCommand.Configure(changed))
+        runCurrent()
+
+        assertEquals(changed.copy(isMcpEnabled = true), preferences.current.value.launchOf(cliId))
+        assertEquals(changed, service.state.value.engine(cliId).launch.settings)
+        assertEquals(listOf(changed), manager.checked)
+    }
+
+    @Test
     fun `reconciliation survives an unexpected runtime exception and handles the next state`() = runTest {
         val service = service()
         runCurrent()

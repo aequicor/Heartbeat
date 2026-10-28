@@ -38,6 +38,9 @@ internal interface CodexWire : AutoCloseable {
 
 /** Immutable launch selection shared by a runtime's metadata and execution processes. Never logs settings. */
 internal interface PreparedCodexLaunch {
+    /** Profile opt-in captured together with this executable and configuration directory. */
+    val isMcpEnabled: Boolean get() = false
+
     /** Starts the captured executable with the captured home, arguments and environment. */
     suspend fun open(): CodexWire
 
