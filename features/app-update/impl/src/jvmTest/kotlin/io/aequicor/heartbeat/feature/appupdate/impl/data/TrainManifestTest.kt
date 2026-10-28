@@ -71,12 +71,36 @@ class TrainManifestTest {
             "\"jar\": \"launcher.jar\", \"kind\": \"launcher\", \"launcherApi\": 4, \"signature\": \"$signature\",",
         )
 
-        val launcher = parseTrainManifest(text).bundles.single { it.id == "launcher" }
+        val bundles = parseTrainManifest(text).bundles
+        val launcher = bundles.single { it.id == "launcher" }
 
         assertEquals("launcher", launcher.kind)
         assertEquals(4, launcher.launcherApi)
         assertEquals(signature, launcher.signature)
-        assertNull(parseTrainManifest(text).bundles.single { it.id == "core" }.kind)
+        assertNull(bundles.single { it.id == "core" }.kind)
+    }
+
+    @Test
+    fun `the known kinds and an unsigned launcher entry are accepted`() {
+        fun manifest(fields: String) = manifestJson("t-1", listOf("core.jar" to sha, "ui.jar" to sha.reversed()))
+            .replace("\"jar\": \"ui.jar\",", fields)
+
+        listOf("bundle", "base").forEach { kind ->
+            val parsed = parseTrainManifest(manifest("\"jar\": \"ui.jar\", \"kind\": \"$kind\","))
+            assertEquals(kind, parsed.bundles[1].kind)
+        }
+        val unsigned = parseTrainManifest(
+            manifest("\"jar\": \"ui.jar\", \"kind\": \"launcher\", \"launcherApi\": 2,"),
+        ).bundles[1]
+        assertEquals("launcher", unsigned.kind)
+        assertNull(unsigned.signature)
+    }
+
+    @Test
+    fun `a train at exactly the installed platform level is parsed`() {
+        val text = manifestJson("t-1", listOf("core.jar" to sha), platformApi = INSTALLED_PLATFORM_API)
+
+        assertEquals(INSTALLED_PLATFORM_API, parseTrainManifest(text).platformApi)
     }
 
     @Test

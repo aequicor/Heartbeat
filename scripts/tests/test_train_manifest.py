@@ -64,12 +64,30 @@ class TrainManifestTests(unittest.TestCase):
         self.assertEqual(t2["bundles"][0]["signature"], SIG1)
         self.assertEqual(t2["bundles"][0]["launcherApi"], 3)
 
-    def test_launcher_with_another_signature_or_level_is_published_again(self):
+    def test_launcher_with_a_higher_level_or_a_new_signature_is_published_again(self):
         t1 = {"train": "t1", "platformApi": 2, "bundles": [with_url(launcher("t1", A), BASE1)]}
-        for changed in (launcher("t2", A, signature=SIG2), launcher("t2", A, level=4), launcher("t2", A, signature=None)):
+        for changed in (launcher("t2", A, level=4), launcher("t2", A, signature=None)):
             t2, carried = train_manifest.build_train({"platformApi": 2, "bundles": [changed]}, t1, "t2", BASE2)
             self.assertEqual(carried, ["bundle-launcher-t2.jar"], changed)
             self.assertEqual(t2["bundles"][0]["url"], BASE2 + "bundle-launcher-t2.jar")
+        unsigned = {"train": "t1", "platformApi": 2, "bundles": [with_url(launcher("t1", A, signature=None), BASE1)]}
+        t2, carried = train_manifest.build_train({"platformApi": 2, "bundles": [launcher("t2", A)]}, unsigned, "t2", BASE2)
+        self.assertEqual(carried, ["bundle-launcher-t2.jar"])
+
+    def test_signature_of_another_train_id_does_not_republish_an_unchanged_launcher(self):
+        # the signature covers the version, which is the train id: every train signs the same jar differently
+        t1 = {"train": "t1", "platformApi": 2, "bundles": [with_url(launcher("t1", A), BASE1)]}
+        t2, carried = train_manifest.build_train(
+            {"platformApi": 2, "bundles": [launcher("t2", A, signature=SIG2)]}, t1, "t2", BASE2)
+        self.assertEqual(carried, [])
+        entry = t2["bundles"][0]
+        self.assertEqual((entry["version"], entry["signature"]), ("t1", SIG1))   # entry and signature stay together
+        self.assertEqual(entry["url"], BASE1 + "bundle-launcher-t1.jar")
+
+    def test_rejects_a_second_launcher_entry(self):
+        second = {**launcher("t2", B), "id": "launcher2", "jar": "bundle-launcher2-t2.jar"}
+        with self.assertRaises(ValueError):
+            train_manifest.build_train({"platformApi": 2, "bundles": [launcher("t2", A), second]}, None, "t2", BASE2)
 
     def test_rejects_invalid_launcher_fields(self):
         base = {"platformApi": 2}
@@ -241,6 +259,20 @@ class TrainManifestTests(unittest.TestCase):
                  "--train", "t2", "--base-url", BASE2, "--out", str(root / "out")]
             )
             self.assertEqual(code, 1)
+
+    def test_a_launcher_entry_needs_no_mapping_whatever_its_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "jars").mkdir()
+            (root / "maps").mkdir()
+            entry = {**launcher("t2", A), "id": "boot", "jar": "bundle-boot-t2.jar"}
+            (root / "jars" / "bundle-boot-t2.jar").write_bytes(b"l")
+            (root / "built.json").write_text(json.dumps({"platformApi": 2, "bundles": [entry]}))
+            code = train_manifest.main(
+                ["--built", str(root / "built.json"), "--jars", str(root / "jars"), "--mappings", str(root / "maps"),
+                 "--train", "t2", "--base-url", BASE2, "--out", str(root / "out")]
+            )
+            self.assertEqual(code, 0)
 
     def test_the_launcher_is_not_processed_and_needs_no_mapping(self):
         with tempfile.TemporaryDirectory() as tmp:

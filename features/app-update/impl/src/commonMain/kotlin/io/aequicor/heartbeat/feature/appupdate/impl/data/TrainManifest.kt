@@ -37,8 +37,8 @@ internal data class TrainManifest(
  * [kind] is `bundle` (also when absent), `base` or `launcher`. The `launcher` entry is the jar of the platform
  * launcher: it is downloaded and verified like the others, but the launcher does not put it on the class path;
  * [launcherApi] is its monotonic level and [signature] the Ed25519 signature of the record, which the launcher
- * selector of the installed app
- * verifies (this app only checks the shape).
+ * selector of the installed app verifies (this app only checks the shape). A launcher entry may be unsigned (a dry
+ * run of the release): the train stays valid and the installed apps simply do not take that launcher.
  */
 @Serializable
 internal data class TrainBundle(
@@ -55,9 +55,11 @@ internal data class TrainBundle(
 /**
  * Parses and validates [text]. Anything the launcher would refuse is [AppUpdateFailure.InvalidRelease] here, so a
  * broken train is never downloaded: a train id that is not a plain name (it names a directory), a non-positive
- * `platformApi`, no bundles, duplicate bundle ids or jars, a jar name with a path separator or without `.jar`, and a
- * SHA-256 that is not 64 hex digits. Unknown fields are ignored; digests are normalised to lowercase. A bundle `url`
- * is kept as published: [missingDownloads] uses it only as a release download of the configured repository.
+ * `platformApi`, no bundles, duplicate bundle ids or jars, a jar name with a path separator or without `.jar`, a
+ * SHA-256 that is not 64 hex digits, an unknown `kind`, a `launcherApi` below 1, a launcher entry without
+ * `launcherApi`, more than one launcher entry, and a `signature` that is not 64 bytes in Base64. Unknown fields are
+ * ignored; digests are normalised to lowercase. A bundle `url` is kept as published: [missingDownloads] uses it only
+ * as a release download of the configured repository.
  */
 internal fun parseTrainManifest(text: String): TrainManifest {
     val manifest = decode(text)

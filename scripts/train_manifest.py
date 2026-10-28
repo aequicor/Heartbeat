@@ -10,11 +10,16 @@ gets `--base-url` (the download URL of the release being published) plus its jar
 
 With `--mappings <dir>` (an obfuscated train) the ProGuard mapping of every jar the train carries is published next to
 it as `mapping-<jar name without .jar>.txt`, in the release that first published the jar: that release is the one
-`scripts/retrace.py` finds the mapping in. `contracts` and `launcher` are not processed and have none; any other missing mapping fails.
+`scripts/retrace.py` finds the mapping in. `contracts` and the launcher entry (`kind=launcher`) are not processed and
+have none; any other missing mapping fails.
 
 An entry may also carry `kind` (`bundle`, `base`, `launcher`), `launcherApi` and `signature`. They are published as
-built, and an entry is only reused when they are unchanged too: a launcher signed with another key, or with a higher
-level, is published again even though its jar is the same.
+built. An unchanged jar is reused only when its `kind` and `launcherApi` are unchanged and it is signed as before (both
+signed or both not): a launcher with a higher level, or one that is signed now and was not, is published again. The
+signature itself is not compared: it covers the version, which is the train id and differs in every train, and the
+reused entry keeps its own version together with the signature made for it.
+
+At most one entry may be a launcher (the launcher and the app refuse a train with two).
 """
 
 from __future__ import annotations
@@ -34,7 +39,7 @@ BASE_URL = re.compile(r"https://[^\s?#/]+/(?:[^\s?#]*/)?")
 MANIFEST_ASSET = "train-manifest.json"
 FIELDS = ("id", "version", "jar", "sha256")
 MAPPING_NAME = "mapping-{}.txt"
-UNPROCESSED_IDS = ("contracts", "launcher")
+UNPROCESSED_ID = "contracts"
 OPTIONAL_FIELDS = ("kind", "launcherApi", "signature")
 KINDS = ("bundle", "base", "launcher")
 SIGNATURE = re.compile(r"[A-Za-z0-9+/]{86}==")
@@ -106,6 +111,8 @@ def check_manifest(manifest: object, where: str) -> dict:
     jars = [b["jar"] for b in bundles]
     if len(set(jars)) != len(jars):
         raise ValueError(f"{where}: duplicate jar name")
+    if sum(1 for b in bundles if b.get("kind") == "launcher") > 1:
+        raise ValueError(f"{where}: more than one launcher entry")
     return manifest
 
 
@@ -132,7 +139,8 @@ def build_train(
             old is not None
             and old["sha256"] == bundle["sha256"]
             and "url" in old
-            and all(old.get(k) == bundle.get(k) for k in OPTIONAL_FIELDS)
+            and all(old.get(k) == bundle.get(k) for k in ("kind", "launcherApi"))
+            and bool(old.get("signature")) == bool(bundle.get("signature"))
         ):
             bundles.append({**published(old), "url": old["url"]})
             continue
@@ -143,7 +151,7 @@ def build_train(
 
 def mapping_files(carried: list[str], directory: Path, built: dict) -> list[Path]:
     """The mapping files of the carried jars; every processed jar needs one."""
-    unprocessed = {b["jar"] for b in built["bundles"] if b["id"] in UNPROCESSED_IDS}
+    unprocessed = {b["jar"] for b in built["bundles"] if b["id"] == UNPROCESSED_ID or b.get("kind") == "launcher"}
     found, missing = [], []
     for jar in carried:
         if jar in unprocessed:
