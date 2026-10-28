@@ -1,0 +1,1 @@
+В Windows PowerShell читай UTF-8 файлы через hosted read_file либо Get-Content -Encoding UTF8: Get-Content без явной кодировки может показывать кириллицу как mojibake. Для многострочных скриптов с кириллицей предпочитай UTF-8 файл вместо передачи исходника через консольный pipe.
