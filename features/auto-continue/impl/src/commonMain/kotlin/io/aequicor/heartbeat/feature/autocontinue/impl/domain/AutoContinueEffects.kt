@@ -16,11 +16,13 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueSettings
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuerFailure
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.seconds
 
 /** Storage of auto-continue settings and chat modes owned by the profile. */
@@ -61,6 +63,7 @@ internal class AutoContinueEffects(
             AutoContinueEffect.Load -> {
                 val settings = store.settings()
                 val modes = store.modes()
+                stopAutopilots(modes)
                 log.i { "auto-continue loaded: ${modes.size} chat mode(s)" }
                 machine.send(Internal.Loaded(settings, modes))
             }
@@ -69,14 +72,14 @@ internal class AutoContinueEffects(
 
             is AutoContinueEffect.SaveMode -> saving.withLock { store.saveMode(effect.chat, effect.mode) }
 
-            is AutoContinueEffect.Ask -> job(effect.chat) { machine.send(ask(effect)) }
+            is AutoContinueEffect.Ask -> job(effect.chat, machine, lost(effect)) { machine.send(ask(effect)) }
 
-            is AutoContinueEffect.Countdown -> job(effect.chat) {
+            is AutoContinueEffect.Countdown -> job(effect.chat, machine, lost = null) {
                 delay(effect.seconds.seconds)
                 machine.send(Internal.CountdownElapsed(effect.chat, effect.seq))
             }
 
-            is AutoContinueEffect.Deliver -> job(effect.chat) { machine.send(deliver(effect)) }
+            is AutoContinueEffect.Deliver -> job(effect.chat, machine, lost(effect)) { machine.send(deliver(effect)) }
 
             is AutoContinueEffect.Cancel -> jobsLock.withLock { jobs.remove(effect.chat) }?.let {
                 it.cancel()
@@ -110,7 +113,6 @@ internal class AutoContinueEffects(
         is IsolatedAnswer.Answered -> {
             val verdict = parseVerdict(answer.text, effect.optionCount)
             if (verdict == null) {
-                log.w { "continuer of ${effect.chat} gave no verdict" }
                 Internal.AskFailed(effect.chat, effect.seq, ContinuerFailure.InvalidAnswer)
             } else {
                 log.i { "continuer of ${effect.chat} answered ${verdict.status}, options ${verdict.options.size}" }
@@ -120,6 +122,10 @@ internal class AutoContinueEffects(
     }
 
     private suspend fun deliver(effect: AutoContinueEffect.Deliver): AutoContinueIntent {
+        if (!isEnabled()) {
+            log.i { "autopilot message to ${effect.chat} dropped: auto-continue is off" }
+            return Internal.DeliveryFailed(effect.chat, effect.seq)
+        }
         val host = hosts().firstOrNull()
         val isSent = host?.deliver(effect.chat, effect.text) == true
         return if (isSent) {
@@ -133,13 +139,39 @@ internal class AutoContinueEffects(
         }
     }
 
-    /** Runs [work] as the only job of [chat], replacing (cancelling) the previous one; returns when it ends. */
-    private suspend fun job(chat: String, work: suspend () -> Unit) = coroutineScope {
+    /**
+     * Runs [work] as the only job of [chat], replacing (cancelling) the previous one; returns when it ends. A job
+     * cancelled neither by a newer job nor by [AutoContinueEffect.Cancel] reports [lost], so its chat is not left
+     * waiting for an answer that never comes.
+     */
+    private suspend fun job(
+        chat: String,
+        machine: EffectScope<AutoContinueIntent>,
+        lost: AutoContinueIntent?,
+        work: suspend () -> Unit,
+    ) = coroutineScope {
         // Registered before it starts, so a Cancel that arrives right after the effect always finds it.
         val job = launch(start = CoroutineStart.LAZY) { work() }
         jobsLock.withLock { jobs.put(chat, job) }?.cancel()
-        job.join()
-        jobsLock.withLock { if (jobs[chat] === job) jobs.remove(chat) }
+        var isCurrent = false
+        try {
+            job.join()
+        } finally {
+            withContext(NonCancellable) {
+                jobsLock.withLock { if (jobs[chat] === job) isCurrent = jobs.remove(chat) != null }
+            }
+        }
+        if (job.isCancelled && isCurrent && lost != null) {
+            log.w { "auto-continue job of $chat was cancelled from inside" }
+            machine.send(lost)
+        }
+    }
+
+    /** Autopilot never survives a restart: stored autopilot chats become suggest chats. */
+    private suspend fun stopAutopilots(modes: Map<String, AutoContinueMode>) = saving.withLock {
+        modes.filterValues { it == AutoContinueMode.Autopilot }.keys.forEach { chat ->
+            store.saveMode(chat, AutoContinueMode.Suggest)
+        }
     }
 
     private companion object {
@@ -147,6 +179,12 @@ internal class AutoContinueEffects(
         val ASK_TIMEOUT = 90.seconds
     }
 }
+
+private fun lost(effect: AutoContinueEffect.Ask): AutoContinueIntent =
+    Internal.AskFailed(effect.chat, effect.seq, ContinuerFailure.Failed)
+
+private fun lost(effect: AutoContinueEffect.Deliver): AutoContinueIntent =
+    Internal.DeliveryFailed(effect.chat, effect.seq)
 
 private fun IsolatedPromptFailure.toFailure(): ContinuerFailure = when (this) {
     IsolatedPromptFailure.Unsupported, IsolatedPromptFailure.Closing -> ContinuerFailure.Unavailable

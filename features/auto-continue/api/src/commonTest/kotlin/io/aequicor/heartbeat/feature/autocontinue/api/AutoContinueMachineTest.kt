@@ -72,7 +72,7 @@ class AutoContinueMachineTest {
     }
 
     @Test
-    fun `a new chat follows the default mode and off ignores turns`() {
+    fun `a new chat follows the default mode and off only keeps the settled context`() {
         val suggesting = AutoContinueState.Ready(AutoContinueSettings(defaultMode = AutoContinueMode.Suggest))
         spec.assertTransition(
             suggesting,
@@ -85,7 +85,10 @@ class AutoContinueMachineTest {
             effects = listOf(ask(1, AutoContinueMode.Suggest)),
         )
         val off = AutoContinueState.Ready()
-        spec.assertIgnored(off, Public.TurnSettled(CHAT, context))
+        val kept = ready(ChatAuto(AutoContinueMode.Off, context = context))
+        spec.assertTransition(off, Public.TurnSettled(CHAT, context), kept)
+        spec.assertTransition(kept, Public.TurnStarted(CHAT, isHuman = true), ready(ChatAuto(AutoContinueMode.Off)))
+        spec.assertTransition(kept, Public.TurnAwaitsHuman(CHAT), ready(ChatAuto(AutoContinueMode.Off)))
         spec.assertIgnored(off, Public.TurnStarted(CHAT, isHuman = true))
         spec.assertIgnored(off, Public.TurnFailed(CHAT, isStoppedByUser = false))
         spec.assertIgnored(off, Public.DraftTyped(CHAT))
@@ -118,12 +121,33 @@ class AutoContinueMachineTest {
     }
 
     @Test
+    fun `switching on after a settled turn asks about it`() {
+        spec.assertTransition(
+            ready(ChatAuto(AutoContinueMode.Off, context = context)),
+            Public.SetMode(CHAT, AutoContinueMode.Suggest),
+            ready(ChatAuto(AutoContinueMode.Suggest, Phase.Thinking(1), context = context, seq = 1)),
+            effects = listOf(ask(1, AutoContinueMode.Suggest), saveMode(AutoContinueMode.Suggest)),
+        )
+    }
+
+    @Test
+    fun `stale deliveries and answers are ignored`() {
+        val delivering = ChatAuto(AutoContinueMode.Autopilot, Phase.Delivering(2, "go"), seq = 2)
+        spec.assertIgnored(ready(delivering), Internal.Delivered(CHAT, 1))
+        spec.assertIgnored(ready(delivering), Internal.DeliveryFailed(CHAT, 1))
+        spec.assertIgnored(ready(delivering), Internal.Answered(CHAT, 2, proceed))
+        spec.assertIgnored(ready(delivering), Public.Refresh(CHAT))
+        val thinking = ChatAuto(AutoContinueMode.Suggest, Phase.Thinking(3), context = context, seq = 3)
+        spec.assertIgnored(ready(thinking), Internal.AskFailed(CHAT, 2, ContinuerFailure.Busy))
+    }
+
+    @Test
     fun `switching off cancels a running request`() {
         val thinking = ChatAuto(AutoContinueMode.Suggest, Phase.Thinking(1), context = context, seq = 1)
         spec.assertTransition(
             ready(thinking),
             Public.SetMode(CHAT, AutoContinueMode.Off),
-            ready(ChatAuto(AutoContinueMode.Off, seq = 1)),
+            ready(ChatAuto(AutoContinueMode.Off, context = context, seq = 1)),
             effects = listOf(AutoContinueEffect.Cancel(CHAT), saveMode(AutoContinueMode.Off)),
         )
     }
@@ -197,6 +221,7 @@ class AutoContinueMachineTest {
             phase = Phase.Delivering(1, option.text),
             autoTurns = 1,
             lastAutoText = option.text,
+            context = null,
         )
         spec.assertTransition(
             ready(countdown),
@@ -226,7 +251,12 @@ class AutoContinueMachineTest {
             ready(thinking, settings),
             Internal.Answered(CHAT, 1, proceed),
             ready(
-                thinking.copy(phase = Phase.Delivering(1, option.text), autoTurns = 1, lastAutoText = option.text),
+                thinking.copy(
+                    phase = Phase.Delivering(1, option.text),
+                    autoTurns = 1,
+                    lastAutoText = option.text,
+                    context = null,
+                ),
                 settings,
             ),
             effects = listOf(AutoContinueEffect.Deliver(CHAT, 1, option.text)),

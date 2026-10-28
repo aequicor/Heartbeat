@@ -67,8 +67,9 @@ private fun AutoContinueState.Ready.internalStep(id: String, chat: ChatAuto, int
         is Internal.Loaded, Internal.LoadFailed, Internal.SaveFailed -> null
     }
 
-private fun AutoContinueState.Ready.turnSettled(id: String, chat: ChatAuto, context: ContinuationContext): ChatStep? =
-    if (chat.mode == AutoContinueMode.Off) null else ask(id, chat, context)
+/** A settled turn is answered; with auto-continue off its context is only kept, so switching it on answers at once. */
+private fun AutoContinueState.Ready.turnSettled(id: String, chat: ChatAuto, context: ContinuationContext): ChatStep =
+    if (chat.mode == AutoContinueMode.Off) ChatStep(chat.copy(context = context)) else ask(id, chat, context)
 
 private fun sendNow(id: String, chat: ChatAuto): ChatStep? =
     (chat.phase as? Phase.Countdown)?.let { deliver(id, chat, it.seq, it.text) }
@@ -98,10 +99,10 @@ private fun AutoContinueState.Ready.setMode(id: String, chat: ChatAuto, mode: Au
         phase = Phase.Idle,
         autoTurns = if (mode == AutoContinueMode.Autopilot) 0 else chat.autoTurns,
         lastAutoText = if (mode == AutoContinueMode.Autopilot) null else chat.lastAutoText,
-        context = chat.context.takeIf { mode != AutoContinueMode.Off },
+        context = chat.context,
     )
     val context = base.context
-    val step = if (context != null && chat.phase !is Phase.Delivering) {
+    val step = if (context != null && mode != AutoContinueMode.Off && chat.phase !is Phase.Delivering) {
         ask(
             id,
             base,
@@ -114,7 +115,7 @@ private fun AutoContinueState.Ready.setMode(id: String, chat: ChatAuto, mode: Au
 }
 
 private fun turnStarted(id: String, chat: ChatAuto, isHuman: Boolean): ChatStep? {
-    if (chat.mode == AutoContinueMode.Off) return null
+    if (chat.mode == AutoContinueMode.Off) return dropContext(chat)
     var base = chat.copy(context = null, phase = Phase.Idle)
     if (isHuman) base = base.copy(autoTurns = 0, lastAutoText = null)
     val job = cancel(id, chat)
@@ -126,7 +127,7 @@ private fun turnStarted(id: String, chat: ChatAuto, isHuman: Boolean): ChatStep?
 }
 
 private fun awaitsHuman(id: String, chat: ChatAuto): ChatStep? = when (chat.mode) {
-    AutoContinueMode.Off -> null
+    AutoContinueMode.Off -> dropContext(chat)
     AutoContinueMode.Suggest -> ChatStep(chat.copy(context = null, phase = Phase.Idle), cancel(id, chat))
     AutoContinueMode.Autopilot -> ChatStep(chat.copy(context = null, phase = Phase.Paused), cancel(id, chat))
 }
@@ -134,7 +135,7 @@ private fun awaitsHuman(id: String, chat: ChatAuto): ChatStep? = when (chat.mode
 private fun turnFailed(id: String, chat: ChatAuto, isStoppedByUser: Boolean): ChatStep? {
     val base = chat.copy(context = null, phase = Phase.Idle)
     return when (chat.mode) {
-        AutoContinueMode.Off -> null
+        AutoContinueMode.Off -> dropContext(chat)
 
         AutoContinueMode.Suggest -> ChatStep(base, cancel(id, chat))
 
@@ -229,10 +230,20 @@ private fun AutoContinueState.Ready.ask(id: String, chat: ChatAuto, context: Con
     )
 }
 
+/** Sends [text]; the answered context is dropped, so nothing asks about the same turn again. */
 private fun deliver(id: String, chat: ChatAuto, seq: Long, text: String): ChatStep = ChatStep(
-    chat = chat.copy(phase = Phase.Delivering(seq, text), autoTurns = chat.autoTurns + 1, lastAutoText = text),
+    chat = chat.copy(
+        phase = Phase.Delivering(seq, text),
+        autoTurns = chat.autoTurns + 1,
+        lastAutoText = text,
+        context = null,
+    ),
     job = AutoContinueEffect.Deliver(id, seq, text),
 )
+
+/** An ended turn of a chat with auto-continue off: the kept context is no longer the latest. */
+private fun dropContext(chat: ChatAuto): ChatStep? =
+    chat.takeIf { it.context != null }?.let { ChatStep(it.copy(context = null)) }
 
 /** Stops the autopilot: suggest mode keeps the [verdict] options offered. */
 private fun halt(

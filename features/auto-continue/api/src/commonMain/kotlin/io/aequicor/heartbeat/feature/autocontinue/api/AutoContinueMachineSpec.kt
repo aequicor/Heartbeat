@@ -19,13 +19,13 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
  * | Ready | UpdateSettings | differs | Ready(settings) | SaveSettings |
  * | Ready | SaveFailed | | Ready | SaveFailed |
  *
- * Per chat in `Ready` (mode Off ignores turn intents):
+ * Per chat in `Ready` (mode Off only keeps the context of the last settled turn):
  *
  * | Phase | Intent | Guard | Chat | Effect / output |
  * |---|---|---|---|---|
  * | any | SetMode | mode differs | mode, Idle; Autopilot resets counter; settled → Thinking | Ask / Cancel; SaveMode |
  * | any | TurnStarted | | Idle, no context; human resets counter; Autopilot → Halted(HumanTookOver) | Cancel; Save |
- * | any | TurnSettled | | Thinking(seq + 1), context kept | Ask |
+ * | any | TurnSettled | | Thinking(seq + 1), context kept; Off: only the context kept | Ask |
  * | any | TurnAwaitsHuman | | Autopilot → Paused, Suggest → Idle | Cancel if busy |
  * | any | TurnFailed | | Autopilot → Halted(UserStopped / TurnFailed), Suggest → Idle | Cancel if busy; SaveMode |
  * | Thinking / Offered / Halted | DraftTyped | Suggest | Idle | Cancel if Thinking |

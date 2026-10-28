@@ -152,6 +152,51 @@ class AutoContinueEffectsTest {
         )
     }
 
+    @Test
+    fun `a job cancelled from inside fails its request`() = runTest {
+        val machine = RecordingScope()
+        val prompts = IsolatedPrompts { throw kotlinx.coroutines.CancellationException("lost") }
+        effects(prompts = prompts).handle(ask, machine)
+        assertEquals(listOf<AutoContinueIntent>(Internal.AskFailed(CHAT, 1, ContinuerFailure.Failed)), machine.sent)
+    }
+
+    @Test
+    fun `nothing is delivered while auto-continue is off`() = runTest {
+        val sent = mutableListOf<String>()
+        val machine = RecordingScope()
+        effects(
+            prompts = ScriptedPrompts(),
+            hosts = setOf(
+                AutoContinueHost { chat, _ ->
+                    sent += chat
+                    true
+                },
+            ),
+            isEnabled = false,
+        ).handle(AutoContinueEffect.Deliver(CHAT, 2, "go"), machine)
+        assertTrue(sent.isEmpty())
+        assertEquals(listOf<AutoContinueIntent>(Internal.DeliveryFailed(CHAT, 2)), machine.sent)
+    }
+
+    @Test
+    fun `stored autopilot chats are loaded as stopped and saved as suggest chats`() = runTest {
+        val store = MemoryStore()
+        store.saveMode(CHAT, AutoContinueMode.Autopilot)
+        store.saveMode("b", AutoContinueMode.Suggest)
+        val machine = RecordingScope()
+        effects(store, prompts = ScriptedPrompts()).handle(AutoContinueEffect.Load, machine)
+        assertEquals(
+            listOf<AutoContinueIntent>(
+                Internal.Loaded(
+                    AutoContinueSettings(),
+                    mapOf(CHAT to AutoContinueMode.Autopilot, "b" to AutoContinueMode.Suggest),
+                ),
+            ),
+            machine.sent,
+        )
+        assertEquals(mapOf(CHAT to AutoContinueMode.Suggest, "b" to AutoContinueMode.Suggest), store.modes())
+    }
+
     private fun effects(
         store: AutoContinueStore = MemoryStore(),
         prompts: IsolatedPrompts,

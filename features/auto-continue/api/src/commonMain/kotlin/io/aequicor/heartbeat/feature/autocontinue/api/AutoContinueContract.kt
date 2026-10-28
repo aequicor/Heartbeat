@@ -271,7 +271,10 @@ public sealed interface AutoContinueIntent : MachineIntent {
         /** Replaces the profile settings. */
         public data class UpdateSettings(val settings: AutoContinueSettings) : Public
 
-        /** The human switched [chat] to [mode]; a settled chat is answered at once. */
+        /**
+         * The human switched [chat] to [mode]; a settled chat is answered at once. An autopilot reply already being
+         * sent is not taken back: its turn starts as usual.
+         */
         public data class SetMode(override val chat: String, val mode: AutoContinueMode) : Public
 
         /** A turn started in [chat]; [isHuman] when the human sent the message (resets the counter). */
