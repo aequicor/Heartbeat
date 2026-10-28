@@ -22,7 +22,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 
 /**
  * Wizard engine → authentication → models. The binding is created before model discovery, because models are only
- * resolvable through an exact binding; abandoning the wizard afterwards rolls the connection back.
+ * resolvable through an exact binding; abandoning the wizard afterwards rolls a newly created connection back.
+ * An existing CLI binding is reused with its saved model choice. A disabled route is enabled for the wizard;
+ * checks, cancellation and rejected delivery restore its original enabled state. Finishing keeps it enabled.
  *
  * | From | Intent | Guard | To | Effect / Output |
  * |---|---|---|---|---|
@@ -119,7 +121,13 @@ public val ConnectWizardMachineSpec:
         }
         state<Connecting> {
             on<Internal.Connected> {
-                goto<ChoosingModels> { ChoosingModels(state.engine.descriptor.id, intent.connection) }
+                goto<ChoosingModels> {
+                    ChoosingModels(
+                        state.engine.descriptor.id,
+                        intent.connection,
+                        selected = intent.connection.initialModels,
+                    )
+                }
                 effect { ConnectWizardEffect.DiscoverModels(state.engine.descriptor.id, intent.connection.binding) }
             }
             on<Internal.ConnectFailed> { goto<ChoosingMethod> { ChoosingMethod(state.engine, intent.failure) } }

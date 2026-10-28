@@ -49,8 +49,20 @@ public fun ConnectionMethod.accepts(credential: CredentialInput): Boolean = cred
     (isOriginEditable || credential.origin == origin) && (isPathEditable || credential.basePath == null) &&
     (this is ConnectionMethod.ApiKey) == (credential is CredentialInput.ApiKey)
 
-/** Binding created by the wizard together with the source it owns until the wizard completes. */
-public data class NewConnection(val binding: EngineBindingId, val source: AuthSourceId)
+/**
+ * Binding used by the wizard. [isCreated] is false for an existing CLI connection, which compensation must preserve
+ * together with its source and model selection. [initialModels] initializes the model step from the saved choice.
+ * [isInitiallyEnabled] records the original state of a reused route temporarily enabled by the wizard; rollback
+ * restores it.
+ * Newly created connections belong to the wizard until completion.
+ */
+public data class NewConnection(
+    val binding: EngineBindingId,
+    val source: AuthSourceId,
+    val isCreated: Boolean = true,
+    val initialModels: Set<ModelId> = emptySet(),
+    val isInitiallyEnabled: Boolean = true,
+)
 
 /** Result of an explicit connection check on the method step. */
 public sealed interface ConnectionCheck {
@@ -136,7 +148,8 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         public data class Connect(val method: ConnectionMethodId, val credential: CredentialInput) : Public
 
         /**
-         * Checks the credential without keeping a connection: models are discovered through a temporary one that is
+         * Checks the credential without creating a lasting connection: an existing CLI binding is preserved; otherwise
+         * models are discovered through a temporary one that is
          * removed afterwards. An ignored request leaves the key with the sender, who closes it.
          */
         public data class CheckConnection(val method: ConnectionMethodId, val credential: CredentialInput) : Public
@@ -225,7 +238,7 @@ public sealed interface ConnectWizardEffect : MachineEffect {
     /** Stores the enabled models of the new binding. */
     public data class SaveModels(val binding: EngineBindingId, val models: Set<ModelId>) : ConnectWizardEffect
 
-    /** Disconnects the binding and forgets its source. */
+    /** Disconnects a newly created binding and forgets its source; preserves an existing CLI connection. */
     public data class Rollback(val connection: NewConnection) : ConnectWizardEffect
 }
 
