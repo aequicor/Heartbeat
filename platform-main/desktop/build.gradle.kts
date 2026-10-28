@@ -379,6 +379,8 @@ tasks.register<JavaExec>("verifyShrunkTrain") {
             mkdirs()
         }
         report.get().asFile.delete()
+        // A log of an earlier run must not be taken for this one's when the JVM dies before it opens its own.
+        smokeLog.get().asFile.delete()
         logger.lifecycle("The logs of the smoke are written to ${smokeLog.get().asFile}")
         systemProperty("user.home", homeDirectory.absolutePath)
         listOf("APPDATA", "LOCALAPPDATA", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME")

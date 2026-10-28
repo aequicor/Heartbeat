@@ -114,6 +114,7 @@ class MappingTest(unittest.TestCase):
         mapping = merged()
         started = time.monotonic()
         retrace.retrace_text("A" * 300_000 + "\n" + "a." * 50_000 + "\n", mapping)
+        retrace.retrace_text(("a." * 50_000) + "\n", mapping)  # a long dotted word: every prefix is no class
         retrace.retrace_text("\tat " + "a/" * 100_000 + "x.y.z(F.kt:1)\n" + "\tat " + "q" * 200_000 + "\n", mapping)
         self.assertLess(time.monotonic() - started, 5.0)
 
@@ -230,15 +231,18 @@ class RunTest(unittest.TestCase):
 
     def test_main_reports_a_damaged_zip_without_a_traceback(self):
         archive = self.directory / "damaged.zip"
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w") as zipped:
-            zipped.writestr("heartbeat.log", "hello hello hello hello hello\n" * 20)
-        data = bytearray(buffer.getvalue())
-        data[data.index(b"hello") - 2] ^= 0xFF  # damages the data of the member: its CRC no longer matches
-        archive.write_bytes(bytes(data))
         base = ["--mappings", str(self.mappings)]
-        self.assertTrue(zipfile.is_zipfile(archive))
-        self.assertEqual(1, retrace.main([str(archive), *base]))
+        for compression in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            with self.subTest(compression=compression):
+                buffer = io.BytesIO()
+                with zipfile.ZipFile(buffer, "w", compression) as zipped:
+                    zipped.writestr("heartbeat.log", "hello hello hello hello hello\n" * 20)
+                data = bytearray(buffer.getvalue())
+                # inside the data of the member, behind its local header: the CRC (stored) or the stream (deflated) breaks
+                data[30 + len("heartbeat.log") + 4] ^= 0xFF
+                archive.write_bytes(bytes(data))
+                self.assertTrue(zipfile.is_zipfile(archive))
+                self.assertEqual(1, retrace.main([str(archive), *base]))
 
     def test_main_reports_an_unreadable_manifest(self):
         base = ["--mappings", str(self.mappings)]

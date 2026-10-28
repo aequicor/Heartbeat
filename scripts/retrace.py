@@ -63,6 +63,7 @@ class Mapping:
 
     def __init__(self) -> None:
         self.classes: dict[str, str] = {}
+        self.longest_class = 0  # a longer prefix of a token cannot be a class of the mapping
         self.methods: dict[str, dict[str, list[Candidate]]] = {}
 
     def read(self, text: str) -> None:
@@ -76,6 +77,7 @@ class Mapping:
                 if match:
                     current = match["obfuscated"]
                     self.classes[current] = match["original"]
+                    self.longest_class = max(self.longest_class, len(current))
                 continue
             if current is None:
                 continue
@@ -134,7 +136,7 @@ def _restore_token(token: str, mapping: Mapping) -> str:
     """The class in [token], or its longest prefix that is one (`pkg.xwp0.INSTANCE`, `pkg.xwp0$Companion`)."""
     if token in mapping.classes:
         return mapping.classes[token]
-    for end in range(len(token) - 1, 0, -1):
+    for end in range(min(len(token) - 1, mapping.longest_class), 0, -1):
         if token[end] in ".$" and token[:end] in mapping.classes:
             return mapping.classes[token[:end]] + token[end:]
     return token
