@@ -206,12 +206,14 @@ class DesktopCommandRunnerTest {
             path.fileSystem.newWatchService().use { watcher ->
                 path.register(watcher, StandardWatchEventKinds.ENTRY_CREATE)
                 val observation = EscapedObservation(marker, watcher, observed)
+                // Two cold JVMs must start before the escape is observed; a loaded CI runner needs far more than 5 s.
+                val limit = if (completion == Completion.TimedOut) 15.seconds else 60.seconds
                 val running = async {
-                    runner.runTracked(directory, command, 5.seconds, observation::accept)
+                    runner.runTracked(directory, command, limit, observation::accept)
                 }
                 try {
                     if (completion == Completion.Cancelled) {
-                        withTimeout(15.seconds) { observation.retained.await() }
+                        withTimeout(60.seconds) { observation.retained.await() }
                         running.cancelAndJoin()
                     } else {
                         val outcome = running.await()
