@@ -63,6 +63,34 @@ class GitHubPullToolsTest {
     }
 
     @Test
+    fun `tools are not offered while the host is not configured`() = runTest {
+        val fixture = PullFixture()
+        val workspace = fixture.context.workspace
+        val unconfigured = GitHubPullTools(
+            object : GitHubPullConfigurationSource {
+                override suspend fun current(workspace: WorkspaceRef) = null
+                override suspend fun isAvailable() = false
+            },
+            fixture.toggles,
+            GitHubPullTransport { _, _, _, _ -> error("no request expected") },
+        )
+
+        assertTrue(unconfigured.specifications(workspace).isEmpty())
+        assertEquals("", unconfigured.instructions(workspace))
+        assertEquals(4, fixture.owner.specifications(workspace).size)
+        assertFalse(githubHostIsConfigured { null })
+        assertFalse(
+            githubHostIsConfigured {
+                mapOf(
+                    "HEARTBEAT_GITHUB_REPOSITORY" to "owner/repo",
+                    "HEARTBEAT_GITHUB_ACCOUNT" to "me",
+                    "HEARTBEAT_GITHUB_CLI" to "gh",
+                )[it]
+            },
+        )
+    }
+
+    @Test
     fun `authorized update shows full inline payload and sends it once`() = runTest {
         val fixture = PullFixture()
         val arguments = fixture.update()
@@ -267,16 +295,17 @@ private class PullFixture {
         "head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
         "base":{"ref":"master","repo":{"full_name":"owner/repo"}}}""",
     ).jsonObject
+    val toggles = object : FeatureToggles {
+        override fun <T : Any> observe(toggle: FeatureToggle<T>) = flowOf(value(toggle))
+        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = value(toggle)
+
+        @Suppress("UNCHECKED_CAST")
+        private fun <T : Any> value(toggle: FeatureToggle<T>): T =
+            if (toggle == GitHubPullToolsEnabled) enabled as T else toggle.default
+    }
     val owner = GitHubPullTools(
         { configuration },
-        object : FeatureToggles {
-            override fun <T : Any> observe(toggle: FeatureToggle<T>) = flowOf(value(toggle))
-            override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = value(toggle)
-
-            @Suppress("UNCHECKED_CAST")
-            private fun <T : Any> value(toggle: FeatureToggle<T>): T =
-                if (toggle == GitHubPullToolsEnabled) enabled as T else toggle.default
-        },
+        toggles,
         GitHubPullTransport { _, method, path, body ->
             calls++
             if (method != "GET") {

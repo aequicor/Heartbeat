@@ -126,9 +126,12 @@ design/          макеты pen.dev (`.pen`): библиотека токен�
 > Текстовые служебные сессии `IsolatedPrompts` не имеют инструментов: `isToolFree` выключает весь native/hosted каталог.
 > Разрешение одноразовое, привязано к полным аргументам, источнику и снимку; изменившаяся операция требует нового вызова.
 > Старые `TrustLevel`/`AgentToolDecisionMode` в протоколах — метаданные совместимости, не отдельные источники разрешений.
-> GitHub PR-инструменты (`ai.github_pull_tools`, default false, Desktop) — отдельные hosted read/create-draft/update/ready
-> с проверкой полного inline-текста и одноразовой привязкой к вызову. Репозиторий и credential задаёт оператор при запуске
-> хоста; REST напрямую через Ktor, ready — фиксированный GraphQL. Общая shell-политика не ослабляется;
+> GitHub PR-инструменты (`ai.github_pull_tools`, default true, Desktop) — отдельные hosted read/create-draft/update/ready
+> с проверкой полного inline-текста и одноразовой привязкой к вызову. Репозиторий и аккаунт gh задаёт пользователь в разделе
+> настроек «Инструменты Heartbeat» (`features:github-connector:{api,impl}`, тогл `github_connector.enabled`, кнопка «Подключить»:
+> поиск gh, аккаунт, репозиторий с правом push, проверка; в профиле хранится только `GitHubConnection` без токена, owner — бандл
+> `engines`); без подключения инструменты не объявляются, переменные `HEARTBEAT_GITHUB_*` — запасной путь оператора;
+> REST напрямую через Ktor, ready — фиксированный GraphQL. Общая shell-политика не ослабляется;
 > preflight revision не является атомарным SHA-разрешением. Настройка и границы —
 > [GITHUB_PR_TOOLS.md](features/ai-engine/facade/impl/GITHUB_PR_TOOLS.md).
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;

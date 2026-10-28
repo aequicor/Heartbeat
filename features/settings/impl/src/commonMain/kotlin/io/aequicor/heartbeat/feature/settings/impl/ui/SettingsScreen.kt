@@ -62,6 +62,7 @@ import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_pr
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_search
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_security
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_subagents
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_tools
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_updates
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_title
 import kotlinx.collections.immutable.persistentListOf
@@ -274,6 +275,7 @@ private val SECTION_TITLES = mapOf(
     SettingsSectionUi.Builds to Res.string.settings_section_builds,
     SettingsSectionUi.Harness to Res.string.settings_section_harness,
     SettingsSectionUi.Interfaces to Res.string.settings_section_interfaces,
+    SettingsSectionUi.Tools to Res.string.settings_section_tools,
     SettingsSectionUi.ProjectConfig to Res.string.settings_section_project_config,
     SettingsSectionUi.Updates to Res.string.settings_section_updates,
     SettingsSectionUi.Logs to Res.string.settings_section_logs,
@@ -296,6 +298,7 @@ private val SECTION_ICONS: Map<SettingsSectionUi, ImageVector> = mapOf(
     SettingsSectionUi.Builds to HbIcons.Terminal,
     SettingsSectionUi.Harness to HbIcons.Code,
     SettingsSectionUi.Interfaces to HbIcons.Grid,
+    SettingsSectionUi.Tools to HbIcons.Settings,
     SettingsSectionUi.ProjectConfig to HbIcons.FolderOpen,
     SettingsSectionUi.Updates to HbIcons.Download,
     SettingsSectionUi.Logs to HbIcons.FileText,

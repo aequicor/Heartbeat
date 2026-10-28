@@ -13,7 +13,7 @@ import kotlinx.serialization.json.put
 import okio.ByteString.Companion.encodeUtf8
 
 /**
- * Public repositories only; the host fixes the destination before authorization. Revision checks detect stale
+ * One repository; the host fixes the destination before authorization. Revision checks detect stale
  * reads but GitHub metadata endpoints have no atomic compare-and-set. These operations never certify a SHA,
  * approve a review, merge, push, dispatch workflows or publish a release. Repository automation may still run.
  */

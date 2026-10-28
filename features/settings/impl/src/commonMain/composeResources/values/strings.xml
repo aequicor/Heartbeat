@@ -13,6 +13,7 @@
     <string name="settings_section_auto_continue">Auto-continue</string>
     <string name="settings_section_context">Context</string>
     <string name="settings_section_interfaces">Interfaces</string>
+    <string name="settings_section_tools">Heartbeat tools</string>
     <string name="settings_section_project_config">Configuration</string>
     <string name="settings_section_harness">Harness</string>
     <string name="settings_section_logs">Application logs</string>

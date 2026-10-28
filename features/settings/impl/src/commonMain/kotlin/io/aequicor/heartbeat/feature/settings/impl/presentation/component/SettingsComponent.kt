@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
+import io.aequicor.heartbeat.feature.githubconnector.api.GitHubConnectorRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessItemRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
@@ -173,6 +174,7 @@ class SettingsComponent(
             HarnessItemRoute::class,
             ServiceUiLibraryRoute::class,
             ServiceUiSurfaceRoute::class,
+            GitHubConnectorRoute::class,
             ProjectConfigRoute::class,
             ConnectEngineRoute::class,
             ProfileSettingsRoute::class,
@@ -201,6 +203,7 @@ private val EMBEDDED_ROUTES: Map<SettingsSection, Route> = mapOf(
     SettingsSection.Builds to WorktreeBuildsRoute(isEmbedded = true),
     SettingsSection.Harness to HarnessRoute(isEmbedded = true),
     SettingsSection.Interfaces to ServiceUiLibraryRoute(isEmbedded = true),
+    SettingsSection.Tools to GitHubConnectorRoute(isEmbedded = true),
     SettingsSection.ProjectConfig to ProjectConfigRoute(isEmbedded = true),
     SettingsSection.Updates to AppUpdatesRoute(isEmbedded = true),
     SettingsSection.Logs to AppLogsRoute(isEmbedded = true),

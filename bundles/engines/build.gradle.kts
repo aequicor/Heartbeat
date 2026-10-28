@@ -3,7 +3,7 @@ plugins {
 }
 
 // Бандл «engines»: ИИ-движки (Koog, Claude, Codex, Pi, ACP), фасад движков, подключения, панель управления
-// и веб-поиск, которым пользуются исследовательские запуски.
+// и веб-поиск, которым пользуются исследовательские запуски, а также коннектор GitHub для инструментов PR.
 kotlin {
     sourceSets {
         jvmMain.dependencies {
@@ -27,6 +27,8 @@ kotlin {
             implementation(projects.features.aiEngine.controlPanel.impl)
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.searchEngine.impl)
+            implementation(projects.features.githubConnector.api)
+            implementation(projects.features.githubConnector.impl)
             implementation(projects.core.stateMachine.api)
             implementation(projects.core.featureToggles.api)
             implementation(projects.core.di.api)

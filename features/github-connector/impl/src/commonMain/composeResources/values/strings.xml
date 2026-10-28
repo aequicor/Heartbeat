@@ -1,0 +1,36 @@
+<resources>
+    <string name="github_title">Heartbeat tools</string>
+    <string name="github_back">Back</string>
+    <string name="github_description">Connections that Heartbeat agents use while they work.</string>
+    <string name="github_card_title">GitHub connector</string>
+    <string name="github_card_description">Agents create and maintain pull requests with the github_pr_* tools</string>
+    <string name="github_not_connected">GitHub is not connected: agents have no pull request tools.</string>
+    <string name="github_connect">Connect</string>
+    <string name="github_change">Change</string>
+    <string name="github_disconnect">Disconnect</string>
+    <string name="github_connected">Connected</string>
+    <string name="github_account">Account</string>
+    <string name="github_repository">Repository</string>
+    <string name="github_loading">Loading…</string>
+    <string name="github_note">The token is not stored in Heartbeat: GitHub CLI provides it on request. Creating, changing and publishing a pull request is confirmed according to the security mode.</string>
+    <string name="github_dialog_title">Connect GitHub</string>
+    <string name="github_dialog_account">GitHub account</string>
+    <string name="github_dialog_repository">Repository</string>
+    <string name="github_dialog_search">Find a repository</string>
+    <string name="github_dialog_clear">Clear search</string>
+    <string name="github_dialog_cancel">Cancel</string>
+    <string name="github_dialog_confirm">Connect</string>
+    <string name="github_dialog_discovering">Looking for GitHub CLI…</string>
+    <string name="github_dialog_loading_repositories">Loading repositories…</string>
+    <string name="github_dialog_verifying">Checking access…</string>
+    <string name="github_dialog_no_repositories">This account has no repositories you can push to.</string>
+    <string name="github_dialog_nothing_found">No repository matches the search.</string>
+    <string name="github_repository_private">private</string>
+    <string name="github_repository_public">public</string>
+    <string name="github_failure_cli_not_found">GitHub CLI (gh) was not found. Install it from cli.github.com and sign in: gh auth login.</string>
+    <string name="github_failure_not_logged_in">GitHub CLI has no signed-in github.com account. Run: gh auth login.</string>
+    <string name="github_failure_no_access">The account cannot access this repository, or GitHub CLI refused the request.</string>
+    <string name="github_failure_no_pull_request_access">The account can read this repository but cannot create pull requests in it.</string>
+    <string name="github_failure_failed">The step could not be completed. Try again.</string>
+    <string name="github_retry">Try again</string>
+</resources>

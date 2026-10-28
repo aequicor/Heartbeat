@@ -26,6 +26,7 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.okio)
         }
+        jvmMain.dependencies { implementation(projects.features.githubConnector.api) }
         jvmTest.dependencies {
             implementation(libs.androidx.sqlite.bundled)
             implementation(libs.ktor.client.mock)

@@ -1,0 +1,36 @@
+<resources>
+    <string name="github_title">Инструменты Heartbeat</string>
+    <string name="github_back">Назад</string>
+    <string name="github_description">Подключения, которыми агенты Heartbeat пользуются при работе.</string>
+    <string name="github_card_title">Коннектор GitHub</string>
+    <string name="github_card_description">Агенты создают и ведут pull request через инструменты github_pr_*</string>
+    <string name="github_not_connected">GitHub не подключён: агентам недоступны инструменты pull request.</string>
+    <string name="github_connect">Подключить</string>
+    <string name="github_change">Изменить</string>
+    <string name="github_disconnect">Отключить</string>
+    <string name="github_connected">Подключено</string>
+    <string name="github_account">Аккаунт</string>
+    <string name="github_repository">Репозиторий</string>
+    <string name="github_loading">Загрузка…</string>
+    <string name="github_note">Токен не сохраняется в Heartbeat: его по запросу выдаёт GitHub CLI. Создание, изменение и публикация pull request подтверждаются по режиму безопасности.</string>
+    <string name="github_dialog_title">Подключение GitHub</string>
+    <string name="github_dialog_account">Аккаунт GitHub</string>
+    <string name="github_dialog_repository">Репозиторий</string>
+    <string name="github_dialog_search">Найти репозиторий</string>
+    <string name="github_dialog_clear">Очистить поиск</string>
+    <string name="github_dialog_cancel">Отмена</string>
+    <string name="github_dialog_confirm">Подключить</string>
+    <string name="github_dialog_discovering">Ищем GitHub CLI…</string>
+    <string name="github_dialog_loading_repositories">Загружаем репозитории…</string>
+    <string name="github_dialog_verifying">Проверяем доступ…</string>
+    <string name="github_dialog_no_repositories">У этого аккаунта нет репозиториев, в которые можно отправлять изменения.</string>
+    <string name="github_dialog_nothing_found">Ни один репозиторий не подошёл под поиск.</string>
+    <string name="github_repository_private">приватный</string>
+    <string name="github_repository_public">публичный</string>
+    <string name="github_failure_cli_not_found">GitHub CLI (gh) не найден. Установите его с cli.github.com и войдите: gh auth login.</string>
+    <string name="github_failure_not_logged_in">В GitHub CLI нет аккаунта github.com. Выполните: gh auth login.</string>
+    <string name="github_failure_no_access">У аккаунта нет доступа к репозиторию, или GitHub CLI отклонил запрос.</string>
+    <string name="github_failure_no_pull_request_access">Аккаунт читает репозиторий, но не может создавать в нём pull request.</string>
+    <string name="github_failure_failed">Не удалось выполнить шаг. Попробуйте ещё раз.</string>
+    <string name="github_retry">Повторить</string>
+</resources>

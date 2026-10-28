@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
+import io.aequicor.heartbeat.feature.githubconnector.api.GitHubConnectorRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLibraryRoute
@@ -55,6 +56,7 @@ class SettingsSectionsTest {
                 isUpdatesEnabled = true,
                 isDesktop = true,
                 isBuildsEnabled = true,
+                isToolsEnabled = true,
             ),
         )
         assertEquals(
@@ -148,6 +150,18 @@ class SettingsSectionsTest {
         }
         assertEquals(ServiceUiLibraryRoute(isEmbedded = true), SettingsSection.Interfaces.route())
         assertEquals(SettingsSection.Interfaces, settingsSectionOf("interfaces"))
+    }
+
+    @Test
+    fun `heartbeat tools are offered only with their toggle and an active profile and open embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isToolsEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Tools in sections)
+            }
+        }
+        assertEquals(GitHubConnectorRoute(isEmbedded = true), SettingsSection.Tools.route())
+        assertEquals(SettingsSection.Tools, settingsSectionOf("tools"))
     }
 
     @Test
