@@ -193,6 +193,9 @@ class DesktopCommandRunnerTest {
         escapedDescendant(Completion.Cancelled) { _, _ -> }
     }
 
+    /** Two cold JVMs must start before the escape is observed; a loaded CI runner needs far more than 5 s. */
+    private fun Completion.commandLimit() = if (this == Completion.TimedOut) 15.seconds else 60.seconds
+
     private suspend fun escapedDescendant(
         completion: Completion = Completion.Succeeded,
         observed: suspend (TaskProcess, ProcessHandle) -> Unit,
@@ -206,10 +209,8 @@ class DesktopCommandRunnerTest {
             path.fileSystem.newWatchService().use { watcher ->
                 path.register(watcher, StandardWatchEventKinds.ENTRY_CREATE)
                 val observation = EscapedObservation(marker, watcher, observed)
-                // Two cold JVMs must start before the escape is observed; a loaded CI runner needs far more than 5 s.
-                val limit = if (completion == Completion.TimedOut) 15.seconds else 60.seconds
                 val running = async {
-                    runner.runTracked(directory, command, limit, observation::accept)
+                    runner.runTracked(directory, command, completion.commandLimit(), observation::accept)
                 }
                 try {
                     if (completion == Completion.Cancelled) {
