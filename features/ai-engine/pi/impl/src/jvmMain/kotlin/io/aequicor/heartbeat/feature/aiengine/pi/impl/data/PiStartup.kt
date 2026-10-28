@@ -38,6 +38,9 @@ internal data class PiStartup(
     val trust: Map<WorkspaceRef, ProjectTrust> = emptyMap(),
     /** Engine configuration is on: an untrusted project loads only its content. */
     val isConfigured: Boolean = false,
+    val isMcpEnabled: Boolean = false,
+    /** Version of this exact selected executable; custom paths are probed before launch. */
+    val runtimeVersion: String? = null,
 ) {
     override fun toString(): String = "PiStartup(source=$source)"
 }
@@ -58,13 +61,28 @@ internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVer
         managed != null && (
             bundledVersion == null || isNewerVersion(checkNotNull(context.managed).version, bundledVersion)
         ) ->
-            PiStartup(pathOrNull(managed), InstallSource.Managed, environment)
+            PiStartup(
+                pathOrNull(managed),
+                InstallSource.Managed,
+                environment,
+                runtimeVersion = context.managed?.version,
+            )
 
-        bundled != null || bundledVersion != null -> PiStartup(bundled, InstallSource.Bundled, environment)
+        bundled != null || bundledVersion != null -> PiStartup(
+            bundled,
+            InstallSource.Bundled,
+            environment,
+            runtimeVersion = bundledVersion,
+        )
 
         else -> PiStartup(null, InstallSource.Missing, environment)
     }
-    return selected.copy(config = context.config, trust = context.trust, isConfigured = context.isConfigured)
+    return selected.copy(
+        config = context.config,
+        trust = context.trust,
+        isConfigured = context.isConfigured,
+        isMcpEnabled = context.settings.isMcpEnabled,
+    )
 }
 
 /** The user's entries on top of the retained host environment; Heartbeat's own variables are set after them. */

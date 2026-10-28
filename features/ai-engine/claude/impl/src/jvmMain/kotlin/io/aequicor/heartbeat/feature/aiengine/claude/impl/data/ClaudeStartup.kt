@@ -31,6 +31,7 @@ internal data class ClaudeStartup(
     val isRunnable: Boolean,
     val configDirectory: String? = null,
     val environment: List<EnvironmentEntry> = emptyList(),
+    val isMcpEnabled: Boolean = false,
 ) {
     override fun toString(): String = "ClaudeStartup(source=$source, isRunnable=$isRunnable)"
 }
@@ -77,7 +78,14 @@ internal fun resolveClaudeStartup(
         preferredClaude(preference, settings.hostRuntimeVersion, managed, configuration, host)
     }
     val configDirectory = settings.homeDirectory?.takeIf { it.isNotBlank() } ?: configuration.configDirectory
-    return ClaudeStartup(found.executable, found.source, found.isRunnable, configDirectory, settings.environment)
+    return ClaudeStartup(
+        found.executable,
+        found.source,
+        found.isRunnable,
+        configDirectory,
+        settings.environment,
+        settings.isMcpEnabled,
+    )
 }
 
 /**
@@ -129,7 +137,7 @@ internal fun withStandardToolDirectories(
     val extra = listOfNotNull(
         "/opt/homebrew/bin".takeIf { osName.startsWith("Mac") },
         "/usr/local/bin",
-        File(File(userHome, ".local"), "bin").path.takeIf { userHome.isNotBlank() },
+        "${userHome.trimEnd('/')}/.local/bin".takeIf { userHome.isNotBlank() },
     ).filter { it !in known && isDirectory(it) }
     return (current + extra).joinToString(":")
 }

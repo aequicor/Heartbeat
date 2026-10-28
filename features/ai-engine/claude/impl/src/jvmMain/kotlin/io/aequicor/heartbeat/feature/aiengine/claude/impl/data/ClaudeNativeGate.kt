@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_SEARCH_SERVER
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -42,7 +44,7 @@ internal class ClaudeNativeGate(
                     JsonArray(
                         listOf(
                             buildJsonObject {
-                                put("matcher", enabled.sorted().joinToString("|"))
+                                put("matcher", claudeNativeMatcher(enabled))
                                 put("hookCallbackIds", JsonArray(listOf(JsonPrimitive(CALLBACK))))
                                 put("timeout", CLI_HOOK_TIMEOUT_SECONDS)
                             },
@@ -158,7 +160,9 @@ internal class ClaudeNativeGate(
     }
 
     private fun call(request: JsonObject, inputKey: String): Call {
-        val name = request.text("tool_name")?.takeIf { it in enabled } ?: protocolFailure()
+        val name = request.text(
+            "tool_name",
+        )?.takeIf { it in enabled || (CLAUDE_MCP_GROUP in enabled && isForeignClaudeMcp(it)) } ?: protocolFailure()
         return Call(name, request[inputKey] as? JsonObject ?: protocolFailure(), identity(request))
     }
 
@@ -217,3 +221,16 @@ private const val MAX_TOOL_ID_CHARS = 256
 // Independent review allows two minutes plus bounded cleanup; the CLI must outlive the host's deadline.
 private const val HOOK_TIMEOUT_MS = 150_000L
 private const val CLI_HOOK_TIMEOUT_SECONDS = 180
+
+/** ECMAScript-compatible, anchored hook matcher; hosted bridges retain their separate authorization. */
+internal fun claudeNativeMatcher(enabled: Set<String>): String = enabled.sorted().joinToString(
+    "|",
+    prefix = "^(?:",
+    postfix = ")$",
+) { name ->
+    if (name == CLAUDE_MCP_GROUP) {
+        "mcp__(?!${HOSTED_TOOLS_SERVER}__|${HOSTED_SEARCH_SERVER}__).+"
+    } else {
+        name
+    }
+}

@@ -52,14 +52,15 @@ internal suspend fun piAgentConfig(
     values: EngineConfigValues,
     home: Path,
     isProjectTrusted: Boolean = false,
+    isMcpEnabled: Boolean = false,
     secret: suspend (String) -> String?,
 ): PiAgentConfig {
     if (values.isEmpty && !isProjectTrusted) return PiAgentConfig()
     val settings = values.json(PiDocuments.Settings) ?: JsonObject(emptyMap()).takeIf { isProjectTrusted }
-    val enabled = Builtins.filter { (_, binding) -> values.flag(binding) }.map { (name, _) -> name }
+    val enabled = enabledBuiltins(values, isMcpEnabled)
     val isDiscovering = isProjectTrusted || settings.hasItems("extensions") || settings.hasItems("packages")
     val hasPackages = settings.hasItems("packages")
-    val mcp = values.json(PiDocuments.Mcp)?.let { substituteSecrets(it, secret) }
+    val mcp = values.json(PiDocuments.Mcp)?.takeIf { isMcpEnabled }?.let { substituteSecrets(it, secret) }
     return PiAgentConfig(
         files = agentFiles(values, settings?.let { agentSettings(it, home, enabled, isDiscovering) }, mcp?.document),
         builtins = if (isDiscovering) emptyList() else enabled.map { "builtin:$it" },
@@ -68,10 +69,14 @@ internal suspend fun piAgentConfig(
         isPromptsLoaded = isProjectTrusted || settings.hasItems("prompts") || hasPackages,
         hasProjectContext = values.flag(PiHostKeys.ProjectContextFiles, default = true),
         environment = environmentOf(values),
-        tools = enabled.mapNotNull(BuiltinTools::get).flatten() + values.strings(PiHostKeys.ExtensionTools),
+        tools = (enabled.mapNotNull(BuiltinTools::get).flatten() + values.strings(PiHostKeys.ExtensionTools))
+            .filter { isMcpEnabled || piToolGroup(it)?.policyName != "mcp" },
         missingSecrets = mcp?.missing ?: 0,
     )
 }
+
+private fun enabledBuiltins(values: EngineConfigValues, isMcpEnabled: Boolean): List<String> =
+    Builtins.filter { (name, binding) -> values.flag(binding) && (name != "mcp" || isMcpEnabled) }.keys.toList()
 
 private fun agentFiles(values: EngineConfigValues, settings: JsonObject?, mcp: JsonObject?) = buildMap {
     settings?.let { put(SETTINGS_FILE, PiJson.encodeToString(JsonObject.serializer(), it)) }

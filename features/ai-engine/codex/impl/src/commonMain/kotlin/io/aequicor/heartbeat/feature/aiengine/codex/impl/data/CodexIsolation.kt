@@ -50,8 +50,9 @@ internal fun codexHostedInstructions(workflow: String, actions: Set<AgentToolAct
 }
 
 /**
- * Empty MCP tables merge with disk configuration. Each configured server must be explicitly disabled instead.
- * Only names and effective feature booleans are consumed; credentials are never exposed or logged.
+ * Empty MCP tables merge with disk configuration. By default each configured server is explicitly disabled;
+ * an opt-in preserves its own enabled choice only outside protected or virtual sessions. Only names and
+ * effective feature booleans are consumed; credentials are never exposed or logged.
  */
 internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, settings: CodexIsolationSettings): JsonObject {
     val response = rpc.request(
@@ -73,9 +74,7 @@ internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, settings:
         buildJsonObject {
             put(
                 "mcp_servers",
-                buildJsonObject {
-                    servers?.keys?.forEach { name -> put(name, buildJsonObject { put("enabled", false) }) }
-                },
+                codexMcpOverrides(servers, settings),
             )
             put(
                 "features",
@@ -105,4 +104,15 @@ internal data class CodexIsolationSettings(
     val model: String = "",
     /** Hosted dynamic declarations of the thread, reproduced by the protected inventory probe. */
     val tools: List<JsonObject> = emptyList(),
+    val isMcpEnabled: Boolean = false,
 )
+
+/** Reapplies the disk choices on cold resume; protected and virtual sessions always explicitly disable servers. */
+internal fun codexMcpOverrides(servers: JsonObject?, settings: CodexIsolationSettings): JsonObject = buildJsonObject {
+    val isAllowed =
+        settings.isMcpEnabled && !settings.off.isVerifiedInventoryRequired && !settings.off.isVirtualWorkspace
+    servers?.forEach { (name, server) ->
+        val isEnabled = isAllowed && (server as? JsonObject)?.get("enabled") != JsonPrimitive(false)
+        put(name, buildJsonObject { put("enabled", isEnabled) })
+    }
+}

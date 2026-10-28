@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineMcpEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
@@ -54,6 +55,53 @@ class EngineManagementStorageTest {
         executable = "/opt/codex",
         environment = listOf(EnvironmentEntry("RUST_LOG", "info")),
     )
+
+    @Test
+    fun `MCP opt-in alone persists and disabling it restores the default record`() = runTest {
+        val store = MemoryStore()
+        val storage = EngineManagementStorage(store)
+        val enabled = LaunchSettings(isMcpEnabled = true)
+        storage.update { it.copy(launch = mapOf(engine to enabled)) }
+
+        assertEquals(enabled, EngineManagementStorage(store).load().launchOf(engine))
+        assertEquals(mapOf(engine to enabled), storage.observe().first().launch)
+
+        storage.update { it.copy(launch = mapOf(engine to LaunchSettings())) }
+        assertTrue(EngineManagementStorage(store).load().launch.isEmpty())
+    }
+
+    @Test
+    fun `rollout gates saved MCP opt-in without erasing it or other launch settings`() = runTest {
+        val flags = Flags(mapOf(EngineManagementEnabled to true))
+        val enabled = settings.copy(isMcpEnabled = true)
+        val preferences = MemoryEnginePreferences(ProfileEnginePreferences(launch = mapOf(engine to enabled)))
+        val config = ProfileLaunchConfig(flags, preferences, Installs(emptyMap()))
+
+        assertEquals(settings, config.context(engine).settings)
+        assertEquals(enabled, preferences.load().launchOf(engine))
+        flags.values[EngineMcpEnabled] = true
+        assertEquals(enabled, config.context(engine).settings)
+        assertFalse(config.context(EngineId("pi")).settings.isMcpEnabled)
+        flags.values[EngineMcpEnabled] = false
+        assertEquals(settings, config.context(engine).settings)
+        assertEquals(enabled, preferences.load().launchOf(engine))
+        flags.values[EngineMcpEnabled] = true
+        flags.values[EngineManagementEnabled] = false
+        assertEquals(LaunchContext(), config.context(engine))
+    }
+
+    @Test
+    fun `developer MCP capability follows rollout independently of engine enablement`() = runTest {
+        val flags = Flags(mapOf(AiEngines to true, descriptor.toggle to true))
+        val engineFlags = ToggleEngineFlags(flags)
+        assertFalse(engineFlags.developer(descriptor).first().isMcpOn)
+        flags.values[EngineMcpEnabled] = true
+        assertTrue(engineFlags.developer(descriptor).first().isMcpOn)
+        flags.values[descriptor.toggle] = false
+        val disabledEngine = engineFlags.developer(descriptor).first()
+        assertFalse(disabledEngine.isEngineOn)
+        assertTrue(disabledEngine.isMcpOn)
+    }
 
     @Test
     fun `a failed managed copy refresh preserves saved launch settings`() = runTest {

@@ -35,7 +35,13 @@ class ClaudeBindingsTest {
         val spec = registration.management
         assertEquals(InstallSupport.Managed, spec.install)
         assertEquals(
-            setOf(LaunchOption.Executable, LaunchOption.Runtime, LaunchOption.HomeDirectory, LaunchOption.Environment),
+            setOf(
+                LaunchOption.Executable,
+                LaunchOption.Runtime,
+                LaunchOption.HomeDirectory,
+                LaunchOption.Environment,
+                LaunchOption.Mcp,
+            ),
             spec.launch.options,
         )
         assertEquals("Claude", spec.hostApp?.title)

@@ -33,6 +33,11 @@ public object FacadeToggleBindings {
     public fun subagentsToggle(): FeatureToggle<*> =
         io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled
 
+    /** Native MCP remains opt-in both at rollout and for each engine. */
+    @Provides
+    @IntoSet
+    public fun engineMcpToggle(): FeatureToggle<*> = io.aequicor.heartbeat.feature.aiengine.facade.api.EngineMcpEnabled
+
     /** Catalog gate shared by all engines. */
     @Provides
     @IntoSet

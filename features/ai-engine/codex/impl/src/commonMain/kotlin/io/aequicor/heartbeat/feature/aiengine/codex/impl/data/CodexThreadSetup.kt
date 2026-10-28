@@ -298,6 +298,7 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
                 off = request.off,
                 model = target.model.value,
                 tools = declarations,
+                isMcpEnabled = runtime.isMcpEnabled,
             ),
         )
         return buildJsonObject {

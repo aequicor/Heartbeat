@@ -21,6 +21,21 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PiAgentConfigTest {
+    @Test
+    fun `master MCP switch blocks builtin and custom patterns without resolving secrets`() = runTest {
+        val values = EngineConfigValues()
+            .write(PiHostKeys.Mcp, JsonPrimitive(true))
+            .write(PiHostKeys.ExtensionTools, Json.parseToJsonElement("[\"mcp__*\",\"my_*\"]"))
+            .write(ConfigBinding.JsonPath(PiDocuments.Mcp, listOf("mcpServers")), json("{}"))
+        val off = piAgentConfig(values, home) { error("MCP credentials must not be read while off") }
+        assertFalse("builtin:mcp" in off.builtins)
+        assertFalse(MCP_FILE in off.files)
+        assertEquals(listOf("my_*"), off.tools)
+        val on = piAgentConfig(values, home, isMcpEnabled = true, secret = noSecrets)
+        assertTrue("builtin:mcp" in on.builtins)
+        assertTrue("mcp__*" in on.tools)
+    }
+
     private val home = Path.of("/data/pi/home")
     private val patternHome = home.toString().replace('\\', '/')
     private val agentDir = Path.of("/tmp/pi-1")
@@ -28,7 +43,7 @@ class PiAgentConfigTest {
 
     @Test
     fun `an empty configuration keeps the hermetic command line`() = runTest {
-        val config = piAgentConfig(EngineConfigValues(), home, secret = noSecrets)
+        val config = piAgentConfig(EngineConfigValues(), home, isMcpEnabled = true, secret = noSecrets)
         assertEquals(PiAgentConfig(), config)
         val extensions = piExtensions(agentDir, searchTools = false)
         listOf(true, false).forEach { isProject ->
@@ -49,7 +64,7 @@ class PiAgentConfigTest {
             Files.writeString(project.resolve(".pi/extensions/custom.ts"), "export default () => {}")
             val content = piProjectContent(project)
             val values = EngineConfigValues()
-            val untrusted = piAgentConfig(values, home, secret = noSecrets)
+            val untrusted = piAgentConfig(values, home, isMcpEnabled = true, secret = noSecrets)
             val before = piCommand(
                 Path.of("pi"),
                 Path.of("s"),
@@ -61,7 +76,7 @@ class PiAgentConfigTest {
             assertTrue("--no-approve" in before && "--no-extensions" in before)
             assertTrue("--prompt-template" in before)
 
-            val trusted = piAgentConfig(values, home, isProjectTrusted = true, secret = noSecrets)
+            val trusted = piAgentConfig(values, home, isProjectTrusted = true, isMcpEnabled = true, secret = noSecrets)
             val after = piCommand(
                 Path.of("pi"),
                 Path.of("s"),
@@ -86,7 +101,7 @@ class PiAgentConfigTest {
     @Test
     fun `trusted project discovery respects the selected profile built-ins`() = runTest {
         val values = EngineConfigValues().write(PiHostKeys.Mcp, JsonPrimitive(true))
-        val config = piAgentConfig(values, home, isProjectTrusted = true, secret = noSecrets)
+        val config = piAgentConfig(values, home, isProjectTrusted = true, isMcpEnabled = true, secret = noSecrets)
 
         assertEquals(listOf("mcp__*"), config.tools)
         assertEquals(
@@ -109,7 +124,7 @@ class PiAgentConfigTest {
             """,
         )
 
-        val config = piAgentConfig(values, home, secret = noSecrets)
+        val config = piAgentConfig(values, home, isMcpEnabled = true, secret = noSecrets)
 
         val written = json(config.files.getValue(SETTINGS_FILE))
         assertFalse("defaultModel" in written || "defaultTools" in written || "sessionDir" in written)
@@ -149,6 +164,7 @@ class PiAgentConfigTest {
         val explicit = piAgentConfig(
             EngineConfigValues().write(PiHostKeys.Mcp, JsonPrimitive(true)),
             home,
+            isMcpEnabled = true,
             secret = noSecrets,
         )
         assertEquals(listOf("builtin:mcp"), explicit.builtins)
@@ -163,6 +179,7 @@ class PiAgentConfigTest {
                 JsonPrimitive(true),
             ).withSettings("""{"extensions": ["ext"]}"""),
             home,
+            isMcpEnabled = true,
             secret = noSecrets,
         )
         assertEquals(emptyList(), discovering.builtins)
@@ -202,7 +219,7 @@ class PiAgentConfigTest {
             ),
         )
 
-        val config = piAgentConfig(values, home) { slot -> "value-$slot".takeIf { slot == "GH" } }
+        val config = piAgentConfig(values, home, isMcpEnabled = true) { slot -> "value-$slot".takeIf { slot == "GH" } }
 
         val servers = json(config.files.getValue(MCP_FILE)).getValue("mcpServers").jsonObject
         assertEquals(
@@ -224,7 +241,7 @@ class PiAgentConfigTest {
             .write(PiHostKeys.ProjectContextFiles, JsonPrimitive(false))
             .write(PiHostKeys.ExtensionTools, Json.parseToJsonElement("""["my_*"]"""))
 
-        val config = piAgentConfig(values, home, secret = noSecrets)
+        val config = piAgentConfig(values, home, isMcpEnabled = true, secret = noSecrets)
 
         assertEquals("Be brief", config.files[AGENTS_FILE])
         assertEquals("You are Pi", config.files[SYSTEM_FILE])
@@ -248,7 +265,7 @@ class PiAgentConfigTest {
             ConfigBinding.WholeDocument(PiDocuments.Agents),
             JsonPrimitive("Be brief"),
         )
-        val flags = piAgentConfig(values, home, secret = noSecrets).flags(agentDir)
+        val flags = piAgentConfig(values, home, isMcpEnabled = true, secret = noSecrets).flags(agentDir)
 
         val project = piCommand(Path.of("pi"), Path.of("s"), emptyList(), "", isProject = true, flags = flags)
         val detached = piCommand(Path.of("pi"), Path.of("s"), emptyList(), "", isProject = false, flags = flags)

@@ -13,6 +13,41 @@ import kotlin.test.assertFalse
 
 class CodexIsolationTest {
     @Test
+    fun `protected and virtual sessions override an enabled MCP setting`() {
+        val servers = json("pen" to json("enabled" to JsonPrimitive(true)))
+        for (off in listOf(
+            CodexNativeOff(isToolFree = true),
+            CodexNativeOff(isActionAnalysisRequired = true),
+            CodexNativeOff(isVirtualWorkspace = true),
+        )) {
+            val config = codexMcpOverrides(
+                servers,
+                CodexIsolationSettings(false, false, off = off, isMcpEnabled = true),
+            )
+            assertEquals(JsonPrimitive(false), config.obj("pen")["enabled"])
+        }
+    }
+
+    @Test
+    fun `MCP opt-in follows engine server enablement instead of enabling every server`() = runTest {
+        val fixture = Fixture(this)
+        fixture.nativeConfig = JsonObject(
+            fixture.nativeConfig + (
+                "mcp_servers" to json(
+                    "pen" to json("command" to JsonPrimitive("pen")),
+                    "disabled" to json("enabled" to JsonPrimitive(false)),
+                )
+            ),
+        )
+        val enabled = codexIsolationConfig(fixture.rpc, null, CodexIsolationSettings(false, false, isMcpEnabled = true))
+        assertEquals(JsonPrimitive(true), enabled.obj("mcp_servers").obj("pen")["enabled"])
+        assertEquals(JsonPrimitive(false), enabled.obj("mcp_servers").obj("disabled")["enabled"])
+        val disabled = codexIsolationConfig(fixture.rpc, null, CodexIsolationSettings(false, false))
+        assertEquals(JsonPrimitive(false), disabled.obj("mcp_servers").obj("pen")["enabled"])
+        fixture.runtime.close()
+    }
+
+    @Test
     fun `each inherited native MCP is disabled rather than merging an empty table`() = runTest {
         val fixture = Fixture(this)
         fixture.nativeConfig = JsonObject(

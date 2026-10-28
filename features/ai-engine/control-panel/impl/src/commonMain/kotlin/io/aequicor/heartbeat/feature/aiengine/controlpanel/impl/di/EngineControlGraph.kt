@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
 import io.aequicor.heartbeat.core.navigation.RouteEntry
+import io.aequicor.heartbeat.core.navigation.routeEntry
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlIntent
@@ -29,9 +30,12 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlStat
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.di.scope.EngineControlScope
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.domain.EngineControlEffects
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.domain.EngineControlServices
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.component.EngineControlBlankRoute
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.component.EngineControlDetailsRoute
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.component.EngineControlListComponent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.component.EngineControlPanelComponent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlTarget
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui.EngineControlBlankUiComponent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui.EngineControlListUiComponent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui.EngineControlPanelUiComponent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
@@ -87,10 +91,19 @@ internal class EngineControlRouteEntry(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val graphs: EngineControlGraph.Factory,
 ) : RouteEntry<EngineControlRoute>(EngineControlRoute::class, EngineControlRoute.serializer()) {
-    override fun create(route: EngineControlRoute, context: ComponentContext, navigator: Navigator): NavComponent =
-        context.retainedGraph(scopes, profile, name = "enginecontrol") {
+    override fun create(route: EngineControlRoute, context: ComponentContext, navigator: Navigator): NavComponent {
+        val entries = listOf(
+            routeEntry<EngineControlBlankRoute> { _, _, _ -> EngineControlBlankUiComponent() },
+            routeEntry<EngineControlDetailsRoute> { detail, child, childNavigator ->
+                child.retainedGraph(scopes, profile, name = "enginecontrolpanel") {
+                    graphs.createEngineControl(it, EngineControlTarget(detail.engine))
+                }.panel.create(child, childNavigator, true).let { EngineControlPanelUiComponent(it) }
+            },
+        )
+        return context.retainedGraph(scopes, profile, name = "enginecontrol") {
             graphs.createEngineControl(it, EngineControlTarget(null))
-        }.list.create(context, navigator, route.isEmbedded).let { EngineControlListUiComponent(it) }
+        }.list.create(context, navigator, route.isEmbedded, entries).let { EngineControlListUiComponent(it) }
+    }
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())
@@ -103,5 +116,5 @@ internal class EngineControlPanelRouteEntry(
     override fun create(route: EngineControlPanelRoute, context: ComponentContext, navigator: Navigator): NavComponent =
         context.retainedGraph(scopes, profile, name = "enginecontrolpanel") {
             graphs.createEngineControl(it, EngineControlTarget(route.engine))
-        }.panel.create(context, navigator).let { EngineControlPanelUiComponent(it) }
+        }.panel.create(context, navigator, false).let { EngineControlPanelUiComponent(it) }
 }

@@ -234,7 +234,7 @@ data class HostAppUi(
 }
 
 /** Launch settings an engine accepts. */
-enum class LaunchOptionUi { Executable, HomeDirectory, ConfigOverrides, Environment, Runtime }
+enum class LaunchOptionUi { Executable, HomeDirectory, ConfigOverrides, Environment, Runtime, Mcp }
 
 /** Why a launch setting is rejected or questionable. */
 enum class LaunchProblemReasonUi {
@@ -275,6 +275,7 @@ data class LaunchDraftUi(
     val runtime: RuntimePreferenceUi = RuntimePreferenceUi.Auto,
     /** Pinned version of the host application's runtime; blank runs its newest one. */
     val hostRuntimeVersion: String = "",
+    val isMcpEnabled: Boolean = false,
 ) {
     override fun toString(): String = "LaunchDraftUi(***)"
 }
@@ -293,6 +294,8 @@ data class LaunchUi(
     val errors: ImmutableList<LaunchProblemUi>,
     /** File checks of the saved settings; they never block saving. */
     val warnings: ImmutableList<LaunchProblemUi>,
+    /** Saved MCP access, independent of the editable launch draft. */
+    val isMcpEnabled: Boolean = false,
     /** Runtime preferences besides automatic the engine offers; empty hides the choice. */
     val runtimes: ImmutableSet<RuntimePreferenceUi> = persistentSetOf(),
     /** Title of the host application, for the host runtime choice. */
@@ -337,16 +340,9 @@ internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatfo
             // Compared in the form a draft saves, so values a draft drops (a blank or unused version) are not edits.
             isDirty = edited.toSettings() != saved.toSettings(),
             isCustomized = !launch.settings.isDefault,
-            errors = validateLaunchSettings(edited.toSettings(), spec.launch, platform).map { problem ->
-                val rows = when (problem.option) {
-                    LaunchOption.ConfigOverrides -> edited.configOverrides
-                    LaunchOption.Environment -> edited.environment
-                    LaunchOption.Executable, LaunchOption.HomeDirectory, LaunchOption.Runtime -> emptyList()
-                }
-                val indices = rows.indices.filter { !rows[it].isBlank() }
-                problem.copy(index = problem.index?.let { indices[it] })
-            }.toUi(),
+            errors = launchProblems(edited, platform),
             warnings = launch.warnings.toUi(),
+            isMcpEnabled = launch.settings.isMcpEnabled,
             runtimes = if (LaunchOption.Runtime in spec.launch.options) {
                 spec.launch.runtimes.map { RuntimePreferenceUi.valueOf(it.name) }.toImmutableSet()
             } else {
@@ -385,6 +381,18 @@ internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatfo
     )
 }
 
+/** Validation indices refer to the visible draft rows, including blank rows omitted on save. */
+private fun ManagedEngine.launchProblems(edited: LaunchDraftUi, platform: EnginePlatform?) =
+    validateLaunchSettings(edited.toSettings(), spec.launch, platform).map { problem ->
+        val rows = when (problem.option) {
+            LaunchOption.ConfigOverrides -> edited.configOverrides
+            LaunchOption.Environment -> edited.environment
+            LaunchOption.Executable, LaunchOption.HomeDirectory, LaunchOption.Runtime, LaunchOption.Mcp -> emptyList()
+        }
+        val indices = rows.indices.filter { !rows[it].isBlank() }
+        problem.copy(index = problem.index?.let { indices[it] })
+    }.toUi()
+
 private fun ManagedEngine.hostAppUi(title: String): HostAppUi {
     val isInUse = installation.current?.source == InstallSource.HostApp
     val state = hostApp ?: return HostAppUi(title, isInUse = isInUse)
@@ -409,6 +417,7 @@ internal fun LaunchDraftUi.toSettings(): LaunchSettings = LaunchSettings(
     environment = environment.filterNot { it.isBlank() }.map { EnvironmentEntry(it.key.trim(), it.value) },
     runtime = RuntimePreference.valueOf(runtime.name),
     hostRuntimeVersion = hostRuntimeVersion.trim().ifEmpty { null }.takeIf { runtime == RuntimePreferenceUi.HostApp },
+    isMcpEnabled = isMcpEnabled,
 )
 
 internal fun LaunchSettings.toDraft(): LaunchDraftUi = LaunchDraftUi(
@@ -418,6 +427,7 @@ internal fun LaunchSettings.toDraft(): LaunchDraftUi = LaunchDraftUi(
     environment = environment.map { KeyValueUi(it.name, it.value) }.toImmutableList(),
     runtime = RuntimePreferenceUi.valueOf(runtime.name),
     hostRuntimeVersion = hostRuntimeVersion.orEmpty(),
+    isMcpEnabled = isMcpEnabled,
 )
 
 /** The facade action of a panel [action]; a sign-in uses [method]. */

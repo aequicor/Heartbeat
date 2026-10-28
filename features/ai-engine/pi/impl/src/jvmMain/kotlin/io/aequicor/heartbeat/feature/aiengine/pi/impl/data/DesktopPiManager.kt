@@ -17,12 +17,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
-import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
-import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.TimeUnit
 
 /**
  * [PiEngineManager] of the desktop: the bundled Pi is the verified one, a newer official release is installed as
@@ -46,8 +43,8 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
         val isRunnable = isPresent || isPiPendingDownload(startup.source, executable, processes.canPrepare())
         val version = when {
             executable == null || !isPresent -> null
-            startup.source == InstallSource.Bundled -> processes.bundledVersion() ?: version(executable, startup)
-            else -> version(executable, startup)
+            startup.source == InstallSource.Bundled -> processes.bundledVersion() ?: readPiRuntimeVersion(startup)
+            else -> startup.runtimeVersion ?: readPiRuntimeVersion(startup)
         }
         log.i { "Pi located source=${startup.source} version=${version ?: "unknown"}" }
         Installation(startup.source, version, executable?.toString(), isRunnable)
@@ -67,59 +64,6 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
             throw ManagementException(ManagementFailure.Install(InstallFailureReason.NoAssetForPlatform))
         }
         return piInstallPlan(feeds.latestGitHubRelease(PI_OWNER, PI_REPOSITORY), target, feeds)
-    }
-
-    /** `pi --version`, offline, bounded and cancellable; an executable that does not answer has no known version. */
-    private suspend fun version(executable: Path, startup: PiStartup): String? = try {
-        val builder = ProcessBuilder(executable.toString(), "--version").redirectErrorStream(true)
-        applyPiEnvironment(builder.environment(), startup)
-        builder.environment()["PI_OFFLINE"] = "1"
-        builder.environment()["PI_SKIP_VERSION_CHECK"] = "1"
-        val process = builder.start()
-        try {
-            process.outputStream.close()
-            val isDone = runInterruptible { process.waitFor(VERSION_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
-            if (isDone) parsePiVersion(probeOutput(process)) else null
-        } finally {
-            stopProbe(process)
-        }
-    } catch (e: IOException) {
-        log.w(e.withoutDetails()) { "Pi version could not be read" }
-        null
-    }
-
-    /** Reads only buffered bytes; launcher children can keep stdout open after their parent exits. */
-    private suspend fun probeOutput(process: Process): String = runInterruptible {
-        process.inputStream.readNBytes(process.inputStream.available().coerceAtMost(MAX_VERSION_BYTES)).decodeToString()
-    }
-
-    private fun stopProbe(process: Process) {
-        try {
-            process.descendants().use { children -> children.forEach { it.destroyForcibly() } }
-        } catch (e: SecurityException) {
-            log.w(e.withoutDetails()) { "Version probe descendants unavailable" }
-        } catch (e: UnsupportedOperationException) {
-            log.w(e.withoutDetails()) { "Version probe descendants unsupported" }
-        } finally {
-            try {
-                process.destroyForcibly()
-            } finally {
-                closeProbeOutput(process)
-            }
-        }
-    }
-
-    private fun closeProbeOutput(process: Process) {
-        try {
-            process.inputStream.close()
-        } catch (e: IOException) {
-            log.w(e.withoutDetails()) { "Version probe output could not be closed" }
-        }
-    }
-
-    private companion object {
-        const val VERSION_TIMEOUT_SECONDS = 10L
-        const val MAX_VERSION_BYTES = 4096
     }
 }
 

@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallationState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState
@@ -76,7 +77,7 @@ interface EngineFlags {
 }
 
 /** Developer flags of one engine. */
-data class DeveloperFlags(val isCatalogOn: Boolean, val isEngineOn: Boolean)
+data class DeveloperFlags(val isCatalogOn: Boolean, val isEngineOn: Boolean, val isMcpOn: Boolean = false)
 
 /**
  * [EngineManagement] of the profile. The state follows flags, profile choices, managed copies, the runtime pool and
@@ -255,8 +256,18 @@ class EngineManagementService(
             log.w { "launch settings rejected engine=${id.value} problems=${problems.size}" }
             throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid))
         }
-        preferences.update { chosen -> chosen.copy(launch = chosen.launch + (id to settings)) }
-        log.i { "launch settings saved engine=${id.value} isDefault=${settings.isDefault}" }
+        // A hidden rollout control must not erase the saved opt-in while another launch field is edited.
+        val isMcpPreserved = LaunchOption.Mcp !in engine.spec.launch.options &&
+            LaunchOption.Mcp in registry.require(id).management.launch.options
+        val saved = preferences.update { chosen ->
+            val updated = if (isMcpPreserved) {
+                settings.copy(isMcpEnabled = chosen.launchOf(id).isMcpEnabled)
+            } else {
+                settings
+            }
+            chosen.copy(launch = chosen.launch + (id to updated))
+        }.launchOf(id)
+        log.i { "launch settings saved engine=${id.value} isDefault=${saved.isDefault}" }
         val manager = registry.require(id).manager?.value
         val warnings = if (manager == null) emptyList() else bounded("launch check") { manager.check(settings) }.value
         inspections.update { all -> all + (id to (all[id] ?: Inspection()).copy(warnings = warnings.orEmpty())) }
@@ -369,11 +380,20 @@ class EngineManagementService(
             }
             if (!isSupported) add(DisabledReason.UnsupportedPlatform)
         }
-        val settings = inputs.preferences.launchOf(id)
+        val settings = inputs.contextOf(id).settings
         return ManagedEngine(
             descriptor = descriptor,
             // Package jobs act on the configured package list, which exists only while configuration is on.
-            spec = registration.management.let { if (inputs.isConfigured) it else it.copy(hasPackages = false) },
+            spec = registration.management.let {
+                it.copy(
+                    hasPackages = it.hasPackages && inputs.isConfigured,
+                    launch = if (flagged.isMcpOn) {
+                        it.launch
+                    } else {
+                        it.launch.copy(options = it.launch.options - LaunchOption.Mcp)
+                    },
+                )
+            },
             enablement = EngineEnablement(id !in inputs.preferences.disabled, reasons),
             availability = listed.firstOrNull { it.descriptor.id == id }?.availability
                 ?: if (isSupported) EngineAvailability.Unknown else EngineAvailability.UnsupportedPlatform,
@@ -485,7 +505,14 @@ class EngineManagementService(
         val sessions: Map<EngineId, SessionCounts>,
     ) {
         /** The context adapters of [engine] start with now; runtimes started with another one are stale. */
-        fun contextOf(engine: EngineId): LaunchContext = preferences.contextOf(engine, managed[engine], isConfigured)
+        fun contextOf(engine: EngineId): LaunchContext {
+            val saved = preferences.contextOf(engine, managed[engine], isConfigured)
+            return if (developer[engine]?.isMcpOn == true) {
+                saved
+            } else {
+                saved.copy(settings = saved.settings.copy(isMcpEnabled = false))
+            }
+        }
     }
 
     /** Management state and the launch context each engine starts with now. */

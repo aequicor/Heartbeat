@@ -318,4 +318,13 @@
     <string name="engine_runtime_version">Версия runtime приложения</string>
     <string name="engine_runtime_version_newest">Новейшая</string>
     <string name="engine_host_app_path_copy">Скопировать путь к приложению %1$s</string>
+    <string name="engine_mcp_title">Использовать MCP движка</string>
+    <string name="engine_mcp_description">Инструменты MCP-серверов из конфигурации движка. По умолчанию выключено; изменение применяется после перезапуска. Вызовы выполняет движок с его настройками разрешений.</string>
+    <string name="control_engine_connected">Подключен</string>
+    <string name="control_engine_disconnected">Не подключен</string>
+    <string name="control_engine_builtin">Встроенный движок</string>
+    <string name="control_engine_builtin_status">Не требует подключения</string>
+    <string name="control_engine_select">Выберите движок в списке слева.</string>
+    <string name="engine_mcp_pi_requirement">Для MCP требуется Pi 1.0.4 или новее.</string>
+    <string name="engine_mcp_claude_scope">Поддерживаются MCP пользовательской и локальной конфигурации Claude; проектный .mcp.json не загружается.</string>
 </resources>

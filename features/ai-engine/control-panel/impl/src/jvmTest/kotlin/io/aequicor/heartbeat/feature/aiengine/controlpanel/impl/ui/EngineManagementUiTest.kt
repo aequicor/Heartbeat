@@ -11,6 +11,8 @@ import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
@@ -40,6 +42,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
@@ -52,6 +56,66 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalTestApi::class)
 class EngineManagementUiTest {
+    @Test
+    fun `MCP switch waits for saved state and a failed write keeps its prior value`() =
+        runSkikoComposeUiTest(size = Size(1000f, 1600f)) {
+            val loaded = selected(managedCodex())
+            var state by mutableStateOf(loaded)
+            val intents = mutableListOf<EngineManagementIntent>()
+            setContent { Host(state, intents::add) }
+            onNodeWithTag("engine-mcp-enabled").assertIsOff().performClick()
+            runOnIdle {
+                assertEquals(listOf<EngineManagementIntent>(EngineManagementIntent.SetMcpEnabled(true)), intents)
+            }
+            onNodeWithTag("engine-mcp-enabled").assertIsOff()
+            runOnIdle { state = loaded.copy(isBusy = true, isSaving = true) }
+            onNodeWithTag("engine-mcp-enabled").assertIsNotEnabled().assertIsOff()
+            runOnIdle { state = loaded.copy(failure = FailureUi.ConfigStorage) }
+            onNodeWithTag("engine-mcp-enabled").assertIsEnabled().assertIsOff()
+        }
+
+    @Test
+    fun `MCP switch displays saved permission while the launch editor contains reset defaults`() =
+        runSkikoComposeUiTest(size = Size(1000f, 1600f)) {
+            val codex = managedCodex().copy(launch = LaunchState(LaunchSettings(isMcpEnabled = true)))
+            val loaded = selected(codex)
+            var state by mutableStateOf(loaded.copy(launchDraft = LaunchDraftUi()).observe(codex))
+            setContent { Host(state) }
+            onNodeWithTag("engine-mcp-enabled").assertIsOn().assertIsNotEnabled()
+            runOnIdle { state = loaded }
+            onNodeWithTag("engine-mcp-enabled").assertIsOn().assertIsEnabled()
+            runOnIdle {
+                state = loaded.copy(
+                    panel = loaded.panel!!.copy(runtime = loaded.panel!!.runtime.copy(activeTurns = 1)),
+                )
+            }
+            onNodeWithTag("engine-mcp-enabled").assertIsOn().assertIsNotEnabled()
+        }
+
+    @Test
+    fun `Pi MCP permission explains its minimum runtime version`() = runSkikoComposeUiTest(size = Size(1000f, 1600f)) {
+        val loaded = selected(managedCodex())
+        var state by mutableStateOf(loaded)
+        setContent { Host(state) }
+        onNode(hasText("Pi 1.0.4", substring = true)).assertDoesNotExist()
+        runOnIdle { state = loaded.copy(panel = loaded.panel!!.copy(id = "pi")) }
+        onNode(hasText("Pi 1.0.4", substring = true)).assertExists()
+    }
+
+    @Test
+    fun `Claude MCP description explains that project configuration is excluded`() =
+        runSkikoComposeUiTest(size = Size(1000f, 1600f)) {
+            val loaded = selected(managedCodex())
+            var state by mutableStateOf(loaded)
+            setContent { Host(state) }
+            onNode(hasText(".mcp.json", substring = true)).assertDoesNotExist()
+            runOnIdle { state = loaded.copy(panel = loaded.panel!!.copy(id = "claude")) }
+            onNode(hasText(".mcp.json", substring = true)).assertExists()
+            onNodeWithTag("engine-mcp-enabled").assertIsOff().assertIsEnabled()
+            runOnIdle { state = loaded.copy(panel = loaded.panel!!.copy(id = "pi")) }
+            onNode(hasText(".mcp.json", substring = true)).assertDoesNotExist()
+        }
+
     @Test
     fun `without engine management the panel is not shown`() = runSkikoComposeUiTest {
         val state = EngineControlPanelState(CodexId.value).reflect(CodexId, managedSnapshot(isManaged = false))

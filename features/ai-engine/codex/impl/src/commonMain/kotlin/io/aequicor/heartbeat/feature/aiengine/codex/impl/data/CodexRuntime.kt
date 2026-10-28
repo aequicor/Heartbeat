@@ -87,6 +87,7 @@ internal class CodexRuntime(
         extraBufferCapacity = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
+    val isMcpEnabled: Boolean get() = launch.isMcpEnabled
     val threads = CodexThreadSetup(this)
     private val sessions = mutableMapOf<String, CodexSession>()
     private val connections = mutableSetOf<CodexConnection>()
