@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.githubconnector.impl.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.githubconnector.impl.presentation.GitHubConnectorModel
@@ -16,6 +17,7 @@ internal class GitHubConnectorUiComponent(private val model: GitHubConnectorMode
         val state by produceState(model.current.value, model) {
             model.store.collect { states.collect { value = it } }
         }
-        GitHubConnectorContent(state, model.store::intent, onBack, modifier)
+        val onIntent = remember(model) { model.store::intent }
+        GitHubConnectorContent(state, onIntent, onBack, modifier)
     }
 }

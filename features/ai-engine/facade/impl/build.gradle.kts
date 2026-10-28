@@ -17,7 +17,6 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.aiEngine.facade.api)
             implementation(projects.features.aiEngine.authenticator.api)
-            implementation(projects.features.githubConnector.api)
             implementation(projects.core.featureToggles.api)
             implementation(projects.core.datastore.api)
             implementation(projects.core.di.api)
@@ -27,6 +26,7 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.okio)
         }
+        jvmMain.dependencies { implementation(projects.features.githubConnector.api) }
         jvmTest.dependencies {
             implementation(libs.androidx.sqlite.bundled)
             implementation(libs.ktor.client.mock)

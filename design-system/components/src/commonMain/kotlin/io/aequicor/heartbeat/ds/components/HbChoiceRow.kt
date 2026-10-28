@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 /**
  * Stateless checkbox/radio row. Shared Foundation rendering preserves the studio's flat style on all hosts;
  * dimensions come from the host preset, while selectable/toggleable provide native keyboard and accessibility roles.
+ * With `maxLines = 1` a long [label] fades to the trailing edge with a tooltip instead of wrapping.
  */
 @Composable
 public fun HbChoiceRow(
@@ -36,6 +37,7 @@ public fun HbChoiceRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    maxLines: Int = Int.MAX_VALUE,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val isFocused by interaction.collectIsFocusedAsState()
@@ -91,6 +93,6 @@ public fun HbChoiceRow(
                 }
             }
         }
-        HbText(label, color = color)
+        HbText(label, Modifier.weight(1f), color = color, maxLines = maxLines)
     }
 }

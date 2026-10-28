@@ -14,7 +14,11 @@ import io.aequicor.heartbeat.feature.githubconnector.impl.domain.GitHubCliExcept
 import io.aequicor.heartbeat.feature.githubconnector.impl.domain.GitHubConnectionStore
 import kotlinx.coroutines.CancellationException
 
-/** Runs the connector steps against the CLI and the store and reports typed results; raw CLI text is never logged. */
+/**
+ * Runs the connector steps against the CLI and the store and reports typed results; raw CLI text is never logged.
+ * Verification and saving are separate effects: a result the machine no longer wants (a cancelled dialog) is never
+ * persisted.
+ */
 internal class GitHubConnectorEffects(private val cli: GitHubCli, private val store: GitHubConnectionStore) :
     EffectHandler<GitHubConnectorEffect, GitHubConnectorIntent> {
     private val log = Log.tag("GitHubConnectorEffects")
@@ -26,6 +30,12 @@ internal class GitHubConnectorEffects(private val cli: GitHubCli, private val st
             GitHubConnectorEffect.Forget -> {
                 store.clear()
                 log.i { "GitHub connection removed" }
+                machine.send(GitHubConnectorIntent.Internal.Forgotten)
+            }
+
+            is GitHubConnectorEffect.Save -> {
+                store.save(effect.connection)
+                log.i { "GitHub connected: repository ${effect.connection.repository}" }
             }
 
             is GitHubConnectorEffect.Discover -> step(machine) {
@@ -44,12 +54,9 @@ internal class GitHubConnectorEffects(private val cli: GitHubCli, private val st
 
             is GitHubConnectorEffect.Verify -> step(machine) {
                 when (cli.access(effect.cli, effect.account, effect.repository)) {
-                    GitHubAccess.Granted -> {
-                        val connection = GitHubConnection(effect.account, effect.repository, effect.cli)
-                        store.save(connection)
-                        log.i { "GitHub connected: repository ${effect.repository}, account ${effect.account}" }
-                        GitHubConnectorIntent.Internal.Verified(connection)
-                    }
+                    GitHubAccess.Granted -> GitHubConnectorIntent.Internal.Verified(
+                        GitHubConnection(effect.account, effect.repository, effect.cli),
+                    )
 
                     GitHubAccess.NoAccess -> GitHubConnectorIntent.Internal.StepFailed(
                         GitHubConnectorFailure.NoAccess,

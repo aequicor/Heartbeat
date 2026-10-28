@@ -60,7 +60,7 @@ internal class GitHubPullTools(
     override suspend fun instructions(workspace: WorkspaceRef?): String = if (specifications(workspace).isEmpty()) {
         ""
     } else {
-        "GitHub PR tools target only the public repository configured by the desktop host. " +
+        "GitHub PR tools target only the repository connected on the desktop host. " +
             "Send full title/body inline. Read first and pass expected_revision for update or ready. " +
             "Never retry an unknown write outcome blindly: read GitHub to reconcile. " +
             "Ready does not certify a commit or perform review/merge. REST is used except the fixed ready " +
@@ -91,7 +91,7 @@ internal class GitHubPullTools(
             log.w(error.redactedFailure()) { "GitHub PR operation failed" }
             AgentToolResult(
                 "GitHub operation failed. A write may have reached GitHub; read the PR before proposing any retry. " +
-                    "Check host configuration, public repository, permissions and expected_revision.",
+                    "Check the GitHub connection, repository access, permissions and expected_revision.",
                 isError = true,
             )
         }
@@ -116,10 +116,10 @@ public object GitHubPullToggleBindings {
 }
 
 private val PullSpecs = listOf(
-    pullSpec("github_pr_read", "Read a PR and its revision in the host-configured public repository.", "number"),
+    pullSpec("github_pr_read", "Read a PR and its revision in the host-connected repository.", "number"),
     pullSpec(
         "github_pr_create",
-        "Create a draft PR in the host-configured public repository. Branches must already exist; full text inline.",
+        "Create a draft PR in the host-connected repository. Branches must already exist; full text inline.",
         "title",
         "body",
         "head",

@@ -103,6 +103,13 @@ class ProcessGitHubCliTest {
     }
 
     @Test
+    fun `older gh output with a single account is recognised`() = runTest {
+        val output = "github.com\n  ✓ Logged in to github.com as old-user (oauth_token)\n"
+        val runner = ScriptedRunner { CliResult(0, output) }
+        assertEquals(listOf("old-user"), ProcessGitHubCli(runner, host(emptySet())).accounts("/gh"))
+    }
+
+    @Test
     fun `inherited credentials are dropped from the child environment`() {
         val environment = mutableMapOf("GH_TOKEN" to "x", "gh_host" to "evil", "PATH" to "/bin")
         sanitizeCliEnvironment(environment)

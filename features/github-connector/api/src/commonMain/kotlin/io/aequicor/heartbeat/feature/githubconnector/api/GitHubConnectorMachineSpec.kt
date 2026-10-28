@@ -23,16 +23,22 @@ public typealias GitHubConnectorSpec =
  * | Connecting(LoadingRepositories) | RepositoriesLoaded | same account | ChoosingRepository | — |
  * | Connecting(ChoosingRepository) | SelectRepository | listed repository | same step | — |
  * | Connecting(ChoosingRepository) | Confirm | repository chosen | Verifying | Verify |
- * | Connecting(Verifying) | Verified | — | Connected | — |
+ * | Connecting(Verifying) | Verified | — | Connected | Save |
  * | Connecting(Discovering) | StepFailed | — | Disconnected / Connected with failure | — |
  * | Connecting(Loading…, Verifying) | StepFailed | — | previous Choosing step with failure | — |
  * | Connecting | Cancel | — | Connected(previous) / Disconnected | — |
- * | Connected | Disconnect | — | Disconnected | Forget |
+ * | Connected | Disconnect | — | Connected until Forgotten | Forget |
+ * | Connected | Forgotten | — | Disconnected | — |
+ * | Connected | StepFailed | save or forget failed | Connected with failure | — |
+ * | Loading | StepFailed | restore failed | Disconnected with failure | — |
  */
 public val GitHubConnectorMachineSpec: GitHubConnectorSpec =
     machineSpec(GitHubConnectorMachineKey, GitHubConnectorState.Loading) {
         state<GitHubConnectorState.Loading> {
             on<GitHubConnectorIntent.Public.Start> { effect { GitHubConnectorEffect.Restore } }
+            on<GitHubConnectorIntent.Internal.StepFailed> {
+                goto<GitHubConnectorState.Disconnected> { GitHubConnectorState.Disconnected(intent.failure) }
+            }
             on<GitHubConnectorIntent.Internal.Restored>(guard = { intent.connection != null }) {
                 goto<GitHubConnectorState.Connected> {
                     GitHubConnectorState.Connected(requireNotNull(intent.connection))
@@ -62,8 +68,14 @@ public val GitHubConnectorMachineSpec: GitHubConnectorSpec =
                 effect { GitHubConnectorEffect.Discover(state.connection.cli) }
             }
             on<GitHubConnectorIntent.Public.Disconnect> {
-                goto<GitHubConnectorState.Disconnected> { GitHubConnectorState.Disconnected() }
+                stay { state.copy(failure = null) }
                 effect { GitHubConnectorEffect.Forget }
+            }
+            on<GitHubConnectorIntent.Internal.Forgotten> {
+                goto<GitHubConnectorState.Disconnected> { GitHubConnectorState.Disconnected() }
+            }
+            on<GitHubConnectorIntent.Internal.StepFailed> {
+                stay { state.copy(failure = intent.failure) }
             }
         }
         state<GitHubConnectorState.Connecting> {
@@ -143,6 +155,7 @@ public val GitHubConnectorMachineSpec: GitHubConnectorSpec =
             }
             on<GitHubConnectorIntent.Internal.Verified>(guard = { state.step == GitHubConnectStep.Verifying }) {
                 goto<GitHubConnectorState.Connected> { GitHubConnectorState.Connected(intent.connection) }
+                effect { GitHubConnectorEffect.Save(intent.connection) }
             }
             on<GitHubConnectorIntent.Internal.StepFailed>(guard = {
                 state.step == GitHubConnectStep.Discovering && state.previous == null
@@ -177,12 +190,10 @@ public val GitHubConnectorMachineSpec: GitHubConnectorSpec =
                 }
             }
         }
-        onEffectFailure { effect, _ ->
-            when (effect) {
-                is GitHubConnectorEffect.Restore -> GitHubConnectorIntent.Internal.Restored(null)
-                is GitHubConnectorEffect.Forget -> null
-                else -> GitHubConnectorIntent.Internal.StepFailed(GitHubConnectorFailure.Failed)
-            }
+        onEffectFailure { _, _ ->
+            // Every failed effect surfaces in the state that is current: a lost restore, save or forget must not
+            // look like success.
+            GitHubConnectorIntent.Internal.StepFailed(GitHubConnectorFailure.Failed)
         }
     }
 

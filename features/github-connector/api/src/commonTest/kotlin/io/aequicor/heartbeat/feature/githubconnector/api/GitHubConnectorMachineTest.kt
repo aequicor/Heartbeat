@@ -109,7 +109,12 @@ class GitHubConnectorMachineTest {
             verifying,
             GitHubConnectorIntent.Internal.Verified(saved),
             GitHubConnectorState.Connected(saved),
+            effects = listOf(GitHubConnectorEffect.Save(saved)),
         )
+        // A result of a cancelled attempt finds no matching step and is never saved.
+        spec.assertIgnored(GitHubConnectorState.Disconnected(), GitHubConnectorIntent.Internal.Verified(saved))
+        spec.assertIgnored(GitHubConnectorState.Connected(saved), GitHubConnectorIntent.Internal.Verified(saved))
+        spec.assertIgnored(chosen, GitHubConnectorIntent.Internal.Verified(saved))
     }
 
     @Test
@@ -151,12 +156,49 @@ class GitHubConnectorMachineTest {
     }
 
     @Test
-    fun `disconnect forgets the saved connection`() {
-        GitHubConnectorMachineSpec.assertTransition(
-            GitHubConnectorState.Connected(saved),
+    fun `disconnect waits for the deletion and a failure keeps the connection`() {
+        val spec = GitHubConnectorMachineSpec
+        spec.assertTransition(
+            GitHubConnectorState.Connected(saved, GitHubConnectorFailure.Failed),
             GitHubConnectorIntent.Public.Disconnect,
-            GitHubConnectorState.Disconnected(),
+            GitHubConnectorState.Connected(saved),
             effects = listOf(GitHubConnectorEffect.Forget),
         )
+        spec.assertTransition(
+            GitHubConnectorState.Connected(saved),
+            GitHubConnectorIntent.Internal.Forgotten,
+            GitHubConnectorState.Disconnected(),
+        )
+        spec.assertTransition(
+            GitHubConnectorState.Connected(saved),
+            GitHubConnectorIntent.Internal.StepFailed(GitHubConnectorFailure.Failed),
+            GitHubConnectorState.Connected(saved, GitHubConnectorFailure.Failed),
+        )
+    }
+
+    @Test
+    fun `a failed restore is shown and every later transition keeps the previous connection`() {
+        val spec = GitHubConnectorMachineSpec
+        spec.assertTransition(
+            GitHubConnectorState.Loading,
+            GitHubConnectorIntent.Internal.StepFailed(GitHubConnectorFailure.Failed),
+            GitHubConnectorState.Disconnected(GitHubConnectorFailure.Failed),
+        )
+        val loading = GitHubConnectorState.Connecting(
+            GitHubConnectStep.LoadingRepositories,
+            previous = saved,
+            cli = "/gh",
+            accounts = listOf("me"),
+            account = "me",
+        )
+        spec.assertTransition(
+            loading,
+            GitHubConnectorIntent.Internal.StepFailed(GitHubConnectorFailure.NoAccess),
+            loading.copy(step = GitHubConnectStep.ChoosingAccount, failure = GitHubConnectorFailure.NoAccess),
+        )
+        spec.assertTransition(loading, GitHubConnectorIntent.Public.Cancel, GitHubConnectorState.Connected(saved))
+        spec.assertIgnored(loading, GitHubConnectorIntent.Public.SelectAccount("me"))
+        spec.assertIgnored(loading, GitHubConnectorIntent.Public.Disconnect)
+        spec.assertIgnored(loading, GitHubConnectorIntent.Public.Connect)
     }
 }

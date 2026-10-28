@@ -52,6 +52,7 @@ import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_dialo
 import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_dialog_discovering
 import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_dialog_loading_repositories
 import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_dialog_no_repositories
+import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_dialog_nothing_found
 import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_dialog_repository
 import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_dialog_search
 import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_dialog_title
@@ -70,6 +71,7 @@ import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_repos
 import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_repository_public
 import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_retry
 import io.aequicor.heartbeat.feature.githubconnector.impl.resources.github_title
+import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -183,14 +185,19 @@ private fun ConnectionRows(connection: GitHubConnectionUi) {
         HbSettingsRow(
             stringResource(Res.string.github_account),
             Modifier.testTag("github-account"),
-            trailingContent = { HbText(connection.account, style = HbTheme.typography.label) },
+            trailingContent = { HbText(connection.account, style = HbTheme.typography.label, maxLines = 1) },
         )
         HbSettingsRow(
             stringResource(Res.string.github_repository),
             Modifier.testTag("github-repository"),
             trailingContent = {
                 HbBadge(stringResource(Res.string.github_connected), tone = HbTone.Success)
-                HbText(connection.repository, style = HbTheme.typography.label)
+                HbText(
+                    connection.repository,
+                    Modifier.weight(1f, fill = false),
+                    HbTheme.typography.label,
+                    maxLines = 1,
+                )
             },
         )
     }
@@ -247,6 +254,7 @@ private fun AccountChoices(dialog: GitHubDialogUi, onIntent: (GitHubConnectorScr
                 onClick = { onIntent(GitHubConnectorScreenIntent.SelectAccount(account)) },
                 modifier = Modifier.testTag("github-account-$account"),
                 enabled = !isBusy,
+                maxLines = 1,
             )
         }
     }
@@ -273,9 +281,15 @@ private fun RepositoryChoices(
             Modifier.fillMaxWidth().testTag("github-search"),
             enabled = !isBusy,
         )
-        if (dialog.repositories.isEmpty()) {
+        if (dialog.repositories.isEmpty() || state.visibleRepositories.isEmpty()) {
             HbText(
-                stringResource(Res.string.github_dialog_no_repositories),
+                stringResource(
+                    if (dialog.repositories.isEmpty()) {
+                        Res.string.github_dialog_no_repositories
+                    } else {
+                        Res.string.github_dialog_nothing_found
+                    },
+                ),
                 style = HbTheme.typography.caption,
                 color = HbTheme.colors.textSecondary,
                 modifier = Modifier.testTag("github-no-repositories"),
@@ -289,6 +303,7 @@ private fun RepositoryChoices(
                 onClick = { onIntent(GitHubConnectorScreenIntent.SelectRepository(repository.name)) },
                 modifier = Modifier.testTag("github-repo-${repository.name}"),
                 enabled = !isBusy,
+                maxLines = 1,
             )
         }
     }
@@ -330,6 +345,40 @@ private fun GitHubConnectorDarkPreview() {
                 isLoading = false,
                 connection = GitHubConnectionUi("aequicor", "aequicor/Heartbeat"),
                 failure = GitHubFailureUi.NoAccess,
+            ),
+            {},
+            null,
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun GitHubConnectorDialogPreview() {
+    val dialog = GitHubDialogUi(
+        step = GitHubStepUi.ChoosingRepository,
+        accounts = persistentListOf("aequicor", "work-account"),
+        account = "aequicor",
+        repositories = persistentListOf(
+            GitHubRepositoryUi("aequicor/Heartbeat", false),
+            GitHubRepositoryUi("aequicor/a-very-long-repository-name-that-does-not-fit-in-the-dialog", true),
+        ),
+        repository = "aequicor/Heartbeat",
+        failure = GitHubFailureUi.NoPullRequestAccess,
+    )
+    HbTheme(darkTheme = false) {
+        GitHubConnectorContent(GitHubConnectorScreenState(isLoading = false, dialog = dialog), {}, null)
+    }
+}
+
+@Preview
+@Composable
+private fun GitHubConnectorConnectedPreview() {
+    HbTheme(darkTheme = false) {
+        GitHubConnectorContent(
+            GitHubConnectorScreenState(
+                isLoading = false,
+                connection = GitHubConnectionUi("aequicor", "aequicor/a-very-long-repository-name-in-the-card"),
             ),
             {},
             null,

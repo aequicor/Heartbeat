@@ -105,7 +105,9 @@ internal class ProcessGitHubCli(private val runner: CliRunner, private val host:
             "user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member"
         const val REPOSITORIES_QUERY = ".[] | [.full_name, .private, .permissions.push] | @tsv"
         const val REPOSITORY_FIELDS = 3
-        val AccountLine = Regex("""Logged in to github\.com account (\S+)""")
+
+        // Newer gh prints "account NAME", gh before multi-account support printed "as NAME".
+        val AccountLine = Regex("""Logged in to github\.com (?:account|as) (\S+)""")
         val AccountName = Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}")
         val RepositoryName = Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
     }

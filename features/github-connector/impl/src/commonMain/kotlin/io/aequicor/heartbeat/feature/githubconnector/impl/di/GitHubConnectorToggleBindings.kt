@@ -8,7 +8,10 @@ import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.githubconnector.api.GitHubConnectorEnabled
 
-/** Common registration because settings observes the switch before filtering by host availability. */
+/**
+ * Registers the switch for the toggles panel. The feature is desktop-only: its graph, route and store live in
+ * `jvmMain`, the owner on desktop is the `engines` bundle and mobile graphs do not include this module.
+ */
 @ContributesTo(AppScope::class)
 @BindingContainer
 object GitHubConnectorToggleBindings {

@@ -24,9 +24,10 @@
     <string name="github_dialog_loading_repositories">Загружаем репозитории…</string>
     <string name="github_dialog_verifying">Проверяем доступ…</string>
     <string name="github_dialog_no_repositories">У этого аккаунта нет репозиториев, в которые можно отправлять изменения.</string>
+    <string name="github_dialog_nothing_found">Ни один репозиторий не подошёл под поиск.</string>
     <string name="github_repository_private">приватный</string>
     <string name="github_repository_public">публичный</string>
-    <string name="github_failure_cli_not_found">GitHub CLI (gh) не найден. Установите его (brew install gh) и войдите: gh auth login.</string>
+    <string name="github_failure_cli_not_found">GitHub CLI (gh) не найден. Установите его с cli.github.com и войдите: gh auth login.</string>
     <string name="github_failure_not_logged_in">В GitHub CLI нет аккаунта github.com. Выполните: gh auth login.</string>
     <string name="github_failure_no_access">У аккаунта нет доступа к репозиторию, или GitHub CLI отклонил запрос.</string>
     <string name="github_failure_no_pull_request_access">Аккаунт читает репозиторий, но не может создавать в нём pull request.</string>

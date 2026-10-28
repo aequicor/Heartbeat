@@ -142,8 +142,11 @@ public sealed interface GitHubConnectorIntent : MachineIntent {
         /** The repositories of [account] were loaded. */
         public data class RepositoriesLoaded(val account: String, val repositories: List<GitHubRepository>) : Internal
 
-        /** The pair was verified and saved. */
+        /** The pair was verified; the machine saves it after accepting this result. */
         public data class Verified(val connection: GitHubConnection) : Internal
+
+        /** The saved connection was deleted. */
+        public data object Forgotten : Internal
 
         /** The running step failed. */
         public data class StepFailed(val failure: GitHubConnectorFailure) : Internal
@@ -161,8 +164,11 @@ public sealed interface GitHubConnectorEffect : MachineEffect {
     /** Lists the repositories [account] can reach. */
     public data class LoadRepositories(val cli: String, val account: String) : GitHubConnectorEffect
 
-    /** Checks access of [account] to [repository] and saves the connection. */
+    /** Checks access of [account] to [repository]; nothing is saved until the machine accepts the result. */
     public data class Verify(val cli: String, val account: String, val repository: String) : GitHubConnectorEffect
+
+    /** Saves the verified connection. */
+    public data class Save(val connection: GitHubConnection) : GitHubConnectorEffect
 
     /** Deletes the saved connection. */
     public data object Forget : GitHubConnectorEffect

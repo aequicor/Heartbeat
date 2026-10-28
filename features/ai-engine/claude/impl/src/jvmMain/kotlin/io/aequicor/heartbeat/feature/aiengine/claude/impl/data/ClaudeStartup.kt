@@ -98,8 +98,10 @@ internal fun claudeEnvironment(
     putAll(host.filterKeys { it.uppercase() in HOST_ENVIRONMENT })
     if (!osName.startsWith("Windows")) {
         val key = keys.firstOrNull { it.uppercase() == "PATH" } ?: "PATH"
-        withStandardToolDirectories(get(key), osName, userHome, isDirectory).takeIf(String::isNotEmpty)
-            ?.let { put(key, it) }
+        // A host without PATH keeps the child's system default instead of a PATH made of the extra directories only.
+        get(key)?.takeIf(String::isNotBlank)?.let {
+            put(key, withStandardToolDirectories(it, osName, userHome, isDirectory))
+        }
     }
     put(TOOL_SEARCH_VARIABLE, "false")
     startup.environment.forEach { put(it.name, it.value) }
@@ -113,20 +115,22 @@ internal fun claudeEnvironment(
 /**
  * An app started from Finder or a desktop launcher inherits a minimal `PATH` (`/usr/bin:/bin:…`), unlike a terminal,
  * so the CLI's Bash tool would not find user-installed tools such as `gh`. The usual install directories are appended
- * after the inherited entries, never before, so they cannot shadow anything the host already resolves.
+ * after the inherited entries, never before, so they cannot shadow anything the host already resolves. They can be
+ * writable by the user, which is acceptable for the CLI's Bash tool: it already runs arbitrary commands.
  */
 internal fun withStandardToolDirectories(
-    path: String?,
+    path: String,
     osName: String,
     userHome: String,
     isDirectory: (String) -> Boolean,
 ): String {
-    val current = path.orEmpty().split(':').filter(String::isNotBlank)
+    val current = path.split(':').filter(String::isNotBlank)
+    val known = current.map { it.trimEnd('/') }.toSet()
     val extra = listOfNotNull(
         "/opt/homebrew/bin".takeIf { osName.startsWith("Mac") },
         "/usr/local/bin",
         File(File(userHome, ".local"), "bin").path.takeIf { userHome.isNotBlank() },
-    ).filter { it !in current && isDirectory(it) }
+    ).filter { it !in known && isDirectory(it) }
     return (current + extra).joinToString(":")
 }
 

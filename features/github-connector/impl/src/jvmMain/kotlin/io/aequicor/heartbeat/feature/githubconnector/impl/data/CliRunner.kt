@@ -1,12 +1,18 @@
 package io.aequicor.heartbeat.feature.githubconnector.impl.data
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.githubconnector.api.GitHubConnectorFailure
+import io.aequicor.heartbeat.feature.githubconnector.impl.domain.GitHubCliException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
 import java.io.File
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /** Exit code and decoded output of a finished CLI call. */
@@ -21,7 +27,12 @@ internal fun interface CliRunner {
 }
 
 /** Bounded process runner: fixed argument list, tmp working directory, size and time limits. */
-internal class ProcessCliRunner(private val dispatchers: DispatcherProvider) : CliRunner {
+internal class ProcessCliRunner(
+    private val dispatchers: DispatcherProvider,
+    private val timeout: Duration = TIMEOUT_SECONDS.seconds,
+) : CliRunner {
+    private val log = Log.tag("ProcessCliRunner")
+
     override suspend fun run(command: List<String>, environment: Map<String, String>, mergeError: Boolean): CliResult =
         withContext(dispatchers.io) {
             val builder = ProcessBuilder(command).directory(File(System.getProperty("java.io.tmpdir")))
@@ -37,23 +48,30 @@ internal class ProcessCliRunner(private val dispatchers: DispatcherProvider) : C
             val process = builder.start()
             try {
                 process.outputStream.close()
-                withTimeout(TIMEOUT_SECONDS.seconds) {
-                    val output = ByteArrayOutputStream()
-                    val buffer = ByteArray(BUFFER_BYTES)
-                    while (process.isAlive) {
-                        ensureActive()
-                        drain(process.inputStream, output, buffer)
-                        delay(POLL_MILLIS)
-                    }
-                    drain(process.inputStream, output, buffer)
-                    CliResult(process.exitValue(), output.toString(Charsets.UTF_8))
-                }
+                collect(process)
+            } catch (error: TimeoutCancellationException) {
+                // A hanging gh (network stall, prompt) is a failed step, not a cancelled one: the screen must leave
+                // the loading state.
+                log.w(error.redactedFailure()) { "GitHub CLI call timed out" }
+                throw GitHubCliException(GitHubConnectorFailure.Failed)
             } finally {
                 process.toHandle().descendants().use { children -> children.forEach { it.destroyForcibly() } }
                 if (process.isAlive) process.destroyForcibly()
                 process.inputStream.close()
             }
         }
+
+    private suspend fun collect(process: Process): CliResult = withTimeout(timeout) {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(BUFFER_BYTES)
+        while (process.isAlive) {
+            ensureActive()
+            drain(process.inputStream, output, buffer)
+            delay(POLL_MILLIS)
+        }
+        drain(process.inputStream, output, buffer)
+        CliResult(process.exitValue(), output.toString(Charsets.UTF_8))
+    }
 
     private fun drain(input: java.io.InputStream, output: ByteArrayOutputStream, buffer: ByteArray) {
         while (input.available() > 0) {

@@ -35,20 +35,21 @@ class GitHubConnectorEffectsTest {
     }
 
     @Test
-    fun `verify saves the connection only when access is granted`() = runTest {
+    fun `verify never writes the store and save writes only the accepted connection`() = runTest {
         val store = MemoryStore()
         val scope = Recording()
-        val granted = FakeCli(access = GitHubAccess.Granted)
-        effects(granted, store).handle(GitHubConnectorEffect.Verify("/gh", "me", "me/repo"), scope)
         val saved = GitHubConnection("me", "me/repo", "/gh")
-        assertEquals(saved, store.saved)
+        effects(FakeCli(access = GitHubAccess.Granted), store)
+            .handle(GitHubConnectorEffect.Verify("/gh", "me", "me/repo"), scope)
+        assertNull(store.saved)
         assertEquals(listOf<GitHubConnectorIntent>(GitHubConnectorIntent.Internal.Verified(saved)), scope.sent)
 
-        val denied = MemoryStore()
+        effects(FakeCli(), store).handle(GitHubConnectorEffect.Save(saved), scope)
+        assertEquals(saved, store.saved)
+
         val other = Recording()
-        effects(FakeCli(access = GitHubAccess.NoPullRequestAccess), denied)
+        effects(FakeCli(access = GitHubAccess.NoPullRequestAccess), store)
             .handle(GitHubConnectorEffect.Verify("/gh", "me", "me/repo"), other)
-        assertNull(denied.saved)
         assertEquals(
             listOf<GitHubConnectorIntent>(
                 GitHubConnectorIntent.Internal.StepFailed(GitHubConnectorFailure.NoPullRequestAccess),
@@ -80,7 +81,13 @@ class GitHubConnectorEffectsTest {
         val scope = Recording()
         effects(FakeCli(), store).handle(GitHubConnectorEffect.Restore, scope)
         effects(FakeCli(), store).handle(GitHubConnectorEffect.Forget, scope)
-        assertEquals(listOf<GitHubConnectorIntent>(GitHubConnectorIntent.Internal.Restored(saved)), scope.sent)
+        assertEquals(
+            listOf<GitHubConnectorIntent>(
+                GitHubConnectorIntent.Internal.Restored(saved),
+                GitHubConnectorIntent.Internal.Forgotten,
+            ),
+            scope.sent,
+        )
         assertNull(store.saved)
     }
 

@@ -15,7 +15,11 @@ class GitHubConnectionConfigurationTest {
 
     @Test
     fun `a saved connection configures the repository and the account of the tools`() = runTest {
-        val cli = Files.createTempFile("gh", "").toFile().apply { setExecutable(true) }
+        val dir = Files.createTempDirectory("gh-dir")
+        val cli = dir.resolve("gh").toFile().apply {
+            createNewFile()
+            setExecutable(true)
+        }
         try {
             val read = mutableListOf<String>()
             val source = DesktopGitHubPullConfiguration(
@@ -32,6 +36,7 @@ class GitHubConnectionConfigurationTest {
             assertEquals(listOf("me"), read)
         } finally {
             cli.delete()
+            dir.toFile().delete()
         }
     }
 
@@ -42,5 +47,38 @@ class GitHubConnectionConfigurationTest {
             GitHubConnectionSource { GitHubConnection("me", "me/repo", "/does/not/exist/gh") },
         )
         assertFalse(source.isAvailable())
+    }
+
+    @Test
+    fun `a connection with an unusable executable name account or repository is not offered`() = runTest {
+        val dir = Files.createTempDirectory("tool-dir")
+        val other = dir.resolve("not-gh").toFile().apply {
+            createNewFile()
+            setExecutable(true)
+        }
+        val gh = dir.resolve("gh").toFile().apply {
+            createNewFile()
+            setExecutable(true)
+        }
+        try {
+            suspend fun available(connection: GitHubConnection) =
+                DesktopGitHubPullConfiguration({ _, _ -> "tok" }, GitHubConnectionSource { connection }).isAvailable()
+            assertFalse(available(GitHubConnection("me", "me/r", other.path)))
+            assertFalse(available(GitHubConnection("bad name", "me/r", gh.path)))
+            assertFalse(available(GitHubConnection("me", "--flag", gh.path)))
+            assertTrue(available(GitHubConnection("me", "me/r", gh.path)))
+        } finally {
+            other.delete()
+            gh.delete()
+            dir.toFile().delete()
+        }
+    }
+
+    @Test
+    fun `without a connection the host needs its environment configuration`() = runTest {
+        val source = DesktopGitHubPullConfiguration({ _, _ -> "tok" }, GitHubConnectionSource { null })
+        // The test environment defines none of the HEARTBEAT_GITHUB_ variables.
+        assertFalse(source.isAvailable())
+        assertEquals(null, source.current(workspace))
     }
 }

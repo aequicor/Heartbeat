@@ -110,14 +110,18 @@ internal class GitHubConnectorModel(
     >(
         "GitHubConnector",
         GitHubConnectorScreenState().reflecting(machine.state.value),
-        onError = { copy(failure = GitHubFailureUi.Failed) },
+        // Failures reach the screen through the machine state; a local flag would outlive it with a dead retry button.
+        onError = { this },
     ) {
         reflect(machine) { reflecting(it) }
         reduce { intent ->
-            log.i { "GitHub connector action: ${intent::class.simpleName.orEmpty()}" }
             when (intent) {
                 is GitHubConnectorScreenIntent.Query -> updateState { copy(query = intent.text) }
-                else -> sendTo(machine, intent.toMachine() ?: return@reduce)
+
+                else -> {
+                    log.i { "GitHub connector action: ${intent::class.simpleName.orEmpty()}" }
+                    sendTo(machine, intent.toMachine() ?: return@reduce)
+                }
             }
         }
     }

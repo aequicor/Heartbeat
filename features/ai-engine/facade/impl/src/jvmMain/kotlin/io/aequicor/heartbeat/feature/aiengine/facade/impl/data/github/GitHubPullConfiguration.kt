@@ -10,7 +10,7 @@ import okio.ByteString.Companion.encodeUtf8
 import java.io.File
 
 /**
- * Host-only opt-in. The desktop launcher pins a public repository and an existing GitHub CLI account.
+ * Host-only opt-in. The desktop host pins a repository and an existing GitHub CLI account.
  * Credential material stays in the host; neither project files nor model arguments configure its source.
  */
 internal class GitHubPullConfiguration(val repository: String, private val token: String, val account: String) {
@@ -49,7 +49,12 @@ internal class DesktopGitHubPullConfiguration(
 ) : GitHubPullConfigurationSource {
     override suspend fun isAvailable(): Boolean {
         val connection = connections.current()
-        return if (connection != null) isExecutable(connection.cli) else githubHostIsConfigured(System::getenv)
+        return if (connection != null) {
+            RepositoryName.matches(connection.repository) && AccountName.matches(connection.account) &&
+                isExecutable(connection.cli)
+        } else {
+            githubHostIsConfigured(System::getenv)
+        }
     }
 
     override suspend fun current(workspace: WorkspaceRef): GitHubPullConfiguration? {
@@ -73,7 +78,13 @@ internal fun githubHostIsConfigured(env: (String) -> String?): Boolean {
         cli != null && isExecutable(cli.path)
 }
 
-private fun isExecutable(path: String): Boolean = File(path).let { it.isAbsolute && it.isFile && it.canExecute() }
+private val RepositoryName = Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
+private val AccountName = Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}")
+
+/** The same facts the credential launcher requires, minus the project-root check that needs the workspace. */
+private fun isExecutable(path: String): Boolean = File(path).let {
+    it.isAbsolute && it.name in setOf("gh", "gh.exe") && it.isFile && it.canExecute()
+}
 
 private const val MAX_TOKEN_CHARS = 4096
 

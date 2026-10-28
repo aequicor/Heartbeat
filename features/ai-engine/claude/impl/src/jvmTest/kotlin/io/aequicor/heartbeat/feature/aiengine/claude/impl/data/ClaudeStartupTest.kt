@@ -161,6 +161,25 @@ class ClaudeStartupTest {
     }
 
     @Test
+    fun `a host without PATH keeps the system default and trailing slashes do not duplicate entries`() {
+        val startup = resolveClaudeStartup(LaunchContext(), config.copy(executable = "/opt/claude"), host())
+        fun environment(host: Map<String, String>) = claudeEnvironment(
+            host,
+            startup,
+            osName = "Linux",
+            userHome = "/Users/me",
+            isDirectory = { true },
+        )
+
+        assertNull(environment(emptyMap())["PATH"])
+        assertEquals("  ", environment(mapOf("PATH" to "  "))["PATH"])
+        assertEquals(
+            "/usr/local/bin/:/Users/me/.local/bin",
+            environment(mapOf("PATH" to "/usr/local/bin/"))["PATH"],
+        )
+    }
+
+    @Test
     fun `Heartbeat's copy never updates itself`() {
         val startup = resolveClaudeStartup(LaunchContext(managed = managed), config, host())
 

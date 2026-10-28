@@ -16,7 +16,7 @@
 Сохранённое подключение приоритетнее. Без него оператор задаёт **до запуска desktop-хоста**
 три несекретные переменные его окружения:
 
-- `HEARTBEAT_GITHUB_REPOSITORY` — точное `owner/repository` публичного репозитория на github.com.
+- `HEARTBEAT_GITHUB_REPOSITORY` — точное `owner/repository` на github.com.
 - `HEARTBEAT_GITHUB_ACCOUNT` — явно выбранный GitHub login, уже сохранённый оператором в gh для github.com.
 - `HEARTBEAT_GITHUB_CLI` — абсолютный путь к установленному `gh`/`gh.exe`, вне проектов и рабочего каталога
   родительского процесса. Короткие имена, PATH-поиск и исполняемые файлы внутри проектов запрещены.
