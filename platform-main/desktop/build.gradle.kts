@@ -1,3 +1,4 @@
+import io.aequicor.heartbeat.buildlogic.BundleManifest
 import io.aequicor.heartbeat.buildlogic.CollectPlatformJars
 import io.aequicor.heartbeat.buildlogic.CompressReleaseDmg
 import io.aequicor.heartbeat.buildlogic.HarnessProbeArguments
@@ -15,6 +16,7 @@ import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractProguardTask
 import org.jetbrains.compose.reload.gradle.ComposeHotRun
+import java.io.Closeable
 import java.time.Duration
 
 plugins {
@@ -325,45 +327,67 @@ val trainSeed = tasks.register<WriteTrainSeed>("assembleTrainSeed") {
     seedDirectory.set(layout.buildDirectory.dir("generated/trainSeed"))
     dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts")
 }
+val smokeTimeoutMinutes = 15L
+
 // Headless smoke of the shrunk train: the production graph over the processed jars of the train (no classes of this
 // module but the smoke main) starts every bundle and opens a profile. Data, logs and secrets go to a throwaway home.
 val trainBundleIds = rootProject.subprojects.filter { it.parent?.path == ":bundles" }.map { it.name }.sorted()
 val trainThirdPartyJars = extensions.getByType<TrainPlatformJars>().jars
-val isTrainShrunk = providers.gradleProperty("heartbeat.trainShrink").map { it == "shrink" || it == "obfuscate" }.orElse(false)
+val isTrainShrunk = providers.gradleProperty("heartbeat.trainShrink").map { it == "shrink" || it == "obfuscate" }
+    .orElse(false).get()
+val trainRoot = rootProject
 tasks.register<JavaExec>("verifyShrunkTrain") {
     group = "verification"
     description = "Starts every bundle of the train processed with -Pheartbeat.trainShrink=shrink|obfuscate; all must be healthy."
     // Locals: the actions below must not capture the script object (configuration cache).
     val bundleIds = trainBundleIds
     val shrunk = isTrainShrunk
+    // Bounded: a hung graph must not hang the build.
+    timeout.set(Duration.ofMinutes(smokeTimeoutMinutes))
     val smokeDirectory = layout.buildDirectory.dir("train-smoke")
     val report = smokeDirectory.map { it.file("report.txt") }
     val home = smokeDirectory.map { it.dir("home") }
-    dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts", "testClasses")
+    val smokeLog = smokeDirectory.map { it.file("smoke.log") }
+    if (shrunk) dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts", "testClasses")
     javaLauncher.set(desktopRuntime)
     classpath(sourceSets.test.get().output.classesDirs)
-    classpath(layout.buildDirectory.dir("bundle").map { fileTree(it) { include("*.jar") } })
-    classpath(rootProject.fileTree("bundles") { include("*/build/bundle/*.jar") })
+    // Exactly the jars of this train (what the manifest lists), not whatever else lies in the build directories.
+    classpath(
+        files(
+            trainRoot.provider {
+                trainRoot.tasks.withType(BundleManifest::class.java).flatMap { manifest -> manifest.jars.files }
+            },
+        ),
+    )
     classpath(trainThirdPartyJars)
     mainClass.set("io.aequicor.heartbeat.platform.desktop.TrainSmokeKt")
     jvmArgs("-Djava.awt.headless=true", "-Dheartbeat.data.name=HeartbeatTrainSmoke")
     argumentProviders.add(CommandLineArgumentProvider { listOf(report.get().asFile.absolutePath) + bundleIds })
     isIgnoreExitValue = true
     doFirst {
-        check(shrunk.get()) { "verifyShrunkTrain checks the processed train: pass -Pheartbeat.trainShrink=shrink or obfuscate" }
+        check(shrunk) { "verifyShrunkTrain checks the processed train: pass -Pheartbeat.trainShrink=shrink or obfuscate" }
+        check(bundleIds.isNotEmpty()) { "the build has no :bundles:* to start" }
         val homeDirectory = home.get().asFile.apply {
             deleteRecursively()
             mkdirs()
         }
         report.get().asFile.delete()
+        // The host logs of the run go to a file (its tail goes into a failure), not into the build output. Set when the
+        // task runs: a stream is not something the configuration cache can store.
+        val logStream = smokeLog.get().asFile.outputStream()
+        standardOutput = logStream
+        errorOutput = logStream
         systemProperty("user.home", homeDirectory.absolutePath)
         listOf("APPDATA", "LOCALAPPDATA", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME")
             .forEach { environment(it, homeDirectory.absolutePath) }
     }
     doLast {
+        (standardOutput as Closeable).close()
+        val logText = smokeLog.get().asFile.readText()
         if (executionResult.get().exitValue != 0) {
             val findings = report.get().asFile.takeIf { it.isFile }?.readText() ?: "the smoke wrote no report"
-            throw GradleException("The processed train does not run:\n$findings")
+            val tail = logText.lines().takeLast(40).joinToString("\n")
+            throw GradleException("The processed train does not run:\n$findings\nLast lines of ${smokeLog.get().asFile}:\n$tail")
         }
     }
 }

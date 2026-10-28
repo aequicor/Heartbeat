@@ -18,6 +18,8 @@ private val log = Log.tag("TrainSmoke")
  * of this module. The findings go to the report file (`args[0]`); exit code 0 when all are healthy, 1 otherwise.
  */
 fun main(args: Array<String>) {
+    // Logs of the host (profile failures among them) go to the throwaway home of the run.
+    Log.init(isDebug = true)
     val report = File(args.first())
     val findings = try {
         smoke(args.drop(1).toSet())
@@ -32,10 +34,12 @@ fun main(args: Array<String>) {
 private class Finding(val text: String, val isHealthy: Boolean)
 
 private fun smoke(expected: Set<String>): List<Finding> {
+    require(expected.isNotEmpty()) { "no bundles to check" }
     val graph = createHeartbeatGraph(isDevelopment = true)
-    runBlocking {
-        graph.profileSessions.open(ProfileId("train-smoke"))
-        graph.profileSessions.close()
+    try {
+        runBlocking { graph.profileSessions.open(ProfileId("train-smoke")) }
+    } finally {
+        runBlocking { graph.profileSessions.close() }
     }
     val health = graph.bundleHealth().mapKeys { it.key.value }
     return expected.sorted().map { id ->

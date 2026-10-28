@@ -390,6 +390,9 @@ class BundleHostTest {
         val health = host.openProfile(Any(), FakeScope())
         assertIs<BundleHealth.Failed>(health.getValue(BundleId("bad")))
         assertEquals(BundleHealth.Healthy, health.getValue(BundleId("web")))
+        // the app level stays healthy; the profile level is kept for checks that must see it
+        assertEquals(BundleHealth.Healthy, host.health.getValue(BundleId("bad")))
+        assertEquals(health, host.lastProfileHealth)
     }
 
     @Test
