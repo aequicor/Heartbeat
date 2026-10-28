@@ -99,16 +99,21 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   то, что не выводится из SDK (входы лаунчера и воркеров, `BundleEntry`, `Foundation*`-интерфейсы, сериализация, enum, Room,
   API харнесса для скриптов). Правила пишутся только про код Heartbeat; `-dontwarn` не добавляй — предупреждение ProGuard
   означает ссылку бандла за пределы SDK или платформы. Код, который грузится по имени (`Class.forName`, `ServiceLoader`,
-  рефлексивные аксессоры, имена сериализаторов), требует строки в `train-rules.pro` (тест `BundleKeepRulesTest` следит за
-  `Foundation*`-интерфейсами `core:bundles:api`).
+  рефлексивные аксессоры, имена сериализаторов, JNA-интерфейсы/структуры/колбэки с нативными именами), требует строки в
+  `train-rules.pro`: тест `BundleKeepRulesTest` следит за интерфейсами `core:bundles:api` (`Foundation*` и `*Part`), правилами
+  JNA и формой условий сериализации. Что в `-if` стоит до первого `**`, не попадает в `<1>`: условие пиши `class **`.
+  Ограничения: граница SDK не видит тела публичных `inline`-функций (их ссылки на не-SDK модули ловит только смоук); простые
+  имена классов, которые код пишет в лог через `::class.simpleName`, `retrace.py` не восстанавливает; sealed-иерархии с вложенным
+  sealed-интерфейсом проходят проверку только в рантайме (следи за `IncompatibleClassChangeError`).
   `obfuscate` дополнительно сокращает имена внутренностей: пакеты остаются, имена классов — из словаря артефакта (префикс из
   SHA-256 его id), оптимизации нет. Маппинги — `build/train/mapping-bundle-<id>-<версия>.txt`; репозиторий публичный, обфускация
   нужна ради размера и скорости, не секретности. Запуск пишет в лог `Launch: train=<id> version=<v>`;
   `python3 scripts/retrace.py --mappings <каталог> [--manifest train-manifest.json] <лог или ZIP>` восстанавливает имена
   классов и методов в стек-трейсах.
   Проверка: `./gradlew -Pheartbeat.trainShrink=shrink|obfuscate :platform-main:desktop:verifyShrunkTrain` — headless-запуск
-  production-графа на обработанных jar, открытие профиля, все бандлы обязаны быть `Healthy` (смоук `TrainSmoke` в тестах
-  desktop; не покрывает UI и JCEF-браузер). Перед включением `obfuscate` в CI прогнан `e2e-regression` (core) на упакованном
+  production-графа на обработанных jar поезда (список — из `bundleManifest`), открытие профиля, все бандлы обязаны быть
+  `Healthy` и на уровне приложения, и в профильном графе (`BundleHost.lastProfileHealth`); логи прогона — `build/train-smoke/smoke.log`
+  (смоук `TrainSmoke` в тестах desktop; не покрывает UI и JCEF-браузер). Перед включением `obfuscate` в CI прогнан `e2e-regression` (core) на упакованном
   `HeartbeatE2E`; в CI смоук идёт перед записью поезда, маппинги публикуются вместе с jar (`ci.md`).
 - **Профильный граф бандла.** Фичи профиля (`ProfileScope`) живут в `@GraphExtension(ProfileScope::class)` бандла
   (`WebProfileGraph`), который создаётся из app-графа бандла (`val profileGraphs: …Graph.Factory`) и получает

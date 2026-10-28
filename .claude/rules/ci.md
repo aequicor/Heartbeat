@@ -101,7 +101,8 @@ CI проверяет необходимый минимум. Автоматич�
   jobs скачивают артефакт `chromium-panel` этого запуска и передают `-Pheartbeat.chromiumPanelDir=.release-panel`.
   При неполном артефакте упаковка завершается ошибкой. Без свойства локальная сборка собирает панель сама.
 - ProGuard остаётся отдельным для каждой ОС: его результаты не объявляются переносимыми принудительно.
-  Поезд обрабатывается ProGuard (`.github/actions/bundle-train`, вход `shrink`, по умолчанию `obfuscate`; правила и режимы —
+  Поезд обрабатывается ProGuard (`.github/actions/bundle-train` — им же `release.yml` собирает поезд, если пре-релиза коммита
+  нет; вход `shrink`, по умолчанию `obfuscate`; правила и режимы —
   `.claude/rules/bundles.md`): `assembleBundle` идёт с `-Pheartbeat.trainShrink`, затем `:platform-main:desktop:verifyShrunkTrain`
   под xvfb (все бандлы `Healthy`, иначе поезд не пишется), затем `scripts/train_manifest.py --mappings`: маппинг каждого jar
   (`mapping-bundle-<id>-<версия>.txt`) публикуется ассетом того пре-релиза `train-*`, который первым опубликовал jar

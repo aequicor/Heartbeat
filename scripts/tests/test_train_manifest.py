@@ -172,6 +172,21 @@ class TrainManifestTests(unittest.TestCase):
             )
             self.assertEqual((out / "mapping-bundle-shell-t2.txt").read_text(), "shell mapping")
 
+    def test_only_the_contracts_bundle_needs_no_mapping_not_one_named_like_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "jars").mkdir()
+            (root / "maps").mkdir()
+            (root / "jars" / "bundle-contracts-extra-t2.jar").write_bytes(b"x")
+            (root / "built.json").write_text(
+                json.dumps({"platformApi": 1, "bundles": [bundle("contracts-extra", "t2", A)]})
+            )
+            code = train_manifest.main(
+                ["--built", str(root / "built.json"), "--jars", str(root / "jars"), "--mappings", str(root / "maps"),
+                 "--train", "t2", "--base-url", BASE2, "--out", str(root / "out")]
+            )
+            self.assertEqual(code, 1)
+
     def test_missing_mapping_of_a_carried_jar_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

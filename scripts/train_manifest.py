@@ -30,7 +30,7 @@ BASE_URL = re.compile(r"https://[^\s?#/]+/(?:[^\s?#]*/)?")
 MANIFEST_ASSET = "train-manifest.json"
 FIELDS = ("id", "version", "jar", "sha256")
 MAPPING_NAME = "mapping-{}.txt"
-UNPROCESSED_JAR_PREFIX = "bundle-contracts-"
+UNPROCESSED_ID = "contracts"
 
 
 def check_base_url(url: str, name: str) -> str:
@@ -108,11 +108,12 @@ def build_train(
     return {"train": train, "platformApi": built["platformApi"], "bundles": bundles}, carried
 
 
-def mapping_files(carried: list[str], directory: Path) -> list[Path]:
+def mapping_files(carried: list[str], directory: Path, built: dict) -> list[Path]:
     """The mapping files of the carried jars; every processed jar needs one."""
+    unprocessed = {b["jar"] for b in built["bundles"] if b["id"] == UNPROCESSED_ID}
     found, missing = [], []
     for jar in carried:
-        if jar.startswith(UNPROCESSED_JAR_PREFIX):
+        if jar in unprocessed:
             continue
         file = directory / MAPPING_NAME.format(jar.removesuffix(".jar"))
         (found if file.is_file() else missing).append(file)
@@ -138,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         built = json.loads(args.built.read_text(encoding="utf-8"))
         previous = json.loads(args.previous.read_text(encoding="utf-8")) if args.previous else None
         manifest, carried = build_train(built, previous, args.train, args.base_url)
-        mappings = mapping_files(carried, args.mappings) if args.mappings else []
+        mappings = mapping_files(carried, args.mappings, built) if args.mappings else []
     except (ValueError, OSError) as error:  # json.JSONDecodeError is a ValueError
         print(error, file=sys.stderr)
         return 1
