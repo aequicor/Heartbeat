@@ -4364,7 +4364,7 @@
       {
        "id": "hb-tool-row-running-text",
        "type": "frame",
-       "width": 318.6,
+       "width": 318.5,
        "layout": "none",
        "children": [
         {
@@ -4405,7 +4405,7 @@
        "fontSize": "$typography.caption.size",
        "lineHeight": "$typography.caption.lineHeight",
        "fontWeight": "$typography.caption.weight",
-       "x": 368.6,
+       "x": 368.5,
        "y": 17
       },
       {
@@ -4632,7 +4632,7 @@
       }
      ],
      "x": 40,
-     "y": 1269,
+     "y": 1268.9,
      "width": 117.6,
      "layout": "none"
     },
@@ -4681,7 +4681,7 @@
       }
      ],
      "x": 40,
-     "y": 1325,
+     "y": 1324.9,
      "width": 101.2,
      "layout": "none"
     },
@@ -4708,7 +4708,7 @@
       }
      ],
      "x": 40,
-     "y": 1381,
+     "y": 1380.9,
      "layout": "none"
     },
     {
@@ -4733,7 +4733,7 @@
       }
      ],
      "x": 40,
-     "y": 1437,
+     "y": 1436.9,
      "layout": "none"
     },
     {
@@ -4770,7 +4770,7 @@
       }
      ],
      "x": 40,
-     "y": 1493,
+     "y": 1492.9,
      "height": 34,
      "layout": "none"
     },
@@ -4813,7 +4813,7 @@
       }
      ],
      "x": 40,
-     "y": 1551
+     "y": 1550.9
     },
     {
      "id": "window-traffic-lights",
@@ -4852,11 +4852,11 @@
       }
      ],
      "x": 40,
-     "y": 1603,
+     "y": 1602.9,
      "layout": "none"
     }
    ],
-   "height": 1671
+   "height": 1670.9
   },
   {
    "id": "section-icons",
