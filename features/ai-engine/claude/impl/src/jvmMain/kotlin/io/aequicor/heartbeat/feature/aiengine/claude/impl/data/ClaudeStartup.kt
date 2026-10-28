@@ -88,8 +88,19 @@ internal fun resolveClaudeStartup(
  * hide their full `mcp__<server>__` names, so the model guessed the prefix of Heartbeat's tools and called ones
  * that do not exist.
  */
-internal fun claudeEnvironment(host: Map<String, String>, startup: ClaudeStartup): Map<String, String> = buildMap {
+internal fun claudeEnvironment(
+    host: Map<String, String>,
+    startup: ClaudeStartup,
+    osName: String = System.getProperty("os.name").orEmpty(),
+    userHome: String = System.getProperty("user.home").orEmpty(),
+    isDirectory: (String) -> Boolean = { File(it).isDirectory },
+): Map<String, String> = buildMap {
     putAll(host.filterKeys { it.uppercase() in HOST_ENVIRONMENT })
+    if (!osName.startsWith("Windows")) {
+        val key = keys.firstOrNull { it.uppercase() == "PATH" } ?: "PATH"
+        withStandardToolDirectories(get(key), osName, userHome, isDirectory).takeIf(String::isNotEmpty)
+            ?.let { put(key, it) }
+    }
     put(TOOL_SEARCH_VARIABLE, "false")
     startup.environment.forEach { put(it.name, it.value) }
     startup.configDirectory?.let { put("CLAUDE_CONFIG_DIR", it) }
@@ -97,6 +108,26 @@ internal fun claudeEnvironment(host: Map<String, String>, startup: ClaudeStartup
         put("DISABLE_AUTOUPDATER", "1")
         put("DISABLE_UPDATES", "1")
     }
+}
+
+/**
+ * An app started from Finder or a desktop launcher inherits a minimal `PATH` (`/usr/bin:/bin:…`), unlike a terminal,
+ * so the CLI's Bash tool would not find user-installed tools such as `gh`. The usual install directories are appended
+ * after the inherited entries, never before, so they cannot shadow anything the host already resolves.
+ */
+internal fun withStandardToolDirectories(
+    path: String?,
+    osName: String,
+    userHome: String,
+    isDirectory: (String) -> Boolean,
+): String {
+    val current = path.orEmpty().split(':').filter(String::isNotBlank)
+    val extra = listOfNotNull(
+        "/opt/homebrew/bin".takeIf { osName.startsWith("Mac") },
+        "/usr/local/bin",
+        File(File(userHome, ".local"), "bin").path.takeIf { userHome.isNotBlank() },
+    ).filter { it !in current && isDirectory(it) }
+    return (current + extra).joinToString(":")
 }
 
 /** Opaque fingerprint of the native history directory of [configDirectory]; a changed store cannot resume. */

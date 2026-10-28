@@ -101,7 +101,7 @@ class ClaudeStartupTest {
         val system = resolveClaudeStartup(LaunchContext(), config.copy(executable = "/opt/claude"), host())
         assertEquals(
             mapOf("PATH" to "/bin", "HTTPS_PROXY" to "http://proxy", "ENABLE_TOOL_SEARCH" to "false"),
-            claudeEnvironment(host, system),
+            claudeEnvironment(host, system, isDirectory = { false }),
         )
 
         val settings = LaunchSettings(
@@ -124,15 +124,47 @@ class ClaudeStartupTest {
                 "ENABLE_TOOL_SEARCH" to "true",
                 "CLAUDE_CONFIG_DIR" to "/Users/me/.claude-work",
             ),
-            claudeEnvironment(host, configured),
+            claudeEnvironment(host, configured, isDirectory = { false }),
         )
+    }
+
+    @Test
+    fun `a minimal launcher PATH gains the usual tool directories after the inherited entries`() {
+        val startup = resolveClaudeStartup(LaunchContext(), config.copy(executable = "/opt/claude"), host())
+        val existing = setOf("/opt/homebrew/bin", "/usr/local/bin", "/Users/me/.local/bin")
+
+        val macOs = claudeEnvironment(
+            mapOf("PATH" to "/usr/bin:/bin"),
+            startup,
+            osName = "Mac OS X",
+            userHome = "/Users/me",
+            isDirectory = existing::contains,
+        )
+        val linux = claudeEnvironment(
+            mapOf("PATH" to "/usr/local/bin:/usr/bin"),
+            startup,
+            osName = "Linux",
+            userHome = "/Users/me",
+            isDirectory = existing::contains,
+        )
+        val windows = claudeEnvironment(
+            mapOf("PATH" to "C:\\Windows"),
+            startup,
+            osName = "Windows 11",
+            userHome = "C:\\Users\\me",
+            isDirectory = { true },
+        )
+
+        assertEquals("/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.local/bin", macOs["PATH"])
+        assertEquals("/usr/local/bin:/usr/bin:/Users/me/.local/bin", linux["PATH"])
+        assertEquals("C:\\Windows", windows["PATH"])
     }
 
     @Test
     fun `Heartbeat's copy never updates itself`() {
         val startup = resolveClaudeStartup(LaunchContext(managed = managed), config, host())
 
-        val environment = claudeEnvironment(emptyMap(), startup)
+        val environment = claudeEnvironment(emptyMap(), startup, isDirectory = { false })
 
         assertEquals(
             mapOf("ENABLE_TOOL_SEARCH" to "false", "DISABLE_AUTOUPDATER" to "1", "DISABLE_UPDATES" to "1"),
@@ -179,7 +211,7 @@ class ClaudeStartupTest {
 
         assertEquals(
             mapOf("ENABLE_TOOL_SEARCH" to "false", "DISABLE_AUTOUPDATER" to "1", "DISABLE_UPDATES" to "1"),
-            claudeEnvironment(emptyMap(), startup),
+            claudeEnvironment(emptyMap(), startup, isDirectory = { false }),
         )
     }
 
