@@ -187,6 +187,8 @@ data class HbDimensions(
     val railWidth: Dp = 72.dp,
     /** Width of the window sidebar: studio sessions or settings sections. */
     val sidebarWidth: Dp = 240.dp,
+    /** Width of the persistent engine list beside the settings details on desktop. */
+    val engineListWidth: Dp = 240.dp,
     val avatarSize: Dp = 44.dp,
     val headerAvatarSize: Dp = 36.dp,
     /** Corner of content panels such as a compact drawer. */
