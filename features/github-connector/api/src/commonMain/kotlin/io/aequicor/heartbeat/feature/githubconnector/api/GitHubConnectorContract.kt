@@ -73,8 +73,11 @@ public enum class GitHubConnectStep {
     /** Repositories are listed and one can be chosen. */
     ChoosingRepository,
 
-    /** The chosen pair is being checked and saved. */
+    /** The chosen pair is being checked. */
     Verifying,
+
+    /** The verified pair is being saved; the dialog cannot be cancelled until it is. */
+    Saving,
 }
 
 /** One connector instance per profile. */
@@ -144,6 +147,9 @@ public sealed interface GitHubConnectorIntent : MachineIntent {
 
         /** The pair was verified; the machine saves it after accepting this result. */
         public data class Verified(val connection: GitHubConnection) : Internal
+
+        /** The verified pair was saved, so the tools see it. */
+        public data class Saved(val connection: GitHubConnection) : Internal
 
         /** The saved connection was deleted. */
         public data object Forgotten : Internal

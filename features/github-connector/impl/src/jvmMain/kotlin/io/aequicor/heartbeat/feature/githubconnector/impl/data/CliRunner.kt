@@ -2,14 +2,12 @@ package io.aequicor.heartbeat.feature.githubconnector.impl.data
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.githubconnector.api.GitHubConnectorFailure
 import io.aequicor.heartbeat.feature.githubconnector.impl.domain.GitHubCliException
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.time.Duration
@@ -48,12 +46,12 @@ internal class ProcessCliRunner(
             val process = builder.start()
             try {
                 process.outputStream.close()
-                collect(process)
-            } catch (error: TimeoutCancellationException) {
                 // A hanging gh (network stall, prompt) is a failed step, not a cancelled one: the screen must leave
-                // the loading state.
-                log.w(error.redactedFailure()) { "GitHub CLI call timed out" }
-                throw GitHubCliException(GitHubConnectorFailure.Failed)
+                // the loading state. Only this call's own timeout is turned into a failure.
+                collect(process) ?: run {
+                    log.w { "GitHub CLI call timed out" }
+                    throw GitHubCliException(GitHubConnectorFailure.Failed)
+                }
             } finally {
                 process.toHandle().descendants().use { children -> children.forEach { it.destroyForcibly() } }
                 if (process.isAlive) process.destroyForcibly()
@@ -61,7 +59,7 @@ internal class ProcessCliRunner(
             }
         }
 
-    private suspend fun collect(process: Process): CliResult = withTimeout(timeout) {
+    private suspend fun collect(process: Process): CliResult? = withTimeoutOrNull(timeout) {
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(BUFFER_BYTES)
         while (process.isAlive) {

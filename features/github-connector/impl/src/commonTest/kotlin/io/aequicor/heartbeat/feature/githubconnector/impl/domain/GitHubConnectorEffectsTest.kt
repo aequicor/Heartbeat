@@ -46,6 +46,7 @@ class GitHubConnectorEffectsTest {
 
         effects(FakeCli(), store).handle(GitHubConnectorEffect.Save(saved), scope)
         assertEquals(saved, store.saved)
+        assertEquals(GitHubConnectorIntent.Internal.Saved(saved), scope.sent.last())
 
         val other = Recording()
         effects(FakeCli(access = GitHubAccess.NoPullRequestAccess), store)

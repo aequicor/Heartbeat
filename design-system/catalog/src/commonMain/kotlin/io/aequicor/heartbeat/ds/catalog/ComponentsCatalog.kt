@@ -56,6 +56,13 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                 HbChoiceRow(hbString(HbString.Ready), isChecked, true, { isChecked = !isChecked })
                 HbChoiceRow(hbString(HbString.Working), !isChecked, false, { isChecked = false })
                 HbChoiceRow(hbString(HbString.Disabled), true, true, {}, enabled = false)
+                HbChoiceRow(
+                    "organization/a-very-long-repository-name-that-fades-out-at-the-trailing-edge-of-the-row",
+                    false,
+                    false,
+                    {},
+                    maxLines = 1,
+                )
             }
         }
         item {

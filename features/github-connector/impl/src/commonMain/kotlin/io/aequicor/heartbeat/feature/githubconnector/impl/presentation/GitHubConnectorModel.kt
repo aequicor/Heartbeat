@@ -191,7 +191,7 @@ private fun GitHubConnectStep.toUi(): GitHubStepUi = when (this) {
     GitHubConnectStep.ChoosingAccount -> GitHubStepUi.ChoosingAccount
     GitHubConnectStep.LoadingRepositories -> GitHubStepUi.LoadingRepositories
     GitHubConnectStep.ChoosingRepository -> GitHubStepUi.ChoosingRepository
-    GitHubConnectStep.Verifying -> GitHubStepUi.Verifying
+    GitHubConnectStep.Verifying, GitHubConnectStep.Saving -> GitHubStepUi.Verifying
 }
 
 private fun GitHubConnectorFailure.toUi(): GitHubFailureUi = when (this) {

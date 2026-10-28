@@ -23,13 +23,14 @@ public typealias GitHubConnectorSpec =
  * | Connecting(LoadingRepositories) | RepositoriesLoaded | same account | ChoosingRepository | — |
  * | Connecting(ChoosingRepository) | SelectRepository | listed repository | same step | — |
  * | Connecting(ChoosingRepository) | Confirm | repository chosen | Verifying | Verify |
- * | Connecting(Verifying) | Verified | — | Connected | Save |
+ * | Connecting(Verifying) | Verified | — | Connecting(Saving) | Save |
+ * | Connecting(Saving) | Saved | — | Connected | — |
  * | Connecting(Discovering) | StepFailed | — | Disconnected / Connected with failure | — |
  * | Connecting(Loading…, Verifying) | StepFailed | — | previous Choosing step with failure | — |
- * | Connecting | Cancel | — | Connected(previous) / Disconnected | — |
+ * | Connecting | Cancel | not while Saving | Connected(previous) / Disconnected | — |
  * | Connected | Disconnect | — | Connected until Forgotten | Forget |
  * | Connected | Forgotten | — | Disconnected | — |
- * | Connected | StepFailed | save or forget failed | Connected with failure | — |
+ * | Connected | StepFailed | forget failed | Connected with failure | — |
  * | Loading | StepFailed | restore failed | Disconnected with failure | — |
  */
 public val GitHubConnectorMachineSpec: GitHubConnectorSpec =
@@ -154,8 +155,11 @@ public val GitHubConnectorMachineSpec: GitHubConnectorSpec =
                 }
             }
             on<GitHubConnectorIntent.Internal.Verified>(guard = { state.step == GitHubConnectStep.Verifying }) {
-                goto<GitHubConnectorState.Connected> { GitHubConnectorState.Connected(intent.connection) }
+                goto<GitHubConnectorState.Connecting> { state.copy(step = GitHubConnectStep.Saving) }
                 effect { GitHubConnectorEffect.Save(intent.connection) }
+            }
+            on<GitHubConnectorIntent.Internal.Saved>(guard = { state.step == GitHubConnectStep.Saving }) {
+                goto<GitHubConnectorState.Connected> { GitHubConnectorState.Connected(intent.connection) }
             }
             on<GitHubConnectorIntent.Internal.StepFailed>(guard = {
                 state.step == GitHubConnectStep.Discovering && state.previous == null
@@ -176,15 +180,21 @@ public val GitHubConnectorMachineSpec: GitHubConnectorSpec =
                     state.copy(step = GitHubConnectStep.ChoosingAccount, failure = intent.failure)
                 }
             }
-            on<GitHubConnectorIntent.Internal.StepFailed>(guard = { state.step == GitHubConnectStep.Verifying }) {
+            on<GitHubConnectorIntent.Internal.StepFailed>(guard = {
+                state.step == GitHubConnectStep.Verifying || state.step == GitHubConnectStep.Saving
+            }) {
                 goto<GitHubConnectorState.Connecting> {
                     state.copy(step = GitHubConnectStep.ChoosingRepository, failure = intent.failure)
                 }
             }
-            on<GitHubConnectorIntent.Public.Cancel>(guard = { state.previous == null }) {
+            on<GitHubConnectorIntent.Public.Cancel>(guard = {
+                state.previous == null && state.step != GitHubConnectStep.Saving
+            }) {
                 goto<GitHubConnectorState.Disconnected> { GitHubConnectorState.Disconnected() }
             }
-            on<GitHubConnectorIntent.Public.Cancel>(guard = { state.previous != null }) {
+            on<GitHubConnectorIntent.Public.Cancel>(guard = {
+                state.previous != null && state.step != GitHubConnectStep.Saving
+            }) {
                 goto<GitHubConnectorState.Connected> {
                     GitHubConnectorState.Connected(requireNotNull(state.previous))
                 }

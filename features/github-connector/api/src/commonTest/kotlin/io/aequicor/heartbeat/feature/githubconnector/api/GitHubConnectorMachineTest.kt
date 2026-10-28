@@ -105,11 +105,24 @@ class GitHubConnectorMachineTest {
             effects = listOf(GitHubConnectorEffect.Verify("/gh", "me", "me/repo")),
         )
         spec.assertIgnored(verifying, GitHubConnectorIntent.Public.Confirm)
+        val saving = verifying.copy(step = GitHubConnectStep.Saving)
         spec.assertTransition(
             verifying,
             GitHubConnectorIntent.Internal.Verified(saved),
-            GitHubConnectorState.Connected(saved),
+            saving,
             effects = listOf(GitHubConnectorEffect.Save(saved)),
+        )
+        spec.assertTransition(
+            saving,
+            GitHubConnectorIntent.Internal.Saved(saved),
+            GitHubConnectorState.Connected(saved),
+        )
+        // The dialog stays until the pair is persisted, and a failed save returns to the repository choice.
+        spec.assertIgnored(saving, GitHubConnectorIntent.Public.Cancel)
+        spec.assertTransition(
+            saving,
+            GitHubConnectorIntent.Internal.StepFailed(GitHubConnectorFailure.Failed),
+            saving.copy(step = GitHubConnectStep.ChoosingRepository, failure = GitHubConnectorFailure.Failed),
         )
         // A result of a cancelled attempt finds no matching step and is never saved.
         spec.assertIgnored(GitHubConnectorState.Disconnected(), GitHubConnectorIntent.Internal.Verified(saved))

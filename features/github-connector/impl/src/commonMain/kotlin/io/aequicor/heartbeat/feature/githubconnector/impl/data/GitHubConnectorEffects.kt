@@ -36,6 +36,7 @@ internal class GitHubConnectorEffects(private val cli: GitHubCli, private val st
             is GitHubConnectorEffect.Save -> {
                 store.save(effect.connection)
                 log.i { "GitHub connected: repository ${effect.connection.repository}" }
+                machine.send(GitHubConnectorIntent.Internal.Saved(effect.connection))
             }
 
             is GitHubConnectorEffect.Discover -> step(machine) {
