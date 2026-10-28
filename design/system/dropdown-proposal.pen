@@ -1,0 +1,543 @@
+{
+  "version": "2.21",
+  "imports": {
+    "hb": "heartbeat.lib.pen"
+  },
+  "children": [
+    {
+      "id": "dropdown-desktop",
+      "type": "frame",
+      "name": "HbDropdown / States / Desktop",
+      "context": "Выбор одного значения: закрытое поле, раскрытое меню с отметкой текущего значения и недоступное поле. Меню закрывается после выбора или по Esc; стрелки перемещают фокус, Enter выбирает. Длинные подписи затухают к краю. При нехватке места меню прокручивается и открывается в доступную сторону.",
+      "x": 0,
+      "y": 0,
+      "width": 800,
+      "height": 400,
+      "layout": "none",
+      "reusable": true,
+      "theme": {
+        "hb:mode": "light",
+        "hb:host": "desktop"
+      },
+      "fill": "$hb:surfaces.backdrop",
+      "children": [
+        {
+          "id": "dropdown-heading",
+          "type": "text",
+          "content": "Выпадающий список",
+          "x": 32,
+          "y": 24,
+          "fill": "$hb:colors.textPrimary",
+          "fontFamily": "$hb:typography.family",
+          "fontSize": "$hb:typography.label.size",
+          "fontWeight": "$hb:typography.label.weight"
+        },
+        {
+          "id": "dropdown-closed-title",
+          "type": "text",
+          "content": "Закрыт",
+          "x": 32,
+          "y": 70,
+          "fill": "$hb:colors.textSecondary",
+          "fontFamily": "$hb:typography.family",
+          "fontSize": "$hb:typography.label.size",
+          "fontWeight": "$hb:typography.label.weight"
+        },
+        {
+          "id": "dropdown-closed",
+          "type": "frame",
+          "name": "HbDropdown / Desktop / Closed",
+          "x": 32,
+          "y": 96,
+          "width": 240,
+          "height": 32,
+          "layout": "none",
+          "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+          "fill": "$hb:colors.inputFill",
+          "children": [
+            {
+              "id": "dropdown-closed-value",
+              "type": "text",
+              "content": "Автоматически",
+              "x": 10,
+              "y": 7,
+              "fill": "$hb:colors.textPrimary",
+              "fontFamily": "$hb:typography.family",
+              "fontSize": "$hb:typography.label.size",
+              "fontWeight": "$hb:typography.label.weight"
+            },
+            {
+              "id": "dropdown-closed-chevron",
+              "type": "ref",
+              "ref": "hb:hb-icon-chevron-down",
+              "x": 216,
+              "y": 9,
+              "width": 14,
+              "height": 14,
+              "stroke": "$hb:colors.textSecondary",
+              "strokeWidth": 0.98
+            }
+          ]
+        },
+        {
+          "id": "dropdown-open-title",
+          "type": "text",
+          "content": "Открыт",
+          "x": 304,
+          "y": 70,
+          "fill": "$hb:colors.textSecondary",
+          "fontFamily": "$hb:typography.family",
+          "fontSize": "$hb:typography.label.size",
+          "fontWeight": "$hb:typography.label.weight"
+        },
+        {
+          "id": "dropdown-open",
+          "type": "frame",
+          "name": "HbDropdown / Desktop / Closed",
+          "x": 304,
+          "y": 96,
+          "width": 240,
+          "height": 32,
+          "layout": "none",
+          "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+          "fill": "$hb:colors.inputFill",
+          "children": [
+            {
+              "id": "dropdown-open-value",
+              "type": "text",
+              "content": "Автоматически",
+              "x": 10,
+              "y": 7,
+              "fill": "$hb:colors.textPrimary",
+              "fontFamily": "$hb:typography.family",
+              "fontSize": "$hb:typography.label.size",
+              "fontWeight": "$hb:typography.label.weight"
+            },
+            {
+              "id": "dropdown-open-chevron",
+              "type": "ref",
+              "ref": "hb:hb-icon-chevron-down",
+              "x": 216,
+              "y": 9,
+              "width": 14,
+              "height": 14,
+              "stroke": "$hb:colors.textSecondary",
+              "strokeWidth": 0.98
+            }
+          ]
+        },
+        {
+          "id": "dropdown-menu",
+          "type": "frame",
+          "name": "HbDropdown / Menu",
+          "x": 304,
+          "y": 132,
+          "width": 240,
+          "height": 104,
+          "layout": "none",
+          "fill": "$hb:colors.surfaceElevated",
+          "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+          "children": [
+            {
+              "id": "dropdown-option-0",
+              "type": "frame",
+              "name": "Option / Автоматически",
+              "x": 4,
+              "y": 4,
+              "width": 232,
+              "height": 28,
+              "layout": "none",
+              "fill": "$hb:surfaces.selected",
+              "cornerRadius": "$hb:dimensions.controlCornerRadius",
+              "children": [
+                {
+                  "id": "dropdown-option-0-label",
+                  "type": "text",
+                  "content": "Автоматически",
+                  "x": 8,
+                  "y": 5,
+                  "fill": "$hb:colors.textPrimary",
+                  "fontFamily": "$hb:typography.family",
+                  "fontSize": "$hb:typography.label.size",
+                  "fontWeight": "$hb:typography.label.weight"
+                },
+                {
+                  "id": "dropdown-option-check",
+                  "type": "ref",
+                  "ref": "hb:hb-icon-check",
+                  "x": 208,
+                  "y": 7,
+                  "width": 14,
+                  "height": 14,
+                  "stroke": "$hb:colors.textPrimary",
+                  "strokeWidth": 0.98
+                }
+              ]
+            },
+            {
+              "id": "dropdown-option-1",
+              "type": "frame",
+              "name": "Option / Светлая",
+              "x": 4,
+              "y": 36,
+              "width": 232,
+              "height": 28,
+              "layout": "none",
+              "children": [
+                {
+                  "id": "dropdown-option-1-label",
+                  "type": "text",
+                  "content": "Светлая",
+                  "x": 8,
+                  "y": 5,
+                  "fill": "$hb:colors.textPrimary",
+                  "fontFamily": "$hb:typography.family",
+                  "fontSize": "$hb:typography.label.size",
+                  "fontWeight": "$hb:typography.label.weight"
+                }
+              ]
+            },
+            {
+              "id": "dropdown-option-2",
+              "type": "frame",
+              "name": "Option / Тёмная",
+              "x": 4,
+              "y": 68,
+              "width": 232,
+              "height": 28,
+              "layout": "none",
+              "children": [
+                {
+                  "id": "dropdown-option-2-label",
+                  "type": "text",
+                  "content": "Тёмная",
+                  "x": 8,
+                  "y": 5,
+                  "fill": "$hb:colors.textPrimary",
+                  "fontFamily": "$hb:typography.family",
+                  "fontSize": "$hb:typography.label.size",
+                  "fontWeight": "$hb:typography.label.weight"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "dropdown-disabled-title",
+          "type": "text",
+          "content": "Недоступен",
+          "x": 32,
+          "y": 180,
+          "fill": "$hb:colors.textSecondary",
+          "fontFamily": "$hb:typography.family",
+          "fontSize": "$hb:typography.label.size",
+          "fontWeight": "$hb:typography.label.weight"
+        },
+        {
+          "id": "dropdown-disabled",
+          "type": "frame",
+          "name": "HbDropdown / Desktop / Closed",
+          "x": 32,
+          "y": 206,
+          "width": 240,
+          "height": 32,
+          "layout": "none",
+          "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+          "fill": "$hb:colors.inputFill",
+          "children": [
+            {
+              "id": "dropdown-disabled-value",
+              "type": "text",
+              "content": "Автоматически",
+              "x": 10,
+              "y": 7,
+              "fill": "$hb:colors.textPrimary",
+              "fontFamily": "$hb:typography.family",
+              "fontSize": "$hb:typography.label.size",
+              "fontWeight": "$hb:typography.label.weight"
+            },
+            {
+              "id": "dropdown-disabled-chevron",
+              "type": "ref",
+              "ref": "hb:hb-icon-chevron-down",
+              "x": 216,
+              "y": 9,
+              "width": 14,
+              "height": 14,
+              "stroke": "$hb:colors.textSecondary",
+              "strokeWidth": 0.98
+            }
+          ],
+          "opacity": 0.5
+        }
+      ]
+    },
+    {
+      "id": "dropdown-desktop-dark",
+      "type": "frame",
+      "name": "HbDropdown / States / Desktop / Dark",
+      "context": "Выбор одного значения: закрытое поле, раскрытое меню с отметкой текущего значения и недоступное поле. Меню закрывается после выбора или по Esc; стрелки перемещают фокус, Enter выбирает. Длинные подписи затухают к краю. При нехватке места меню прокручивается и открывается в доступную сторону.",
+      "x": 840,
+      "y": 0,
+      "width": 800,
+      "height": 400,
+      "layout": "none",
+      "theme": {
+        "hb:mode": "dark",
+        "hb:host": "desktop"
+      },
+      "fill": "$hb:surfaces.backdrop",
+      "children": [
+        {
+          "id": "dropdown-desktop-dark-dropdown-heading",
+          "type": "text",
+          "content": "Выпадающий список",
+          "x": 32,
+          "y": 24,
+          "fill": "$hb:colors.textPrimary",
+          "fontFamily": "$hb:typography.family",
+          "fontSize": "$hb:typography.label.size",
+          "fontWeight": "$hb:typography.label.weight"
+        },
+        {
+          "id": "dropdown-desktop-dark-dropdown-closed-title",
+          "type": "text",
+          "content": "Закрыт",
+          "x": 32,
+          "y": 70,
+          "fill": "$hb:colors.textSecondary",
+          "fontFamily": "$hb:typography.family",
+          "fontSize": "$hb:typography.label.size",
+          "fontWeight": "$hb:typography.label.weight"
+        },
+        {
+          "id": "dropdown-desktop-dark-dropdown-closed",
+          "type": "frame",
+          "name": "HbDropdown / Desktop / Closed",
+          "x": 32,
+          "y": 96,
+          "width": 240,
+          "height": 32,
+          "layout": "none",
+          "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+          "fill": "$hb:colors.inputFill",
+          "children": [
+            {
+              "id": "dropdown-desktop-dark-dropdown-closed-value",
+              "type": "text",
+              "content": "Автоматически",
+              "x": 10,
+              "y": 7,
+              "fill": "$hb:colors.textPrimary",
+              "fontFamily": "$hb:typography.family",
+              "fontSize": "$hb:typography.label.size",
+              "fontWeight": "$hb:typography.label.weight"
+            },
+            {
+              "id": "dropdown-desktop-dark-dropdown-closed-chevron",
+              "type": "ref",
+              "ref": "hb:hb-icon-chevron-down",
+              "x": 216,
+              "y": 9,
+              "width": 14,
+              "height": 14,
+              "stroke": "$hb:colors.textSecondary",
+              "strokeWidth": 0.98
+            }
+          ]
+        },
+        {
+          "id": "dropdown-desktop-dark-dropdown-open-title",
+          "type": "text",
+          "content": "Открыт",
+          "x": 304,
+          "y": 70,
+          "fill": "$hb:colors.textSecondary",
+          "fontFamily": "$hb:typography.family",
+          "fontSize": "$hb:typography.label.size",
+          "fontWeight": "$hb:typography.label.weight"
+        },
+        {
+          "id": "dropdown-desktop-dark-dropdown-open",
+          "type": "frame",
+          "name": "HbDropdown / Desktop / Closed",
+          "x": 304,
+          "y": 96,
+          "width": 240,
+          "height": 32,
+          "layout": "none",
+          "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+          "fill": "$hb:colors.inputFill",
+          "children": [
+            {
+              "id": "dropdown-desktop-dark-dropdown-open-value",
+              "type": "text",
+              "content": "Автоматически",
+              "x": 10,
+              "y": 7,
+              "fill": "$hb:colors.textPrimary",
+              "fontFamily": "$hb:typography.family",
+              "fontSize": "$hb:typography.label.size",
+              "fontWeight": "$hb:typography.label.weight"
+            },
+            {
+              "id": "dropdown-desktop-dark-dropdown-open-chevron",
+              "type": "ref",
+              "ref": "hb:hb-icon-chevron-down",
+              "x": 216,
+              "y": 9,
+              "width": 14,
+              "height": 14,
+              "stroke": "$hb:colors.textSecondary",
+              "strokeWidth": 0.98
+            }
+          ]
+        },
+        {
+          "id": "dropdown-desktop-dark-dropdown-menu",
+          "type": "frame",
+          "name": "HbDropdown / Menu",
+          "x": 304,
+          "y": 132,
+          "width": 240,
+          "height": 104,
+          "layout": "none",
+          "fill": "$hb:colors.surfaceElevated",
+          "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+          "children": [
+            {
+              "id": "dropdown-desktop-dark-dropdown-option-0",
+              "type": "frame",
+              "name": "Option / Автоматически",
+              "x": 4,
+              "y": 4,
+              "width": 232,
+              "height": 28,
+              "layout": "none",
+              "fill": "$hb:surfaces.selected",
+              "cornerRadius": "$hb:dimensions.controlCornerRadius",
+              "children": [
+                {
+                  "id": "dropdown-desktop-dark-dropdown-option-0-label",
+                  "type": "text",
+                  "content": "Автоматически",
+                  "x": 8,
+                  "y": 5,
+                  "fill": "$hb:colors.textPrimary",
+                  "fontFamily": "$hb:typography.family",
+                  "fontSize": "$hb:typography.label.size",
+                  "fontWeight": "$hb:typography.label.weight"
+                },
+                {
+                  "id": "dropdown-desktop-dark-dropdown-option-check",
+                  "type": "ref",
+                  "ref": "hb:hb-icon-check",
+                  "x": 208,
+                  "y": 7,
+                  "width": 14,
+                  "height": 14,
+                  "stroke": "$hb:colors.textPrimary",
+                  "strokeWidth": 0.98
+                }
+              ]
+            },
+            {
+              "id": "dropdown-desktop-dark-dropdown-option-1",
+              "type": "frame",
+              "name": "Option / Светлая",
+              "x": 4,
+              "y": 36,
+              "width": 232,
+              "height": 28,
+              "layout": "none",
+              "children": [
+                {
+                  "id": "dropdown-desktop-dark-dropdown-option-1-label",
+                  "type": "text",
+                  "content": "Светлая",
+                  "x": 8,
+                  "y": 5,
+                  "fill": "$hb:colors.textPrimary",
+                  "fontFamily": "$hb:typography.family",
+                  "fontSize": "$hb:typography.label.size",
+                  "fontWeight": "$hb:typography.label.weight"
+                }
+              ]
+            },
+            {
+              "id": "dropdown-desktop-dark-dropdown-option-2",
+              "type": "frame",
+              "name": "Option / Тёмная",
+              "x": 4,
+              "y": 68,
+              "width": 232,
+              "height": 28,
+              "layout": "none",
+              "children": [
+                {
+                  "id": "dropdown-desktop-dark-dropdown-option-2-label",
+                  "type": "text",
+                  "content": "Тёмная",
+                  "x": 8,
+                  "y": 5,
+                  "fill": "$hb:colors.textPrimary",
+                  "fontFamily": "$hb:typography.family",
+                  "fontSize": "$hb:typography.label.size",
+                  "fontWeight": "$hb:typography.label.weight"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "dropdown-desktop-dark-dropdown-disabled-title",
+          "type": "text",
+          "content": "Недоступен",
+          "x": 32,
+          "y": 180,
+          "fill": "$hb:colors.textSecondary",
+          "fontFamily": "$hb:typography.family",
+          "fontSize": "$hb:typography.label.size",
+          "fontWeight": "$hb:typography.label.weight"
+        },
+        {
+          "id": "dropdown-desktop-dark-dropdown-disabled",
+          "type": "frame",
+          "name": "HbDropdown / Desktop / Closed",
+          "x": 32,
+          "y": 206,
+          "width": 240,
+          "height": 32,
+          "layout": "none",
+          "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+          "fill": "$hb:colors.inputFill",
+          "children": [
+            {
+              "id": "dropdown-desktop-dark-dropdown-disabled-value",
+              "type": "text",
+              "content": "Автоматически",
+              "x": 10,
+              "y": 7,
+              "fill": "$hb:colors.textPrimary",
+              "fontFamily": "$hb:typography.family",
+              "fontSize": "$hb:typography.label.size",
+              "fontWeight": "$hb:typography.label.weight"
+            },
+            {
+              "id": "dropdown-desktop-dark-dropdown-disabled-chevron",
+              "type": "ref",
+              "ref": "hb:hb-icon-chevron-down",
+              "x": 216,
+              "y": 9,
+              "width": 14,
+              "height": 14,
+              "stroke": "$hb:colors.textSecondary",
+              "strokeWidth": 0.98
+            }
+          ],
+          "opacity": 0.5
+        }
+      ]
+    }
+  ]
+}

@@ -5030,6 +5030,44 @@
      "y": 1550.9
     },
     {
+     "id": "hb-dropdown",
+     "type": "frame",
+     "name": "HbDropdown / Desktop / Closed",
+     "context": "Один выбор из списка. Enter, Space или стрелка вниз открывают меню; Esc закрывает, фокус возвращается к полю. Длинное значение затухает к краю и доступно целиком в подсказке.",
+     "reusable": true,
+     "x": 280,
+     "y": 1550,
+     "width": 240,
+     "height": 32,
+     "layout": "none",
+     "cornerRadius": "$dimensions.fieldCornerRadius",
+     "fill": "$colors.inputFill",
+     "children": [
+      {
+       "id": "hb-dropdown-value",
+       "type": "text",
+       "content": "Автоматически",
+       "x": 10,
+       "y": 7,
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "fontWeight": "$typography.label.weight"
+      },
+      {
+       "id": "hb-dropdown-chevron",
+       "type": "ref",
+       "ref": "hb-icon-chevron-down",
+       "width": 14,
+       "height": 14,
+       "x": 216,
+       "y": 9,
+       "stroke": "$colors.textSecondary",
+       "strokeWidth": 0.98
+      }
+     ]
+    },
+    {
      "id": "window-traffic-lights",
      "type": "frame",
      "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
