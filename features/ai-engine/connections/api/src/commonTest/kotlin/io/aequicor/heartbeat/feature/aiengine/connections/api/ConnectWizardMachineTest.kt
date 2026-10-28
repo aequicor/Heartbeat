@@ -171,6 +171,18 @@ class ConnectWizardMachineTest {
     }
 
     @Test
+    fun `a reused connection starts model selection from its saved models`() {
+        val saved = setOf(ModelId("gpt-a"))
+        val reused = connection.copy(isCreated = false, initialModels = saved)
+        spec.assertTransition(
+            Connecting(koog, apiKey.id),
+            Internal.Connected(reused),
+            ChoosingModels(koog.descriptor.id, reused, selected = saved),
+            effects = listOf(ConnectWizardEffect.DiscoverModels(koog.descriptor.id, reused.binding)),
+        )
+    }
+
+    @Test
     fun `models are chosen from discovered ones only`() {
         val discovering = ChoosingModels(koog.descriptor.id, connection)
         val models = listOf(model("gpt-a"), model("gpt-b"))

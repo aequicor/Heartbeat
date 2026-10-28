@@ -337,10 +337,31 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
             val source = services.sources.get(binding.authSource) as? AuthSource.CliLogin ?: continue
             if (source.owner == method.owner && source.location == method.location) {
                 log.i { "reusing CLI connection engine=${engine.value} binding=${binding.id.value}" }
-                return NewConnection(binding.id, source.info.id, isCreated = false)
+                val selected = selections.observe().first().enabled(binding.id)
+                val connection = NewConnection(
+                    binding.id,
+                    source.info.id,
+                    isCreated = false,
+                    initialModels = selected,
+                    isInitiallyEnabled = binding.isEnabled,
+                )
+                if (!binding.isEnabled) enableForWizard(connection)
+                return connection
             }
         }
         return null
+    }
+
+    /** A cancelled enable must restore the route even if its persistence completed before cancellation surfaced. */
+    private suspend fun enableForWizard(connection: NewConnection) {
+        var isEnabled = false
+        try {
+            services.facade.bindings.setEnabled(connection.binding, true)
+            currentCoroutineContext().ensureActive()
+            isEnabled = true
+        } finally {
+            if (!isEnabled) withContext(NonCancellable) { rollback(connection) }
+        }
     }
 
     /**
@@ -377,7 +398,14 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
      * the source is kept only while the binding still exists, so a binding never points at a missing source.
      */
     private suspend fun rollback(connection: NewConnection) {
-        if (!connection.isCreated) return
+        if (!connection.isCreated) {
+            if (!connection.isInitiallyEnabled) {
+                attempt("restore the disabled CLI connection") {
+                    services.facade.bindings.setEnabled(connection.binding, false)
+                }
+            }
+            return
+        }
         log.i { "roll back abandoned connection" }
         val isDisconnected = attempt("disconnect the binding; the connection stays visible in settings") {
             services.facade.bindings.disconnect(connection.binding)

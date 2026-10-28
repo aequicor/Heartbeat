@@ -51,9 +51,18 @@ public fun ConnectionMethod.accepts(credential: CredentialInput): Boolean = cred
 
 /**
  * Binding used by the wizard. [isCreated] is false for an existing CLI connection, which compensation must preserve
- * together with its source and model selection. Newly created connections belong to the wizard until completion.
+ * together with its source and model selection. [initialModels] initializes the model step from the saved choice.
+ * [isInitiallyEnabled] records the original state of a reused route temporarily enabled by the wizard; rollback
+ * restores it.
+ * Newly created connections belong to the wizard until completion.
  */
-public data class NewConnection(val binding: EngineBindingId, val source: AuthSourceId, val isCreated: Boolean = true)
+public data class NewConnection(
+    val binding: EngineBindingId,
+    val source: AuthSourceId,
+    val isCreated: Boolean = true,
+    val initialModels: Set<ModelId> = emptySet(),
+    val isInitiallyEnabled: Boolean = true,
+)
 
 /** Result of an explicit connection check on the method step. */
 public sealed interface ConnectionCheck {
