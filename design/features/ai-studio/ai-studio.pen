@@ -10,9 +10,7 @@
    "name": "Components",
    "x": 0,
    "y": -1000,
-   "layout": "horizontal",
-   "gap": 80,
-   "padding": 40,
+   "layout": "none",
    "children": [
     {
      "id": "studio-sidebar",
@@ -20,32 +18,30 @@
      "name": "Studio / Sidebar · dimensions.sidebarWidth",
      "width": 264,
      "height": 800,
-     "layout": "vertical",
+     "layout": "none",
      "fill": "$hb:surfaces.sidebar",
      "children": [
       {
        "id": "studio-sidebar-header",
        "type": "frame",
-       "width": "fill_container",
+       "width": 264,
        "height": 44,
-       "padding": [
-        0,
-        8,
-        0,
-        4
-       ],
-       "alignItems": "center",
        "children": [
         {
          "id": "studio-sidebar-lights",
          "type": "ref",
-         "ref": "hb:window-traffic-lights"
+         "ref": "hb:window-traffic-lights",
+         "x": 4,
+         "y": 8
         },
         {
          "id": "studio-sidebar-header-gap",
          "type": "frame",
-         "width": "fill_container",
-         "height": 1
+         "width": 100,
+         "height": 1,
+         "x": 100,
+         "y": 21.5,
+         "layout": "none"
         },
         {
          "id": "studio-sidebar-new",
@@ -61,7 +57,9 @@
            "stroke": "$hb:colors.textSecondary",
            "strokeWidth": 1.26
           }
-         }
+         },
+         "x": 200,
+         "y": 8
         },
         {
          "id": "studio-sidebar-hide",
@@ -77,36 +75,29 @@
            "stroke": "$hb:colors.textSecondary",
            "strokeWidth": 1.26
           }
-         }
+         },
+         "x": 228,
+         "y": 8
         }
        ],
-       "name": "studio-sidebar-header · dimensions.headerHeight"
+       "name": "studio-sidebar-header · dimensions.headerHeight",
+       "x": 0,
+       "y": 0,
+       "layout": "none"
       },
       {
        "id": "studio-sidebar-list",
        "type": "frame",
-       "width": "fill_container",
-       "height": "fill_container",
-       "layout": "vertical",
-       "padding": [
-        6,
-        8
-       ],
+       "width": 264,
+       "height": 712,
+       "layout": "none",
        "children": [
         {
          "id": "sb-search",
          "type": "frame",
          "name": "Поиск по сессиям",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -116,7 +107,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "sb-search-label",
@@ -127,7 +120,8 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           },
           {
            "id": "sb-search-hint",
@@ -137,21 +131,21 @@
            "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.caption.size",
            "lineHeight": "$hb:typography.caption.lineHeight",
-           "fontWeight": "$hb:typography.caption.weight"
+           "fontWeight": "$hb:typography.caption.weight",
+           "x": 223.9,
+           "y": 6
           }
-         ]
+         ],
+         "x": 8,
+         "y": 6,
+         "layout": "none"
         },
         {
          "id": "sb-projects",
          "type": "frame",
          "name": "Проекты",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          8
-         ],
-         "alignItems": "center",
          "children": [
           {
            "id": "sb-projects-label",
@@ -161,24 +155,21 @@
            "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.caption.size",
            "lineHeight": "$hb:typography.caption.lineHeight",
-           "fontWeight": "$hb:typography.caption.weight"
+           "fontWeight": "$hb:typography.caption.weight",
+           "x": 8,
+           "y": 6
           }
-         ]
+         ],
+         "x": 8,
+         "y": 34,
+         "layout": "none"
         },
         {
          "id": "sb-project",
          "type": "frame",
          "name": "Heartbeat",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -188,7 +179,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "sb-project-label",
@@ -199,24 +192,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 62,
+         "layout": "none"
         },
         {
          "id": "sb-session-latency",
          "type": "frame",
          "name": "Задержка ответа после отправки",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          24
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -228,24 +217,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 24,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 90,
+         "layout": "none"
         },
         {
          "id": "sb-session-review",
          "type": "frame",
          "name": "Ревью PR дизайна",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          24
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -257,24 +242,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 24,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 118,
+         "layout": "none"
         },
         {
          "id": "sb-session-tests",
          "type": "frame",
          "name": "Тесты визарда подключений",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          24
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -286,21 +267,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 24,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 146,
+         "layout": "none"
         },
         {
          "id": "sb-recent",
          "type": "frame",
          "name": "Недавние",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          8
-         ],
-         "alignItems": "center",
          "children": [
           {
            "id": "sb-recent-label",
@@ -310,24 +290,21 @@
            "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.caption.size",
            "lineHeight": "$hb:typography.caption.lineHeight",
-           "fontWeight": "$hb:typography.caption.weight"
+           "fontWeight": "$hb:typography.caption.weight",
+           "x": 8,
+           "y": 6
           }
-         ]
+         ],
+         "x": 8,
+         "y": 174,
+         "layout": "none"
         },
         {
          "id": "sb-recent-1",
          "type": "frame",
          "name": "Как устроен планировщик",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -339,22 +316,22 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 8,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 202,
+         "layout": "none"
         }
-       ]
+       ],
+       "x": 0,
+       "y": 44
       },
       {
        "id": "studio-sidebar-footer",
        "type": "frame",
-       "width": "fill_container",
-       "padding": [
-        8,
-        8
-       ],
-       "gap": "$hb:spacing.xxs",
-       "alignItems": "center",
+       "width": 264,
        "children": [
         {
          "id": "sb-rail-sessions",
@@ -371,7 +348,9 @@
            "stroke": "$hb:colors.textSecondary",
            "strokeWidth": 1.26
           }
-         }
+         },
+         "x": 8,
+         "y": 8
         },
         {
          "id": "sb-rail-archive",
@@ -387,7 +366,9 @@
            "stroke": "$hb:colors.textSecondary",
            "strokeWidth": 1.26
           }
-         }
+         },
+         "x": 38,
+         "y": 8
         },
         {
          "id": "sb-rail-browser",
@@ -403,13 +384,18 @@
            "stroke": "$hb:colors.textSecondary",
            "strokeWidth": 1.26
           }
-         }
+         },
+         "x": 68,
+         "y": 8
         },
         {
          "id": "sb-rail-gap",
          "type": "frame",
-         "width": "fill_container",
-         "height": 1
+         "width": 98,
+         "height": 1,
+         "x": 98,
+         "y": 21.5,
+         "layout": "none"
         },
         {
          "id": "sb-rail-settings",
@@ -425,7 +411,9 @@
            "stroke": "$hb:colors.textSecondary",
            "strokeWidth": 1.26
           }
-         }
+         },
+         "x": 198,
+         "y": 8
         },
         {
          "id": "sb-rail-connections",
@@ -441,13 +429,23 @@
            "stroke": "$hb:colors.textSecondary",
            "strokeWidth": 1.26
           }
-         }
+         },
+         "x": 228,
+         "y": 8
         }
-       ]
+       ],
+       "x": 0,
+       "y": 756,
+       "height": 44,
+       "layout": "none"
       }
-     ]
+     ],
+     "x": 40,
+     "y": 40
     }
-   ]
+   ],
+   "width": 344,
+   "height": 880
   },
   {
    "id": "section-screens",
@@ -455,9 +453,7 @@
    "name": "Screens",
    "x": 0,
    "y": 0,
-   "layout": "horizontal",
-   "gap": 80,
-   "padding": 40,
+   "layout": "none",
    "children": [
     {
      "id": "studio-empty",
@@ -466,7 +462,7 @@
      "reusable": true,
      "width": 1280,
      "height": 800,
-     "layout": "horizontal",
+     "layout": "none",
      "theme": {
       "hb:mode": "light",
       "hb:host": "desktop"
@@ -478,28 +474,24 @@
        "id": "studio-empty-sidebar",
        "type": "ref",
        "ref": "studio-sidebar",
-       "height": "fill_container"
+       "height": 800,
+       "x": 0,
+       "y": 0
       },
       {
        "id": "studio-empty-content",
        "type": "frame",
        "name": "Content",
-       "width": "fill_container",
-       "height": "fill_container",
-       "layout": "vertical",
+       "width": 1016,
+       "height": 800,
+       "layout": "none",
        "children": [
         {
          "id": "studio-empty-content-header",
          "type": "frame",
          "name": "Header · dimensions.headerHeight",
-         "width": "fill_container",
+         "width": 1016,
          "height": 44,
-         "padding": [
-          4,
-          8
-         ],
-         "gap": "$hb:spacing.m",
-         "alignItems": "center",
          "fill": "$hb:surfaces.header",
          "children": [
           {
@@ -511,7 +503,8 @@
            "fontSize": "$hb:typography.title.size",
            "lineHeight": "$hb:typography.title.lineHeight",
            "fontWeight": "$hb:typography.title.weight",
-           "width": "fill_container"
+           "x": 8,
+           "y": 12
           },
           {
            "id": "studio-empty-content-header-more",
@@ -526,7 +519,9 @@
              "height": 18,
              "fill": "$hb:colors.textSecondary"
             }
-           }
+           },
+           "x": 908,
+           "y": 8
           },
           {
            "id": "studio-empty-content-header-summary",
@@ -542,7 +537,9 @@
              "stroke": "$hb:colors.textSecondary",
              "strokeWidth": 1.26
             }
-           }
+           },
+           "x": 944,
+           "y": 8
           },
           {
            "id": "studio-empty-content-header-split",
@@ -558,23 +555,21 @@
              "stroke": "$hb:colors.textSecondary",
              "strokeWidth": 1.26
             }
-           }
+           },
+           "x": 980,
+           "y": 8
           }
-         ]
+         ],
+         "x": 0,
+         "y": 0,
+         "layout": "none"
         },
         {
          "id": "studio-empty-content-body",
          "type": "frame",
-         "width": "fill_container",
-         "height": "fill_container",
-         "layout": "vertical",
-         "justifyContent": "center",
-         "alignItems": "center",
-         "gap": "$hb:spacing.l",
-         "padding": [
-          0,
-          16
-         ],
+         "width": 1016,
+         "height": 756,
+         "layout": "none",
          "children": [
           {
            "id": "studio-empty-content-title",
@@ -584,7 +579,9 @@
            "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.display.size",
            "lineHeight": "$hb:typography.display.lineHeight",
-           "fontWeight": "$hb:typography.display.weight"
+           "fontWeight": "$hb:typography.display.weight",
+           "x": 420.9,
+           "y": 251
           },
           {
            "id": "studio-empty-content-subtitle",
@@ -594,33 +591,32 @@
            "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.body.size",
            "lineHeight": "$hb:typography.body.lineHeight",
-           "fontWeight": "$hb:typography.body.weight"
+           "fontWeight": "$hb:typography.body.weight",
+           "x": 358.8,
+           "y": 293
           },
           {
            "id": "studio-empty-content-gap",
            "type": "frame",
            "height": 20,
-           "name": "studio-empty-content-gap · spacing.xxl"
+           "name": "studio-empty-content-gap · spacing.xxl",
+           "x": 508,
+           "y": 326,
+           "width": 0,
+           "layout": "none"
           },
           {
            "id": "studio-empty-content-composer",
            "type": "frame",
            "name": "HbChatComposer · dimensions.composerMaxWidth",
            "width": 760,
-           "layout": "vertical",
-           "gap": "$hb:spacing.s",
+           "layout": "none",
            "children": [
             {
              "id": "studio-empty-content-composer-context",
              "type": "frame",
              "name": "Context",
-             "width": "fill_container",
-             "padding": [
-              4,
-              8
-             ],
-             "gap": "$hb:spacing.s",
-             "alignItems": "center",
+             "width": 760,
              "children": [
               {
                "id": "studio-empty-content-composer-project",
@@ -639,7 +635,9 @@
                 "hb:hb-composer-pill-label": {
                  "content": "Без проекта"
                 }
-               }
+               },
+               "x": 8,
+               "y": 4
               },
               {
                "id": "studio-empty-content-composer-context-window",
@@ -649,18 +647,22 @@
                 "hb:hb-button-ghost-small-label": {
                  "content": "Контекстное окно"
                 }
-               }
+               },
+               "x": 143.4,
+               "y": 6
               }
-             ]
+             ],
+             "x": 0,
+             "y": 0,
+             "height": 40,
+             "layout": "none"
             },
             {
              "id": "studio-empty-content-composer-panel",
              "type": "frame",
              "name": "Panel",
-             "width": "fill_container",
-             "layout": "vertical",
-             "padding": "$hb:spacing.m",
-             "gap": "$hb:spacing.xs",
+             "width": 760,
+             "layout": "none",
              "cornerRadius": "$hb:dimensions.cornerRadius",
              "fill": "$hb:surfaces.composer",
              "stroke": "$hb:surfaces.outline",
@@ -676,14 +678,13 @@
                "fontSize": "$hb:typography.body.size",
                "lineHeight": "$hb:typography.body.lineHeight",
                "fontWeight": "$hb:typography.body.weight",
-               "width": "fill_container"
+               "x": 8,
+               "y": 8
               },
               {
                "id": "studio-empty-content-composer-toolbar",
                "type": "frame",
-               "width": "fill_container",
-               "gap": "$hb:spacing.xs",
-               "alignItems": "center",
+               "width": 744,
                "children": [
                 {
                  "id": "studio-empty-content-composer-add",
@@ -699,7 +700,9 @@
                    "stroke": "$hb:colors.textSecondary",
                    "strokeWidth": 1.26
                   }
-                 }
+                 },
+                 "x": 0,
+                 "y": 2
                 },
                 {
                  "id": "studio-empty-content-composer-image",
@@ -715,47 +718,64 @@
                    "stroke": "$hb:colors.textSecondary",
                    "strokeWidth": 1.26
                   }
-                 }
+                 },
+                 "x": 32,
+                 "y": 2
                 },
                 {
                  "id": "studio-empty-content-composer-toolbar-gap",
                  "type": "frame",
-                 "width": "fill_container",
-                 "height": 1
+                 "width": 417.2,
+                 "height": 1,
+                 "x": 64,
+                 "y": 15.5,
+                 "layout": "none"
                 },
                 {
                  "id": "studio-empty-content-composer-model",
                  "type": "ref",
-                 "ref": "hb:hb-composer-pill"
+                 "ref": "hb:hb-composer-pill",
+                 "x": 485.2,
+                 "y": 0
                 },
                 {
                  "id": "studio-empty-content-composer-effort",
                  "type": "ref",
-                 "ref": "hb:hb-composer-accentpill"
+                 "ref": "hb:hb-composer-accentpill",
+                 "x": 606.8,
+                 "y": 0
                 },
                 {
                  "id": "studio-empty-content-composer-send",
                  "type": "ref",
-                 "ref": "hb:hb-composer-send"
+                 "ref": "hb:hb-composer-send",
+                 "x": 712,
+                 "y": 0
                 }
-               ]
+               ],
+               "x": 8,
+               "y": 33,
+               "height": 32,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 46,
+             "height": 73
             }
-           ]
+           ],
+           "x": 128,
+           "y": 358,
+           "height": 119
           },
           {
            "id": "studio-empty-content-starters",
            "type": "frame",
            "name": "Starters",
-           "gap": "$hb:spacing.xl",
-           "alignItems": "center",
            "children": [
             {
              "id": "studio-empty-content-starters-0",
              "type": "frame",
-             "gap": "$hb:spacing.xs",
-             "alignItems": "center",
              "children": [
               {
                "id": "studio-empty-content-starters-0-icon",
@@ -764,7 +784,9 @@
                "width": 14,
                "height": 14,
                "stroke": "$hb:colors.textSecondary",
-               "strokeWidth": 0.98
+               "strokeWidth": 0.98,
+               "x": 0,
+               "y": 1
               },
               {
                "id": "studio-empty-content-starters-0-label",
@@ -774,15 +796,20 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.caption.size",
                "lineHeight": "$hb:typography.caption.lineHeight",
-               "fontWeight": "$hb:typography.caption.weight"
+               "fontWeight": "$hb:typography.caption.weight",
+               "x": 18,
+               "y": 0
               }
-             ]
+             ],
+             "x": 0,
+             "y": 0,
+             "width": 134.4,
+             "height": 16,
+             "layout": "none"
             },
             {
              "id": "studio-empty-content-starters-1",
              "type": "frame",
-             "gap": "$hb:spacing.xs",
-             "alignItems": "center",
              "children": [
               {
                "id": "studio-empty-content-starters-1-icon",
@@ -791,7 +818,9 @@
                "width": 14,
                "height": 14,
                "stroke": "$hb:colors.textSecondary",
-               "strokeWidth": 0.98
+               "strokeWidth": 0.98,
+               "x": 0,
+               "y": 1
               },
               {
                "id": "studio-empty-content-starters-1-label",
@@ -801,15 +830,20 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.caption.size",
                "lineHeight": "$hb:typography.caption.lineHeight",
-               "fontWeight": "$hb:typography.caption.weight"
+               "fontWeight": "$hb:typography.caption.weight",
+               "x": 18,
+               "y": 0
               }
-             ]
+             ],
+             "x": 150.4,
+             "y": 0,
+             "width": 116.3,
+             "height": 16,
+             "layout": "none"
             },
             {
              "id": "studio-empty-content-starters-2",
              "type": "frame",
-             "gap": "$hb:spacing.xs",
-             "alignItems": "center",
              "children": [
               {
                "id": "studio-empty-content-starters-2-icon",
@@ -818,7 +852,9 @@
                "width": 14,
                "height": 14,
                "stroke": "$hb:colors.textSecondary",
-               "strokeWidth": 0.98
+               "strokeWidth": 0.98,
+               "x": 0,
+               "y": 1
               },
               {
                "id": "studio-empty-content-starters-2-label",
@@ -828,17 +864,35 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.caption.size",
                "lineHeight": "$hb:typography.caption.lineHeight",
-               "fontWeight": "$hb:typography.caption.weight"
+               "fontWeight": "$hb:typography.caption.weight",
+               "x": 18,
+               "y": 0
               }
-             ]
+             ],
+             "x": 282.7,
+             "y": 0,
+             "width": 111.2,
+             "height": 16,
+             "layout": "none"
             }
-           ]
+           ],
+           "x": 311.1,
+           "y": 489,
+           "width": 393.8,
+           "height": 16,
+           "layout": "none"
           }
-         ]
+         ],
+         "x": 0,
+         "y": 44
         }
-       ]
+       ],
+       "x": 264,
+       "y": 0
       }
-     ]
+     ],
+     "x": 40,
+     "y": 40
     },
     {
      "id": "studio-conversation",
@@ -847,7 +901,7 @@
      "reusable": true,
      "width": 1280,
      "height": 800,
-     "layout": "horizontal",
+     "layout": "none",
      "theme": {
       "hb:mode": "light",
       "hb:host": "desktop"
@@ -859,33 +913,29 @@
        "id": "studio-conversation-sidebar",
        "type": "ref",
        "ref": "studio-sidebar",
-       "height": "fill_container",
+       "height": 800,
        "descendants": {
         "sb-session-latency": {
          "fill": "$hb:surfaces.selected"
         }
-       }
+       },
+       "x": 0,
+       "y": 0
       },
       {
        "id": "studio-conversation-content",
        "type": "frame",
        "name": "Content",
-       "width": "fill_container",
-       "height": "fill_container",
-       "layout": "vertical",
+       "width": 1016,
+       "height": 800,
+       "layout": "none",
        "children": [
         {
          "id": "studio-conversation-content-header",
          "type": "frame",
          "name": "Header · dimensions.headerHeight",
-         "width": "fill_container",
+         "width": 1016,
          "height": 44,
-         "padding": [
-          4,
-          8
-         ],
-         "gap": "$hb:spacing.m",
-         "alignItems": "center",
          "fill": "$hb:surfaces.header",
          "children": [
           {
@@ -897,7 +947,8 @@
            "fontSize": "$hb:typography.title.size",
            "lineHeight": "$hb:typography.title.lineHeight",
            "fontWeight": "$hb:typography.title.weight",
-           "width": "fill_container"
+           "x": 8,
+           "y": 12
           },
           {
            "id": "studio-conversation-content-header-more",
@@ -912,7 +963,9 @@
              "height": 18,
              "fill": "$hb:colors.textSecondary"
             }
-           }
+           },
+           "x": 908,
+           "y": 8
           },
           {
            "id": "studio-conversation-content-header-summary",
@@ -928,7 +981,9 @@
              "stroke": "$hb:colors.textSecondary",
              "strokeWidth": 1.26
             }
-           }
+           },
+           "x": 944,
+           "y": 8
           },
           {
            "id": "studio-conversation-content-header-split",
@@ -944,35 +999,33 @@
              "stroke": "$hb:colors.textSecondary",
              "strokeWidth": 1.26
             }
-           }
+           },
+           "x": 980,
+           "y": 8
           }
-         ]
+         ],
+         "x": 0,
+         "y": 0,
+         "layout": "none"
         },
         {
          "id": "studio-conversation-content-transcript",
          "type": "frame",
-         "width": "fill_container",
-         "height": "fill_container",
-         "layout": "vertical",
-         "alignItems": "center",
-         "padding": [
-          16,
-          16
-         ],
+         "width": 1016,
+         "height": 621,
+         "layout": "none",
          "children": [
           {
            "id": "studio-conversation-content-column",
            "type": "frame",
            "name": "Transcript · dimensions.messageMaxWidth",
            "width": 760,
-           "layout": "vertical",
-           "gap": "$hb:spacing.xl",
+           "layout": "none",
            "children": [
             {
              "id": "studio-conversation-content-date",
              "type": "frame",
-             "width": "fill_container",
-             "justifyContent": "center",
+             "width": 760,
              "children": [
               {
                "id": "studio-conversation-content-date-label",
@@ -982,18 +1035,22 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.caption.size",
                "lineHeight": "$hb:typography.caption.lineHeight",
-               "fontWeight": "$hb:typography.caption.weight"
+               "fontWeight": "$hb:typography.caption.weight",
+               "x": 355.5,
+               "y": 0
               }
-             ]
+             ],
+             "x": 0,
+             "y": 0,
+             "height": 16,
+             "layout": "none"
             },
             {
              "id": "studio-conversation-content-user",
              "type": "frame",
              "name": "Message / User",
-             "width": "fill_container",
-             "layout": "vertical",
-             "alignItems": "end",
-             "gap": "$hb:spacing.xs",
+             "width": 760,
+             "layout": "none",
              "children": [
               {
                "id": "studio-conversation-content-user-time",
@@ -1003,13 +1060,14 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.metadata.size",
                "lineHeight": "$hb:typography.metadata.lineHeight",
-               "fontWeight": "$hb:typography.metadata.weight"
+               "fontWeight": "$hb:typography.metadata.weight",
+               "x": 729,
+               "y": 0
               },
               {
                "id": "studio-conversation-content-user-bubble",
                "type": "frame",
                "name": "Bubble",
-               "padding": "$hb:spacing.l",
                "cornerRadius": "$hb:shapes.medium",
                "fill": "$hb:surfaces.outgoing",
                "children": [
@@ -1021,33 +1079,41 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.body.size",
                  "lineHeight": "$hb:typography.body.lineHeight",
-                 "fontWeight": "$hb:typography.body.weight"
+                 "fontWeight": "$hb:typography.body.weight",
+                 "x": 12,
+                 "y": 12
                 }
-               ]
+               ],
+               "x": 362.5,
+               "y": 20,
+               "width": 397.5,
+               "height": 45,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 32,
+             "height": 65
             },
             {
              "id": "studio-conversation-content-reply",
              "type": "frame",
              "name": "Message / Assistant",
-             "width": "fill_container",
-             "layout": "vertical",
-             "gap": "$hb:spacing.l",
-             "padding": "$hb:dimensions.messagePadding",
+             "width": 760,
+             "layout": "none",
              "cornerRadius": "$hb:dimensions.messageCornerRadius",
              "fill": "$hb:surfaces.assistant",
              "children": [
               {
                "id": "studio-conversation-content-reply-head",
                "type": "frame",
-               "gap": "$hb:spacing.l",
-               "alignItems": "center",
                "children": [
                 {
                  "id": "studio-conversation-content-reply-mark",
                  "type": "ref",
-                 "ref": "hb:hb-studio-mark"
+                 "ref": "hb:hb-studio-mark",
+                 "x": 0,
+                 "y": 0
                 },
                 {
                  "id": "studio-conversation-content-reply-author",
@@ -1057,7 +1123,9 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.label.size",
                  "lineHeight": "$hb:typography.label.lineHeight",
-                 "fontWeight": "600"
+                 "fontWeight": "600",
+                 "x": 40,
+                 "y": 5
                 },
                 {
                  "id": "studio-conversation-content-reply-time",
@@ -1067,28 +1135,28 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.metadata.size",
                  "lineHeight": "$hb:typography.metadata.lineHeight",
-                 "fontWeight": "$hb:typography.metadata.weight"
+                 "fontWeight": "$hb:typography.metadata.weight",
+                 "x": 115,
+                 "y": 6
                 }
-               ]
+               ],
+               "x": 16,
+               "y": 16,
+               "width": 146,
+               "height": 28,
+               "layout": "none"
               },
               {
                "id": "studio-conversation-content-reply-body",
                "type": "frame",
-               "width": "fill_container",
-               "layout": "vertical",
-               "gap": "$hb:spacing.m",
-               "padding": [
-                0,
-                0,
-                0,
-                40
-               ],
+               "width": 728,
+               "layout": "none",
                "children": [
                 {
                  "id": "studio-conversation-content-reasoning",
                  "type": "ref",
                  "ref": "hb:hb-tool-row-reasoning",
-                 "width": "fill_container",
+                 "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-reasoning-title": {
                    "content": "Размышление"
@@ -1096,13 +1164,15 @@
                   "hb:hb-tool-row-reasoning-summary": {
                    "content": "Сначала найду, где композер ждёт ответ движка"
                   }
-                 }
+                 },
+                 "x": 40,
+                 "y": 0
                 },
                 {
                  "id": "studio-conversation-content-read",
                  "type": "ref",
                  "ref": "hb:hb-tool-row-done",
-                 "width": "fill_container",
+                 "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-done-title": {
                    "content": "Прочитан файл"
@@ -1110,13 +1180,15 @@
                   "hb:hb-tool-row-done-summary": {
                    "content": "StudioComposer.kt"
                   }
-                 }
+                 },
+                 "x": 40,
+                 "y": 58
                 },
                 {
                  "id": "studio-conversation-content-grep",
                  "type": "ref",
                  "ref": "hb:hb-tool-row-done",
-                 "width": "fill_container",
+                 "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-done-title": {
                    "content": "Поиск"
@@ -1124,7 +1196,9 @@
                   "hb:hb-tool-row-done-summary": {
                    "content": "debounce в StudioPaneView.kt"
                   }
-                 }
+                 },
+                 "x": 40,
+                 "y": 116
                 },
                 {
                  "id": "studio-conversation-content-answer",
@@ -1135,22 +1209,20 @@
                  "fontSize": "$hb:typography.body.size",
                  "lineHeight": "$hb:typography.body.lineHeight",
                  "fontWeight": "$hb:typography.body.weight",
-                 "width": "fill_container",
-                 "textGrowth": "fixed-width"
+                 "width": 688,
+                 "textGrowth": "fixed-width",
+                 "x": 40,
+                 "y": 174
                 }
-               ]
+               ],
+               "x": 16,
+               "y": 56,
+               "height": 237
               },
               {
                "id": "studio-conversation-content-reply-footer",
                "type": "frame",
-               "width": "fill_container",
-               "alignItems": "center",
-               "padding": [
-                0,
-                0,
-                0,
-                36
-               ],
+               "width": 728,
                "children": [
                 {
                  "id": "studio-conversation-content-reply-copy",
@@ -1166,60 +1238,62 @@
                    "stroke": "$hb:colors.textSecondary",
                    "strokeWidth": 1.26
                   }
-                 }
+                 },
+                 "x": 36,
+                 "y": 0
                 },
                 {
                  "id": "studio-conversation-content-reply-footer-gap",
                  "type": "frame",
-                 "width": "fill_container",
-                 "height": 1
+                 "width": 664,
+                 "height": 1,
+                 "x": 64,
+                 "y": 13.5,
+                 "layout": "none"
                 }
-               ]
+               ],
+               "x": 16,
+               "y": 305,
+               "height": 28,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 113,
+             "height": 349
             }
-           ]
+           ],
+           "x": 128,
+           "y": 16,
+           "height": 462
           }
-         ]
+         ],
+         "x": 0,
+         "y": 44
         },
         {
          "id": "studio-conversation-content-footer",
          "type": "frame",
          "name": "Footer",
-         "width": "fill_container",
-         "layout": "vertical",
-         "alignItems": "center",
-         "gap": "$hb:spacing.s",
-         "padding": [
-          8,
-          16
-         ],
+         "width": 1016,
+         "layout": "none",
          "children": [
           {
            "id": "studio-conversation-content-composer",
            "type": "frame",
            "name": "HbChatComposer · dimensions.composerMaxWidth",
            "width": 760,
-           "layout": "vertical",
-           "gap": "$hb:spacing.s",
+           "layout": "none",
            "children": [
             {
              "id": "studio-conversation-content-composer-context",
              "type": "frame",
              "name": "Context",
-             "width": "fill_container",
-             "padding": [
-              4,
-              8
-             ],
-             "gap": "$hb:spacing.s",
-             "alignItems": "center",
+             "width": 760,
              "children": [
               {
                "id": "studio-conversation-content-composer-project",
                "type": "frame",
-               "gap": "$hb:spacing.xs",
-               "alignItems": "center",
                "children": [
                 {
                  "id": "studio-conversation-content-composer-project-icon",
@@ -1228,7 +1302,9 @@
                  "width": 14,
                  "height": 14,
                  "stroke": "$hb:colors.textSecondary",
-                 "strokeWidth": 0.98
+                 "strokeWidth": 0.98,
+                 "x": 0,
+                 "y": 1
                 },
                 {
                  "id": "studio-conversation-content-composer-project-label",
@@ -1238,21 +1314,22 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
                  "lineHeight": "$hb:typography.caption.lineHeight",
-                 "fontWeight": "$hb:typography.caption.weight"
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "x": 18,
+                 "y": 0
                 }
-               ]
+               ],
+               "x": 8,
+               "y": 12,
+               "width": 74.5,
+               "height": 16,
+               "layout": "none"
               },
               {
                "id": "studio-conversation-content-composer-usage",
                "type": "frame",
                "name": "HbComposerUsageButton · dimensions.composerPillHeight",
                "height": 32,
-               "padding": [
-                0,
-                8
-               ],
-               "gap": "$hb:spacing.s",
-               "alignItems": "center",
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "fill": "$hb:surfaces.composerPill",
                "children": [
@@ -1262,7 +1339,9 @@
                  "width": 14,
                  "height": 14,
                  "stroke": "$hb:colors.brand",
-                 "strokeWidth": 2
+                 "strokeWidth": 2,
+                 "x": 8,
+                 "y": 9
                 },
                 {
                  "id": "studio-conversation-content-composer-usage-label",
@@ -1272,20 +1351,28 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
                  "lineHeight": "$hb:typography.caption.lineHeight",
-                 "fontWeight": "$hb:typography.caption.weight"
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "x": 28,
+                 "y": 8
                 }
-               ]
+               ],
+               "x": 88.5,
+               "y": 4,
+               "width": 63,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 0,
+             "height": 40,
+             "layout": "none"
             },
             {
              "id": "studio-conversation-content-composer-panel",
              "type": "frame",
              "name": "Panel",
-             "width": "fill_container",
-             "layout": "vertical",
-             "padding": "$hb:spacing.m",
-             "gap": "$hb:spacing.xs",
+             "width": 760,
+             "layout": "none",
              "cornerRadius": "$hb:dimensions.cornerRadius",
              "fill": "$hb:surfaces.composer",
              "stroke": "$hb:surfaces.outline",
@@ -1301,14 +1388,13 @@
                "fontSize": "$hb:typography.body.size",
                "lineHeight": "$hb:typography.body.lineHeight",
                "fontWeight": "$hb:typography.body.weight",
-               "width": "fill_container"
+               "x": 8,
+               "y": 8
               },
               {
                "id": "studio-conversation-content-composer-toolbar",
                "type": "frame",
-               "width": "fill_container",
-               "gap": "$hb:spacing.xs",
-               "alignItems": "center",
+               "width": 744,
                "children": [
                 {
                  "id": "studio-conversation-content-composer-add",
@@ -1324,7 +1410,9 @@
                    "stroke": "$hb:colors.textSecondary",
                    "strokeWidth": 1.26
                   }
-                 }
+                 },
+                 "x": 0,
+                 "y": 2
                 },
                 {
                  "id": "studio-conversation-content-composer-image",
@@ -1340,40 +1428,68 @@
                    "stroke": "$hb:colors.textSecondary",
                    "strokeWidth": 1.26
                   }
-                 }
+                 },
+                 "x": 32,
+                 "y": 2
                 },
                 {
                  "id": "studio-conversation-content-composer-toolbar-gap",
                  "type": "frame",
-                 "width": "fill_container",
-                 "height": 1
+                 "width": 417.2,
+                 "height": 1,
+                 "x": 64,
+                 "y": 15.5,
+                 "layout": "none"
                 },
                 {
                  "id": "studio-conversation-content-composer-model",
                  "type": "ref",
-                 "ref": "hb:hb-composer-pill"
+                 "ref": "hb:hb-composer-pill",
+                 "x": 485.2,
+                 "y": 0
                 },
                 {
                  "id": "studio-conversation-content-composer-effort",
                  "type": "ref",
-                 "ref": "hb:hb-composer-accentpill"
+                 "ref": "hb:hb-composer-accentpill",
+                 "x": 606.8,
+                 "y": 0
                 },
                 {
                  "id": "studio-conversation-content-composer-send",
                  "type": "ref",
-                 "ref": "hb:hb-composer-send"
+                 "ref": "hb:hb-composer-send",
+                 "x": 712,
+                 "y": 0
                 }
-               ]
+               ],
+               "x": 8,
+               "y": 33,
+               "height": 32,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 46,
+             "height": 73
             }
-           ]
+           ],
+           "x": 128,
+           "y": 8,
+           "height": 119
           }
-         ]
+         ],
+         "x": 0,
+         "y": 665,
+         "height": 135
         }
-       ]
+       ],
+       "x": 264,
+       "y": 0
       }
-     ]
+     ],
+     "x": 1400,
+     "y": 40
     },
     {
      "id": "studio-streaming",
@@ -1382,7 +1498,7 @@
      "reusable": true,
      "width": 1280,
      "height": 800,
-     "layout": "horizontal",
+     "layout": "none",
      "theme": {
       "hb:mode": "light",
       "hb:host": "desktop"
@@ -1394,33 +1510,29 @@
        "id": "studio-streaming-sidebar",
        "type": "ref",
        "ref": "studio-sidebar",
-       "height": "fill_container",
+       "height": 800,
        "descendants": {
         "sb-session-latency": {
          "fill": "$hb:surfaces.selected"
         }
-       }
+       },
+       "x": 0,
+       "y": 0
       },
       {
        "id": "studio-streaming-content",
        "type": "frame",
        "name": "Content",
-       "width": "fill_container",
-       "height": "fill_container",
-       "layout": "vertical",
+       "width": 1016,
+       "height": 800,
+       "layout": "none",
        "children": [
         {
          "id": "studio-streaming-content-header",
          "type": "frame",
          "name": "Header · dimensions.headerHeight",
-         "width": "fill_container",
+         "width": 1016,
          "height": 44,
-         "padding": [
-          4,
-          8
-         ],
-         "gap": "$hb:spacing.m",
-         "alignItems": "center",
          "fill": "$hb:surfaces.header",
          "children": [
           {
@@ -1432,7 +1544,8 @@
            "fontSize": "$hb:typography.title.size",
            "lineHeight": "$hb:typography.title.lineHeight",
            "fontWeight": "$hb:typography.title.weight",
-           "width": "fill_container"
+           "x": 8,
+           "y": 12
           },
           {
            "id": "studio-streaming-content-header-more",
@@ -1447,7 +1560,9 @@
              "height": 18,
              "fill": "$hb:colors.textSecondary"
             }
-           }
+           },
+           "x": 908,
+           "y": 8
           },
           {
            "id": "studio-streaming-content-header-summary",
@@ -1463,7 +1578,9 @@
              "stroke": "$hb:colors.textSecondary",
              "strokeWidth": 1.26
             }
-           }
+           },
+           "x": 944,
+           "y": 8
           },
           {
            "id": "studio-streaming-content-header-split",
@@ -1479,35 +1596,33 @@
              "stroke": "$hb:colors.textSecondary",
              "strokeWidth": 1.26
             }
-           }
+           },
+           "x": 980,
+           "y": 8
           }
-         ]
+         ],
+         "x": 0,
+         "y": 0,
+         "layout": "none"
         },
         {
          "id": "studio-streaming-content-transcript",
          "type": "frame",
-         "width": "fill_container",
-         "height": "fill_container",
-         "layout": "vertical",
-         "alignItems": "center",
-         "padding": [
-          16,
-          16
-         ],
+         "width": 1016,
+         "height": 599,
+         "layout": "none",
          "children": [
           {
            "id": "studio-streaming-content-column",
            "type": "frame",
            "name": "Transcript · dimensions.messageMaxWidth",
            "width": 760,
-           "layout": "vertical",
-           "gap": "$hb:spacing.xl",
+           "layout": "none",
            "children": [
             {
              "id": "studio-streaming-content-date",
              "type": "frame",
-             "width": "fill_container",
-             "justifyContent": "center",
+             "width": 760,
              "children": [
               {
                "id": "studio-streaming-content-date-label",
@@ -1517,18 +1632,22 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.caption.size",
                "lineHeight": "$hb:typography.caption.lineHeight",
-               "fontWeight": "$hb:typography.caption.weight"
+               "fontWeight": "$hb:typography.caption.weight",
+               "x": 355.5,
+               "y": 0
               }
-             ]
+             ],
+             "x": 0,
+             "y": 0,
+             "height": 16,
+             "layout": "none"
             },
             {
              "id": "studio-streaming-content-user",
              "type": "frame",
              "name": "Message / User",
-             "width": "fill_container",
-             "layout": "vertical",
-             "alignItems": "end",
-             "gap": "$hb:spacing.xs",
+             "width": 760,
+             "layout": "none",
              "children": [
               {
                "id": "studio-streaming-content-user-time",
@@ -1538,13 +1657,14 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.metadata.size",
                "lineHeight": "$hb:typography.metadata.lineHeight",
-               "fontWeight": "$hb:typography.metadata.weight"
+               "fontWeight": "$hb:typography.metadata.weight",
+               "x": 729,
+               "y": 0
               },
               {
                "id": "studio-streaming-content-user-bubble",
                "type": "frame",
                "name": "Bubble",
-               "padding": "$hb:spacing.l",
                "cornerRadius": "$hb:shapes.medium",
                "fill": "$hb:surfaces.outgoing",
                "children": [
@@ -1556,33 +1676,41 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.body.size",
                  "lineHeight": "$hb:typography.body.lineHeight",
-                 "fontWeight": "$hb:typography.body.weight"
+                 "fontWeight": "$hb:typography.body.weight",
+                 "x": 12,
+                 "y": 12
                 }
-               ]
+               ],
+               "x": 362.5,
+               "y": 20,
+               "width": 397.5,
+               "height": 45,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 32,
+             "height": 65
             },
             {
              "id": "studio-streaming-content-reply",
              "type": "frame",
              "name": "Message / Assistant",
-             "width": "fill_container",
-             "layout": "vertical",
-             "gap": "$hb:spacing.l",
-             "padding": "$hb:dimensions.messagePadding",
+             "width": 760,
+             "layout": "none",
              "cornerRadius": "$hb:dimensions.messageCornerRadius",
              "fill": "$hb:surfaces.assistant",
              "children": [
               {
                "id": "studio-streaming-content-reply-head",
                "type": "frame",
-               "gap": "$hb:spacing.l",
-               "alignItems": "center",
                "children": [
                 {
                  "id": "studio-streaming-content-reply-mark",
                  "type": "ref",
-                 "ref": "hb:hb-studio-mark"
+                 "ref": "hb:hb-studio-mark",
+                 "x": 0,
+                 "y": 0
                 },
                 {
                  "id": "studio-streaming-content-reply-author",
@@ -1592,7 +1720,9 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.label.size",
                  "lineHeight": "$hb:typography.label.lineHeight",
-                 "fontWeight": "600"
+                 "fontWeight": "600",
+                 "x": 40,
+                 "y": 5
                 },
                 {
                  "id": "studio-streaming-content-reply-time",
@@ -1602,28 +1732,28 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.metadata.size",
                  "lineHeight": "$hb:typography.metadata.lineHeight",
-                 "fontWeight": "$hb:typography.metadata.weight"
+                 "fontWeight": "$hb:typography.metadata.weight",
+                 "x": 115,
+                 "y": 6
                 }
-               ]
+               ],
+               "x": 16,
+               "y": 16,
+               "width": 146,
+               "height": 28,
+               "layout": "none"
               },
               {
                "id": "studio-streaming-content-reply-body",
                "type": "frame",
-               "width": "fill_container",
-               "layout": "vertical",
-               "gap": "$hb:spacing.m",
-               "padding": [
-                0,
-                0,
-                0,
-                40
-               ],
+               "width": 728,
+               "layout": "none",
                "children": [
                 {
                  "id": "studio-streaming-content-reasoning",
                  "type": "ref",
                  "ref": "hb:hb-tool-row-reasoning",
-                 "width": "fill_container",
+                 "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-reasoning-title": {
                    "content": "Размышление"
@@ -1631,13 +1761,15 @@
                   "hb:hb-tool-row-reasoning-summary": {
                    "content": "Сначала найду, где композер ждёт ответ движка"
                   }
-                 }
+                 },
+                 "x": 40,
+                 "y": 0
                 },
                 {
                  "id": "studio-streaming-content-read",
                  "type": "ref",
                  "ref": "hb:hb-tool-row-done",
-                 "width": "fill_container",
+                 "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-done-title": {
                    "content": "Прочитан файл"
@@ -1645,13 +1777,15 @@
                   "hb:hb-tool-row-done-summary": {
                    "content": "StudioComposer.kt"
                   }
-                 }
+                 },
+                 "x": 40,
+                 "y": 58
                 },
                 {
                  "id": "studio-streaming-content-grep",
                  "type": "ref",
                  "ref": "hb:hb-tool-row-done",
-                 "width": "fill_container",
+                 "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-done-title": {
                    "content": "Поиск"
@@ -1659,7 +1793,9 @@
                   "hb:hb-tool-row-done-summary": {
                    "content": "debounce в StudioPaneView.kt"
                   }
-                 }
+                 },
+                 "x": 40,
+                 "y": 116
                 },
                 {
                  "id": "studio-streaming-content-answer",
@@ -1670,14 +1806,16 @@
                  "fontSize": "$hb:typography.body.size",
                  "lineHeight": "$hb:typography.body.lineHeight",
                  "fontWeight": "$hb:typography.body.weight",
-                 "width": "fill_container",
-                 "textGrowth": "fixed-width"
+                 "width": 688,
+                 "textGrowth": "fixed-width",
+                 "x": 40,
+                 "y": 174
                 },
                 {
                  "id": "studio-streaming-content-edit",
                  "type": "ref",
                  "ref": "hb:hb-tool-row-running",
-                 "width": "fill_container",
+                 "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-running-title": {
                    "content": "Правка файла"
@@ -1685,21 +1823,19 @@
                   "hb:hb-tool-row-running-summary": {
                    "content": "StudioComposer.kt"
                   }
-                 }
+                 },
+                 "x": 40,
+                 "y": 245
                 }
-               ]
+               ],
+               "x": 16,
+               "y": 56,
+               "height": 295
               },
               {
                "id": "studio-streaming-content-reply-footer",
                "type": "frame",
-               "width": "fill_container",
-               "alignItems": "center",
-               "padding": [
-                0,
-                0,
-                0,
-                36
-               ],
+               "width": 728,
                "children": [
                 {
                  "id": "studio-streaming-content-reply-copy",
@@ -1715,13 +1851,18 @@
                    "stroke": "$hb:colors.textSecondary",
                    "strokeWidth": 1.26
                   }
-                 }
+                 },
+                 "x": 36,
+                 "y": 0
                 },
                 {
                  "id": "studio-streaming-content-reply-footer-gap",
                  "type": "frame",
-                 "width": "fill_container",
-                 "height": 1
+                 "width": 615.2,
+                 "height": 1,
+                 "x": 64,
+                 "y": 13.5,
+                 "layout": "none"
                 },
                 {
                  "id": "studio-streaming-content-reply-writing",
@@ -1731,35 +1872,41 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
                  "lineHeight": "$hb:typography.caption.lineHeight",
-                 "fontWeight": "$hb:typography.caption.weight"
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "x": 679.2,
+                 "y": 6
                 }
-               ]
+               ],
+               "x": 16,
+               "y": 363,
+               "height": 28,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 113,
+             "height": 407
             }
-           ]
+           ],
+           "x": 128,
+           "y": 16,
+           "height": 520
           }
-         ]
+         ],
+         "x": 0,
+         "y": 44
         },
         {
          "id": "studio-streaming-content-footer",
          "type": "frame",
          "name": "Footer",
-         "width": "fill_container",
-         "layout": "vertical",
-         "alignItems": "center",
-         "gap": "$hb:spacing.s",
-         "padding": [
-          8,
-          16
-         ],
+         "width": 1016,
+         "layout": "none",
          "children": [
           {
            "id": "studio-streaming-content-run",
            "type": "frame",
            "name": "Run status",
-           "gap": "$hb:spacing.s",
-           "alignItems": "center",
            "children": [
             {
              "id": "studio-streaming-content-run-icon",
@@ -1768,7 +1915,9 @@
              "width": 14,
              "height": 14,
              "stroke": "$hb:colors.textPrimary",
-             "strokeWidth": 0.98
+             "strokeWidth": 0.98,
+             "x": 0,
+             "y": 1
             },
             {
              "id": "studio-streaming-content-run-label",
@@ -1778,35 +1927,33 @@
              "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.caption.size",
              "lineHeight": "$hb:typography.caption.lineHeight",
-             "fontWeight": "$hb:typography.caption.weight"
+             "fontWeight": "$hb:typography.caption.weight",
+             "x": 20,
+             "y": 0
             }
-           ]
+           ],
+           "x": 443.2,
+           "y": 8,
+           "width": 129.7,
+           "height": 16,
+           "layout": "none"
           },
           {
            "id": "studio-streaming-content-composer",
            "type": "frame",
            "name": "HbChatComposer · dimensions.composerMaxWidth",
            "width": 760,
-           "layout": "vertical",
-           "gap": "$hb:spacing.s",
+           "layout": "none",
            "children": [
             {
              "id": "studio-streaming-content-composer-context",
              "type": "frame",
              "name": "Context",
-             "width": "fill_container",
-             "padding": [
-              4,
-              8
-             ],
-             "gap": "$hb:spacing.s",
-             "alignItems": "center",
+             "width": 760,
              "children": [
               {
                "id": "studio-streaming-content-composer-project",
                "type": "frame",
-               "gap": "$hb:spacing.xs",
-               "alignItems": "center",
                "children": [
                 {
                  "id": "studio-streaming-content-composer-project-icon",
@@ -1815,7 +1962,9 @@
                  "width": 14,
                  "height": 14,
                  "stroke": "$hb:colors.textSecondary",
-                 "strokeWidth": 0.98
+                 "strokeWidth": 0.98,
+                 "x": 0,
+                 "y": 1
                 },
                 {
                  "id": "studio-streaming-content-composer-project-label",
@@ -1825,21 +1974,22 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
                  "lineHeight": "$hb:typography.caption.lineHeight",
-                 "fontWeight": "$hb:typography.caption.weight"
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "x": 18,
+                 "y": 0
                 }
-               ]
+               ],
+               "x": 8,
+               "y": 12,
+               "width": 74.5,
+               "height": 16,
+               "layout": "none"
               },
               {
                "id": "studio-streaming-content-composer-usage",
                "type": "frame",
                "name": "HbComposerUsageButton · dimensions.composerPillHeight",
                "height": 32,
-               "padding": [
-                0,
-                8
-               ],
-               "gap": "$hb:spacing.s",
-               "alignItems": "center",
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "fill": "$hb:surfaces.composerPill",
                "children": [
@@ -1849,7 +1999,9 @@
                  "width": 14,
                  "height": 14,
                  "stroke": "$hb:colors.brand",
-                 "strokeWidth": 2
+                 "strokeWidth": 2,
+                 "x": 8,
+                 "y": 9
                 },
                 {
                  "id": "studio-streaming-content-composer-usage-label",
@@ -1859,20 +2011,28 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
                  "lineHeight": "$hb:typography.caption.lineHeight",
-                 "fontWeight": "$hb:typography.caption.weight"
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "x": 28,
+                 "y": 8
                 }
-               ]
+               ],
+               "x": 88.5,
+               "y": 4,
+               "width": 63,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 0,
+             "height": 40,
+             "layout": "none"
             },
             {
              "id": "studio-streaming-content-composer-panel",
              "type": "frame",
              "name": "Panel",
-             "width": "fill_container",
-             "layout": "vertical",
-             "padding": "$hb:spacing.m",
-             "gap": "$hb:spacing.xs",
+             "width": 760,
+             "layout": "none",
              "cornerRadius": "$hb:dimensions.cornerRadius",
              "fill": "$hb:surfaces.composer",
              "stroke": "$hb:surfaces.outline",
@@ -1888,14 +2048,13 @@
                "fontSize": "$hb:typography.body.size",
                "lineHeight": "$hb:typography.body.lineHeight",
                "fontWeight": "$hb:typography.body.weight",
-               "width": "fill_container"
+               "x": 8,
+               "y": 8
               },
               {
                "id": "studio-streaming-content-composer-toolbar",
                "type": "frame",
-               "width": "fill_container",
-               "gap": "$hb:spacing.xs",
-               "alignItems": "center",
+               "width": 744,
                "children": [
                 {
                  "id": "studio-streaming-content-composer-add",
@@ -1911,7 +2070,9 @@
                    "stroke": "$hb:colors.textSecondary",
                    "strokeWidth": 1.26
                   }
-                 }
+                 },
+                 "x": 0,
+                 "y": 2
                 },
                 {
                  "id": "studio-streaming-content-composer-image",
@@ -1927,40 +2088,68 @@
                    "stroke": "$hb:colors.textSecondary",
                    "strokeWidth": 1.26
                   }
-                 }
+                 },
+                 "x": 32,
+                 "y": 2
                 },
                 {
                  "id": "studio-streaming-content-composer-toolbar-gap",
                  "type": "frame",
-                 "width": "fill_container",
-                 "height": 1
+                 "width": 417.2,
+                 "height": 1,
+                 "x": 64,
+                 "y": 15.5,
+                 "layout": "none"
                 },
                 {
                  "id": "studio-streaming-content-composer-model",
                  "type": "ref",
-                 "ref": "hb:hb-composer-pill"
+                 "ref": "hb:hb-composer-pill",
+                 "x": 485.2,
+                 "y": 0
                 },
                 {
                  "id": "studio-streaming-content-composer-effort",
                  "type": "ref",
-                 "ref": "hb:hb-composer-accentpill"
+                 "ref": "hb:hb-composer-accentpill",
+                 "x": 606.8,
+                 "y": 0
                 },
                 {
                  "id": "studio-streaming-content-composer-send",
                  "type": "ref",
-                 "ref": "hb:hb-composer-stop"
+                 "ref": "hb:hb-composer-stop",
+                 "x": 712,
+                 "y": 0
                 }
-               ]
+               ],
+               "x": 8,
+               "y": 33,
+               "height": 32,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 46,
+             "height": 73
             }
-           ]
+           ],
+           "x": 128,
+           "y": 30,
+           "height": 119
           }
-         ]
+         ],
+         "x": 0,
+         "y": 643,
+         "height": 157
         }
-       ]
+       ],
+       "x": 264,
+       "y": 0
       }
-     ]
+     ],
+     "x": 2760,
+     "y": 40
     },
     {
      "id": "studio-conversation-dark",
@@ -1970,7 +2159,9 @@
      "theme": {
       "hb:mode": "dark",
       "hb:host": "desktop"
-     }
+     },
+     "x": 4120,
+     "y": 40
     },
     {
      "id": "studio-empty-compact",
@@ -1979,7 +2170,7 @@
      "reusable": true,
      "width": 420,
      "height": 800,
-     "layout": "horizontal",
+     "layout": "none",
      "theme": {
       "hb:mode": "light",
       "hb:host": "desktop"
@@ -1991,22 +2182,16 @@
        "id": "studio-compact-content",
        "type": "frame",
        "name": "Content",
-       "width": "fill_container",
-       "height": "fill_container",
-       "layout": "vertical",
+       "width": 420,
+       "height": 800,
+       "layout": "none",
        "children": [
         {
          "id": "studio-compact-content-header",
          "type": "frame",
          "name": "Header · dimensions.headerHeight",
-         "width": "fill_container",
+         "width": 420,
          "height": 44,
-         "padding": [
-          4,
-          8
-         ],
-         "gap": "$hb:spacing.m",
-         "alignItems": "center",
          "fill": "$hb:surfaces.header",
          "children": [
           {
@@ -2023,7 +2208,9 @@
              "stroke": "$hb:colors.textSecondary",
              "strokeWidth": 1.26
             }
-           }
+           },
+           "x": 8,
+           "y": 8
           },
           {
            "id": "studio-compact-content-header-title",
@@ -2034,23 +2221,20 @@
            "fontSize": "$hb:typography.title.size",
            "lineHeight": "$hb:typography.title.lineHeight",
            "fontWeight": "$hb:typography.title.weight",
-           "width": "fill_container"
+           "x": 44,
+           "y": 12
           }
-         ]
+         ],
+         "x": 0,
+         "y": 0,
+         "layout": "none"
         },
         {
          "id": "studio-compact-content-body",
          "type": "frame",
-         "width": "fill_container",
-         "height": "fill_container",
-         "layout": "vertical",
-         "justifyContent": "center",
-         "alignItems": "center",
-         "gap": "$hb:spacing.l",
-         "padding": [
-          0,
-          8
-         ],
+         "width": 420,
+         "height": 756,
+         "layout": "none",
          "children": [
           {
            "id": "studio-compact-content-title",
@@ -2060,7 +2244,9 @@
            "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.display.size",
            "lineHeight": "$hb:typography.display.lineHeight",
-           "fontWeight": "$hb:typography.display.weight"
+           "fontWeight": "$hb:typography.display.weight",
+           "x": 122.9,
+           "y": 251
           },
           {
            "id": "studio-compact-content-subtitle",
@@ -2070,33 +2256,32 @@
            "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.body.size",
            "lineHeight": "$hb:typography.body.lineHeight",
-           "fontWeight": "$hb:typography.body.weight"
+           "fontWeight": "$hb:typography.body.weight",
+           "x": 60.8,
+           "y": 293
           },
           {
            "id": "studio-compact-content-gap",
            "type": "frame",
            "height": 20,
-           "name": "studio-compact-content-gap · spacing.xxl"
+           "name": "studio-compact-content-gap · spacing.xxl",
+           "x": 210,
+           "y": 326,
+           "width": 0,
+           "layout": "none"
           },
           {
            "id": "studio-compact-content-composer",
            "type": "frame",
            "name": "HbChatComposer · dimensions.composerMaxWidth",
-           "width": "fill_container",
-           "layout": "vertical",
-           "gap": "$hb:spacing.s",
+           "width": 404,
+           "layout": "none",
            "children": [
             {
              "id": "studio-compact-content-composer-context",
              "type": "frame",
              "name": "Context",
-             "width": "fill_container",
-             "padding": [
-              4,
-              8
-             ],
-             "gap": "$hb:spacing.s",
-             "alignItems": "center",
+             "width": 404,
              "children": [
               {
                "id": "studio-compact-content-composer-project",
@@ -2115,7 +2300,9 @@
                 "hb:hb-composer-pill-label": {
                  "content": "Без проекта"
                 }
-               }
+               },
+               "x": 8,
+               "y": 4
               },
               {
                "id": "studio-compact-content-composer-context-window",
@@ -2125,18 +2312,22 @@
                 "hb:hb-button-ghost-small-label": {
                  "content": "Контекстное окно"
                 }
-               }
+               },
+               "x": 143.4,
+               "y": 6
               }
-             ]
+             ],
+             "x": 0,
+             "y": 0,
+             "height": 40,
+             "layout": "none"
             },
             {
              "id": "studio-compact-content-composer-panel",
              "type": "frame",
              "name": "Panel",
-             "width": "fill_container",
-             "layout": "vertical",
-             "padding": "$hb:spacing.m",
-             "gap": "$hb:spacing.xs",
+             "width": 404,
+             "layout": "none",
              "cornerRadius": "$hb:dimensions.cornerRadius",
              "fill": "$hb:surfaces.composer",
              "stroke": "$hb:surfaces.outline",
@@ -2152,14 +2343,13 @@
                "fontSize": "$hb:typography.body.size",
                "lineHeight": "$hb:typography.body.lineHeight",
                "fontWeight": "$hb:typography.body.weight",
-               "width": "fill_container"
+               "x": 8,
+               "y": 8
               },
               {
                "id": "studio-compact-content-composer-toolbar",
                "type": "frame",
-               "width": "fill_container",
-               "gap": "$hb:spacing.xs",
-               "alignItems": "center",
+               "width": 388,
                "children": [
                 {
                  "id": "studio-compact-content-composer-add",
@@ -2175,7 +2365,9 @@
                    "stroke": "$hb:colors.textSecondary",
                    "strokeWidth": 1.26
                   }
-                 }
+                 },
+                 "x": 0,
+                 "y": 2
                 },
                 {
                  "id": "studio-compact-content-composer-image",
@@ -2191,47 +2383,64 @@
                    "stroke": "$hb:colors.textSecondary",
                    "strokeWidth": 1.26
                   }
-                 }
+                 },
+                 "x": 32,
+                 "y": 2
                 },
                 {
                  "id": "studio-compact-content-composer-toolbar-gap",
                  "type": "frame",
-                 "width": "fill_container",
-                 "height": 1
+                 "width": 61.2,
+                 "height": 1,
+                 "x": 64,
+                 "y": 15.5,
+                 "layout": "none"
                 },
                 {
                  "id": "studio-compact-content-composer-model",
                  "type": "ref",
-                 "ref": "hb:hb-composer-pill"
+                 "ref": "hb:hb-composer-pill",
+                 "x": 129.2,
+                 "y": 0
                 },
                 {
                  "id": "studio-compact-content-composer-effort",
                  "type": "ref",
-                 "ref": "hb:hb-composer-accentpill"
+                 "ref": "hb:hb-composer-accentpill",
+                 "x": 250.8,
+                 "y": 0
                 },
                 {
                  "id": "studio-compact-content-composer-send",
                  "type": "ref",
-                 "ref": "hb:hb-composer-send"
+                 "ref": "hb:hb-composer-send",
+                 "x": 356,
+                 "y": 0
                 }
-               ]
+               ],
+               "x": 8,
+               "y": 33,
+               "height": 32,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 46,
+             "height": 73
             }
-           ]
+           ],
+           "x": 8,
+           "y": 358,
+           "height": 119
           },
           {
            "id": "studio-compact-content-starters",
            "type": "frame",
            "name": "Starters",
-           "gap": "$hb:spacing.xl",
-           "alignItems": "center",
            "children": [
             {
              "id": "studio-compact-content-starters-0",
              "type": "frame",
-             "gap": "$hb:spacing.xs",
-             "alignItems": "center",
              "children": [
               {
                "id": "studio-compact-content-starters-0-icon",
@@ -2240,7 +2449,9 @@
                "width": 14,
                "height": 14,
                "stroke": "$hb:colors.textSecondary",
-               "strokeWidth": 0.98
+               "strokeWidth": 0.98,
+               "x": 0,
+               "y": 1
               },
               {
                "id": "studio-compact-content-starters-0-label",
@@ -2250,15 +2461,20 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.caption.size",
                "lineHeight": "$hb:typography.caption.lineHeight",
-               "fontWeight": "$hb:typography.caption.weight"
+               "fontWeight": "$hb:typography.caption.weight",
+               "x": 18,
+               "y": 0
               }
-             ]
+             ],
+             "x": 0,
+             "y": 0,
+             "width": 134.4,
+             "height": 16,
+             "layout": "none"
             },
             {
              "id": "studio-compact-content-starters-1",
              "type": "frame",
-             "gap": "$hb:spacing.xs",
-             "alignItems": "center",
              "children": [
               {
                "id": "studio-compact-content-starters-1-icon",
@@ -2267,7 +2483,9 @@
                "width": 14,
                "height": 14,
                "stroke": "$hb:colors.textSecondary",
-               "strokeWidth": 0.98
+               "strokeWidth": 0.98,
+               "x": 0,
+               "y": 1
               },
               {
                "id": "studio-compact-content-starters-1-label",
@@ -2277,15 +2495,20 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.caption.size",
                "lineHeight": "$hb:typography.caption.lineHeight",
-               "fontWeight": "$hb:typography.caption.weight"
+               "fontWeight": "$hb:typography.caption.weight",
+               "x": 18,
+               "y": 0
               }
-             ]
+             ],
+             "x": 150.4,
+             "y": 0,
+             "width": 116.3,
+             "height": 16,
+             "layout": "none"
             },
             {
              "id": "studio-compact-content-starters-2",
              "type": "frame",
-             "gap": "$hb:spacing.xs",
-             "alignItems": "center",
              "children": [
               {
                "id": "studio-compact-content-starters-2-icon",
@@ -2294,7 +2517,9 @@
                "width": 14,
                "height": 14,
                "stroke": "$hb:colors.textSecondary",
-               "strokeWidth": 0.98
+               "strokeWidth": 0.98,
+               "x": 0,
+               "y": 1
               },
               {
                "id": "studio-compact-content-starters-2-label",
@@ -2304,45 +2529,114 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.caption.size",
                "lineHeight": "$hb:typography.caption.lineHeight",
-               "fontWeight": "$hb:typography.caption.weight"
+               "fontWeight": "$hb:typography.caption.weight",
+               "x": 18,
+               "y": 0
               }
-             ]
+             ],
+             "x": 282.7,
+             "y": 0,
+             "width": 111.2,
+             "height": 16,
+             "layout": "none"
             }
-           ]
+           ],
+           "x": 13.1,
+           "y": 489,
+           "width": 393.8,
+           "height": 16,
+           "layout": "none"
           }
-         ]
+         ],
+         "x": 0,
+         "y": 44
         }
-       ]
+       ],
+       "x": 0,
+       "y": 0
       }
-     ]
+     ],
+     "x": 5480,
+     "y": 40
     }
-   ]
+   ],
+   "width": 5940,
+   "height": 880
   },
   {
    "id": "section-transitions",
    "type": "frame",
    "name": "Transitions",
    "x": 0,
-   "y": 1000,
-   "layout": "horizontal",
-   "gap": 80,
-   "padding": 40,
+   "y": 1320,
+   "layout": "none",
    "children": [
     {
      "id": "note-first-message",
      "type": "note",
      "content": "Studio / Empty → Studio / Conversation\ntrigger: отправка первого сообщения\ntransition: смена режима области контента, не навигация (NavTransition не используется)",
      "fontSize": 14,
-     "width": 420
+     "width": 420,
+     "x": 40,
+     "y": 40
     },
     {
      "id": "note-run-status",
      "type": "note",
      "content": "Run status (микро-анимация)\ntrigger: начало хода агента\nduration: HbMotion.fastMillis\neasing: стандартный (FastOutSlowIn)\nreduced: мгновенно (HbMotion.isReducedMotion)",
      "fontSize": 14,
-     "width": 420
+     "width": 420,
+     "x": 588,
+     "y": 40
     }
-   ]
+   ],
+   "width": 1096,
+   "height": 208
+  },
+  {
+   "id": "note-behavior-studio-empty",
+   "type": "note",
+   "x": 40,
+   "y": 920,
+   "width": 420,
+   "fontSize": 14,
+   "content": "Поведение · Studio / Empty\nОкно ≥ 720: сайдбар фиксированной ширины 264 слева, контент занимает остаток. Шапка 44 прибита к верху.\nБлок «Что создадим?» + композер + стартеры — по центру по горизонтали и вертикали; композер шириной min(760, ширина контента − 32).\nСайдбар скрыт: контент на всю ширину, в шапке появляется кнопка меню.\nДлинные названия сессий гаснут к краю, полное — в тултипе."
+  },
+  {
+   "id": "note-behavior-studio-conversation",
+   "type": "note",
+   "x": 1400,
+   "y": 920,
+   "width": 420,
+   "fontSize": 14,
+   "content": "Поведение · Studio / Conversation\nЛента прокручивается вертикально; колонка сообщений 760 по центру, уже — на всю ширину с отступами 16.\nКомпозер и строка контекста прибиты к низу, лента уходит под них. Шапка прибита к верху, длинный заголовок гаснет.\nОтвет агента: тело с отступом 40 под аватаром только при ширине ≥ 560, иначе без отступа.\nСписок сессий в сайдбаре прокручивается, нижняя панель иконок прибита к низу."
+  },
+  {
+   "id": "note-behavior-studio-streaming",
+   "type": "note",
+   "x": 2760,
+   "y": 920,
+   "width": 420,
+   "fontSize": 14,
+   "content": "Поведение · Studio / Streaming\nКак Conversation. Над композером — статус хода («Работает уже 0:42»), кнопка отправки заменена на «Стоп».\nСтрока «Выполняется» обновляется на месте; лента автопрокручивается к низу, пока пользователь не прокрутил вверх (тогда кнопка «К последнему»)."
+  },
+  {
+   "id": "note-behavior-studio-conversation-dark",
+   "type": "note",
+   "x": 4120,
+   "y": 920,
+   "width": 420,
+   "fontSize": 14,
+   "content": "Поведение · Conversation (dark)\nТот же экран в теме mode = dark: цвета меняют переменные, раскладка та же."
+  },
+  {
+   "id": "note-behavior-studio-empty-compact",
+   "type": "note",
+   "x": 5480,
+   "y": 920,
+   "width": 420,
+   "fontSize": 14,
+   "content": "Поведение · Compact 420\nШирина < 720: сайдбар скрыт и открывается кнопкой меню поверх контента; действия шапки сворачиваются в меню.\nКомпозер на всю ширину с отступами 8, у пилюли модели нет иконки; стартеры переносятся на следующую строку."
   }
  ]
 }

@@ -10,9 +10,7 @@
    "name": "Components",
    "x": 0,
    "y": -1000,
-   "layout": "horizontal",
-   "gap": 80,
-   "padding": 40,
+   "layout": "none",
    "children": [
     {
      "id": "settings-sidebar",
@@ -20,55 +18,40 @@
      "name": "Settings / Sidebar · dimensions.sidebarWidth",
      "width": 264,
      "height": 800,
-     "layout": "vertical",
+     "layout": "none",
      "fill": "$hb:surfaces.sidebar",
      "children": [
       {
        "id": "settings-sidebar-header",
        "type": "frame",
-       "width": "fill_container",
+       "width": 264,
        "height": 44,
-       "padding": [
-        0,
-        8,
-        0,
-        4
-       ],
-       "alignItems": "center",
        "children": [
         {
          "id": "settings-sidebar-lights",
          "type": "ref",
-         "ref": "hb:window-traffic-lights"
+         "ref": "hb:window-traffic-lights",
+         "x": 4,
+         "y": 8
         }
-       ]
+       ],
+       "x": 0,
+       "y": 0,
+       "layout": "none"
       },
       {
        "id": "settings-sidebar-list",
        "type": "frame",
-       "width": "fill_container",
-       "height": "fill_container",
-       "layout": "vertical",
-       "padding": [
-        6,
-        8
-       ],
-       "gap": "$hb:spacing.xxs",
+       "width": 264,
+       "height": 756,
+       "layout": "none",
        "children": [
         {
          "id": "settings-back",
          "type": "frame",
          "name": "Назад",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -78,7 +61,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-back-label",
@@ -89,21 +74,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 6,
+         "layout": "none"
         },
         {
          "id": "settings-heading",
          "type": "frame",
          "name": "Настройки",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          8
-         ],
-         "alignItems": "center",
          "children": [
           {
            "id": "settings-heading-label",
@@ -113,24 +97,21 @@
            "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.caption.size",
            "lineHeight": "$hb:typography.caption.lineHeight",
-           "fontWeight": "$hb:typography.caption.weight"
+           "fontWeight": "$hb:typography.caption.weight",
+           "x": 8,
+           "y": 6
           }
-         ]
+         ],
+         "x": 8,
+         "y": 36,
+         "layout": "none"
         },
         {
          "id": "settings-item-0",
          "type": "frame",
          "name": "Модели и движки",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "fill": "$hb:surfaces.selected",
          "children": [
@@ -141,7 +122,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:surfaces.onSelected",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-0-label",
@@ -152,24 +135,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 66,
+         "layout": "none"
         },
         {
          "id": "settings-item-1",
          "type": "frame",
          "name": "Движки",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -179,7 +158,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-1-label",
@@ -190,24 +171,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 96,
+         "layout": "none"
         },
         {
          "id": "settings-item-2",
          "type": "frame",
          "name": "Безопасность",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -217,7 +194,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-2-label",
@@ -228,24 +207,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 126,
+         "layout": "none"
         },
         {
          "id": "settings-item-3",
          "type": "frame",
          "name": "Субагенты",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -255,7 +230,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-3-label",
@@ -266,24 +243,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 156,
+         "layout": "none"
         },
         {
          "id": "settings-item-4",
          "type": "frame",
          "name": "Поиск",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -293,7 +266,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-4-label",
@@ -304,24 +279,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 186,
+         "layout": "none"
         },
         {
          "id": "settings-item-5",
          "type": "frame",
          "name": "Управление компьютером",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -331,7 +302,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-5-label",
@@ -342,24 +315,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 216,
+         "layout": "none"
         },
         {
          "id": "settings-item-6",
          "type": "frame",
          "name": "Браузер Chrome",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -369,7 +338,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-6-label",
@@ -380,24 +351,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 246,
+         "layout": "none"
         },
         {
          "id": "settings-item-7",
          "type": "frame",
          "name": "Самообучение",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -407,7 +374,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-7-label",
@@ -418,24 +387,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 276,
+         "layout": "none"
         },
         {
          "id": "settings-item-8",
          "type": "frame",
          "name": "Контекст",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -445,7 +410,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-8-label",
@@ -456,24 +423,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 306,
+         "layout": "none"
         },
         {
          "id": "settings-item-9",
          "type": "frame",
          "name": "Автопродолжение",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -483,7 +446,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-9-label",
@@ -494,24 +459,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 336,
+         "layout": "none"
         },
         {
          "id": "settings-item-10",
          "type": "frame",
          "name": "Сборки",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -521,7 +482,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-10-label",
@@ -532,24 +495,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 366,
+         "layout": "none"
         },
         {
          "id": "settings-item-11",
          "type": "frame",
          "name": "Харнесс",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -559,7 +518,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-11-label",
@@ -570,24 +531,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 396,
+         "layout": "none"
         },
         {
          "id": "settings-item-12",
          "type": "frame",
          "name": "Интерфейсы",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -597,7 +554,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-12-label",
@@ -608,24 +567,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 426,
+         "layout": "none"
         },
         {
          "id": "settings-item-13",
          "type": "frame",
          "name": "Конфигурация",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -635,7 +590,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-13-label",
@@ -646,24 +603,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 456,
+         "layout": "none"
         },
         {
          "id": "settings-item-14",
          "type": "frame",
          "name": "Обновления",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -673,7 +626,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-14-label",
@@ -684,24 +639,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 486,
+         "layout": "none"
         },
         {
          "id": "settings-item-15",
          "type": "frame",
          "name": "Логи приложения",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -711,7 +662,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-15-label",
@@ -722,24 +675,20 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 516,
+         "layout": "none"
         },
         {
          "id": "settings-item-16",
          "type": "frame",
          "name": "Фича-флаги",
-         "width": "fill_container",
+         "width": 248,
          "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
@@ -749,7 +698,9 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 8,
+           "y": 5
           },
           {
            "id": "settings-item-16-label",
@@ -760,15 +711,25 @@
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
+           "x": 38,
+           "y": 5
           }
-         ]
+         ],
+         "x": 8,
+         "y": 546,
+         "layout": "none"
         }
-       ]
+       ],
+       "x": 0,
+       "y": 44
       }
-     ]
+     ],
+     "x": 40,
+     "y": 40
     }
-   ]
+   ],
+   "width": 344,
+   "height": 880
   },
   {
    "id": "section-screens",
@@ -776,9 +737,7 @@
    "name": "Screens",
    "x": 0,
    "y": 0,
-   "layout": "horizontal",
-   "gap": 80,
-   "padding": 40,
+   "layout": "none",
    "children": [
     {
      "id": "wizard-engine",
@@ -787,7 +746,7 @@
      "reusable": true,
      "width": 1280,
      "height": 800,
-     "layout": "horizontal",
+     "layout": "none",
      "theme": {
       "hb:mode": "light",
       "hb:host": "desktop"
@@ -799,32 +758,30 @@
        "id": "wizard-engine-sidebar",
        "type": "ref",
        "ref": "settings-sidebar",
-       "height": "fill_container"
+       "height": 800,
+       "x": 0,
+       "y": 0
       },
       {
        "id": "wizard-engine-content",
        "type": "frame",
        "name": "Content",
-       "width": "fill_container",
-       "height": "fill_container",
-       "justifyContent": "center",
-       "padding": "$hb:spacing.xl",
+       "width": 1016,
+       "height": 800,
        "children": [
         {
          "id": "wizard-engine-column",
          "type": "frame",
          "name": "Wizard · dimensions.settingsMaxWidth",
          "width": 720,
-         "height": "fill_container",
-         "layout": "vertical",
-         "gap": "$hb:spacing.l",
+         "height": 768,
+         "layout": "none",
          "children": [
           {
            "id": "wizard-engine-header",
            "type": "frame",
-           "width": "fill_container",
-           "layout": "vertical",
-           "gap": "$hb:spacing.xxs",
+           "width": 720,
+           "layout": "none",
            "children": [
             {
              "id": "wizard-engine-title",
@@ -834,7 +791,9 @@
              "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.title.size",
              "lineHeight": "$hb:typography.title.lineHeight",
-             "fontWeight": "600"
+             "fontWeight": "600",
+             "x": 0,
+             "y": 0
             },
             {
              "id": "wizard-engine-step",
@@ -844,17 +803,21 @@
              "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.caption.size",
              "lineHeight": "$hb:typography.caption.lineHeight",
-             "fontWeight": "$hb:typography.caption.weight"
+             "fontWeight": "$hb:typography.caption.weight",
+             "x": 0,
+             "y": 22
             }
-           ]
+           ],
+           "x": 0,
+           "y": 0,
+           "height": 38
           },
           {
            "id": "wizard-engine-body",
            "type": "frame",
-           "width": "fill_container",
-           "height": "fill_container",
-           "layout": "vertical",
-           "gap": "$hb:spacing.xl",
+           "width": 720,
+           "height": 674,
+           "layout": "none",
            "children": [
             {
              "id": "wizard-engine-intro",
@@ -865,33 +828,29 @@
              "fontSize": "$hb:typography.label.size",
              "lineHeight": "$hb:typography.label.lineHeight",
              "fontWeight": "$hb:typography.label.weight",
-             "width": "fill_container",
-             "textGrowth": "fixed-width"
+             "width": 720,
+             "textGrowth": "fixed-width",
+             "x": 0,
+             "y": 0
             },
             {
              "id": "wizard-engine-list",
              "type": "frame",
-             "width": "fill_container",
-             "layout": "vertical",
+             "width": 720,
+             "layout": "none",
              "children": [
               {
                "id": "wizard-engine-pi",
                "type": "frame",
                "name": "HbSettingsRow · dimensions.settingsRowHeight",
-               "width": "fill_container",
-               "padding": [
-                6,
-                8
-               ],
-               "gap": "$hb:spacing.l",
-               "alignItems": "center",
+               "width": 720,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
                 {
                  "id": "wizard-engine-pi-text",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
+                 "width": 582.2,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-engine-pi-title",
@@ -901,7 +860,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-engine-pi-description",
@@ -911,9 +872,14 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
-                   "fontWeight": "$hb:typography.caption.weight"
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 0,
+                   "y": 18
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "height": 34
                 },
                 {
                  "id": "wizard-engine-pi-badge",
@@ -923,7 +889,9 @@
                   "hb:hb-badge-success-label": {
                    "content": "Установлен"
                   }
-                 }
+                 },
+                 "x": 602.2,
+                 "y": 13
                 },
                 {
                  "id": "wizard-engine-pi-chevron",
@@ -932,33 +900,35 @@
                  "width": 18,
                  "height": 18,
                  "stroke": "$hb:colors.textSecondary",
-                 "strokeWidth": 1.26
+                 "strokeWidth": 1.26,
+                 "x": 694,
+                 "y": 14
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 0,
+               "height": 46,
+               "layout": "none"
               },
               {
                "id": "wizard-engine-divider-koog",
                "type": "ref",
-               "ref": "hb:hb-divider"
+               "ref": "hb:hb-divider",
+               "x": 0,
+               "y": 46
               },
               {
                "id": "wizard-engine-koog",
                "type": "frame",
                "name": "HbSettingsRow · dimensions.settingsRowHeight",
-               "width": "fill_container",
-               "padding": [
-                6,
-                8
-               ],
-               "gap": "$hb:spacing.l",
-               "alignItems": "center",
+               "width": 720,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
                 {
                  "id": "wizard-engine-koog-text",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
+                 "width": 573.9,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-engine-koog-title",
@@ -968,7 +938,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-engine-koog-description",
@@ -978,9 +950,14 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
-                   "fontWeight": "$hb:typography.caption.weight"
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 0,
+                   "y": 18
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "height": 34
                 },
                 {
                  "id": "wizard-engine-koog-badge",
@@ -990,7 +967,9 @@
                   "hb:hb-badge-neutral-label": {
                    "content": "Не проверен"
                   }
-                 }
+                 },
+                 "x": 593.9,
+                 "y": 13
                 },
                 {
                  "id": "wizard-engine-koog-chevron",
@@ -999,33 +978,35 @@
                  "width": 18,
                  "height": 18,
                  "stroke": "$hb:colors.textSecondary",
-                 "strokeWidth": 1.26
+                 "strokeWidth": 1.26,
+                 "x": 694,
+                 "y": 14
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 47,
+               "height": 46,
+               "layout": "none"
               },
               {
                "id": "wizard-engine-divider-codex",
                "type": "ref",
-               "ref": "hb:hb-divider"
+               "ref": "hb:hb-divider",
+               "x": 0,
+               "y": 93
               },
               {
                "id": "wizard-engine-codex",
                "type": "frame",
                "name": "HbSettingsRow · dimensions.settingsRowHeight",
-               "width": "fill_container",
-               "padding": [
-                6,
-                8
-               ],
-               "gap": "$hb:spacing.l",
-               "alignItems": "center",
+               "width": 720,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
                 {
                  "id": "wizard-engine-codex-text",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
+                 "width": 538.7,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-engine-codex-title",
@@ -1035,7 +1016,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-engine-codex-description",
@@ -1045,9 +1028,14 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
-                   "fontWeight": "$hb:typography.caption.weight"
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 0,
+                   "y": 18
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "height": 34
                 },
                 {
                  "id": "wizard-engine-codex-badge",
@@ -1057,7 +1045,9 @@
                   "hb:hb-badge-warning-label": {
                    "content": "Требует установки"
                   }
-                 }
+                 },
+                 "x": 558.7,
+                 "y": 13
                 },
                 {
                  "id": "wizard-engine-codex-chevron",
@@ -1066,33 +1056,35 @@
                  "width": 18,
                  "height": 18,
                  "stroke": "$hb:colors.textSecondary",
-                 "strokeWidth": 1.26
+                 "strokeWidth": 1.26,
+                 "x": 694,
+                 "y": 14
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 94,
+               "height": 46,
+               "layout": "none"
               },
               {
                "id": "wizard-engine-divider-claude",
                "type": "ref",
-               "ref": "hb:hb-divider"
+               "ref": "hb:hb-divider",
+               "x": 0,
+               "y": 140
               },
               {
                "id": "wizard-engine-claude",
                "type": "frame",
                "name": "HbSettingsRow · dimensions.settingsRowHeight",
-               "width": "fill_container",
-               "padding": [
-                6,
-                8
-               ],
-               "gap": "$hb:spacing.l",
-               "alignItems": "center",
+               "width": 720,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
                 {
                  "id": "wizard-engine-claude-text",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
+                 "width": 582.2,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-engine-claude-title",
@@ -1102,7 +1094,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-engine-claude-description",
@@ -1112,9 +1106,14 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
-                   "fontWeight": "$hb:typography.caption.weight"
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 0,
+                   "y": 18
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "height": 34
                 },
                 {
                  "id": "wizard-engine-claude-badge",
@@ -1124,7 +1123,9 @@
                   "hb:hb-badge-success-label": {
                    "content": "Установлен"
                   }
-                 }
+                 },
+                 "x": 602.2,
+                 "y": 13
                 },
                 {
                  "id": "wizard-engine-claude-chevron",
@@ -1133,21 +1134,30 @@
                  "width": 18,
                  "height": 18,
                  "stroke": "$hb:colors.textSecondary",
-                 "strokeWidth": 1.26
+                 "strokeWidth": 1.26,
+                 "x": 694,
+                 "y": 14
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 141,
+               "height": 46,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 34,
+             "height": 187
             }
-           ]
+           ],
+           "x": 0,
+           "y": 50
           },
           {
            "id": "wizard-engine-footer",
            "type": "frame",
            "name": "Footer",
-           "width": "fill_container",
-           "gap": "$hb:spacing.s",
-           "alignItems": "center",
+           "width": 720,
            "children": [
             {
              "id": "wizard-engine-cancel",
@@ -1157,15 +1167,28 @@
               "hb:hb-button-ghost-label": {
                "content": "Отмена"
               }
-             }
+             },
+             "x": 0,
+             "y": 0
             }
-           ]
+           ],
+           "x": 0,
+           "y": 736,
+           "height": 32,
+           "layout": "none"
           }
-         ]
+         ],
+         "x": 148,
+         "y": 16
         }
-       ]
+       ],
+       "x": 264,
+       "y": 0,
+       "layout": "none"
       }
-     ]
+     ],
+     "x": 40,
+     "y": 40
     },
     {
      "id": "wizard-auth",
@@ -1174,7 +1197,7 @@
      "reusable": true,
      "width": 1280,
      "height": 800,
-     "layout": "horizontal",
+     "layout": "none",
      "theme": {
       "hb:mode": "light",
       "hb:host": "desktop"
@@ -1186,32 +1209,30 @@
        "id": "wizard-auth-sidebar",
        "type": "ref",
        "ref": "settings-sidebar",
-       "height": "fill_container"
+       "height": 800,
+       "x": 0,
+       "y": 0
       },
       {
        "id": "wizard-auth-content",
        "type": "frame",
        "name": "Content",
-       "width": "fill_container",
-       "height": "fill_container",
-       "justifyContent": "center",
-       "padding": "$hb:spacing.xl",
+       "width": 1016,
+       "height": 800,
        "children": [
         {
          "id": "wizard-auth-column",
          "type": "frame",
          "name": "Wizard · dimensions.settingsMaxWidth",
          "width": 720,
-         "height": "fill_container",
-         "layout": "vertical",
-         "gap": "$hb:spacing.l",
+         "height": 768,
+         "layout": "none",
          "children": [
           {
            "id": "wizard-auth-header",
            "type": "frame",
-           "width": "fill_container",
-           "layout": "vertical",
-           "gap": "$hb:spacing.xxs",
+           "width": 720,
+           "layout": "none",
            "children": [
             {
              "id": "wizard-auth-title",
@@ -1221,7 +1242,9 @@
              "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.title.size",
              "lineHeight": "$hb:typography.title.lineHeight",
-             "fontWeight": "600"
+             "fontWeight": "600",
+             "x": 0,
+             "y": 0
             },
             {
              "id": "wizard-auth-step",
@@ -1231,35 +1254,34 @@
              "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.caption.size",
              "lineHeight": "$hb:typography.caption.lineHeight",
-             "fontWeight": "$hb:typography.caption.weight"
+             "fontWeight": "$hb:typography.caption.weight",
+             "x": 0,
+             "y": 22
             }
-           ]
+           ],
+           "x": 0,
+           "y": 0,
+           "height": 38
           },
           {
            "id": "wizard-auth-body",
            "type": "frame",
-           "width": "fill_container",
-           "height": "fill_container",
-           "layout": "vertical",
-           "gap": "$hb:spacing.xl",
+           "width": 720,
+           "height": 674,
+           "layout": "none",
            "children": [
             {
              "id": "wizard-auth-providers",
              "type": "frame",
              "name": "HbSettingsSection",
-             "width": "fill_container",
-             "layout": "vertical",
-             "gap": "$hb:spacing.s",
+             "width": 720,
+             "layout": "none",
              "children": [
               {
                "id": "wizard-auth-providers-head",
                "type": "frame",
-               "width": "fill_container",
-               "layout": "vertical",
-               "padding": [
-                0,
-                8
-               ],
+               "width": 720,
+               "layout": "none",
                "children": [
                 {
                  "id": "wizard-auth-providers-title",
@@ -1269,40 +1291,41 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.title.size",
                  "lineHeight": "$hb:typography.title.lineHeight",
-                 "fontWeight": "600"
+                 "fontWeight": "600",
+                 "x": 8,
+                 "y": 0
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 0,
+               "height": 20
               },
               {
                "id": "wizard-auth-search",
                "type": "ref",
-               "ref": "hb:hb-search-field"
+               "ref": "hb:hb-search-field",
+               "x": 0,
+               "y": 26
               },
               {
                "id": "wizard-auth-provider-list",
                "type": "frame",
-               "width": "fill_container",
-               "layout": "vertical",
+               "width": 720,
+               "layout": "none",
                "children": [
                 {
                  "id": "wizard-auth-p-anthropic",
                  "type": "frame",
                  "name": "HbSettingsRow · dimensions.settingsRowHeight",
-                 "width": "fill_container",
-                 "padding": [
-                  6,
-                  8
-                 ],
-                 "gap": "$hb:spacing.l",
-                 "alignItems": "center",
+                 "width": 720,
                  "cornerRadius": "$hb:dimensions.controlCornerRadius",
                  "fill": "$hb:colors.selectedContainer",
                  "children": [
                   {
                    "id": "wizard-auth-p-anthropic-text",
                    "type": "frame",
-                   "width": "fill_container",
-                   "layout": "vertical",
+                   "width": 704,
+                   "layout": "none",
                    "children": [
                     {
                      "id": "wizard-auth-p-anthropic-title",
@@ -1312,7 +1335,9 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
-                     "fontWeight": "$hb:typography.label.weight"
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 0,
+                     "y": 0
                     },
                     {
                      "id": "wizard-auth-p-anthropic-description",
@@ -1322,30 +1347,33 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
-                     "fontWeight": "$hb:typography.caption.weight"
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 0,
+                     "y": 18
                     }
-                   ]
+                   ],
+                   "x": 8,
+                   "y": 6,
+                   "height": 34
                   }
-                 ]
+                 ],
+                 "x": 0,
+                 "y": 0,
+                 "height": 46,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-auth-p-openai",
                  "type": "frame",
                  "name": "HbSettingsRow · dimensions.settingsRowHeight",
-                 "width": "fill_container",
-                 "padding": [
-                  6,
-                  8
-                 ],
-                 "gap": "$hb:spacing.l",
-                 "alignItems": "center",
+                 "width": 720,
                  "cornerRadius": "$hb:dimensions.controlCornerRadius",
                  "children": [
                   {
                    "id": "wizard-auth-p-openai-text",
                    "type": "frame",
-                   "width": "fill_container",
-                   "layout": "vertical",
+                   "width": 704,
+                   "layout": "none",
                    "children": [
                     {
                      "id": "wizard-auth-p-openai-title",
@@ -1355,7 +1383,9 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
-                     "fontWeight": "$hb:typography.label.weight"
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 0,
+                     "y": 0
                     },
                     {
                      "id": "wizard-auth-p-openai-description",
@@ -1365,30 +1395,33 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
-                     "fontWeight": "$hb:typography.caption.weight"
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 0,
+                     "y": 18
                     }
-                   ]
+                   ],
+                   "x": 8,
+                   "y": 6,
+                   "height": 34
                   }
-                 ]
+                 ],
+                 "x": 0,
+                 "y": 46,
+                 "height": 46,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-auth-p-openrouter",
                  "type": "frame",
                  "name": "HbSettingsRow · dimensions.settingsRowHeight",
-                 "width": "fill_container",
-                 "padding": [
-                  6,
-                  8
-                 ],
-                 "gap": "$hb:spacing.l",
-                 "alignItems": "center",
+                 "width": 720,
                  "cornerRadius": "$hb:dimensions.controlCornerRadius",
                  "children": [
                   {
                    "id": "wizard-auth-p-openrouter-text",
                    "type": "frame",
-                   "width": "fill_container",
-                   "layout": "vertical",
+                   "width": 704,
+                   "layout": "none",
                    "children": [
                     {
                      "id": "wizard-auth-p-openrouter-title",
@@ -1398,7 +1431,9 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
-                     "fontWeight": "$hb:typography.label.weight"
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 0,
+                     "y": 0
                     },
                     {
                      "id": "wizard-auth-p-openrouter-description",
@@ -1408,30 +1443,33 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
-                     "fontWeight": "$hb:typography.caption.weight"
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 0,
+                     "y": 18
                     }
-                   ]
+                   ],
+                   "x": 8,
+                   "y": 6,
+                   "height": 34
                   }
-                 ]
+                 ],
+                 "x": 0,
+                 "y": 92,
+                 "height": 46,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-auth-p-ollama",
                  "type": "frame",
                  "name": "HbSettingsRow · dimensions.settingsRowHeight",
-                 "width": "fill_container",
-                 "padding": [
-                  6,
-                  8
-                 ],
-                 "gap": "$hb:spacing.l",
-                 "alignItems": "center",
+                 "width": 720,
                  "cornerRadius": "$hb:dimensions.controlCornerRadius",
                  "children": [
                   {
                    "id": "wizard-auth-p-ollama-text",
                    "type": "frame",
-                   "width": "fill_container",
-                   "layout": "vertical",
+                   "width": 704,
+                   "layout": "none",
                    "children": [
                     {
                      "id": "wizard-auth-p-ollama-title",
@@ -1441,7 +1479,9 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
-                     "fontWeight": "$hb:typography.label.weight"
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 0,
+                     "y": 0
                     },
                     {
                      "id": "wizard-auth-p-ollama-description",
@@ -1451,33 +1491,43 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
-                     "fontWeight": "$hb:typography.caption.weight"
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 0,
+                     "y": 18
                     }
-                   ]
+                   ],
+                   "x": 8,
+                   "y": 6,
+                   "height": 34
                   }
-                 ]
+                 ],
+                 "x": 0,
+                 "y": 138,
+                 "height": 46,
+                 "layout": "none"
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 60,
+               "height": 184
               }
-             ]
+             ],
+             "x": 0,
+             "y": 0,
+             "height": 244
             },
             {
              "id": "wizard-auth-method",
              "type": "frame",
              "name": "HbSettingsSection",
-             "width": "fill_container",
-             "layout": "vertical",
-             "gap": "$hb:spacing.s",
+             "width": 720,
+             "layout": "none",
              "children": [
               {
                "id": "wizard-auth-method-head",
                "type": "frame",
-               "width": "fill_container",
-               "layout": "vertical",
-               "padding": [
-                0,
-                8
-               ],
+               "width": 720,
+               "layout": "none",
                "children": [
                 {
                  "id": "wizard-auth-method-title",
@@ -1487,7 +1537,9 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.title.size",
                  "lineHeight": "$hb:typography.title.lineHeight",
-                 "fontWeight": "600"
+                 "fontWeight": "600",
+                 "x": 8,
+                 "y": 0
                 },
                 {
                  "id": "wizard-auth-method-description",
@@ -1497,27 +1549,26 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
                  "lineHeight": "$hb:typography.caption.lineHeight",
-                 "fontWeight": "$hb:typography.caption.weight"
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "x": 8,
+                 "y": 20
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 0,
+               "height": 36
               },
               {
                "id": "wizard-auth-form",
                "type": "frame",
-               "width": "fill_container",
-               "layout": "vertical",
-               "gap": "$hb:spacing.s",
-               "padding": [
-                0,
-                8
-               ],
+               "width": 720,
+               "layout": "none",
                "children": [
                 {
                  "id": "wizard-auth-key",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
-                 "gap": "$hb:spacing.xs",
+                 "width": 704,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-auth-key-label",
@@ -1527,7 +1578,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-auth-key-input",
@@ -1538,7 +1591,9 @@
                      "content": "Вставьте ключ",
                      "fill": "$hb:colors.textSecondary"
                     }
-                   }
+                   },
+                   "x": 0,
+                   "y": 22
                   },
                   {
                    "id": "wizard-auth-key-hint",
@@ -1549,10 +1604,15 @@
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight",
-                   "width": "fill_container",
-                   "textGrowth": "fixed-width"
+                   "width": 704,
+                   "textGrowth": "fixed-width",
+                   "x": 0,
+                   "y": 58
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 0,
+                 "height": 74
                 },
                 {
                  "id": "wizard-auth-get-key",
@@ -1562,14 +1622,15 @@
                   "hb:hb-button-ghost-small-label": {
                    "content": "Получить API-ключ"
                   }
-                 }
+                 },
+                 "x": 8,
+                 "y": 80
                 },
                 {
                  "id": "wizard-auth-address",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
-                 "gap": "$hb:spacing.xs",
+                 "width": 704,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-auth-address-label",
@@ -1579,7 +1640,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-auth-address-input",
@@ -1590,7 +1653,9 @@
                      "content": "https://api.anthropic.com",
                      "fill": "$hb:colors.textSecondary"
                     }
-                   }
+                   },
+                   "x": 0,
+                   "y": 22
                   },
                   {
                    "id": "wizard-auth-address-hint",
@@ -1601,17 +1666,21 @@
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight",
-                   "width": "fill_container",
-                   "textGrowth": "fixed-width"
+                   "width": 704,
+                   "textGrowth": "fixed-width",
+                   "x": 0,
+                   "y": 58
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 114,
+                 "height": 74
                 },
                 {
                  "id": "wizard-auth-name",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
-                 "gap": "$hb:spacing.xs",
+                 "width": 704,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-auth-name-label",
@@ -1621,7 +1690,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-auth-name-input",
@@ -1632,23 +1703,34 @@
                      "content": "Anthropic",
                      "fill": "$hb:colors.textPrimary"
                     }
-                   }
+                   },
+                   "x": 0,
+                   "y": 22
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 194,
+                 "height": 54
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 42,
+               "height": 248
               }
-             ]
+             ],
+             "x": 0,
+             "y": 260,
+             "height": 290
             }
-           ]
+           ],
+           "x": 0,
+           "y": 50
           },
           {
            "id": "wizard-auth-footer",
            "type": "frame",
            "name": "Footer",
-           "width": "fill_container",
-           "gap": "$hb:spacing.s",
-           "alignItems": "center",
+           "width": 720,
            "children": [
             {
              "id": "wizard-auth-cancel",
@@ -1658,13 +1740,18 @@
               "hb:hb-button-ghost-label": {
                "content": "Отмена"
               }
-             }
+             },
+             "x": 0,
+             "y": 0
             },
             {
              "id": "wizard-auth-footer-gap",
              "type": "frame",
-             "width": "fill_container",
-             "height": 1
+             "width": 269,
+             "height": 1,
+             "x": 79.4,
+             "y": 15.5,
+             "layout": "none"
             },
             {
              "id": "wizard-auth-back",
@@ -1674,7 +1761,9 @@
               "hb:hb-button-secondary-label": {
                "content": "Назад"
               }
-             }
+             },
+             "x": 354.4,
+             "y": 0
             },
             {
              "id": "wizard-auth-check",
@@ -1684,7 +1773,9 @@
               "hb:hb-button-secondary-label": {
                "content": "Проверить подключение"
               }
-             }
+             },
+             "x": 423.5,
+             "y": 0
             },
             {
              "id": "wizard-auth-connect",
@@ -1694,15 +1785,28 @@
               "hb:hb-button-primary-label": {
                "content": "Подключить"
               }
-             }
+             },
+             "x": 615.3,
+             "y": 0
             }
-           ]
+           ],
+           "x": 0,
+           "y": 736,
+           "height": 32,
+           "layout": "none"
           }
-         ]
+         ],
+         "x": 148,
+         "y": 16
         }
-       ]
+       ],
+       "x": 264,
+       "y": 0,
+       "layout": "none"
       }
-     ]
+     ],
+     "x": 1400,
+     "y": 40
     },
     {
      "id": "wizard-auth-error",
@@ -1711,7 +1815,7 @@
      "reusable": true,
      "width": 1280,
      "height": 800,
-     "layout": "horizontal",
+     "layout": "none",
      "theme": {
       "hb:mode": "light",
       "hb:host": "desktop"
@@ -1723,32 +1827,30 @@
        "id": "wizard-auth-error-sidebar",
        "type": "ref",
        "ref": "settings-sidebar",
-       "height": "fill_container"
+       "height": 800,
+       "x": 0,
+       "y": 0
       },
       {
        "id": "wizard-auth-error-content",
        "type": "frame",
        "name": "Content",
-       "width": "fill_container",
-       "height": "fill_container",
-       "justifyContent": "center",
-       "padding": "$hb:spacing.xl",
+       "width": 1016,
+       "height": 800,
        "children": [
         {
          "id": "wizard-auth-error-column",
          "type": "frame",
          "name": "Wizard · dimensions.settingsMaxWidth",
          "width": 720,
-         "height": "fill_container",
-         "layout": "vertical",
-         "gap": "$hb:spacing.l",
+         "height": 768,
+         "layout": "none",
          "children": [
           {
            "id": "wizard-auth-error-header",
            "type": "frame",
-           "width": "fill_container",
-           "layout": "vertical",
-           "gap": "$hb:spacing.xxs",
+           "width": 720,
+           "layout": "none",
            "children": [
             {
              "id": "wizard-auth-error-title",
@@ -1758,7 +1860,9 @@
              "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.title.size",
              "lineHeight": "$hb:typography.title.lineHeight",
-             "fontWeight": "600"
+             "fontWeight": "600",
+             "x": 0,
+             "y": 0
             },
             {
              "id": "wizard-auth-error-step",
@@ -1768,35 +1872,34 @@
              "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.caption.size",
              "lineHeight": "$hb:typography.caption.lineHeight",
-             "fontWeight": "$hb:typography.caption.weight"
+             "fontWeight": "$hb:typography.caption.weight",
+             "x": 0,
+             "y": 22
             }
-           ]
+           ],
+           "x": 0,
+           "y": 0,
+           "height": 38
           },
           {
            "id": "wizard-auth-error-body",
            "type": "frame",
-           "width": "fill_container",
-           "height": "fill_container",
-           "layout": "vertical",
-           "gap": "$hb:spacing.xl",
+           "width": 720,
+           "height": 674,
+           "layout": "none",
            "children": [
             {
              "id": "wizard-auth-error-providers",
              "type": "frame",
              "name": "HbSettingsSection",
-             "width": "fill_container",
-             "layout": "vertical",
-             "gap": "$hb:spacing.s",
+             "width": 720,
+             "layout": "none",
              "children": [
               {
                "id": "wizard-auth-error-providers-head",
                "type": "frame",
-               "width": "fill_container",
-               "layout": "vertical",
-               "padding": [
-                0,
-                8
-               ],
+               "width": 720,
+               "layout": "none",
                "children": [
                 {
                  "id": "wizard-auth-error-providers-title",
@@ -1806,40 +1909,41 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.title.size",
                  "lineHeight": "$hb:typography.title.lineHeight",
-                 "fontWeight": "600"
+                 "fontWeight": "600",
+                 "x": 8,
+                 "y": 0
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 0,
+               "height": 20
               },
               {
                "id": "wizard-auth-error-search",
                "type": "ref",
-               "ref": "hb:hb-search-field"
+               "ref": "hb:hb-search-field",
+               "x": 0,
+               "y": 26
               },
               {
                "id": "wizard-auth-error-provider-list",
                "type": "frame",
-               "width": "fill_container",
-               "layout": "vertical",
+               "width": 720,
+               "layout": "none",
                "children": [
                 {
                  "id": "wizard-auth-error-p-anthropic",
                  "type": "frame",
                  "name": "HbSettingsRow · dimensions.settingsRowHeight",
-                 "width": "fill_container",
-                 "padding": [
-                  6,
-                  8
-                 ],
-                 "gap": "$hb:spacing.l",
-                 "alignItems": "center",
+                 "width": 720,
                  "cornerRadius": "$hb:dimensions.controlCornerRadius",
                  "fill": "$hb:colors.selectedContainer",
                  "children": [
                   {
                    "id": "wizard-auth-error-p-anthropic-text",
                    "type": "frame",
-                   "width": "fill_container",
-                   "layout": "vertical",
+                   "width": 704,
+                   "layout": "none",
                    "children": [
                     {
                      "id": "wizard-auth-error-p-anthropic-title",
@@ -1849,7 +1953,9 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
-                     "fontWeight": "$hb:typography.label.weight"
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 0,
+                     "y": 0
                     },
                     {
                      "id": "wizard-auth-error-p-anthropic-description",
@@ -1859,30 +1965,33 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
-                     "fontWeight": "$hb:typography.caption.weight"
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 0,
+                     "y": 18
                     }
-                   ]
+                   ],
+                   "x": 8,
+                   "y": 6,
+                   "height": 34
                   }
-                 ]
+                 ],
+                 "x": 0,
+                 "y": 0,
+                 "height": 46,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-auth-error-p-openai",
                  "type": "frame",
                  "name": "HbSettingsRow · dimensions.settingsRowHeight",
-                 "width": "fill_container",
-                 "padding": [
-                  6,
-                  8
-                 ],
-                 "gap": "$hb:spacing.l",
-                 "alignItems": "center",
+                 "width": 720,
                  "cornerRadius": "$hb:dimensions.controlCornerRadius",
                  "children": [
                   {
                    "id": "wizard-auth-error-p-openai-text",
                    "type": "frame",
-                   "width": "fill_container",
-                   "layout": "vertical",
+                   "width": 704,
+                   "layout": "none",
                    "children": [
                     {
                      "id": "wizard-auth-error-p-openai-title",
@@ -1892,7 +2001,9 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
-                     "fontWeight": "$hb:typography.label.weight"
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 0,
+                     "y": 0
                     },
                     {
                      "id": "wizard-auth-error-p-openai-description",
@@ -1902,30 +2013,33 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
-                     "fontWeight": "$hb:typography.caption.weight"
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 0,
+                     "y": 18
                     }
-                   ]
+                   ],
+                   "x": 8,
+                   "y": 6,
+                   "height": 34
                   }
-                 ]
+                 ],
+                 "x": 0,
+                 "y": 46,
+                 "height": 46,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-auth-error-p-openrouter",
                  "type": "frame",
                  "name": "HbSettingsRow · dimensions.settingsRowHeight",
-                 "width": "fill_container",
-                 "padding": [
-                  6,
-                  8
-                 ],
-                 "gap": "$hb:spacing.l",
-                 "alignItems": "center",
+                 "width": 720,
                  "cornerRadius": "$hb:dimensions.controlCornerRadius",
                  "children": [
                   {
                    "id": "wizard-auth-error-p-openrouter-text",
                    "type": "frame",
-                   "width": "fill_container",
-                   "layout": "vertical",
+                   "width": 704,
+                   "layout": "none",
                    "children": [
                     {
                      "id": "wizard-auth-error-p-openrouter-title",
@@ -1935,7 +2049,9 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
-                     "fontWeight": "$hb:typography.label.weight"
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 0,
+                     "y": 0
                     },
                     {
                      "id": "wizard-auth-error-p-openrouter-description",
@@ -1945,30 +2061,33 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
-                     "fontWeight": "$hb:typography.caption.weight"
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 0,
+                     "y": 18
                     }
-                   ]
+                   ],
+                   "x": 8,
+                   "y": 6,
+                   "height": 34
                   }
-                 ]
+                 ],
+                 "x": 0,
+                 "y": 92,
+                 "height": 46,
+                 "layout": "none"
                 },
                 {
                  "id": "wizard-auth-error-p-ollama",
                  "type": "frame",
                  "name": "HbSettingsRow · dimensions.settingsRowHeight",
-                 "width": "fill_container",
-                 "padding": [
-                  6,
-                  8
-                 ],
-                 "gap": "$hb:spacing.l",
-                 "alignItems": "center",
+                 "width": 720,
                  "cornerRadius": "$hb:dimensions.controlCornerRadius",
                  "children": [
                   {
                    "id": "wizard-auth-error-p-ollama-text",
                    "type": "frame",
-                   "width": "fill_container",
-                   "layout": "vertical",
+                   "width": 704,
+                   "layout": "none",
                    "children": [
                     {
                      "id": "wizard-auth-error-p-ollama-title",
@@ -1978,7 +2097,9 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
-                     "fontWeight": "$hb:typography.label.weight"
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 0,
+                     "y": 0
                     },
                     {
                      "id": "wizard-auth-error-p-ollama-description",
@@ -1988,33 +2109,43 @@
                      "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
-                     "fontWeight": "$hb:typography.caption.weight"
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 0,
+                     "y": 18
                     }
-                   ]
+                   ],
+                   "x": 8,
+                   "y": 6,
+                   "height": 34
                   }
-                 ]
+                 ],
+                 "x": 0,
+                 "y": 138,
+                 "height": 46,
+                 "layout": "none"
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 60,
+               "height": 184
               }
-             ]
+             ],
+             "x": 0,
+             "y": 0,
+             "height": 244
             },
             {
              "id": "wizard-auth-error-method",
              "type": "frame",
              "name": "HbSettingsSection",
-             "width": "fill_container",
-             "layout": "vertical",
-             "gap": "$hb:spacing.s",
+             "width": 720,
+             "layout": "none",
              "children": [
               {
                "id": "wizard-auth-error-method-head",
                "type": "frame",
-               "width": "fill_container",
-               "layout": "vertical",
-               "padding": [
-                0,
-                8
-               ],
+               "width": 720,
+               "layout": "none",
                "children": [
                 {
                  "id": "wizard-auth-error-method-title",
@@ -2024,7 +2155,9 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.title.size",
                  "lineHeight": "$hb:typography.title.lineHeight",
-                 "fontWeight": "600"
+                 "fontWeight": "600",
+                 "x": 8,
+                 "y": 0
                 },
                 {
                  "id": "wizard-auth-error-method-description",
@@ -2034,27 +2167,26 @@
                  "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
                  "lineHeight": "$hb:typography.caption.lineHeight",
-                 "fontWeight": "$hb:typography.caption.weight"
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "x": 8,
+                 "y": 20
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 0,
+               "height": 36
               },
               {
                "id": "wizard-auth-error-form",
                "type": "frame",
-               "width": "fill_container",
-               "layout": "vertical",
-               "gap": "$hb:spacing.s",
-               "padding": [
-                0,
-                8
-               ],
+               "width": 720,
+               "layout": "none",
                "children": [
                 {
                  "id": "wizard-auth-error-key",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
-                 "gap": "$hb:spacing.xs",
+                 "width": 704,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-auth-error-key-label",
@@ -2064,7 +2196,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-auth-error-key-input",
@@ -2075,7 +2209,9 @@
                      "content": "Вставьте ключ",
                      "fill": "$hb:colors.textSecondary"
                     }
-                   }
+                   },
+                   "x": 0,
+                   "y": 22
                   },
                   {
                    "id": "wizard-auth-error-key-hint",
@@ -2086,15 +2222,22 @@
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight",
-                   "width": "fill_container",
-                   "textGrowth": "fixed-width"
+                   "width": 704,
+                   "textGrowth": "fixed-width",
+                   "x": 0,
+                   "y": 58
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 0,
+                 "height": 74
                 },
                 {
                  "id": "wizard-auth-error-error",
                  "type": "ref",
-                 "ref": "hb:hb-banner-error"
+                 "ref": "hb:hb-banner-error",
+                 "x": 8,
+                 "y": 80
                 },
                 {
                  "id": "wizard-auth-error-get-key",
@@ -2104,14 +2247,15 @@
                   "hb:hb-button-ghost-small-label": {
                    "content": "Получить API-ключ"
                   }
-                 }
+                 },
+                 "x": 8,
+                 "y": 120
                 },
                 {
                  "id": "wizard-auth-error-address",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
-                 "gap": "$hb:spacing.xs",
+                 "width": 704,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-auth-error-address-label",
@@ -2121,7 +2265,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-auth-error-address-input",
@@ -2132,7 +2278,9 @@
                      "content": "https://api.anthropic.com",
                      "fill": "$hb:colors.textSecondary"
                     }
-                   }
+                   },
+                   "x": 0,
+                   "y": 22
                   },
                   {
                    "id": "wizard-auth-error-address-hint",
@@ -2143,17 +2291,21 @@
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight",
-                   "width": "fill_container",
-                   "textGrowth": "fixed-width"
+                   "width": 704,
+                   "textGrowth": "fixed-width",
+                   "x": 0,
+                   "y": 58
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 154,
+                 "height": 74
                 },
                 {
                  "id": "wizard-auth-error-name",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
-                 "gap": "$hb:spacing.xs",
+                 "width": 704,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-auth-error-name-label",
@@ -2163,7 +2315,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-auth-error-name-input",
@@ -2174,23 +2328,34 @@
                      "content": "Anthropic",
                      "fill": "$hb:colors.textPrimary"
                     }
-                   }
+                   },
+                   "x": 0,
+                   "y": 22
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 234,
+                 "height": 54
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 42,
+               "height": 288
               }
-             ]
+             ],
+             "x": 0,
+             "y": 260,
+             "height": 330
             }
-           ]
+           ],
+           "x": 0,
+           "y": 50
           },
           {
            "id": "wizard-auth-error-footer",
            "type": "frame",
            "name": "Footer",
-           "width": "fill_container",
-           "gap": "$hb:spacing.s",
-           "alignItems": "center",
+           "width": 720,
            "children": [
             {
              "id": "wizard-auth-error-cancel",
@@ -2200,13 +2365,18 @@
               "hb:hb-button-ghost-label": {
                "content": "Отмена"
               }
-             }
+             },
+             "x": 0,
+             "y": 0
             },
             {
              "id": "wizard-auth-error-footer-gap",
              "type": "frame",
-             "width": "fill_container",
-             "height": 1
+             "width": 269,
+             "height": 1,
+             "x": 79.4,
+             "y": 15.5,
+             "layout": "none"
             },
             {
              "id": "wizard-auth-error-back",
@@ -2216,7 +2386,9 @@
               "hb:hb-button-secondary-label": {
                "content": "Назад"
               }
-             }
+             },
+             "x": 354.4,
+             "y": 0
             },
             {
              "id": "wizard-auth-error-check",
@@ -2226,7 +2398,9 @@
               "hb:hb-button-secondary-label": {
                "content": "Проверить подключение"
               }
-             }
+             },
+             "x": 423.5,
+             "y": 0
             },
             {
              "id": "wizard-auth-error-connect",
@@ -2236,15 +2410,28 @@
               "hb:hb-button-primary-label": {
                "content": "Подключить"
               }
-             }
+             },
+             "x": 615.3,
+             "y": 0
             }
-           ]
+           ],
+           "x": 0,
+           "y": 736,
+           "height": 32,
+           "layout": "none"
           }
-         ]
+         ],
+         "x": 148,
+         "y": 16
         }
-       ]
+       ],
+       "x": 264,
+       "y": 0,
+       "layout": "none"
       }
-     ]
+     ],
+     "x": 2760,
+     "y": 40
     },
     {
      "id": "wizard-models",
@@ -2253,7 +2440,7 @@
      "reusable": true,
      "width": 1280,
      "height": 800,
-     "layout": "horizontal",
+     "layout": "none",
      "theme": {
       "hb:mode": "light",
       "hb:host": "desktop"
@@ -2265,32 +2452,30 @@
        "id": "wizard-models-sidebar",
        "type": "ref",
        "ref": "settings-sidebar",
-       "height": "fill_container"
+       "height": 800,
+       "x": 0,
+       "y": 0
       },
       {
        "id": "wizard-models-content",
        "type": "frame",
        "name": "Content",
-       "width": "fill_container",
-       "height": "fill_container",
-       "justifyContent": "center",
-       "padding": "$hb:spacing.xl",
+       "width": 1016,
+       "height": 800,
        "children": [
         {
          "id": "wizard-models-column",
          "type": "frame",
          "name": "Wizard · dimensions.settingsMaxWidth",
          "width": 720,
-         "height": "fill_container",
-         "layout": "vertical",
-         "gap": "$hb:spacing.l",
+         "height": 768,
+         "layout": "none",
          "children": [
           {
            "id": "wizard-models-header",
            "type": "frame",
-           "width": "fill_container",
-           "layout": "vertical",
-           "gap": "$hb:spacing.xxs",
+           "width": 720,
+           "layout": "none",
            "children": [
             {
              "id": "wizard-models-title",
@@ -2300,7 +2485,9 @@
              "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.title.size",
              "lineHeight": "$hb:typography.title.lineHeight",
-             "fontWeight": "600"
+             "fontWeight": "600",
+             "x": 0,
+             "y": 0
             },
             {
              "id": "wizard-models-step",
@@ -2310,17 +2497,21 @@
              "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.caption.size",
              "lineHeight": "$hb:typography.caption.lineHeight",
-             "fontWeight": "$hb:typography.caption.weight"
+             "fontWeight": "$hb:typography.caption.weight",
+             "x": 0,
+             "y": 22
             }
-           ]
+           ],
+           "x": 0,
+           "y": 0,
+           "height": 38
           },
           {
            "id": "wizard-models-body",
            "type": "frame",
-           "width": "fill_container",
-           "height": "fill_container",
-           "layout": "vertical",
-           "gap": "$hb:spacing.xl",
+           "width": 720,
+           "height": 674,
+           "layout": "none",
            "children": [
             {
              "id": "wizard-models-hint",
@@ -2331,15 +2522,15 @@
              "fontSize": "$hb:typography.label.size",
              "lineHeight": "$hb:typography.label.lineHeight",
              "fontWeight": "$hb:typography.label.weight",
-             "width": "fill_container",
-             "textGrowth": "fixed-width"
+             "width": 720,
+             "textGrowth": "fixed-width",
+             "x": 0,
+             "y": 0
             },
             {
              "id": "wizard-models-toolbar",
              "type": "frame",
-             "width": "fill_container",
-             "gap": "$hb:spacing.s",
-             "alignItems": "center",
+             "width": 720,
              "children": [
               {
                "id": "wizard-models-search",
@@ -2349,7 +2540,9 @@
                 "hb:hb-search-field-placeholder": {
                  "content": "Поиск моделей"
                 }
-               }
+               },
+               "x": 0,
+               "y": 0
               },
               {
                "id": "wizard-models-selected",
@@ -2359,7 +2552,9 @@
                "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.caption.size",
                "lineHeight": "$hb:typography.caption.lineHeight",
-               "fontWeight": "$hb:typography.caption.weight"
+               "fontWeight": "$hb:typography.caption.weight",
+               "x": 463.6,
+               "y": 6
               },
               {
                "id": "wizard-models-all",
@@ -2369,7 +2564,9 @@
                 "hb:hb-button-ghost-small-label": {
                  "content": "Выбрать все"
                 }
-               }
+               },
+               "x": 536,
+               "y": 0
               },
               {
                "id": "wizard-models-none",
@@ -2379,34 +2576,34 @@
                 "hb:hb-button-ghost-small-label": {
                  "content": "Снять все"
                 }
-               }
+               },
+               "x": 639.6,
+               "y": 0
               }
-             ]
+             ],
+             "x": 0,
+             "y": 34,
+             "height": 28,
+             "layout": "none"
             },
             {
              "id": "wizard-models-list",
              "type": "frame",
-             "width": "fill_container",
-             "layout": "vertical",
+             "width": 720,
+             "layout": "none",
              "children": [
               {
                "id": "wizard-models-m-opus",
                "type": "frame",
                "name": "HbSettingsRow · dimensions.settingsRowHeight",
-               "width": "fill_container",
-               "padding": [
-                6,
-                8
-               ],
-               "gap": "$hb:spacing.l",
-               "alignItems": "center",
+               "width": 720,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
                 {
                  "id": "wizard-models-m-opus-text",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
+                 "width": 664,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-models-m-opus-title",
@@ -2416,7 +2613,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-models-m-opus-description",
@@ -2426,35 +2625,40 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
-                   "fontWeight": "$hb:typography.caption.weight"
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 0,
+                   "y": 18
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "height": 34
                 },
                 {
                  "id": "wizard-models-m-opus-switch",
                  "type": "ref",
-                 "ref": "hb:hb-switch-on"
+                 "ref": "hb:hb-switch-on",
+                 "x": 684,
+                 "y": 15
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 0,
+               "height": 46,
+               "layout": "none"
               },
               {
                "id": "wizard-models-m-sonnet",
                "type": "frame",
                "name": "HbSettingsRow · dimensions.settingsRowHeight",
-               "width": "fill_container",
-               "padding": [
-                6,
-                8
-               ],
-               "gap": "$hb:spacing.l",
-               "alignItems": "center",
+               "width": 720,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
                 {
                  "id": "wizard-models-m-sonnet-text",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
+                 "width": 664,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-models-m-sonnet-title",
@@ -2464,7 +2668,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-models-m-sonnet-description",
@@ -2474,35 +2680,40 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
-                   "fontWeight": "$hb:typography.caption.weight"
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 0,
+                   "y": 18
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "height": 34
                 },
                 {
                  "id": "wizard-models-m-sonnet-switch",
                  "type": "ref",
-                 "ref": "hb:hb-switch-on"
+                 "ref": "hb:hb-switch-on",
+                 "x": 684,
+                 "y": 15
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 46,
+               "height": 46,
+               "layout": "none"
               },
               {
                "id": "wizard-models-m-haiku",
                "type": "frame",
                "name": "HbSettingsRow · dimensions.settingsRowHeight",
-               "width": "fill_container",
-               "padding": [
-                6,
-                8
-               ],
-               "gap": "$hb:spacing.l",
-               "alignItems": "center",
+               "width": 720,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
                 {
                  "id": "wizard-models-m-haiku-text",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
+                 "width": 664,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-models-m-haiku-title",
@@ -2512,7 +2723,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-models-m-haiku-description",
@@ -2522,35 +2735,40 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
-                   "fontWeight": "$hb:typography.caption.weight"
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 0,
+                   "y": 18
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "height": 34
                 },
                 {
                  "id": "wizard-models-m-haiku-switch",
                  "type": "ref",
-                 "ref": "hb:hb-switch-off"
+                 "ref": "hb:hb-switch-off",
+                 "x": 684,
+                 "y": 15
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 92,
+               "height": 46,
+               "layout": "none"
               },
               {
                "id": "wizard-models-m-fable",
                "type": "frame",
                "name": "HbSettingsRow · dimensions.settingsRowHeight",
-               "width": "fill_container",
-               "padding": [
-                6,
-                8
-               ],
-               "gap": "$hb:spacing.l",
-               "alignItems": "center",
+               "width": 720,
                "cornerRadius": "$hb:dimensions.controlCornerRadius",
                "children": [
                 {
                  "id": "wizard-models-m-fable-text",
                  "type": "frame",
-                 "width": "fill_container",
-                 "layout": "vertical",
+                 "width": 664,
+                 "layout": "none",
                  "children": [
                   {
                    "id": "wizard-models-m-fable-title",
@@ -2560,7 +2778,9 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
-                   "fontWeight": "$hb:typography.label.weight"
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 0,
+                   "y": 0
                   },
                   {
                    "id": "wizard-models-m-fable-description",
@@ -2570,28 +2790,42 @@
                    "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
-                   "fontWeight": "$hb:typography.caption.weight"
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 0,
+                   "y": 18
                   }
-                 ]
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "height": 34
                 },
                 {
                  "id": "wizard-models-m-fable-switch",
                  "type": "ref",
-                 "ref": "hb:hb-switch-off"
+                 "ref": "hb:hb-switch-off",
+                 "x": 684,
+                 "y": 15
                 }
-               ]
+               ],
+               "x": 0,
+               "y": 138,
+               "height": 46,
+               "layout": "none"
               }
-             ]
+             ],
+             "x": 0,
+             "y": 78,
+             "height": 184
             }
-           ]
+           ],
+           "x": 0,
+           "y": 50
           },
           {
            "id": "wizard-models-footer",
            "type": "frame",
            "name": "Footer",
-           "width": "fill_container",
-           "gap": "$hb:spacing.s",
-           "alignItems": "center",
+           "width": 720,
            "children": [
             {
              "id": "wizard-models-cancel",
@@ -2601,13 +2835,18 @@
               "hb:hb-button-ghost-label": {
                "content": "Отмена"
               }
-             }
+             },
+             "x": 0,
+             "y": 0
             },
             {
              "id": "wizard-models-footer-gap",
              "type": "frame",
-             "width": "fill_container",
-             "height": 1
+             "width": 567.1,
+             "height": 1,
+             "x": 79.4,
+             "y": 15.5,
+             "layout": "none"
             },
             {
              "id": "wizard-models-done",
@@ -2617,15 +2856,28 @@
               "hb:hb-button-primary-label": {
                "content": "Готово"
               }
-             }
+             },
+             "x": 652.5,
+             "y": 0
             }
-           ]
+           ],
+           "x": 0,
+           "y": 736,
+           "height": 32,
+           "layout": "none"
           }
-         ]
+         ],
+         "x": 148,
+         "y": 16
         }
-       ]
+       ],
+       "x": 264,
+       "y": 0,
+       "layout": "none"
       }
-     ]
+     ],
+     "x": 4120,
+     "y": 40
     },
     {
      "id": "wizard-auth-dark",
@@ -2635,28 +2887,79 @@
      "theme": {
       "hb:mode": "dark",
       "hb:host": "desktop"
-     }
+     },
+     "x": 5480,
+     "y": 40
     }
-   ]
+   ],
+   "width": 6800,
+   "height": 880
   },
   {
    "id": "section-transitions",
    "type": "frame",
    "name": "Transitions",
    "x": 0,
-   "y": 1000,
-   "layout": "horizontal",
-   "gap": 80,
-   "padding": 40,
+   "y": 1320,
+   "layout": "none",
    "children": [
     {
      "id": "note-steps",
      "type": "note",
      "content": "Wizard / Engine → Auth → Models\ntrigger: клик по строке движка, «Подключить»\ntransition: смена шага внутри раздела настроек, не навигация; Esc и «Назад» — шаг назад",
      "fontSize": 14,
-     "width": 420
+     "width": 420,
+     "x": 40,
+     "y": 40
     }
-   ]
+   ],
+   "width": 548,
+   "height": 192
+  },
+  {
+   "id": "note-behavior-wizard-engine",
+   "type": "note",
+   "x": 40,
+   "y": 920,
+   "width": 420,
+   "fontSize": 14,
+   "content": "Поведение · Wizard / Engine\nВизард — содержимое раздела настроек: колонка ≤ 720 по центру с отступом 16, каркас окна рисует хост.\nСписок движков прокручивается, подвал с кнопками прибит к низу. Сайдбар настроек 264 фиксирован, список разделов прокручивается.\nEsc — шаг назад (на первом шаге — выход)."
+  },
+  {
+   "id": "note-behavior-wizard-auth",
+   "type": "note",
+   "x": 1400,
+   "y": 920,
+   "width": 420,
+   "fontSize": 14,
+   "content": "Поведение · Wizard / Auth\nТело шага прокручивается целиком, подвал прибит к низу. Секция метода появляется после выбора провайдера.\nПоиск фильтрует провайдеров на лету; длинные названия гаснут к краю."
+  },
+  {
+   "id": "note-behavior-wizard-auth-error",
+   "type": "note",
+   "x": 2760,
+   "y": 920,
+   "width": 420,
+   "fontSize": 14,
+   "content": "Поведение · Wizard / Auth / Error\nБаннер ошибки появляется под полем ключа и сдвигает форму вниз; исчезает при правке поля."
+  },
+  {
+   "id": "note-behavior-wizard-models",
+   "type": "note",
+   "x": 4120,
+   "y": 920,
+   "width": 420,
+   "fontSize": 14,
+   "content": "Поведение · Wizard / Models\nТулбар поиска закреплён над списком, список моделей прокручивается, подвал прибит к низу.\n«Выбрано: N» обновляется при переключении."
+  },
+  {
+   "id": "note-behavior-wizard-auth-dark",
+   "type": "note",
+   "x": 5480,
+   "y": 920,
+   "width": 420,
+   "fontSize": 14,
+   "content": "Поведение · Auth (dark)\nТот же экран в теме mode = dark."
   }
  ]
 }

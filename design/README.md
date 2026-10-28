@@ -52,6 +52,22 @@ Extensions → найти **pen.dev** → Install. Файл `.pen` открыв�
 5. Для агента в Claude Code desktop один раз выдайте доступ computer-use к приложению pen.dev (по запросу агента).
    В Heartbeat — включите в настройках «Управление компьютером» и права macOS (запись экрана).
 
+### Ручная правка макета
+
+Раскладка в макетах свободная, поэтому любой элемент двигается мышью. Проверено на pen.dev 1.2.20.
+
+| Что нужно | Как |
+|---|---|
+| выбрать элемент внутри экрана | `Cmd`+щелчок (глубокое выделение) или слой в панели Layers |
+| передвинуть, изменить размер | перетащить элемент или его маркеры; точные числа — X/Y/W/H в панели свойств |
+| поправить текст | двойной щелчок до текстового слоя, `Enter`, ввести текст, `Esc` |
+| сменить цвет, размер шрифта, скругление | значения привязаны к токенам: щелчок по значку переменной справа от значения открывает список — выбрать другой токен или `None` и задать значение вручную (агент при переносе предложит токен) |
+| поправить кнопку, поле, пилюлю | это экземпляры компонентов библиотеки: текст правится как обычно, остальное — `Detach Component` или правка самого компонента в `heartbeat.lib.pen` |
+| тёмный вариант экрана | это ссылка на светлый экран с темой dark: правьте светлый, тёмный обновится сам |
+| поведение (растяжение, прокрутка, другие размеры) | текстом в заметке «Поведение · <экран>» под экраном |
+
+После правки — `Cmd+S` и сообщение агенту: он перечитает файл с диска и закоммитит ваши изменения.
+
 ## 2. Иерархия
 
 ### 2.1. Файлы в `design/`
@@ -100,6 +116,14 @@ design/
 | `Components` | Локальные компоненты фичи (`reusable: true`): `Chat / MessageRow` | `ui/` фичи; общие — `design-system:components` |
 | `Transitions` | Раскадровки переходов и анимаций (2.3) | `core:navigation` (`NavTransition`), `HbMotion` |
 | `Notes` | Открытые вопросы, решения согласования | Раздел «Дизайн» описания PR |
+| заметки `Поведение · <Screen>` под каждым экраном | растяжение, прокрутка, закреплённые области, поведение на других ширинах | модификаторы и layout Compose (4.5) |
+
+**Раскладка свободная.** Контейнеры экранов — `layout: none`, каждый элемент стоит по `x`/`y` с числовыми
+`width`/`height`: так человек двигает что угодно мышью. Flex (`layout: vertical|horizontal`) остаётся только внутри
+атомарных компонентов библиотеки — кнопок, полей, пилюль, строк инструментов; они двигаются целиком. Кадр показывает
+один размер окна, поэтому всё, что зависит от размера и прокрутки, описывается текстом в заметке
+`Поведение · <Screen>` под экраном: что растягивается, что фиксировано, что прокручивается, что прибито к краю,
+что меняется на узкой ширине и при длинном тексте.
 
 Правила имён и узлов:
 
@@ -292,8 +316,10 @@ pen.dev рекомендует править файл через свои ин�
 - не менять поле `version` и формат, который записал pen.dev; новая версия pen.dev — пересохранить файл в приложении
   отдельным коммитом;
 - `id` уникальны в файле и стабильны (2.2); новые узлы — новыми `id`, чужие узлы не переписывать целиком;
-- разметка — flex-полями (`layout: vertical|horizontal`, `gap`, `padding`, `justifyContent`, `alignItems`,
-  `width/height: fill_container|fit_content`); абсолютные `x`/`y` — только у верхнеуровневых кадров на холсте;
+- раскладка свободная (2.2): у контейнеров `"layout": "none"`, у детей `x`/`y` относительно родителя и числовые
+  `width`/`height`; у однострочного текста размер не задаётся, у многострочного — `width` и
+  `"textGrowth": "fixed-width"`; flex — только внутри атомарных компонентов библиотеки;
+- новый экран — заметка `Поведение · <Screen>` под ним обязательна;
 - `width`/`height` **не принимают `$`-переменные** (узел молча получает ширину 0): фиксированный размер — числом,
   равным значению токена, и `name` с токеном (`Sidebar · dimensions.sidebarWidth`). `gap`, `padding`, `fill`,
   `fontSize` переменные принимают;
@@ -320,24 +346,27 @@ pen.dev рекомендует править файл через свои ин�
   "type": "frame",
   "name": "Chat / Empty",
   "x": 0, "y": 0, "width": 1280, "height": 800,
-  "layout": "horizontal",
+  "layout": "none",
   "reusable": true,
   "theme": { "hb:mode": "light", "hb:host": "desktop" },
   "fill": "$hb:surfaces.backdrop",
   "children": [
     {
       "id": "chat-empty-content", "type": "frame", "name": "Content",
-      "width": "fill_container", "height": "fill_container",
-      "layout": "vertical", "justifyContent": "center", "alignItems": "center", "gap": "$hb:spacing.l",
+      "x": 264, "y": 0, "width": 1016, "height": 800, "layout": "none",
       "children": [
-        { "id": "chat-empty-content-title", "type": "text", "content": "Начните новый чат",
+        { "id": "chat-empty-content-title", "type": "text", "content": "Начните новый чат", "x": 420, "y": 360,
           "fill": "$hb:colors.textPrimary", "fontFamily": "$hb:typography.family",
           "fontSize": "$hb:typography.title.size", "fontWeight": "600" },
-        { "id": "chat-empty-content-action", "type": "ref", "ref": "hb:hb-button-primary",
+        { "id": "chat-empty-content-action", "type": "ref", "ref": "hb:hb-button-primary", "x": 452, "y": 400,
           "descendants": { "hb:hb-button-primary-label": { "content": "Новый чат" } } }
       ]
     }
   ]
+},
+{
+  "id": "note-behavior-chat-empty", "type": "note", "x": 0, "y": 840, "width": 420, "fontSize": 14,
+  "content": "Поведение · Chat / Empty\nКонтент заполняет окно справа от сайдбара; заголовок и кнопка по центру."
 }
   ]
 }
@@ -353,10 +382,9 @@ pen.dev не генерирует Compose, поэтому перенос дел�
 | `width`/`height` числом и `name` слоя с токеном (`· dimensions.headerHeight`) | `HbTheme.dimensions.headerHeight` |
 | `ref` на `HbX / Variant` | `HbX(style = HbXStyle.Variant, …)` |
 | `ref` на `Window / *`, `Studio / Sidebar`, `Settings / Sidebar` | ничего: каркас рисует хост |
-| `frame` `layout: vertical` / `horizontal` / `none` | `Column` / `Row` / `Box` |
-| `gap`, `padding` | `Arrangement.spacedBy(HbTheme.spacing.*)`, `Modifier.padding(HbTheme.spacing.*)` |
-| `width: fill_container` / `fit_content` | `Modifier.weight(1f)` или `fillMaxWidth()` / размер по содержимому |
-| `justifyContent`, `alignItems` | `Arrangement.*`, `Alignment.*` |
+| группы кадра (вложенные `frame`) и их взаимное положение | `Column` / `Row` / `Box`: элементы в столбик — `Column`, в ряд — `Row`, наложение — `Box` |
+| расстояния между элементами и до краёв (числа) | ближайшие `HbTheme.spacing.*` / `dimensions.*`; нет подходящего — сначала токен |
+| заметка `Поведение · <Screen>` | `Modifier.weight(1f)` / `fillMaxWidth()` для растягиваемого, `widthIn(max = …)` для ограниченного, `verticalScroll` / `HbLazyColumn` для прокрутки, `Alignment`/`Arrangement` для прибитого к краю или центру, адаптивные ветки для узкой ширины |
 | `text` | `HbText` со стилем `HbTheme.typography.*`, строка — в `strings.xml` |
 | `ref` на `hb:hb-icon-<name>`, `hb:hb-illustration-<kind>` | `HbIcon(HbIcons.<Name>)`, `HbIllustration(HbIllustrationKind.<Kind>)` |
 | Кадры `<Screen> / <State>` | состояния FlowMVI-стора и `@Preview` на каждое |
