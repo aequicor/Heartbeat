@@ -326,4 +326,5 @@
     <string name="control_engine_builtin_status">Не требует подключения</string>
     <string name="control_engine_select">Выберите движок в списке слева.</string>
     <string name="engine_mcp_pi_requirement">Для MCP требуется Pi 1.0.4 или новее.</string>
+    <string name="engine_mcp_claude_scope">Поддерживаются MCP пользовательской и локальной конфигурации Claude; проектный .mcp.json не загружается.</string>
 </resources>

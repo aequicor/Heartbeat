@@ -48,6 +48,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_install
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_installation
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_job_status
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_mcp_claude_scope
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_mcp_description
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_mcp_pi_requirement
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_mcp_title
@@ -150,13 +151,12 @@ internal fun EngineManagementSection(
 private fun EngineMcpRow(panel: EnginePanelUi, isIdle: Boolean, onIntent: (EngineManagementIntent) -> Unit) {
     val launch = panel.launch ?: return
     if (LaunchOptionUi.Mcp !in launch.options) return
-    val description = buildString {
-        append(stringResource(Res.string.engine_mcp_description))
-        if (panel.id == "pi") {
-            append(" ")
-            append(stringResource(Res.string.engine_mcp_pi_requirement))
-        }
+    val hint = when (panel.id) {
+        "pi" -> stringResource(Res.string.engine_mcp_pi_requirement)
+        "claude" -> stringResource(Res.string.engine_mcp_claude_scope)
+        else -> null
     }
+    val description = listOfNotNull(stringResource(Res.string.engine_mcp_description), hint).joinToString(" ")
     HbDivider()
     HbSettingsRow(stringResource(Res.string.engine_mcp_title), description = description) {
         HbSwitch(

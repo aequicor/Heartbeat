@@ -103,6 +103,20 @@ class EngineManagementUiTest {
     }
 
     @Test
+    fun `Claude MCP description explains that project configuration is excluded`() =
+        runSkikoComposeUiTest(size = Size(1000f, 1600f)) {
+            val loaded = selected(managedCodex())
+            var state by mutableStateOf(loaded)
+            setContent { Host(state) }
+            onNode(hasText(".mcp.json", substring = true)).assertDoesNotExist()
+            runOnIdle { state = loaded.copy(panel = loaded.panel!!.copy(id = "claude")) }
+            onNode(hasText(".mcp.json", substring = true)).assertExists()
+            onNodeWithTag("engine-mcp-enabled").assertIsOff().assertIsEnabled()
+            runOnIdle { state = loaded.copy(panel = loaded.panel!!.copy(id = "pi")) }
+            onNode(hasText(".mcp.json", substring = true)).assertDoesNotExist()
+        }
+
+    @Test
     fun `without engine management the panel is not shown`() = runSkikoComposeUiTest {
         val state = EngineControlPanelState(CodexId.value).reflect(CodexId, managedSnapshot(isManaged = false))
         setContent { Host(state) }

@@ -324,4 +324,5 @@
     <string name="control_engine_builtin_status">No connection required</string>
     <string name="control_engine_select">Select an engine from the list.</string>
     <string name="engine_mcp_pi_requirement">Pi 1.0.4 or newer is required for MCP.</string>
+    <string name="engine_mcp_claude_scope">MCP servers from Claude user and local configuration are supported; project .mcp.json is not loaded.</string>
 </resources>
