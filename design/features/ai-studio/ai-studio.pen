@@ -1348,11 +1348,36 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-empty-tablet-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 200,
+                   "y": 0,
+                   "width": 24,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.sidebar",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.sidebar",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 150,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-empty-tablet-sb-session-review",
@@ -4547,11 +4572,36 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-conversation-tablet-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 200,
+                   "y": 0,
+                   "width": 24,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.selected",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 150,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-conversation-tablet-sb-session-review",
@@ -8813,11 +8863,36 @@
                    "fontWeight": "$hb:typography.label.weight",
                    "x": 24,
                    "y": 14
+                  },
+                  {
+                   "id": "studio-streaming-tablet-sb-session-latency-fade",
+                   "type": "rectangle",
+                   "name": "Затухание текста",
+                   "x": 200,
+                   "y": 0,
+                   "width": 24,
+                   "height": 48,
+                   "fill": {
+                    "type": "gradient",
+                    "gradientType": "linear",
+                    "rotation": 270,
+                    "colors": [
+                     {
+                      "color": "$hb:effects.fade.selected",
+                      "position": 0
+                     },
+                     {
+                      "color": "$hb:surfaces.selected",
+                      "position": 1
+                     }
+                    ]
+                   }
                   }
                  ],
                  "x": 8,
                  "y": 150,
-                 "layout": "none"
+                 "layout": "none",
+                 "clip": true
                 },
                 {
                  "id": "studio-streaming-tablet-sb-session-review",
