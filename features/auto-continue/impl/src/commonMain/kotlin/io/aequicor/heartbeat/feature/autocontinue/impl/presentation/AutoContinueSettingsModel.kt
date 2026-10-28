@@ -29,13 +29,14 @@ internal enum class DefaultModeUi { Off, Suggest }
 internal enum class ContinuerUi { Chat, ProfileDefault, Custom }
 
 /**
- * The settings as the screen shows them. [profileDefault] is the profile's default model, if any; [profileDefaultModel]
- * and [customModel] are the names the screen shows.
+ * The settings as the screen shows them. [profileDefault] is the profile's default model, if any, once the model
+ * selection is read ([isProfileDefaultKnown]); [profileDefaultModel] and [customModel] are the names the screen shows.
  */
 @Immutable
 internal data class AutoContinueSettingsScreenState(
     val settings: AutoContinueSettings = AutoContinueSettings(),
     val profileDefault: EngineTarget? = null,
+    val isProfileDefaultKnown: Boolean = false,
     val isLoaded: Boolean = false,
     val isSaveFailed: Boolean = false,
 ) : MVIState {
@@ -51,7 +52,9 @@ internal data class AutoContinueSettingsScreenState(
 
     val profileDefaultModel: String? get() = profileDefault?.model?.value
 
-    val customModel: String? get() = settings.continuerTarget?.takeIf { it != profileDefault }?.model?.value
+    /** A model chosen earlier that is not the profile default; unknown until the selection is read. */
+    val customModel: String?
+        get() = settings.continuerTarget?.takeIf { isProfileDefaultKnown && it != profileDefault }?.model?.value
 
     val autoTurnLimit: Int get() = settings.autoTurnLimit
 
@@ -111,7 +114,11 @@ internal class AutoContinueSettingsModel(
             if (output == AutoContinueOutput.SaveFailed) updateState { copy(isSaveFailed = true) }
         }) { reflecting(it) }
         whileSubscribed {
-            launch { selections.observe().collect { updateState { copy(profileDefault = it.defaultTarget) } } }
+            launch {
+                selections.observe().collect {
+                    updateState { copy(profileDefault = it.defaultTarget, isProfileDefaultKnown = true) }
+                }
+            }
         }
         reduce { intent ->
             val current = (machine.state.value as? AutoContinueState.Ready)?.settings ?: return@reduce
@@ -154,19 +161,26 @@ internal fun AutoContinueSettings.changed(intent: AutoContinueSettingsIntent, pr
             ContinuerUi.Custom -> this
         }
 
-        is AutoContinueSettingsIntent.SetAutoTurnLimit -> withinLimits { copy(autoTurnLimit = intent.limit) }
-
-        is AutoContinueSettingsIntent.SetCountdown -> withinLimits { copy(countdownSeconds = intent.seconds) }
-
-        is AutoContinueSettingsIntent.SetOptionCount -> withinLimits { copy(optionCount = intent.count) }
+        is AutoContinueSettingsIntent.SetAutoTurnLimit,
+        is AutoContinueSettingsIntent.SetCountdown,
+        is AutoContinueSettingsIntent.SetOptionCount,
+        -> withNumber(intent)
     }
 
-/** The settings [change] makes, or [this] when they would break the settings' limits. */
-private inline fun AutoContinueSettings.withinLimits(change: AutoContinueSettings.() -> AutoContinueSettings) = try {
-    change()
-} catch (e: IllegalArgumentException) {
-    log.w(e) { "auto-continue setting out of range" }
-    this
+/** A numeric setting of [intent]; a value outside the settings' limits leaves [this] unchanged. */
+private fun AutoContinueSettings.withNumber(intent: AutoContinueSettingsIntent): AutoContinueSettings = when (intent) {
+    is AutoContinueSettingsIntent.SetAutoTurnLimit ->
+        if (intent.limit in AUTO_TURN_LIMITS) copy(autoTurnLimit = intent.limit) else this
+
+    is AutoContinueSettingsIntent.SetCountdown ->
+        if (intent.seconds in COUNTDOWNS) copy(countdownSeconds = intent.seconds) else this
+
+    is AutoContinueSettingsIntent.SetOptionCount ->
+        if (intent.count in OPTION_COUNTS) copy(optionCount = intent.count) else this
+
+    is AutoContinueSettingsIntent.SetDefaultMode, is AutoContinueSettingsIntent.SetContinuer -> this
 }
 
-private val log = Log.tag("AutoContinueSettings")
+private val AUTO_TURN_LIMITS = 1..AutoContinueSettings.MAX_AUTO_TURN_LIMIT
+private val COUNTDOWNS = 0..AutoContinueSettings.MAX_COUNTDOWN_SECONDS
+private val OPTION_COUNTS = 1..AutoContinueSettings.MAX_OPTIONS

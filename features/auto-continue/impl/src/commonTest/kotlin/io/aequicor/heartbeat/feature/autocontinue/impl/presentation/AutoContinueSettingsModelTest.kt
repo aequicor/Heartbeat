@@ -45,7 +45,11 @@ class AutoContinueSettingsModelTest {
 
     @Test
     fun `the screen shows the continuer by its model`() {
-        val state = AutoContinueSettingsScreenState(settings.copy(continuerTarget = other), profileDefault = fallback)
+        val state = AutoContinueSettingsScreenState(
+            settings.copy(continuerTarget = other),
+            profileDefault = fallback,
+            isProfileDefaultKnown = true,
+        )
         assertEquals(ContinuerUi.Custom, state.continuer)
         assertEquals("other", state.customModel)
         assertEquals("small", state.profileDefaultModel)

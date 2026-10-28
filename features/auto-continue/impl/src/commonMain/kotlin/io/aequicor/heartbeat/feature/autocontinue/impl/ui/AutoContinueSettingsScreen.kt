@@ -11,9 +11,11 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.tooling.preview.Preview
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbChoiceRow
 import io.aequicor.heartbeat.ds.components.HbIconButton
@@ -65,7 +67,8 @@ internal fun AutoContinueSettingsScreen(
     val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
-    AutoContinueSettingsContent(state, model.store::intent, onBack, modifier)
+    val onIntent = remember(model) { model.store::intent }
+    AutoContinueSettingsContent(state, onIntent, onBack, modifier)
 }
 
 /** New chats, the continuer model, the autopilot and the suggestions. */
@@ -180,7 +183,7 @@ private fun AutopilotSection(state: AutoContinueSettingsScreenState, onIntent: (
     HbSettingsSection(stringResource(Res.string.auto_continue_section_autopilot)) {
         HbText(stringResource(Res.string.auto_continue_limit), color = HbTheme.colors.textSecondary)
         ChoiceGroup {
-            AutoTurnLimitChoices.forEach { limit ->
+            choices(AutoTurnLimitChoices, state.autoTurnLimit).forEach { limit ->
                 Choice("$limit", state.autoTurnLimit == limit, state.isLoaded, "auto-continue-limit-$limit") {
                     onIntent(AutoContinueSettingsIntent.SetAutoTurnLimit(limit))
                 }
@@ -188,7 +191,7 @@ private fun AutopilotSection(state: AutoContinueSettingsScreenState, onIntent: (
         }
         HbText(stringResource(Res.string.auto_continue_countdown), color = HbTheme.colors.textSecondary)
         ChoiceGroup {
-            CountdownChoices.forEach { seconds ->
+            choices(CountdownChoices, state.countdownSeconds).forEach { seconds ->
                 val label = if (seconds == 0) {
                     stringResource(Res.string.auto_continue_countdown_none)
                 } else {
@@ -212,7 +215,7 @@ private fun SuggestionsSection(state: AutoContinueSettingsScreenState, onIntent:
     HbSettingsSection(stringResource(Res.string.auto_continue_section_suggestions)) {
         HbText(stringResource(Res.string.auto_continue_options), color = HbTheme.colors.textSecondary)
         ChoiceGroup {
-            OptionCountChoices.forEach { count ->
+            choices(OptionCountChoices, state.optionCount).forEach { count ->
                 Choice("$count", state.optionCount == count, state.isLoaded, "auto-continue-options-$count") {
                     onIntent(AutoContinueSettingsIntent.SetOptionCount(count))
                 }
@@ -237,4 +240,23 @@ private fun Choice(label: String, isSelected: Boolean, enabled: Boolean, tag: St
         modifier = Modifier.fillMaxWidth().testTag(tag),
         enabled = enabled,
     )
+}
+
+/** The offered [values] plus [current], so a stored value outside the list is still shown as selected. */
+private fun choices(values: List<Int>, current: Int): List<Int> = (values + current).distinct().sorted()
+
+@Preview
+@Composable
+private fun AutoContinueSettingsLightPreview() {
+    HbTheme(darkTheme = false) {
+        AutoContinueSettingsContent(AutoContinueSettingsScreenState(isLoaded = true), {}, {})
+    }
+}
+
+@Preview
+@Composable
+private fun AutoContinueSettingsDarkPreview() {
+    HbTheme(darkTheme = true) {
+        AutoContinueSettingsContent(AutoContinueSettingsScreenState(isLoaded = true, isSaveFailed = true), {}, null)
+    }
 }

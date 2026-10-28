@@ -27,8 +27,12 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.compose.components.resources)
+            implementation(libs.compose.uiToolingPreview)
         }
-        commonTest.dependencies { implementation(libs.flowmvi.test) }
+        commonTest.dependencies {
+            implementation(libs.flowmvi.test)
+            implementation(projects.core.common)
+        }
     }
 }
 
