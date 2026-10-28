@@ -235,6 +235,7 @@ class BundleConventionPlugin : Plugin<Project> {
                     }.orElse(emptyList()),
                 )
                 resultFile.set(root.layout.buildDirectory.file("bundles/affected.txt"))
+                launcherFile.set(root.layout.buildDirectory.file("bundles/launcher.txt"))
             }
         }
         affected.configure { bundles.add(bundlePath) }

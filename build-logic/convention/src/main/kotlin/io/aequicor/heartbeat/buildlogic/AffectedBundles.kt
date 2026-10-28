@@ -14,6 +14,24 @@ private val GLOBAL_PATHS = listOf("build-logic/", "gradle/")
 private val GLOBAL_FILES = setOf("build.gradle.kts", "settings.gradle.kts", "gradle.properties")
 
 /**
+ * The launcher is a part of the train (its jar, signed), but no bundle depends on it: a change here publishes a train
+ * with the bundles unchanged. The launcher selector is not listed: it ships in the installer, not in the train.
+ */
+private const val LAUNCHER_DIRECTORY = "platform-main/launcher/"
+
+private fun normalized(changedPaths: Collection<String>): List<String> =
+    changedPaths.map { it.trim().replace('\\', '/').removePrefix("./") }.filter { it.isNotEmpty() }
+
+private fun isBuildFile(path: String): Boolean = path in GLOBAL_FILES || GLOBAL_PATHS.any { path.startsWith(it) }
+
+/**
+ * Whether the launcher jar of the train may change with [changedPaths]: its own directory, or the build itself
+ * (build-logic, version catalog, root scripts), which can change any jar.
+ */
+internal fun launcherAffected(changedPaths: Collection<String>): Boolean =
+    normalized(changedPaths).any { isBuildFile(it) || it.startsWith(LAUNCHER_DIRECTORY) }
+
+/**
  * Bundles that must be rebuilt for [changedPaths] (repository-relative, `/`-separated).
  *
  * A changed file belongs to the project with the longest matching directory; every project that depends on it,
@@ -30,8 +48,8 @@ internal fun affectedBundles(
     dependencies: Map<String, Collection<String>>,
     bundles: Set<String>,
 ): List<String> {
-    val paths = changedPaths.map { it.trim().replace('\\', '/').removePrefix("./") }.filter { it.isNotEmpty() }
-    if (paths.any { path -> path in GLOBAL_FILES || GLOBAL_PATHS.any { path.startsWith(it) } }) {
+    val paths = normalized(changedPaths)
+    if (paths.any(::isBuildFile)) {
         return bundles.sorted()
     }
     val dirs = projectDirs.entries.sortedByDescending { it.value.length }
@@ -76,6 +94,10 @@ abstract class AffectedBundlesTask : DefaultTask() {
     @get:OutputFile
     abstract val resultFile: RegularFileProperty
 
+    /** `true` or `false`: the launcher jar of the train may change, so a train has to be published for it too. */
+    @get:OutputFile
+    abstract val launcherFile: RegularFileProperty
+
     @TaskAction
     fun compute() {
         val result = affectedBundles(
@@ -89,6 +111,12 @@ abstract class AffectedBundlesTask : DefaultTask() {
             parentFile.mkdirs()
             writeText(if (text.isEmpty()) "" else text + "\n")
         }
+        val launcher = launcherAffected(changedPaths.getOrElse(emptyList()))
+        launcherFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText("$launcher\n")
+        }
         logger.lifecycle("Affected bundles: " + result.ifEmpty { listOf("none") }.joinToString())
+        logger.lifecycle("Affected launcher: $launcher")
     }
 }

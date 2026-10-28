@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.buildlogic
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AffectedBundlesTest {
@@ -44,6 +45,25 @@ class AffectedBundlesTest {
         assertEquals(bundles.sorted(), affected("gradle/libs.versions.toml"))
         assertEquals(bundles.sorted(), affected("build-logic/convention/src/main/Foo.kt"))
         assertEquals(bundles.sorted(), affected("settings.gradle.kts"))
+    }
+
+    @Test
+    fun `launcher change affects no bundle but publishes a train`() {
+        val path = "platform-main/launcher/src/main/java/io/aequicor/heartbeat/launcher/Launcher.java"
+        assertTrue(affected(path).isEmpty())
+        assertTrue(launcherAffected(listOf(path)))
+    }
+
+    @Test
+    fun `the launcher is affected by its directory and by the build itself only`() {
+        assertTrue(launcherAffected(listOf("platform-main/launcher/build.gradle.kts")))
+        assertTrue(launcherAffected(listOf("build-logic/convention/src/main/Foo.kt")))
+        assertTrue(launcherAffected(listOf("gradle/libs.versions.toml", "docs/a.md")))
+        assertTrue(launcherAffected(listOf(".\\platform-main\\launcher\\A.java")))
+        assertFalse(launcherAffected(listOf("features/browser/impl/src/Foo.kt", "docs/readme.md", ".github/workflows/a.yml")))
+        // the selector ships in the installer, not in the train; a sibling directory is not the launcher
+        assertFalse(launcherAffected(listOf("platform-main/launcher-selector/src/A.java", "platform-main/launcher2/A.java")))
+        assertFalse(launcherAffected(emptyList()))
     }
 
     @Test
