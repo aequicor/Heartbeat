@@ -51,7 +51,11 @@ internal class GitHubPullTools(
     override val catalog = PullSpecs.map { ToolCatalogEntry(it.name, it.action) }
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
-        if (workspace != null && toggles.get(GitHubPullToolsEnabled)) PullSpecs else emptyList()
+        if (workspace != null && toggles.get(GitHubPullToolsEnabled) && configuration.isAvailable()) {
+            PullSpecs
+        } else {
+            emptyList()
+        }
 
     override suspend fun instructions(workspace: WorkspaceRef?): String = if (specifications(workspace).isEmpty()) {
         ""
