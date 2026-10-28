@@ -26,6 +26,7 @@ features/{ai-studio,questionnaire,checklist}/screen-model — сериализу
 build-logic/     convention-плагины Gradle (heartbeat.kmp.library, heartbeat.feature.api/impl, heartbeat.detekt…)
 lint/            detekt-rules — собственный набор правил `heartbeat` (политика логирования и обработки ошибок)
 chromium-plugin/ расширение для Chrome и других Chromium-браузеров (MV3, JS без сборки) — клиент `features:chromium-bridge`
+design/          макеты pen.dev (`.pen`): библиотека токенов и компонентов, файл на фичу — `design/README.md`
 ```
 
 > Текущее состояние: шаблон перенесён в `platform-main` — `shared` (общий вход, iOS framework `Shared`), `android`, `desktop`,
@@ -567,6 +568,11 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 - Перед изменением фичи прочитай её `api` (машину) — это спецификация поведения.
 - Планируй логические коммиты до реализации; перед каждым коммитом проверяй staged diff через `python scripts/check_commit_size.py --staged`, перед ревью — весь диапазон PR через `--base <base-ref> --head HEAD`. Промежуточные fixup-коммиты объединяй с соответствующим логическим шагом перед ревью; правки по итогам ревью — отдельный коммит с трейлером `Addresses-Review:` (скилл `pr-fix`); исправление уже запушенного шага draft PR, который ведёт `open-pr`, — отдельный коммит с трейлером `Fixes-Step: <sha шага>`.
 - PR, исправляющий issue, помечает полноту: `Closes #N` — полностью (бот закроет issue при мерже), `Refs #N` / `Part of #N` — часть (issue остаётся открытой). Маркеры для одной issue не смешиваются; подробнее — «Ревью PR» в `AGENTS.md`.
+- UI до кода → скилл `ui-prototype`: случаи из его §0 (новый экран, режим, диалог, флоу, `Hb*`-компонент, заметное
+  изменение раскладки, переход, анимация) — сначала макет в `design/` (pen.dev) и явное согласование пользователя;
+  без него — блокер ревью. Макет — на всех типах экранов Phone / Tablet / Desktop, подход desktop-first: сначала
+  Desktop, затем адаптации (`design/README.md` 2.5);
+  исключение — фичи только для Desktop.
 - После правок кода → скилл `verify` (сборка, тесты, detekt). Для крупных изменений — субагент `architecture-reviewer`.
 - Перед выпуском → скилл `e2e-regression`: прогон основных функций на упакованном `HeartbeatE2E`
   (тестовый flavor) с детерминированной мок-моделью вместо запросов к боевым ИИ; блокер и критические
@@ -586,6 +592,7 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 | Состояние экрана | `mvi-store` |
 | Экраны, переходы, root, точки входа | `navigation` |
 | Внедрение зависимостей | `di-metro` |
+| Макет UI в pen.dev до кода, согласование, перенос в Compose | `ui-prototype` |
 | UI-компоненты, токены, киты платформ | `design-system` |
 | Тоглы | `feature-toggle` |
 | Room / DataStore / репозитории | `data-storage` |

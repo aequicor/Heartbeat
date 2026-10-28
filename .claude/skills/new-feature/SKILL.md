@@ -12,6 +12,11 @@ argument-hint: "<feature-name> [краткое описание]"
 
 Запусти субагента `feature-architect` с описанием фичи. Согласуй с пользователем таблицу переходов и публичные события, если есть неясности.
 
+## 0.5. Макет UI (обязательно, если у фичи есть UI)
+
+Скилл `ui-prototype`: экраны и состояния из раздела «UI» архитектора — кадрами на Phone / Tablet / Desktop в `design/features/<name>/<name>.pen`,
+согласование пользователя до `ui/`. Машину, стор и данные можно делать параллельно с согласованием.
+
 ## 1. Модули
 
 ```
@@ -42,7 +47,7 @@ features/<name>/
 2. `data/`: репозитории, DAO/DataStore/сеть (скиллы `data-storage`, `network`), ИИ — скилл `ai-koog`.
 3. `store/`: FlowMVI-сторы экранов, отражающие машину через `reflect` (скилл `mvi-store`).
 4. `component/`: Decompose-компоненты (`ComposableComponent`), `<Name>RootComponent` со своим `StackHost`/`PanelsHost` (скилл `navigation`).
-5. `ui/`: экраны только из `Hb*` + токены (скилл `design-system`), `@Preview` light/dark.
+5. `ui/`: экраны только из `Hb*` + токены (скилл `design-system`) по согласованному макету, `@Preview` light/dark на каждый кадр-состояние.
 6. `di/`: `RouteEntry` и `DeepLinkEntry` (`@ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())`), тоглы (`@ContributesIntoSet`).
 7. Новая функциональность под тоглом `<name>.enabled` с `default = false`, пока фича не готова.
 
@@ -55,13 +60,14 @@ features/<name>/
 
 1. Скилл `verify` (компиляция, jvmTest, detekt).
 2. Субагенты `architecture-reviewer` и `ui-reviewer` на изменённые файлы; исправь блокеры.
-3. Запусти desktop (`./gradlew :platform-main:desktop:run`) и пройди основной флоу, проверь логи машины (`SM/<name>`: интенты, переходы, эффекты).
+3. Запусти desktop (`./gradlew :platform-main:desktop:run`), сверь экраны с макетом (`ui-prototype` §5) и пройди основной флоу, проверь логи машины (`SM/<name>`: интенты, переходы, эффекты).
 
 ## Чек-лист готовности
 
 - [ ] Машина покрыта тестами, диаграмма в KDoc
 - [ ] Нет `impl → impl`, `api` без UI
 - [ ] Все действия и IO залогированы (централизованно или вручную)
+- [ ] Макет согласован, раздел «Дизайн» в PR, код совпадает с макетом
 - [ ] Строки в ресурсах, цвета — токены
 - [ ] Тогл заведён и виден в панели тоглов
 - [ ] detekt зелёный

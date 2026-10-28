@@ -1,0 +1,8598 @@
+{
+ "version": "2.21",
+ "themes": {
+  "mode": [
+   "light",
+   "dark"
+  ],
+  "host": [
+   "desktop",
+   "mobile"
+  ]
+ },
+ "variables": {
+  "typography.family": {
+   "type": "string",
+   "value": "Inter"
+  },
+  "typography.code.family": {
+   "type": "string",
+   "value": "JetBrains Mono"
+  },
+  "annotation.accent": {
+   "type": "color",
+   "value": "#FF7A1A"
+  },
+  "annotation.accent2": {
+   "type": "color",
+   "value": "#1FB6FF"
+  },
+  "annotation.accent3": {
+   "type": "color",
+   "value": "#3DDC84"
+  },
+  "annotation.accent4": {
+   "type": "color",
+   "value": "#E040FB"
+  },
+  "colors.accentMuted": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#D9D7F3",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#494D6C",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E2DFE9",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#45434B",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.assistantSurface": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#2E394A",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#2B2B2D",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.background": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#EAF3FA",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#1C2432",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#202022",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.brand": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#7560D5",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C0AFFC",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#7B6D9A",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#BAAFD0",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.buttonFill": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#E8EBF1",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#333D4E",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F2F2F2",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#303032",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.computerUseBadge": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#7560D5",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C0AFFC",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#7B6D9A",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#BAAFD0",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.computerUseBadgeContent": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#000000",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#000000",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.computerUsePointer": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#7560D5",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C0AFFC",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#7B6D9A",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#BAAFD0",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.computerUsePointerOutline": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#000000",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#000000",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.computerUseRipple": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#7560D5D9",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C0AFFCD9",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#7B6D9AD9",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#BAAFD0D9",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.computerUseShadow": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#7560D5C7",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C0AFFCC7",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#7B6D9AC7",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#BAAFD0C7",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.computerUseShadowInput": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#7560D5E6",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C0AFFCE6",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#7B6D9AE6",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#BAAFD0E6",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.computerUseShadowStart": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#7560D5F2",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C0AFFCF2",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#7B6D9AF2",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#BAAFD0F2",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.consoleCommand": {
+   "type": "color",
+   "value": "#CBB8E8"
+  },
+  "colors.consoleError": {
+   "type": "color",
+   "value": "#E0A8B2"
+  },
+  "colors.consoleInfo": {
+   "type": "color",
+   "value": "#A6C8DA"
+  },
+  "colors.consoleMuted": {
+   "type": "color",
+   "value": "#A8B2C3"
+  },
+  "colors.consoleSuccess": {
+   "type": "color",
+   "value": "#ABD1B7"
+  },
+  "colors.consoleSurface": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#303642",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#17191F",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#303642",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#17191F",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.consoleText": {
+   "type": "color",
+   "value": "#E4E8F0"
+  },
+  "colors.consoleWarning": {
+   "type": "color",
+   "value": "#E1C894"
+  },
+  "colors.dataCyan": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#BDDFEA",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#9CBCCA",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C0CDD1",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#C0CDD1",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.dataViolet": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#D9D1F6",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#B9A9E9",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#BDB4CE",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#BDB4CE",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.error": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#E6B1BE",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#D79BAE",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E6B1BE",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#D79BAE",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.errorContainer": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F3EFF4",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#3C3F50",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FCF6F7",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#3A3237",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.errorForeground": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#9C2733",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFB4AB",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#9C2733",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#FFB4AB",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.focusAccent": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#6947A3",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C2B4EE",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#6947A3",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#C2B4EE",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.focusInner": {
+   "type": "color",
+   "value": "#FFFFFF"
+  },
+  "colors.focusOuter": {
+   "type": "color",
+   "value": "#000000"
+  },
+  "colors.focusRing": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#6947A3CC",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C2B4EECC",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#6947A3CC",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#C2B4EECC",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.hoverOverlay": {
+   "type": "color",
+   "value": "#FFFFFF1A"
+  },
+  "colors.infoContainer": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#EEF5FA",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#354353",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F7F9F9",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#37393B",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.inputFill": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#ECF0F4",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#2F3A4A",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F6F6F6",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#2C2C2E",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.interactionHoverOverlay": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#18203A0D",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F1F3FC0D",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#2424260D",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#EEEEF00D",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.link": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#5A3FB0",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C9BCF5",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#5A3FB0",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#C9BCF5",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.onAccentMuted": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#18203A",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F1F3FC",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#242426",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#EEEEF0",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.onBrand": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#000000",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#000000",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.onError": {
+   "type": "color",
+   "value": "#000000"
+  },
+  "colors.onPrimary": {
+   "type": "color",
+   "value": "#000000"
+  },
+  "colors.onSecondary": {
+   "type": "color",
+   "value": "#000000"
+  },
+  "colors.onSuccess": {
+   "type": "color",
+   "value": "#000000"
+  },
+  "colors.onSurface": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#18203A",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F1F3FC",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#242426",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#EEEEF0",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.onWarning": {
+   "type": "color",
+   "value": "#000000"
+  },
+  "colors.outline": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#707688",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#A0A6B2",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#7C7C7D",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#9D9D9F",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.outlineSubtle": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#DADEE4",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#404959",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E4E4E5",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#3D3D3F",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.popupShadow": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#0000001F",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#00000066",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#0000001F",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#00000066",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.pressedOverlay": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#18203A17",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F1F3FC17",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#24242617",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#EEEEF017",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.primary": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#E2DBFF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#D2C5FF",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E9E5EF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#BFB3D4",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.primaryContainer": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#E5E6F7",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#3A4159",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#EFEDF3",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#36353B",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.scrim": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#00000052",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#0000008F",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#00000052",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#0000008F",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.secondary": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F2C1AB",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#D9B4A6",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F2C1AB",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#D9B4A6",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.secondaryContainer": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F5F1F2",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#3D424F",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FDF7F5",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#3A3636",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.selectedContainer": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#DEE2E8",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#3C4656",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E9E9E9",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#39393B",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.selectionHighlight": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#D1CAE5",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#4F546F",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#D8CFE7",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#4D495A",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.success": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#B4D7C5",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#A4CBB9",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#B4D7C5",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#A4CBB9",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.successContainer": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#EDF4F5",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#364551",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F6FAF8",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#343838",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.surface": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F5F8FC",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#273243",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#242426",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.surfaceElevated": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#EDF0F5",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#2E394A",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F7F7F7",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#2B2B2D",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.syntaxAnnotation": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#6B552F",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#D2C293",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#6B552F",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#D2C293",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.syntaxComment": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#546075",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C6CEDC",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#546075",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#C6CEDC",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.syntaxFunction": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#795076",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E2C6DD",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#795076",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#E2C6DD",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.syntaxKeyword": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#654D92",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#DDD2F4",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#654D92",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#DDD2F4",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.syntaxNumber": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#85522F",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E5C8A6",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#85522F",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#E5C8A6",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.syntaxString": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#356953",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#B4D8C2",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#356953",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#B4D8C2",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.syntaxType": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#315F82",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#B8D2E2",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#315F82",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#B8D2E2",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.textPrimary": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#18203A",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F1F3FC",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#242426",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#EEEEF0",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.textSecondary": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#565C70",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#B9BDC8",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#616162",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#B6B6B8",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.warning": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#E9D6A6",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#DAC78F",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E9D6A6",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#DAC78F",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "colors.warningContainer": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F4F4F2",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#3D444C",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FCFAF4",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#3A3833",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.accent": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#6650D1",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#C7B8FF",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#6A587C",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#C5B8DC",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.assistant": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#293344",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#202022",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.avatar": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F7F5FF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#39364F",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#EFEAF4",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#3A3442",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.backdrop": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#EAF3FA",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#1C2432",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#202022",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.composer": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#2C3749",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#2A2A2D",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.composerAction": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#30364C",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#DAD4F3",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#353238",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#DCD4E8",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.composerPill": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F2F5F9",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#354156",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F2F2F3",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#353538",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.composerPillAccent": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#ECE6FF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#493E66",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#EEEAF4",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#3E3748",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.console": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#EEF2F8",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#243042",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F4F4F5",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#242426",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.header": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#273243",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#202022",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.onComposerAction": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#222A3B",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#29252F",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.onComposerPillAccent": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#583ACC",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E3D8FF",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#655278",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#D9CBEA",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.onSelected": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#18203A",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F1F3FC",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#242426",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#EEEEF0",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.outgoing": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#E2DCFF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#46405E",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F1EEF6",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#35313B",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.outline": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#DCE4EF",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#44526A",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E3E3E5",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#424246",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.rail": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F0F5FA",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#222B3A",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F4F4F5",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#28282B",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.selected": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#E6E0FC",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#433C5D",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E9E9E9",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#39393B",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.sidebar": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F0F5FA",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#222B3A",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F4F4F5",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#28282B",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.success": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#13783D",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#93DEB1",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#34754A",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#8FC69D",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "surfaces.tool": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F6F8FC",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#303C50",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F7F7F8",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#29292C",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.attachmentThumbnailSize": {
+   "type": "number",
+   "value": [
+    {
+     "value": 40,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 32,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.avatarSize": {
+   "type": "number",
+   "value": [
+    {
+     "value": 44,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 28,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.borderWidth": {
+   "type": "number",
+   "value": 1
+  },
+  "dimensions.browserGroupLabelMaxWidth": {
+   "type": "number",
+   "value": 96
+  },
+  "dimensions.browserSplitMinWidth": {
+   "type": "number",
+   "value": 720
+  },
+  "dimensions.browserTabMaxWidth": {
+   "type": "number",
+   "value": 220
+  },
+  "dimensions.browserTabMinWidth": {
+   "type": "number",
+   "value": [
+    {
+     "value": 160,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 120,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.chatAvatarSize": {
+   "type": "number",
+   "value": 32
+  },
+  "dimensions.chatMessageMaxWidth": {
+   "type": "number",
+   "value": 720
+  },
+  "dimensions.codeEditorCompactHeight": {
+   "type": "number",
+   "value": 160
+  },
+  "dimensions.codeEditorHeight": {
+   "type": "number",
+   "value": 360
+  },
+  "dimensions.compactBreakpoint": {
+   "type": "number",
+   "value": 720
+  },
+  "dimensions.compactControlHeight": {
+   "type": "number",
+   "value": 28
+  },
+  "dimensions.compactHeightBreakpoint": {
+   "type": "number",
+   "value": 640
+  },
+  "dimensions.composerActionSize": {
+   "type": "number",
+   "value": [
+    {
+     "value": 56,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 32,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.composerEditorMinHeight": {
+   "type": "number",
+   "value": 40
+  },
+  "dimensions.composerInlineBreakpoint": {
+   "type": "number",
+   "value": 720
+  },
+  "dimensions.composerLabelMaxWidth": {
+   "type": "number",
+   "value": 160
+  },
+  "dimensions.composerMaxHeight": {
+   "type": "number",
+   "value": 120
+  },
+  "dimensions.composerMaxWidth": {
+   "type": "number",
+   "value": [
+    {
+     "value": 1090,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 760,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.composerMenuGutter": {
+   "type": "number",
+   "value": 16
+  },
+  "dimensions.composerMenuMaxHeight": {
+   "type": "number",
+   "value": 320
+  },
+  "dimensions.composerMenuMaxWidth": {
+   "type": "number",
+   "value": 360
+  },
+  "dimensions.composerMenuMinWidth": {
+   "type": "number",
+   "value": 240
+  },
+  "dimensions.composerMenuOffset": {
+   "type": "number",
+   "value": 8
+  },
+  "dimensions.composerMinEditorWidth": {
+   "type": "number",
+   "value": 160
+  },
+  "dimensions.composerMinHeight": {
+   "type": "number",
+   "value": 56
+  },
+  "dimensions.composerPillHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 44,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 32,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.composerToolbarBreakpoint": {
+   "type": "number",
+   "value": 480
+  },
+  "dimensions.composerUsageMinWidth": {
+   "type": "number",
+   "value": 44
+  },
+  "dimensions.computerUseBadgeOffset": {
+   "type": "number",
+   "value": 20
+  },
+  "dimensions.computerUseBadgePadding": {
+   "type": "number",
+   "value": 5
+  },
+  "dimensions.computerUsePermissionGuideIconSize": {
+   "type": "number",
+   "value": 32
+  },
+  "dimensions.computerUsePermissionGuideWidth": {
+   "type": "number",
+   "value": 340
+  },
+  "dimensions.computerUsePointerCanvas": {
+   "type": "number",
+   "value": 176
+  },
+  "dimensions.computerUsePointerSize": {
+   "type": "number",
+   "value": 24
+  },
+  "dimensions.computerUsePointerStroke": {
+   "type": "number",
+   "value": 2
+  },
+  "dimensions.computerUseRippleRadius": {
+   "type": "number",
+   "value": 28
+  },
+  "dimensions.computerUseSessionWidth": {
+   "type": "number",
+   "value": 420
+  },
+  "dimensions.computerUseShadowWidth": {
+   "type": "number",
+   "value": 40
+  },
+  "dimensions.computerUseTrailWidth": {
+   "type": "number",
+   "value": 3
+  },
+  "dimensions.contentMaxWidth": {
+   "type": "number",
+   "value": 1200
+  },
+  "dimensions.controlCornerRadius": {
+   "type": "number",
+   "value": 6
+  },
+  "dimensions.controlHeight": {
+   "type": "number",
+   "value": 32
+  },
+  "dimensions.cornerRadius": {
+   "type": "number",
+   "value": [
+    {
+     "value": 16,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 12,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.diagramPreviewMaxHeight": {
+   "type": "number",
+   "value": 480
+  },
+  "dimensions.dialogMaxWidth": {
+   "type": "number",
+   "value": 560
+  },
+  "dimensions.dialogMinWidth": {
+   "type": "number",
+   "value": 320
+  },
+  "dimensions.dialogWideMaxWidth": {
+   "type": "number",
+   "value": 1040
+  },
+  "dimensions.drawerMaxWidth": {
+   "type": "number",
+   "value": 320
+  },
+  "dimensions.editorMaxHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 120,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 168,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.expandedBreakpoint": {
+   "type": "number",
+   "value": 1200
+  },
+  "dimensions.fieldCornerRadius": {
+   "type": "number",
+   "value": 8
+  },
+  "dimensions.fieldFocusWidth": {
+   "type": "number",
+   "value": 2
+  },
+  "dimensions.fluentFocusInnerWidth": {
+   "type": "number",
+   "value": 1
+  },
+  "dimensions.fluentFocusOuterWidth": {
+   "type": "number",
+   "value": 2
+  },
+  "dimensions.focusOutset": {
+   "type": "number",
+   "value": 2
+  },
+  "dimensions.headerAvatarSize": {
+   "type": "number",
+   "value": [
+    {
+     "value": 36,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 28,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.headerHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 56,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 44,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.iconLargeSize": {
+   "type": "number",
+   "value": 24
+  },
+  "dimensions.iconSize": {
+   "type": "number",
+   "value": 18
+  },
+  "dimensions.iconSmallSize": {
+   "type": "number",
+   "value": 14
+  },
+  "dimensions.iconTileWidth": {
+   "type": "number",
+   "value": 112
+  },
+  "dimensions.illustrationHeight": {
+   "type": "number",
+   "value": 180
+  },
+  "dimensions.illustrationWidth": {
+   "type": "number",
+   "value": 240
+  },
+  "dimensions.inspectorPanelWidth": {
+   "type": "number",
+   "value": 320
+  },
+  "dimensions.keyboardScrollStep": {
+   "type": "number",
+   "value": 40
+  },
+  "dimensions.keychainIntroWidth": {
+   "type": "number",
+   "value": 420
+  },
+  "dimensions.macFocusWidth": {
+   "type": "number",
+   "value": 3
+  },
+  "dimensions.markStroke": {
+   "type": "number",
+   "value": 2
+  },
+  "dimensions.markdownTableCellWidth": {
+   "type": "number",
+   "value": 200
+  },
+  "dimensions.markdownTableMaxHeight": {
+   "type": "number",
+   "value": 480
+  },
+  "dimensions.markdownTableMinCellWidth": {
+   "type": "number",
+   "value": 64
+  },
+  "dimensions.messageBodyIndentMinWidth": {
+   "type": "number",
+   "value": 560
+  },
+  "dimensions.messageCornerRadius": {
+   "type": "number",
+   "value": [
+    {
+     "value": 16,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 12,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.messageMaxWidth": {
+   "type": "number",
+   "value": [
+    {
+     "value": 1000,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 760,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.messagePadding": {
+   "type": "number",
+   "value": [
+    {
+     "value": 24,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 16,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.navigationHeaderTopInset": {
+   "type": "number",
+   "value": [
+    {
+     "value": 48,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 0,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.navigationPanelWidth": {
+   "type": "number",
+   "value": 256
+  },
+  "dimensions.navigationRailWidth": {
+   "type": "number",
+   "value": 56
+  },
+  "dimensions.navigationRowHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 48,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 28,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.outerInset": {
+   "type": "number",
+   "value": 0
+  },
+  "dimensions.paneMinWidth": {
+   "type": "number",
+   "value": 360
+  },
+  "dimensions.panelGap": {
+   "type": "number",
+   "value": 0
+  },
+  "dimensions.popupShadowOffset": {
+   "type": "number",
+   "value": 4
+  },
+  "dimensions.popupShadowRadius": {
+   "type": "number",
+   "value": 12
+  },
+  "dimensions.questionnaireAccentHeight": {
+   "type": "number",
+   "value": 4
+  },
+  "dimensions.railWidth": {
+   "type": "number",
+   "value": [
+    {
+     "value": 72,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 52,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.scrollbarHoverThickness": {
+   "type": "number",
+   "value": 6
+  },
+  "dimensions.scrollbarHoverWidth": {
+   "type": "number",
+   "value": 12
+  },
+  "dimensions.scrollbarInset": {
+   "type": "number",
+   "value": 2
+  },
+  "dimensions.scrollbarLazyItemExtent": {
+   "type": "number",
+   "value": 40
+  },
+  "dimensions.scrollbarMinThumb": {
+   "type": "number",
+   "value": 28
+  },
+  "dimensions.scrollbarThickness": {
+   "type": "number",
+   "value": 4
+  },
+  "dimensions.settingsMaxWidth": {
+   "type": "number",
+   "value": 720
+  },
+  "dimensions.settingsRowHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 56,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 44,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.sidebarHeadingHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 32,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 24,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.sidebarWidth": {
+   "type": "number",
+   "value": [
+    {
+     "value": 240,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 264,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.statusDotSize": {
+   "type": "number",
+   "value": 8
+  },
+  "dimensions.swatchSize": {
+   "type": "number",
+   "value": 64
+  },
+  "dimensions.switchHeight": {
+   "type": "number",
+   "value": 20
+  },
+  "dimensions.switchWidth": {
+   "type": "number",
+   "value": 36
+  },
+  "dimensions.textOverflowFade": {
+   "type": "number",
+   "value": 24
+  },
+  "dimensions.titlebarInset": {
+   "type": "number",
+   "value": [
+    {
+     "value": 48,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 0,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.titlebarLeadingInset": {
+   "type": "number",
+   "value": 96
+  },
+  "dimensions.toolPadding": {
+   "type": "number",
+   "value": [
+    {
+     "value": 12,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 8,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.toolPayloadMaxHeight": {
+   "type": "number",
+   "value": 320
+  },
+  "dimensions.tooltipMaxWidth": {
+   "type": "number",
+   "value": 320
+  },
+  "dimensions.touchTarget": {
+   "type": "number",
+   "value": [
+    {
+     "value": 48,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 32,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "dimensions.transcriptEdgeFade": {
+   "type": "number",
+   "value": 32
+  },
+  "dimensions.usageBarHeight": {
+   "type": "number",
+   "value": 4
+  },
+  "dimensions.usageRingSize": {
+   "type": "number",
+   "value": 14
+  },
+  "dimensions.usageRingStrokeWidth": {
+   "type": "number",
+   "value": 2
+  },
+  "dimensions.verticalInset": {
+   "type": "number",
+   "value": 0
+  },
+  "dimensions.webDocumentCompactHeight": {
+   "type": "number",
+   "value": 56
+  },
+  "dimensions.webDocumentHeight": {
+   "type": "number",
+   "value": 480
+  },
+  "dimensions.webDocumentMaxHeight": {
+   "type": "number",
+   "value": 640
+  },
+  "dimensions.webDocumentMinHeight": {
+   "type": "number",
+   "value": 56
+  },
+  "dimensions.webDocumentTallHeight": {
+   "type": "number",
+   "value": 640
+  },
+  "dimensions.windowHeight": {
+   "type": "number",
+   "value": 900
+  },
+  "dimensions.windowWidth": {
+   "type": "number",
+   "value": 1280
+  },
+  "typography.body.size": {
+   "type": "number",
+   "value": [
+    {
+     "value": 16.0,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 14.0,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.body.lineHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 1.562,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 1.5,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.body.weight": {
+   "type": "string",
+   "value": "400"
+  },
+  "typography.caption.size": {
+   "type": "number",
+   "value": [
+    {
+     "value": 13.0,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 12.0,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.caption.lineHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 1.385,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 1.333,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.caption.weight": {
+   "type": "string",
+   "value": "400"
+  },
+  "typography.code.size": {
+   "type": "number",
+   "value": 13.0
+  },
+  "typography.code.lineHeight": {
+   "type": "number",
+   "value": 1.462
+  },
+  "typography.code.weight": {
+   "type": "string",
+   "value": "400"
+  },
+  "typography.display.size": {
+   "type": "number",
+   "value": [
+    {
+     "value": 22.0,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 23.0,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.display.lineHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 1.273,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 1.304,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.display.weight": {
+   "type": "string",
+   "value": "600"
+  },
+  "typography.label.size": {
+   "type": "number",
+   "value": [
+    {
+     "value": 14.0,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 13.0,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.label.lineHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 1.429,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 1.385,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.label.weight": {
+   "type": "string",
+   "value": "400"
+  },
+  "typography.metadata.size": {
+   "type": "number",
+   "value": [
+    {
+     "value": 13.0,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 12.0,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.metadata.lineHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 1.385,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 1.333,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.metadata.weight": {
+   "type": "string",
+   "value": "400"
+  },
+  "typography.title.size": {
+   "type": "number",
+   "value": [
+    {
+     "value": 17.0,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 14.0,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.title.lineHeight": {
+   "type": "number",
+   "value": [
+    {
+     "value": 1.353,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 1.429,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "typography.title.weight": {
+   "type": "string",
+   "value": "600"
+  },
+  "shapes.small": {
+   "type": "number",
+   "value": [
+    {
+     "value": 8,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 6,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "shapes.medium": {
+   "type": "number",
+   "value": [
+    {
+     "value": 12,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 8,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "shapes.large": {
+   "type": "number",
+   "value": [
+    {
+     "value": 16,
+     "theme": {
+      "host": "mobile"
+     }
+    },
+    {
+     "value": 12,
+     "theme": {
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "spacing.l": {
+   "type": "number",
+   "value": 12
+  },
+  "spacing.m": {
+   "type": "number",
+   "value": 8
+  },
+  "spacing.none": {
+   "type": "number",
+   "value": 0
+  },
+  "spacing.s": {
+   "type": "number",
+   "value": 6
+  },
+  "spacing.xl": {
+   "type": "number",
+   "value": 16
+  },
+  "spacing.xs": {
+   "type": "number",
+   "value": 4
+  },
+  "spacing.xxl": {
+   "type": "number",
+   "value": 20
+  },
+  "spacing.xxs": {
+   "type": "number",
+   "value": 2
+  },
+  "elevation.high": {
+   "type": "number",
+   "value": 8
+  },
+  "elevation.low": {
+   "type": "number",
+   "value": 1
+  },
+  "elevation.medium": {
+   "type": "number",
+   "value": 4
+  },
+  "elevation.none": {
+   "type": "number",
+   "value": 0
+  },
+  "motion.busyRevealDelayMillis": {
+   "type": "number",
+   "value": 400
+  },
+  "motion.computerUseBadgeMillis": {
+   "type": "number",
+   "value": 1200
+  },
+  "motion.computerUseInputMillis": {
+   "type": "number",
+   "value": 300
+  },
+  "motion.computerUsePointerGlideMillis": {
+   "type": "number",
+   "value": 90
+  },
+  "motion.computerUseRippleMillis": {
+   "type": "number",
+   "value": 450
+  },
+  "motion.computerUseStartMillis": {
+   "type": "number",
+   "value": 600
+  },
+  "motion.computerUseTrailMillis": {
+   "type": "number",
+   "value": 600
+  },
+  "motion.copyFeedbackMillis": {
+   "type": "number",
+   "value": 1800
+  },
+  "motion.fastMillis": {
+   "type": "number",
+   "value": 120
+  },
+  "motion.normalMillis": {
+   "type": "number",
+   "value": 220
+  },
+  "motion.questionnairePulseCount": {
+   "type": "number",
+   "value": 2
+  },
+  "motion.questionnairePulseMillis": {
+   "type": "number",
+   "value": 450
+  },
+  "motion.scrollbarFadeMillis": {
+   "type": "number",
+   "value": 180
+  },
+  "motion.scrollbarHideDelayMillis": {
+   "type": "number",
+   "value": 700
+  },
+  "motion.slowMillis": {
+   "type": "number",
+   "value": 360
+  },
+  "motion.tooltipDelayMillis": {
+   "type": "number",
+   "value": 600
+  },
+  "motion.usageCompactionMillis": {
+   "type": "number",
+   "value": 1200
+  }
+ },
+ "children": [
+  {
+   "id": "note-library",
+   "type": "note",
+   "x": -440,
+   "y": 0,
+   "width": 400,
+   "fontSize": 14,
+   "content": "Heartbeat design library: definitions only, documentation — design/system/design-system.pen.\nVariables mirror design-system/tokens (source of truth: Kotlin); icons — HbIcons.kt, illustrations — IllustrationArtwork.kt.\nImport: \"imports\": {\"hb\": \"<path>/heartbeat.lib.pen\"}; ref \"hb:<id>\", \"$hb:<variable>\", theme {\"hb:mode\": \"dark\"}."
+  },
+  {
+   "id": "section-components",
+   "type": "frame",
+   "name": "Components",
+   "x": 0,
+   "y": 0,
+   "width": 560,
+   "layout": "none",
+   "fill": "$surfaces.backdrop",
+   "theme": {
+    "mode": "light",
+    "host": "desktop"
+   },
+   "children": [
+    {
+     "id": "hb-button-primary",
+     "type": "frame",
+     "name": "HbButton / Primary / Regular",
+     "reusable": true,
+     "height": 32,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "children": [
+      {
+       "id": "hb-button-primary-label",
+       "type": "text",
+       "content": "Подключить",
+       "fill": "$colors.onPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "500",
+       "x": 12,
+       "y": 7
+      }
+     ],
+     "fill": "$colors.primary",
+     "x": 40,
+     "y": 40,
+     "width": 104.7,
+     "layout": "none"
+    },
+    {
+     "id": "hb-button-secondary",
+     "type": "frame",
+     "name": "HbButton / Secondary / Regular",
+     "reusable": true,
+     "height": 32,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "children": [
+      {
+       "id": "hb-button-secondary-label",
+       "type": "text",
+       "content": "Назад",
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "500",
+       "x": 12,
+       "y": 7
+      }
+     ],
+     "fill": "$colors.buttonFill",
+     "x": 40,
+     "y": 96,
+     "width": 63.2,
+     "layout": "none"
+    },
+    {
+     "id": "hb-button-ghost",
+     "type": "frame",
+     "name": "HbButton / Ghost / Regular",
+     "reusable": true,
+     "height": 32,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "children": [
+      {
+       "id": "hb-button-ghost-label",
+       "type": "text",
+       "content": "Отмена",
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "500",
+       "x": 12,
+       "y": 7
+      }
+     ],
+     "x": 40,
+     "y": 152,
+     "width": 73.4,
+     "layout": "none"
+    },
+    {
+     "id": "hb-button-danger",
+     "type": "frame",
+     "name": "HbButton / Danger / Regular",
+     "reusable": true,
+     "height": 32,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "children": [
+      {
+       "id": "hb-button-danger-label",
+       "type": "text",
+       "content": "Удалить",
+       "fill": "$colors.onError",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "500",
+       "x": 12,
+       "y": 7
+      }
+     ],
+     "fill": "$colors.error",
+     "x": 40,
+     "y": 208,
+     "width": 77.3,
+     "layout": "none"
+    },
+    {
+     "id": "hb-button-primary-small",
+     "type": "frame",
+     "name": "HbButton / Primary / Small",
+     "reusable": true,
+     "height": 28,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "children": [
+      {
+       "id": "hb-button-primary-small-label",
+       "type": "text",
+       "content": "Подключить",
+       "fill": "$colors.onPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "500",
+       "x": 8,
+       "y": 5
+      }
+     ],
+     "fill": "$colors.primary",
+     "x": 40,
+     "y": 264,
+     "width": 96.7,
+     "layout": "none"
+    },
+    {
+     "id": "hb-button-secondary-small",
+     "type": "frame",
+     "name": "HbButton / Secondary / Small",
+     "reusable": true,
+     "height": 28,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "children": [
+      {
+       "id": "hb-button-secondary-small-label",
+       "type": "text",
+       "content": "Назад",
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "500",
+       "x": 8,
+       "y": 5
+      }
+     ],
+     "fill": "$colors.buttonFill",
+     "x": 40,
+     "y": 316,
+     "width": 55.2,
+     "layout": "none"
+    },
+    {
+     "id": "hb-button-ghost-small",
+     "type": "frame",
+     "name": "HbButton / Ghost / Small",
+     "reusable": true,
+     "height": 28,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "children": [
+      {
+       "id": "hb-button-ghost-small-label",
+       "type": "text",
+       "content": "Отмена",
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "500",
+       "x": 8,
+       "y": 5
+      }
+     ],
+     "x": 40,
+     "y": 368,
+     "width": 65.4,
+     "layout": "none"
+    },
+    {
+     "id": "hb-button-danger-small",
+     "type": "frame",
+     "name": "HbButton / Danger / Small",
+     "reusable": true,
+     "height": 28,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "children": [
+      {
+       "id": "hb-button-danger-small-label",
+       "type": "text",
+       "content": "Удалить",
+       "fill": "$colors.onError",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "500",
+       "x": 8,
+       "y": 5
+      }
+     ],
+     "fill": "$colors.error",
+     "x": 40,
+     "y": 420,
+     "width": 69.3,
+     "layout": "none"
+    },
+    {
+     "id": "hb-icon-button",
+     "type": "frame",
+     "name": "HbIconButton",
+     "reusable": true,
+     "width": 28,
+     "height": 28,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "children": [
+      {
+       "id": "hb-icon-button-icon",
+       "type": "ref",
+       "ref": "hb-icon-plus",
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textSecondary",
+       "strokeWidth": 1.26,
+       "x": 5,
+       "y": 5
+      }
+     ],
+     "x": 40,
+     "y": 472,
+     "layout": "none"
+    },
+    {
+     "id": "hb-nav-item",
+     "type": "frame",
+     "name": "HbNavigationItem",
+     "reusable": true,
+     "width": 480,
+     "height": 28,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "children": [
+      {
+       "id": "hb-nav-item-icon",
+       "type": "ref",
+       "ref": "hb-icon-folder",
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textSecondary",
+       "strokeWidth": 1.26,
+       "x": 8,
+       "y": 5
+      },
+      {
+       "id": "hb-nav-item-label",
+       "type": "text",
+       "content": "Heartbeat",
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "$typography.label.weight",
+       "x": 38,
+       "y": 5
+      }
+     ],
+     "x": 40,
+     "y": 524,
+     "layout": "none"
+    },
+    {
+     "id": "hb-nav-item-selected",
+     "type": "frame",
+     "name": "HbNavigationItem / Selected",
+     "reusable": true,
+     "width": 480,
+     "height": 28,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "fill": "$surfaces.selected",
+     "children": [
+      {
+       "id": "hb-nav-item-selected-icon",
+       "type": "ref",
+       "ref": "hb-icon-layers",
+       "width": 18,
+       "height": 18,
+       "stroke": "$surfaces.onSelected",
+       "strokeWidth": 1.26,
+       "x": 8,
+       "y": 5
+      },
+      {
+       "id": "hb-nav-item-selected-label",
+       "type": "text",
+       "content": "Модели и движки",
+       "fill": "$surfaces.onSelected",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "$typography.label.weight",
+       "x": 38,
+       "y": 5
+      }
+     ],
+     "x": 40,
+     "y": 576,
+     "layout": "none"
+    },
+    {
+     "id": "hb-divider",
+     "type": "frame",
+     "name": "HbDivider",
+     "reusable": true,
+     "width": 200,
+     "height": 1,
+     "fill": "$colors.outlineSubtle",
+     "x": 40,
+     "y": 628,
+     "layout": "none"
+    },
+    {
+     "id": "hb-search-field",
+     "type": "frame",
+     "name": "HbSearchField",
+     "reusable": true,
+     "width": 480,
+     "height": 28,
+     "cornerRadius": "$dimensions.controlCornerRadius",
+     "fill": "$colors.inputFill",
+     "children": [
+      {
+       "id": "hb-search-field-icon",
+       "type": "ref",
+       "ref": "hb-icon-search",
+       "width": 14,
+       "height": 14,
+       "stroke": "$colors.textSecondary",
+       "strokeWidth": 0.98,
+       "x": 8,
+       "y": 7
+      },
+      {
+       "id": "hb-search-field-placeholder",
+       "type": "text",
+       "content": "Поиск провайдеров",
+       "fill": "$colors.textSecondary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "$typography.label.weight",
+       "x": 28,
+       "y": 5
+      }
+     ],
+     "x": 40,
+     "y": 653,
+     "layout": "none"
+    },
+    {
+     "id": "hb-text-field",
+     "type": "frame",
+     "name": "HbTextField",
+     "reusable": true,
+     "width": 480,
+     "height": 32,
+     "cornerRadius": "$dimensions.fieldCornerRadius",
+     "fill": "$colors.inputFill",
+     "children": [
+      {
+       "id": "hb-text-field-value",
+       "type": "text",
+       "content": "Вставьте ключ",
+       "fill": "$colors.textSecondary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "$typography.label.weight",
+       "x": 10,
+       "y": 7
+      }
+     ],
+     "x": 40,
+     "y": 705,
+     "layout": "none"
+    },
+    {
+     "id": "hb-badge-neutral",
+     "type": "frame",
+     "name": "HbBadge / Neutral",
+     "reusable": true,
+     "height": 20,
+     "cornerRadius": 4,
+     "fill": "$colors.surfaceElevated",
+     "stroke": "$colors.outlineSubtle",
+     "strokeWidth": 1,
+     "strokeAlignment": "inner",
+     "children": [
+      {
+       "id": "hb-badge-neutral-label",
+       "type": "text",
+       "content": "Установлен",
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.caption.size",
+       "lineHeight": "$typography.caption.lineHeight",
+       "fontWeight": "$typography.caption.weight",
+       "x": 6,
+       "y": 2
+      }
+     ],
+     "x": 40,
+     "y": 761,
+     "width": 79.8,
+     "layout": "none"
+    },
+    {
+     "id": "hb-badge-success",
+     "type": "frame",
+     "name": "HbBadge / Success",
+     "reusable": true,
+     "height": 20,
+     "cornerRadius": 4,
+     "fill": "$colors.successContainer",
+     "stroke": "$colors.success",
+     "strokeWidth": 1,
+     "strokeAlignment": "inner",
+     "children": [
+      {
+       "id": "hb-badge-success-label",
+       "type": "text",
+       "content": "Установлен",
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.caption.size",
+       "lineHeight": "$typography.caption.lineHeight",
+       "fontWeight": "$typography.caption.weight",
+       "x": 6,
+       "y": 2
+      }
+     ],
+     "x": 40,
+     "y": 805,
+     "width": 79.8,
+     "layout": "none"
+    },
+    {
+     "id": "hb-badge-warning",
+     "type": "frame",
+     "name": "HbBadge / Warning",
+     "reusable": true,
+     "height": 20,
+     "cornerRadius": 4,
+     "fill": "$colors.warningContainer",
+     "stroke": "$colors.warning",
+     "strokeWidth": 1,
+     "strokeAlignment": "inner",
+     "children": [
+      {
+       "id": "hb-badge-warning-label",
+       "type": "text",
+       "content": "Установлен",
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.caption.size",
+       "lineHeight": "$typography.caption.lineHeight",
+       "fontWeight": "$typography.caption.weight",
+       "x": 6,
+       "y": 2
+      }
+     ],
+     "x": 40,
+     "y": 849,
+     "width": 79.8,
+     "layout": "none"
+    },
+    {
+     "id": "hb-switch-on",
+     "type": "frame",
+     "name": "HbSwitch / On",
+     "reusable": true,
+     "width": 28,
+     "height": 16,
+     "cornerRadius": 8,
+     "fill": "$colors.brand",
+     "layout": "none",
+     "children": [
+      {
+       "id": "hb-switch-on-knob",
+       "type": "ellipse",
+       "x": 14,
+       "y": 2,
+       "width": 12,
+       "height": 12,
+       "fill": "$colors.onBrand"
+      }
+     ],
+     "x": 40,
+     "y": 893
+    },
+    {
+     "id": "hb-switch-off",
+     "type": "frame",
+     "name": "HbSwitch / Off",
+     "reusable": true,
+     "width": 28,
+     "height": 16,
+     "cornerRadius": 8,
+     "fill": "$colors.outline",
+     "layout": "none",
+     "children": [
+      {
+       "id": "hb-switch-off-knob",
+       "type": "ellipse",
+       "x": 2,
+       "y": 2,
+       "width": 12,
+       "height": 12,
+       "fill": "$colors.onBrand"
+      }
+     ],
+     "x": 40,
+     "y": 933
+    },
+    {
+     "id": "hb-tool-row-done",
+     "type": "frame",
+     "name": "HbToolCall / Done",
+     "reusable": true,
+     "width": 480,
+     "cornerRadius": 8,
+     "fill": "$surfaces.tool",
+     "stroke": "$surfaces.outline",
+     "strokeWidth": 1,
+     "strokeAlignment": "inner",
+     "children": [
+      {
+       "id": "hb-tool-row-done-icon",
+       "type": "ref",
+       "ref": "hb-icon-success",
+       "width": 18,
+       "height": 18,
+       "stroke": "$surfaces.success",
+       "strokeWidth": 1.26,
+       "x": 8,
+       "y": 16
+      },
+      {
+       "id": "hb-tool-row-done-text",
+       "type": "frame",
+       "width": 356.2,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-tool-row-done-title",
+         "type": "text",
+         "content": "Прочитан файл",
+         "fill": "$colors.textPrimary",
+         "fontFamily": "$typography.family",
+         "fontSize": "$typography.label.size",
+         "lineHeight": "$typography.label.lineHeight",
+         "fontWeight": "$typography.label.weight",
+         "x": 0,
+         "y": 0
+        },
+        {
+         "id": "hb-tool-row-done-summary",
+         "type": "text",
+         "content": "StudioComposer.kt",
+         "fill": "$colors.textSecondary",
+         "fontFamily": "$typography.family",
+         "fontSize": "$typography.caption.size",
+         "lineHeight": "$typography.caption.lineHeight",
+         "fontWeight": "$typography.caption.weight",
+         "x": 0,
+         "y": 18
+        }
+       ],
+       "x": 38,
+       "y": 8,
+       "height": 34
+      },
+      {
+       "id": "hb-tool-row-done-status",
+       "type": "text",
+       "content": "Готово",
+       "fill": "$surfaces.success",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.caption.size",
+       "lineHeight": "$typography.caption.lineHeight",
+       "fontWeight": "$typography.caption.weight",
+       "x": 406.2,
+       "y": 17
+      },
+      {
+       "id": "hb-tool-row-done-chevron",
+       "type": "ref",
+       "ref": "hb-icon-chevron-right",
+       "width": 14,
+       "height": 14,
+       "stroke": "$colors.textSecondary",
+       "strokeWidth": 0.98,
+       "x": 458,
+       "y": 18
+      }
+     ],
+     "x": 40,
+     "y": 973,
+     "height": 50,
+     "layout": "none"
+    },
+    {
+     "id": "hb-tool-row-running",
+     "type": "frame",
+     "name": "HbToolCall / Running",
+     "reusable": true,
+     "width": 480,
+     "cornerRadius": 8,
+     "fill": "$surfaces.tool",
+     "stroke": "$surfaces.outline",
+     "strokeWidth": 1,
+     "strokeAlignment": "inner",
+     "children": [
+      {
+       "id": "hb-tool-row-running-icon",
+       "type": "ref",
+       "ref": "hb-icon-more",
+       "width": 18,
+       "height": 18,
+       "fill": "$colors.textSecondary",
+       "x": 8,
+       "y": 16
+      },
+      {
+       "id": "hb-tool-row-running-text",
+       "type": "frame",
+       "width": 318.5,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-tool-row-running-title",
+         "type": "text",
+         "content": "Прочитан файл",
+         "fill": "$colors.textPrimary",
+         "fontFamily": "$typography.family",
+         "fontSize": "$typography.label.size",
+         "lineHeight": "$typography.label.lineHeight",
+         "fontWeight": "$typography.label.weight",
+         "x": 0,
+         "y": 0
+        },
+        {
+         "id": "hb-tool-row-running-summary",
+         "type": "text",
+         "content": "StudioComposer.kt",
+         "fill": "$colors.textSecondary",
+         "fontFamily": "$typography.family",
+         "fontSize": "$typography.caption.size",
+         "lineHeight": "$typography.caption.lineHeight",
+         "fontWeight": "$typography.caption.weight",
+         "x": 0,
+         "y": 18
+        }
+       ],
+       "x": 38,
+       "y": 8,
+       "height": 34
+      },
+      {
+       "id": "hb-tool-row-running-status",
+       "type": "text",
+       "content": "Выполняется",
+       "fill": "$colors.textSecondary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.caption.size",
+       "lineHeight": "$typography.caption.lineHeight",
+       "fontWeight": "$typography.caption.weight",
+       "x": 368.5,
+       "y": 17
+      },
+      {
+       "id": "hb-tool-row-running-chevron",
+       "type": "ref",
+       "ref": "hb-icon-chevron-right",
+       "width": 14,
+       "height": 14,
+       "stroke": "$colors.textSecondary",
+       "strokeWidth": 0.98,
+       "x": 458,
+       "y": 18
+      }
+     ],
+     "x": 40,
+     "y": 1047,
+     "height": 50,
+     "layout": "none"
+    },
+    {
+     "id": "hb-tool-row-error",
+     "type": "frame",
+     "name": "HbToolCall / Error",
+     "reusable": true,
+     "width": 480,
+     "cornerRadius": 8,
+     "fill": "$surfaces.tool",
+     "stroke": "$surfaces.outline",
+     "strokeWidth": 1,
+     "strokeAlignment": "inner",
+     "children": [
+      {
+       "id": "hb-tool-row-error-icon",
+       "type": "ref",
+       "ref": "hb-icon-alert",
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.error",
+       "strokeWidth": 1.26,
+       "x": 8,
+       "y": 16
+      },
+      {
+       "id": "hb-tool-row-error-text",
+       "type": "frame",
+       "width": 349.5,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-tool-row-error-title",
+         "type": "text",
+         "content": "Прочитан файл",
+         "fill": "$colors.textPrimary",
+         "fontFamily": "$typography.family",
+         "fontSize": "$typography.label.size",
+         "lineHeight": "$typography.label.lineHeight",
+         "fontWeight": "$typography.label.weight",
+         "x": 0,
+         "y": 0
+        },
+        {
+         "id": "hb-tool-row-error-summary",
+         "type": "text",
+         "content": "StudioComposer.kt",
+         "fill": "$colors.textSecondary",
+         "fontFamily": "$typography.family",
+         "fontSize": "$typography.caption.size",
+         "lineHeight": "$typography.caption.lineHeight",
+         "fontWeight": "$typography.caption.weight",
+         "x": 0,
+         "y": 18
+        }
+       ],
+       "x": 38,
+       "y": 8,
+       "height": 34
+      },
+      {
+       "id": "hb-tool-row-error-status",
+       "type": "text",
+       "content": "Ошибка",
+       "fill": "$colors.error",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.caption.size",
+       "lineHeight": "$typography.caption.lineHeight",
+       "fontWeight": "$typography.caption.weight",
+       "x": 399.5,
+       "y": 17
+      },
+      {
+       "id": "hb-tool-row-error-chevron",
+       "type": "ref",
+       "ref": "hb-icon-chevron-right",
+       "width": 14,
+       "height": 14,
+       "stroke": "$colors.textSecondary",
+       "strokeWidth": 0.98,
+       "x": 458,
+       "y": 18
+      }
+     ],
+     "x": 40,
+     "y": 1121,
+     "height": 50,
+     "layout": "none"
+    },
+    {
+     "id": "hb-tool-row-reasoning",
+     "type": "frame",
+     "name": "HbToolCall / Reasoning",
+     "reusable": true,
+     "width": 480,
+     "cornerRadius": 8,
+     "fill": "$surfaces.tool",
+     "stroke": "$surfaces.outline",
+     "strokeWidth": 1,
+     "strokeAlignment": "inner",
+     "children": [
+      {
+       "id": "hb-tool-row-reasoning-icon",
+       "type": "ref",
+       "ref": "hb-icon-sparkles",
+       "width": 18,
+       "height": 18,
+       "stroke": "$surfaces.accent",
+       "strokeWidth": 1.26,
+       "x": 8,
+       "y": 16
+      },
+      {
+       "id": "hb-tool-row-reasoning-text",
+       "type": "frame",
+       "width": 408,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-tool-row-reasoning-title",
+         "type": "text",
+         "content": "Размышление",
+         "fill": "$colors.textPrimary",
+         "fontFamily": "$typography.family",
+         "fontSize": "$typography.label.size",
+         "lineHeight": "$typography.label.lineHeight",
+         "fontWeight": "$typography.label.weight",
+         "x": 0,
+         "y": 0
+        },
+        {
+         "id": "hb-tool-row-reasoning-summary",
+         "type": "text",
+         "content": "StudioComposer.kt",
+         "fill": "$colors.textSecondary",
+         "fontFamily": "$typography.family",
+         "fontSize": "$typography.caption.size",
+         "lineHeight": "$typography.caption.lineHeight",
+         "fontWeight": "$typography.caption.weight",
+         "x": 0,
+         "y": 18
+        }
+       ],
+       "x": 38,
+       "y": 8,
+       "height": 34
+      },
+      {
+       "id": "hb-tool-row-reasoning-chevron",
+       "type": "ref",
+       "ref": "hb-icon-chevron-right",
+       "width": 14,
+       "height": 14,
+       "stroke": "$colors.textSecondary",
+       "strokeWidth": 0.98,
+       "x": 458,
+       "y": 18
+      }
+     ],
+     "x": 40,
+     "y": 1195,
+     "height": 50,
+     "layout": "none"
+    },
+    {
+     "id": "hb-composer-pill",
+     "type": "frame",
+     "name": "HbComposerMenuButton / Pill",
+     "reusable": true,
+     "height": 32,
+     "cornerRadius": "$shapes.small",
+     "fill": "$surfaces.composerPill",
+     "children": [
+      {
+       "id": "hb-composer-pill-icon",
+       "type": "ref",
+       "ref": "hb-icon-layers",
+       "width": 14,
+       "height": 14,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 0.98,
+       "x": 8,
+       "y": 9
+      },
+      {
+       "id": "hb-composer-pill-label",
+       "type": "text",
+       "content": "Sonnet 5.5",
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "$typography.label.weight",
+       "x": 26,
+       "y": 7
+      },
+      {
+       "id": "hb-composer-pill-chevron",
+       "type": "ref",
+       "ref": "hb-icon-chevron-down",
+       "width": 14,
+       "height": 14,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 0.98,
+       "x": 95.6,
+       "y": 9
+      }
+     ],
+     "x": 40,
+     "y": 1268.9,
+     "width": 117.6,
+     "layout": "none"
+    },
+    {
+     "id": "hb-composer-accentpill",
+     "type": "frame",
+     "name": "HbComposerMenuButton / AccentPill",
+     "reusable": true,
+     "height": 32,
+     "cornerRadius": "$shapes.small",
+     "fill": "$surfaces.composerPillAccent",
+     "children": [
+      {
+       "id": "hb-composer-accentpill-icon",
+       "type": "ref",
+       "ref": "hb-icon-sparkles",
+       "width": 14,
+       "height": 14,
+       "stroke": "$surfaces.onComposerPillAccent",
+       "strokeWidth": 0.98,
+       "x": 8,
+       "y": 9
+      },
+      {
+       "id": "hb-composer-accentpill-label",
+       "type": "text",
+       "content": "medium",
+       "fill": "$surfaces.onComposerPillAccent",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "$typography.label.weight",
+       "x": 26,
+       "y": 7
+      },
+      {
+       "id": "hb-composer-accentpill-chevron",
+       "type": "ref",
+       "ref": "hb-icon-chevron-down",
+       "width": 14,
+       "height": 14,
+       "stroke": "$surfaces.onComposerPillAccent",
+       "strokeWidth": 0.98,
+       "x": 79.2,
+       "y": 9
+      }
+     ],
+     "x": 40,
+     "y": 1324.9,
+     "width": 101.2,
+     "layout": "none"
+    },
+    {
+     "id": "hb-composer-send",
+     "type": "frame",
+     "name": "HbComposer / Send",
+     "reusable": true,
+     "width": 32,
+     "height": 32,
+     "cornerRadius": "$shapes.small",
+     "fill": "$surfaces.composerAction",
+     "children": [
+      {
+       "id": "hb-composer-send-icon",
+       "type": "ref",
+       "ref": "hb-icon-arrow-up",
+       "width": 18,
+       "height": 18,
+       "stroke": "$surfaces.onComposerAction",
+       "strokeWidth": 1.26,
+       "x": 7,
+       "y": 7
+      }
+     ],
+     "x": 40,
+     "y": 1380.9,
+     "layout": "none"
+    },
+    {
+     "id": "hb-composer-stop",
+     "type": "frame",
+     "name": "HbComposer / Stop",
+     "reusable": true,
+     "width": 32,
+     "height": 32,
+     "cornerRadius": "$shapes.small",
+     "fill": "$surfaces.composerAction",
+     "children": [
+      {
+       "id": "hb-composer-stop-icon",
+       "type": "ref",
+       "ref": "hb-icon-stop",
+       "width": 18,
+       "height": 18,
+       "fill": "$surfaces.onComposerAction",
+       "x": 7,
+       "y": 7
+      }
+     ],
+     "x": 40,
+     "y": 1436.9,
+     "layout": "none"
+    },
+    {
+     "id": "hb-banner-error",
+     "type": "frame",
+     "name": "HbBanner / Error",
+     "reusable": true,
+     "width": 480,
+     "cornerRadius": "$shapes.medium",
+     "fill": "$colors.errorContainer",
+     "children": [
+      {
+       "id": "hb-banner-error-icon",
+       "type": "ref",
+       "ref": "hb-icon-alert",
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.error",
+       "strokeWidth": 1.26,
+       "x": 12,
+       "y": 8
+      },
+      {
+       "id": "hb-banner-error-message",
+       "type": "text",
+       "content": "Введите API-ключ",
+       "fill": "$colors.textPrimary",
+       "fontFamily": "$typography.family",
+       "fontSize": "$typography.label.size",
+       "lineHeight": "$typography.label.lineHeight",
+       "fontWeight": "$typography.label.weight",
+       "x": 38,
+       "y": 8
+      }
+     ],
+     "x": 40,
+     "y": 1492.9,
+     "height": 34,
+     "layout": "none"
+    },
+    {
+     "id": "hb-studio-mark",
+     "type": "frame",
+     "name": "HbStudioMark · dimensions.avatarSize",
+     "reusable": true,
+     "width": 28,
+     "height": 28,
+     "layout": "none",
+     "children": [
+      {
+       "id": "hb-studio-mark-disc",
+       "type": "ellipse",
+       "x": 0.5,
+       "y": 0.5,
+       "width": 27,
+       "height": 27,
+       "fill": "$surfaces.avatar"
+      },
+      {
+       "id": "hb-studio-mark-wave",
+       "type": "path",
+       "geometry": "M20,52 C37,55 32,29 43,29 C56,29 50,73 63,73 C74,73 68,48 81,49",
+       "viewBox": [
+        0,
+        0,
+        100,
+        100
+       ],
+       "x": 0,
+       "y": 0,
+       "width": 28,
+       "height": 28,
+       "stroke": "$surfaces.accent",
+       "strokeWidth": 2,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round"
+      }
+     ],
+     "x": 40,
+     "y": 1550.9
+    },
+    {
+     "id": "window-traffic-lights",
+     "type": "frame",
+     "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
+     "reusable": true,
+     "width": 96,
+     "height": 28,
+     "children": [
+      {
+       "id": "window-traffic-lights-0",
+       "type": "ellipse",
+       "width": 12,
+       "height": 12,
+       "fill": "$colors.outline",
+       "x": 8,
+       "y": 8
+      },
+      {
+       "id": "window-traffic-lights-1",
+       "type": "ellipse",
+       "width": 12,
+       "height": 12,
+       "fill": "$colors.outline",
+       "x": 28,
+       "y": 8
+      },
+      {
+       "id": "window-traffic-lights-2",
+       "type": "ellipse",
+       "width": 12,
+       "height": 12,
+       "fill": "$colors.outline",
+       "x": 48,
+       "y": 8
+      }
+     ],
+     "x": 40,
+     "y": 1602.9,
+     "layout": "none"
+    }
+   ],
+   "height": 1670.9
+  },
+  {
+   "id": "section-icons",
+   "type": "frame",
+   "name": "Icons",
+   "x": 640,
+   "y": 0,
+   "width": 520,
+   "layout": "none",
+   "fill": "$surfaces.backdrop",
+   "theme": {
+    "mode": "light",
+    "host": "desktop"
+   },
+   "children": [
+    {
+     "id": "icons-row-0",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-home",
+       "type": "path",
+       "name": "HbIcons / Home",
+       "reusable": true,
+       "geometry": "M2.5,9 L9,3.5 Q10,2.7 11,3.5 L17.5,9 M4.5,7.5 V15.5 Q4.5,17 6,17 H8 V12 H12 V17 H14 Q15.5,17 15.5,15.5 V7.5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-home-filled",
+       "type": "path",
+       "name": "HbIcons / HomeFilled",
+       "reusable": true,
+       "geometry": "M2,8.7 L8.8,3 Q10,2 11.2,3 L18,8.7 Q18.8,9.5 17.7,10.2 H16.5 V15.8 Q16.5,17.5 14.8,17.5 H12 V12.7 Q12,12 11.3,12 H8.7 Q8,12 8,12.7 V17.5 H5.2 Q3.5,17.5 3.5,15.8 V10.2 H2.3 Q1.2,9.5 2,8.7 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "fill": "$colors.textPrimary",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-history",
+       "type": "path",
+       "name": "HbIcons / History",
+       "reusable": true,
+       "geometry": "M17.5,10 A7.5,7.5 0,1 1,2.5,10 A7.5,7.5 0,1 1,17.5,10 Z M10,5.5 V10 L7.5,12",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-library",
+       "type": "path",
+       "name": "HbIcons / Library",
+       "reusable": true,
+       "geometry": "M3.5,3 H5 Q6,3 6,4 V16 Q6,17 5,17 H3.5 Q2.5,17 2.5,16 V4 Q2.5,3 3.5,3 Z M8.5,3 H10 Q11,3 11,4 V16 Q11,17 10,17 H8.5 Q7.5,17 7.5,16 V4 Q7.5,3 8.5,3 Z M13.2,3.6 L14.7,3.3 Q15.7,3.1 15.9,4.1 L18.2,15.6 Q18.4,16.6 17.4,16.8 L15.9,17.1 Q14.9,17.3 14.7,16.3 L12.4,4.8 Q12.2,3.8 13.2,3.6 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-images",
+       "type": "path",
+       "name": "HbIcons / Images",
+       "reusable": true,
+       "geometry": "M8,5 V4 Q8,2.5 9.5,2.5 H15.5 Q17,2.5 17,4 V11 Q17,12.5 15.5,12.5 H15 M4.5,6 H11.5 Q13,6 13,7.5 V15.5 Q13,17 11.5,17 H4.5 Q3,17 3,15.5 V7.5 Q3,6 4.5,6 Z M3,14 L6.5,10.5 L10,14 L11.5,12.5 L13,14 M10.2,9 A0.7,0.7 0,1 1,8.8,9 A0.7,0.7 0,1 1,10.2,9 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-chat",
+       "type": "path",
+       "name": "HbIcons / Chat",
+       "reusable": true,
+       "geometry": "M17.5,9.5 C17.5,13.6 14.2,16.5 10,16.5 Q8,16.5 6.2,15.7 L2.5,17 L3.7,13.5 Q2.5,11.8 2.5,9.5 C2.5,5.4 5.8,2.5 10,2.5 C14.2,2.5 17.5,5.4 17.5,9.5 Z M6.5,8 H13.5 M6.5,11.5 H11",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-more",
+       "type": "path",
+       "name": "HbIcons / More",
+       "reusable": true,
+       "geometry": "M4.7,10 A1.2,1.2 0,1 1,2.3,10 A1.2,1.2 0,1 1,4.7,10 Z M11.2,10 A1.2,1.2 0,1 1,8.8,10 A1.2,1.2 0,1 1,11.2,10 Z M17.7,10 A1.2,1.2 0,1 1,15.3,10 A1.2,1.2 0,1 1,17.7,10 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "fill": "$colors.textPrimary",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-arrow-left",
+       "type": "path",
+       "name": "HbIcons / ArrowLeft",
+       "reusable": true,
+       "geometry": "M16,10 H4 M9,5 L4,10 L9,15",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-arrow-right",
+       "type": "path",
+       "name": "HbIcons / ArrowRight",
+       "reusable": true,
+       "geometry": "M4,10 H16 M11,5 L16,10 L11,15",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-arrow-up",
+       "type": "path",
+       "name": "HbIcons / ArrowUp",
+       "reusable": true,
+       "geometry": "M10,16 V4 M5,9 L10,4 L15,9",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 40,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-10",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-arrow-down",
+       "type": "path",
+       "name": "HbIcons / ArrowDown",
+       "reusable": true,
+       "geometry": "M10,4 V16 M5,11 L10,16 L15,11",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-chevron-right",
+       "type": "path",
+       "name": "HbIcons / ChevronRight",
+       "reusable": true,
+       "geometry": "M7.5,5 L12.5,10 L7.5,15",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-chevron-down",
+       "type": "path",
+       "name": "HbIcons / ChevronDown",
+       "reusable": true,
+       "geometry": "M5,7.5 L10,12.5 L15,7.5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-sidebar",
+       "type": "path",
+       "name": "HbIcons / Sidebar",
+       "reusable": true,
+       "geometry": "M4,3.5 H16 Q17.5,3.5 17.5,5 V15 Q17.5,16.5 16,16.5 H4 Q2.5,16.5 2.5,15 V5 Q2.5,3.5 4,3.5 Z M8,3.5 V16.5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-folder",
+       "type": "path",
+       "name": "HbIcons / Folder",
+       "reusable": true,
+       "geometry": "M2.5,7 V5 Q2.5,3.5 4,3.5 H7 L9,5.5 H16 Q17.5,5.5 17.5,7 V14.5 Q17.5,16 16,16 H4 Q2.5,16 2.5,14.5 Z M2.5,8.5 H17.5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-laptop",
+       "type": "path",
+       "name": "HbIcons / Laptop",
+       "reusable": true,
+       "geometry": "M4,13.5 V5 Q4,3.5 5.5,3.5 H14.5 Q16,3.5 16,5 V13.5 M2,13.5 H18 L17,16 H3 Z M8,13.5 V14 H12 V13.5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-layers",
+       "type": "path",
+       "name": "HbIcons / Layers",
+       "reusable": true,
+       "geometry": "M10,2.5 L17.5,6.5 L10,10.5 L2.5,6.5 Z M2.5,10.5 L10,14.5 L17.5,10.5 M2.5,14 L10,18 L17.5,14",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-branch",
+       "type": "path",
+       "name": "HbIcons / Branch",
+       "reusable": true,
+       "geometry": "M7,4 A1.75,1.75 0,1 1,3.5,4 A1.75,1.75 0,1 1,7,4 Z M7,16 A1.75,1.75 0,1 1,3.5,16 A1.75,1.75 0,1 1,7,16 Z M16.5,5 A1.75,1.75 0,1 1,13,5 A1.75,1.75 0,1 1,16.5,5 Z M5.25,5.75 V14.25 M14.75,6.75 C14.75,12 5.25,8 5.25,14.25",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-plus",
+       "type": "path",
+       "name": "HbIcons / Plus",
+       "reusable": true,
+       "geometry": "M10,4 V16 M4,10 H16",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-plan",
+       "type": "path",
+       "name": "HbIcons / Plan",
+       "reusable": true,
+       "geometry": "M5,3.5 H15 Q16.5,3.5 16.5,5 V15 Q16.5,16.5 15,16.5 H5 Q3.5,16.5 3.5,15 V5 Q3.5,3.5 5,3.5 Z M7,7 H13 M7,10 H13 M7,13 H10",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 74,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-20",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-sparkles",
+       "type": "path",
+       "name": "HbIcons / Sparkles",
+       "reusable": true,
+       "geometry": "M9,3 Q9.5,9.5 16,10 Q9.5,10.5 9,17 Q8.5,10.5 2,10 Q8.5,9.5 9,3 Z M15.5,2 V6 M13.5,4 H17.5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-copy",
+       "type": "path",
+       "name": "HbIcons / Copy",
+       "reusable": true,
+       "geometry": "M7,6 V4 Q7,2.5 8.5,2.5 H15.5 Q17,2.5 17,4 V11 Q17,12.5 15.5,12.5 H14 M4.5,7 H11.5 Q13,7 13,8.5 V15.5 Q13,17 11.5,17 H4.5 Q3,17 3,15.5 V8.5 Q3,7 4.5,7 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-check",
+       "type": "path",
+       "name": "HbIcons / Check",
+       "reusable": true,
+       "geometry": "M4,10 L8,14 L16,6",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-alert",
+       "type": "path",
+       "name": "HbIcons / Alert",
+       "reusable": true,
+       "geometry": "M17.5,10 A7.5,7.5 0,1 1,2.5,10 A7.5,7.5 0,1 1,17.5,10 Z M10,5.5 V10.5 M10,14 V14.1",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-stop",
+       "type": "path",
+       "name": "HbIcons / Stop",
+       "reusable": true,
+       "geometry": "M6,4.5 H14 Q15.5,4.5 15.5,6 V14 Q15.5,15.5 14,15.5 H6 Q4.5,15.5 4.5,14 V6 Q4.5,4.5 6,4.5 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "fill": "$colors.textPrimary",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-chevron-left",
+       "type": "path",
+       "name": "HbIcons / ChevronLeft",
+       "reusable": true,
+       "geometry": "M12.5,5 L7.5,10 L12.5,15",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-chevron-up",
+       "type": "path",
+       "name": "HbIcons / ChevronUp",
+       "reusable": true,
+       "geometry": "M5,12.5 L10,7.5 L15,12.5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-grid",
+       "type": "path",
+       "name": "HbIcons / Grid",
+       "reusable": true,
+       "geometry": "M3,3 H8 V8 H3 Z M12,3 H17 V8 H12 Z M3,12 H8 V17 H3 Z M12,12 H17 V17 H12 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-menu",
+       "type": "path",
+       "name": "HbIcons / Menu",
+       "reusable": true,
+       "geometry": "M3,5 H17 M3,10 H17 M3,15 H17",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-external-link",
+       "type": "path",
+       "name": "HbIcons / ExternalLink",
+       "reusable": true,
+       "geometry": "M11,3 H17 V9 M17,3 L9,11 M8,4 H5 Q3,4 3,6 V15 Q3,17 5,17 H14 Q16,17 16,15 V12",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 108,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-30",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-maximize",
+       "type": "path",
+       "name": "HbIcons / Maximize",
+       "reusable": true,
+       "geometry": "M3,8 V3 H8 M12,3 H17 V8 M17,12 V17 H12 M8,17 H3 V12",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-minimize",
+       "type": "path",
+       "name": "HbIcons / Minimize",
+       "reusable": true,
+       "geometry": "M3,8 H8 V3 M12,3 V8 H17 M17,12 H12 V17 M8,17 V12 H3",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-minus",
+       "type": "path",
+       "name": "HbIcons / Minus",
+       "reusable": true,
+       "geometry": "M4,10 H16",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-close",
+       "type": "path",
+       "name": "HbIcons / Close",
+       "reusable": true,
+       "geometry": "M5,5 L15,15 M15,5 L5,15",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-zoom-in",
+       "type": "path",
+       "name": "HbIcons / ZoomIn",
+       "reusable": true,
+       "geometry": "M14,8.5 A5.5,5.5 0,1 1,3,8.5 A5.5,5.5 0,1 1,14,8.5 Z M12.5,12.5 L17,17 M6,8.5 H11 M8.5,6 V11",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-zoom-out",
+       "type": "path",
+       "name": "HbIcons / ZoomOut",
+       "reusable": true,
+       "geometry": "M14,8.5 A5.5,5.5 0,1 1,3,8.5 A5.5,5.5 0,1 1,14,8.5 Z M12.5,12.5 L17,17 M6,8.5 H11",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-search",
+       "type": "path",
+       "name": "HbIcons / Search",
+       "reusable": true,
+       "geometry": "M14,8.5 A5.5,5.5 0,1 1,3,8.5 A5.5,5.5 0,1 1,14,8.5 Z M12.5,12.5 L17,17",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-edit",
+       "type": "path",
+       "name": "HbIcons / Edit",
+       "reusable": true,
+       "geometry": "M12,4 L16,8 M3,17 L4,12 L13,3 Q14,2 15,3 L17,5 Q18,6 17,7 L8,16 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-clipboard",
+       "type": "path",
+       "name": "HbIcons / Clipboard",
+       "reusable": true,
+       "geometry": "M7,4 H5 Q3.5,4 3.5,5.5 V16 Q3.5,17.5 5,17.5 H15 Q16.5,17.5 16.5,16 V5.5 Q16.5,4 15,4 H13 M8,2.5 H12 Q13,2.5 13,3.5 V5 H7 V3.5 Q7,2.5 8,2.5 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-trash",
+       "type": "path",
+       "name": "HbIcons / Trash",
+       "reusable": true,
+       "geometry": "M3,5 H17 M7,5 V3 H13 V5 M5,5 L6,17 H14 L15,5 M8.5,8 V14 M11.5,8 V14",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 142,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-40",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-download",
+       "type": "path",
+       "name": "HbIcons / Download",
+       "reusable": true,
+       "geometry": "M10,3 V12 M6,8 L10,12 L14,8 M3,12 V16 Q3,17 4,17 H16 Q17,17 17,16 V12",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-upload",
+       "type": "path",
+       "name": "HbIcons / Upload",
+       "reusable": true,
+       "geometry": "M10,12 V3 M6,7 L10,3 L14,7 M3,12 V16 Q3,17 4,17 H16 Q17,17 17,16 V12",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-refresh",
+       "type": "path",
+       "name": "HbIcons / Refresh",
+       "reusable": true,
+       "geometry": "M3.5,7 C4.7,3.4 9,1.5 12.5,3 C14.6,3.9 16,5.3 17,7 M17,3 V7 H13 M16.5,13 C15.3,16.6 11,18.5 7.5,17 C5.4,16.1 4,14.7 3,13 M3,17 V13 H7",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-undo",
+       "type": "path",
+       "name": "HbIcons / Undo",
+       "reusable": true,
+       "geometry": "M6.5,3.5 L3,7 L6.5,10.5 M3,7 H12 A4.5,4.5 0,0 1,12,16 H9",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-redo",
+       "type": "path",
+       "name": "HbIcons / Redo",
+       "reusable": true,
+       "geometry": "M13.5,3.5 L17,7 L13.5,10.5 M17,7 H8 A4.5,4.5 0,0 0,8,16 H11",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-filter",
+       "type": "path",
+       "name": "HbIcons / Filter",
+       "reusable": true,
+       "geometry": "M3,3 H17 L12,10 V16 L8,18 V10 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-sort",
+       "type": "path",
+       "name": "HbIcons / Sort",
+       "reusable": true,
+       "geometry": "M4,4 V16 M2,14 L4,16 L6,14 M9,5 H17 M9,10 H15 M9,15 H12",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-share",
+       "type": "path",
+       "name": "HbIcons / Share",
+       "reusable": true,
+       "geometry": "M6.065,9.217 L13.935,5.283 M6.065,10.783 L13.935,14.717 M6.25,10 A1.75,1.75 0,1 1,2.75,10 A1.75,1.75 0,1 1,6.25,10 Z M17.25,4.5 A1.75,1.75 0,1 1,13.75,4.5 A1.75,1.75 0,1 1,17.25,4.5 Z M17.25,15.5 A1.75,1.75 0,1 1,13.75,15.5 A1.75,1.75 0,1 1,17.25,15.5 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-link",
+       "type": "path",
+       "name": "HbIcons / Link",
+       "reusable": true,
+       "geometry": "M8,12 L12,8 M6.5,8.5 L4.5,10.5 A3.54,3.54 0,0 0,9.5,15.5 L11.5,13.5 M8.5,6.5 L10.5,4.5 A3.54,3.54 0,0 1,15.5,9.5 L13.5,11.5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-pin",
+       "type": "path",
+       "name": "HbIcons / Pin",
+       "reusable": true,
+       "geometry": "M7,3 H13 L12,8 L15,11 V12 H5 V11 L8,8 Z M10,12 V18",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 176,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-50",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-unpin",
+       "type": "path",
+       "name": "HbIcons / Unpin",
+       "reusable": true,
+       "geometry": "M3,3 L17,17 M9,3 H13 L12,8 M8,8 L5,11 V12 H12 M10,12 V18",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-more-vertical",
+       "type": "path",
+       "name": "HbIcons / MoreVertical",
+       "reusable": true,
+       "geometry": "M10,4.7 A1.2,1.2 0,1 1,10,2.3 A1.2,1.2 0,1 1,10,4.7 Z M10,11.2 A1.2,1.2 0,1 1,10,8.8 A1.2,1.2 0,1 1,10,11.2 Z M10,17.7 A1.2,1.2 0,1 1,10,15.3 A1.2,1.2 0,1 1,10,17.7 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "fill": "$colors.textPrimary",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-settings",
+       "type": "path",
+       "name": "HbIcons / Settings",
+       "reusable": true,
+       "geometry": "M8.121,4.039 L8.887,2.078 L11.113,2.078 L11.879,4.039 A6.25,6.25 0,0 1,12.886,4.456 L14.815,3.611 L16.389,5.185 L15.544,7.114 A6.25,6.25 0,0 1,15.961,8.121 L17.922,8.887 L17.922,11.113 L15.961,11.879 A6.25,6.25 0,0 1,15.544,12.886 L16.389,14.815 L14.815,16.389 L12.886,15.544 A6.25,6.25 0,0 1,11.879,15.961 L11.113,17.922 L8.887,17.922 L8.121,15.961 A6.25,6.25 0,0 1,7.114,15.544 L5.185,16.389 L3.611,14.815 L4.456,12.886 A6.25,6.25 0,0 1,4.039,11.879 L2.078,11.113 L2.078,8.887 L4.039,8.121 A6.25,6.25 0,0 1,4.456,7.114 L3.611,5.185 L5.185,3.611 L7.114,4.456 A6.25,6.25 0,0 1,8.121,4.039 Z M12.5,10 A2.5,2.5 0,1 1,7.5,10 A2.5,2.5 0,1 1,12.5,10 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-sliders",
+       "type": "path",
+       "name": "HbIcons / Sliders",
+       "reusable": true,
+       "geometry": "M3,5 H6 M10,5 H17 M3,15 H10 M14,15 H17 M10,5 A2,2 0,1 1,6,5 A2,2 0,1 1,10,5 Z M14,15 A2,2 0,1 1,10,15 A2,2 0,1 1,14,15 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-folder-open",
+       "type": "path",
+       "name": "HbIcons / FolderOpen",
+       "reusable": true,
+       "geometry": "M2.5,8 V5 Q2.5,3.5 4,3.5 H7 L9,5.5 H15 Q16.5,5.5 16.5,7 V8 M2.5,8 H18 L15.5,16 H4 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-folder-plus",
+       "type": "path",
+       "name": "HbIcons / FolderPlus",
+       "reusable": true,
+       "geometry": "M2.5,7 V5 Q2.5,3.5 4,3.5 H7 L9,5.5 H16 Q17.5,5.5 17.5,7 V15 Q17.5,16.5 16,16.5 H4 Q2.5,16.5 2.5,15 Z M7,11 H13 M10,8 V14",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-file",
+       "type": "path",
+       "name": "HbIcons / File",
+       "reusable": true,
+       "geometry": "M5,2.5 H11 L16,7.5 V16 Q16,17.5 14.5,17.5 H5 Q3.5,17.5 3.5,16 V4 Q3.5,2.5 5,2.5 Z M11,2.5 V7.5 H16",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-file-text",
+       "type": "path",
+       "name": "HbIcons / FileText",
+       "reusable": true,
+       "geometry": "M5,2.5 H11 L16,7.5 V16 Q16,17.5 14.5,17.5 H5 Q3.5,17.5 3.5,16 V4 Q3.5,2.5 5,2.5 Z M11,2.5 V7.5 H16 M7,11 H12.5 M7,14 H11",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-file-code",
+       "type": "path",
+       "name": "HbIcons / FileCode",
+       "reusable": true,
+       "geometry": "M5,2.5 H11 L16,7.5 V16 Q16,17.5 14.5,17.5 H5 Q3.5,17.5 3.5,16 V4 Q3.5,2.5 5,2.5 Z M11,2.5 V7.5 H16 M8,10 L6,12 L8,14 M12,10 L14,12 L12,14",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-file-plus",
+       "type": "path",
+       "name": "HbIcons / FilePlus",
+       "reusable": true,
+       "geometry": "M5,2.5 H11 L16,7.5 V16 Q16,17.5 14.5,17.5 H5 Q3.5,17.5 3.5,16 V4 Q3.5,2.5 5,2.5 Z M11,2.5 V7.5 H16 M7,12 H13 M10,9 V15",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 210,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-60",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-image",
+       "type": "path",
+       "name": "HbIcons / Image",
+       "reusable": true,
+       "geometry": "M4,3 H16 Q17.5,3 17.5,4.5 V15.5 Q17.5,17 16,17 H4 Q2.5,17 2.5,15.5 V4.5 Q2.5,3 4,3 Z M3,14 L7,10 L11,14 L14,11 L17,14 M13,7 A1,1 0,1 1,11,7 A1,1 0,1 1,13,7 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-archive",
+       "type": "path",
+       "name": "HbIcons / Archive",
+       "reusable": true,
+       "geometry": "M2.5,3 H17.5 V7 H2.5 Z M4,7 V17 H16 V7 M8,10 H12",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-bookmark",
+       "type": "path",
+       "name": "HbIcons / Bookmark",
+       "reusable": true,
+       "geometry": "M5,3 H15 V18 L10,14.5 L5,18 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-tag",
+       "type": "path",
+       "name": "HbIcons / Tag",
+       "reusable": true,
+       "geometry": "M3,3 H10 L18,11 L11,18 L3,10 Z M7,6 A1,1 0,1 1,5,6 A1,1 0,1 1,7,6 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-calendar",
+       "type": "path",
+       "name": "HbIcons / Calendar",
+       "reusable": true,
+       "geometry": "M4,4 H16 Q17.5,4 17.5,5.5 V16 Q17.5,17.5 16,17.5 H4 Q2.5,17.5 2.5,16 V5.5 Q2.5,4 4,4 Z M6,2 V6 M14,2 V6 M2.5,8 H17.5 M6,11 H7 M10,11 H11 M6,14 H7 M10,14 H11",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-chats",
+       "type": "path",
+       "name": "HbIcons / Chats",
+       "reusable": true,
+       "geometry": "M6,3 H16 Q17,3 17,4 V11 Q17,12 16,12 H14 M3,7 H12 Q13,7 13,8 V14 Q13,15 12,15 H6 L3,18 V15 Q2,15 2,14 V8 Q2,7 3,7 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-send",
+       "type": "path",
+       "name": "HbIcons / Send",
+       "reusable": true,
+       "geometry": "M2.5,3 L18,10 L2.5,17 L5.5,10 Z M5.5,10 H18",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-reply",
+       "type": "path",
+       "name": "HbIcons / Reply",
+       "reusable": true,
+       "geometry": "M7,4 L3,8 L7,12 M3,8 H10 C14.4,8 17,10.6 17,15",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-mail",
+       "type": "path",
+       "name": "HbIcons / Mail",
+       "reusable": true,
+       "geometry": "M4,4 H16 Q17.5,4 17.5,5.5 V14.5 Q17.5,16 16,16 H4 Q2.5,16 2.5,14.5 V5.5 Q2.5,4 4,4 Z M3,5 L10,10.5 L17,5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-inbox",
+       "type": "path",
+       "name": "HbIcons / Inbox",
+       "reusable": true,
+       "geometry": "M5,3 H15 L18,11 V17 H2 V11 Z M2,11 H7 L8,13 H12 L13,11 H18",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 244,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-70",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-bell",
+       "type": "path",
+       "name": "HbIcons / Bell",
+       "reusable": true,
+       "geometry": "M4,14 L5.5,11 V7 A4.5,4.5 0,0 1,14.5,7 V11 L16,14 Z M8,17 Q10,19 12,17 M10,1.5 V2.5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-bell-off",
+       "type": "path",
+       "name": "HbIcons / BellOff",
+       "reusable": true,
+       "geometry": "M3,3 L17,17 M5.5,6 V11 L4,14 H13 M14.5,11 V7 A4.5,4.5 0,0 0,8.5,2.8 M8,17 Q10,19 12,17",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-user",
+       "type": "path",
+       "name": "HbIcons / User",
+       "reusable": true,
+       "geometry": "M13.5,6 A3.5,3.5 0,1 1,6.5,6 A3.5,3.5 0,1 1,13.5,6 Z M3.5,17 V15 Q3.5,11.5 10,11.5 Q16.5,11.5 16.5,15 V17",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-users",
+       "type": "path",
+       "name": "HbIcons / Users",
+       "reusable": true,
+       "geometry": "M11,6 A3,3 0,1 1,5,6 A3,3 0,1 1,11,6 Z M2,17 V15 Q2,12 8,12 Q14,12 14,15 V17 M14,3 A3,3 0,0 1,14,9 M16,12 Q18,13 18,15 V17",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-mic",
+       "type": "path",
+       "name": "HbIcons / Mic",
+       "reusable": true,
+       "geometry": "M7,5 A3,3 0,0 1,13,5 V10 A3,3 0,0 1,7,10 Z M4,9 V10 A6,6 0,0 0,16,10 V9 M10,16 V18 M7,18 H13",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-mic-off",
+       "type": "path",
+       "name": "HbIcons / MicOff",
+       "reusable": true,
+       "geometry": "M3,3 L17,17 M7,7 V10 A3,3 0,0 0,11,12.8 M9,2.2 Q13,1 13,5 V9 M4,9 V10 A6,6 0,0 0,13,15.2 M16,9 V10 Q16,11 15.5,12 M10,16 V18 M7,18 H13",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-paperclip",
+       "type": "path",
+       "name": "HbIcons / Paperclip",
+       "reusable": true,
+       "geometry": "M13.182,8.939 L8.586,13.536 A1.5,1.5 0,0 1,6.464,11.414 L12.121,5.757 A3,3 0,0 1,16.364,10 L10.707,15.657 A4.5,4.5 0,0 1,4.343,9.293 L8.939,4.697",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-video",
+       "type": "path",
+       "name": "HbIcons / Video",
+       "reusable": true,
+       "geometry": "M3,5 H11 Q12,5 12,6 V14 Q12,15 11,15 H3 Q2,15 2,14 V6 Q2,5 3,5 Z M12,8 L18,5 V15 L12,12",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-info",
+       "type": "path",
+       "name": "HbIcons / Info",
+       "reusable": true,
+       "geometry": "M17.5,10 A7.5,7.5 0,1 1,2.5,10 A7.5,7.5 0,1 1,17.5,10 Z M10,9 V14 M10,6 V6.1",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-warning",
+       "type": "path",
+       "name": "HbIcons / Warning",
+       "reusable": true,
+       "geometry": "M8.5,3 Q10,1 11.5,3 L18,15 Q19,17 17,17 H3 Q1,17 2,15 Z M10,7 V11 M10,14 V14.1",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 278,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-80",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-help",
+       "type": "path",
+       "name": "HbIcons / Help",
+       "reusable": true,
+       "geometry": "M17.5,10 A7.5,7.5 0,1 1,2.5,10 A7.5,7.5 0,1 1,17.5,10 Z M7.5,7 Q7.5,4.5 10,4.5 Q12.5,4.5 12.5,7 Q12.5,8.5 10,10 V11 M10,14 V14.1",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-success",
+       "type": "path",
+       "name": "HbIcons / Success",
+       "reusable": true,
+       "geometry": "M17.5,10 A7.5,7.5 0,1 1,2.5,10 A7.5,7.5 0,1 1,17.5,10 Z M6,10 L9,13 L14,7",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-error",
+       "type": "path",
+       "name": "HbIcons / Error",
+       "reusable": true,
+       "geometry": "M17.5,10 A7.5,7.5 0,1 1,2.5,10 A7.5,7.5 0,1 1,17.5,10 Z M7,7 L13,13 M13,7 L7,13",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-circle",
+       "type": "path",
+       "name": "HbIcons / Circle",
+       "reusable": true,
+       "geometry": "M17.5,10 A7.5,7.5 0,1 1,2.5,10 A7.5,7.5 0,1 1,17.5,10 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-loading",
+       "type": "path",
+       "name": "HbIcons / Loading",
+       "reusable": true,
+       "geometry": "M10,2.5 A7.5,7.5 0,1 1,2.5,10",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-lock",
+       "type": "path",
+       "name": "HbIcons / Lock",
+       "reusable": true,
+       "geometry": "M6,8 V6 A4,4 0,0 1,14,6 V8 M4,8 H16 V17.5 H4 Z M10,12 V14",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-unlock",
+       "type": "path",
+       "name": "HbIcons / Unlock",
+       "reusable": true,
+       "geometry": "M6,8 V6 A4,4 0,0 1,13.5,4 M4,8 H16 V17.5 H4 Z M10,12 V14",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-shield",
+       "type": "path",
+       "name": "HbIcons / Shield",
+       "reusable": true,
+       "geometry": "M10,2 L17,5 V10 Q17,15 10,18 Q3,15 3,10 V5 Z M7,10 L9,12 L13,7",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-eye",
+       "type": "path",
+       "name": "HbIcons / Eye",
+       "reusable": true,
+       "geometry": "M2,10 C4,6.5 6.5,4.5 10,4.5 C13.5,4.5 16,6.5 18,10 C16,13.5 13.5,15.5 10,15.5 C6.5,15.5 4,13.5 2,10 Z M13,10 A3,3 0,1 1,7,10 A3,3 0,1 1,13,10 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-eye-off",
+       "type": "path",
+       "name": "HbIcons / EyeOff",
+       "reusable": true,
+       "geometry": "M3,3 L17,17 M7,4.9 C11.6,3.5 15.4,5.5 18,10 C17.2,11.5 16.3,12.6 15.2,13.5 M12.8,15.1 C8.5,16.6 4.5,14.4 2,10 C2.8,8.6 3.7,7.4 4.8,6.5 M10,7 A3,3 0,0 1,13,10 M10,13 A3,3 0,0 1,7,10",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 312,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-90",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-wifi",
+       "type": "path",
+       "name": "HbIcons / Wifi",
+       "reusable": true,
+       "geometry": "M1.515,8.015 A12,12 0,0 1,18.485,8.015 M4.343,10.843 A8,8 0,0 1,15.657,10.843 M7.172,13.672 A4,4 0,0 1,12.828,13.672 M10,16.5 V16.6",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-wifi-off",
+       "type": "path",
+       "name": "HbIcons / WifiOff",
+       "reusable": true,
+       "geometry": "M3,3 L17,17 M1.515,8.015 A12,12 0,0 1,4.2,5.995 M7,4.881 A12,12 0,0 1,18.485,8.015 M4.343,10.843 A8,8 0,0 1,7,9.084 M10.5,8.516 A8,8 0,0 1,15.657,10.843 M7.172,13.672 A4,4 0,0 1,12.828,13.672 M10,16.5 V16.6",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-sun",
+       "type": "path",
+       "name": "HbIcons / Sun",
+       "reusable": true,
+       "geometry": "M14,10 A4,4 0,1 1,6,10 A4,4 0,1 1,14,10 Z M10,2 V4 M10,16 V18 M2,10 H4 M16,10 H18 M4.343,4.343 L5.757,5.757 M14.243,14.243 L15.657,15.657 M4.343,15.657 L5.757,14.243 M14.243,5.757 L15.657,4.343",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-moon",
+       "type": "path",
+       "name": "HbIcons / Moon",
+       "reusable": true,
+       "geometry": "M17,12 A7.5,7.5 0,1 1,8,3 A6,6 0,0 0,17,12 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-monitor",
+       "type": "path",
+       "name": "HbIcons / Monitor",
+       "reusable": true,
+       "geometry": "M3,3 H17 Q18,3 18,4 V12 Q18,13 17,13 H3 Q2,13 2,12 V4 Q2,3 3,3 Z M10,13 V17 M6,17 H14",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-phone",
+       "type": "path",
+       "name": "HbIcons / Phone",
+       "reusable": true,
+       "geometry": "M7,2 H13 Q15,2 15,4 V16 Q15,18 13,18 H7 Q5,18 5,16 V4 Q5,2 7,2 Z M8,4 H12 M9,15.5 H11",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-terminal",
+       "type": "path",
+       "name": "HbIcons / Terminal",
+       "reusable": true,
+       "geometry": "M4,3 H16 Q18,3 18,5 V15 Q18,17 16,17 H4 Q2,17 2,15 V5 Q2,3 4,3 Z M5,7 L8,10 L5,13 M11,13 H15",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-code",
+       "type": "path",
+       "name": "HbIcons / Code",
+       "reusable": true,
+       "geometry": "M6,5 L1.5,10 L6,15 M14,5 L18.5,10 L14,15 M12,3 L8,17",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-commit",
+       "type": "path",
+       "name": "HbIcons / Commit",
+       "reusable": true,
+       "geometry": "M13.5,10 A3.5,3.5 0,1 1,6.5,10 A3.5,3.5 0,1 1,13.5,10 Z M2,10 H6.5 M13.5,10 H18",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-merge",
+       "type": "path",
+       "name": "HbIcons / Merge",
+       "reusable": true,
+       "geometry": "M7,4 A2,2 0,1 1,3,4 A2,2 0,1 1,7,4 Z M7,16 A2,2 0,1 1,3,16 A2,2 0,1 1,7,16 Z M17,5 A2,2 0,1 1,13,5 A2,2 0,1 1,17,5 Z M5,6 V14 M15,7 Q15,11 5,11",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 346,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-100",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-pull-request",
+       "type": "path",
+       "name": "HbIcons / PullRequest",
+       "reusable": true,
+       "geometry": "M7,4 A2,2 0,1 1,3,4 A2,2 0,1 1,7,4 Z M7,16 A2,2 0,1 1,3,16 A2,2 0,1 1,7,16 Z M17,16 A2,2 0,1 1,13,16 A2,2 0,1 1,17,16 Z M5,6 V14 M15,14 V8 Q15,5 12,5 H10 M12,3 L10,5 L12,7",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-cloud",
+       "type": "path",
+       "name": "HbIcons / Cloud",
+       "reusable": true,
+       "geometry": "M6,15.5 C1,15.5 1,8 5.5,7.5 C6,1 14,1 15,6.5 C19.5,6.5 19.5,15.5 15,15.5 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-cloud-off",
+       "type": "path",
+       "name": "HbIcons / CloudOff",
+       "reusable": true,
+       "geometry": "M3,3 L17,17 M5.5,7.5 C1,8 1,15.5 6,15.5 H12 M8,3.5 Q14,1 15,6.5 C18.5,6.5 19.5,10.5 17.5,13",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-database",
+       "type": "path",
+       "name": "HbIcons / Database",
+       "reusable": true,
+       "geometry": "M17,5 A7,2.5 0,1 1,3,5 A7,2.5 0,1 1,17,5 Z M3,5 V15 A7,2.5 0,0 0,17,15 V5 M3,10 A7,2.5 0,0 0,17,10",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 102,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-globe",
+       "type": "path",
+       "name": "HbIcons / Globe",
+       "reusable": true,
+       "geometry": "M17.5,10 A7.5,7.5 0,1 1,2.5,10 A7.5,7.5 0,1 1,17.5,10 Z M10,2.5 C5,6 5,14 10,17.5 C15,14 15,6 10,2.5 M2.5,10 H17.5",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 136,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-play",
+       "type": "path",
+       "name": "HbIcons / Play",
+       "reusable": true,
+       "geometry": "M6,3.5 L17,10 L6,16.5 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 170,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-pause",
+       "type": "path",
+       "name": "HbIcons / Pause",
+       "reusable": true,
+       "geometry": "M6,4 V16 M14,4 V16",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 204,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-volume",
+       "type": "path",
+       "name": "HbIcons / Volume",
+       "reusable": true,
+       "geometry": "M3,7 H6 L11,3 V17 L6,13 H3 Z M14,7 Q17,10 14,13 M16,4 Q21,10 16,16",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 238,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-volume-off",
+       "type": "path",
+       "name": "HbIcons / VolumeOff",
+       "reusable": true,
+       "geometry": "M3,7 H6 L10,3 V17 L6,13 H3 Z M14,7 L18,13 M18,7 L14,13",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 272,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-headphones",
+       "type": "path",
+       "name": "HbIcons / Headphones",
+       "reusable": true,
+       "geometry": "M3,12 V10 A7,7 0,0 1,17,10 V12 M3,11 H6 V17 H3 Z M14,11 H17 V17 H14 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 306,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 380,
+     "width": 324,
+     "height": 18,
+     "layout": "none"
+    },
+    {
+     "id": "icons-row-110",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-icon-camera",
+       "type": "path",
+       "name": "HbIcons / Camera",
+       "reusable": true,
+       "geometry": "M3,6 H6 L7,3 H13 L14,6 H17 Q18,6 18,7 V16 Q18,17 17,17 H3 Q2,17 2,16 V7 Q2,6 3,6 Z M14,11 A4,4 0,1 1,6,11 A4,4 0,1 1,14,11 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-heart",
+       "type": "path",
+       "name": "HbIcons / Heart",
+       "reusable": true,
+       "geometry": "M10,6 C8,1.5 2.5,2 2.5,6.5 C2.5,10 6,13 10,17 C14,13 17.5,10 17.5,6.5 C17.5,2 12,1.5 10,6 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 34,
+       "y": 0
+      },
+      {
+       "id": "hb-icon-star",
+       "type": "path",
+       "name": "HbIcons / Star",
+       "reusable": true,
+       "geometry": "M10,2 L12.116,7.088 L17.608,7.528 L13.424,11.112 L14.702,16.472 L10,13.6 L5.298,16.472 L6.576,11.112 L2.392,7.528 L7.884,7.088 Z",
+       "viewBox": [
+        0,
+        0,
+        20,
+        20
+       ],
+       "width": 18,
+       "height": 18,
+       "stroke": "$colors.textPrimary",
+       "strokeWidth": 1.26,
+       "strokeLinecap": "round",
+       "strokeLinejoin": "round",
+       "x": 68,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 414,
+     "width": 86,
+     "height": 18,
+     "layout": "none"
+    }
+   ],
+   "height": 472
+  },
+  {
+   "id": "section-illustrations",
+   "type": "frame",
+   "name": "Illustrations",
+   "x": 1240,
+   "y": 0,
+   "width": 600,
+   "layout": "none",
+   "fill": "$surfaces.backdrop",
+   "theme": {
+    "mode": "light",
+    "host": "desktop"
+   },
+   "children": [
+    {
+     "id": "illustrations-row-0",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-illustration-welcome",
+       "type": "frame",
+       "name": "HbIllustration / Welcome · dimensions.illustrationWidth",
+       "reusable": true,
+       "width": 240,
+       "height": 180,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-illustration-welcome-bg",
+         "type": "path",
+         "geometry": "M40,101 C29,65 62,26 103,33 C142,8 207,38 201,89 C222,132 172,157 132,147 C87,164 32,145 40,101 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primaryContainer"
+        },
+        {
+         "id": "hb-illustration-welcome-floor",
+         "type": "path",
+         "geometry": "M36,150 H204 M39,57 H47 M43,53 V61 M196,117 H204 M200,113 V121",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-welcome-back",
+         "type": "path",
+         "geometry": "M63,53 L165,40 L180,137 L78,149 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.surfaceElevated",
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-welcome-paper",
+         "type": "path",
+         "geometry": "M65,62 Q65,54 73,54 H161 Q169,54 169,62 V135 Q169,143 161,143 H73 Q65,143 65,135 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.assistantSurface",
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-welcome-accent",
+         "type": "path",
+         "geometry": "M153,30 Q155,51 175,53 Q155,55 153,76 Q151,55 131,53 Q151,51 153,30 Z M88,79 H116 Q121,79 121,84 V98 Q121,103 116,103 H88 Q83,103 83,98 V84 Q83,79 88,79 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primary",
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-welcome-detail",
+         "type": "path",
+         "geometry": "M65,68 H127 M79,61 H81 M86,61 H88 M93,61 H95 M83,117 H150 M83,127 H128 M135,86 H153 M135,97 H145 M185,78 V88 M180,83 H190",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-welcome-accent-detail",
+         "type": "path",
+         "geometry": "M93,91 L98,96 L111,85",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        }
+       ],
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-illustration-empty-workspace",
+       "type": "frame",
+       "name": "HbIllustration / EmptyWorkspace · dimensions.illustrationWidth",
+       "reusable": true,
+       "width": 240,
+       "height": 180,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-illustration-empty-workspace-bg",
+         "type": "path",
+         "geometry": "M40,101 C29,65 62,26 103,33 C142,8 207,38 201,89 C222,132 172,157 132,147 C87,164 32,145 40,101 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primaryContainer"
+        },
+        {
+         "id": "hb-illustration-empty-workspace-floor",
+         "type": "path",
+         "geometry": "M36,150 H204 M39,57 H47 M43,53 V61 M196,117 H204 M200,113 V121",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-empty-workspace-back",
+         "type": "path",
+         "geometry": "M61,73 V58 Q61,52 67,52 H103 L117,65 H173 Q179,65 179,71 V135 H61 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.surfaceElevated",
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-empty-workspace-paper",
+         "type": "path",
+         "geometry": "M83,43 H132 L151,62 V121 H83 Z M132,43 V62 H151",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.assistantSurface",
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-empty-workspace-accent",
+         "type": "path",
+         "geometry": "M55,83 Q54,77 61,77 H178 Q185,77 184,84 L176,140 Q175,146 168,146 H72 Q65,146 64,140 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primary",
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-empty-workspace-detail",
+         "type": "path",
+         "geometry": "M91,58 H117 M96,69 H123 M174,39 V49 M169,44 H179",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-empty-workspace-accent-detail",
+         "type": "path",
+         "geometry": "M95,77 V84 M110,77 V84 M87,107 H151 M87,119 H131",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        }
+       ],
+       "x": 264,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 40,
+     "width": 504,
+     "height": 180,
+     "layout": "none"
+    },
+    {
+     "id": "illustrations-row-2",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-illustration-empty-chat",
+       "type": "frame",
+       "name": "HbIllustration / EmptyChat · dimensions.illustrationWidth",
+       "reusable": true,
+       "width": 240,
+       "height": 180,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-illustration-empty-chat-bg",
+         "type": "path",
+         "geometry": "M40,101 C29,65 62,26 103,33 C142,8 207,38 201,89 C222,132 172,157 132,147 C87,164 32,145 40,101 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primaryContainer"
+        },
+        {
+         "id": "hb-illustration-empty-chat-floor",
+         "type": "path",
+         "geometry": "M36,150 H204 M39,57 H47 M43,53 V61 M196,117 H204 M200,113 V121",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-empty-chat-back",
+         "type": "path",
+         "geometry": "M101,77 H175 Q183,77 183,85 V126 Q183,134 175,134 H162 L163,148 L145,134 H101 Q93,134 93,126 V85 Q93,77 101,77 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.surfaceElevated",
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-empty-chat-paper",
+         "type": "path",
+         "geometry": "M61,47 H144 Q153,47 153,56 V105 Q153,114 144,114 H89 L69,129 L71,114 H61 Q52,114 52,105 V56 Q52,47 61,47 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.assistantSurface",
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-empty-chat-accent",
+         "type": "path",
+         "geometry": "M175,37 Q176,50 189,51 Q176,52 175,65 Q174,52 161,51 Q174,50 175,37 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primary",
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-empty-chat-detail",
+         "type": "path",
+         "geometry": "M73,73 H133 M73,86 H121 M73,99 H104 M118,122 H163 M42,132 H48 M45,129 V135",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        }
+       ],
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-illustration-no-results",
+       "type": "frame",
+       "name": "HbIllustration / NoResults · dimensions.illustrationWidth",
+       "reusable": true,
+       "width": 240,
+       "height": 180,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-illustration-no-results-bg",
+         "type": "path",
+         "geometry": "M40,101 C29,65 62,26 103,33 C142,8 207,38 201,89 C222,132 172,157 132,147 C87,164 32,145 40,101 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primaryContainer"
+        },
+        {
+         "id": "hb-illustration-no-results-floor",
+         "type": "path",
+         "geometry": "M36,150 H204 M39,57 H47 M43,53 V61 M196,117 H204 M200,113 V121",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-no-results-back",
+         "type": "path",
+         "geometry": "M67,55 L148,42 L164,136 L83,149 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.surfaceElevated",
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-no-results-paper",
+         "type": "path",
+         "geometry": "M71,46 H143 Q149,46 149,52 V135 Q149,141 143,141 H71 Q65,141 65,135 V52 Q65,46 71,46 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.assistantSurface",
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-no-results-accent",
+         "type": "path",
+         "geometry": "M162,91 A28,28 0,1 1,106,91 A28,28 0,1 1,162,91 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primary",
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-no-results-detail",
+         "type": "path",
+         "geometry": "M79,65 H107 M79,79 H94 M79,110 H93 M79,124 H118 M154,112 L180,138 Q184,144 177,146 L150,118 M177,59 H187 M182,54 V64",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-no-results-accent-detail",
+         "type": "path",
+         "geometry": "M151,91 A17,17 0,1 1,117,91 A17,17 0,1 1,151,91 Z M128,91 H140",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        }
+       ],
+       "x": 264,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 244,
+     "width": 504,
+     "height": 180,
+     "layout": "none"
+    },
+    {
+     "id": "illustrations-row-4",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-illustration-success",
+       "type": "frame",
+       "name": "HbIllustration / Success · dimensions.illustrationWidth",
+       "reusable": true,
+       "width": 240,
+       "height": 180,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-illustration-success-bg",
+         "type": "path",
+         "geometry": "M40,101 C29,65 62,26 103,33 C142,8 207,38 201,89 C222,132 172,157 132,147 C87,164 32,145 40,101 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primaryContainer"
+        },
+        {
+         "id": "hb-illustration-success-floor",
+         "type": "path",
+         "geometry": "M36,150 H204 M39,57 H47 M43,53 V61 M196,117 H204 M200,113 V121",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-success-back",
+         "type": "path",
+         "geometry": "M72,43 L151,52 L141,146 L62,137 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.surfaceElevated",
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-success-paper",
+         "type": "path",
+         "geometry": "M80,38 H143 Q151,38 151,46 V134 Q151,142 143,142 H80 Q72,142 72,134 V46 Q72,38 80,38 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.assistantSurface",
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-success-accent",
+         "type": "path",
+         "geometry": "M188,116 A30,30 0,1 1,128,116 A30,30 0,1 1,188,116 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.success",
+         "stroke": "$colors.onSuccess",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-success-detail",
+         "type": "path",
+         "geometry": "M88,59 H135 M88,73 H124 M88,97 H111 M88,110 H106 M49,77 L55,83 M172,51 L180,44 M187,76 H195 M57,118 V126",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-success-accent-detail",
+         "type": "path",
+         "geometry": "M143,116 L153,126 L173,106",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.onSuccess",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        }
+       ],
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-illustration-error",
+       "type": "frame",
+       "name": "HbIllustration / Error · dimensions.illustrationWidth",
+       "reusable": true,
+       "width": 240,
+       "height": 180,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-illustration-error-bg",
+         "type": "path",
+         "geometry": "M40,101 C29,65 62,26 103,33 C142,8 207,38 201,89 C222,132 172,157 132,147 C87,164 32,145 40,101 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primaryContainer"
+        },
+        {
+         "id": "hb-illustration-error-floor",
+         "type": "path",
+         "geometry": "M36,150 H204 M39,57 H47 M43,53 V61 M196,117 H204 M200,113 V121",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-error-back",
+         "type": "path",
+         "geometry": "M70,50 L157,43 L165,138 L78,145 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.surfaceElevated",
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-error-paper",
+         "type": "path",
+         "geometry": "M66,52 H152 Q159,52 159,59 V133 Q159,140 152,140 H66 Q59,140 59,133 V59 Q59,52 66,52 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.assistantSurface",
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-error-accent",
+         "type": "path",
+         "geometry": "M160,87 Q164,80 168,87 L195,133 Q199,141 191,141 H137 Q129,141 133,133 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.error",
+         "stroke": "$colors.onError",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-error-detail",
+         "type": "path",
+         "geometry": "M59,72 H159 M72,62 H74 M81,62 H83 M90,62 H92 M77,89 H130 M77,103 H118 M77,119 H101 M174,50 L181,43 M186,65 H196",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-error-accent-detail",
+         "type": "path",
+         "geometry": "M164,102 V118 M164,128 V129",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.onError",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        }
+       ],
+       "x": 264,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 448,
+     "width": 504,
+     "height": 180,
+     "layout": "none"
+    },
+    {
+     "id": "illustrations-row-6",
+     "type": "frame",
+     "children": [
+      {
+       "id": "hb-illustration-offline",
+       "type": "frame",
+       "name": "HbIllustration / Offline · dimensions.illustrationWidth",
+       "reusable": true,
+       "width": 240,
+       "height": 180,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-illustration-offline-bg",
+         "type": "path",
+         "geometry": "M40,101 C29,65 62,26 103,33 C142,8 207,38 201,89 C222,132 172,157 132,147 C87,164 32,145 40,101 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primaryContainer"
+        },
+        {
+         "id": "hb-illustration-offline-floor",
+         "type": "path",
+         "geometry": "M36,150 H204 M39,57 H47 M43,53 V61 M196,117 H204 M200,113 V121",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-offline-back",
+         "type": "path",
+         "geometry": "M76,135 H169 Q181,135 181,145 H64 Q64,135 76,135 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.surfaceElevated",
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-offline-paper",
+         "type": "path",
+         "geometry": "M70,61 H169 Q177,61 177,69 V127 H62 V69 Q62,61 70,61 Z M55,127 H184 L178,140 H61 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.assistantSurface",
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-offline-accent",
+         "type": "path",
+         "geometry": "M76,73 H163 V116 H76 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primary",
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-offline-detail",
+         "type": "path",
+         "geometry": "M108,127 V131 H131 V127 M100,41 Q119,27 138,41 M107,50 Q119,41 131,50 M92,29 L146,61",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-offline-accent-detail",
+         "type": "path",
+         "geometry": "M107,89 L132,105 M132,89 L107,105",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        }
+       ],
+       "x": 0,
+       "y": 0
+      },
+      {
+       "id": "hb-illustration-upload",
+       "type": "frame",
+       "name": "HbIllustration / Upload · dimensions.illustrationWidth",
+       "reusable": true,
+       "width": 240,
+       "height": 180,
+       "layout": "none",
+       "children": [
+        {
+         "id": "hb-illustration-upload-bg",
+         "type": "path",
+         "geometry": "M40,101 C29,65 62,26 103,33 C142,8 207,38 201,89 C222,132 172,157 132,147 C87,164 32,145 40,101 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primaryContainer"
+        },
+        {
+         "id": "hb-illustration-upload-floor",
+         "type": "path",
+         "geometry": "M36,150 H204 M39,57 H47 M43,53 V61 M196,117 H204 M200,113 V121",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-upload-back",
+         "type": "path",
+         "geometry": "M66,67 Q66,60 73,60 H169 Q176,60 176,67 V131 H66 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.surfaceElevated",
+         "stroke": "$colors.outlineSubtle",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-upload-paper",
+         "type": "path",
+         "geometry": "M80,84 V44 Q80,38 86,38 H123 L143,58 V107 H80 Z M123,38 V58 H143",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.assistantSurface",
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-upload-accent",
+         "type": "path",
+         "geometry": "M57,88 H94 L103,104 H142 L151,88 H185 V136 Q185,143 178,143 H64 Q57,143 57,136 Z",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "fill": "$colors.primary",
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-upload-detail",
+         "type": "path",
+         "geometry": "M112,87 V61 M101,72 L112,61 L123,72 M177,37 V49 M171,43 H183",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.textSecondary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        },
+        {
+         "id": "hb-illustration-upload-accent-detail",
+         "type": "path",
+         "geometry": "M74,121 H99",
+         "viewBox": [
+          0,
+          0,
+          240,
+          180
+         ],
+         "x": 0,
+         "y": 0,
+         "width": 240,
+         "height": 180,
+         "stroke": "$colors.onPrimary",
+         "strokeWidth": 1.6,
+         "strokeLinecap": "round",
+         "strokeLinejoin": "round"
+        }
+       ],
+       "x": 264,
+       "y": 0
+      }
+     ],
+     "x": 40,
+     "y": 652,
+     "width": 504,
+     "height": 180,
+     "layout": "none"
+    }
+   ],
+   "height": 872
+  }
+ ]
+}

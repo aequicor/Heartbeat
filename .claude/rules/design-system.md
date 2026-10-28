@@ -1,6 +1,7 @@
 ---
 paths:
   - "design-system/**"
+  - "design/**"
   - "features/**/impl/**/ui/**"
   - "**/*Screen.kt"
   - "**/*Content.kt"
@@ -11,6 +12,16 @@ paths:
 Источник истины по токенам — `design-system/tokens` и их KDoc. Единственный стиль — плотный плоский стиль AI Studio
 (`HbVisualStyle.Flat`). Glass, blur-подложки, неоморфные тени и декоративные градиенты удалены и не возвращаются.
 Эталон — экран студии и режим «Исследование» (`features/ai-studio/impl/**/ui`, `features/research-chat/impl/**/ui`).
+
+## Прототип до кода
+- Новый экран, режим, диалог, флоу, новый или изменённый `Hb*`-компонент, заметное изменение раскладки, переход или
+  анимация — сначала макет `.pen` в `design/` и явное согласование пользователя (скилл `ui-prototype`,
+  справочник `design/README.md`). Код повторяет согласованный макет; сознательное расхождение правит макет в том же PR.
+- **Адаптивность (desktop-first).** Desktop — основной кадр и эталон, Tablet и Phone — его адаптации. Мультиплатформенный UI макетируется и верстается для Phone (`< 720`), Tablet (`720…1200`) и Desktop
+  (`≥ 1200`): кадры на всех трёх (`design/README.md` 2.5); исключение — фичи только для Desktop, с причиной. Код
+  ветвится по ширине через `HbBoxWithConstraints` / `HbAdaptivePane` и `compactBreakpoint` / `expandedBreakpoint`.
+- Токены ведёт код: переменные `design/system/heartbeat.lib.pen` зеркалят `design-system/tokens`, изменение токена
+  обновляет библиотеку в том же PR.
 
 ## Токены и тема
 - Один набор токенов с пресетами по хосту: `HbDimensions.Mobile/Desktop/DesktopMacOs`, `HbColors.Light/Dark/DesktopLight/DesktopDark`,
