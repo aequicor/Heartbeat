@@ -152,7 +152,12 @@ internal class StudioAutoContinue(
         val isService = request.turnKind() == StudioTurnKind.Service
         val chat = autoChat(record.id)
         // Off chats are never judged: nothing is read for them; a compaction re-judges only a waiting chat.
-        if (if (isService) !isRejudgedAfterService(request, chat) else chat?.mode == AutoContinueMode.Off) return
+        val isSkipped = if (isService) {
+            !isRejudgedAfterService(request, outcome, chat)
+        } else {
+            chat?.mode == AutoContinueMode.Off
+        }
+        if (isSkipped) return
         val intent = try {
             when {
                 isService -> settled(record, isAfterService = true)
@@ -183,8 +188,9 @@ internal class StudioAutoContinue(
             log.w(e) { "auto-continue: last turn of $chat could not be judged" }
             Public.TurnAwaitsHuman(chat)
         }
-        // A turn that started meanwhile reports itself; an older answer must not overtake it.
-        if (runs.value.isBusy(chat)) return
+        // A turn that started meanwhile reports itself, and a chat switched off again or answered meanwhile keeps its
+        // state: an older answer must not overtake either.
+        if (runs.value.isBusy(chat) || !isAwaitingResettle(chat)) return
         log.i { "auto-continue: last turn of $chat reported again" }
         guarded("resettle") { machines.send(AutoContinueMachineKey, intent) }
     }
@@ -289,6 +295,11 @@ internal class StudioAutoContinue(
     /** Whether the machine is still sending [text] to [chat]; a human message or Stop in between takes it back. */
     private fun isSending(chat: String, text: String): Boolean =
         (autoChat(chat)?.phase as? Phase.Delivering)?.text == text
+
+    /** [chat] is on with nothing to answer and nothing running, as after a switch-on without a kept context. */
+    private fun isAwaitingResettle(chat: String): Boolean = autoChat(chat)?.let {
+        it.mode != AutoContinueMode.Off && it.phase == Phase.Idle && it.context == null
+    } == true
 
     /** [chat] as the machine sees it; null until the machine has loaded. */
     private fun autoChat(chat: String): ChatAuto? = (view.value.state.value as? AutoContinueState.Ready)?.chat(chat)

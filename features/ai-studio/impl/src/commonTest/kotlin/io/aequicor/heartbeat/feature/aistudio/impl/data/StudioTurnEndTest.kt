@@ -121,14 +121,17 @@ class StudioTurnEndTest {
         val compaction = request("compact-1")
         val handoff = request("${HANDOFF_REQUEST_PREFIX}1")
         val paused = ChatAuto(AutoContinueMode.Autopilot, Phase.Paused)
-        assertTrue(isRejudgedAfterService(compaction, paused))
-        assertTrue(isRejudgedAfterService(compaction, ChatAuto(AutoContinueMode.Suggest)))
-        assertFalse(isRejudgedAfterService(handoff, paused))
-        assertFalse(isRejudgedAfterService(compaction, null))
-        assertFalse(isRejudgedAfterService(compaction, ChatAuto(AutoContinueMode.Off)))
-        assertFalse(isRejudgedAfterService(compaction, ChatAuto(AutoContinueMode.Suggest, Phase.Thinking(1))))
+        val done = RunOutcome.Completed
+        assertFalse(isRejudgedAfterService(compaction, RunOutcome.Stopped, paused))
+        assertFalse(isRejudgedAfterService(compaction, RunOutcome.Failed, paused))
+        assertTrue(isRejudgedAfterService(compaction, done, paused))
+        assertTrue(isRejudgedAfterService(compaction, done, ChatAuto(AutoContinueMode.Suggest)))
+        assertFalse(isRejudgedAfterService(handoff, done, paused))
+        assertFalse(isRejudgedAfterService(compaction, done, null))
+        assertFalse(isRejudgedAfterService(compaction, done, ChatAuto(AutoContinueMode.Off)))
+        assertFalse(isRejudgedAfterService(compaction, done, ChatAuto(AutoContinueMode.Suggest, Phase.Thinking(1))))
         assertFalse(
-            isRejudgedAfterService(compaction, ChatAuto(AutoContinueMode.Autopilot, Phase.Countdown(1, "go", 5))),
+            isRejudgedAfterService(compaction, done, ChatAuto(AutoContinueMode.Autopilot, Phase.Countdown(1, "go", 5))),
         )
     }
 
