@@ -72,6 +72,31 @@ class LocalCodexTransportTest {
     }
 
     @Test
+    fun `protected launch rejects script wrappers before exporting models`() = runTest {
+        val marker = File(temporaryFolder.root, "started")
+        val wrapper = File(temporaryFolder.root, "codex.cmd")
+        wrapper.writeText("@echo started > \"${marker.absolutePath}\"\r\n")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val dispatchers = object : DispatcherProvider {
+            override val main = dispatcher
+            override val default = dispatcher
+            override val io = dispatcher
+        }
+        val transport = LocalCodexTransport(
+            CodexLocalConfiguration(executable = wrapper.absolutePath),
+            EngineLaunchConfig.Default,
+            dispatchers,
+            FakeScope(backgroundScope),
+        )
+
+        val error = assertFailsWith<EngineException> {
+            transport.prepare().open(CodexNativeOff(isActionAnalysisRequired = true))
+        }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), error.failure)
+        assertFalse(marker.exists())
+    }
+
+    @Test
     fun `prepared execution processes and version retain original executable home flags and environment`() = runTest {
         assumeFalse(System.getProperty("os.name").startsWith("Windows"))
         val first = executable("first", "0.160.0")
