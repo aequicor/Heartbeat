@@ -32,11 +32,13 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelModel
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FailureUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.InstallSupportUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.fileOf
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.filePage
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_unsaved
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_dismiss
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_engine_builtin
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_body
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_discard
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_stay
@@ -58,6 +60,7 @@ internal fun EngineControlPanelScreen(
     model: EngineControlPanelModel,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    isEmbedded: Boolean = false,
 ) {
     val leave by rememberUpdatedState(onBack)
     val state by produceState(EngineControlPanelState(""), model) {
@@ -66,7 +69,7 @@ internal fun EngineControlPanelScreen(
             states.collect { value = it }
         }
     }
-    EngineControlPanelContent(state, { model.store.intent(it) }, modifier)
+    EngineControlPanelContent(state, { model.store.intent(it) }, modifier, isEmbedded)
 }
 
 /**
@@ -78,6 +81,7 @@ internal fun EngineControlPanelContent(
     state: EngineControlPanelState,
     onIntent: (EngineControlPanelIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isEmbedded: Boolean = false,
 ) {
     // The overview keeps its place while a page, a file or a project is open.
     val overview = rememberScrollState()
@@ -93,7 +97,23 @@ internal fun EngineControlPanelContent(
         return
     }
     val back = { onIntent(EngineControlPanelIntent.Back) }
-    ControlColumn(state.title.ifEmpty { state.engine }, back, modifier.testTag("engine-control-panel"), overview) {
+    val engineTitle = if (state.panel?.installation?.support == InstallSupportUi.BuiltIn) {
+        stringResource(Res.string.control_engine_builtin)
+    } else {
+        state.title.ifEmpty { state.engine }
+    }
+    ControlColumn(
+        engineTitle.takeUnless { isEmbedded },
+        back.takeUnless { isEmbedded },
+        modifier.testTag("engine-control-panel"),
+        overview,
+    ) {
+        if (isEmbedded) {
+            io.aequicor.heartbeat.ds.components.HbText(
+                engineTitle,
+                style = io.aequicor.heartbeat.ds.theme.HbTheme.typography.title,
+            )
+        }
         when {
             state.hasLoadFailure -> LoadFailure({ onIntent(EngineControlPanelIntent.RetryLoad) })
             state.isLoading -> HbLoadingState(stringResource(Res.string.control_loading))

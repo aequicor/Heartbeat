@@ -194,7 +194,7 @@ class EngineControlPanelModel(
         var screen = EngineControlPanelState(engineId.value)
         withState { screen = this }
         val form = if (screen.openProject != null) screen.project?.form else screen.config
-        val hasChanges = form?.isDirty == true
+        val hasChanges = form?.isDirty == true || screen.panel?.launch?.isDirty == true
         when {
             screen.projectFile != null -> with(projects) { handle(ProjectIntent.CloseFile) }
             screen.openPage != null -> configure(ConfigIntent.ClosePage)

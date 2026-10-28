@@ -14,6 +14,9 @@ sealed interface EngineManagementIntent : EngineControlPanelIntent {
     /** Switches the engine on or off in this profile. */
     data class SetEngineEnabled(val isEnabled: Boolean) : EngineRequest
 
+    /** Saves MCP access independently of the launch editor; never submits an unsaved draft. */
+    data class SetMcpEnabled(val isEnabled: Boolean) : EngineRequest
+
     /** Inspects the installation and the CLI login. */
     data object InspectEngine : EngineRequest
 
@@ -95,7 +98,8 @@ internal fun EngineControlPanelState.sent(intent: EngineManagementIntent.EngineR
 
     EngineManagementIntent.ConfirmEngineAction -> copy(confirmAction = null)
 
-    is EngineManagementIntent.SetEngineEnabled, EngineManagementIntent.InspectEngine,
+    is EngineManagementIntent.SetEngineEnabled, is EngineManagementIntent.SetMcpEnabled,
+    EngineManagementIntent.InspectEngine,
     EngineManagementIntent.CheckUpdates, EngineManagementIntent.RestartEngine,
     is EngineManagementIntent.RequestEngineAction, EngineManagementIntent.CancelEngineJob,
     EngineManagementIntent.DismissEngineJob, EngineManagementIntent.OpenHostApp,
@@ -107,6 +111,8 @@ internal fun EngineControlPanelState.commandFor(intent: EngineManagementIntent.E
     if (panel == null) return null
     return when (intent) {
         is EngineManagementIntent.SetEngineEnabled -> EngineCommand.SetEnabled(intent.isEnabled)
+
+        is EngineManagementIntent.SetMcpEnabled -> mcpCommand(intent.isEnabled)
 
         EngineManagementIntent.InspectEngine -> EngineCommand.Inspect
 
@@ -120,7 +126,7 @@ internal fun EngineControlPanelState.commandFor(intent: EngineManagementIntent.E
 
         is EngineManagementIntent.RequestEngineAction -> EngineCommand.Start(intent.action.toAction(intent.method))
 
-        EngineManagementIntent.ConfirmEngineAction -> confirmAction?.let { EngineCommand.Start(it.toAction()) }
+        EngineManagementIntent.ConfirmEngineAction -> confirmedCommand()
 
         EngineManagementIntent.SaveLaunch -> launchCommand()
 
@@ -131,6 +137,11 @@ internal fun EngineControlPanelState.commandFor(intent: EngineManagementIntent.E
     }
 }
 
+/** A separate MCP switch never commits unrelated launch-editor input. */
+private fun EngineControlPanelState.mcpCommand(isEnabled: Boolean): EngineCommand? = panel?.launch
+    ?.takeIf { !it.isEditing && LaunchOptionUi.Mcp in it.options }
+    ?.let { EngineCommand.Configure(it.draft.toSettings().copy(isMcpEnabled = isEnabled)) }
+
 /** Saves a changed draft without errors. */
 private fun EngineControlPanelState.launchCommand(): EngineCommand? = panel?.launch
     ?.takeIf { it.errors.isEmpty() && it.isDirty }
@@ -139,3 +150,7 @@ private fun EngineControlPanelState.launchCommand(): EngineCommand? = panel?.lau
 /** Passes a non-blank pasted code. */
 private fun EngineControlPanelState.codeCommand(): EngineCommand? =
     loginCode.trim().takeIf { it.isNotEmpty() }?.let { EngineCommand.AnswerLogin(LoginCode(it)) }
+
+/** Starts the previously confirmed action. */
+private fun EngineControlPanelState.confirmedCommand(): EngineCommand? =
+    confirmAction?.let { EngineCommand.Start(it.toAction()) }

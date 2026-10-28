@@ -30,6 +30,8 @@ data class EngineItemUi(
     val status: EngineStatusUi,
     val version: String?,
     val isConfigurable: Boolean,
+    val isConnected: Boolean = false,
+    val isBuiltIn: Boolean = false,
 )
 
 /** The engine list. [isOff] while engine management is off; the section is hidden then, but may still be open. */
@@ -89,7 +91,24 @@ internal fun listState(state: EngineControlState): EngineControlListState {
     return EngineControlListState(
         engines = snapshot.management.engines.map { engine ->
             val id = engine.descriptor.id
-            EngineItemUi(id.value, engine.descriptor.title, engine.statusUi(), engine.versionUi(), id in configurable)
+            EngineItemUi(
+                id.value,
+                engine.descriptor.title,
+                engine.statusUi(),
+                engine.versionUi(),
+                id in configurable,
+                isConnected = when (engine.spec.login) {
+                    io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport.Cli,
+                    io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport.CliWithDeviceCode,
+                    -> engine.login is io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState.SignedIn
+
+                    io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport.Connections -> engine.connections > 0
+
+                    io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport.None -> false
+                },
+                isBuiltIn =
+                    engine.spec.install == io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport.BuiltIn,
+            )
         }.toImmutableList(),
         isLoading = false,
         isOff = !snapshot.management.isEnabled,

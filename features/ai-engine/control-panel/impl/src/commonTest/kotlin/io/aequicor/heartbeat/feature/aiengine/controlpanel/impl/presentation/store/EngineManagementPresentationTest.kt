@@ -87,6 +87,21 @@ internal fun managedSnapshot(codex: ManagedEngine = managedCodex(), isManaged: B
 
 class EngineManagementPresentationTest {
     @Test
+    fun `MCP toggle saves the current settings and refuses to submit an unrelated draft`() {
+        val saved = LaunchSettings(executable = "/opt/codex", isMcpEnabled = false)
+        val managed = managedCodex().copy(launch = LaunchState(saved))
+        val panel = managed.toPanel(null, EnginePlatform.DesktopMacOs)
+        val state = EngineControlPanelState("codex", panel = panel)
+        assertEquals(
+            EngineCommand.Configure(saved.copy(isMcpEnabled = true)),
+            state.commandFor(EngineManagementIntent.SetMcpEnabled(true)),
+        )
+        val editing = managed.toPanel(saved.toDraft().copy(executable = "/unsaved"), EnginePlatform.DesktopMacOs)
+        assertNull(state.copy(panel = editing).commandFor(EngineManagementIntent.SetMcpEnabled(true)))
+        assertTrue(saved.copy(isMcpEnabled = true).toDraft().toSettings().isMcpEnabled)
+    }
+
+    @Test
     fun `sign-in codes disappear when the prompt ends and sensitive UI data is redacted`() {
         val awaiting = managedSnapshot(
             managedCodex(

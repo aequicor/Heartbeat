@@ -316,4 +316,12 @@
     <string name="engine_runtime_version">App runtime version</string>
     <string name="engine_runtime_version_newest">Newest</string>
     <string name="engine_host_app_path_copy">Copy the %1$s app path</string>
+    <string name="engine_mcp_title">Use engine MCP servers</string>
+    <string name="engine_mcp_description">MCP tools from the engine configuration. Off by default; changes apply after restart. The engine executes calls using its permission settings.</string>
+    <string name="control_engine_connected">Connected</string>
+    <string name="control_engine_disconnected">Not connected</string>
+    <string name="control_engine_builtin">Built-in engine</string>
+    <string name="control_engine_builtin_status">No connection required</string>
+    <string name="control_engine_select">Select an engine from the list.</string>
+    <string name="engine_mcp_pi_requirement">Pi 1.0.4 or newer is required for MCP.</string>
 </resources>

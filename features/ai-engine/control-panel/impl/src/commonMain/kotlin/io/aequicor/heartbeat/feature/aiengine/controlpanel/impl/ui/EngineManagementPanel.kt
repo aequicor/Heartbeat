@@ -34,10 +34,12 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.InstallSupportUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.JobPhaseUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.JobUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.LaunchOptionUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ManagementFailureUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_cancel
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_dismiss
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_engine_builtin
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_probe
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_check_updates
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_copy_failed
@@ -46,6 +48,9 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_install
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_installation
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_job_status
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_mcp_description
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_mcp_pi_requirement
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_mcp_title
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_not_runnable
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_packages
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_packages_description
@@ -85,7 +90,11 @@ internal fun EngineManagementSection(
     HbSettingsSection(
         stringResource(Res.string.engine_section),
         modifier.testTag("engine-panel"),
-        description = panel.title,
+        description = if (panel.installation.support == InstallSupportUi.BuiltIn) {
+            stringResource(Res.string.control_engine_builtin)
+        } else {
+            panel.title
+        },
         trailingContent = {
             HbButton(
                 stringResource(Res.string.control_probe),
@@ -129,9 +138,34 @@ internal fun EngineManagementSection(
         HbDivider()
         RuntimeRow(panel, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         panel.launch?.let { launch ->
+            EngineMcpRow(panel, isIdle, onIntent)
             HbDivider()
             EngineLaunchForm(launch, isIdle, onIntent, isVisuallyIdle = isVisuallyIdle)
         }
+    }
+}
+
+/** Saved native MCP permission, separate from any launch draft currently being edited. */
+@Composable
+private fun EngineMcpRow(panel: EnginePanelUi, isIdle: Boolean, onIntent: (EngineManagementIntent) -> Unit) {
+    val launch = panel.launch ?: return
+    if (LaunchOptionUi.Mcp !in launch.options) return
+    val description = buildString {
+        append(stringResource(Res.string.engine_mcp_description))
+        if (panel.id == "pi") {
+            append(" ")
+            append(stringResource(Res.string.engine_mcp_pi_requirement))
+        }
+    }
+    HbDivider()
+    HbSettingsRow(stringResource(Res.string.engine_mcp_title), description = description) {
+        HbSwitch(
+            launch.isMcpEnabled,
+            { onIntent(EngineManagementIntent.SetMcpEnabled(it)) },
+            stringResource(Res.string.engine_mcp_title),
+            Modifier.testTag("engine-mcp-enabled"),
+            enabled = isIdle && !launch.isEditing && panel.runtime.activeTurns == 0,
+        )
     }
 }
 
