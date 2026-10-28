@@ -1,6 +1,7 @@
 ---
 paths:
   - "design-system/**"
+  - "design/**"
   - "features/**/impl/**/ui/**"
   - "**/*Screen.kt"
   - "**/*Content.kt"
@@ -17,7 +18,7 @@ paths:
   анимация — сначала макет `.pen` в `design/` и явное согласование пользователя (скилл `ui-prototype`,
   справочник `design/README.md`). Код повторяет согласованный макет; сознательное расхождение правит макет в том же PR.
 - Токены ведёт код: переменные `design/system/heartbeat.lib.pen` зеркалят `design-system/tokens`, изменение токена
-  обновляет библиотеку в том же PR. Библиотеки ещё нет — её заводит первая UI-задача (`design/README.md`, 2.4).
+  обновляет библиотеку в том же PR. Пока библиотеки нет (#591) — переходное правило `design/README.md` 2.4.
 
 ## Токены и тема
 - Один набор токенов с пресетами по хосту: `HbDimensions.Mobile/Desktop/DesktopMacOs`, `HbColors.Light/Dark/DesktopLight/DesktopDark`,
