@@ -1,0 +1,4303 @@
+{
+ "version": "2.21",
+ "imports": {
+  "hb": "../../system/heartbeat.lib.pen"
+ },
+ "children": [
+  {
+   "id": "section-screens",
+   "type": "frame",
+   "name": "Экраны",
+   "x": 0,
+   "y": 0,
+   "width": 4200,
+   "height": 1024,
+   "layout": "none",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   },
+   "children": [
+    {
+     "id": "g-github",
+     "type": "frame",
+     "name": "Settings / Tools / GitHub",
+     "x": 60,
+     "y": 60,
+     "width": 4080,
+     "height": 904,
+     "layout": "none",
+     "children": [
+      {
+       "id": "g-github-title",
+       "type": "text",
+       "content": "Инструменты Heartbeat → Коннектор GitHub: состояния (Desktop, светлая)",
+       "x": 0,
+       "y": 0,
+       "fill": "$hb:colors.textPrimary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.title.size",
+       "lineHeight": "$hb:typography.title.lineHeight",
+       "fontWeight": "600"
+      },
+      {
+       "id": "g-github-row",
+       "type": "frame",
+       "name": "Светлая тема",
+       "x": 0,
+       "y": 40,
+       "width": 4080,
+       "height": 824,
+       "layout": "none",
+       "children": [
+        {
+         "id": "cell-gh-empty",
+         "type": "frame",
+         "name": "Settings / Tools / GitHub / Empty / Desktop",
+         "x": 0,
+         "y": 0,
+         "width": 1280,
+         "height": 824,
+         "layout": "none",
+         "children": [
+          {
+           "id": "cell-gh-empty-cap",
+           "type": "text",
+           "content": "Empty · Desktop · светлая",
+           "x": 0,
+           "y": 0,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          },
+          {
+           "id": "gh-empty",
+           "type": "frame",
+           "name": "Settings / Tools / GitHub / Empty / Desktop",
+           "x": 0,
+           "y": 24,
+           "width": 1280,
+           "height": 800,
+           "layout": "none",
+           "reusable": true,
+           "theme": {
+            "hb:mode": "light",
+            "hb:host": "desktop"
+           },
+           "fill": "$hb:surfaces.backdrop",
+           "clip": true,
+           "stroke": "$hb:surfaces.outline",
+           "strokeWidth": 2,
+           "strokeAlignment": "outer",
+           "context": "Пустое состояние: переключатель выключен, инструменты не предлагаются агентам. Путь к gh подставляет «Найти» (Homebrew, /usr/local/bin, ~/.local/bin, PATH); на Windows — Program Files.",
+           "children": [
+            {
+             "id": "gh-empty-sb",
+             "type": "frame",
+             "name": "Settings / Sidebar",
+             "width": 264,
+             "height": 800,
+             "layout": "none",
+             "fill": "$hb:surfaces.sidebar",
+             "children": [
+              {
+               "id": "gh-empty-sb-header",
+               "type": "frame",
+               "width": 264,
+               "height": 44,
+               "children": [
+                {
+                 "id": "gh-empty-sb-lights",
+                 "type": "frame",
+                 "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
+                 "width": 96,
+                 "height": 28,
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-lights-window-traffic-lights-0",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 8,
+                   "y": 8
+                  },
+                  {
+                   "id": "gh-empty-sb-lights-window-traffic-lights-1",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 28,
+                   "y": 8
+                  },
+                  {
+                   "id": "gh-empty-sb-lights-window-traffic-lights-2",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 48,
+                   "y": 8
+                  }
+                 ],
+                 "x": 4,
+                 "y": 8,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 0,
+               "layout": "none"
+              },
+              {
+               "id": "gh-empty-sb-list",
+               "type": "frame",
+               "width": 264,
+               "height": 756,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "gh-empty-sb-back",
+                 "type": "frame",
+                 "name": "Назад",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-back-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-arrow-left",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-back-label",
+                   "type": "text",
+                   "content": "Назад",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-heading",
+                 "type": "frame",
+                 "name": "Настройки",
+                 "width": 248,
+                 "height": 28,
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-heading-label",
+                   "type": "text",
+                   "content": "Настройки",
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 8,
+                   "y": 6
+                  }
+                 ],
+                 "x": 8,
+                 "y": 36,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-0",
+                 "type": "frame",
+                 "name": "Модели и движки",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-0-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-layers",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-0-label",
+                   "type": "text",
+                   "content": "Модели и движки",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 66,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-1",
+                 "type": "frame",
+                 "name": "Движки",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-1-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-terminal",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-1-label",
+                   "type": "text",
+                   "content": "Движки",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 96,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-2",
+                 "type": "frame",
+                 "name": "Безопасность",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-2-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-shield",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-2-label",
+                   "type": "text",
+                   "content": "Безопасность",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 126,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-3",
+                 "type": "frame",
+                 "name": "Субагенты",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-3-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-users",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-3-label",
+                   "type": "text",
+                   "content": "Субагенты",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 156,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-4",
+                 "type": "frame",
+                 "name": "Поиск",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-4-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-search",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-4-label",
+                   "type": "text",
+                   "content": "Поиск",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 186,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-5",
+                 "type": "frame",
+                 "name": "Управление компьютером",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-5-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-layers",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-5-label",
+                   "type": "text",
+                   "content": "Управление компьютером",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 216,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-6",
+                 "type": "frame",
+                 "name": "Браузер Chrome",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-6-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-globe",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-6-label",
+                   "type": "text",
+                   "content": "Браузер Chrome",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 246,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-7",
+                 "type": "frame",
+                 "name": "Самообучение",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-7-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-sparkles",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-7-label",
+                   "type": "text",
+                   "content": "Самообучение",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 276,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-8",
+                 "type": "frame",
+                 "name": "Контекст",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-8-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-minimize",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-8-label",
+                   "type": "text",
+                   "content": "Контекст",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 306,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-9",
+                 "type": "frame",
+                 "name": "Автопродолжение",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-9-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-play",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-9-label",
+                   "type": "text",
+                   "content": "Автопродолжение",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 336,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-10",
+                 "type": "frame",
+                 "name": "Сборки",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-10-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-terminal",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-10-label",
+                   "type": "text",
+                   "content": "Сборки",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 366,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-11",
+                 "type": "frame",
+                 "name": "Харнесс",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-11-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-code",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-11-label",
+                   "type": "text",
+                   "content": "Харнесс",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 396,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-12",
+                 "type": "frame",
+                 "name": "Интерфейсы",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-12-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-grid",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-12-label",
+                   "type": "text",
+                   "content": "Интерфейсы",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 426,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-tools",
+                 "type": "frame",
+                 "name": "Инструменты Heartbeat",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-tools-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-settings",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:surfaces.onSelected",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-tools-label",
+                   "type": "text",
+                   "content": "Инструменты Heartbeat",
+                   "fill": "$hb:surfaces.onSelected",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 456,
+                 "layout": "none",
+                 "fill": "$hb:surfaces.selected"
+                },
+                {
+                 "id": "gh-empty-sb-item-13",
+                 "type": "frame",
+                 "name": "Конфигурация",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-13-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-folder-open",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-13-label",
+                   "type": "text",
+                   "content": "Конфигурация",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 486,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-14",
+                 "type": "frame",
+                 "name": "Обновления",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-14-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-download",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-14-label",
+                   "type": "text",
+                   "content": "Обновления",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 516,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-15",
+                 "type": "frame",
+                 "name": "Логи приложения",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-15-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-file-text",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-15-label",
+                   "type": "text",
+                   "content": "Логи приложения",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 546,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-empty-sb-item-16",
+                 "type": "frame",
+                 "name": "Фича-флаги",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-empty-sb-item-16-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-sliders",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-empty-sb-item-16-label",
+                   "type": "text",
+                   "content": "Фича-флаги",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 576,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 44
+              }
+             ],
+             "x": 0,
+             "y": 0
+            },
+            {
+             "id": "gh-empty-content",
+             "type": "frame",
+             "name": "Content",
+             "x": 264,
+             "y": 0,
+             "width": 1016,
+             "height": 800,
+             "layout": "none",
+             "children": [
+              {
+               "id": "gh-empty-col",
+               "type": "frame",
+               "name": "Инструменты Heartbeat",
+               "x": 148,
+               "y": 16,
+               "width": 720,
+               "height": 768,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "gh-empty-title",
+                 "type": "text",
+                 "content": "Инструменты Heartbeat",
+                 "x": 0,
+                 "y": 24,
+                 "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.title.size",
+                 "lineHeight": "$hb:typography.title.lineHeight",
+                 "fontWeight": "600"
+                },
+                {
+                 "id": "gh-empty-sub",
+                 "type": "text",
+                 "content": "Подключения, которыми агенты Heartbeat пользуются при работе.",
+                 "x": 0,
+                 "y": 58,
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight"
+                },
+                {
+                 "id": "gh-empty-card",
+                 "type": "frame",
+                 "name": "Коннектор GitHub",
+                 "x": 0,
+                 "y": 96,
+                 "width": 720,
+                 "height": 368,
+                 "layout": "none",
+                 "cornerRadius": "$hb:shapes.medium",
+                 "fill": "$hb:colors.surface",
+                 "stroke": "$hb:colors.outlineSubtle",
+                 "strokeWidth": 1,
+                 "strokeAlignment": "inner",
+                 "context": "Строка настроек: слева название и подсказка, справа элемент. Колонка контента 720 по центру (settingsMaxWidth). Переключатель включает инструменты github_pr_* (тогл ai.github_pull_tools) для всех чатов профиля. Сохранить доступна, когда заполнены репозиторий, аккаунт и путь к gh; Проверить подключение читает токен у gh, проверяет репозиторий и права на PR, во время проверки кнопки блокируются, ввод остаётся.",
+                 "children": [
+                  {
+                   "id": "gh-empty-c-title",
+                   "type": "text",
+                   "content": "Коннектор GitHub",
+                   "x": 16,
+                   "y": 14,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "600"
+                  },
+                  {
+                   "id": "gh-empty-c-sub",
+                   "type": "text",
+                   "content": "Агенты создают и ведут pull request через инструменты github_pr_*",
+                   "x": 16,
+                   "y": 34,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight"
+                  },
+                  {
+                   "id": "gh-empty-switch-hb-switch-off",
+                   "type": "frame",
+                   "name": "HbSwitch / Off",
+                   "width": 28,
+                   "height": 16,
+                   "cornerRadius": 8,
+                   "fill": "$hb:colors.outline",
+                   "layout": "none",
+                   "children": [
+                    {
+                     "id": "gh-empty-switch-hb-switch-off-knob",
+                     "type": "ellipse",
+                     "x": 2,
+                     "y": 2,
+                     "width": 12,
+                     "height": 12,
+                     "fill": "$hb:colors.onBrand"
+                    }
+                   ],
+                   "x": 676,
+                   "y": 16
+                  },
+                  {
+                   "id": "gh-empty-d0-hb-divider",
+                   "type": "frame",
+                   "name": "HbDivider",
+                   "width": 720,
+                   "height": 1,
+                   "fill": "$hb:colors.outlineSubtle",
+                   "x": 0,
+                   "y": 64,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-empty-r0-l",
+                   "type": "text",
+                   "content": "Состояние",
+                   "x": 16,
+                   "y": 84,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-empty-r0-h",
+                   "type": "text",
+                   "content": "",
+                   "x": 16,
+                   "y": 104,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-empty-badge-hb-badge-neutral",
+                   "type": "frame",
+                   "name": "HbBadge / Neutral",
+                   "height": 20,
+                   "cornerRadius": 4,
+                   "fill": "$hb:colors.surfaceElevated",
+                   "stroke": "$hb:colors.outlineSubtle",
+                   "strokeWidth": 1,
+                   "strokeAlignment": "inner",
+                   "children": [
+                    {
+                     "id": "gh-empty-badge-hb-badge-neutral-label",
+                     "type": "text",
+                     "content": "Не настроено",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.caption.size",
+                     "lineHeight": "$hb:typography.caption.lineHeight",
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 6,
+                     "y": 2
+                    }
+                   ],
+                   "x": 232,
+                   "y": 82,
+                   "width": 96,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-empty-status",
+                   "type": "text",
+                   "content": "Укажите репозиторий и аккаунт gh",
+                   "x": 338,
+                   "y": 84,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight"
+                  },
+                  {
+                   "id": "gh-empty-r1-l",
+                   "type": "text",
+                   "content": "Репозиторий",
+                   "x": 16,
+                   "y": 132,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-empty-r1-h",
+                   "type": "text",
+                   "content": "На github.com",
+                   "x": 16,
+                   "y": 152,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-empty-f1-hb-text-field",
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 472,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "gh-empty-f1-hb-text-field-value",
+                     "type": "text",
+                     "content": "owner/repository",
+                     "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 10,
+                     "y": 7
+                    }
+                   ],
+                   "x": 232,
+                   "y": 124,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-empty-r2-l",
+                   "type": "text",
+                   "content": "Аккаунт gh",
+                   "x": 16,
+                   "y": 192,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-empty-r2-h",
+                   "type": "text",
+                   "content": "Уже вошедшие в gh",
+                   "x": 16,
+                   "y": 212,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-empty-f2-hb-text-field",
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 376,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "gh-empty-f2-hb-text-field-value",
+                     "type": "text",
+                     "content": "Выберите аккаунт",
+                     "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 10,
+                     "y": 7
+                    },
+                    {
+                     "id": "gh-empty-f2-chev",
+                     "type": "ref",
+                     "ref": "hb:hb-icon-chevron-down",
+                     "width": 16,
+                     "height": 16,
+                     "stroke": "$hb:colors.textSecondary",
+                     "strokeWidth": 1.12,
+                     "x": 348,
+                     "y": 7
+                    }
+                   ],
+                   "x": 232,
+                   "y": 184,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-empty-b-acc-hb-button-secondary",
+                   "type": "frame",
+                   "name": "HbButton / Secondary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-empty-b-acc-hb-button-secondary-label",
+                     "type": "text",
+                     "content": "Обновить",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.buttonFill",
+                   "x": 616,
+                   "y": 184,
+                   "width": 88,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-empty-r3-l",
+                   "type": "text",
+                   "content": "Путь к gh",
+                   "x": 16,
+                   "y": 252,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-empty-r3-h",
+                   "type": "text",
+                   "content": "Абсолютный путь к GitHub CLI",
+                   "x": 16,
+                   "y": 272,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-empty-f3-hb-text-field",
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 376,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "gh-empty-f3-hb-text-field-value",
+                     "type": "text",
+                     "content": "/opt/homebrew/bin/gh",
+                     "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 10,
+                     "y": 7
+                    }
+                   ],
+                   "x": 232,
+                   "y": 244,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-empty-b-cli-hb-button-secondary",
+                   "type": "frame",
+                   "name": "HbButton / Secondary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-empty-b-cli-hb-button-secondary-label",
+                     "type": "text",
+                     "content": "Найти",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.buttonFill",
+                   "x": 616,
+                   "y": 244,
+                   "width": 88,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-empty-d1-hb-divider",
+                   "type": "frame",
+                   "name": "HbDivider",
+                   "width": 720,
+                   "height": 1,
+                   "fill": "$hb:colors.outlineSubtle",
+                   "x": 0,
+                   "y": 304,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-empty-b-check-hb-button-secondary",
+                   "type": "frame",
+                   "name": "HbButton / Secondary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-empty-b-check-hb-button-secondary-label",
+                     "type": "text",
+                     "content": "Проверить подключение",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.buttonFill",
+                   "x": 16,
+                   "y": 320,
+                   "width": 180,
+                   "layout": "none",
+                   "opacity": 0.45
+                  },
+                  {
+                   "id": "gh-empty-b-save-hb-button-primary",
+                   "type": "frame",
+                   "name": "HbButton / Primary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-empty-b-save-hb-button-primary-label",
+                     "type": "text",
+                     "content": "Сохранить",
+                     "fill": "$hb:colors.onPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.primary",
+                   "x": 600,
+                   "y": 320,
+                   "width": 104,
+                   "layout": "none",
+                   "opacity": 0.45
+                  }
+                 ]
+                },
+                {
+                 "id": "gh-empty-note",
+                 "type": "text",
+                 "content": "Токен не сохраняется в Heartbeat: его по запросу выдаёт gh. Создание, изменение и ready PR подтверждаются по режиму безопасности.",
+                 "x": 0,
+                 "y": 480,
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "width": 720,
+                 "textGrowth": "fixed-width"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "id": "cell-gh-ready",
+         "type": "frame",
+         "name": "Settings / Tools / GitHub / Connected / Desktop",
+         "x": 1360,
+         "y": 0,
+         "width": 1280,
+         "height": 824,
+         "layout": "none",
+         "children": [
+          {
+           "id": "cell-gh-ready-cap",
+           "type": "text",
+           "content": "Connected · Desktop · светлая",
+           "x": 0,
+           "y": 0,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          },
+          {
+           "id": "gh-ready",
+           "type": "frame",
+           "name": "Settings / Tools / GitHub / Connected / Desktop",
+           "x": 0,
+           "y": 24,
+           "width": 1280,
+           "height": 800,
+           "layout": "none",
+           "reusable": true,
+           "theme": {
+            "hb:mode": "light",
+            "hb:host": "desktop"
+           },
+           "fill": "$hb:surfaces.backdrop",
+           "clip": true,
+           "stroke": "$hb:surfaces.outline",
+           "strokeWidth": 2,
+           "strokeAlignment": "outer",
+           "context": "Подключено: проверка прошла, переключатель включён. Правка любого поля сбрасывает состояние в «Не проверено» до новой проверки.",
+           "children": [
+            {
+             "id": "gh-ready-sb",
+             "type": "frame",
+             "name": "Settings / Sidebar",
+             "width": 264,
+             "height": 800,
+             "layout": "none",
+             "fill": "$hb:surfaces.sidebar",
+             "children": [
+              {
+               "id": "gh-ready-sb-header",
+               "type": "frame",
+               "width": 264,
+               "height": 44,
+               "children": [
+                {
+                 "id": "gh-ready-sb-lights",
+                 "type": "frame",
+                 "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
+                 "width": 96,
+                 "height": 28,
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-lights-window-traffic-lights-0",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 8,
+                   "y": 8
+                  },
+                  {
+                   "id": "gh-ready-sb-lights-window-traffic-lights-1",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 28,
+                   "y": 8
+                  },
+                  {
+                   "id": "gh-ready-sb-lights-window-traffic-lights-2",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 48,
+                   "y": 8
+                  }
+                 ],
+                 "x": 4,
+                 "y": 8,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 0,
+               "layout": "none"
+              },
+              {
+               "id": "gh-ready-sb-list",
+               "type": "frame",
+               "width": 264,
+               "height": 756,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "gh-ready-sb-back",
+                 "type": "frame",
+                 "name": "Назад",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-back-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-arrow-left",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-back-label",
+                   "type": "text",
+                   "content": "Назад",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-heading",
+                 "type": "frame",
+                 "name": "Настройки",
+                 "width": 248,
+                 "height": 28,
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-heading-label",
+                   "type": "text",
+                   "content": "Настройки",
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 8,
+                   "y": 6
+                  }
+                 ],
+                 "x": 8,
+                 "y": 36,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-0",
+                 "type": "frame",
+                 "name": "Модели и движки",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-0-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-layers",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-0-label",
+                   "type": "text",
+                   "content": "Модели и движки",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 66,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-1",
+                 "type": "frame",
+                 "name": "Движки",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-1-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-terminal",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-1-label",
+                   "type": "text",
+                   "content": "Движки",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 96,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-2",
+                 "type": "frame",
+                 "name": "Безопасность",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-2-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-shield",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-2-label",
+                   "type": "text",
+                   "content": "Безопасность",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 126,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-3",
+                 "type": "frame",
+                 "name": "Субагенты",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-3-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-users",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-3-label",
+                   "type": "text",
+                   "content": "Субагенты",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 156,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-4",
+                 "type": "frame",
+                 "name": "Поиск",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-4-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-search",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-4-label",
+                   "type": "text",
+                   "content": "Поиск",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 186,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-5",
+                 "type": "frame",
+                 "name": "Управление компьютером",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-5-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-layers",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-5-label",
+                   "type": "text",
+                   "content": "Управление компьютером",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 216,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-6",
+                 "type": "frame",
+                 "name": "Браузер Chrome",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-6-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-globe",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-6-label",
+                   "type": "text",
+                   "content": "Браузер Chrome",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 246,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-7",
+                 "type": "frame",
+                 "name": "Самообучение",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-7-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-sparkles",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-7-label",
+                   "type": "text",
+                   "content": "Самообучение",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 276,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-8",
+                 "type": "frame",
+                 "name": "Контекст",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-8-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-minimize",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-8-label",
+                   "type": "text",
+                   "content": "Контекст",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 306,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-9",
+                 "type": "frame",
+                 "name": "Автопродолжение",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-9-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-play",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-9-label",
+                   "type": "text",
+                   "content": "Автопродолжение",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 336,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-10",
+                 "type": "frame",
+                 "name": "Сборки",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-10-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-terminal",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-10-label",
+                   "type": "text",
+                   "content": "Сборки",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 366,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-11",
+                 "type": "frame",
+                 "name": "Харнесс",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-11-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-code",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-11-label",
+                   "type": "text",
+                   "content": "Харнесс",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 396,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-12",
+                 "type": "frame",
+                 "name": "Интерфейсы",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-12-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-grid",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-12-label",
+                   "type": "text",
+                   "content": "Интерфейсы",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 426,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-tools",
+                 "type": "frame",
+                 "name": "Инструменты Heartbeat",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-tools-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-settings",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:surfaces.onSelected",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-tools-label",
+                   "type": "text",
+                   "content": "Инструменты Heartbeat",
+                   "fill": "$hb:surfaces.onSelected",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 456,
+                 "layout": "none",
+                 "fill": "$hb:surfaces.selected"
+                },
+                {
+                 "id": "gh-ready-sb-item-13",
+                 "type": "frame",
+                 "name": "Конфигурация",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-13-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-folder-open",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-13-label",
+                   "type": "text",
+                   "content": "Конфигурация",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 486,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-14",
+                 "type": "frame",
+                 "name": "Обновления",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-14-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-download",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-14-label",
+                   "type": "text",
+                   "content": "Обновления",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 516,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-15",
+                 "type": "frame",
+                 "name": "Логи приложения",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-15-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-file-text",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-15-label",
+                   "type": "text",
+                   "content": "Логи приложения",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 546,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-ready-sb-item-16",
+                 "type": "frame",
+                 "name": "Фича-флаги",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-ready-sb-item-16-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-sliders",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-ready-sb-item-16-label",
+                   "type": "text",
+                   "content": "Фича-флаги",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 576,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 44
+              }
+             ],
+             "x": 0,
+             "y": 0
+            },
+            {
+             "id": "gh-ready-content",
+             "type": "frame",
+             "name": "Content",
+             "x": 264,
+             "y": 0,
+             "width": 1016,
+             "height": 800,
+             "layout": "none",
+             "children": [
+              {
+               "id": "gh-ready-col",
+               "type": "frame",
+               "name": "Инструменты Heartbeat",
+               "x": 148,
+               "y": 16,
+               "width": 720,
+               "height": 768,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "gh-ready-title",
+                 "type": "text",
+                 "content": "Инструменты Heartbeat",
+                 "x": 0,
+                 "y": 24,
+                 "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.title.size",
+                 "lineHeight": "$hb:typography.title.lineHeight",
+                 "fontWeight": "600"
+                },
+                {
+                 "id": "gh-ready-sub",
+                 "type": "text",
+                 "content": "Подключения, которыми агенты Heartbeat пользуются при работе.",
+                 "x": 0,
+                 "y": 58,
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight"
+                },
+                {
+                 "id": "gh-ready-card",
+                 "type": "frame",
+                 "name": "Коннектор GitHub",
+                 "x": 0,
+                 "y": 96,
+                 "width": 720,
+                 "height": 368,
+                 "layout": "none",
+                 "cornerRadius": "$hb:shapes.medium",
+                 "fill": "$hb:colors.surface",
+                 "stroke": "$hb:colors.outlineSubtle",
+                 "strokeWidth": 1,
+                 "strokeAlignment": "inner",
+                 "context": "Строка настроек: слева название и подсказка, справа элемент. Колонка контента 720 по центру (settingsMaxWidth). Переключатель включает инструменты github_pr_* (тогл ai.github_pull_tools) для всех чатов профиля. Сохранить доступна, когда заполнены репозиторий, аккаунт и путь к gh; Проверить подключение читает токен у gh, проверяет репозиторий и права на PR, во время проверки кнопки блокируются, ввод остаётся.",
+                 "children": [
+                  {
+                   "id": "gh-ready-c-title",
+                   "type": "text",
+                   "content": "Коннектор GitHub",
+                   "x": 16,
+                   "y": 14,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "600"
+                  },
+                  {
+                   "id": "gh-ready-c-sub",
+                   "type": "text",
+                   "content": "Агенты создают и ведут pull request через инструменты github_pr_*",
+                   "x": 16,
+                   "y": 34,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight"
+                  },
+                  {
+                   "id": "gh-ready-switch-hb-switch-on",
+                   "type": "frame",
+                   "name": "HbSwitch / On",
+                   "width": 28,
+                   "height": 16,
+                   "cornerRadius": 8,
+                   "fill": "$hb:colors.brand",
+                   "layout": "none",
+                   "children": [
+                    {
+                     "id": "gh-ready-switch-hb-switch-on-knob",
+                     "type": "ellipse",
+                     "x": 14,
+                     "y": 2,
+                     "width": 12,
+                     "height": 12,
+                     "fill": "$hb:colors.onBrand"
+                    }
+                   ],
+                   "x": 676,
+                   "y": 16
+                  },
+                  {
+                   "id": "gh-ready-d0-hb-divider",
+                   "type": "frame",
+                   "name": "HbDivider",
+                   "width": 720,
+                   "height": 1,
+                   "fill": "$hb:colors.outlineSubtle",
+                   "x": 0,
+                   "y": 64,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-ready-r0-l",
+                   "type": "text",
+                   "content": "Состояние",
+                   "x": 16,
+                   "y": 84,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-ready-r0-h",
+                   "type": "text",
+                   "content": "",
+                   "x": 16,
+                   "y": 104,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-ready-badge-hb-badge-success",
+                   "type": "frame",
+                   "name": "HbBadge / Success",
+                   "height": 20,
+                   "cornerRadius": 4,
+                   "fill": "$hb:colors.successContainer",
+                   "stroke": "$hb:colors.success",
+                   "strokeWidth": 1,
+                   "strokeAlignment": "inner",
+                   "children": [
+                    {
+                     "id": "gh-ready-badge-hb-badge-success-label",
+                     "type": "text",
+                     "content": "Подключено",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.caption.size",
+                     "lineHeight": "$hb:typography.caption.lineHeight",
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 6,
+                     "y": 2
+                    }
+                   ],
+                   "x": 232,
+                   "y": 82,
+                   "width": 88,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-ready-status",
+                   "type": "text",
+                   "content": "aequicor · права на pull request есть",
+                   "x": 330,
+                   "y": 84,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight"
+                  },
+                  {
+                   "id": "gh-ready-r1-l",
+                   "type": "text",
+                   "content": "Репозиторий",
+                   "x": 16,
+                   "y": 132,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-ready-r1-h",
+                   "type": "text",
+                   "content": "На github.com",
+                   "x": 16,
+                   "y": 152,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-ready-f1-hb-text-field",
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 472,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "gh-ready-f1-hb-text-field-value",
+                     "type": "text",
+                     "content": "aequicor/Heartbeat",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 10,
+                     "y": 7
+                    }
+                   ],
+                   "x": 232,
+                   "y": 124,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-ready-r2-l",
+                   "type": "text",
+                   "content": "Аккаунт gh",
+                   "x": 16,
+                   "y": 192,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-ready-r2-h",
+                   "type": "text",
+                   "content": "Уже вошедшие в gh",
+                   "x": 16,
+                   "y": 212,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-ready-f2-hb-text-field",
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 376,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "gh-ready-f2-hb-text-field-value",
+                     "type": "text",
+                     "content": "aequicor",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 10,
+                     "y": 7
+                    },
+                    {
+                     "id": "gh-ready-f2-chev",
+                     "type": "ref",
+                     "ref": "hb:hb-icon-chevron-down",
+                     "width": 16,
+                     "height": 16,
+                     "stroke": "$hb:colors.textSecondary",
+                     "strokeWidth": 1.12,
+                     "x": 348,
+                     "y": 7
+                    }
+                   ],
+                   "x": 232,
+                   "y": 184,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-ready-b-acc-hb-button-secondary",
+                   "type": "frame",
+                   "name": "HbButton / Secondary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-ready-b-acc-hb-button-secondary-label",
+                     "type": "text",
+                     "content": "Обновить",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.buttonFill",
+                   "x": 616,
+                   "y": 184,
+                   "width": 88,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-ready-r3-l",
+                   "type": "text",
+                   "content": "Путь к gh",
+                   "x": 16,
+                   "y": 252,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-ready-r3-h",
+                   "type": "text",
+                   "content": "Абсолютный путь к GitHub CLI",
+                   "x": 16,
+                   "y": 272,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-ready-f3-hb-text-field",
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 376,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "gh-ready-f3-hb-text-field-value",
+                     "type": "text",
+                     "content": "/opt/homebrew/bin/gh",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 10,
+                     "y": 7
+                    }
+                   ],
+                   "x": 232,
+                   "y": 244,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-ready-b-cli-hb-button-secondary",
+                   "type": "frame",
+                   "name": "HbButton / Secondary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-ready-b-cli-hb-button-secondary-label",
+                     "type": "text",
+                     "content": "Найти",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.buttonFill",
+                   "x": 616,
+                   "y": 244,
+                   "width": 88,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-ready-d1-hb-divider",
+                   "type": "frame",
+                   "name": "HbDivider",
+                   "width": 720,
+                   "height": 1,
+                   "fill": "$hb:colors.outlineSubtle",
+                   "x": 0,
+                   "y": 304,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-ready-b-check-hb-button-secondary",
+                   "type": "frame",
+                   "name": "HbButton / Secondary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-ready-b-check-hb-button-secondary-label",
+                     "type": "text",
+                     "content": "Проверить подключение",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.buttonFill",
+                   "x": 16,
+                   "y": 320,
+                   "width": 180,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-ready-b-save-hb-button-primary",
+                   "type": "frame",
+                   "name": "HbButton / Primary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-ready-b-save-hb-button-primary-label",
+                     "type": "text",
+                     "content": "Сохранить",
+                     "fill": "$hb:colors.onPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.primary",
+                   "x": 600,
+                   "y": 320,
+                   "width": 104,
+                   "layout": "none"
+                  }
+                 ]
+                },
+                {
+                 "id": "gh-ready-note",
+                 "type": "text",
+                 "content": "Токен не сохраняется в Heartbeat: его по запросу выдаёт gh. Создание, изменение и ready PR подтверждаются по режиму безопасности.",
+                 "x": 0,
+                 "y": 480,
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "width": 720,
+                 "textGrowth": "fixed-width"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "id": "cell-gh-error",
+         "type": "frame",
+         "name": "Settings / Tools / GitHub / Error / Desktop",
+         "x": 2720,
+         "y": 0,
+         "width": 1280,
+         "height": 824,
+         "layout": "none",
+         "children": [
+          {
+           "id": "cell-gh-error-cap",
+           "type": "text",
+           "content": "Error · Desktop · светлая",
+           "x": 0,
+           "y": 0,
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          },
+          {
+           "id": "gh-error",
+           "type": "frame",
+           "name": "Settings / Tools / GitHub / Error / Desktop",
+           "x": 0,
+           "y": 24,
+           "width": 1280,
+           "height": 800,
+           "layout": "none",
+           "reusable": true,
+           "theme": {
+            "hb:mode": "light",
+            "hb:host": "desktop"
+           },
+           "fill": "$hb:surfaces.backdrop",
+           "clip": true,
+           "stroke": "$hb:surfaces.outline",
+           "strokeWidth": 2,
+           "strokeAlignment": "outer",
+           "context": "Ошибка проверки: баннер под полями называет причину (нет gh, нет входа аккаунта, нет доступа к репозиторию, нет права на PR); поле с причиной получает контур ошибки, токен и вывод gh в текст не попадают.",
+           "children": [
+            {
+             "id": "gh-error-sb",
+             "type": "frame",
+             "name": "Settings / Sidebar",
+             "width": 264,
+             "height": 800,
+             "layout": "none",
+             "fill": "$hb:surfaces.sidebar",
+             "children": [
+              {
+               "id": "gh-error-sb-header",
+               "type": "frame",
+               "width": 264,
+               "height": 44,
+               "children": [
+                {
+                 "id": "gh-error-sb-lights",
+                 "type": "frame",
+                 "name": "Window / Traffic lights · dimensions.titlebarLeadingInset",
+                 "width": 96,
+                 "height": 28,
+                 "children": [
+                  {
+                   "id": "gh-error-sb-lights-window-traffic-lights-0",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 8,
+                   "y": 8
+                  },
+                  {
+                   "id": "gh-error-sb-lights-window-traffic-lights-1",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 28,
+                   "y": 8
+                  },
+                  {
+                   "id": "gh-error-sb-lights-window-traffic-lights-2",
+                   "type": "ellipse",
+                   "width": 12,
+                   "height": 12,
+                   "fill": "$hb:colors.outline",
+                   "x": 48,
+                   "y": 8
+                  }
+                 ],
+                 "x": 4,
+                 "y": 8,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 0,
+               "layout": "none"
+              },
+              {
+               "id": "gh-error-sb-list",
+               "type": "frame",
+               "width": 264,
+               "height": 756,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "gh-error-sb-back",
+                 "type": "frame",
+                 "name": "Назад",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-back-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-arrow-left",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-back-label",
+                   "type": "text",
+                   "content": "Назад",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 6,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-heading",
+                 "type": "frame",
+                 "name": "Настройки",
+                 "width": 248,
+                 "height": 28,
+                 "children": [
+                  {
+                   "id": "gh-error-sb-heading-label",
+                   "type": "text",
+                   "content": "Настройки",
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "x": 8,
+                   "y": 6
+                  }
+                 ],
+                 "x": 8,
+                 "y": 36,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-0",
+                 "type": "frame",
+                 "name": "Модели и движки",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-0-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-layers",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-0-label",
+                   "type": "text",
+                   "content": "Модели и движки",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 66,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-1",
+                 "type": "frame",
+                 "name": "Движки",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-1-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-terminal",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-1-label",
+                   "type": "text",
+                   "content": "Движки",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 96,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-2",
+                 "type": "frame",
+                 "name": "Безопасность",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-2-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-shield",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-2-label",
+                   "type": "text",
+                   "content": "Безопасность",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 126,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-3",
+                 "type": "frame",
+                 "name": "Субагенты",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-3-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-users",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-3-label",
+                   "type": "text",
+                   "content": "Субагенты",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 156,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-4",
+                 "type": "frame",
+                 "name": "Поиск",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-4-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-search",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-4-label",
+                   "type": "text",
+                   "content": "Поиск",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 186,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-5",
+                 "type": "frame",
+                 "name": "Управление компьютером",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-5-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-layers",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-5-label",
+                   "type": "text",
+                   "content": "Управление компьютером",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 216,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-6",
+                 "type": "frame",
+                 "name": "Браузер Chrome",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-6-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-globe",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-6-label",
+                   "type": "text",
+                   "content": "Браузер Chrome",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 246,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-7",
+                 "type": "frame",
+                 "name": "Самообучение",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-7-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-sparkles",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-7-label",
+                   "type": "text",
+                   "content": "Самообучение",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 276,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-8",
+                 "type": "frame",
+                 "name": "Контекст",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-8-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-minimize",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-8-label",
+                   "type": "text",
+                   "content": "Контекст",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 306,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-9",
+                 "type": "frame",
+                 "name": "Автопродолжение",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-9-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-play",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-9-label",
+                   "type": "text",
+                   "content": "Автопродолжение",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 336,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-10",
+                 "type": "frame",
+                 "name": "Сборки",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-10-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-terminal",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-10-label",
+                   "type": "text",
+                   "content": "Сборки",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 366,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-11",
+                 "type": "frame",
+                 "name": "Харнесс",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-11-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-code",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-11-label",
+                   "type": "text",
+                   "content": "Харнесс",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 396,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-12",
+                 "type": "frame",
+                 "name": "Интерфейсы",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-12-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-grid",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-12-label",
+                   "type": "text",
+                   "content": "Интерфейсы",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 426,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-tools",
+                 "type": "frame",
+                 "name": "Инструменты Heartbeat",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-tools-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-settings",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:surfaces.onSelected",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-tools-label",
+                   "type": "text",
+                   "content": "Инструменты Heartbeat",
+                   "fill": "$hb:surfaces.onSelected",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 456,
+                 "layout": "none",
+                 "fill": "$hb:surfaces.selected"
+                },
+                {
+                 "id": "gh-error-sb-item-13",
+                 "type": "frame",
+                 "name": "Конфигурация",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-13-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-folder-open",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-13-label",
+                   "type": "text",
+                   "content": "Конфигурация",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 486,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-14",
+                 "type": "frame",
+                 "name": "Обновления",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-14-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-download",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-14-label",
+                   "type": "text",
+                   "content": "Обновления",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 516,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-15",
+                 "type": "frame",
+                 "name": "Логи приложения",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-15-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-file-text",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-15-label",
+                   "type": "text",
+                   "content": "Логи приложения",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 546,
+                 "layout": "none"
+                },
+                {
+                 "id": "gh-error-sb-item-16",
+                 "type": "frame",
+                 "name": "Фича-флаги",
+                 "width": 248,
+                 "height": 28,
+                 "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                 "children": [
+                  {
+                   "id": "gh-error-sb-item-16-icon",
+                   "type": "ref",
+                   "ref": "hb:hb-icon-sliders",
+                   "width": 18,
+                   "height": 18,
+                   "stroke": "$hb:colors.textSecondary",
+                   "strokeWidth": 1.26,
+                   "x": 8,
+                   "y": 5
+                  },
+                  {
+                   "id": "gh-error-sb-item-16-label",
+                   "type": "text",
+                   "content": "Фича-флаги",
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "$hb:typography.label.weight",
+                   "x": 38,
+                   "y": 5
+                  }
+                 ],
+                 "x": 8,
+                 "y": 576,
+                 "layout": "none"
+                }
+               ],
+               "x": 0,
+               "y": 44
+              }
+             ],
+             "x": 0,
+             "y": 0
+            },
+            {
+             "id": "gh-error-content",
+             "type": "frame",
+             "name": "Content",
+             "x": 264,
+             "y": 0,
+             "width": 1016,
+             "height": 800,
+             "layout": "none",
+             "children": [
+              {
+               "id": "gh-error-col",
+               "type": "frame",
+               "name": "Инструменты Heartbeat",
+               "x": 148,
+               "y": 16,
+               "width": 720,
+               "height": 768,
+               "layout": "none",
+               "children": [
+                {
+                 "id": "gh-error-title",
+                 "type": "text",
+                 "content": "Инструменты Heartbeat",
+                 "x": 0,
+                 "y": 24,
+                 "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.title.size",
+                 "lineHeight": "$hb:typography.title.lineHeight",
+                 "fontWeight": "600"
+                },
+                {
+                 "id": "gh-error-sub",
+                 "type": "text",
+                 "content": "Подключения, которыми агенты Heartbeat пользуются при работе.",
+                 "x": 0,
+                 "y": 58,
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight"
+                },
+                {
+                 "id": "gh-error-card",
+                 "type": "frame",
+                 "name": "Коннектор GitHub",
+                 "x": 0,
+                 "y": 96,
+                 "width": 720,
+                 "height": 432,
+                 "layout": "none",
+                 "cornerRadius": "$hb:shapes.medium",
+                 "fill": "$hb:colors.surface",
+                 "stroke": "$hb:colors.outlineSubtle",
+                 "strokeWidth": 1,
+                 "strokeAlignment": "inner",
+                 "context": "Строка настроек: слева название и подсказка, справа элемент. Колонка контента 720 по центру (settingsMaxWidth). Переключатель включает инструменты github_pr_* (тогл ai.github_pull_tools) для всех чатов профиля. Сохранить доступна, когда заполнены репозиторий, аккаунт и путь к gh; Проверить подключение читает токен у gh, проверяет репозиторий и права на PR, во время проверки кнопки блокируются, ввод остаётся.",
+                 "children": [
+                  {
+                   "id": "gh-error-c-title",
+                   "type": "text",
+                   "content": "Коннектор GitHub",
+                   "x": 16,
+                   "y": 14,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "600"
+                  },
+                  {
+                   "id": "gh-error-c-sub",
+                   "type": "text",
+                   "content": "Агенты создают и ведут pull request через инструменты github_pr_*",
+                   "x": 16,
+                   "y": 34,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight"
+                  },
+                  {
+                   "id": "gh-error-switch-hb-switch-on",
+                   "type": "frame",
+                   "name": "HbSwitch / On",
+                   "width": 28,
+                   "height": 16,
+                   "cornerRadius": 8,
+                   "fill": "$hb:colors.brand",
+                   "layout": "none",
+                   "children": [
+                    {
+                     "id": "gh-error-switch-hb-switch-on-knob",
+                     "type": "ellipse",
+                     "x": 14,
+                     "y": 2,
+                     "width": 12,
+                     "height": 12,
+                     "fill": "$hb:colors.onBrand"
+                    }
+                   ],
+                   "x": 676,
+                   "y": 16
+                  },
+                  {
+                   "id": "gh-error-d0-hb-divider",
+                   "type": "frame",
+                   "name": "HbDivider",
+                   "width": 720,
+                   "height": 1,
+                   "fill": "$hb:colors.outlineSubtle",
+                   "x": 0,
+                   "y": 64,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-error-r0-l",
+                   "type": "text",
+                   "content": "Состояние",
+                   "x": 16,
+                   "y": 84,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-error-r0-h",
+                   "type": "text",
+                   "content": "",
+                   "x": 16,
+                   "y": 104,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-error-badge-hb-badge-warning",
+                   "type": "frame",
+                   "name": "HbBadge / Warning",
+                   "height": 20,
+                   "cornerRadius": 4,
+                   "fill": "$hb:colors.warningContainer",
+                   "stroke": "$hb:colors.warning",
+                   "strokeWidth": 1,
+                   "strokeAlignment": "inner",
+                   "children": [
+                    {
+                     "id": "gh-error-badge-hb-badge-warning-label",
+                     "type": "text",
+                     "content": "Ошибка",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.caption.size",
+                     "lineHeight": "$hb:typography.caption.lineHeight",
+                     "fontWeight": "$hb:typography.caption.weight",
+                     "x": 6,
+                     "y": 2
+                    }
+                   ],
+                   "x": 232,
+                   "y": 82,
+                   "width": 64,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-error-status",
+                   "type": "text",
+                   "content": "Проверка не пройдена",
+                   "x": 306,
+                   "y": 84,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight"
+                  },
+                  {
+                   "id": "gh-error-r1-l",
+                   "type": "text",
+                   "content": "Репозиторий",
+                   "x": 16,
+                   "y": 132,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-error-r1-h",
+                   "type": "text",
+                   "content": "На github.com",
+                   "x": 16,
+                   "y": 152,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-error-f1-hb-text-field",
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 472,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "gh-error-f1-hb-text-field-value",
+                     "type": "text",
+                     "content": "aequicor/Heartbeat",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 10,
+                     "y": 7
+                    }
+                   ],
+                   "x": 232,
+                   "y": 124,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-error-r2-l",
+                   "type": "text",
+                   "content": "Аккаунт gh",
+                   "x": 16,
+                   "y": 192,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-error-r2-h",
+                   "type": "text",
+                   "content": "Уже вошедшие в gh",
+                   "x": 16,
+                   "y": 212,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-error-f2-hb-text-field",
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 376,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "gh-error-f2-hb-text-field-value",
+                     "type": "text",
+                     "content": "aequicor",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 10,
+                     "y": 7
+                    },
+                    {
+                     "id": "gh-error-f2-chev",
+                     "type": "ref",
+                     "ref": "hb:hb-icon-chevron-down",
+                     "width": 16,
+                     "height": 16,
+                     "stroke": "$hb:colors.textSecondary",
+                     "strokeWidth": 1.12,
+                     "x": 348,
+                     "y": 7
+                    }
+                   ],
+                   "x": 232,
+                   "y": 184,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-error-b-acc-hb-button-secondary",
+                   "type": "frame",
+                   "name": "HbButton / Secondary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-error-b-acc-hb-button-secondary-label",
+                     "type": "text",
+                     "content": "Обновить",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.buttonFill",
+                   "x": 616,
+                   "y": 184,
+                   "width": 88,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-error-r3-l",
+                   "type": "text",
+                   "content": "Путь к gh",
+                   "x": 16,
+                   "y": 252,
+                   "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.label.size",
+                   "lineHeight": "$hb:typography.label.lineHeight",
+                   "fontWeight": "500"
+                  },
+                  {
+                   "id": "gh-error-r3-h",
+                   "type": "text",
+                   "content": "Абсолютный путь к GitHub CLI",
+                   "x": 16,
+                   "y": 272,
+                   "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
+                   "fontSize": "$hb:typography.caption.size",
+                   "lineHeight": "$hb:typography.caption.lineHeight",
+                   "fontWeight": "$hb:typography.caption.weight",
+                   "width": 200,
+                   "textGrowth": "fixed-width"
+                  },
+                  {
+                   "id": "gh-error-f3-hb-text-field",
+                   "type": "frame",
+                   "name": "HbTextField",
+                   "width": 376,
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.fieldCornerRadius",
+                   "fill": "$hb:colors.inputFill",
+                   "children": [
+                    {
+                     "id": "gh-error-f3-hb-text-field-value",
+                     "type": "text",
+                     "content": "/usr/local/bin/gh",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 10,
+                     "y": 7
+                    }
+                   ],
+                   "x": 232,
+                   "y": 244,
+                   "layout": "none",
+                   "stroke": "$hb:colors.error",
+                   "strokeWidth": 1,
+                   "strokeAlignment": "inner"
+                  },
+                  {
+                   "id": "gh-error-b-cli-hb-button-secondary",
+                   "type": "frame",
+                   "name": "HbButton / Secondary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-error-b-cli-hb-button-secondary-label",
+                     "type": "text",
+                     "content": "Найти",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.buttonFill",
+                   "x": 616,
+                   "y": 244,
+                   "width": 88,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-error-err-hb-banner-error",
+                   "type": "frame",
+                   "name": "HbBanner / Error",
+                   "width": 472,
+                   "cornerRadius": "$hb:shapes.medium",
+                   "fill": "$hb:colors.errorContainer",
+                   "children": [
+                    {
+                     "id": "gh-error-err-hb-banner-error-icon",
+                     "type": "ref",
+                     "ref": "hb:hb-icon-alert",
+                     "width": 18,
+                     "height": 18,
+                     "stroke": "$hb:colors.error",
+                     "strokeWidth": 1.26,
+                     "x": 12,
+                     "y": 8
+                    },
+                    {
+                     "id": "gh-error-err-hb-banner-error-message",
+                     "type": "text",
+                     "content": "Не найден исполняемый файл GitHub CLI по этому пути. Установите gh (brew install gh) или нажмите «Найти».",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "$hb:typography.label.weight",
+                     "x": 38,
+                     "y": 8,
+                     "width": 420,
+                     "textGrowth": "fixed-width"
+                    }
+                   ],
+                   "x": 232,
+                   "y": 300,
+                   "height": 52,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-error-d1-hb-divider",
+                   "type": "frame",
+                   "name": "HbDivider",
+                   "width": 720,
+                   "height": 1,
+                   "fill": "$hb:colors.outlineSubtle",
+                   "x": 0,
+                   "y": 368,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-error-b-check-hb-button-secondary",
+                   "type": "frame",
+                   "name": "HbButton / Secondary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-error-b-check-hb-button-secondary-label",
+                     "type": "text",
+                     "content": "Проверить подключение",
+                     "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.buttonFill",
+                   "x": 16,
+                   "y": 384,
+                   "width": 180,
+                   "layout": "none"
+                  },
+                  {
+                   "id": "gh-error-b-save-hb-button-primary",
+                   "type": "frame",
+                   "name": "HbButton / Primary / Regular",
+                   "height": 32,
+                   "cornerRadius": "$hb:dimensions.controlCornerRadius",
+                   "children": [
+                    {
+                     "id": "gh-error-b-save-hb-button-primary-label",
+                     "type": "text",
+                     "content": "Сохранить",
+                     "fill": "$hb:colors.onPrimary",
+                     "fontFamily": "$hb:typography.family",
+                     "fontSize": "$hb:typography.label.size",
+                     "lineHeight": "$hb:typography.label.lineHeight",
+                     "fontWeight": "500",
+                     "x": 12,
+                     "y": 7
+                    }
+                   ],
+                   "fill": "$hb:colors.primary",
+                   "x": 600,
+                   "y": 384,
+                   "width": 104,
+                   "layout": "none"
+                  }
+                 ]
+                },
+                {
+                 "id": "gh-error-note",
+                 "type": "text",
+                 "content": "Токен не сохраняется в Heartbeat: его по запросу выдаёт gh. Создание, изменение и ready PR подтверждаются по режиму безопасности.",
+                 "x": 0,
+                 "y": 544,
+                 "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight",
+                 "width": 720,
+                 "textGrowth": "fixed-width"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "section-flows",
+   "type": "frame",
+   "name": "Пользовательские пути",
+   "x": 4300,
+   "y": 0,
+   "width": 1400,
+   "height": 520,
+   "layout": "none",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   },
+   "children": [
+    {
+     "id": "flow-title",
+     "type": "text",
+     "content": "Настройка коннектора GitHub: пусто → проверка → подключено / ошибка",
+     "x": 60,
+     "y": 60,
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": "$hb:typography.title.size",
+     "lineHeight": "$hb:typography.title.lineHeight",
+     "fontWeight": "600"
+    },
+    {
+     "id": "flow-a1",
+     "type": "path",
+     "name": "Стрелка",
+     "geometry": "M10,10.0 L530,10.0 M516,18.0 L530,10.0 L516,2.0",
+     "viewBox": [
+      0,
+      0,
+      540,
+      20
+     ],
+     "x": 60,
+     "y": 160,
+     "width": 540,
+     "height": 20,
+     "stroke": "$hb:annotation.accent",
+     "strokeWidth": 3,
+     "strokeLinecap": "round",
+     "strokeLinejoin": "round",
+     "opacity": 0.65
+    },
+    {
+     "id": "flow-a1-dot",
+     "type": "ellipse",
+     "name": "Начало стрелки",
+     "x": 56,
+     "y": 165,
+     "width": 10,
+     "height": 10,
+     "fill": "$hb:annotation.accent",
+     "opacity": 0.65
+    },
+    {
+     "id": "flow-a1-text",
+     "type": "text",
+     "content": "Заполнить поля, «Проверить подключение» (trigger: клик, transition: без перехода экрана)",
+     "x": 120,
+     "y": 134,
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": "$hb:typography.label.size",
+     "lineHeight": "$hb:typography.label.lineHeight",
+     "fontWeight": "$hb:typography.label.weight",
+     "width": 460,
+     "textGrowth": "fixed-width"
+    },
+    {
+     "id": "flow-a2",
+     "type": "path",
+     "name": "Стрелка",
+     "geometry": "M10,10.0 L530,10.0 M516,18.0 L530,10.0 L516,2.0",
+     "viewBox": [
+      0,
+      0,
+      540,
+      20
+     ],
+     "x": 60,
+     "y": 260,
+     "width": 540,
+     "height": 20,
+     "stroke": "$hb:annotation.accent",
+     "strokeWidth": 3,
+     "strokeLinecap": "round",
+     "strokeLinejoin": "round",
+     "opacity": 0.65
+    },
+    {
+     "id": "flow-a2-dot",
+     "type": "ellipse",
+     "name": "Начало стрелки",
+     "x": 56,
+     "y": 265,
+     "width": 10,
+     "height": 10,
+     "fill": "$hb:annotation.accent",
+     "opacity": 0.65
+    },
+    {
+     "id": "flow-a2-text",
+     "type": "text",
+     "content": "Проверка успешна → «Подключено», включается переключатель",
+     "x": 120,
+     "y": 234,
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": "$hb:typography.label.size",
+     "lineHeight": "$hb:typography.label.lineHeight",
+     "fontWeight": "$hb:typography.label.weight",
+     "width": 460,
+     "textGrowth": "fixed-width"
+    },
+    {
+     "id": "flow-a3",
+     "type": "path",
+     "name": "Стрелка",
+     "geometry": "M10,10.0 L530,10.0 M516,18.0 L530,10.0 L516,2.0",
+     "viewBox": [
+      0,
+      0,
+      540,
+      20
+     ],
+     "x": 60,
+     "y": 360,
+     "width": 540,
+     "height": 20,
+     "stroke": "$hb:annotation.accent",
+     "strokeWidth": 3,
+     "strokeLinecap": "round",
+     "strokeLinejoin": "round",
+     "opacity": 0.65
+    },
+    {
+     "id": "flow-a3-dot",
+     "type": "ellipse",
+     "name": "Начало стрелки",
+     "x": 56,
+     "y": 365,
+     "width": 10,
+     "height": 10,
+     "fill": "$hb:annotation.accent",
+     "opacity": 0.65
+    },
+    {
+     "id": "flow-a3-text",
+     "type": "text",
+     "content": "Проверка неуспешна → баннер с причиной, «Сохранить» остаётся доступна",
+     "x": 120,
+     "y": 334,
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": "$hb:typography.label.size",
+     "lineHeight": "$hb:typography.label.lineHeight",
+     "fontWeight": "$hb:typography.label.weight",
+     "width": 460,
+     "textGrowth": "fixed-width"
+    },
+    {
+     "id": "flow-c1",
+     "type": "frame",
+     "name": "«Проверить подключение» · состояния",
+     "x": 700,
+     "y": 140,
+     "width": 460,
+     "height": 120,
+     "layout": "none",
+     "cornerRadius": 8,
+     "stroke": "$hb:annotation.accent",
+     "strokeWidth": 2,
+     "children": [
+      {
+       "id": "flow-c1-t",
+       "type": "text",
+       "content": "«Проверить подключение» · состояния",
+       "x": 16,
+       "y": 12,
+       "fill": "$hb:colors.textPrimary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.label.size",
+       "lineHeight": "$hb:typography.label.lineHeight",
+       "fontWeight": "600"
+      },
+      {
+       "id": "flow-c1-x",
+       "type": "text",
+       "content": "Во время проверки: кнопки заблокированы, на кнопке индикатор (hb-icon-loading), поля доступны для чтения. Отмена не нужна: лимит 5 с на получение токена у gh и 30 с на запрос.",
+       "x": 16,
+       "y": 40,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight",
+       "width": 428,
+       "textGrowth": "fixed-width"
+      }
+     ]
+    },
+    {
+     "id": "flow-c2",
+     "type": "frame",
+     "name": "«Найти» · поведение",
+     "x": 700,
+     "y": 290,
+     "width": 460,
+     "height": 130,
+     "layout": "none",
+     "cornerRadius": 8,
+     "stroke": "$hb:annotation.accent",
+     "strokeWidth": 2,
+     "children": [
+      {
+       "id": "flow-c2-t",
+       "type": "text",
+       "content": "«Найти» · поведение",
+       "x": 16,
+       "y": 12,
+       "fill": "$hb:colors.textPrimary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.label.size",
+       "lineHeight": "$hb:typography.label.lineHeight",
+       "fontWeight": "600"
+      },
+      {
+       "id": "flow-c2-x",
+       "type": "text",
+       "content": "Ищет gh в стандартных каталогах и PATH пользователя; найден — подставляет путь, нет — баннер «gh не найден». Файлы внутри проектов не принимаются.",
+       "x": 16,
+       "y": 40,
+       "fill": "$hb:colors.textSecondary",
+       "fontFamily": "$hb:typography.family",
+       "fontSize": "$hb:typography.caption.size",
+       "lineHeight": "$hb:typography.caption.lineHeight",
+       "fontWeight": "$hb:typography.caption.weight",
+       "width": 428,
+       "textGrowth": "fixed-width"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
