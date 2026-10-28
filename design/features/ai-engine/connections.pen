@@ -32,7 +32,23 @@
          "type": "ref",
          "ref": "hb:window-traffic-lights",
          "x": 4,
-         "y": 8
+         "y": 8,
+         "width": 96,
+         "height": 28,
+         "descendants": {
+          "hb:window-traffic-lights-0": {
+           "x": 8,
+           "y": 8
+          },
+          "hb:window-traffic-lights-1": {
+           "x": 28,
+           "y": 8
+          },
+          "hb:window-traffic-lights-2": {
+           "x": 48,
+           "y": 8
+          }
+         }
         }
        ],
        "x": 0,
@@ -887,11 +903,15 @@
                  "ref": "hb:hb-badge-success",
                  "descendants": {
                   "hb:hb-badge-success-label": {
-                   "content": "Установлен"
+                   "content": "Установлен",
+                   "x": 6,
+                   "y": 2
                   }
                  },
                  "x": 602.2,
-                 "y": 13
+                 "y": 13,
+                 "width": 79.8,
+                 "height": 20
                 },
                 {
                  "id": "wizard-engine-pi-chevron",
@@ -965,11 +985,15 @@
                  "ref": "hb:hb-badge-neutral",
                  "descendants": {
                   "hb:hb-badge-neutral-label": {
-                   "content": "Не проверен"
+                   "content": "Не проверен",
+                   "x": 6,
+                   "y": 2
                   }
                  },
                  "x": 593.9,
-                 "y": 13
+                 "y": 13,
+                 "width": 79.8,
+                 "height": 20
                 },
                 {
                  "id": "wizard-engine-koog-chevron",
@@ -1043,11 +1067,15 @@
                  "ref": "hb:hb-badge-warning",
                  "descendants": {
                   "hb:hb-badge-warning-label": {
-                   "content": "Требует установки"
+                   "content": "Требует установки",
+                   "x": 6,
+                   "y": 2
                   }
                  },
                  "x": 558.7,
-                 "y": 13
+                 "y": 13,
+                 "width": 79.8,
+                 "height": 20
                 },
                 {
                  "id": "wizard-engine-codex-chevron",
@@ -1121,11 +1149,15 @@
                  "ref": "hb:hb-badge-success",
                  "descendants": {
                   "hb:hb-badge-success-label": {
-                   "content": "Установлен"
+                   "content": "Установлен",
+                   "x": 6,
+                   "y": 2
                   }
                  },
                  "x": 602.2,
-                 "y": 13
+                 "y": 13,
+                 "width": 79.8,
+                 "height": 20
                 },
                 {
                  "id": "wizard-engine-claude-chevron",
@@ -1165,11 +1197,15 @@
              "ref": "hb:hb-button-ghost",
              "descendants": {
               "hb:hb-button-ghost-label": {
-               "content": "Отмена"
+               "content": "Отмена",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 0,
-             "y": 0
+             "y": 0,
+             "width": 73.4,
+             "height": 32
             }
            ],
            "x": 0,
@@ -1305,7 +1341,19 @@
                "type": "ref",
                "ref": "hb:hb-search-field",
                "x": 0,
-               "y": 26
+               "y": 26,
+               "width": 480,
+               "height": 28,
+               "descendants": {
+                "hb:hb-search-field-icon": {
+                 "x": 8,
+                 "y": 7
+                },
+                "hb:hb-search-field-placeholder": {
+                 "x": 28,
+                 "y": 5
+                }
+               }
               },
               {
                "id": "wizard-auth-provider-list",
@@ -1589,11 +1637,15 @@
                    "descendants": {
                     "hb:hb-text-field-value": {
                      "content": "Вставьте ключ",
-                     "fill": "$hb:colors.textSecondary"
+                     "fill": "$hb:colors.textSecondary",
+                     "x": 10,
+                     "y": 7
                     }
                    },
                    "x": 0,
-                   "y": 22
+                   "y": 22,
+                   "width": 480,
+                   "height": 32
                   },
                   {
                    "id": "wizard-auth-key-hint",
@@ -1620,11 +1672,15 @@
                  "ref": "hb:hb-button-ghost-small",
                  "descendants": {
                   "hb:hb-button-ghost-small-label": {
-                   "content": "Получить API-ключ"
+                   "content": "Получить API-ключ",
+                   "x": 8,
+                   "y": 5
                   }
                  },
                  "x": 8,
-                 "y": 80
+                 "y": 80,
+                 "width": 65.4,
+                 "height": 28
                 },
                 {
                  "id": "wizard-auth-address",
@@ -1651,11 +1707,15 @@
                    "descendants": {
                     "hb:hb-text-field-value": {
                      "content": "https://api.anthropic.com",
-                     "fill": "$hb:colors.textSecondary"
+                     "fill": "$hb:colors.textSecondary",
+                     "x": 10,
+                     "y": 7
                     }
                    },
                    "x": 0,
-                   "y": 22
+                   "y": 22,
+                   "width": 480,
+                   "height": 32
                   },
                   {
                    "id": "wizard-auth-address-hint",
@@ -1701,11 +1761,15 @@
                    "descendants": {
                     "hb:hb-text-field-value": {
                      "content": "Anthropic",
-                     "fill": "$hb:colors.textPrimary"
+                     "fill": "$hb:colors.textPrimary",
+                     "x": 10,
+                     "y": 7
                     }
                    },
                    "x": 0,
-                   "y": 22
+                   "y": 22,
+                   "width": 480,
+                   "height": 32
                   }
                  ],
                  "x": 8,
@@ -1738,11 +1802,15 @@
              "ref": "hb:hb-button-ghost",
              "descendants": {
               "hb:hb-button-ghost-label": {
-               "content": "Отмена"
+               "content": "Отмена",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 0,
-             "y": 0
+             "y": 0,
+             "width": 73.4,
+             "height": 32
             },
             {
              "id": "wizard-auth-footer-gap",
@@ -1759,11 +1827,15 @@
              "ref": "hb:hb-button-secondary",
              "descendants": {
               "hb:hb-button-secondary-label": {
-               "content": "Назад"
+               "content": "Назад",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 354.4,
-             "y": 0
+             "y": 0,
+             "width": 63.2,
+             "height": 32
             },
             {
              "id": "wizard-auth-check",
@@ -1771,11 +1843,15 @@
              "ref": "hb:hb-button-secondary",
              "descendants": {
               "hb:hb-button-secondary-label": {
-               "content": "Проверить подключение"
+               "content": "Проверить подключение",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 423.5,
-             "y": 0
+             "y": 0,
+             "width": 63.2,
+             "height": 32
             },
             {
              "id": "wizard-auth-connect",
@@ -1783,11 +1859,15 @@
              "ref": "hb:hb-button-primary",
              "descendants": {
               "hb:hb-button-primary-label": {
-               "content": "Подключить"
+               "content": "Подключить",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 615.3,
-             "y": 0
+             "y": 0,
+             "width": 104.7,
+             "height": 32
             }
            ],
            "x": 0,
@@ -1923,7 +2003,19 @@
                "type": "ref",
                "ref": "hb:hb-search-field",
                "x": 0,
-               "y": 26
+               "y": 26,
+               "width": 480,
+               "height": 28,
+               "descendants": {
+                "hb:hb-search-field-icon": {
+                 "x": 8,
+                 "y": 7
+                },
+                "hb:hb-search-field-placeholder": {
+                 "x": 28,
+                 "y": 5
+                }
+               }
               },
               {
                "id": "wizard-auth-error-provider-list",
@@ -2207,11 +2299,15 @@
                    "descendants": {
                     "hb:hb-text-field-value": {
                      "content": "Вставьте ключ",
-                     "fill": "$hb:colors.textSecondary"
+                     "fill": "$hb:colors.textSecondary",
+                     "x": 10,
+                     "y": 7
                     }
                    },
                    "x": 0,
-                   "y": 22
+                   "y": 22,
+                   "width": 480,
+                   "height": 32
                   },
                   {
                    "id": "wizard-auth-error-key-hint",
@@ -2237,7 +2333,19 @@
                  "type": "ref",
                  "ref": "hb:hb-banner-error",
                  "x": 8,
-                 "y": 80
+                 "y": 80,
+                 "width": 480,
+                 "height": 34,
+                 "descendants": {
+                  "hb:hb-banner-error-icon": {
+                   "x": 12,
+                   "y": 8
+                  },
+                  "hb:hb-banner-error-message": {
+                   "x": 38,
+                   "y": 8
+                  }
+                 }
                 },
                 {
                  "id": "wizard-auth-error-get-key",
@@ -2245,11 +2353,15 @@
                  "ref": "hb:hb-button-ghost-small",
                  "descendants": {
                   "hb:hb-button-ghost-small-label": {
-                   "content": "Получить API-ключ"
+                   "content": "Получить API-ключ",
+                   "x": 8,
+                   "y": 5
                   }
                  },
                  "x": 8,
-                 "y": 120
+                 "y": 120,
+                 "width": 65.4,
+                 "height": 28
                 },
                 {
                  "id": "wizard-auth-error-address",
@@ -2276,11 +2388,15 @@
                    "descendants": {
                     "hb:hb-text-field-value": {
                      "content": "https://api.anthropic.com",
-                     "fill": "$hb:colors.textSecondary"
+                     "fill": "$hb:colors.textSecondary",
+                     "x": 10,
+                     "y": 7
                     }
                    },
                    "x": 0,
-                   "y": 22
+                   "y": 22,
+                   "width": 480,
+                   "height": 32
                   },
                   {
                    "id": "wizard-auth-error-address-hint",
@@ -2326,11 +2442,15 @@
                    "descendants": {
                     "hb:hb-text-field-value": {
                      "content": "Anthropic",
-                     "fill": "$hb:colors.textPrimary"
+                     "fill": "$hb:colors.textPrimary",
+                     "x": 10,
+                     "y": 7
                     }
                    },
                    "x": 0,
-                   "y": 22
+                   "y": 22,
+                   "width": 480,
+                   "height": 32
                   }
                  ],
                  "x": 8,
@@ -2363,11 +2483,15 @@
              "ref": "hb:hb-button-ghost",
              "descendants": {
               "hb:hb-button-ghost-label": {
-               "content": "Отмена"
+               "content": "Отмена",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 0,
-             "y": 0
+             "y": 0,
+             "width": 73.4,
+             "height": 32
             },
             {
              "id": "wizard-auth-error-footer-gap",
@@ -2384,11 +2508,15 @@
              "ref": "hb:hb-button-secondary",
              "descendants": {
               "hb:hb-button-secondary-label": {
-               "content": "Назад"
+               "content": "Назад",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 354.4,
-             "y": 0
+             "y": 0,
+             "width": 63.2,
+             "height": 32
             },
             {
              "id": "wizard-auth-error-check",
@@ -2396,11 +2524,15 @@
              "ref": "hb:hb-button-secondary",
              "descendants": {
               "hb:hb-button-secondary-label": {
-               "content": "Проверить подключение"
+               "content": "Проверить подключение",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 423.5,
-             "y": 0
+             "y": 0,
+             "width": 63.2,
+             "height": 32
             },
             {
              "id": "wizard-auth-error-connect",
@@ -2408,11 +2540,15 @@
              "ref": "hb:hb-button-primary",
              "descendants": {
               "hb:hb-button-primary-label": {
-               "content": "Подключить"
+               "content": "Подключить",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 615.3,
-             "y": 0
+             "y": 0,
+             "width": 104.7,
+             "height": 32
             }
            ],
            "x": 0,
@@ -2538,11 +2674,19 @@
                "ref": "hb:hb-search-field",
                "descendants": {
                 "hb:hb-search-field-placeholder": {
-                 "content": "Поиск моделей"
+                 "content": "Поиск моделей",
+                 "x": 28,
+                 "y": 5
+                },
+                "hb:hb-search-field-icon": {
+                 "x": 8,
+                 "y": 7
                 }
                },
                "x": 0,
-               "y": 0
+               "y": 0,
+               "width": 480,
+               "height": 28
               },
               {
                "id": "wizard-models-selected",
@@ -2562,11 +2706,15 @@
                "ref": "hb:hb-button-ghost-small",
                "descendants": {
                 "hb:hb-button-ghost-small-label": {
-                 "content": "Выбрать все"
+                 "content": "Выбрать все",
+                 "x": 8,
+                 "y": 5
                 }
                },
                "x": 536,
-               "y": 0
+               "y": 0,
+               "width": 65.4,
+               "height": 28
               },
               {
                "id": "wizard-models-none",
@@ -2574,11 +2722,15 @@
                "ref": "hb:hb-button-ghost-small",
                "descendants": {
                 "hb:hb-button-ghost-small-label": {
-                 "content": "Снять все"
+                 "content": "Снять все",
+                 "x": 8,
+                 "y": 5
                 }
                },
                "x": 639.6,
-               "y": 0
+               "y": 0,
+               "width": 65.4,
+               "height": 28
               }
              ],
              "x": 0,
@@ -2639,7 +2791,15 @@
                  "type": "ref",
                  "ref": "hb:hb-switch-on",
                  "x": 684,
-                 "y": 15
+                 "y": 15,
+                 "width": 28,
+                 "height": 16,
+                 "descendants": {
+                  "hb:hb-switch-on-knob": {
+                   "x": 14,
+                   "y": 2
+                  }
+                 }
                 }
                ],
                "x": 0,
@@ -2694,7 +2854,15 @@
                  "type": "ref",
                  "ref": "hb:hb-switch-on",
                  "x": 684,
-                 "y": 15
+                 "y": 15,
+                 "width": 28,
+                 "height": 16,
+                 "descendants": {
+                  "hb:hb-switch-on-knob": {
+                   "x": 14,
+                   "y": 2
+                  }
+                 }
                 }
                ],
                "x": 0,
@@ -2749,7 +2917,15 @@
                  "type": "ref",
                  "ref": "hb:hb-switch-off",
                  "x": 684,
-                 "y": 15
+                 "y": 15,
+                 "width": 28,
+                 "height": 16,
+                 "descendants": {
+                  "hb:hb-switch-off-knob": {
+                   "x": 2,
+                   "y": 2
+                  }
+                 }
                 }
                ],
                "x": 0,
@@ -2804,7 +2980,15 @@
                  "type": "ref",
                  "ref": "hb:hb-switch-off",
                  "x": 684,
-                 "y": 15
+                 "y": 15,
+                 "width": 28,
+                 "height": 16,
+                 "descendants": {
+                  "hb:hb-switch-off-knob": {
+                   "x": 2,
+                   "y": 2
+                  }
+                 }
                 }
                ],
                "x": 0,
@@ -2833,11 +3017,15 @@
              "ref": "hb:hb-button-ghost",
              "descendants": {
               "hb:hb-button-ghost-label": {
-               "content": "Отмена"
+               "content": "Отмена",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 0,
-             "y": 0
+             "y": 0,
+             "width": 73.4,
+             "height": 32
             },
             {
              "id": "wizard-models-footer-gap",
@@ -2854,11 +3042,15 @@
              "ref": "hb:hb-button-primary",
              "descendants": {
               "hb:hb-button-primary-label": {
-               "content": "Готово"
+               "content": "Готово",
+               "x": 12,
+               "y": 7
               }
              },
              "x": 652.5,
-             "y": 0
+             "y": 0,
+             "width": 104.7,
+             "height": 32
             }
            ],
            "x": 0,

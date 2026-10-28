@@ -32,7 +32,23 @@
          "type": "ref",
          "ref": "hb:window-traffic-lights",
          "x": 4,
-         "y": 8
+         "y": 8,
+         "width": 96,
+         "height": 28,
+         "descendants": {
+          "hb:window-traffic-lights-0": {
+           "x": 8,
+           "y": 8
+          },
+          "hb:window-traffic-lights-1": {
+           "x": 28,
+           "y": 8
+          },
+          "hb:window-traffic-lights-2": {
+           "x": 48,
+           "y": 8
+          }
+         }
         },
         {
          "id": "studio-sidebar-header-gap",
@@ -55,11 +71,15 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 5,
+           "y": 5
           }
          },
          "x": 200,
-         "y": 8
+         "y": 8,
+         "width": 28,
+         "height": 28
         },
         {
          "id": "studio-sidebar-hide",
@@ -73,11 +93,15 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 5,
+           "y": 5
           }
          },
          "x": 228,
-         "y": 8
+         "y": 8,
+         "width": 28,
+         "height": 28
         }
        ],
        "name": "studio-sidebar-header · dimensions.headerHeight",
@@ -346,11 +370,15 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 5,
+           "y": 5
           }
          },
          "x": 8,
-         "y": 8
+         "y": 8,
+         "width": 28,
+         "height": 28
         },
         {
          "id": "sb-rail-archive",
@@ -364,11 +392,15 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 5,
+           "y": 5
           }
          },
          "x": 38,
-         "y": 8
+         "y": 8,
+         "width": 28,
+         "height": 28
         },
         {
          "id": "sb-rail-browser",
@@ -382,11 +414,15 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 5,
+           "y": 5
           }
          },
          "x": 68,
-         "y": 8
+         "y": 8,
+         "width": 28,
+         "height": 28
         },
         {
          "id": "sb-rail-gap",
@@ -409,11 +445,15 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 5,
+           "y": 5
           }
          },
          "x": 198,
-         "y": 8
+         "y": 8,
+         "width": 28,
+         "height": 28
         },
         {
          "id": "sb-rail-connections",
@@ -427,11 +467,15 @@
            "width": 18,
            "height": 18,
            "stroke": "$hb:colors.textSecondary",
-           "strokeWidth": 1.26
+           "strokeWidth": 1.26,
+           "x": 5,
+           "y": 5
           }
          },
          "x": 228,
-         "y": 8
+         "y": 8,
+         "width": 28,
+         "height": 28
         }
        ],
        "x": 0,
@@ -517,11 +561,15 @@
              "ref": "hb:hb-icon-more-vertical",
              "width": 18,
              "height": 18,
-             "fill": "$hb:colors.textSecondary"
+             "fill": "$hb:colors.textSecondary",
+             "x": 5,
+             "y": 5
             }
            },
            "x": 908,
-           "y": 8
+           "y": 8,
+           "width": 28,
+           "height": 28
           },
           {
            "id": "studio-empty-content-header-summary",
@@ -535,11 +583,15 @@
              "width": 18,
              "height": 18,
              "stroke": "$hb:colors.textSecondary",
-             "strokeWidth": 1.26
+             "strokeWidth": 1.26,
+             "x": 5,
+             "y": 5
             }
            },
            "x": 944,
-           "y": 8
+           "y": 8,
+           "width": 28,
+           "height": 28
           },
           {
            "id": "studio-empty-content-header-split",
@@ -553,11 +605,15 @@
              "width": 18,
              "height": 18,
              "stroke": "$hb:colors.textSecondary",
-             "strokeWidth": 1.26
+             "strokeWidth": 1.26,
+             "x": 5,
+             "y": 5
             }
            },
            "x": 980,
-           "y": 8
+           "y": 8,
+           "width": 28,
+           "height": 28
           }
          ],
          "x": 0,
@@ -630,14 +686,24 @@
                  "width": 14,
                  "height": 14,
                  "stroke": "$hb:colors.textPrimary",
-                 "strokeWidth": 0.98
+                 "strokeWidth": 0.98,
+                 "x": 8,
+                 "y": 9
                 },
                 "hb:hb-composer-pill-label": {
-                 "content": "Без проекта"
+                 "content": "Без проекта",
+                 "x": 26,
+                 "y": 7
+                },
+                "hb:hb-composer-pill-chevron": {
+                 "x": 107.4,
+                 "y": 9
                 }
                },
                "x": 8,
-               "y": 4
+               "y": 4,
+               "width": 117.6,
+               "height": 32
               },
               {
                "id": "studio-empty-content-composer-context-window",
@@ -645,11 +711,15 @@
                "ref": "hb:hb-button-ghost-small",
                "descendants": {
                 "hb:hb-button-ghost-small-label": {
-                 "content": "Контекстное окно"
+                 "content": "Контекстное окно",
+                 "x": 8,
+                 "y": 5
                 }
                },
                "x": 143.4,
-               "y": 6
+               "y": 6,
+               "width": 65.4,
+               "height": 28
               }
              ],
              "x": 0,
@@ -698,11 +768,15 @@
                    "width": 18,
                    "height": 18,
                    "stroke": "$hb:colors.textSecondary",
-                   "strokeWidth": 1.26
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
                   }
                  },
                  "x": 0,
-                 "y": 2
+                 "y": 2,
+                 "width": 28,
+                 "height": 28
                 },
                 {
                  "id": "studio-empty-content-composer-image",
@@ -716,11 +790,15 @@
                    "width": 18,
                    "height": 18,
                    "stroke": "$hb:colors.textSecondary",
-                   "strokeWidth": 1.26
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
                   }
                  },
                  "x": 32,
-                 "y": 2
+                 "y": 2,
+                 "width": 28,
+                 "height": 28
                 },
                 {
                  "id": "studio-empty-content-composer-toolbar-gap",
@@ -736,21 +814,61 @@
                  "type": "ref",
                  "ref": "hb:hb-composer-pill",
                  "x": 485.2,
-                 "y": 0
+                 "y": 0,
+                 "width": 117.6,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-pill-icon": {
+                   "x": 8,
+                   "y": 9
+                  },
+                  "hb:hb-composer-pill-label": {
+                   "x": 26,
+                   "y": 7
+                  },
+                  "hb:hb-composer-pill-chevron": {
+                   "x": 95.6,
+                   "y": 9
+                  }
+                 }
                 },
                 {
                  "id": "studio-empty-content-composer-effort",
                  "type": "ref",
                  "ref": "hb:hb-composer-accentpill",
                  "x": 606.8,
-                 "y": 0
+                 "y": 0,
+                 "width": 101.2,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-accentpill-icon": {
+                   "x": 8,
+                   "y": 9
+                  },
+                  "hb:hb-composer-accentpill-label": {
+                   "x": 26,
+                   "y": 7
+                  },
+                  "hb:hb-composer-accentpill-chevron": {
+                   "x": 79.2,
+                   "y": 9
+                  }
+                 }
                 },
                 {
                  "id": "studio-empty-content-composer-send",
                  "type": "ref",
                  "ref": "hb:hb-composer-send",
                  "x": 712,
-                 "y": 0
+                 "y": 0,
+                 "width": 32,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-send-icon": {
+                   "x": 7,
+                   "y": 7
+                  }
+                 }
                 }
                ],
                "x": 8,
@@ -961,11 +1079,15 @@
              "ref": "hb:hb-icon-more-vertical",
              "width": 18,
              "height": 18,
-             "fill": "$hb:colors.textSecondary"
+             "fill": "$hb:colors.textSecondary",
+             "x": 5,
+             "y": 5
             }
            },
            "x": 908,
-           "y": 8
+           "y": 8,
+           "width": 28,
+           "height": 28
           },
           {
            "id": "studio-conversation-content-header-summary",
@@ -979,11 +1101,15 @@
              "width": 18,
              "height": 18,
              "stroke": "$hb:colors.textSecondary",
-             "strokeWidth": 1.26
+             "strokeWidth": 1.26,
+             "x": 5,
+             "y": 5
             }
            },
            "x": 944,
-           "y": 8
+           "y": 8,
+           "width": 28,
+           "height": 28
           },
           {
            "id": "studio-conversation-content-header-split",
@@ -997,11 +1123,15 @@
              "width": 18,
              "height": 18,
              "stroke": "$hb:colors.textSecondary",
-             "strokeWidth": 1.26
+             "strokeWidth": 1.26,
+             "x": 5,
+             "y": 5
             }
            },
            "x": 980,
-           "y": 8
+           "y": 8,
+           "width": 28,
+           "height": 28
           }
          ],
          "x": 0,
@@ -1113,7 +1243,19 @@
                  "type": "ref",
                  "ref": "hb:hb-studio-mark",
                  "x": 0,
-                 "y": 0
+                 "y": 0,
+                 "width": 28,
+                 "height": 28,
+                 "descendants": {
+                  "hb:hb-studio-mark-disc": {
+                   "x": 0.5,
+                   "y": 0.5
+                  },
+                  "hb:hb-studio-mark-wave": {
+                   "x": 0,
+                   "y": 0
+                  }
+                 }
                 },
                 {
                  "id": "studio-conversation-content-reply-author",
@@ -1159,14 +1301,33 @@
                  "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-reasoning-title": {
-                   "content": "Размышление"
+                   "content": "Размышление",
+                   "x": 0,
+                   "y": 0
                   },
                   "hb:hb-tool-row-reasoning-summary": {
-                   "content": "Сначала найду, где композер ждёт ответ движка"
+                   "content": "Сначала найду, где композер ждёт ответ движка",
+                   "x": 0,
+                   "y": 18
+                  },
+                  "hb:hb-tool-row-reasoning-icon": {
+                   "x": 8,
+                   "y": 16
+                  },
+                  "hb:hb-tool-row-reasoning-text": {
+                   "x": 38,
+                   "y": 8,
+                   "width": 616,
+                   "height": 34
+                  },
+                  "hb:hb-tool-row-reasoning-chevron": {
+                   "x": 666,
+                   "y": 18
                   }
                  },
                  "x": 40,
-                 "y": 0
+                 "y": 0,
+                 "height": 50
                 },
                 {
                  "id": "studio-conversation-content-read",
@@ -1175,14 +1336,37 @@
                  "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-done-title": {
-                   "content": "Прочитан файл"
+                   "content": "Прочитан файл",
+                   "x": 0,
+                   "y": 0
                   },
                   "hb:hb-tool-row-done-summary": {
-                   "content": "StudioComposer.kt"
+                   "content": "StudioComposer.kt",
+                   "x": 0,
+                   "y": 18
+                  },
+                  "hb:hb-tool-row-done-icon": {
+                   "x": 8,
+                   "y": 16
+                  },
+                  "hb:hb-tool-row-done-text": {
+                   "x": 38,
+                   "y": 8,
+                   "width": 564.2,
+                   "height": 34
+                  },
+                  "hb:hb-tool-row-done-status": {
+                   "x": 614.2,
+                   "y": 17
+                  },
+                  "hb:hb-tool-row-done-chevron": {
+                   "x": 666,
+                   "y": 18
                   }
                  },
                  "x": 40,
-                 "y": 58
+                 "y": 58,
+                 "height": 50
                 },
                 {
                  "id": "studio-conversation-content-grep",
@@ -1191,14 +1375,37 @@
                  "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-done-title": {
-                   "content": "Поиск"
+                   "content": "Поиск",
+                   "x": 0,
+                   "y": 0
                   },
                   "hb:hb-tool-row-done-summary": {
-                   "content": "debounce в StudioPaneView.kt"
+                   "content": "debounce в StudioPaneView.kt",
+                   "x": 0,
+                   "y": 18
+                  },
+                  "hb:hb-tool-row-done-icon": {
+                   "x": 8,
+                   "y": 16
+                  },
+                  "hb:hb-tool-row-done-text": {
+                   "x": 38,
+                   "y": 8,
+                   "width": 564.2,
+                   "height": 34
+                  },
+                  "hb:hb-tool-row-done-status": {
+                   "x": 614.2,
+                   "y": 17
+                  },
+                  "hb:hb-tool-row-done-chevron": {
+                   "x": 666,
+                   "y": 18
                   }
                  },
                  "x": 40,
-                 "y": 116
+                 "y": 116,
+                 "height": 50
                 },
                 {
                  "id": "studio-conversation-content-answer",
@@ -1236,11 +1443,15 @@
                    "width": 18,
                    "height": 18,
                    "stroke": "$hb:colors.textSecondary",
-                   "strokeWidth": 1.26
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
                   }
                  },
                  "x": 36,
-                 "y": 0
+                 "y": 0,
+                 "width": 28,
+                 "height": 28
                 },
                 {
                  "id": "studio-conversation-content-reply-footer-gap",
@@ -1408,11 +1619,15 @@
                    "width": 18,
                    "height": 18,
                    "stroke": "$hb:colors.textSecondary",
-                   "strokeWidth": 1.26
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
                   }
                  },
                  "x": 0,
-                 "y": 2
+                 "y": 2,
+                 "width": 28,
+                 "height": 28
                 },
                 {
                  "id": "studio-conversation-content-composer-image",
@@ -1426,11 +1641,15 @@
                    "width": 18,
                    "height": 18,
                    "stroke": "$hb:colors.textSecondary",
-                   "strokeWidth": 1.26
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
                   }
                  },
                  "x": 32,
-                 "y": 2
+                 "y": 2,
+                 "width": 28,
+                 "height": 28
                 },
                 {
                  "id": "studio-conversation-content-composer-toolbar-gap",
@@ -1446,21 +1665,61 @@
                  "type": "ref",
                  "ref": "hb:hb-composer-pill",
                  "x": 485.2,
-                 "y": 0
+                 "y": 0,
+                 "width": 117.6,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-pill-icon": {
+                   "x": 8,
+                   "y": 9
+                  },
+                  "hb:hb-composer-pill-label": {
+                   "x": 26,
+                   "y": 7
+                  },
+                  "hb:hb-composer-pill-chevron": {
+                   "x": 95.6,
+                   "y": 9
+                  }
+                 }
                 },
                 {
                  "id": "studio-conversation-content-composer-effort",
                  "type": "ref",
                  "ref": "hb:hb-composer-accentpill",
                  "x": 606.8,
-                 "y": 0
+                 "y": 0,
+                 "width": 101.2,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-accentpill-icon": {
+                   "x": 8,
+                   "y": 9
+                  },
+                  "hb:hb-composer-accentpill-label": {
+                   "x": 26,
+                   "y": 7
+                  },
+                  "hb:hb-composer-accentpill-chevron": {
+                   "x": 79.2,
+                   "y": 9
+                  }
+                 }
                 },
                 {
                  "id": "studio-conversation-content-composer-send",
                  "type": "ref",
                  "ref": "hb:hb-composer-send",
                  "x": 712,
-                 "y": 0
+                 "y": 0,
+                 "width": 32,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-send-icon": {
+                   "x": 7,
+                   "y": 7
+                  }
+                 }
                 }
                ],
                "x": 8,
@@ -1558,11 +1817,15 @@
              "ref": "hb:hb-icon-more-vertical",
              "width": 18,
              "height": 18,
-             "fill": "$hb:colors.textSecondary"
+             "fill": "$hb:colors.textSecondary",
+             "x": 5,
+             "y": 5
             }
            },
            "x": 908,
-           "y": 8
+           "y": 8,
+           "width": 28,
+           "height": 28
           },
           {
            "id": "studio-streaming-content-header-summary",
@@ -1576,11 +1839,15 @@
              "width": 18,
              "height": 18,
              "stroke": "$hb:colors.textSecondary",
-             "strokeWidth": 1.26
+             "strokeWidth": 1.26,
+             "x": 5,
+             "y": 5
             }
            },
            "x": 944,
-           "y": 8
+           "y": 8,
+           "width": 28,
+           "height": 28
           },
           {
            "id": "studio-streaming-content-header-split",
@@ -1594,11 +1861,15 @@
              "width": 18,
              "height": 18,
              "stroke": "$hb:colors.textSecondary",
-             "strokeWidth": 1.26
+             "strokeWidth": 1.26,
+             "x": 5,
+             "y": 5
             }
            },
            "x": 980,
-           "y": 8
+           "y": 8,
+           "width": 28,
+           "height": 28
           }
          ],
          "x": 0,
@@ -1710,7 +1981,19 @@
                  "type": "ref",
                  "ref": "hb:hb-studio-mark",
                  "x": 0,
-                 "y": 0
+                 "y": 0,
+                 "width": 28,
+                 "height": 28,
+                 "descendants": {
+                  "hb:hb-studio-mark-disc": {
+                   "x": 0.5,
+                   "y": 0.5
+                  },
+                  "hb:hb-studio-mark-wave": {
+                   "x": 0,
+                   "y": 0
+                  }
+                 }
                 },
                 {
                  "id": "studio-streaming-content-reply-author",
@@ -1756,14 +2039,33 @@
                  "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-reasoning-title": {
-                   "content": "Размышление"
+                   "content": "Размышление",
+                   "x": 0,
+                   "y": 0
                   },
                   "hb:hb-tool-row-reasoning-summary": {
-                   "content": "Сначала найду, где композер ждёт ответ движка"
+                   "content": "Сначала найду, где композер ждёт ответ движка",
+                   "x": 0,
+                   "y": 18
+                  },
+                  "hb:hb-tool-row-reasoning-icon": {
+                   "x": 8,
+                   "y": 16
+                  },
+                  "hb:hb-tool-row-reasoning-text": {
+                   "x": 38,
+                   "y": 8,
+                   "width": 616,
+                   "height": 34
+                  },
+                  "hb:hb-tool-row-reasoning-chevron": {
+                   "x": 666,
+                   "y": 18
                   }
                  },
                  "x": 40,
-                 "y": 0
+                 "y": 0,
+                 "height": 50
                 },
                 {
                  "id": "studio-streaming-content-read",
@@ -1772,14 +2074,37 @@
                  "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-done-title": {
-                   "content": "Прочитан файл"
+                   "content": "Прочитан файл",
+                   "x": 0,
+                   "y": 0
                   },
                   "hb:hb-tool-row-done-summary": {
-                   "content": "StudioComposer.kt"
+                   "content": "StudioComposer.kt",
+                   "x": 0,
+                   "y": 18
+                  },
+                  "hb:hb-tool-row-done-icon": {
+                   "x": 8,
+                   "y": 16
+                  },
+                  "hb:hb-tool-row-done-text": {
+                   "x": 38,
+                   "y": 8,
+                   "width": 564.2,
+                   "height": 34
+                  },
+                  "hb:hb-tool-row-done-status": {
+                   "x": 614.2,
+                   "y": 17
+                  },
+                  "hb:hb-tool-row-done-chevron": {
+                   "x": 666,
+                   "y": 18
                   }
                  },
                  "x": 40,
-                 "y": 58
+                 "y": 58,
+                 "height": 50
                 },
                 {
                  "id": "studio-streaming-content-grep",
@@ -1788,14 +2113,37 @@
                  "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-done-title": {
-                   "content": "Поиск"
+                   "content": "Поиск",
+                   "x": 0,
+                   "y": 0
                   },
                   "hb:hb-tool-row-done-summary": {
-                   "content": "debounce в StudioPaneView.kt"
+                   "content": "debounce в StudioPaneView.kt",
+                   "x": 0,
+                   "y": 18
+                  },
+                  "hb:hb-tool-row-done-icon": {
+                   "x": 8,
+                   "y": 16
+                  },
+                  "hb:hb-tool-row-done-text": {
+                   "x": 38,
+                   "y": 8,
+                   "width": 564.2,
+                   "height": 34
+                  },
+                  "hb:hb-tool-row-done-status": {
+                   "x": 614.2,
+                   "y": 17
+                  },
+                  "hb:hb-tool-row-done-chevron": {
+                   "x": 666,
+                   "y": 18
                   }
                  },
                  "x": 40,
-                 "y": 116
+                 "y": 116,
+                 "height": 50
                 },
                 {
                  "id": "studio-streaming-content-answer",
@@ -1818,14 +2166,37 @@
                  "width": 688,
                  "descendants": {
                   "hb:hb-tool-row-running-title": {
-                   "content": "Правка файла"
+                   "content": "Правка файла",
+                   "x": 0,
+                   "y": 0
                   },
                   "hb:hb-tool-row-running-summary": {
-                   "content": "StudioComposer.kt"
+                   "content": "StudioComposer.kt",
+                   "x": 0,
+                   "y": 18
+                  },
+                  "hb:hb-tool-row-running-icon": {
+                   "x": 8,
+                   "y": 16
+                  },
+                  "hb:hb-tool-row-running-text": {
+                   "x": 38,
+                   "y": 8,
+                   "width": 526.6,
+                   "height": 34
+                  },
+                  "hb:hb-tool-row-running-status": {
+                   "x": 576.6,
+                   "y": 17
+                  },
+                  "hb:hb-tool-row-running-chevron": {
+                   "x": 666,
+                   "y": 18
                   }
                  },
                  "x": 40,
-                 "y": 245
+                 "y": 245,
+                 "height": 50
                 }
                ],
                "x": 16,
@@ -1849,11 +2220,15 @@
                    "width": 18,
                    "height": 18,
                    "stroke": "$hb:colors.textSecondary",
-                   "strokeWidth": 1.26
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
                   }
                  },
                  "x": 36,
-                 "y": 0
+                 "y": 0,
+                 "width": 28,
+                 "height": 28
                 },
                 {
                  "id": "studio-streaming-content-reply-footer-gap",
@@ -2068,11 +2443,15 @@
                    "width": 18,
                    "height": 18,
                    "stroke": "$hb:colors.textSecondary",
-                   "strokeWidth": 1.26
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
                   }
                  },
                  "x": 0,
-                 "y": 2
+                 "y": 2,
+                 "width": 28,
+                 "height": 28
                 },
                 {
                  "id": "studio-streaming-content-composer-image",
@@ -2086,11 +2465,15 @@
                    "width": 18,
                    "height": 18,
                    "stroke": "$hb:colors.textSecondary",
-                   "strokeWidth": 1.26
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
                   }
                  },
                  "x": 32,
-                 "y": 2
+                 "y": 2,
+                 "width": 28,
+                 "height": 28
                 },
                 {
                  "id": "studio-streaming-content-composer-toolbar-gap",
@@ -2106,21 +2489,61 @@
                  "type": "ref",
                  "ref": "hb:hb-composer-pill",
                  "x": 485.2,
-                 "y": 0
+                 "y": 0,
+                 "width": 117.6,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-pill-icon": {
+                   "x": 8,
+                   "y": 9
+                  },
+                  "hb:hb-composer-pill-label": {
+                   "x": 26,
+                   "y": 7
+                  },
+                  "hb:hb-composer-pill-chevron": {
+                   "x": 95.6,
+                   "y": 9
+                  }
+                 }
                 },
                 {
                  "id": "studio-streaming-content-composer-effort",
                  "type": "ref",
                  "ref": "hb:hb-composer-accentpill",
                  "x": 606.8,
-                 "y": 0
+                 "y": 0,
+                 "width": 101.2,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-accentpill-icon": {
+                   "x": 8,
+                   "y": 9
+                  },
+                  "hb:hb-composer-accentpill-label": {
+                   "x": 26,
+                   "y": 7
+                  },
+                  "hb:hb-composer-accentpill-chevron": {
+                   "x": 79.2,
+                   "y": 9
+                  }
+                 }
                 },
                 {
                  "id": "studio-streaming-content-composer-send",
                  "type": "ref",
                  "ref": "hb:hb-composer-stop",
                  "x": 712,
-                 "y": 0
+                 "y": 0,
+                 "width": 32,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-stop-icon": {
+                   "x": 7,
+                   "y": 7
+                  }
+                 }
                 }
                ],
                "x": 8,
@@ -2206,11 +2629,15 @@
              "width": 18,
              "height": 18,
              "stroke": "$hb:colors.textSecondary",
-             "strokeWidth": 1.26
+             "strokeWidth": 1.26,
+             "x": 5,
+             "y": 5
             }
            },
            "x": 8,
-           "y": 8
+           "y": 8,
+           "width": 28,
+           "height": 28
           },
           {
            "id": "studio-compact-content-header-title",
@@ -2295,14 +2722,24 @@
                  "width": 14,
                  "height": 14,
                  "stroke": "$hb:colors.textPrimary",
-                 "strokeWidth": 0.98
+                 "strokeWidth": 0.98,
+                 "x": 8,
+                 "y": 9
                 },
                 "hb:hb-composer-pill-label": {
-                 "content": "Без проекта"
+                 "content": "Без проекта",
+                 "x": 26,
+                 "y": 7
+                },
+                "hb:hb-composer-pill-chevron": {
+                 "x": 107.4,
+                 "y": 9
                 }
                },
                "x": 8,
-               "y": 4
+               "y": 4,
+               "width": 117.6,
+               "height": 32
               },
               {
                "id": "studio-compact-content-composer-context-window",
@@ -2310,11 +2747,15 @@
                "ref": "hb:hb-button-ghost-small",
                "descendants": {
                 "hb:hb-button-ghost-small-label": {
-                 "content": "Контекстное окно"
+                 "content": "Контекстное окно",
+                 "x": 8,
+                 "y": 5
                 }
                },
                "x": 143.4,
-               "y": 6
+               "y": 6,
+               "width": 65.4,
+               "height": 28
               }
              ],
              "x": 0,
@@ -2363,11 +2804,15 @@
                    "width": 18,
                    "height": 18,
                    "stroke": "$hb:colors.textSecondary",
-                   "strokeWidth": 1.26
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
                   }
                  },
                  "x": 0,
-                 "y": 2
+                 "y": 2,
+                 "width": 28,
+                 "height": 28
                 },
                 {
                  "id": "studio-compact-content-composer-image",
@@ -2381,11 +2826,15 @@
                    "width": 18,
                    "height": 18,
                    "stroke": "$hb:colors.textSecondary",
-                   "strokeWidth": 1.26
+                   "strokeWidth": 1.26,
+                   "x": 5,
+                   "y": 5
                   }
                  },
                  "x": 32,
-                 "y": 2
+                 "y": 2,
+                 "width": 28,
+                 "height": 28
                 },
                 {
                  "id": "studio-compact-content-composer-toolbar-gap",
@@ -2401,21 +2850,61 @@
                  "type": "ref",
                  "ref": "hb:hb-composer-pill",
                  "x": 129.2,
-                 "y": 0
+                 "y": 0,
+                 "width": 117.6,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-pill-icon": {
+                   "x": 8,
+                   "y": 9
+                  },
+                  "hb:hb-composer-pill-label": {
+                   "x": 26,
+                   "y": 7
+                  },
+                  "hb:hb-composer-pill-chevron": {
+                   "x": 95.6,
+                   "y": 9
+                  }
+                 }
                 },
                 {
                  "id": "studio-compact-content-composer-effort",
                  "type": "ref",
                  "ref": "hb:hb-composer-accentpill",
                  "x": 250.8,
-                 "y": 0
+                 "y": 0,
+                 "width": 101.2,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-accentpill-icon": {
+                   "x": 8,
+                   "y": 9
+                  },
+                  "hb:hb-composer-accentpill-label": {
+                   "x": 26,
+                   "y": 7
+                  },
+                  "hb:hb-composer-accentpill-chevron": {
+                   "x": 79.2,
+                   "y": 9
+                  }
+                 }
                 },
                 {
                  "id": "studio-compact-content-composer-send",
                  "type": "ref",
                  "ref": "hb:hb-composer-send",
                  "x": 356,
-                 "y": 0
+                 "y": 0,
+                 "width": 32,
+                 "height": 32,
+                 "descendants": {
+                  "hb:hb-composer-send-icon": {
+                   "x": 7,
+                   "y": 7
+                  }
+                 }
                 }
                ],
                "x": 8,
