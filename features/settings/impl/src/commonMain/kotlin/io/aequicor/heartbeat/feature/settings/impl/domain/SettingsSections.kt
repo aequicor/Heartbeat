@@ -31,6 +31,7 @@ internal fun availableSections(
     isUpdatesEnabled: Boolean = false,
     isDesktop: Boolean = false,
     isBuildsEnabled: Boolean = false,
+    isToolsEnabled: Boolean = false,
 ): ImmutableList<SettingsSection> {
     val profileToggles = mapOf(
         SettingsSection.Models to isModelsEnabled,
@@ -46,6 +47,7 @@ internal fun availableSections(
         SettingsSection.Builds to isBuildsEnabled,
         SettingsSection.Harness to isHarnessEnabled,
         SettingsSection.Interfaces to isInterfacesEnabled,
+        SettingsSection.Tools to isToolsEnabled,
         SettingsSection.ProjectConfig to isProjectConfigEnabled,
     )
     return SettingsSection.entries.filter { section ->
@@ -70,6 +72,7 @@ internal fun availableSections(
             SettingsSection.Builds,
             SettingsSection.Harness,
             SettingsSection.Interfaces,
+            SettingsSection.Tools,
             SettingsSection.ProjectConfig,
             -> hasProfile && profileToggles.getValue(section)
         }

@@ -63,6 +63,10 @@ public enum class SettingsSection {
     @SerialName("interfaces")
     Interfaces,
 
+    /** Heartbeat tools the agent uses, such as the GitHub connector (Desktop). */
+    @SerialName("tools")
+    Tools,
+
     /** Project `.heartbeat` folders, changes waiting for trust and `.hbai` transfer. */
     @SerialName("project_config")
     ProjectConfig,
@@ -125,6 +129,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Builds -> "builds"
         SettingsSection.Harness -> "harness"
         SettingsSection.Interfaces -> "interfaces"
+        SettingsSection.Tools -> "tools"
         SettingsSection.ProjectConfig -> "project_config"
         SettingsSection.Updates -> "updates"
         SettingsSection.Logs -> "logs"

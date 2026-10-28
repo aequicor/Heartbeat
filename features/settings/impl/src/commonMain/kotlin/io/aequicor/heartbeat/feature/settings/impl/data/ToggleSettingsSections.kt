@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueEnabled
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
+import io.aequicor.heartbeat.feature.githubconnector.api.GitHubConnectorEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
@@ -67,9 +68,11 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
                 ) { worktree, queue ->
                     worktree && queue
                 },
-                toggles.observe(AutoContinueEnabled),
-            ) { subagents, config, builds, autoContinue ->
-                MoreProfileSections(subagents, config, builds, autoContinue)
+                combine(toggles.observe(AutoContinueEnabled), toggles.observe(GitHubConnectorEnabled)) { auto, tools ->
+                    auto to tools
+                },
+            ) { subagents, config, builds, (autoContinue, tools) ->
+                MoreProfileSections(subagents, config, builds, autoContinue, tools)
             },
         ) { learning, harness, context, interfaces, more ->
             ProfileSections(learning, harness, context, interfaces, more)
@@ -101,6 +104,8 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isDesktop = isDesktop,
             // Builds run only on Desktop; mobile hosts have no build queue to configure.
             isBuildsEnabled = profile.more.isBuilds && isDesktop,
+            // The connector drives the desktop GitHub CLI.
+            isToolsEnabled = profile.more.isTools && isDesktop,
         )
     }
         // No placeholder of ungated sections first: it made a requested section open only after a second fade, and
@@ -131,4 +136,5 @@ private data class MoreProfileSections(
     val isProjectConfig: Boolean,
     val isBuilds: Boolean,
     val isAutoContinue: Boolean,
+    val isTools: Boolean,
 )
