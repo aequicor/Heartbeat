@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="auto_continue_title">Auto-continue</string>
+    <string name="auto_continue_back">Back</string>
+    <string name="auto_continue_save_failed">The settings were not saved</string>
+    <string name="auto_continue_section_new_chats">New chats</string>
+    <string name="auto_continue_section_new_chats_hint">Autopilot is always switched on in the chat itself</string>
+    <string name="auto_continue_mode_off">Off</string>
+    <string name="auto_continue_mode_suggest">Suggestions</string>
+    <string name="auto_continue_section_model">Continuer model</string>
+    <string name="auto_continue_section_model_hint">A separate request without tools reads your messages and the agent\'s replies and picks the next message</string>
+    <string name="auto_continue_model_chat">The chat\'s own model</string>
+    <string name="auto_continue_model_default">Profile default: %1$s</string>
+    <string name="auto_continue_model_custom">Chosen model: %1$s</string>
+    <string name="auto_continue_section_autopilot">Autopilot</string>
+    <string name="auto_continue_limit">Replies after your last message</string>
+    <string name="auto_continue_countdown">Pause before sending</string>
+    <string name="auto_continue_countdown_none">Send at once</string>
+    <string name="auto_continue_countdown_value">%1$d s</string>
+    <string name="auto_continue_section_suggestions">Suggestions</string>
+    <string name="auto_continue_options">Replies offered after a turn</string>
+</resources>

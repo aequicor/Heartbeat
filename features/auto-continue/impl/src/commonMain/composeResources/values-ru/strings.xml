@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="auto_continue_title">Автопродолжение</string>
+    <string name="auto_continue_back">Назад</string>
+    <string name="auto_continue_save_failed">Настройки не сохранились</string>
+    <string name="auto_continue_section_new_chats">Новые чаты</string>
+    <string name="auto_continue_section_new_chats_hint">Автопилот всегда включается в самом чате</string>
+    <string name="auto_continue_mode_off">Выключено</string>
+    <string name="auto_continue_mode_suggest">Подсказки</string>
+    <string name="auto_continue_section_model">Модель продолжателя</string>
+    <string name="auto_continue_section_model_hint">Отдельный запрос без инструментов читает ваши сообщения и ответы агента и подбирает следующее сообщение</string>
+    <string name="auto_continue_model_chat">Модель самого чата</string>
+    <string name="auto_continue_model_default">По умолчанию в профиле: %1$s</string>
+    <string name="auto_continue_model_custom">Выбранная модель: %1$s</string>
+    <string name="auto_continue_section_autopilot">Автопилот</string>
+    <string name="auto_continue_limit">Реплик после вашего последнего сообщения</string>
+    <string name="auto_continue_countdown">Пауза перед отправкой</string>
+    <string name="auto_continue_countdown_none">Сразу</string>
+    <string name="auto_continue_countdown_value">%1$d с</string>
+    <string name="auto_continue_section_suggestions">Подсказки</string>
+    <string name="auto_continue_options">Вариантов после хода</string>
+</resources>

@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMachineSpec
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueView
 import io.aequicor.heartbeat.feature.autocontinue.impl.domain.AutoContinueEffects
+import io.aequicor.heartbeat.feature.autocontinue.impl.domain.AutoContinueMachine
 import io.aequicor.heartbeat.feature.autocontinue.impl.domain.AutoContinueStore
 import kotlinx.coroutines.launch
 
@@ -31,26 +32,31 @@ private val log = Log.tag("AutoContinueBindings")
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 object AutoContinueBindings {
-    /** The only binding other features inject; the machine itself is reachable through `MachineRegistry`. */
+    /** The machine; other features reach it through `MachineRegistry`, the feature's own screens directly. */
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun view(
+    internal fun machine(
         launcher: MachineLauncher,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
         store: AutoContinueStore,
         prompts: IsolatedPrompts,
         hosts: Provider<Set<AutoContinueHost>>,
         toggles: FeatureToggles,
-    ): AutoContinueView {
+    ): AutoContinueMachine {
         val effects = AutoContinueEffects(store, prompts, { hosts() }) { toggles.get(AutoContinueEnabled) }
         val machine = launcher.launch(AutoContinueMachineSpec, scope, effects)
         scope.coroutineScope.launch {
             val result = machine.send(AutoContinueIntent.Public.Start)
             log.i { "auto-continue start: $result" }
         }
-        return object : AutoContinueView {
-            override val state = machine.state
-        }
+        return machine
+    }
+
+    /** The only binding other features inject: state without the ability to send internal intents. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun view(machine: AutoContinueMachine): AutoContinueView = object : AutoContinueView {
+        override val state = machine.state
     }
 }
 
