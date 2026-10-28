@@ -12,6 +12,7 @@ description: "Работа с дизайн-системой Heartbeat (плот�
 > Примеры кода ниже показывают устройство темы и китов; актуальные значения — только в KDoc `design-system/tokens`.
 
 ## Порядок работы над экраном
+0. Макет: согласованный кадр `.pen` в `design/` (скилл `ui-prototype`); экран повторяет его состояния.
 1. Каркас: хост рисует сайдбар/шапку/titlebar; фича — только содержимое. Контент — колонка ≤ `HbTheme.dimensions.messageMaxWidth`
    (настройки — `settingsMaxWidth`), фон — `HbTheme.surfaces.backdrop`, без карточек вокруг экрана.
 2. Списки и настройки — `HbSettingsSection` + `HbSettingsRow` (или `HbNavigationItem` в сайдбаре), строки таблиц с действием —
@@ -19,7 +20,8 @@ description: "Работа с дизайн-системой Heartbeat (плот�
 3. Действия — `HbButton` (`Primary` один на регион, `Secondary`/`Ghost`, `Danger` для деструктивного) размеров `Regular`/`Small`.
 4. Состояния — `HbLoadingState`, `HbEmptyState`, `HbBanner` (ошибка + «Повторить»); модальное — `HbDialog`.
 5. Однострочный текст — `HbText(maxLines = 1)` (гаснет к краю, тултип); `TextOverflow.Ellipsis` не использовать.
-6. Проверка: превью light/dark, скриншот-тест desktop 1280 и компактной ширины ~420dp в обеих темах, фокус по Tab.
+6. Проверка: превью light/dark, скриншот-тест desktop 1280 и компактной ширины ~420dp в обеих темах, фокус по Tab;
+   сверка с кадрами макета.
 
 ## Пресеты токенов
 
@@ -80,7 +82,7 @@ data class HbGradients(val primaryAccent: Brush, val cosmicDeep: Brush) {
 }
 ```
 
-Новый цвет → сначала токен здесь (обе темы) с KDoc о назначении. Производные (`onPrimary`, `textSecondary`, `outline`) вычисляются из базовых и проверяются на контраст ≥ 4.5:1.
+Новый цвет → сначала токен здесь (обе темы) с KDoc о назначении и та же переменная в `design/system/heartbeat.lib.pen`. Производные (`onPrimary`, `textSecondary`, `outline`) вычисляются из базовых и проверяются на контраст ≥ 4.5:1.
 
 `HbSpacing` (компактная шкала: `xxs=2, xs=4, s=6, m=8, l=12, xl=16, xxl=20 dp`), `HbTypography`, `HbShapes` — рядом, по тому же принципу.
 
@@ -149,6 +151,7 @@ Fluent/macOS-реализации лежат в `jvmMain` (киты — desktop-
 
 ## Чек-лист нового компонента
 
+0. Компонент согласован в `design/system/heartbeat.lib.pen` (скилл `ui-prototype`).
 1. API в `components`: stateless, `modifier` первым опциональным, события `onX`, стабильные параметры.
 2. Реализации: material (+ iOS-нюансы), fluent, macos — или явный fallback на material с `// TODO(issue)`.
 3. Только токены `HbTheme`; стиль — плотный плоский (без glass/blur/теней, кроме всплывающих поверхностей).

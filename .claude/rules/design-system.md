@@ -12,6 +12,13 @@ paths:
 (`HbVisualStyle.Flat`). Glass, blur-подложки, неоморфные тени и декоративные градиенты удалены и не возвращаются.
 Эталон — экран студии и режим «Исследование» (`features/ai-studio/impl/**/ui`, `features/research-chat/impl/**/ui`).
 
+## Прототип до кода
+- Новый экран, режим, диалог, флоу, новый или изменённый `Hb*`-компонент, заметное изменение раскладки, переход или
+  анимация — сначала макет `.pen` в `design/` и явное согласование пользователя (скилл `ui-prototype`,
+  справочник `design/README.md`). Код повторяет согласованный макет; сознательное расхождение правит макет в том же PR.
+- Токены ведёт код: переменные `design/system/heartbeat.lib.pen` зеркалят `design-system/tokens`, изменение токена
+  обновляет библиотеку в том же PR. Библиотеки ещё нет — её заводит первая UI-задача (`design/README.md`, 2.4).
+
 ## Токены и тема
 - Один набор токенов с пресетами по хосту: `HbDimensions.Mobile/Desktop/DesktopMacOs`, `HbColors.Light/Dark/DesktopLight/DesktopDark`,
   `HbSurfaceColors` (сайдбар, шапки, поверхности беседы), `HbTypography.Mobile/Desktop`, `HbShapes.Mobile/Desktop`.
