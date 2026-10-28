@@ -47,6 +47,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_safety
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_page
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_paste
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
@@ -95,6 +96,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_mode
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueModeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
@@ -279,7 +281,8 @@ private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, ()
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
     return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() || app != null ||
-        contextUsage != null || providerUsage != null || planning.plan != null || autoContinue != null
+        contextUsage != null || providerUsage != null || planning.plan != null ||
+        autoContinue?.mode?.let { it != AutoContinueModeUi.Off } == true
 }
 
 /** Suggestions of the pane's active token with section labels and icons for their kinds and origins. */
@@ -353,6 +356,10 @@ private fun StudioComposerLeading(
         onWorktree = { onIntent(StudioIntent.SelectWorktree(content.pane.id, it)) },
         planning = content.planningSelection(),
         onPlanning = { isEnabled -> onIntent(content.planningIntent(isEnabled)) },
+        autoContinue = content.autoContinue?.mode,
+        onAutoContinue = { mode ->
+            content.pane.sessionId?.let { onIntent(StudioIntent.SetAutoContinue(it, mode)) }
+        },
         onAttach = { onIntent(StudioIntent.PickAttachments(content.pane.id)) }.takeIf {
             content.canAddAttachments() && content.host.isNativeAttachmentInputAvailable &&
                 !content.isAttachmentPending
@@ -611,12 +618,15 @@ private fun TemplatesMenu(
     onWorktree: (Boolean) -> Unit,
     planning: Boolean?,
     onPlanning: (Boolean) -> Unit,
+    autoContinue: AutoContinueModeUi?,
+    onAutoContinue: (AutoContinueModeUi) -> Unit,
     onAttach: (() -> Unit)?,
     onPasteImage: (() -> Unit)?,
     onAttachPage: (() -> Unit)?,
     onResearch: (() -> Unit)?,
 ) {
     var isOpen by remember { mutableStateOf(false) }
+    var isChoosingAutoContinue by remember { mutableStateOf(false) }
     val templates = listOf(
         Template("plan", Res.string.template_plan, Res.string.template_plan_prompt),
         Template("tests", Res.string.template_tests, Res.string.template_tests_prompt),
@@ -629,12 +639,22 @@ private fun TemplatesMenu(
         stringResource(Res.string.template_remember),
         sectionLabel = stringResource(Res.string.composer_commands),
     )
-    val modes = composerModeActions(organism, worktree, planning)
+    val modes = composerModeActions(organism, worktree, planning, autoContinue)
     // Each mode item toggles its own mode.
     val modeSwitches = mapOf(
         WORKTREE_ACTION to { onWorktree(worktree != true) },
         ORGANISM_ACTION to { onOrganism(organism != true) },
         PLANNING_ACTION to { onPlanning(planning != true) },
+    )
+    val commands: Map<String, () -> Unit> = modeSwitches + mapOf(
+        PAGE_ACTION to { onAttachPage?.invoke() },
+        ATTACH_ACTION to { onAttach?.invoke() },
+        PASTE_ACTION to { onPasteImage?.invoke() },
+        RESEARCH_ACTION to { onResearch?.invoke() },
+        REMEMBER_ACTION to {
+            onDraft(withRememberCommand(draft))
+            onFocusInput()
+        },
     )
     val attachments = listOfNotNull(
         onAttachPage?.let { HbComposerAction(PAGE_ACTION, stringResource(Res.string.attachments_page)) },
@@ -647,34 +667,52 @@ private fun TemplatesMenu(
         securityActions(securityLevel, isTrustSupported, isHelper)
     HbComposerMenuButton(
         label = stringResource(Res.string.composer_add),
-        actions = actions.toImmutableList(),
+        actions = if (isChoosingAutoContinue && autoContinue != null) {
+            autoContinueModeActions(autoContinue)
+        } else {
+            actions.toImmutableList()
+        },
         isExpanded = isOpen,
-        onExpandedChange = { isOpen = it },
+        onExpandedChange = {
+            isOpen = it
+            if (!it) isChoosingAutoContinue = false
+        },
         onAction = { id ->
-            if (id == PAGE_ACTION) {
-                onAttachPage?.invoke()
-            } else if (id == ATTACH_ACTION) {
-                onAttach?.invoke()
-            } else if (id == PASTE_ACTION) {
-                onPasteImage?.invoke()
-            } else if (id == RESEARCH_ACTION) {
-                onResearch?.invoke()
-            } else if (id in modeSwitches) {
-                modeSwitches.getValue(id).invoke()
-            } else if (id == REMEMBER_ACTION) {
-                // The command must lead the prompt: templates append, /remember prefixes the typed text.
-                onDraft(withRememberCommand(draft))
-                onFocusInput()
+            if (id == AUTO_CONTINUE_ACTION) {
+                isChoosingAutoContinue = true
+                isOpen = true
+            } else if (isChoosingAutoContinue) {
+                isOpen = false
+                isChoosingAutoContinue = false
+                AutoContinueModeUi.entries.firstOrNull { it.name == id }?.let(onAutoContinue)
             } else {
-                val prompt = prompts[id].orEmpty()
-                onDraft(if (draft.isBlank()) prompt else "${draft.trimEnd()}\n$prompt")
+                isOpen = false
+                applyComposerCommand(id, commands, prompts, draft, onDraft)
             }
         },
         modifier = Modifier.size(HbTheme.dimensions.touchTarget),
         accessibleLabel = stringResource(Res.string.composer_add),
+        headerLabel = stringResource(Res.string.auto_continue_menu).takeIf { isChoosingAutoContinue },
         icon = HbIcons.Plus,
         style = HbComposerMenuStyle.Circle,
+        closeOnAction = false,
     )
+}
+
+private fun applyComposerCommand(
+    id: String,
+    commands: Map<String, () -> Unit>,
+    prompts: Map<String, String>,
+    draft: String,
+    onDraft: (String) -> Unit,
+) {
+    val command = commands[id]
+    if (command != null) {
+        command()
+    } else {
+        val prompt = prompts[id].orEmpty()
+        onDraft(if (draft.isBlank()) prompt else "${draft.trimEnd()}\n$prompt")
+    }
 }
 
 @Composable
@@ -808,6 +846,7 @@ private const val REMEMBER_ACTION = "remember"
 private const val WORKTREE_ACTION = "worktree-mode"
 private const val ORGANISM_ACTION = "organism"
 private const val PLANNING_ACTION = "planning"
+private const val AUTO_CONTINUE_ACTION = "auto-continue"
 
 private const val NO_PROJECT = "no-project"
 private const val ADD_PROJECT = "add-project"
@@ -841,7 +880,12 @@ private fun PaneContent.worktreeMenuSelection(): Boolean? = (pane.isWorktree && 
 }
 
 @Composable
-private fun composerModeActions(organism: Boolean?, worktree: Boolean?, planning: Boolean?): List<HbComposerAction> {
+private fun composerModeActions(
+    organism: Boolean?,
+    worktree: Boolean?,
+    planning: Boolean?,
+    autoContinue: AutoContinueModeUi?,
+): List<HbComposerAction> {
     // A mode of the new chat, offered only before its first message.
     val organismAction = organism?.let {
         HbComposerAction(
@@ -872,7 +916,16 @@ private fun composerModeActions(organism: Boolean?, worktree: Boolean?, planning
             isSelected = it,
         )
     }
-    return listOfNotNull(organismAction, worktreeAction, planningAction)
+    val modes = listOfNotNull(organismAction, worktreeAction, planningAction)
+    val autoContinueAction = autoContinue?.let {
+        HbComposerAction(
+            AUTO_CONTINUE_ACTION,
+            stringResource(Res.string.auto_continue_menu),
+            sectionLabel = stringResource(Res.string.composer_modes_section).takeIf { modes.isEmpty() },
+            isSelected = it != AutoContinueModeUi.Off,
+        )
+    }
+    return modes + listOfNotNull(autoContinueAction)
 }
 
 /** Profile-wide replacement and pane setup both prevent another submission. */

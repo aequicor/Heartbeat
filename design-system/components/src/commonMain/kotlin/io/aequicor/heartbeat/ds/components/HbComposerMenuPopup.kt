@@ -86,6 +86,7 @@ private fun ComposerMenuSheet(
     val focusedIndex = enabledIndices.firstOrNull { actions[it].id == focusedId }
         ?: enabledIndices.firstOrNull() ?: -1
     val emptyFocus = remember { FocusRequester() }
+    val scroll = key(actions) { rememberScrollState() }
     SideEffect(actions) {
         if (focusedIndex >= 0) focusRequests[focusedIndex].requestFocus() else emptyFocus.requestFocus()
     }
@@ -105,7 +106,7 @@ private fun ComposerMenuSheet(
             .hbPopupSurface(HbTheme.colors.surface, HbTheme.shapes.medium)
             .focusRequester(emptyFocus)
             .focusable(enabledIndices.isEmpty())
-            .hbVerticalScroll(rememberScrollState())
+            .hbVerticalScroll(scroll)
             .padding(HbTheme.spacing.s),
         gap = HbTheme.spacing.xs,
     ) {

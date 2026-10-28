@@ -46,6 +46,7 @@ private fun ComponentPreviewContent() {
             HbFlowRow {
                 HbButton("Primary", onClick = {})
                 HbButton("Secondary", onClick = {}, style = HbButtonStyle.Secondary)
+                HbButton("Accent", onClick = {}, style = HbButtonStyle.Accent)
                 HbBadge("Ready", tone = HbTone.Success)
             }
             HbTextField("", onValueChange = {}, placeholder = "Prompt")

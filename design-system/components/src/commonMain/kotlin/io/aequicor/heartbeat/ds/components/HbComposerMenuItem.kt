@@ -77,16 +77,25 @@ internal fun ComposerMenuItem(
             .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.s),
         gap = HbTheme.spacing.xs,
     ) {
-        HbRow(gap = HbTheme.spacing.s) {
-            if (action.isSelected) HbIcon(HbIcons.Check, null, tint = colors.textPrimary)
-            HbText(
-                text = action.label,
-                style = HbTheme.typography.label,
-                color = if (action.isEnabled) colors.textPrimary else colors.textSecondary,
-            )
-        }
+        ComposerMenuLabel(action)
         if (action.supportingText != null) {
             HbText(action.supportingText, style = HbTheme.typography.caption, color = colors.textSecondary)
         }
+    }
+}
+
+@Composable
+private fun ComposerMenuLabel(action: HbComposerAction) {
+    val colors = HbTheme.colors
+    HbRow(gap = HbTheme.spacing.s) {
+        action.leadingIcon?.let { HbIcon(it, null, tint = colors.textSecondary) }
+        if (action.isSelected && action.leadingIcon == null) HbIcon(HbIcons.Check, null, tint = colors.textPrimary)
+        HbText(
+            text = action.label,
+            modifier = Modifier.weight(1f),
+            style = HbTheme.typography.label,
+            color = if (action.isEnabled) colors.textPrimary else colors.textSecondary,
+        )
+        if (action.isSelected && action.leadingIcon != null) HbIcon(HbIcons.Check, null, tint = colors.textPrimary)
     }
 }
