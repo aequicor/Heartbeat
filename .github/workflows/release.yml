@@ -2,7 +2,9 @@ name: Release
 
 # Run workflow on master with patch, minor or major to publish the next Heartbeat release.
 # Publishing needs every job to pass: all tests, the Android and iOS builds, and the five desktop
-# installers, each checked by running its packaged app (verifyReleaseHarnessCompiler).
+# installers, each checked by running its packaged app (verifyReleaseHarnessCompiler). The release carries every
+# platform: the desktop installers, the Android APK signed with the key of the environment android-signing and an
+# unsigned iOS IPA for sideloading.
 # JVM tests seed portable task outputs; Linux builds the shared Wasm panel once.
 # Remaining desktop/mobile builds and platform tests fan out from Linux. Host toolchains stay
 # OS/architecture-specific. Linux ships a DEB for Ubuntu 24.04 x64 with Secret Service and X11/XWayland.
@@ -336,6 +338,9 @@ jobs:
     needs: [version, desktop-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # The APK is signed with the release key of the environment android-signing, which only master can use. A dry run
+    # (it may come from a working branch) takes the environment without secrets and builds an unsigned APK.
+    environment: ${{ inputs.dry_run && 'android-dry-run' || 'android-signing' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -352,15 +357,58 @@ jobs:
         with:
           stage: android
           upstream: desktop-linux
+      - name: Restore the release signing key
+        if: ${{ !inputs.dry_run }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.HEARTBEAT_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.HEARTBEAT_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.HEARTBEAT_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.HEARTBEAT_ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::A HEARTBEAT_ANDROID_KEYSTORE_BASE64, _KEYSTORE_PASSWORD, _KEY_ALIAS or _KEY_PASSWORD secret of the environment android-signing is not set"
+            exit 1
+          fi
+          printf %s "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/android-release.jks"
+          echo "HEARTBEAT_ANDROID_KEYSTORE=$RUNNER_TEMP/android-release.jks" >> "$GITHUB_ENV"
       - name: Build the Android app
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          HEARTBEAT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.HEARTBEAT_ANDROID_KEYSTORE_PASSWORD }}
+          HEARTBEAT_ANDROID_KEY_ALIAS: ${{ secrets.HEARTBEAT_ANDROID_KEY_ALIAS }}
+          HEARTBEAT_ANDROID_KEY_PASSWORD: ${{ secrets.HEARTBEAT_ANDROID_KEY_PASSWORD }}
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           :platform-main:android:assembleRelease
           --no-daemon --stacktrace --profile
+      - name: Collect the APK
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          SIGNED: ${{ !inputs.dry_run }}
+        run: |
+          shopt -s nullglob
+          apks=(platform-main/android/build/outputs/apk/release/*.apk)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "::error::Expected one release APK, found ${#apks[@]}"
+            exit 1
+          fi
+          if [ "$SIGNED" = true ]; then
+            build_tools=("$ANDROID_HOME"/build-tools/*)
+            "${build_tools[-1]}/apksigner" verify --print-certs "${apks[0]}"
+          fi
+          mkdir -p release
+          cp "${apks[0]}" "release/Heartbeat-$VERSION-android.apk"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mobile-android
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/android-release.jks"
       - name: Upload Gradle timing and test reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -373,11 +421,11 @@ jobs:
           retention-days: 7
 
   ios:
-    name: iOS framework
+    name: iOS release
     needs: [version, desktop-linux]
     # The Intel runner has 14 GiB RAM; the 7 GiB arm64 runner cannot fit the release linker heap.
     runs-on: macos-15-intel
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
         with:
@@ -391,65 +439,56 @@ jobs:
           distribution: jetbrains
           java-version: '21'
       - uses: ./.github/actions/gradle-cache
-        id: gradle-cache
         with:
           stage: ios
           native-outputs: 'true'
           upstream: desktop-linux
-      - name: Identify the exact iOS framework build
-        id: ios-framework-key
+      # The Xcode build phase runs Gradle itself (embedAndSignAppleFrameworkForXcode links the framework and copies
+      # the Compose resources into the app), so the settings of the other jobs' command lines go to the user
+      # gradle.properties. Kotlin/Native links in the Gradle JVM: the release optimizer exceeds the default 4 GiB heap.
+      - name: Configure Gradle for the Xcode build phase
         env:
           VERSION: ${{ needs.version.outputs.version }}
-          APPLE_FINGERPRINT: ${{ steps.gradle-cache.outputs.apple-toolchain-fingerprint }}
         run: |
-          FRAMEWORK_KEY=$(python3 scripts/ios_framework_cache.py key \
-            --version "$VERSION" --apple-fingerprint "$APPLE_FINGERPRINT" \
-            --java-home "$JAVA_HOME" --java-home "$JAVA_HOME_17_X64" \
-            --identity "$RUNNER_TEMP/ios-framework-identity.json")
-          echo "key=$FRAMEWORK_KEY" >> "$GITHUB_OUTPUT"
-
-      # No restore prefix: changed inputs must run the optimized release linker.
-      - name: Restore the exact iOS framework archive
-        id: ios-framework-cache
-        uses: actions/cache/restore@v5
-        with:
-          path: ${{ runner.temp }}/ios-framework-cache
-          key: release-ios-framework-v1-${{ steps.ios-framework-key.outputs.key }}
-
-      - name: Validate and unpack the cached iOS framework
-        if: steps.ios-framework-cache.outputs.cache-hit == 'true'
-        run: >-
-          python3 scripts/ios_framework_cache.py restore
-          --identity "$RUNNER_TEMP/ios-framework-identity.json"
-          --cache-directory "$RUNNER_TEMP/ios-framework-cache"
-          --directory platform-main/shared/build/bin/iosArm64/releaseFramework
-      - name: Build the iOS framework
-        if: steps.ios-framework-cache.outputs.cache-hit != 'true'
+          mkdir -p "${GRADLE_USER_HOME:-$HOME/.gradle}"
+          cat >> "${GRADLE_USER_HOME:-$HOME/.gradle}/gradle.properties" <<PROPS
+          heartbeat.version=$VERSION
+          org.gradle.java.installations.auto-detect=false
+          org.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
+          org.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8
+          org.gradle.daemon=false
+          PROPS
+      # No Apple account in CI: the archive is unsigned and the IPA is installed by sideloading, which re-signs it.
+      - name: Build the iOS app
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        # Kotlin/Native links in the Gradle JVM. The release optimizer exceeds the default 4 GiB heap.
-        run: >-
-          ./gradlew -Pheartbeat.version="$VERSION"
-          -Porg.gradle.java.installations.auto-detect=false
-          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
-          -Dorg.gradle.jvmargs="-Xmx8g -Dfile.encoding=UTF-8"
-          :platform-main:shared:linkReleaseFrameworkIosArm64
-          --no-daemon --stacktrace --profile
-      - name: Archive the successfully linked iOS framework
-        if: steps.ios-framework-cache.outputs.cache-hit != 'true'
-        run: >-
-          python3 scripts/ios_framework_cache.py pack
-          --identity "$RUNNER_TEMP/ios-framework-identity.json"
-          --cache-directory "$RUNNER_TEMP/ios-framework-cache"
-          --directory platform-main/shared/build/bin/iosArm64/releaseFramework
-
-      - name: Save the exact iOS framework archive
-        if: steps.ios-framework-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        working-directory: platform-main/ios
+        run: |
+          IFS=. read -r major minor patch <<< "$VERSION"
+          build_number=$((major * 1000000 + minor * 1000 + patch))
+          xcodebuild -project iosApp.xcodeproj -scheme iosApp -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/heartbeat.xcarchive" archive \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$build_number" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+      - name: Package the IPA
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          app="$RUNNER_TEMP/heartbeat.xcarchive/Products/Applications/heartbeat.app"
+          if [ ! -x "$app/heartbeat" ] || [ ! -d "$app/compose-resources" ]; then
+            echo "::error::The archive has no complete heartbeat.app"
+            exit 1
+          fi
+          payload="$RUNNER_TEMP/ipa"
+          mkdir -p "$payload/Payload" release
+          cp -R "$app" "$payload/Payload/"
+          (cd "$payload" && zip -qr -y "$GITHUB_WORKSPACE/release/Heartbeat-$VERSION-ios.ipa" Payload)
+      - uses: actions/upload-artifact@v7
         with:
-          path: ${{ runner.temp }}/ios-framework-cache
-          key: release-ios-framework-v1-${{ steps.ios-framework-key.outputs.key }}
-
+          name: mobile-ios
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload Gradle timing and test reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -620,6 +659,11 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@v8
         with:
+          pattern: mobile-*
+          path: release
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
           name: train
           path: release
       - name: Write checksums
@@ -649,6 +693,10 @@ jobs:
           - Linux: Ubuntu 24.04 x64, графическая сессия X11 или XWayland, разблокированное хранилище Secret Service
             (например GNOME Keyring). Скачайте `linux-x64.deb` и установите `sudo apt install ./Heartbeat-*-linux-x64.deb`.
             Обновления устанавливаются той же командой. Ключи хранятся в системном keyring; plaintext fallback отсутствует.
+          - Android: скачайте `…-android.apk` и установите, разрешив установку из этого источника. Следующие версии
+            ставятся поверх той же подписью.
+          - iOS: `…-ios.ipa` не подписан. Установите его через AltStore или Sideloadly, они подпишут приложение вашим
+            Apple ID (бесплатная подпись действует 7 дней).
 
           `SHA256SUMS` — контрольные суммы всех файлов релиза.
           NOTES

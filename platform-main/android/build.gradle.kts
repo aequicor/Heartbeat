@@ -45,8 +45,20 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    // The release workflow signs with the key of the GitHub environment android-signing; without these variables
+    // (local builds, dry runs) the release APK stays unsigned.
+    val releaseKeystore = providers.environmentVariable("HEARTBEAT_ANDROID_KEYSTORE").orNull
+    val releaseSigning = releaseKeystore?.let {
+        signingConfigs.create("release") {
+            storeFile = file(it)
+            storePassword = providers.environmentVariable("HEARTBEAT_ANDROID_KEYSTORE_PASSWORD").get()
+            keyAlias = providers.environmentVariable("HEARTBEAT_ANDROID_KEY_ALIAS").get()
+            keyPassword = providers.environmentVariable("HEARTBEAT_ANDROID_KEY_PASSWORD").get()
+        }
+    }
     buildTypes {
         release {
+            signingConfig = releaseSigning
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

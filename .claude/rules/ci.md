@@ -19,7 +19,7 @@ CI проверяет необходимый минимум. Автоматич�
 | `jcef-runtime.yml` | вручную: метка `jcef-runtime` на PR или `workflow_dispatch` | нативный рантайм JCEF (`native/jcef`) на пяти хостах, проба и `jcef-release`; без публикации |
 | `review-approve.yml`, `close-fixed-issues.yml` | `/reviewed`, мерж PR | действия бота, без сборки |
 | `prerelease.yml` | push в `master` | только Linux, ≤ 20 мин: `affectedBundles` по diff пуша (и изменение `platform-main/launcher` — поезд с новым подписанным лаунчером при тех же бандлах) → `jvmTest` затронутых бандлов (и тесты лаунчера) и `verifyBundleMembership` → `assembleBundle` + `bundleManifest` → `scripts/train_manifest.py` → pre-release `train-t<sha12>` с `train-manifest.json` и только изменившимися jar. Пуш без затронутых бандлов ничего не публикует |
-| `release.yml` | вручную из `master`: уровень `patch` / `minor` / `major`; `dry_run` — без публикации, допускает рабочую ветку | версия → JVM-тесты на Linux → Linux DEB и общая Wasm-панель → параллельно отдельные Android и iOS, остальные desktop-сборки и платформенные тесты → поезд бандлов (продвижение `train-t<sha12>` этого коммита или сборка) → гейт `scripts/check_installer_size.py` (≤ 160 МиБ: платформа и полный seed поезда, цель — 50 МиБ; пять установщиков) → публикация установщиков macOS/Windows/Linux и поезда; без detekt; тег вычисленной версии и релиз для автообновления |
+| `release.yml` | вручную из `master`: уровень `patch` / `minor` / `major`; `dry_run` — без публикации, допускает рабочую ветку | версия → JVM-тесты на Linux → Linux DEB и общая Wasm-панель → параллельно Android (APK, подпись ключом окружения `android-signing`) и iOS (неподписанный IPA), остальные desktop-сборки и платформенные тесты → поезд бандлов (продвижение `train-t<sha12>` этого коммита или сборка) → гейт `scripts/check_installer_size.py` (≤ 160 МиБ: платформа и полный seed поезда, цель — 50 МиБ; пять установщиков) → публикация установщиков macOS/Windows/Linux, APK, IPA и поезда; без detekt; тег вычисленной версии и релиз для автообновления |
 
 Новые workflow, джобы, шаги сборки, платформы, матрицы и триггеры, расширение `paths` — только с согласия
 пользователя. Изменяя или добавляя workflow:
@@ -107,10 +107,8 @@ CI проверяет необходимый минимум. Автоматич�
   случайный JDK из образа runner не меняет ключи задач. Демон требует Java 21 без привязки к вендору,
   поэтому использует установленный JBR и не скачивает третий JDK. Локально подходит любой JDK 21;
   закреплённые download URLs остаются fallback, если подходящей установки нет.
-- Kotlin/Native отключает Gradle-кэш для framework: стандартное восстановление теряет симлинки.
-  iOS сохраняет отдельный tar-архив только после успешной release-линковки. Ключ включает точные commit/tree,
-  версию релиза, Xcode/SDK и фактические JDK; fallback отсутствует. Перед пропуском линковки проверяются
-  metadata, SHA-256 и содержимое архива. Это ускоряет повтор того же билда; изменённые исходники линкуются заново.
+- Kotlin/Native отключает Gradle-кэш для framework: стандартное восстановление теряет симлинки, поэтому
+  iOS-релиз линкует framework заново в фазе Gradle Xcode-проекта (она же копирует compose-resources в приложение).
 - JVM-тесты учитывают ОС и архитектуру в ключе задачи: переносимый кэш компиляции не подменяет проверку поведения
   на другом хосте. Поэтому macOS выполняет JVM-тесты повторно вместе с iOS-тестами.
 - Linux один раз собирает оптимизированную Chromium-панель (`prepareChromiumPanelArtifact`). Остальные desktop
@@ -132,3 +130,14 @@ CI проверяет необходимый минимум. Автоматич�
   Перед упаковкой проходят нативные проверки Secret Service в изолированной D-Bus-сессии и встроенного браузера
   под Xvfb. DEB объявляет зависимости libsecret/JCEF; пользовательская сессия требует разблокированный Secret Service.
   Обновление Linux открывает страницу DEB: системным пакетом управляет пакетный менеджер.
+
+## Мобильные сборки релиза
+
+- **Android**: `assembleRelease` подписывается, когда заданы `HEARTBEAT_ANDROID_KEYSTORE` (путь), `…_KEYSTORE_PASSWORD`,
+  `…_KEY_ALIAS`, `…_KEY_PASSWORD` (`platform-main/android/build.gradle.kts`); без них APK не подписан. Ключ лежит в окружении
+  GitHub `android-signing` (только `master`, keystore — `HEARTBEAT_ANDROID_KEYSTORE_BASE64`), `dry_run` берёт `android-dry-run`
+  без секретов и собирает неподписанный APK. Джоба проверяет подпись `apksigner` и публикует `Heartbeat-<ver>-android.apk`.
+  Потеря ключа ломает обновление поверх установленных APK: копия keystore хранится у владельца вне репозитория.
+- **iOS**: Apple-аккаунта и сертификатов в CI нет. Джоба запускает `xcodebuild archive` без подписи (Gradle внутри
+  build phase, его настройки, heap 8 ГБ и `org.gradle.daemon=false` — в пользовательском `gradle.properties`: кэш Gradle
+  архивируется после выхода демона; `--profile` фаза не получает, `gradle-reports-ios` несёт только XML тестов) и пакует `Payload/*.app` в `Heartbeat-<ver>-ios.ipa` — для установки сайдлоадом (AltStore, Sideloadly).
