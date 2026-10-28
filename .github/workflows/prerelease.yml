@@ -8,7 +8,9 @@ name: Prerelease train
 # cheap (target: 20 minutes).
 # Once a night (and on Run workflow) the same job publishes the optimized train `train-o<sha12>` of master: obfuscated
 # by ProGuard, started headless by verifyShrunkTrain and published with its mappings. It is skipped when no bundle and
-# not the launcher changed since the previous optimized train. release.yml promotes the optimized train of its commit.
+# not the launcher changed since the previous optimized train, or when a release v* of the commit already carries its
+# optimized train (release.yml usually builds that train itself). Publications of both families run one at a time, and
+# a train whose commit does not contain the newest published train is dropped: the app offers trains by publication time.
 # A push that changes no bundle (docs, CI, scripts) publishes nothing; a change of the launcher (platform-main/launcher)
 # publishes a train too, the bundles unchanged. The train carries the launcher jar signed with the key of the environment
 # launcher-signing, which only master can use.
@@ -196,12 +198,17 @@ jobs:
           # The families build in parallel: a nightly train started before a merge can finish after the fast train of
           # that merge. Published later, it would be offered as newer and roll beta users back, so a train whose commit
           # does not contain the newest published train is dropped; the next train of its family covers its bundles.
-          newest=$(gh release list --limit 1000 --json tagName,isDraft \
-            --jq '[.[] | select(.isDraft | not) | select(.tagName | test("^train-[to][0-9a-f]{12}$"))][0].tagName // ""')
+          # Newest by publishedAt, as the app orders them (gh lists by createdAt, the date of the target commit).
+          newest=$(gh release list --limit 1000 --json tagName,isDraft,publishedAt \
+            --jq '[.[] | select(.isDraft | not) | select(.tagName | test("^train-[to][0-9a-f]{12}$"))]
+              | (max_by(.publishedAt) // {}) | .tagName // ""')
           if [ -n "$newest" ] && [ "$newest" != "$tag" ]; then
             status=$(gh api "repos/$GH_REPO/compare/${newest:7}...$GITHUB_SHA" --jq .status)
             if [ "$status" != ahead ] && [ "$status" != identical ]; then
+              echo "::notice::Newest train $newest is not behind ${GITHUB_SHA:0:12} ($status): $tag is not published"
               echo "Newest train $newest is not behind ${GITHUB_SHA:0:12} ($status): $tag is not published" >> "$GITHUB_STEP_SUMMARY"
+              # A draft left by a failed run of this train is never published now: do not leave it behind.
+              if [ -s draft ]; then gh release delete "$tag" --yes; fi
               exit 0
             fi
           fi
