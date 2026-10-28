@@ -27,7 +27,7 @@ argument-hint: "<feature> <что проектируем>"
 ## 2. Макет
 
 - Файл `design/features/<feature>/<feature>.pen`, секции `Screens` / `Components` / `Transitions` / `Notes`,
-  кадры на **всех форм-факторах** `<Screen> / <State> / Phone` (390×844), `/ Tablet` (834×1112), `/ Desktop` (1280×800),
+  **desktop-first**: сначала Desktop-кадры, после согласования — Tablet и Phone как их адаптации; кадры на **всех форм-факторах** `<Screen> / <State> / Phone` (390×844), `/ Tablet` (834×1112), `/ Desktop` (1280×800),
   при отличиях `/ Desktop compact` (420) — README 2.5; `hb:host` = `mobile` для Phone и Tablet, `desktop` для Desktop;
   Desktop-only фича — только Desktop с причиной в заметке; `id` без `/`; тёмная тема — `ref` на кадр с `theme`; `width`/`height` без `$`-переменных (README 4.4).
 - Составные компоненты на экране — копия структуры из `heartbeat.lib.pen` (не `ref`: внутри экземпляра нельзя двигать мышью); `ref` — иконки, иллюстрации, разделитель; токены — `$`-переменные библиотеки. Чего нет — сначала компонент или предложение токена
