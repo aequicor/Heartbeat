@@ -3,7 +3,9 @@ package io.aequicor.heartbeat.selector;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Точка входа установленного приложения: выбирает слот лаунчера и запускает его ({@link SlotLauncher}). Слот, который
@@ -15,6 +17,8 @@ import java.util.Set;
  * файла (первый аргумент начинается с {@code --}) и второй экземпляр читают слоты и ничего не пишут.
  */
 public final class SelectorMain {
+    /** Системное свойство для лаунчера: запущенный слот пробный и не подтверждён. */
+    static final String TRIAL = "heartbeat.slot.trial";
     /** Путь к jar встроенного лаунчера: он лежит в установщике файлом, а не на classpath. */
     static final String EMBEDDED = "heartbeat.selector.embedded";
 
@@ -36,8 +40,10 @@ public final class SelectorMain {
             if (jar == null) {
                 throw new IllegalStateException("No launcher to start: slots are empty and " + EMBEDDED + " is not set");
             }
+            // a trial launcher must not touch irreversible data (DB restore, migration) until it is confirmed
+            System.setProperty(TRIAL, Boolean.toString(owner && choice.trial()));
             try {
-                SlotLauncher.launch(jar, args, inst, confirmation(selector, choice, owner));
+                SlotLauncher.launch(jar, args, inst, confirmation(selector, choice, owner), owner ? stager(selector) : null);
                 return;
             } catch (SlotLauncher.NotStartedException e) {
                 if (choice.kind() == Choice.Kind.EMBEDDED) {
@@ -48,6 +54,18 @@ public final class SelectorMain {
                 selector.abandon(choice.slot());
             }
         }
+    }
+
+    /** Приём предложений нового лаунчера: сбой записи в слот пишется в журнал и не мешает работе. */
+    private static Predicate<Map<String, String>> stager(Selector selector) {
+        return request -> {
+            try {
+                return selector.stageUpdate(request);
+            } catch (IOException | RuntimeException e) {
+                System.err.println("Launcher update failed: " + e);
+                return false;
+            }
+        };
     }
 
     private static Runnable confirmation(Selector selector, Choice choice, boolean owner) {

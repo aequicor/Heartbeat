@@ -865,4 +865,105 @@ class LauncherTest {
         launcher = new Launcher(alias.resolve("launcher2"), data);
         assertThrows(DbBackup.UnsafeLayoutException.class, () -> install("t1", 1, "a"));
     }
+
+    Launcher trialLauncher() {
+        return new Launcher(root, data, true);
+    }
+
+    @Test
+    void trialLauncherDoesNotActivateAPendingTrainUntilConfirmed() throws Exception {
+        install("t1", 0, "a");
+        String m2 = manifest("t2", 1, 0, "a", "b");
+        storeJars("t2", "a", "b");
+        queuePending("t2", m2, 1_000);
+        assertEquals("t1", trialLauncher().prepare().train());
+        assertTrue(Files.exists(root.resolve("pending").resolve("t2")));
+        assertEquals("t2", launcher.prepare().train());
+        assertFalse(Files.exists(root.resolve("pending").resolve("t2")));
+    }
+
+    @Test
+    void trialLauncherDefersTheRollbackThatRestoresData() throws Exception {
+        install("t1", 0, "a");
+        install("t2", 0, "a");
+        launcher.prepare();
+        launcher.reportBundleFailure();
+        Launcher.Prepared trial = trialLauncher().prepare();
+        assertEquals("t2", trial.train());
+        assertNull(trial.rolledBackFrom());
+        assertTrue(launcher.store().state().rollbackRequested);
+        assertFalse(launcher.isBad("t2"));
+        Launcher.Prepared confirmed = launcher.prepare();
+        assertEquals("t1", confirmed.train());
+        assertEquals("t2", confirmed.rolledBackFrom());
+        assertTrue(launcher.isBad("t2"));
+    }
+
+    @Test
+    void trialLauncherDefersTheRollbackAfterCrashes() throws Exception {
+        install("t1", 0, "a");
+        install("t2", 0, "a");
+        launcher.prepare();
+        launcher.prepare();
+        assertEquals("t2", trialLauncher().prepare().train());
+        assertFalse(launcher.isBad("t2"));
+        assertEquals("t1", launcher.prepare().train());
+        assertTrue(launcher.isBad("t2"));
+    }
+
+    @Test
+    void trialLauncherRefusesToStartOnADamagedTrainInsteadOfRestoringData() throws Exception {
+        install("t1", 0, "a");
+        install("t2", 0, "a");
+        Files.writeString(launcherJar("a@t2"), "corrupted");
+        assertThrows(IOException.class, () -> trialLauncher().prepare());
+        assertEquals("t2", launcher.store().state().current);
+        assertTrue(launcher.store().state().rollbackRequested);
+        assertEquals("t1", launcher.prepare().train());
+    }
+
+    @Test
+    void offersTheLauncherJarOfTheTrainToTheStager() throws Exception {
+        byte[] jar = "launcher-jar".getBytes(StandardCharsets.UTF_8);
+        remote.put("launcher@t1", jar);
+        String signature = "A".repeat(86) + "==";
+        String json = "{\"train\":\"t1\",\"platformApi\":1,\"bundles\":["
+            + "{\"id\":\"launcher\",\"version\":\"t1\",\"jar\":\"launcher.jar\",\"sha256\":\"" + sha(jar)
+            + "\",\"kind\":\"launcher\",\"launcherApi\":4,\"signature\":\"" + signature + "\"}]}";
+        launcher.applyUpdate(json, fetcher("t1"));
+        List<Map<String, String>> seen = new java.util.ArrayList<>();
+        boolean staged = SlotUpdate.offer(launcher.store(), "t1", request -> {
+            seen.add(request);
+            return true;
+        });
+        assertTrue(staged);
+        assertEquals(1, seen.size());
+        Map<String, String> request = seen.get(0);
+        assertEquals("launcher", request.get(SlotUpdate.ID));
+        assertEquals("4", request.get(SlotUpdate.LAUNCHER_API));
+        assertEquals(signature, request.get(SlotUpdate.SIGNATURE));
+        assertEquals(sha(jar), request.get(SlotUpdate.SHA256));
+        assertEquals("launcher-jar", Files.readString(Path.of(request.get(SlotUpdate.JAR))));
+    }
+
+    @Test
+    void trainWithoutALauncherEntryOffersNothing() throws Exception {
+        install("t1", 0, "a");
+        assertFalse(SlotUpdate.offer(launcher.store(), "t1", request -> {
+            throw new AssertionError("nothing to offer");
+        }));
+    }
+
+    @Test
+    void unsignedLauncherEntryIsNotOffered() throws Exception {
+        byte[] jar = "launcher-jar".getBytes(StandardCharsets.UTF_8);
+        remote.put("launcher@t1", jar);
+        String json = "{\"train\":\"t1\",\"platformApi\":1,\"bundles\":["
+            + "{\"id\":\"launcher\",\"version\":\"t1\",\"jar\":\"launcher.jar\",\"sha256\":\"" + sha(jar)
+            + "\",\"kind\":\"launcher\",\"launcherApi\":4}]}";
+        launcher.applyUpdate(json, fetcher("t1"));
+        assertFalse(SlotUpdate.offer(launcher.store(), "t1", request -> {
+            throw new AssertionError("unsigned entry must not be offered");
+        }));
+    }
 }

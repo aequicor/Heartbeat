@@ -24,6 +24,30 @@ final class LauncherFixtures {
         return build(jar, body("applicationStarted.run(); log(\"" + tag + "\");"));
     }
 
+    /**
+     * Лаунчер с приёмом обновлений: записывает флаг пробного слота, подтверждает слот и предлагает селектору jar, который
+     * тест описал свойствами {@code fixture.req.*}; без приёмника пишет {@code nostager}.
+     */
+    static Path staging(Path jar, String tag) throws Exception {
+        return build(jar, "package io.aequicor.heartbeat.launcher;\n"
+            + "public final class LauncherMain {\n"
+            + "  static void log(String tag) {\n"
+            + "    System.setProperty(\"" + LOG + "\", System.getProperty(\"" + LOG + "\", \"\") + tag + \";\");\n"
+            + "  }\n"
+            + "  public static void start(String[] args, Runnable applicationStarted,\n"
+            + "      java.util.function.Predicate<java.util.Map<String, String>> stager) throws Exception {\n"
+            + "    log(\"" + tag + ":trial=\" + System.getProperty(\"heartbeat.slot.trial\"));\n"
+            + "    applicationStarted.run();\n"
+            + "    if (stager == null) { log(\"nostager\"); return; }\n"
+            + "    java.util.Map<String, String> request = new java.util.HashMap<>();\n"
+            + "    for (String key : new String[] {\"jar\", \"id\", \"version\", \"sha256\", \"kind\", \"launcherApi\", \"signature\"}) {\n"
+            + "      request.put(key, System.getProperty(\"fixture.req.\" + key));\n"
+            + "    }\n"
+            + "    log(\"staged=\" + stager.test(request));\n"
+            + "  }\n"
+            + "}\n");
+    }
+
     /** Лаунчер бросает исключение до подтверждения. */
     static Path failingBeforeConfirmation(Path jar, String tag) throws Exception {
         return build(jar, body("log(\"" + tag + "\"); throw new IllegalStateException(\"boom\");"));

@@ -47,6 +47,8 @@ public final class LauncherMain {
     static final String SEED_DIR = "heartbeat.seed.dir";
     static final String APP_MAIN = "heartbeat.app.main";
     static final String EXIT_CLEAN = "heartbeat.exit.clean";
+    /** Селектор ставит {@code true}, пока запущенный слот пробный и не подтверждён: данные не трогаем. */
+    static final String SLOT_TRIAL = "heartbeat.slot.trial";
     static final String DEFAULT_APP_MAIN = "io.aequicor.heartbeat.platform.desktop.MainKt";
 
     /** Блокировка экземпляра; держится до конца процесса (поле не даёт сборщику освободить её). */
@@ -56,7 +58,7 @@ public final class LauncherMain {
     }
 
     public static void main(String[] args) throws Exception {
-        start(args, () -> { });
+        start(args, () -> { }, null);
     }
 
     /**
@@ -64,6 +66,16 @@ public final class LauncherMain {
      * входом в приложение, когда его класс уже загружен. Это момент, в который селектор подтверждает слот лаунчера.
      */
     public static void start(String[] args, Runnable applicationStarted) throws Exception {
+        start(args, applicationStarted, null);
+    }
+
+    /**
+     * Как {@link #start(String[], Runnable)}, но владелец лаунчера предлагает селектору jar лаунчера активного поезда
+     * через {@code slotStager} (см. {@link SlotUpdate}); {@code null} — запуск без слотов, предлагать некому.
+     * Предложение уходит в фоновом потоке и не задерживает запуск; его сбой только пишется в журнал.
+     */
+    public static void start(String[] args, Runnable applicationStarted,
+                             java.util.function.Predicate<java.util.Map<String, String>> slotStager) throws Exception {
         String rootValue = System.getProperty(ROOT);
         Path root;
         Path dataDir;
@@ -79,7 +91,7 @@ public final class LauncherMain {
         } else {
             throw new IllegalStateException("System property " + ROOT + " is required");
         }
-        Launcher launcher = new Launcher(root, dataDir);
+        Launcher launcher = new Launcher(root, dataDir, Boolean.getBoolean(SLOT_TRIAL));
         boolean owner = false;
         if (!isAuxiliary(args)) {
             instanceLock = acquireInstanceLock(root);
@@ -91,6 +103,9 @@ public final class LauncherMain {
         }
         Launcher.Prepared prepared = owner ? launcher.prepare() : launcher.prepareReadOnly();
         launcher.exposeToApp(prepared, root);
+        if (owner && prepared.train() != null && slotStager != null) {
+            offerLauncherUpdate(launcher.store(), prepared.train(), slotStager);
+        }
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         java.util.List<Path> classpath = prepared.classpath();
         if (prepared.train() == null && seed != null) {
@@ -248,6 +263,21 @@ public final class LauncherMain {
         CountDownLatch ready = new CountDownLatch(1);
         javax.swing.SwingUtilities.invokeLater(() -> new FirstLaunchScreen(task, ready::countDown).show());
         ready.await();
+    }
+
+    private static void offerLauncherUpdate(TrainStore store, String train,
+                                            java.util.function.Predicate<java.util.Map<String, String>> stager) {
+        Thread offer = new Thread(() -> {
+            try {
+                if (SlotUpdate.offer(store, train, stager)) {
+                    System.err.println("Launcher of train " + train + " is staged and starts at the next launch");
+                }
+            } catch (IOException | RuntimeException e) {
+                System.err.println("Launcher of train " + train + " was not staged: " + e);
+            }
+        }, "heartbeat-launcher-slot-update");
+        offer.setDaemon(true);
+        offer.start();
     }
 
     private static void scheduleStable(Launcher launcher) {

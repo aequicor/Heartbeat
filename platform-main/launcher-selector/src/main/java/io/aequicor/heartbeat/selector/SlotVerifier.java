@@ -27,6 +27,24 @@ final class SlotVerifier {
     }
 
     /**
+     * Запись лаунчера допустима: это {@code kind=launcher}, подпись верна, уровень не ниже порога. Jar не проверяется.
+     *
+     * @param what как назвать проверяемое в сообщении об отказе
+     */
+    void verifyRecord(SlotRecord record, String what, int floor) throws VerificationException {
+        if (!SlotRecord.KIND_LAUNCHER.equals(record.kind())) {
+            throw new VerificationException(what + " holds a " + record.kind() + ", not a launcher");
+        }
+        if (!keys.verifies(record.canonical(), record.signature())) {
+            throw new VerificationException(what + " is not signed by a trusted key");
+        }
+        if (record.launcherApi() < floor) {
+            throw new VerificationException(what + " has launcher level " + record.launcherApi()
+                + " below the confirmed level " + floor);
+        }
+    }
+
+    /**
      * @param floor самый высокий уровень лаунчера из подтверждённых слотов; ниже него слот не принимается
      * @return проверенная запись слота
      */
@@ -37,16 +55,7 @@ final class SlotVerifier {
         } catch (IOException e) {
             throw new VerificationException("Slot " + slot + " has no valid record: " + e.getMessage(), e);
         }
-        if (!SlotRecord.KIND_LAUNCHER.equals(record.kind())) {
-            throw new VerificationException("Slot " + slot + " holds a " + record.kind() + ", not a launcher");
-        }
-        if (!keys.verifies(record.canonical(), record.signature())) {
-            throw new VerificationException("Slot " + slot + " is not signed by a trusted key");
-        }
-        if (record.launcherApi() < floor) {
-            throw new VerificationException("Slot " + slot + " has launcher level " + record.launcherApi()
-                + " below the confirmed level " + floor);
-        }
+        verifyRecord(record, "Slot " + slot, floor);
         if (!Files.isRegularFile(store.jar(slot))) {
             throw new VerificationException("Slot " + slot + " has no jar");
         }

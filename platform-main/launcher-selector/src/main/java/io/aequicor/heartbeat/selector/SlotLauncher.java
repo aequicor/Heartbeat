@@ -7,6 +7,8 @@ import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
+import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * Запускает лаунчер из jar (слота или встроенного) в его собственном загрузчике классов поверх системного. Классы
@@ -57,26 +59,41 @@ final class SlotLauncher {
     }
 
     /**
-     * Запускает {@code LauncherMain.start(args, applicationStarted)} из {@code jar} и возвращается, когда приложение
+     * Запускает {@code LauncherMain.start(args, applicationStarted, stager)} (или {@code start(args, applicationStarted)}
+     * у лаунчера без обновления самого себя) из {@code jar} и возвращается, когда приложение
      * завершилось. {@code applicationStarted} вызывает лаунчер перед входом в приложение: это момент подтверждения слота.
+     * {@code stager} принимает предложения нового jar лаунчера из поезда ({@code null} — предлагать некому).
      *
      * @throws NotStartedException если jar или класс лаунчера не открываются; лаунчер тогда не запускался
      * @throws Exception ошибка самого лаунчера или приложения после передачи управления (как её бросил {@code start})
      */
-    static void launch(Path jar, String[] args, Instrumentation inst, Runnable applicationStarted) throws Exception {
+    static void launch(Path jar, String[] args, Instrumentation inst, Runnable applicationStarted,
+                       Predicate<Map<String, String>> stager) throws Exception {
         Method start;
+        boolean withStager = true;
         try {
             URLClassLoader loader = new SlotClassLoader(jar.toUri().toURL(), ClassLoader.getSystemClassLoader());
             if (inst != null) {
                 Class.forName(AGENT_CLASS, true, loader).getMethod("premain", String.class, Instrumentation.class)
                     .invoke(null, null, inst);
             }
-            start = Class.forName(MAIN_CLASS, true, loader).getMethod("start", String[].class, Runnable.class);
+            Class<?> main = Class.forName(MAIN_CLASS, true, loader);
+            try {
+                start = main.getMethod("start", String[].class, Runnable.class, Predicate.class);
+            } catch (NoSuchMethodException withoutStager) {
+                // a launcher that does not take updates of itself still starts
+                start = main.getMethod("start", String[].class, Runnable.class);
+                withStager = false;
+            }
         } catch (IOException | ReflectiveOperationException | LinkageError | SecurityException e) {
             throw new NotStartedException("Launcher " + jar + " cannot be started: " + e, e);
         }
         try {
-            start.invoke(null, args, applicationStarted);
+            if (withStager) {
+                start.invoke(null, args, applicationStarted, stager);
+            } else {
+                start.invoke(null, args, applicationStarted);
+            }
         } catch (InvocationTargetException e) {
             Throwable cause = e.getCause();
             if (cause instanceof Exception) {

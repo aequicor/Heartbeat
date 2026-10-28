@@ -1,7 +1,10 @@
 package io.aequicor.heartbeat.selector;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -22,6 +25,9 @@ import java.util.Set;
  * выбирают слот на чтение и ничего не считают и не пишут. Файл состояния новее поддерживаемого формата
  * ({@link SlotState.UnsupportedFormatException}) не читается и не затирается: запускается встроенный лаунчер, который
  * знает собственный формат.
+ *
+ * <p>Методы синхронизированы: состояние слотов пишут главный поток (выбор, подтверждение) и фоновый поток лаунчера
+ * (предложение нового jar, {@link #stageUpdate}).
  */
 final class Selector {
     /** Пробных запусков подряд без подтверждения до отката на последний подтверждённый слот. */
@@ -52,7 +58,7 @@ final class Selector {
      *
      * @param excluded слоты, которые не удалось запустить в этом процессе: их не выбирают снова
      */
-    Choice choose(Set<String> excluded) throws IOException {
+    synchronized Choice choose(Set<String> excluded) throws IOException {
         SlotState state;
         try {
             state = store.state();
@@ -82,7 +88,7 @@ final class Selector {
      * Слот дошёл до входа в приложение: пробный становится подтверждённым, счётчик сбрасывается. Идемпотентно;
      * не владелец ничего не меняет.
      */
-    void confirm() throws IOException {
+    synchronized void confirm() throws IOException {
         if (!owner) {
             return;
         }
@@ -105,7 +111,7 @@ final class Selector {
      *
      * @return {@code false}, если слот не принят: нет jar, jar отвергнут раньше или не владелец
      */
-    boolean activateTrial(String slot) throws IOException {
+    synchronized boolean activateTrial(String slot) throws IOException {
         if (!owner || !store.hasJar(slot)) {
             return false;
         }
@@ -136,7 +142,7 @@ final class Selector {
      * Слот не удалось запустить вовсе (jar не открывается, нет класса лаунчера): он отвергается сразу, без счёта
      * крахов. Подтверждённый слот в этом случае тоже перестаёт быть надёжным.
      */
-    void abandon(String slot) throws IOException {
+    synchronized void abandon(String slot) throws IOException {
         if (!owner) {
             return;
         }
@@ -146,6 +152,81 @@ final class Selector {
         }
         reject(state, slot);
         state.save(store.stateFile());
+    }
+
+    /**
+     * Лаунчер предлагает jar нового лаунчера из поезда (запрос — строки {@code SlotUpdate} лаунчера). Принятый jar
+     * копируется в соседний слот и становится пробным: запустится при следующем старте. Принимается только когда:
+     * запись подписана доверенным ключом и её уровень не ниже порога, jar не отвергался раньше и не совпадает с уже
+     * подтверждённым, идёт не пробный запуск (оба слота заняты: работающий и подтверждённый), а запись jar в слот
+     * удалась. Копия идёт во временный файл с проверкой SHA-256 и атомарным переименованием; пока запись не завершена,
+     * у слота нет записи, и он недействителен. Занятый (Windows) или недописанный слот откладывает обновление.
+     *
+     * @return {@code true}, если новый слот активирован как пробный
+     */
+    synchronized boolean stageUpdate(Map<String, String> request) throws IOException {
+        if (!owner) {
+            return false;
+        }
+        SlotRecord record;
+        Path source;
+        try {
+            record = new SlotRecord(request.get("id"), request.get("version"), request.get("sha256"),
+                request.get("kind"), Integer.parseInt(request.get("launcherApi")), request.get("signature"));
+            source = Path.of(request.get("jar"));
+        } catch (IllegalArgumentException | NullPointerException e) {
+            System.err.println("Launcher update request is invalid: " + e);
+            return false;
+        }
+        SlotState state = readForUpdate();
+        if (state == null) {
+            return false;
+        }
+        try {
+            verifier.verifyRecord(record, "Launcher " + record.version(), state.floor);
+        } catch (SlotVerifier.VerificationException e) {
+            System.err.println("Launcher is not staged: " + e.getMessage());
+            return false;
+        }
+        if (state.bad.contains(record.sha256()) || state.isTrial() || state.launching
+            || record.sha256().equals(sha256Of(state.confirmed))) {
+            return false;
+        }
+        String target = state.confirmed.isEmpty() ? SlotStore.SLOTS.get(0) : SlotStore.other(state.confirmed);
+        try {
+            install(source, target, record);
+        } catch (IOException e) {
+            System.err.println("Launcher is not staged, the slot " + target + " is busy or unwritable: " + e);
+            return false;
+        }
+        return activateTrial(target);
+    }
+
+    /** Кладёт jar и запись в {@code slot}: сначала запись удаляется (слот недействителен), последней пишется новая. */
+    private void install(Path source, String slot, SlotRecord record) throws IOException {
+        Path dir = store.slotDir(slot);
+        Files.createDirectories(dir);
+        Path tmp = dir.resolve(SlotStore.JAR_NAME + ".tmp");
+        Files.copy(source, tmp, StandardCopyOption.REPLACE_EXISTING);
+        if (!SlotStore.sha256(tmp).equals(record.sha256())) {
+            Files.deleteIfExists(tmp);
+            throw new IOException("Jar " + source + " does not match its record");
+        }
+        Files.deleteIfExists(dir.resolve(SlotRecord.FILE_NAME));
+        Files.move(tmp, store.jar(slot), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        record.write(dir.resolve(SlotRecord.FILE_NAME));
+    }
+
+    /** SHA-256 jar слота по его записи; у пустого или нечитаемого слота — пустая строка. */
+    private String sha256Of(String slot) {
+        if (slot.isEmpty()) {
+            return "";
+        }
+        try {
+            return SlotRecord.read(store.slotDir(slot).resolve(SlotRecord.FILE_NAME)).sha256();
+        } catch (IOException e) {
+            return "";
+        }
     }
 
     private SlotState readForUpdate() throws IOException {

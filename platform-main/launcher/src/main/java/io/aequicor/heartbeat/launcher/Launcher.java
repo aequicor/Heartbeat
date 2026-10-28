@@ -66,12 +66,26 @@ public final class Launcher {
     private final TrainStore store;
     private final DbBackup backup;
     private final int platformApi;
+    private final boolean deferDataOperations;
 
     public Launcher(Path root, Path dataDir) {
-        this(root, dataDir, PLATFORM_API);
+        this(root, dataDir, PLATFORM_API, false);
+    }
+
+    /**
+     * @param deferDataOperations лаунчер запущен как пробный слот и ещё не подтверждён: откат с восстановлением БД и
+     *                            активация ожидающего поезда (бэкап БД перед миграцией) ждут подтверждения слота
+     */
+    public Launcher(Path root, Path dataDir, boolean deferDataOperations) {
+        this(root, dataDir, PLATFORM_API, deferDataOperations);
     }
 
     Launcher(Path root, Path dataDir, int platformApi) {
+        this(root, dataDir, platformApi, false);
+    }
+
+    Launcher(Path root, Path dataDir, int platformApi, boolean deferDataOperations) {
+        this.deferDataOperations = deferDataOperations;
         this.store = new TrainStore(root);
         this.backup = new DbBackup(root.toAbsolutePath(), dataDir);
         this.platformApi = platformApi;
@@ -106,7 +120,11 @@ public final class Launcher {
             // Запрос держится до записи отката (store.rollback снимает его): сбой восстановления его не теряет.
             state.rollbackRequested = rollback;
             state.save(store.stateFile());
-            if (rollback) {
+            if (rollback && deferDataOperations) {
+                // The rollback restores the DB and cannot be undone: the confirmed launcher does it at the next start.
+                System.err.println("Train " + state.current + " rolls back after the launcher is confirmed");
+                rollbackBlocked = true;
+            } else if (rollback) {
                 String from = state.current;
                 try {
                     Rollback done = rollbackAndRestore();
@@ -127,7 +145,7 @@ public final class Launcher {
                 }
             }
         }
-        if (!rollbackBlocked) {
+        if (!rollbackBlocked && !deferDataOperations) {
             applyPending();
         }
         while (true) {
@@ -140,6 +158,11 @@ public final class Launcher {
                 store.verify(state.current);
                 break;
             } catch (IOException | RuntimeException e) {
+                if (deferDataOperations) {
+                    keepRollbackRequest();
+                    throw new IOException("Train " + state.current + " is damaged; its rollback restores data and "
+                        + "waits until the launcher is confirmed (" + e.getMessage() + ")", e);
+                }
                 Rollback done;
                 try {
                     done = rollbackAndRestore();
