@@ -12,8 +12,8 @@ name: Release
 # created as a draft, gets every installer and SHA256SUMS, and only then becomes public and latest. The asset
 # names are what the app looks for (ReleasePlatform in features/app-update/impl): keep them in sync.
 # The release is also a channel of bundles: it carries the train of its commit (train-manifest.json and the jars
-# that changed), promoted from the optimized (ProGuard) pre-release train-o<sha12> that prerelease.yml tested at night,
-# or built here, optimized as well, when there is none: the fast train-t<sha12> of a push is never released. Every
+# that changed), optimized by ProGuard: usually built here, promoted from the nightly pre-release train-o<sha12> only
+# when the release commit was the master head of that run. The fast train-t<sha12> of a push is never released. Every
 # installer is the platform plus the whole train as its seed (scripts/train_seed.py) and must fit the size budget
 # (scripts/check_installer_size.py) before anything is published.
 # dry_run builds and checks everything without creating a tag or publishing:
@@ -123,7 +123,9 @@ jobs:
     name: Bundle train
     needs: [version, checks]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Usually builds the optimized train itself (the nightly one exists only when the release commit was its master
+    # head): ProGuard and the headless start of the processed train, the budget of the nightly run.
+    timeout-minutes: 60
     # The launcher of a train built here is signed with HEARTBEAT_LAUNCHER_SIGNING_KEY of the environment launcher-signing,
     # which only master can use. A dry run (it may come from a working branch) takes the environment without secrets:
     # its launcher is unsigned, and no installed app takes it.

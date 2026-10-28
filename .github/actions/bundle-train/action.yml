@@ -63,7 +63,7 @@ runs:
         mkdir -p train-previous
         # The same tag filter as prerelease.yml: only train-<family><sha12> pre-releases are trains of this family.
         is_train="test(\"^train-${family}[0-9a-f]{12}\$\")"
-        tag=$(gh release list --limit 100 --json tagName,isDraft \
+        tag=$(gh release list --limit 1000 --json tagName,isDraft \
           --jq "[.[] | select(.isDraft | not) | select(.tagName | $is_train) | select(.tagName != \"train-$TRAIN\")][0].tagName // \"\"")
         if [ -n "$tag" ]; then
           gh release download "$tag" --pattern train-manifest.json --dir train-previous
