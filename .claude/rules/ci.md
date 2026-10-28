@@ -139,4 +139,5 @@ CI проверяет необходимый минимум. Автоматич�
   без секретов и собирает неподписанный APK. Джоба проверяет подпись `apksigner` и публикует `Heartbeat-<ver>-android.apk`.
   Потеря ключа ломает обновление поверх установленных APK: копия keystore хранится у владельца вне репозитория.
 - **iOS**: Apple-аккаунта и сертификатов в CI нет. Джоба запускает `xcodebuild archive` без подписи (Gradle внутри
-  build phase, его настройки и heap 8 ГБ — в пользовательском `gradle.properties`) и пакует `Payload/*.app` в `Heartbeat-<ver>-ios.ipa` — для установки сайдлоадом (AltStore, Sideloadly).
+  build phase, его настройки, heap 8 ГБ и `org.gradle.daemon=false` — в пользовательском `gradle.properties`: кэш Gradle
+  архивируется после выхода демона; `--profile` фаза не получает, `gradle-reports-ios` несёт только XML тестов) и пакует `Payload/*.app` в `Heartbeat-<ver>-ios.ipa` — для установки сайдлоадом (AltStore, Sideloadly).

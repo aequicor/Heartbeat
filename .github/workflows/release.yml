@@ -361,9 +361,12 @@ jobs:
         if: ${{ !inputs.dry_run }}
         env:
           KEYSTORE_BASE64: ${{ secrets.HEARTBEAT_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.HEARTBEAT_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.HEARTBEAT_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.HEARTBEAT_ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::HEARTBEAT_ANDROID_KEYSTORE_BASE64 of the environment android-signing is not set"
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::A HEARTBEAT_ANDROID_KEYSTORE_BASE64, _KEYSTORE_PASSWORD, _KEY_ALIAS or _KEY_PASSWORD secret of the environment android-signing is not set"
             exit 1
           fi
           printf %s "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/android-release.jks"
@@ -453,6 +456,7 @@ jobs:
           org.gradle.java.installations.auto-detect=false
           org.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           org.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8
+          org.gradle.daemon=false
           PROPS
       # No Apple account in CI: the archive is unsigned and the IPA is installed by sideloading, which re-signs it.
       - name: Build the iOS app
