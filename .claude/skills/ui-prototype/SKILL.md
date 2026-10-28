@@ -27,13 +27,15 @@ argument-hint: "<feature> <что проектируем>"
 ## 2. Макет
 
 - Файл `design/features/<feature>/<feature>.pen`, секции `Screens` / `Components` / `Transitions` / `Notes`,
-  кадры `<Screen> / <State>` в размере хоста (desktop 1280×800 и ширина 420; mobile 390×844 — если экран есть на
-  Android/iOS), `id` без `/`; тёмная тема — `ref` на кадр с `theme`; `width`/`height` без `$`-переменных (README 4.4).
+  кадры на **всех форм-факторах** `<Screen> / <State> / Phone` (390×844), `/ Tablet` (834×1112), `/ Desktop` (1280×800),
+  при отличиях `/ Desktop compact` (420) — README 2.5; `hb:host` = `mobile` для Phone и Tablet, `desktop` для Desktop;
+  Desktop-only фича — только Desktop с причиной в заметке; `id` без `/`; тёмная тема — `ref` на кадр с `theme`; `width`/`height` без `$`-переменных (README 4.4).
 - Составные компоненты на экране — копия структуры из `heartbeat.lib.pen` (не `ref`: внутри экземпляра нельзя двигать мышью); `ref` — иконки, иллюстрации, разделитель; токены — `$`-переменные библиотеки. Чего нет — сначала компонент или предложение токена
   (`proposal.<name>` + заметка) в библиотеке. Адресация через алиас: `"ref": "hb:<id>"`, `"$hb:<переменная>"`,
   `"theme": {"hb:mode": "dark"}` (README 2.4); иконки — только `ref` на `hb:hb-icon-*`, шрифт —
   `$hb:typography.family`; справочник стилей и компонентов — `design/system/design-system.pen`, образцы —
   `design/features/*`.
+- Заметка `Поведение · <Screen>` описывает границы `720` и `1200` (сайдбар → drawer, список → раздел, панели).
 - Все видимые состояния отдельными кадрами: пустое, загрузка, ошибка, длинный русский текст, значимые hover/selected/
   disabled/фокус. Навигационный переход — раскадровка и заметка `trigger / transition`;
   микро-анимация — заметка `trigger / duration / easing / reduced` (README 2.3).

@@ -774,7 +774,7 @@
     {
      "id": "wizard-engine",
      "type": "frame",
-     "name": "Wizard / Engine",
+     "name": "Wizard / Engine / Desktop",
      "reusable": true,
      "width": 1280,
      "height": 800,
@@ -2048,7 +2048,7 @@
     {
      "id": "wizard-auth",
      "type": "frame",
-     "name": "Wizard / Auth",
+     "name": "Wizard / Auth / Desktop",
      "reusable": true,
      "width": 1280,
      "height": 800,
@@ -3542,7 +3542,7 @@
     {
      "id": "wizard-auth-error",
      "type": "frame",
-     "name": "Wizard / Auth / Error",
+     "name": "Wizard / Auth / Error / Desktop",
      "reusable": true,
      "width": 1280,
      "height": 800,
@@ -5073,7 +5073,7 @@
     {
      "id": "wizard-models",
      "type": "frame",
-     "name": "Wizard / Models",
+     "name": "Wizard / Models / Desktop",
      "reusable": true,
      "width": 1280,
      "height": 800,
@@ -6401,7 +6401,7 @@
      "id": "wizard-auth-dark",
      "type": "ref",
      "ref": "wizard-auth",
-     "name": "Wizard / Auth (dark)",
+     "name": "Wizard / Auth / Desktop (dark)",
      "theme": {
       "hb:mode": "dark",
       "hb:host": "desktop"
@@ -6441,7 +6441,7 @@
    "y": 920,
    "width": 420,
    "fontSize": 14,
-   "content": "Поведение · Wizard / Engine\nВизард — содержимое раздела настроек: колонка ≤ 720 по центру с отступом 16, каркас окна рисует хост.\nСписок движков прокручивается, подвал с кнопками прибит к низу. Сайдбар настроек 264 фиксирован, список разделов прокручивается.\nEsc — шаг назад (на первом шаге — выход)."
+   "content": "Поведение · Wizard / Engine / Desktop\nВизард — содержимое раздела настроек: колонка ≤ 720 по центру с отступом 16, каркас окна рисует хост.\nСписок движков прокручивается, подвал с кнопками прибит к низу. Сайдбар настроек 264 фиксирован, список разделов прокручивается.\nEsc — шаг назад (на первом шаге — выход)."
   },
   {
    "id": "note-behavior-wizard-auth",
@@ -6450,7 +6450,7 @@
    "y": 920,
    "width": 420,
    "fontSize": 14,
-   "content": "Поведение · Wizard / Auth\nТело шага прокручивается целиком, подвал прибит к низу. Секция метода появляется после выбора провайдера.\nПоиск фильтрует провайдеров на лету; длинные названия гаснут к краю."
+   "content": "Поведение · Wizard / Auth / Desktop\nТело шага прокручивается целиком, подвал прибит к низу. Секция метода появляется после выбора провайдера.\nПоиск фильтрует провайдеров на лету; длинные названия гаснут к краю."
   },
   {
    "id": "note-behavior-wizard-auth-error",
@@ -6459,7 +6459,7 @@
    "y": 920,
    "width": 420,
    "fontSize": 14,
-   "content": "Поведение · Wizard / Auth / Error\nБаннер ошибки появляется под полем ключа и сдвигает форму вниз; исчезает при правке поля."
+   "content": "Поведение · Wizard / Auth / Error / Desktop\nБаннер ошибки появляется под полем ключа и сдвигает форму вниз; исчезает при правке поля."
   },
   {
    "id": "note-behavior-wizard-models",
@@ -6468,7 +6468,7 @@
    "y": 920,
    "width": 420,
    "fontSize": 14,
-   "content": "Поведение · Wizard / Models\nТулбар поиска закреплён над списком, список моделей прокручивается, подвал прибит к низу.\n«Выбрано: N» обновляется при переключении."
+   "content": "Поведение · Wizard / Models / Desktop\nТулбар поиска закреплён над списком, список моделей прокручивается, подвал прибит к низу.\n«Выбрано: N» обновляется при переключении."
   },
   {
    "id": "note-behavior-wizard-auth-dark",
@@ -6477,7 +6477,7 @@
    "y": 920,
    "width": 420,
    "fontSize": 14,
-   "content": "Поведение · Auth (dark)\nТот же экран в теме mode = dark."
+   "content": "Поведение · Wizard / Auth / Desktop (dark)\nТот же экран в теме mode = dark."
   }
  ]
 }

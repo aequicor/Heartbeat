@@ -20,7 +20,7 @@ description: "Работа с дизайн-системой Heartbeat (плот�
 3. Действия — `HbButton` (`Primary` один на регион, `Secondary`/`Ghost`, `Danger` для деструктивного) размеров `Regular`/`Small`.
 4. Состояния — `HbLoadingState`, `HbEmptyState`, `HbBanner` (ошибка + «Повторить»); модальное — `HbDialog`.
 5. Однострочный текст — `HbText(maxLines = 1)` (гаснет к краю, тултип); `TextOverflow.Ellipsis` не использовать.
-6. Проверка: превью light/dark, скриншот-тест desktop 1280 и компактной ширины ~420dp в обеих темах, фокус по Tab;
+6. Проверка: превью light/dark, скриншот-тест на ширинах 390 (Phone), 834 (Tablet) и 1280 (Desktop) в обеих темах, фокус по Tab;
    сверка с кадрами макета.
 
 ## Пресеты токенов
