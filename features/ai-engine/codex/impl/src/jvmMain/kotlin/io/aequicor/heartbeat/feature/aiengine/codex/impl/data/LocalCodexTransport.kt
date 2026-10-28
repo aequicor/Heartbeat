@@ -110,8 +110,9 @@ internal class LocalCodexTransport(
         environment: Map<String, String>,
         nativeOff: CodexNativeOff,
     ): CodexWire {
+        validateLaunch(resolved)
         val identity = withContext(dispatchers.io) { codexExecutableIdentity(resolved.executable) }
-        val catalog = CodexModelCatalog.create(resolved.executable, dispatchers)
+        val catalog = CodexModelCatalog.create(resolved, environment, dispatchers)
         var isTransferred = false
         try {
             val isolated = resolved.copy(
@@ -130,6 +131,15 @@ internal class LocalCodexTransport(
             }
         } finally {
             if (!isTransferred) withContext(NonCancellable) { closeCatalog(catalog) }
+        }
+    }
+
+    private fun validateLaunch(launch: CodexLaunch) {
+        if (!launch.isRunnable || launch.source == InstallSource.Missing) {
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
+        if (launch.home != null && !File(launch.home).isAbsolute) {
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
     }
 

@@ -24,7 +24,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * feature flags (Code Mode, patching and delegation), so protected sessions use direct hosted functions.
  * Instructions, limits, effort and unknown metadata remain intact; the inventory probe rejects new tools.
  * The file stays alive until the working process exits; closing it more than once is a no-op.
- * Unknown models fail closed, without remote fallback.
+ * Metadata is exported by the selected CLI with the working launch's home, environment and overrides, so
+ * account-only models are included. Credentials remain CLI-owned; the offline probe sees only the snapshot.
+ * Models absent from that snapshot fail closed, without fallback during verification or execution.
  */
 internal class CodexModelCatalog private constructor(
     private val root: Path,
@@ -47,14 +49,34 @@ internal class CodexModelCatalog private constructor(
     }
 
     companion object {
+        /** Export the same account/configured catalog used by model discovery, then freeze and normalize it. */
+        suspend fun create(
+            launch: CodexLaunch,
+            environment: Map<String, String>,
+            dispatchers: DispatcherProvider,
+        ): CodexModelCatalog = create(dispatchers) { directory ->
+            exportModels(codexModelCatalogCommand(launch), environment, directory)
+        }
+
         /** Export bundled metadata without loading the user's home, credentials or remote model catalog. */
-        suspend fun create(executable: String, dispatchers: DispatcherProvider): CodexModelCatalog {
+        suspend fun create(executable: String, dispatchers: DispatcherProvider): CodexModelCatalog =
+            create(dispatchers) { directory ->
+                val home = Files.createDirectory(directory.resolve("home"))
+                val environment = System.getenv().filterKeys { it.uppercase() in CodexProbeEnvironment } +
+                    ("CODEX_HOME" to home.toString())
+                exportModels(listOf(executable, "debug", "models", "--bundled"), environment, directory)
+            }
+
+        private suspend fun create(
+            dispatchers: DispatcherProvider,
+            export: suspend (Path) -> JsonObject,
+        ): CodexModelCatalog {
             var root: Path? = null
             var isTransferred = false
             try {
                 val result = withContext(dispatchers.io) {
                     val directory = Files.createTempDirectory("heartbeat-codex-models-").also { root = it }
-                    val source = exportModels(executable, directory)
+                    val source = export(directory)
                     val normalized = normalizeCodexModels(source)
                     val path = directory.resolve("models.json")
                     Files.writeString(path, normalized.toString())
@@ -114,15 +136,12 @@ internal fun normalizeCodexModels(source: JsonObject): JsonObject {
 }
 
 /** File redirection avoids filling a pipe; polling bounds output size, time and cancellation latency. */
-private suspend fun exportModels(executable: String, root: Path): JsonObject {
-    val output = root.resolve("bundled.json")
-    val home = Files.createDirectory(root.resolve("home"))
-    val builder = ProcessBuilder(codexProcessArguments(listOf(executable, "debug", "models", "--bundled")))
+private suspend fun exportModels(command: List<String>, environment: Map<String, String>, root: Path): JsonObject {
+    val output = root.resolve("exported.json")
+    val builder = ProcessBuilder(codexProcessArguments(command))
         .directory(root.toFile()).redirectOutput(output.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD)
-    val retained = builder.environment().filterKeys { it.uppercase() in CodexProbeEnvironment }
     builder.environment().clear()
-    builder.environment().putAll(retained)
-    builder.environment()["CODEX_HOME"] = home.toString()
+    builder.environment().putAll(environment)
     val process = builder.start()
     try {
         process.outputStream.close()

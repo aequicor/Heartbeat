@@ -9,8 +9,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -18,6 +20,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assume.assumeFalse
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.Executors
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -28,6 +31,104 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class CodexInventoryProbeTest {
+    /** Account discovery can expose a model that debug models --bundled cannot reproduce. */
+    @Test
+    fun `protected launch preserves configured model metadata absent from the bundled catalog`() {
+        val executable = System.getenv("HEARTBEAT_CODEX_INVENTORY_EXECUTABLE") ?: return
+        val directory = Files.createTempDirectory("heartbeat-codex-account-test-")
+        val model = "heartbeat-account-only-model"
+        try {
+            withDispatchers { dispatchers ->
+                val accountModel = configureAccountModel(executable, directory, model, dispatchers)
+                coroutineScope {
+                    val transport = LocalCodexTransport(
+                        CodexLocalConfiguration(executable = executable, homeDirectory = directory.toString()),
+                        EngineLaunchConfig.Default,
+                        dispatchers,
+                        FakeScope(this),
+                    )
+                    val off = CodexNativeOff(isActionAnalysisRequired = true)
+                    val wire = transport.prepare().open(off)
+                    val rpc = CodexRpc(wire, this)
+                    var process: ProcessHandle? = null
+                    try {
+                        process = ProcessHandle.of(assertNotNull(wire.processOwner()).root.pid).orElseThrow()
+                        rpc.initialize(experimentalApi = true)
+                        assertAccountSnapshot(rpc, accountModel)
+                        val isolation = codexIsolationConfig(
+                            rpc,
+                            directory.toString(),
+                            CodexIsolationSettings(
+                                isSearchEnabled = false,
+                                areQuestionsEnabled = false,
+                                off = off,
+                                model = model,
+                            ),
+                        )
+                        val response = rpc.request(
+                            "thread/start",
+                            json(
+                                "model" to model.json(),
+                                "cwd" to directory.toString().json(),
+                                "sandbox" to "read-only".json(),
+                                "approvalPolicy" to "never".json(),
+                                "ephemeral" to JsonPrimitive(true),
+                                "config" to isolation,
+                            ),
+                        )
+                        assertNotNull(response.obj("thread").text("id"))
+                        assertEquals(model, response.text("model"))
+                    } finally {
+                        rpc.close()
+                        // close signals exit asynchronously; Windows keeps the home database locked until exit.
+                        withTimeout(5_000) { process?.onExit()?.await() }
+                    }
+                }
+            }
+        } finally {
+            deleteTree(directory)
+        }
+    }
+
+    /** No credentials or remote requests: this home stands in for the CLI's account catalog. */
+    private suspend fun configureAccountModel(
+        executable: String,
+        directory: Path,
+        model: String,
+        dispatchers: DispatcherProvider,
+    ): JsonObject {
+        val source = CodexModelCatalog.create(executable, dispatchers).use { catalog ->
+            assertFailsWith<EngineException> { catalog.requireModel(model) }
+            Json.parseToJsonElement(Files.readString(catalog.path)) as JsonObject
+        }
+        val original = (source["models"] as JsonArray).first() as JsonObject
+        val accountModel = JsonObject(
+            original + mapOf(
+                "slug" to model.json(),
+                "tool_mode" to "code_mode_only".json(),
+                "context_window" to JsonPrimitive(123456),
+            ),
+        )
+        val accountCatalog = directory.resolve("account models.json")
+        Files.writeString(accountCatalog, json("models" to JsonArray(listOf(accountModel))).toString())
+        Files.writeString(
+            directory.resolve("config.toml"),
+            "model_catalog_json = ${accountCatalog.toString().json()}\n",
+        )
+        return accountModel
+    }
+
+    private suspend fun assertAccountSnapshot(rpc: CodexRpc, original: JsonObject) {
+        val effective = rpc.request("config/read", json()).obj("config")
+        val snapshot = Path.of(checkNotNull(effective.text("model_catalog_json")))
+        val normalized = Json.parseToJsonElement(Files.readString(snapshot)) as JsonObject
+        val entry = (normalized["models"] as JsonArray).single() as JsonObject
+        for (key in listOf("slug", "context_window", "base_instructions")) {
+            assertEquals(original[key], entry[key])
+        }
+        assertEquals("direct", entry.text("tool_mode"))
+    }
+
     @Test
     fun `executable replacement invalidates its identity without a version change`() {
         val executable = Files.createTempFile("codex-identity", ".bin")

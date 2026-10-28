@@ -25,6 +25,9 @@ internal enum class FakeInventoryScenario {
 
     /** Answers thread/start without a thread id. */
     MalformedThread,
+
+    /** Exports account metadata and records the selected launch's arguments and environment. */
+    AccountCatalog,
 }
 
 /**
@@ -52,7 +55,20 @@ internal object FakeCodexInventoryCli {
         // The JSON-RPC wire is this process's standard output, not a log.
         val output = FileOutputStream(FileDescriptor.out).bufferedWriter()
         if (args.firstOrNull() == "debug") {
-            output.write("""{"models":[{"slug":"$MODEL"}]}""")
+            val model = if (scenario == FakeInventoryScenario.AccountCatalog && "--bundled" !in args) {
+                Files.writeString(
+                    record,
+                    json(
+                        "args" to JsonArray(args.map { it.json() }),
+                        "home" to checkNotNull(System.getenv("CODEX_HOME")).json(),
+                        "account" to checkNotNull(System.getenv("HEARTBEAT_TEST_ACCOUNT")).json(),
+                    ).toString(),
+                )
+                "$MODEL-account"
+            } else {
+                MODEL
+            }
+            output.write("""{"models":[{"slug":"$model","tool_mode":"code_mode_only"}]}""")
             output.newLine()
             output.flush()
             return
