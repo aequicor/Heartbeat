@@ -19,6 +19,10 @@
    "type": "string",
    "value": "JetBrains Mono"
   },
+  "annotation.accent": {
+   "type": "color",
+   "value": "#FF7A1A"
+  },
   "colors.accentMuted": {
    "type": "color",
    "value": [

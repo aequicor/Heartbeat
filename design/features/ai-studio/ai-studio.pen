@@ -12721,45 +12721,10 @@
        "type": "frame",
        "name": "Переход",
        "width": 320,
-       "layout": "none",
-       "children": [
-        {
-         "id": "flow-studio-chat-arrow-1-text",
-         "type": "text",
-         "content": "Пользователь отправляет первое сообщение. Область контента меняет вид, навигации нет: приветствие заменяет лента, композер уходит вниз.",
-         "fill": "$hb:colors.textPrimary",
-         "fontFamily": "$hb:typography.family",
-         "fontSize": "$hb:typography.label.size",
-         "lineHeight": "$hb:typography.label.lineHeight",
-         "fontWeight": "$hb:typography.label.weight",
-         "width": 320,
-         "textGrowth": "fixed-width",
-         "x": 0,
-         "y": 0
-        },
-        {
-         "id": "flow-studio-chat-arrow-1-line",
-         "type": "path",
-         "geometry": "M0,12 H300 M288,4 L300,12 L288,20",
-         "viewBox": [
-          0,
-          0,
-          304,
-          24
-         ],
-         "width": 304,
-         "height": 24,
-         "stroke": "$hb:colors.textSecondary",
-         "strokeWidth": 2,
-         "strokeLinecap": "round",
-         "strokeLinejoin": "round",
-         "x": 8,
-         "y": 80
-        }
-       ],
+       "height": 1,
        "x": 1320,
-       "y": 364,
-       "height": 104
+       "y": 415.5,
+       "layout": "none"
       },
       {
        "id": "flow-studio-chat-step-1-cell",
@@ -12801,45 +12766,10 @@
        "type": "frame",
        "name": "Переход",
        "width": 320,
-       "layout": "none",
-       "children": [
-        {
-         "id": "flow-studio-chat-arrow-2-text",
-         "type": "text",
-         "content": "Пользователь отправляет следующее сообщение. Над композером появляется статус хода, «Отправить» превращается в «Стоп», в ленте — строка «Выполняется».",
-         "fill": "$hb:colors.textPrimary",
-         "fontFamily": "$hb:typography.family",
-         "fontSize": "$hb:typography.label.size",
-         "lineHeight": "$hb:typography.label.lineHeight",
-         "fontWeight": "$hb:typography.label.weight",
-         "width": 320,
-         "textGrowth": "fixed-width",
-         "x": 0,
-         "y": 0
-        },
-        {
-         "id": "flow-studio-chat-arrow-2-line",
-         "type": "path",
-         "geometry": "M0,12 H300 M288,4 L300,12 L288,20",
-         "viewBox": [
-          0,
-          0,
-          304,
-          24
-         ],
-         "width": 304,
-         "height": 24,
-         "stroke": "$hb:colors.textSecondary",
-         "strokeWidth": 2,
-         "strokeLinecap": "round",
-         "strokeLinejoin": "round",
-         "x": 8,
-         "y": 80
-        }
-       ],
+       "height": 1,
        "x": 3000,
-       "y": 364,
-       "height": 104
+       "y": 415.5,
+       "layout": "none"
       },
       {
        "id": "flow-studio-chat-step-2-cell",
@@ -12881,45 +12811,10 @@
        "type": "frame",
        "name": "Переход",
        "width": 320,
-       "layout": "none",
-       "children": [
-        {
-         "id": "flow-studio-chat-arrow-3-text",
-         "type": "text",
-         "content": "Ход завершён. Статус исчезает, «Стоп» снова «Отправить», строка инструмента становится «Готово».",
-         "fill": "$hb:colors.textPrimary",
-         "fontFamily": "$hb:typography.family",
-         "fontSize": "$hb:typography.label.size",
-         "lineHeight": "$hb:typography.label.lineHeight",
-         "fontWeight": "$hb:typography.label.weight",
-         "width": 320,
-         "textGrowth": "fixed-width",
-         "x": 0,
-         "y": 0
-        },
-        {
-         "id": "flow-studio-chat-arrow-3-line",
-         "type": "path",
-         "geometry": "M0,12 H300 M288,4 L300,12 L288,20",
-         "viewBox": [
-          0,
-          0,
-          304,
-          24
-         ],
-         "width": 304,
-         "height": 24,
-         "stroke": "$hb:colors.textSecondary",
-         "strokeWidth": 2,
-         "strokeLinecap": "round",
-         "strokeLinejoin": "round",
-         "x": 8,
-         "y": 62
-        }
-       ],
+       "height": 1,
        "x": 4680,
-       "y": 373,
-       "height": 86
+       "y": 415.5,
+       "layout": "none"
       },
       {
        "id": "flow-studio-chat-step-3-cell",
@@ -12970,110 +12865,160 @@
    "height": 1020
   },
   {
-   "id": "hl-st-0-0",
-   "type": "frame",
-   "name": "Изменилось · новое: лента сообщений",
-   "x": 5022,
-   "y": 198,
-   "width": 1028,
-   "height": 633,
-   "layout": "none",
-   "stroke": "$hb:colors.error",
+   "id": "flow-arrow-st-0",
+   "type": "path",
+   "name": "Стрелка · шаг 1",
+   "geometry": "M0,10.0 H530 M516,2.0 L530,10.0 L516,18.0",
+   "viewBox": [
+    0,
+    0,
+    530,
+    20.0
+   ],
+   "x": 4234,
+   "y": 647.0,
+   "width": 530,
+   "height": 20.0,
+   "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
-   "strokeAlignment": "outer",
-   "cornerRadius": 8
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   },
   {
-   "id": "hl-st-0-label",
+   "id": "flow-arrow-st-0-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки · шаг 1",
+   "x": 4220,
+   "y": 652.0,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent"
+  },
+  {
+   "id": "flow-arrow-st-0-text",
    "type": "text",
-   "name": "Подпись · новое: лента сообщений",
-   "x": 5022,
-   "y": 172,
-   "content": "новое: лента сообщений",
-   "fill": "$hb:colors.error",
+   "name": "Описание перехода · шаг 1",
+   "x": 4398,
+   "y": 537.0,
+   "width": 280,
+   "textGrowth": "fixed-width",
+   "content": "Пользователь отправляет первое сообщение. Область контента меняет вид, навигации нет: приветствие заменяет лента, композер уходит вниз.",
+   "fill": "$hb:colors.textPrimary",
    "fontFamily": "$hb:typography.family",
-   "fontSize": 16,
-   "fontWeight": "600"
+   "fontSize": 17,
+   "lineHeight": 1.4,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   },
   {
-   "id": "hl-st-1-0",
-   "type": "frame",
-   "name": "Изменилось · новое: статус хода, «Стоп», вызов в процессе",
-   "x": 7145.2,
-   "y": 805.0,
-   "width": 141.7,
-   "height": 28,
-   "layout": "none",
-   "stroke": "$hb:colors.error",
+   "id": "flow-arrow-st-1",
+   "type": "path",
+   "name": "Стрелка · шаг 2",
+   "geometry": "M0,119.0 H102 Q150,119.0 150,71.0 V58.0 Q150,10.0 198,10.0 H1233.2 M1219.2,2.0 L1233.2,10.0 L1219.2,18.0",
+   "viewBox": [
+    0,
+    0,
+    1233.2,
+    129.0
+   ],
+   "x": 5914,
+   "y": 809.0,
+   "width": 1233.2,
+   "height": 129.0,
+   "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
-   "strokeAlignment": "outer",
-   "cornerRadius": 8
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   },
   {
-   "id": "hl-st-1-1",
-   "type": "frame",
-   "name": "Изменилось · новое: статус хода, «Стоп», вызов в процессе",
-   "x": 7550,
-   "y": 906.0,
-   "width": 44,
-   "height": 44,
-   "layout": "none",
-   "stroke": "$hb:colors.error",
-   "strokeWidth": 3,
-   "strokeAlignment": "outer",
-   "cornerRadius": 8
+   "id": "flow-arrow-st-1-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки · шаг 2",
+   "x": 5900,
+   "y": 923.0,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent"
   },
   {
-   "id": "hl-st-1-2",
-   "type": "frame",
-   "name": "Изменилось · новое: статус хода, «Стоп», вызов в процессе",
-   "x": 6886,
-   "y": 628.0,
-   "width": 700,
-   "height": 62.0,
-   "layout": "none",
-   "stroke": "$hb:colors.error",
-   "strokeWidth": 3,
-   "strokeAlignment": "outer",
-   "cornerRadius": 8
-  },
-  {
-   "id": "hl-st-1-label",
+   "id": "flow-arrow-st-1-text",
    "type": "text",
-   "name": "Подпись · новое: статус хода, «Стоп», вызов в процессе",
-   "x": 7145.2,
-   "y": 779.0,
-   "content": "новое: статус хода, «Стоп», вызов в процессе",
-   "fill": "$hb:colors.error",
+   "name": "Описание перехода · шаг 2",
+   "x": 6078,
+   "y": 673.0,
+   "width": 280,
+   "textGrowth": "fixed-width",
+   "content": "Пользователь отправляет следующее сообщение. Над композером появляется статус хода, «Отправить» превращается в «Стоп», в ленте — строка «Выполняется».",
+   "fill": "$hb:colors.textPrimary",
    "fontFamily": "$hb:typography.family",
-   "fontSize": 16,
-   "fontWeight": "600"
+   "fontSize": 17,
+   "lineHeight": 1.4,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   },
   {
-   "id": "hl-st-2-0",
-   "type": "frame",
-   "name": "Изменилось · кнопка снова «Отправить»",
-   "x": 9230,
-   "y": 906,
-   "width": 44,
-   "height": 44,
-   "layout": "none",
-   "stroke": "$hb:colors.error",
+   "id": "flow-arrow-st-2",
+   "type": "path",
+   "name": "Стрелка · шаг 3",
+   "geometry": "M0,10.0 H1638 M1624,2.0 L1638,10.0 L1624,18.0",
+   "viewBox": [
+    0,
+    0,
+    1638,
+    20.0
+   ],
+   "x": 7594,
+   "y": 918.0,
+   "width": 1638,
+   "height": 20.0,
+   "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
-   "strokeAlignment": "outer",
-   "cornerRadius": 8
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   },
   {
-   "id": "hl-st-2-label",
+   "id": "flow-arrow-st-2-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки · шаг 3",
+   "x": 7580,
+   "y": 923.0,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent"
+  },
+  {
+   "id": "flow-arrow-st-2-text",
    "type": "text",
-   "name": "Подпись · кнопка снова «Отправить»",
-   "x": 9230,
-   "y": 880,
-   "content": "кнопка снова «Отправить»",
-   "fill": "$hb:colors.error",
+   "name": "Описание перехода · шаг 3",
+   "x": 7758,
+   "y": 808.0,
+   "width": 280,
+   "textGrowth": "fixed-width",
+   "content": "Ход завершён (или нажат «Стоп»). Статус исчезает, «Стоп» снова «Отправить», строка инструмента становится «Готово».",
+   "fill": "$hb:colors.textPrimary",
    "fontFamily": "$hb:typography.family",
-   "fontSize": 16,
-   "fontWeight": "600"
+   "fontSize": 17,
+   "lineHeight": 1.4,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   }
  ]
 }

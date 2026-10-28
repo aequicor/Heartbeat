@@ -12626,45 +12626,10 @@
        "type": "frame",
        "name": "Переход",
        "width": 320,
-       "layout": "none",
-       "children": [
-        {
-         "id": "flow-wizard-connect-arrow-1-text",
-         "type": "text",
-         "content": "Клик по строке движка. Шаг 2 из 3: список движков заменяется списком провайдеров и формой метода; в подвале — «Назад», «Проверить подключение», «Подключить».",
-         "fill": "$hb:colors.textPrimary",
-         "fontFamily": "$hb:typography.family",
-         "fontSize": "$hb:typography.label.size",
-         "lineHeight": "$hb:typography.label.lineHeight",
-         "fontWeight": "$hb:typography.label.weight",
-         "width": 320,
-         "textGrowth": "fixed-width",
-         "x": 0,
-         "y": 0
-        },
-        {
-         "id": "flow-wizard-connect-arrow-1-line",
-         "type": "path",
-         "geometry": "M0,12 H300 M288,4 L300,12 L288,20",
-         "viewBox": [
-          0,
-          0,
-          304,
-          24
-         ],
-         "width": 304,
-         "height": 24,
-         "stroke": "$hb:colors.textSecondary",
-         "strokeWidth": 2,
-         "strokeLinecap": "round",
-         "strokeLinejoin": "round",
-         "x": 8,
-         "y": 80
-        }
-       ],
+       "height": 1,
        "x": 1320,
-       "y": 364,
-       "height": 104
+       "y": 415.5,
+       "layout": "none"
       },
       {
        "id": "flow-wizard-connect-step-1-cell",
@@ -12706,45 +12671,10 @@
        "type": "frame",
        "name": "Переход",
        "width": 320,
-       "layout": "none",
-       "children": [
-        {
-         "id": "flow-wizard-connect-arrow-2-text",
-         "type": "text",
-         "content": "«Подключить» после успешной проверки. Шаг 3 из 3: форма заменяется списком моделей с переключателями; подвал — «Готово».",
-         "fill": "$hb:colors.textPrimary",
-         "fontFamily": "$hb:typography.family",
-         "fontSize": "$hb:typography.label.size",
-         "lineHeight": "$hb:typography.label.lineHeight",
-         "fontWeight": "$hb:typography.label.weight",
-         "width": 320,
-         "textGrowth": "fixed-width",
-         "x": 0,
-         "y": 0
-        },
-        {
-         "id": "flow-wizard-connect-arrow-2-line",
-         "type": "path",
-         "geometry": "M0,12 H300 M288,4 L300,12 L288,20",
-         "viewBox": [
-          0,
-          0,
-          304,
-          24
-         ],
-         "width": 304,
-         "height": 24,
-         "stroke": "$hb:colors.textSecondary",
-         "strokeWidth": 2,
-         "strokeLinecap": "round",
-         "strokeLinejoin": "round",
-         "x": 8,
-         "y": 62
-        }
-       ],
+       "height": 1,
        "x": 3000,
-       "y": 373,
-       "height": 86
+       "y": 415.5,
+       "layout": "none"
       },
       {
        "id": "flow-wizard-connect-step-2-cell",
@@ -12845,45 +12775,10 @@
        "type": "frame",
        "name": "Переход",
        "width": 320,
-       "layout": "none",
-       "children": [
-        {
-         "id": "flow-wizard-error-arrow-1-text",
-         "type": "text",
-         "content": "«Проверить подключение» без ключа. Под полем ключа появляется баннер «Введите API-ключ», форма сдвигается вниз; баннер исчезает при правке поля.",
-         "fill": "$hb:colors.textPrimary",
-         "fontFamily": "$hb:typography.family",
-         "fontSize": "$hb:typography.label.size",
-         "lineHeight": "$hb:typography.label.lineHeight",
-         "fontWeight": "$hb:typography.label.weight",
-         "width": 320,
-         "textGrowth": "fixed-width",
-         "x": 0,
-         "y": 0
-        },
-        {
-         "id": "flow-wizard-error-arrow-1-line",
-         "type": "path",
-         "geometry": "M0,12 H300 M288,4 L300,12 L288,20",
-         "viewBox": [
-          0,
-          0,
-          304,
-          24
-         ],
-         "width": 304,
-         "height": 24,
-         "stroke": "$hb:colors.textSecondary",
-         "strokeWidth": 2,
-         "strokeLinecap": "round",
-         "strokeLinejoin": "round",
-         "x": 8,
-         "y": 80
-        }
-       ],
+       "height": 1,
        "x": 1320,
-       "y": 364,
-       "height": 104
+       "y": 415.5,
+       "layout": "none"
       },
       {
        "id": "flow-wizard-error-step-1-cell",
@@ -12934,110 +12829,160 @@
    "height": 1968
   },
   {
-   "id": "hl-cn-0-0",
-   "type": "frame",
-   "name": "Изменилось · новое: провайдеры и форма",
-   "x": 5170,
-   "y": 220,
-   "width": 732,
-   "height": 255.9,
-   "layout": "none",
-   "stroke": "$hb:colors.error",
+   "id": "flow-arrow-cn-0",
+   "type": "path",
+   "name": "Стрелка · шаг 1",
+   "geometry": "M0,10.0 H542 M528,2.0 L542,10.0 L528,18.0",
+   "viewBox": [
+    0,
+    0,
+    542,
+    20.0
+   ],
+   "x": 4222,
+   "y": 320.0,
+   "width": 542,
+   "height": 20.0,
+   "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
-   "strokeAlignment": "outer",
-   "cornerRadius": 8
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   },
   {
-   "id": "hl-cn-0-1",
-   "type": "frame",
-   "name": "Изменилось · новое: провайдеры и форма",
-   "x": 5170,
-   "y": 479.9,
-   "width": 732,
-   "height": 302,
-   "layout": "none",
-   "stroke": "$hb:colors.error",
-   "strokeWidth": 3,
-   "strokeAlignment": "outer",
-   "cornerRadius": 8
+   "id": "flow-arrow-cn-0-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки · шаг 1",
+   "x": 4208,
+   "y": 325.0,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent"
   },
   {
-   "id": "hl-cn-0-label",
+   "id": "flow-arrow-cn-0-text",
    "type": "text",
-   "name": "Подпись · новое: провайдеры и форма",
-   "x": 5170,
-   "y": 194,
-   "content": "новое: провайдеры и форма",
-   "fill": "$hb:colors.error",
+   "name": "Описание перехода · шаг 1",
+   "x": 4398,
+   "y": 184.0,
+   "width": 280,
+   "textGrowth": "fixed-width",
+   "content": "Клик по строке движка. Шаг 2 из 3: список движков заменяется провайдерами и формой метода; в подвале — «Назад», «Проверить подключение», «Подключить».",
+   "fill": "$hb:colors.textPrimary",
    "fontFamily": "$hb:typography.family",
-   "fontSize": 16,
-   "fontWeight": "600"
+   "fontSize": 17,
+   "lineHeight": 1.4,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   },
   {
-   "id": "hl-cn-1-0",
-   "type": "frame",
-   "name": "Изменилось · новое: список моделей",
-   "x": 6850,
-   "y": 254.0,
-   "width": 732,
-   "height": 40,
-   "layout": "none",
-   "stroke": "$hb:colors.error",
+   "id": "flow-arrow-cn-1",
+   "type": "path",
+   "name": "Стрелка · шаг 2",
+   "geometry": "M0.0,10.0 H542.0 M528.0,2.0 L542.0,10.0 L528.0,18.0",
+   "viewBox": [
+    0,
+    0,
+    542.0,
+    20.0
+   ],
+   "x": 5902.0,
+   "y": 918.0,
+   "width": 542.0,
+   "height": 20.0,
+   "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
-   "strokeAlignment": "outer",
-   "cornerRadius": 8
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   },
   {
-   "id": "hl-cn-1-1",
-   "type": "frame",
-   "name": "Изменилось · новое: список моделей",
-   "x": 6850,
-   "y": 298.0,
-   "width": 732,
-   "height": 195.9,
-   "layout": "none",
-   "stroke": "$hb:colors.error",
-   "strokeWidth": 3,
-   "strokeAlignment": "outer",
-   "cornerRadius": 8
+   "id": "flow-arrow-cn-1-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки · шаг 2",
+   "x": 5888.0,
+   "y": 923.0,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent"
   },
   {
-   "id": "hl-cn-1-label",
+   "id": "flow-arrow-cn-1-text",
    "type": "text",
-   "name": "Подпись · новое: список моделей",
-   "x": 6850,
-   "y": 228.0,
-   "content": "новое: список моделей",
-   "fill": "$hb:colors.error",
+   "name": "Описание перехода · шаг 2",
+   "x": 6078,
+   "y": 808.0,
+   "width": 280,
+   "textGrowth": "fixed-width",
+   "content": "«Подключить» после успешной проверки. Шаг 3 из 3: форма заменяется списком моделей с переключателями; подвал — «Готово».",
+   "fill": "$hb:colors.textPrimary",
    "fontFamily": "$hb:typography.family",
-   "fontSize": 16,
-   "fontWeight": "600"
+   "fontSize": 17,
+   "lineHeight": 1.4,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   },
   {
-   "id": "hl-cn-2-0",
-   "type": "frame",
-   "name": "Изменилось · новое: баннер ошибки",
-   "x": 5178,
-   "y": 1549.9,
-   "width": 716,
-   "height": 46,
-   "layout": "none",
-   "stroke": "$hb:colors.error",
+   "id": "flow-arrow-cn-2",
+   "type": "path",
+   "name": "Стрелка · шаг 1",
+   "geometry": "M0.0,313.1 H224.7 Q272.7,313.1 272.7,265.1 V58.0 Q272.7,10.0 320.7,10.0 H1068.7 M1054.7,2.0 L1068.7,10.0 L1054.7,18.0",
+   "viewBox": [
+    0,
+    0,
+    1068.7,
+    323.1
+   ],
+   "x": 4111.3,
+   "y": 1562.9,
+   "width": 1068.7,
+   "height": 323.1,
+   "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
-   "strokeAlignment": "outer",
-   "cornerRadius": 8
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   },
   {
-   "id": "hl-cn-2-label",
+   "id": "flow-arrow-cn-2-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки · шаг 1",
+   "x": 4097.3,
+   "y": 1871.0,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent"
+  },
+  {
+   "id": "flow-arrow-cn-2-text",
    "type": "text",
-   "name": "Подпись · новое: баннер ошибки",
-   "x": 5178,
-   "y": 1523.9,
-   "content": "новое: баннер ошибки",
-   "fill": "$hb:colors.error",
+   "name": "Описание перехода · шаг 1",
+   "x": 4398,
+   "y": 1426.9,
+   "width": 280,
+   "textGrowth": "fixed-width",
+   "content": "«Проверить подключение» без ключа. Под полем ключа появляется баннер «Введите API-ключ», форма сдвигается вниз; баннер исчезает при правке поля.",
+   "fill": "$hb:colors.textPrimary",
    "fontFamily": "$hb:typography.family",
-   "fontSize": 16,
-   "fontWeight": "600"
+   "fontSize": 17,
+   "lineHeight": 1.4,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
   }
  ]
 }
