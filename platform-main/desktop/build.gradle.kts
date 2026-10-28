@@ -514,7 +514,7 @@ tasks.withType<ComposeHotRun>().configureEach {
 // testing flavor).
 // Configure after Compose has registered and initialized its tasks, without an environment/property escape hatch.
 afterEvaluate {
-    // The installer holds the platform only: the launcher and the third-party libraries of this OS. The project code
+    // The installer holds the platform only: the launcher selector and the third-party libraries of this OS. The project code
     // (foundation, contracts, bundles) is the train. Libraries are neither shrunk nor renamed, as the train is
     // compiled against their original classes, so Compose's ProGuard does not run on a release: the train is shrunk by
     // `shrinkFoundation`/`shrinkBundle` with `train-rules.pro` (-Pheartbeat.trainShrink=shrink).
@@ -522,7 +522,7 @@ afterEvaluate {
     val platformJars = extensions.getByType<TrainPlatformJars>().installedNames
     val collectPlatformJars = tasks.register<CollectPlatformJars>("collectPlatformJars") {
         group = "compose desktop"
-        description = "Collects the third-party jars and the launcher that the installer carries."
+        description = "Collects the third-party jars and the launcher selector that the installer carries."
         // The jars are picked from the resolved runtime classpath at execution time: build every project it holds.
         dependsOn(configurations.named("runtimeClasspath"))
         collect(platformJars)

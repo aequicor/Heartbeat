@@ -63,7 +63,7 @@ final class Selector {
     synchronized Choice choose(Set<String> excluded) {
         try {
             return chooseInState(excluded);
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             // the selector must never keep the app from starting: without a readable and writable state it runs the
             // embedded launcher and changes nothing
             System.err.println("Slots are unavailable, the embedded launcher starts: " + e);
@@ -298,6 +298,7 @@ final class Selector {
      * проверку; не прошедший владелец отвергает (его jar запоминается), не владелец только пропускает.
      */
     private Choice pick(SlotState state, Set<String> excluded) {
+        boolean skipped = false;
         for (String slot : new LinkedHashSet<>(List.of(state.active, state.confirmed))) {
             if (!usable(slot, excluded)) {
                 continue;
@@ -307,6 +308,7 @@ final class Selector {
             } catch (SlotVerifier.UnreadableException e) {
                 // temporary: the slot is skipped for this start and stays as it was
                 System.err.println("Slot " + slot + " is skipped: " + e.getMessage());
+                skipped = true;
                 continue;
             } catch (SlotVerifier.VerificationException e) {
                 System.err.println("Slot " + slot + " is not started: " + e.getMessage());
@@ -316,13 +318,13 @@ final class Selector {
                 continue;
             }
             boolean trial = !slot.equals(state.confirmed);
-            if (owner && !slot.equals(state.active)) {
+            if (owner && !skipped && !slot.equals(state.active)) {
                 state.active = slot;
                 state.crashes = 0;
             }
             return Choice.slot(slot, store.jar(slot), trial);
         }
-        if (owner) {
+        if (owner && !skipped) {
             state.active = "";
             state.crashes = 0;
         }

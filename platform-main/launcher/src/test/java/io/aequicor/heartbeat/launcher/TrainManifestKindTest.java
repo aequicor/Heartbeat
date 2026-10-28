@@ -52,6 +52,13 @@ class TrainManifestKindTest {
     }
 
     @Test
+    void explicitNullLauncherApiIsAbsent() {
+        TrainManifest.Bundle bundle = TrainManifest.parse(manifest(entry("web", ",\"launcherApi\":null")))
+            .bundles().get(0);
+        assertEquals(0, bundle.launcherApi());
+    }
+
+    @Test
     void baseArtifactStaysOnTheClasspath() {
         TrainManifest.Bundle bundle = TrainManifest.parse(manifest(entry("foundation", ",\"kind\":\"base\"")))
             .bundles().get(0);

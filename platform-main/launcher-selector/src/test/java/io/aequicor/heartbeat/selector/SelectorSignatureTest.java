@@ -222,4 +222,23 @@ class SelectorSignatureTest {
         }
         assertEquals("A", selector.choose(NONE).slot());
     }
+
+    @Test
+    void temporarilyUnreadableTrialSlotStaysTheTrial() throws IOException {
+        confirmed("A", 1);
+        install("B", "trial-b", signing.primary, 2);
+        assertTrue(selector.activateTrial("B"));
+        Path record = selector.store().slotDir("B").resolve(SlotRecord.FILE_NAME);
+        byte[] before = Files.readAllBytes(record);
+        Files.delete(record);
+        Files.createDirectory(record);
+        assertEquals("A", selector.choose(NONE).slot());
+        assertEquals("B", state().active);
+        assertTrue(state().bad.isEmpty());
+        Files.delete(record);
+        Files.write(record, before);
+        Choice choice = selector.choose(NONE);
+        assertEquals("B", choice.slot());
+        assertTrue(choice.trial());
+    }
 }

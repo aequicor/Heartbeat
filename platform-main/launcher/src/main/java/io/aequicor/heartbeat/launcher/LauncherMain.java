@@ -117,23 +117,30 @@ public final class LauncherMain {
             throw failed;
         }
         final boolean ownsState = owner && !degraded;
-        if (degraded) {
-            Launcher.exposeWithoutState(root);
-        } else {
-            launcher.exposeToApp(prepared, root);
-        }
         final Launcher.Prepared active = prepared;
-        ClassLoader loader = Thread.currentThread().getContextClassLoader();
-        java.util.List<Path> classpath = prepared.classpath();
-        if (prepared.train() == null && seed != null) {
-            // No train is active: a fresh install for a worker, the packaging probe or a second launch, and for the
-            // owner a seed train marked bad with nothing to roll back to. Run from the seed, read-only, rather
-            // than fail with a missing application class.
-            classpath = FirstLaunch.seedClasspath(Path.of(seed), root.resolve("seed-verified"));
-        }
-        if (prepared.train() != null || !classpath.isEmpty()) {
-            loader = trainLoader(classpath);
-            Thread.currentThread().setContextClassLoader(loader);
+        ClassLoader loader;
+        try {
+            if (degraded) {
+                Launcher.exposeWithoutState(root);
+            } else {
+                launcher.exposeToApp(active, root);
+            }
+            loader = Thread.currentThread().getContextClassLoader();
+            java.util.List<Path> classpath = active.classpath();
+            if (active.train() == null && seed != null) {
+                // No train is active: a fresh install for a worker, the packaging probe or a second launch, and for the
+                // owner a seed train marked bad with nothing to roll back to. Run from the seed, read-only, rather
+                // than fail with a missing application class.
+                classpath = FirstLaunch.seedClasspath(Path.of(seed), root.resolve("seed-verified"));
+            }
+            if (active.train() != null || !classpath.isEmpty()) {
+                loader = trainLoader(classpath);
+                Thread.currentThread().setContextClassLoader(loader);
+            }
+        } catch (Exception failed) {
+            // any failure before the application starts must not keep the lock from the launcher the selector starts next
+            releaseInstanceLock();
+            throw failed;
         }
         AtomicBoolean returned = new AtomicBoolean();
         if (ownsState) {

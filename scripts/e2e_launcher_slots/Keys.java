@@ -20,12 +20,13 @@ public class Keys {
             KeyPair pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             String pub = Base64.getEncoder().encodeToString(pair.getPublic().getEncoded());
             Path priv = dir.resolve(name + ".priv");
-            Files.writeString(priv, Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded()));
             try {
-                Files.setPosixFilePermissions(priv, PosixFilePermissions.fromString("rw-------"));
+                Files.deleteIfExists(priv);
+                Files.createFile(priv, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
             } catch (UnsupportedOperationException notPosix) {
                 // the file system has no POSIX permissions (Windows): the per-user directory is all there is
             }
+            Files.writeString(priv, Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded()));
             Files.writeString(dir.resolve(name + ".pub"), pub);
             if (!name.equals("foreign")) {
                 trusted.append(pub).append('\n');

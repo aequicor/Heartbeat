@@ -132,7 +132,7 @@ public final class TrainManifest {
             Map<?, ?> b = (Map<?, ?>) item;
             String kind = optionalString(b, "kind");
             long level = number(b, "launcherApi", false);
-            if (b.containsKey("launcherApi") && level < 1) {
+            if (b.get("launcherApi") != null && level < 1) {
                 throw new IllegalArgumentException("Manifest field 'launcherApi' must be at least 1");
             }
             bundles.add(new Bundle(string(b, "id"), string(b, "version"), string(b, "jar"), string(b, "sha256"),

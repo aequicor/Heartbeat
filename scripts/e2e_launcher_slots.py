@@ -86,10 +86,11 @@ def launcher_source(base, pid):
     return ""
 
 
-def run(number, ready, settle=0):
+def run(number, ready, settle=0, message=None):
     """Starts the app until [ready] holds (or [RUN_LIMIT] passes), lets it [settle] seconds, then stops it.
 
-    Returns (alive when the state was reached, source of LauncherMain of the app process)."""
+    With [message], the state is reached only after the app printed it (stdout/stderr go to out-N.log), so a refusal is
+    observed and not guessed from a fixed pause. Returns (alive when the state was reached, source of LauncherMain)."""
     base = SCRATCH / f"classload-{number}"
     opts = f"-Dheartbeat.data.name=HeartbeatTrainCheck -Xlog:class+load:file={base}-%p.log"
     with open(SCRATCH / f"out-{number}.log", "w") as out:
@@ -97,20 +98,22 @@ def run(number, ready, settle=0):
                              stdout=out, stderr=subprocess.STDOUT)
         deadline = time.time() + RUN_LIMIT
         reached = False
-        while time.time() < deadline and p.poll() is None:
-            if ready():
-                reached = True
-                break
-            time.sleep(POLL)
-        if reached and settle:
-            time.sleep(settle)
-        alive = p.poll() is None
-        if alive:
-            p.terminate()
-            try:
-                p.wait(10)
-            except subprocess.TimeoutExpired:
-                p.kill()
+        try:
+            while time.time() < deadline and p.poll() is None:
+                if ready() and (message is None or message in (SCRATCH / f"out-{number}.log").read_text(errors="ignore")):
+                    reached = True
+                    break
+                time.sleep(POLL)
+            if reached and settle:
+                time.sleep(settle)
+            alive = p.poll() is None
+        finally:
+            if p.poll() is None:
+                p.terminate()
+                try:
+                    p.wait(10)
+                except subprocess.TimeoutExpired:
+                    p.kill()
     if not reached:
         print(f"  (the expected state of start {number} was not reached)")
     return alive and reached, launcher_source(base, p.pid)
@@ -195,14 +198,14 @@ def scenario():
     print("4. an older and a foreign-signed launcher are not staged")
     a_before = sha_of(slots / "A" / "launcher.jar")
     queue("t3old", seed, with_marker(base_jar, "level1again"), 1, "primary.priv")
-    alive, source = run(5, lambda: current_train() == "t3old", settle=10)
+    alive, source = run(5, lambda: current_train() == "t3old", message="Launcher is not staged: ")
     st = slot_state()
     check(alive and "/slots/B/" in source, f"slot B ran ({source})")
     check(current_train() == "t3old", "the train with the older launcher was activated and offered")
     check(st.get("active") == "B" and sha_of(slots / "A" / "launcher.jar") == a_before,
           "the older launcher was not staged")
     queue("t4foreign", seed, with_marker(base_jar, "foreign"), 5, "foreign.priv")
-    alive, source = run(6, lambda: current_train() == "t4foreign", settle=10)
+    alive, source = run(6, lambda: current_train() == "t4foreign", message="Launcher is not staged: ")
     st = slot_state()
     check(alive and "/slots/B/" in source, f"slot B ran ({source})")
     check(current_train() == "t4foreign", "the train with the foreign-signed launcher was activated and offered")
@@ -226,10 +229,10 @@ def scenario():
           f"slot A is rejected and its jar remembered ({st})")
 
 
+if not trusts_exactly_the_keys_of_the_directory():
+    sys.exit("The selector of the app does not trust exactly the keys of " + str(KEYS)
+             + ": build the app with -Pheartbeat.trustedKeysFile=<keys dir>/trusted-keys.txt (never release keys)")
 try:
-    if not trusts_exactly_the_keys_of_the_directory():
-        sys.exit("The selector of the app does not trust exactly the keys of " + str(KEYS)
-                 + ": build the app with -Pheartbeat.trustedKeysFile=<keys dir>/trusted-keys.txt (never release keys)")
     for d in (data, root):
         shutil.rmtree(d, ignore_errors=True)
     scenario()
