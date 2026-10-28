@@ -12717,7 +12717,7 @@
      "x": 60,
      "y": 128,
      "width": 4640,
-     "height": 832,
+     "height": 1090,
      "layout": "none"
     },
     {
@@ -12730,7 +12730,7 @@
      "lineHeight": "$hb:typography.title.lineHeight",
      "fontWeight": "600",
      "x": 60,
-     "y": 1008
+     "y": 1266
     },
     {
      "id": "flow-wizard-error",
@@ -12819,31 +12819,31 @@
       }
      ],
      "x": 60,
-     "y": 1076,
+     "y": 1334,
      "width": 2960,
-     "height": 832,
+     "height": 1072,
      "layout": "none"
     }
    ],
    "x": 3024,
    "y": 0,
    "width": 4760,
-   "height": 1968
+   "height": 2466
   },
   {
    "id": "flow-arrow-cn-0",
    "type": "path",
    "name": "Стрелка · шаг 1",
-   "geometry": "M0,10.0 H542 M528,2.0 L542,10.0 L528,18.0",
+   "geometry": "M10,10.0 L552,10.0 M538.0,18.0 L552,10.0 L538.0,2.0",
    "viewBox": [
     0,
     0,
-    542,
+    562,
     20.0
    ],
-   "x": 4222,
+   "x": 4212,
    "y": 320.0,
-   "width": 542,
+   "width": 562,
    "height": 20.0,
    "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
@@ -12857,7 +12857,7 @@
   {
    "id": "flow-arrow-cn-0-dot",
    "type": "ellipse",
-   "name": "Начало стрелки · шаг 1",
+   "name": "Начало стрелки",
    "x": 4208,
    "y": 325.0,
    "width": 10,
@@ -12867,7 +12867,7 @@
   {
    "id": "flow-arrow-cn-0-text",
    "type": "text",
-   "name": "Подпись перехода · шаг 1",
+   "name": "Подпись перехода",
    "x": 4398,
    "y": 300.0,
    "width": 250,
@@ -12886,16 +12886,16 @@
    "id": "flow-arrow-cn-1",
    "type": "path",
    "name": "Стрелка · шаг 2",
-   "geometry": "M0.0,10.0 H542.0 M528.0,2.0 L542.0,10.0 L528.0,18.0",
+   "geometry": "M10.0,10.0 L552.0,10.0 M538.0,18.0 L552.0,10.0 L538.0,2.0",
    "viewBox": [
     0,
     0,
-    542.0,
+    562.0,
     20.0
    ],
-   "x": 5902.0,
+   "x": 5892.0,
    "y": 918.0,
-   "width": 542.0,
+   "width": 562.0,
    "height": 20.0,
    "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
@@ -12909,7 +12909,7 @@
   {
    "id": "flow-arrow-cn-1-dot",
    "type": "ellipse",
-   "name": "Начало стрелки · шаг 2",
+   "name": "Начало стрелки",
    "x": 5888.0,
    "y": 923.0,
    "width": 10,
@@ -12919,7 +12919,7 @@
   {
    "id": "flow-arrow-cn-1-text",
    "type": "text",
-   "name": "Подпись перехода · шаг 2",
+   "name": "Подпись перехода",
    "x": 6078,
    "y": 898.0,
    "width": 250,
@@ -12938,17 +12938,17 @@
    "id": "flow-arrow-cn-2",
    "type": "path",
    "name": "Стрелка · шаг 1",
-   "geometry": "M0.0,313.1 H224.7 Q272.7,313.1 272.7,265.1 V58.0 Q272.7,10.0 320.7,10.0 H1068.7 M1054.7,2.0 L1068.7,10.0 L1054.7,18.0",
+   "geometry": "M10.0,292.1 L254.7,292.1 Q282.7,292.1 282.7,320.1 L282.7,320.1 Q282.7,348.1 310.7,348.1 L1386.7,348.1 Q1434.7,348.1 1434.7,300.1 L1434.7,10.0 M1442.7,24.0 L1434.7,10.0 L1426.7,24.0",
    "viewBox": [
     0,
     0,
-    1068.7,
-    323.1
+    1444.7,
+    358.1
    ],
-   "x": 4111.3,
-   "y": 1562.9,
-   "width": 1068.7,
-   "height": 323.1,
+   "x": 4101.3,
+   "y": 1841.9,
+   "width": 1444.7,
+   "height": 358.1,
    "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
    "strokeLinecap": "round",
@@ -12961,9 +12961,9 @@
   {
    "id": "flow-arrow-cn-2-dot",
    "type": "ellipse",
-   "name": "Начало стрелки · шаг 1",
+   "name": "Начало стрелки",
    "x": 4097.3,
-   "y": 1871.0,
+   "y": 2129.0,
    "width": 10,
    "height": 10,
    "fill": "$hb:annotation.accent"
@@ -12971,9 +12971,9 @@
   {
    "id": "flow-arrow-cn-2-text",
    "type": "text",
-   "name": "Подпись перехода · шаг 1",
+   "name": "Подпись перехода",
    "x": 4398,
-   "y": 1542.9,
+   "y": 2104.0,
    "width": 250,
    "textGrowth": "fixed-width",
    "content": "«Проверить» без ключа",
@@ -12985,6 +12985,237 @@
     "hb:mode": "dark",
     "hb:host": "desktop"
    }
+  },
+  {
+   "id": "callout-cn-0-arrow",
+   "type": "path",
+   "name": "Стрелка к пояснению · «Подключить» · состояния",
+   "geometry": "M657.7,10 L657.7,54.0 Q657.7,98 613.7,98.0 L23.0,98.0 Q10,98 10.0,111.0 L10,124 M2.0,110.0 L10,124 L18.0,110.0",
+   "viewBox": [
+    0,
+    0,
+    667.7,
+    134
+   ],
+   "x": 5186,
+   "y": 940,
+   "width": 667.7,
+   "height": 134,
+   "stroke": "$hb:annotation.accent",
+   "strokeWidth": 3,
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
+  },
+  {
+   "id": "callout-cn-0-arrow-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки",
+   "x": 5843.7,
+   "y": 941,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent"
+  },
+  {
+   "id": "callout-cn-1-arrow",
+   "type": "path",
+   "name": "Стрелка к пояснению · Строка модели · состояния",
+   "geometry": "M350.0,10.0 L350.0,506.1 Q350.0,554.1 302.0,554.1 L23.0,554.1 Q10,554.1 10.0,567.1 L10,580.1 M2.0,566.1 L10,580.1 L18.0,566.1",
+   "viewBox": [
+    0,
+    0,
+    360.0,
+    590.1
+   ],
+   "x": 6866,
+   "y": 483.9,
+   "width": 360.0,
+   "height": 590.1,
+   "stroke": "$hb:annotation.accent",
+   "strokeWidth": 3,
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
+  },
+  {
+   "id": "callout-cn-1-arrow-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки",
+   "x": 7216.0,
+   "y": 484.9,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent"
+  },
+  {
+   "id": "callout-cn-2-arrow",
+   "type": "path",
+   "name": "Стрелка к пояснению · Баннер ошибки · состояния",
+   "geometry": "M350.0,10.0 L350.0,352.1 Q350.0,400.1 302.0,400.1 L23.0,400.1 Q10,400.1 10.0,413.1 L10,426.1 M2.0,412.1 L10,426.1 L18.0,412.1",
+   "viewBox": [
+    0,
+    0,
+    360.0,
+    436.1
+   ],
+   "x": 5186,
+   "y": 1843.9,
+   "width": 360.0,
+   "height": 436.1,
+   "stroke": "$hb:annotation.accent",
+   "strokeWidth": 3,
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
+  },
+  {
+   "id": "callout-cn-2-arrow-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки",
+   "x": 5536.0,
+   "y": 1844.9,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent"
+  },
+  {
+   "id": "callout-cn-0",
+   "type": "frame",
+   "name": "Пояснение · «Подключить» · состояния",
+   "x": 4764,
+   "y": 1064,
+   "width": 460,
+   "height": 114,
+   "layout": "none",
+   "cornerRadius": 8,
+   "stroke": "$hb:annotation.accent",
+   "strokeWidth": 2,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   },
+   "children": [
+    {
+     "id": "callout-cn-0-title",
+     "type": "text",
+     "x": 16,
+     "y": 12,
+     "content": "«Подключить» · состояния",
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 15,
+     "fontWeight": "600"
+    },
+    {
+     "id": "callout-cn-0-text",
+     "type": "text",
+     "x": 16,
+     "y": 40,
+     "width": 428,
+     "textGrowth": "fixed-width",
+     "content": "Неактивна, пока форма не заполнена. После нажатия — индикатор и блокировка формы; успех ведёт на шаг 3, ошибка показывает баннер.",
+     "fill": "$hb:colors.textSecondary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 13,
+     "lineHeight": 1.4
+    }
+   ]
+  },
+  {
+   "id": "callout-cn-1",
+   "type": "frame",
+   "name": "Пояснение · Строка модели · состояния",
+   "x": 6444,
+   "y": 1064,
+   "width": 460,
+   "height": 96,
+   "layout": "none",
+   "cornerRadius": 8,
+   "stroke": "$hb:annotation.accent",
+   "strokeWidth": 2,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   },
+   "children": [
+    {
+     "id": "callout-cn-1-title",
+     "type": "text",
+     "x": 16,
+     "y": 12,
+     "content": "Строка модели · состояния",
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 15,
+     "fontWeight": "600"
+    },
+    {
+     "id": "callout-cn-1-text",
+     "type": "text",
+     "x": 16,
+     "y": 40,
+     "width": 428,
+     "textGrowth": "fixed-width",
+     "content": "Переключатель включена / выключена; счётчик «Выбрано: N» обновляется сразу. Недоступные модели неактивны.",
+     "fill": "$hb:colors.textSecondary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 13,
+     "lineHeight": 1.4
+    }
+   ]
+  },
+  {
+   "id": "callout-cn-2",
+   "type": "frame",
+   "name": "Пояснение · Баннер ошибки · состояния",
+   "x": 4764,
+   "y": 2270,
+   "width": 460,
+   "height": 96,
+   "layout": "none",
+   "cornerRadius": 8,
+   "stroke": "$hb:annotation.accent",
+   "strokeWidth": 2,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   },
+   "children": [
+    {
+     "id": "callout-cn-2-title",
+     "type": "text",
+     "x": 16,
+     "y": 12,
+     "content": "Баннер ошибки · состояния",
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 15,
+     "fontWeight": "600"
+    },
+    {
+     "id": "callout-cn-2-text",
+     "type": "text",
+     "x": 16,
+     "y": 40,
+     "width": 428,
+     "textGrowth": "fixed-width",
+     "content": "Появляется после «Проверить подключение» без ключа. Исчезает при правке поля ключа; повторная проверка обновляет текст.",
+     "fill": "$hb:colors.textSecondary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 13,
+     "lineHeight": 1.4
+    }
+   ]
   }
  ]
 }

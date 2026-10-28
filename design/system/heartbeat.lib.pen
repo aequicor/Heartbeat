@@ -23,6 +23,18 @@
    "type": "color",
    "value": "#FF7A1A"
   },
+  "annotation.accent2": {
+   "type": "color",
+   "value": "#1FB6FF"
+  },
+  "annotation.accent3": {
+   "type": "color",
+   "value": "#3DDC84"
+  },
+  "annotation.accent4": {
+   "type": "color",
+   "value": "#E040FB"
+  },
   "colors.accentMuted": {
    "type": "color",
    "value": [

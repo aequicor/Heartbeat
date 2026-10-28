@@ -12857,29 +12857,29 @@
      "x": 60,
      "y": 128,
      "width": 6320,
-     "height": 832,
+     "height": 1090,
      "layout": "none"
     }
    ],
    "x": 3024,
    "y": 0,
    "width": 6440,
-   "height": 1020
+   "height": 1278
   },
   {
    "id": "flow-arrow-st-0",
    "type": "path",
    "name": "Стрелка · шаг 1",
-   "geometry": "M0,10.0 H530 M516,2.0 L530,10.0 L516,18.0",
+   "geometry": "M10,10.0 L540,10.0 M526.0,18.0 L540,10.0 L526.0,2.0",
    "viewBox": [
     0,
     0,
-    530,
+    550,
     20.0
    ],
-   "x": 4234,
+   "x": 4224,
    "y": 647.0,
-   "width": 530,
+   "width": 550,
    "height": 20.0,
    "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
@@ -12893,7 +12893,7 @@
   {
    "id": "flow-arrow-st-0-dot",
    "type": "ellipse",
-   "name": "Начало стрелки · шаг 1",
+   "name": "Начало стрелки",
    "x": 4220,
    "y": 652.0,
    "width": 10,
@@ -12903,7 +12903,7 @@
   {
    "id": "flow-arrow-st-0-text",
    "type": "text",
-   "name": "Подпись перехода · шаг 1",
+   "name": "Подпись перехода",
    "x": 4398,
    "y": 627.0,
    "width": 250,
@@ -12922,17 +12922,17 @@
    "id": "flow-arrow-st-1",
    "type": "path",
    "name": "Стрелка · шаг 2",
-   "geometry": "M0,119.0 H102 Q150,119.0 150,71.0 V58.0 Q150,10.0 198,10.0 H1233.2 M1219.2,2.0 L1233.2,10.0 L1219.2,18.0",
+   "geometry": "M10,107.0 L132.0,107.0 Q160,107.0 160.0,135.0 L160.0,135.0 Q160,163.0 188.0,163.0 L1264.0,163.0 Q1312.0,163.0 1312.0,115.0 L1312.0,10.0 M1320.0,24.0 L1312.0,10.0 L1304.0,24.0",
    "viewBox": [
     0,
     0,
-    1233.2,
-    129.0
+    1322.0,
+    173.0
    ],
-   "x": 5914,
-   "y": 809.0,
-   "width": 1233.2,
-   "height": 129.0,
+   "x": 5904,
+   "y": 821.0,
+   "width": 1322.0,
+   "height": 173.0,
    "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
    "strokeLinecap": "round",
@@ -12945,7 +12945,7 @@
   {
    "id": "flow-arrow-st-1-dot",
    "type": "ellipse",
-   "name": "Начало стрелки · шаг 2",
+   "name": "Начало стрелки",
    "x": 5900,
    "y": 923.0,
    "width": 10,
@@ -12955,9 +12955,9 @@
   {
    "id": "flow-arrow-st-1-text",
    "type": "text",
-   "name": "Подпись перехода · шаг 2",
+   "name": "Подпись перехода",
    "x": 6078,
-   "y": 771.0,
+   "y": 880.0,
    "width": 250,
    "textGrowth": "fixed-width",
    "content": "Отправка следующего сообщения",
@@ -12974,17 +12974,17 @@
    "id": "flow-arrow-st-2",
    "type": "path",
    "name": "Стрелка · шаг 3",
-   "geometry": "M0,10.0 H1638 M1624,2.0 L1638,10.0 L1624,18.0",
+   "geometry": "M10,10.0 L123.0,10.0 Q160,10.0 160.0,47.0 L160.0,47.0 Q160,84.0 197.0,84.0 L1641.0,84.0 Q1668.0,84.0 1668.0,57.0 L1668.0,30.0 M1676.0,44.0 L1668.0,30.0 L1660.0,44.0",
    "viewBox": [
     0,
     0,
-    1638,
-    20.0
+    1678.0,
+    94.0
    ],
-   "x": 7594,
+   "x": 7584,
    "y": 918.0,
-   "width": 1638,
-   "height": 20.0,
+   "width": 1678.0,
+   "height": 94.0,
    "stroke": "$hb:annotation.accent",
    "strokeWidth": 3,
    "strokeLinecap": "round",
@@ -12997,7 +12997,7 @@
   {
    "id": "flow-arrow-st-2-dot",
    "type": "ellipse",
-   "name": "Начало стрелки · шаг 3",
+   "name": "Начало стрелки",
    "x": 7580,
    "y": 923.0,
    "width": 10,
@@ -13007,7 +13007,7 @@
   {
    "id": "flow-arrow-st-2-text",
    "type": "text",
-   "name": "Подпись перехода · шаг 3",
+   "name": "Подпись перехода",
    "x": 7758,
    "y": 898.0,
    "width": 250,
@@ -13021,6 +13021,160 @@
     "hb:mode": "dark",
     "hb:host": "desktop"
    }
+  },
+  {
+   "id": "callout-st-0-arrow",
+   "type": "path",
+   "name": "Стрелка к пояснению · Кнопка отправки · состояния",
+   "geometry": "M706.0,10.0 L706.0,54.0 Q706.0,98.0 662.0,98.0 L23.0,98.0 Q10,98.0 10.0,111.0 L10,124.0 M2.0,110.0 L10,124.0 L18.0,110.0",
+   "viewBox": [
+    0,
+    0,
+    716.0,
+    134.0
+   ],
+   "x": 6866,
+   "y": 940.0,
+   "width": 716.0,
+   "height": 134.0,
+   "stroke": "$hb:annotation.accent",
+   "strokeWidth": 3,
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
+  },
+  {
+   "id": "callout-st-0-arrow-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки",
+   "x": 7572.0,
+   "y": 941.0,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent"
+  },
+  {
+   "id": "callout-st-1-arrow",
+   "type": "path",
+   "name": "Стрелка к пояснению · Вызов инструмента · состояния",
+   "geometry": "M10.0,10.0 L10.0,384.0 M2.0,370.0 L10.0,384.0 L18.0,370.0",
+   "viewBox": [
+    0,
+    0,
+    20.0,
+    394.0
+   ],
+   "x": 7226.0,
+   "y": 680.0,
+   "width": 20.0,
+   "height": 394.0,
+   "stroke": "$hb:annotation.accent2",
+   "strokeWidth": 3,
+   "strokeLinecap": "round",
+   "strokeLinejoin": "round",
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   }
+  },
+  {
+   "id": "callout-st-1-arrow-dot",
+   "type": "ellipse",
+   "name": "Начало стрелки",
+   "x": 7236.0,
+   "y": 681.0,
+   "width": 10,
+   "height": 10,
+   "fill": "$hb:annotation.accent2"
+  },
+  {
+   "id": "callout-st-0",
+   "type": "frame",
+   "name": "Пояснение · Кнопка отправки · состояния",
+   "x": 6444,
+   "y": 1064,
+   "width": 460,
+   "height": 114,
+   "layout": "none",
+   "cornerRadius": 8,
+   "stroke": "$hb:annotation.accent",
+   "strokeWidth": 2,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   },
+   "children": [
+    {
+     "id": "callout-st-0-title",
+     "type": "text",
+     "x": 16,
+     "y": 12,
+     "content": "Кнопка отправки · состояния",
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 15,
+     "fontWeight": "600"
+    },
+    {
+     "id": "callout-st-0-text",
+     "type": "text",
+     "x": 16,
+     "y": 40,
+     "width": 428,
+     "textGrowth": "fixed-width",
+     "content": "Отправить — по умолчанию, неактивна при пустом поле. «Стоп» — на время хода агента (интент StopAgent). После конца хода снова «Отправить».",
+     "fill": "$hb:colors.textSecondary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 13,
+     "lineHeight": 1.4
+    }
+   ]
+  },
+  {
+   "id": "callout-st-1",
+   "type": "frame",
+   "name": "Пояснение · Вызов инструмента · состояния",
+   "x": 6928,
+   "y": 1064,
+   "width": 460,
+   "height": 114,
+   "layout": "none",
+   "cornerRadius": 8,
+   "stroke": "$hb:annotation.accent2",
+   "strokeWidth": 2,
+   "theme": {
+    "hb:mode": "dark",
+    "hb:host": "desktop"
+   },
+   "children": [
+    {
+     "id": "callout-st-1-title",
+     "type": "text",
+     "x": 16,
+     "y": 12,
+     "content": "Вызов инструмента · состояния",
+     "fill": "$hb:colors.textPrimary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 15,
+     "fontWeight": "600"
+    },
+    {
+     "id": "callout-st-1-text",
+     "type": "text",
+     "x": 16,
+     "y": 40,
+     "width": 428,
+     "textGrowth": "fixed-width",
+     "content": "Выполняется — обновляется на месте, лента автопрокручивается. Готово — после завершения. Ошибка — раскрывается с текстом сбоя. Клик раскрывает payload.",
+     "fill": "$hb:colors.textSecondary",
+     "fontFamily": "$hb:typography.family",
+     "fontSize": 13,
+     "lineHeight": 1.4
+    }
+   ]
   }
  ]
 }
