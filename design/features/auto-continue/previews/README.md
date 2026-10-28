@@ -14,5 +14,8 @@
 | `LKd5p.png` | Меню режимов / Phone |
 | `cBZJV.png` | Меню режимов / Tablet |
 | `ffwSp.png` | Автопилот / Phone / Dark |
+| `B5VO1V.png` | Подсказки / Desktop / Dark |
+| `f5QeQ.png` | Автопилот / Desktop / Dark |
+| `LBtOI.png` | Меню режимов / Desktop / Dark |
 
 Исходные кадры и остальные тёмные адаптации доступны в `.pen`. Номерные бейджи и sticky-note — аннотации макета, в интерфейс приложения не переносятся.
