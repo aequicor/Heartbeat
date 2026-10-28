@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.githubconnector.api.GitHubConnectionSource
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.InputStream
@@ -34,10 +35,11 @@ internal fun interface GitHubCredentialLauncher {
 internal class DesktopGitHubCredentialLauncher(
     private val workspaces: LocalWorkspaces,
     private val dispatchers: DispatcherProvider,
+    private val connections: GitHubConnectionSource,
 ) : GitHubCredentialLauncher {
     override suspend fun start(account: String, workspace: WorkspaceRef): GitHubCredentialChild =
         withContext(dispatchers.io) {
-            val configured = System.getenv(
+            val configured = connections.current()?.cli ?: System.getenv(
                 "HEARTBEAT_GITHUB_CLI",
             ) ?: error("GitHub credential executable not configured")
             val roots = workspaces.observe().first().mapNotNull { workspaces.resolve(it.ref) }.map(Path::of)

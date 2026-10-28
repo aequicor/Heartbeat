@@ -17,6 +17,7 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.aiEngine.facade.api)
             implementation(projects.features.aiEngine.authenticator.api)
+            implementation(projects.features.githubConnector.api)
             implementation(projects.core.featureToggles.api)
             implementation(projects.core.datastore.api)
             implementation(projects.core.di.api)

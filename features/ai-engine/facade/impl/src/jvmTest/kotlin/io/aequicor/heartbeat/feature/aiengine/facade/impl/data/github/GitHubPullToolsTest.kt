@@ -69,7 +69,7 @@ class GitHubPullToolsTest {
         val unconfigured = GitHubPullTools(
             object : GitHubPullConfigurationSource {
                 override suspend fun current(workspace: WorkspaceRef) = null
-                override fun isAvailable() = false
+                override suspend fun isAvailable() = false
             },
             fixture.toggles,
             GitHubPullTransport { _, _, _, _ -> error("no request expected") },
