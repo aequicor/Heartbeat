@@ -82,7 +82,7 @@ data class HbGradients(val primaryAccent: Brush, val cosmicDeep: Brush) {
 }
 ```
 
-Новый цвет → сначала токен здесь (обе темы) с KDoc о назначении и та же переменная в `design/system/heartbeat.lib.pen` (когда библиотека есть — `design/README.md` 2.4). Производные (`onPrimary`, `textSecondary`, `outline`) вычисляются из базовых и проверяются на контраст ≥ 4.5:1.
+Новый цвет → сначала токен здесь (обе темы) с KDoc о назначении и та же переменная в `design/system/heartbeat.lib.pen`. Производные (`onPrimary`, `textSecondary`, `outline`) вычисляются из базовых и проверяются на контраст ≥ 4.5:1.
 
 `HbSpacing` (компактная шкала: `xxs=2, xs=4, s=6, m=8, l=12, xl=16, xxl=20 dp`), `HbTypography`, `HbShapes` — рядом, по тому же принципу.
 
@@ -151,7 +151,7 @@ Fluent/macOS-реализации лежат в `jvmMain` (киты — desktop-
 
 ## Чек-лист нового компонента
 
-0. Компонент согласован макетом (скилл `ui-prototype`): в `design/system/heartbeat.lib.pen`, до библиотеки — в `.pen` фичи.
+0. Компонент согласован макетом (скилл `ui-prototype`): общий — в `design/system/heartbeat.lib.pen`, локальный — в `.pen` фичи.
 1. API в `components`: stateless, `modifier` первым опциональным, события `onX`, стабильные параметры.
 2. Реализации: material (+ iOS-нюансы), fluent, macos — или явный fallback на material с `// TODO(issue)`.
 3. Только токены `HbTheme`; стиль — плотный плоский (без glass/blur/теней, кроме всплывающих поверхностей).
