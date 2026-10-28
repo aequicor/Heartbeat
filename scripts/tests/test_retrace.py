@@ -93,6 +93,12 @@ class MappingTest(unittest.TestCase):
         text = f"\tat app//{PKG}.xwp1$xwp0.a(Tabs.kt:1)\n"
         self.assertEqual(f"\tat app//{PKG}.Tabs$Inner.run(Tabs.kt:1)\n", retrace.retrace_text(text, mapping))
 
+    def test_a_class_with_a_member_or_nested_name_behind_it_is_restored(self):
+        mapping = merged()
+        text = f"{PKG}.xwp0.INSTANCE and {PKG}.xwp1$xwp0$Companion.x\n"
+        self.assertEqual(f"{PKG}.BrowserEngine.INSTANCE and {PKG}.Tabs$Inner$Companion.x\n",
+                         retrace.retrace_text(text, mapping))
+
     def test_text_outside_names_is_kept(self):
         mapping = retrace.Mapping()
         mapping.read(WEB_MAPPING)
@@ -108,6 +114,7 @@ class MappingTest(unittest.TestCase):
         mapping = merged()
         started = time.monotonic()
         retrace.retrace_text("A" * 300_000 + "\n" + "a." * 50_000 + "\n", mapping)
+        retrace.retrace_text("\tat " + "a/" * 100_000 + "x.y.z(F.kt:1)\n" + "\tat " + "q" * 200_000 + "\n", mapping)
         self.assertLess(time.monotonic() - started, 5.0)
 
 
@@ -177,6 +184,12 @@ class RunTest(unittest.TestCase):
         _, text, _ = self.run_retrace(self.write_log(), manifest=False)
         self.assertIn("Cache.evict", text)
 
+    def test_without_manifest_a_log_without_a_launch_line_is_restored_too(self):
+        log = self.write_log(f"\tat {PKG}.xwp0.a(BrowserEngine.kt:3)\n")
+        _, text, warn = self.run_retrace(log, manifest=False)
+        self.assertIn("BrowserEngine.navigate", text)
+        self.assertEqual("", warn)
+
     def test_two_launches_of_other_trains_in_one_file(self):
         later = TRACE.replace("t-7", "t-9") + f"\tat {PKG}.xwp0.a(BrowserEngine.kt:3)\n"
         status, text, warn = self.run_retrace(self.write_log(TRACE + later))
@@ -198,7 +211,7 @@ class RunTest(unittest.TestCase):
         self.assertIn("=== dev.log ===", text)
         self.assertNotIn("dump.bin", text)
         self.assertIn("BrowserEngine.navigate", text)
-        self.assertIn("lines without a train", warn)
+        self.assertIn("dev.log: lines of an unknown train", warn)
 
     def test_lines_before_the_first_launch_use_the_given_train(self):
         log = self.write_log(f"\tat {PKG}.xwp0.a(BrowserEngine.kt:3)\n")
@@ -215,11 +228,21 @@ class RunTest(unittest.TestCase):
         _, text, _ = self.run_retrace(self.write_log("Launch: train=t-7 version=1\r\nplain\r\n"))
         self.assertIn("plain\r\n", text)
 
-    def test_main_reports_a_broken_zip_and_unreadable_manifest(self):
-        broken = self.directory / "broken.zip"
-        broken.write_bytes(b"PK\x03\x04 not really a zip")
+    def test_main_reports_a_damaged_zip_without_a_traceback(self):
+        archive = self.directory / "damaged.zip"
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as zipped:
+            zipped.writestr("heartbeat.log", "hello hello hello hello hello\n" * 20)
+        data = bytearray(buffer.getvalue())
+        data[data.index(b"hello") - 2] ^= 0xFF  # damages the data of the member: its CRC no longer matches
+        archive.write_bytes(bytes(data))
         base = ["--mappings", str(self.mappings)]
-        self.assertEqual(1, retrace.main([str(broken), *base, "--manifest", str(self.directory / "nope.json")]))
+        self.assertTrue(zipfile.is_zipfile(archive))
+        self.assertEqual(1, retrace.main([str(archive), *base]))
+
+    def test_main_reports_an_unreadable_manifest(self):
+        base = ["--mappings", str(self.mappings)]
+        self.assertEqual(1, retrace.main([str(self.write_log()), *base, "--manifest", str(self.directory / "nope.json")]))
         self.manifest.write_text("not json", encoding="utf-8")
         self.assertEqual(1, retrace.main([str(self.write_log()), *base, "--manifest", str(self.manifest)]))
 

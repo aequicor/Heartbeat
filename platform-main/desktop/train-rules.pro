@@ -1,6 +1,6 @@
 # Rules of the bundle train that no SDK keep rule derives (see generateTrainSdkRules). They are read when the train is
-# processed (-Pheartbeat.trainShrink=shrink or obfuscate) and describe only Heartbeat's own code: third-party libraries belong to the
-# platform and are never processed, so they need no rules.
+# processed (-Pheartbeat.trainShrink=shrink or obfuscate) and describe only Heartbeat's own code: third-party libraries
+# belong to the platform and are never processed, so they need no rules.
 
 # --- Entry points ------------------------------------------------------------------------------------------------
 
@@ -36,6 +36,7 @@
 }
 -keep class io.aequicor.heartbeat.platform.dibundle.BundleHealthProbeKt {
     public static java.util.Map bundleHealth(io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph);
+    public static boolean hasProfileHealth(io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph);
 }
 -keep interface io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph {
     *** getProfileSessions();

@@ -132,7 +132,7 @@ internal fun checkObfuscationTags(ids: Collection<String>) {
     }
 }
 
-/** The names `<tag>0, `<tag>1`, … `<tag>z`, `<tag>10`, …: [count] class names that ProGuard hands out in order. */
+/** The names `<tag>0`, `<tag>1`, … `<tag>z`, `<tag>10`, …: [count] class names that ProGuard hands out in order. */
 internal fun classDictionary(tag: String, count: Int): String =
     (0 until count).joinToString("\n", postfix = "\n") { tag + it.toString(CLASS_NAME_RADIX) }
 
@@ -269,16 +269,21 @@ abstract class ShrinkTrainJar @Inject constructor(private val exec: ExecOperatio
 internal fun normalizeJar(source: File, target: File) {
     // Written aside and moved: a failure halfway must not leave a broken jar where the manifest and the seed read.
     val partial = File(target.parentFile, target.name + ".partial")
-    ZipFile(source).use { zip ->
-        ZipOutputStream(partial.outputStream().buffered()).use { out ->
-            for (entry in zip.entries().asSequence()) {
-                out.putNextEntry(ZipEntry(entry.name).apply { setTimeLocal(FIXED_ENTRY_TIME) })
-                if (!entry.isDirectory) zip.getInputStream(entry).use { it.copyTo(out) }
-                out.closeEntry()
+    try {
+        ZipFile(source).use { zip ->
+            ZipOutputStream(partial.outputStream().buffered()).use { out ->
+                for (entry in zip.entries().asSequence()) {
+                    out.putNextEntry(ZipEntry(entry.name).apply { setTimeLocal(FIXED_ENTRY_TIME) })
+                    if (!entry.isDirectory) zip.getInputStream(entry).use { it.copyTo(out) }
+                    out.closeEntry()
+                }
             }
         }
+        Files.move(partial.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+    } finally {
+        // After a failure the leftover must not lie next to the jars the manifest and the seed read.
+        partial.delete()
     }
-    Files.move(partial.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
 }
 
 /** 1980-02-01 as a local time, so that the bytes do not depend on the time zone (like Gradle's reproducible jars). */

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.buildlogic
 
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.artifacts.ProjectDependency
@@ -81,7 +82,11 @@ class BundleConventionPlugin : Plugin<Project> {
         )
         val bundleId = name
         // The jar the manifest takes: the processed one when the train is shrunk.
-        val bundleJar: Any = if (mode == TrainShrinkMode.Off) assemble else registerShrinkBundle(assemble, bundleVersion, mode).flatMap { it.output }
+        val bundleJar: Any = if (mode == TrainShrinkMode.Off) {
+            assemble
+        } else {
+            registerShrinkBundle(assemble, bundleVersion, mode).flatMap { it.output }
+        }
         registerTrainTasks(root).first.configure {
             versions.put(bundleId, bundleVersion)
             jars.from(bundleJar)
@@ -146,12 +151,19 @@ class BundleConventionPlugin : Plugin<Project> {
             // The processed foundation and the contracts jar are the outputs of the desktop module's tasks: taken from
             // them, not from a guessed file name, so that the task dependencies follow.
             libraryJars.from(
-                // By type: matching by name alone would create every task of the desktop module (Compose's included).
+                // Looked up by name among the registered tasks: `matching { }` would create every task of the module.
                 desktop.provider {
-                    desktop.tasks.withType(ShrinkTrainJar::class.java).matching { it.name == "shrinkFoundation" }
-                        .map { it.outputs.files } +
-                        desktop.tasks.withType(Jar::class.java).matching { it.name == "assembleContracts" }
-                            .map { it.outputs.files }
+                    val names = desktop.tasks.names
+                    if ("shrinkFoundation" !in names || "assembleContracts" !in names) {
+                        throw GradleException(
+                            "${desktop.path} registers no shrinkFoundation and assembleContracts: heartbeat.train is missing",
+                        )
+                    }
+                    listOf(
+                        // The jar only: the mapping the task also writes is a text file, not a library.
+                        desktop.tasks.named("shrinkFoundation", ShrinkTrainJar::class.java).flatMap { it.output },
+                        desktop.tasks.named("assembleContracts", Jar::class.java).flatMap { it.archiveFile },
+                    )
                 },
             )
         }.also { shrunk ->

@@ -16,7 +16,8 @@ a train (each artifact draws them from a dictionary of its own), so the mappings
 Class names in any text and the class and method names of stack frames are restored; the line number of a frame picks
 among overloads that were given one name. Simple class names that code writes with `::class.simpleName` are not
 restored: the mapping does not say which package they came from. Nothing is read from the network and nothing but
-those names is changed in the text. What could not be restored is told on stderr.
+those names is changed in the text (bytes that are not UTF-8 are replaced when the log is read). What could not
+be restored is told on stderr.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ import json
 import re
 import sys
 import zipfile
+import zlib
 from pathlib import Path
 from typing import NamedTuple, TextIO
 
@@ -44,6 +46,7 @@ METHOD_LINE = re.compile(
 )
 FRAME_LINE_NUMBER = re.compile(r":(\d+)$")
 MAPPING_FILE = "mapping-{}.txt"
+UNPROCESSED_ID = "contracts"
 BINARY_SNIFF = 8000
 
 
@@ -124,7 +127,17 @@ def _retrace_line(line: str, mapping: Mapping) -> str:
 
 
 def _restore_classes(text: str, mapping: Mapping) -> str:
-    return CLASS_TOKEN.sub(lambda token: mapping.original_class(token[0]), text)
+    return CLASS_TOKEN.sub(lambda token: _restore_token(token[0], mapping), text)
+
+
+def _restore_token(token: str, mapping: Mapping) -> str:
+    """The class in [token], or its longest prefix that is one (`pkg.xwp0.INSTANCE`, `pkg.xwp0$Companion`)."""
+    if token in mapping.classes:
+        return mapping.classes[token]
+    for end in range(len(token) - 1, 0, -1):
+        if token[end] in ".$" and token[:end] in mapping.classes:
+            return mapping.classes[token[:end]] + token[end:]
+    return token
 
 
 def train_of(text: str) -> str | None:
@@ -157,17 +170,27 @@ def jars_of(manifest: dict, train: str | None = None) -> list[str]:
     return jars
 
 
-def load_mapping(directory: Path, jars: list[str] | None, warn: TextIO | None = None) -> Mapping:
+def unprocessed_jars(manifest: dict) -> set[str]:
+    """Jars of the train that are not processed and so have no mapping: the contracts."""
+    return {b["jar"] for b in manifest.get("bundles", []) if b.get("id") == UNPROCESSED_ID}
+
+
+def load_mapping(
+    directory: Path,
+    jars: list[str] | None,
+    warn: TextIO | None = None,
+    unprocessed: set[str] = frozenset(),
+) -> Mapping:
     mapping = Mapping()
     if jars is None:
         files = sorted(directory.glob("mapping-*.txt"))
     else:
-        wanted = [directory / MAPPING_FILE.format(jar.removesuffix(".jar")) for jar in jars]
-        # contracts are not processed and have no mapping file; any other missing one means the names stay unrestored
-        for file in wanted:
-            if not file.is_file() and "-contracts-" not in file.name and warn is not None:
+        wanted = {jar: directory / MAPPING_FILE.format(jar.removesuffix(".jar")) for jar in jars}
+        # a processed jar without its mapping means that its names stay unrestored
+        for jar, file in wanted.items():
+            if not file.is_file() and jar not in unprocessed and warn is not None:
                 print(f"retrace: no mapping {file.name} in {directory}", file=warn)
-        files = [file for file in wanted if file.is_file()]
+        files = [file for file in wanted.values() if file.is_file()]
     for file in files:
         mapping.read(file.read_text(encoding="utf-8"))
     if not mapping.classes and warn is not None:
@@ -195,6 +218,10 @@ def run(args: argparse.Namespace, out: TextIO, warn: TextIO | None = None) -> in
     warn = warn if warn is not None else sys.stderr
     manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8")) if args.manifest else None
     cache: dict[str, Mapping | None] = {}
+    unprocessed = unprocessed_jars(manifest) if manifest else set()
+    # without a manifest the mappings of the directory are one train's and need no train id
+    merged = None if manifest else load_mapping(Path(args.mappings), None, warn)
+    unknown_warned: set[str] = set()
 
     def mapping_of(train: str) -> Mapping | None:
         if train not in cache:
@@ -205,16 +232,17 @@ def run(args: argparse.Namespace, out: TextIO, warn: TextIO | None = None) -> in
                 print(f"retrace: {error}; the lines of train {train} are kept as they are", file=warn)
                 cache[train] = None
             else:
-                cache[train] = load_mapping(Path(args.mappings), jars, warn)
+                cache[train] = load_mapping(Path(args.mappings), jars, warn, unprocessed)
         return cache[train]
 
     for name, text in read_logs(Path(args.log)):
         out.write(f"=== {name} ===\n")
         for train, part in segments(text, args.train):
-            mapping = mapping_of(train) if train is not None else None
+            mapping = mapping_of(train) if train is not None else merged
             if mapping is None:
-                if train is None:
-                    print(f"retrace: {name}: lines without a train kept as they are (pass --train)", file=warn)
+                if train is None and name not in unknown_warned:
+                    unknown_warned.add(name)
+                    print(f"retrace: {name}: lines of an unknown train kept as they are (pass --train)", file=warn)
                 out.write(part)
             else:
                 out.write(retrace_text(part, mapping))
@@ -232,7 +260,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", newline="")  # a Windows console is not UTF-8, and CRLF stays CRLF
     try:
         return run(args, sys.stdout)
-    except (OSError, ValueError, zipfile.BadZipFile, RuntimeError) as error:  # json errors are ValueErrors
+    except (OSError, ValueError, zipfile.BadZipFile, RuntimeError, NotImplementedError, zlib.error) as error:
+        # json errors are ValueErrors; a damaged or exotic ZIP member raises the last four
         print(f"retrace: {error}", file=sys.stderr)
         return 1
 

@@ -16,7 +16,6 @@ import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractProguardTask
 import org.jetbrains.compose.reload.gradle.ComposeHotRun
-import java.io.Closeable
 import java.time.Duration
 
 plugins {
@@ -348,21 +347,29 @@ tasks.register<JavaExec>("verifyShrunkTrain") {
     val report = smokeDirectory.map { it.file("report.txt") }
     val home = smokeDirectory.map { it.dir("home") }
     val smokeLog = smokeDirectory.map { it.file("smoke.log") }
-    if (shrunk) dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts", "testClasses")
     javaLauncher.set(desktopRuntime)
-    classpath(sourceSets.test.get().output.classesDirs)
-    // Exactly the jars of this train (what the manifest lists), not whatever else lies in the build directories.
-    classpath(
-        files(
-            trainRoot.provider {
-                trainRoot.tasks.withType(BundleManifest::class.java).flatMap { manifest -> manifest.jars.files }
-            },
-        ),
-    )
-    classpath(trainThirdPartyJars)
+    // Without the property the task only fails: it builds and compiles nothing first.
+    if (shrunk) {
+        dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts", "testClasses")
+        classpath(sourceSets.test.get().output.classesDirs)
+        // Exactly the jars of this train (what the manifest lists), not whatever else lies in the build directories.
+        classpath(
+            files(
+                trainRoot.provider {
+                    trainRoot.tasks.withType(BundleManifest::class.java).flatMap { manifest -> manifest.jars.files }
+                },
+            ),
+        )
+        classpath(trainThirdPartyJars)
+    }
     mainClass.set("io.aequicor.heartbeat.platform.desktop.TrainSmokeKt")
     jvmArgs("-Djava.awt.headless=true", "-Dheartbeat.data.name=HeartbeatTrainSmoke")
-    argumentProviders.add(CommandLineArgumentProvider { listOf(report.get().asFile.absolutePath) + bundleIds })
+    // The smoke writes its findings and its own logs to these files, so a hung run still leaves both behind.
+    argumentProviders.add(
+        CommandLineArgumentProvider {
+            listOf(report.get().asFile.absolutePath, smokeLog.get().asFile.absolutePath) + bundleIds
+        },
+    )
     isIgnoreExitValue = true
     doFirst {
         check(shrunk) { "verifyShrunkTrain checks the processed train: pass -Pheartbeat.trainShrink=shrink or obfuscate" }
@@ -372,22 +379,19 @@ tasks.register<JavaExec>("verifyShrunkTrain") {
             mkdirs()
         }
         report.get().asFile.delete()
-        // The host logs of the run go to a file (its tail goes into a failure), not into the build output. Set when the
-        // task runs: a stream is not something the configuration cache can store.
-        val logStream = smokeLog.get().asFile.outputStream()
-        standardOutput = logStream
-        errorOutput = logStream
+        logger.lifecycle("The logs of the smoke are written to ${smokeLog.get().asFile}")
         systemProperty("user.home", homeDirectory.absolutePath)
         listOf("APPDATA", "LOCALAPPDATA", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME")
             .forEach { environment(it, homeDirectory.absolutePath) }
     }
     doLast {
-        (standardOutput as Closeable).close()
-        val logText = smokeLog.get().asFile.readText()
         if (executionResult.get().exitValue != 0) {
             val findings = report.get().asFile.takeIf { it.isFile }?.readText() ?: "the smoke wrote no report"
-            val tail = logText.lines().takeLast(40).joinToString("\n")
-            throw GradleException("The processed train does not run:\n$findings\nLast lines of ${smokeLog.get().asFile}:\n$tail")
+            val tail = smokeLog.get().asFile.takeIf { it.isFile }?.useLines { it.toList().takeLast(40) }.orEmpty()
+            throw GradleException(
+                "The processed train does not run:\n$findings\nLast lines of ${smokeLog.get().asFile}:\n" +
+                    tail.joinToString("\n"),
+            )
         }
     }
 }
