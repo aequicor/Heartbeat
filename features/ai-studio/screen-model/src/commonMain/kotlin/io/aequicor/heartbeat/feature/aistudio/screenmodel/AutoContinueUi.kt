@@ -10,6 +10,7 @@ import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
+import kotlin.time.Instant
 
 /** How a chat continues after the agent's turn. */
 @Serializable
@@ -41,11 +42,19 @@ data class AutoContinueOptionUi(val label: String, val text: String) {
     override fun toString(): String = "AutoContinueOptionUi(label=${label.length}, text=${text.length})"
 }
 
-/** The autopilot sends [text] in [seconds] unless the human acts; [seq] restarts the visible countdown. */
+/**
+ * The autopilot sends [text] at [deadline] ([seconds] after the countdown began) unless the human acts; [seq] tells
+ * countdowns of a chat apart. The deadline keeps a redrawn or remote view in step with the real countdown.
+ */
 @Serializable
 @SerialName("AutoContinueCountdownUi")
 @Immutable
-data class AutoContinueCountdownUi(val seq: Long, val text: String, val seconds: Int) {
+data class AutoContinueCountdownUi(
+    val seq: Long,
+    val text: String,
+    val seconds: Int,
+    val deadline: Instant = Instant.DISTANT_PAST,
+) {
     override fun toString(): String = "AutoContinueCountdownUi(seq=$seq, seconds=$seconds)"
 }
 

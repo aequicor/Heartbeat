@@ -93,15 +93,33 @@ class StudioAutoContinueModelTest {
         assertEquals(AutoContinueModeUi.Suggest, ui.chat("other")?.mode)
         assertEquals(1, ui.chat("chat")?.options?.size)
 
-        screen.intent(AiStudioScreenIntent.PickAutoContinue("chat", paneId = 0, index = 0, isSend = false))
-        runCurrent()
-        assertEquals("Продолжай со шага 3", screen.states.value.draft(0))
-
-        screen.intent(AiStudioScreenIntent.PickAutoContinue("chat", paneId = 0, index = 0, isSend = true))
+        val reply = "Продолжай со шага 3"
+        screen.intent(AiStudioScreenIntent.PickAutoContinue("chat", paneId = 0, index = 0, isSend = true, text = reply))
         runCurrent()
         val submit = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
-        assertEquals("Продолжай со шага 3", submit.prompt)
-        assertEquals("Продолжай со шага 3", submit.userInstruction)
+        assertEquals(reply, submit.prompt)
+        assertEquals(reply, submit.userInstruction)
+    }
+
+    @Test
+    fun `a pick of another offer or chat is dropped and a typed draft is kept`() = runTest {
+        val port = RecordingPort()
+        port.state.value = AutoContinueState.Ready(
+            chats = mapOf("chat" to ChatAuto(AutoContinueMode.Suggest, Phase.Offered(proceed))),
+        )
+        val fixture = AiStudioModelTest.Fixture(this, ready, autoContinue = port)
+        val screen = fixture.subscribe()
+        runCurrent()
+        screen.intent(AiStudioScreenIntent.PickAutoContinue("chat", 0, 0, isSend = true, text = "an older reply"))
+        screen.intent(AiStudioScreenIntent.PickAutoContinue("other", 0, 0, isSend = true, text = "Продолжай со шага 3"))
+        runCurrent()
+        assertEquals("", screen.states.value.draft(0))
+
+        screen.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "my note"))
+        screen.intent(AiStudioScreenIntent.PickAutoContinue("chat", 0, 0, isSend = true, text = "Продолжай со шага 3"))
+        runCurrent()
+        assertEquals("my note\n\nПродолжай со шага 3", screen.states.value.draft(0))
+        assertTrue(fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().isEmpty())
     }
 
     @Test
@@ -138,18 +156,30 @@ class StudioAutoContinueModelTest {
 
         port.drafts.emit(AutoContinueOutput.Draft("chat", "edited"))
         runCurrent()
-        assertEquals("edited", screen.states.value.draft(0))
+        assertEquals("my own\n\nedited", screen.states.value.draft(0))
+        val countdown = screen.states.value.autoContinue.chat("chat")?.countdown
+        assertTrue(countdown != null && countdown.deadline != kotlin.time.Instant.DISTANT_PAST)
     }
 
     @Test
     fun `typing without anything on offer does not reach the machine`() = runTest {
         val port = RecordingPort()
-        port.state.value = AutoContinueState.Ready(chats = mapOf("chat" to ChatAuto(AutoContinueMode.Suggest)))
-        val fixture = AiStudioModelTest.Fixture(this, ready, autoContinue = port)
+        port.state.value = AutoContinueState.Ready(
+            chats = mapOf(
+                "chat" to ChatAuto(AutoContinueMode.Suggest),
+                "paused" to ChatAuto(AutoContinueMode.Autopilot, Phase.Paused),
+            ),
+        )
+        val fixture = AiStudioModelTest.Fixture(
+            this,
+            ready.copy(panes = ready.panes + StudioPane(2, "paused")),
+            autoContinue = port,
+        )
         val screen = fixture.subscribe()
         runCurrent()
         screen.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "text"))
         screen.intent(AiStudioScreenIntent.Suggestions.DraftChanged(1, "new chat"))
+        screen.intent(AiStudioScreenIntent.Suggestions.DraftChanged(2, "while paused"))
         runCurrent()
         assertTrue(port.sent.isEmpty())
     }

@@ -64,8 +64,8 @@ class StudioAutoContinueUiTest {
         runOnIdle {
             assertEquals(
                 listOf<StudioIntent>(
-                    StudioIntent.PickAutoContinue("chat", 0, 0, isSend = true),
-                    StudioIntent.PickAutoContinue("chat", 0, 0, isSend = false),
+                    StudioIntent.PickAutoContinue("chat", 0, 0, isSend = true, text = "Продолжай со шага 3"),
+                    StudioIntent.PickAutoContinue("chat", 0, 0, isSend = false, text = "Продолжай со шага 3"),
                     StudioIntent.RefreshAutoContinue("chat"),
                 ),
                 events,

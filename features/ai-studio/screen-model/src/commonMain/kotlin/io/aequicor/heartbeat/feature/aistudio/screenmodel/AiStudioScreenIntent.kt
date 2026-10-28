@@ -366,11 +366,22 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.RefreshAutoContinue")
     data class RefreshAutoContinue(override val sessionId: String) : AutoContinue
 
-    /** Sends offered reply [index] of [sessionId] from [paneId] ([isSend]) or puts it into the pane's draft. */
+    /**
+     * Sends offered reply [index] of [sessionId] from [paneId] ([isSend]) or puts it into the pane's draft. [text] is
+     * the reply the human saw: a pick is dropped when the offer changed meanwhile.
+     */
     @Serializable
     @SerialName("AiStudioScreenIntent.PickAutoContinue")
-    data class PickAutoContinue(override val sessionId: String, val paneId: Int, val index: Int, val isSend: Boolean) :
-        AutoContinue
+    data class PickAutoContinue(
+        override val sessionId: String,
+        val paneId: Int,
+        val index: Int,
+        val isSend: Boolean,
+        val text: String,
+    ) : AutoContinue {
+        override fun toString(): String =
+            "PickAutoContinue(sessionId=$sessionId, paneId=$paneId, index=$index, isSend=$isSend)"
+    }
 
     /** Sends the counted-down autopilot reply of [sessionId] now. */
     @Serializable

@@ -19,7 +19,7 @@ interface StudioAutoContinuePort {
     val drafts: Flow<AutoContinueOutput.Draft>
 
     /** Native turns of [chat] whose prompts the autopilot sent. */
-    fun autopilotTurns(chat: String): Flow<Set<String>> = flowOf(emptySet())
+    fun autopilotTurns(chat: String): Flow<Set<String>>
 
     /** Sends a command to the auto-continue machine. */
     suspend fun send(intent: AutoContinueIntent.Public)
@@ -29,6 +29,7 @@ interface StudioAutoContinuePort {
         override val availability: Flow<Boolean> = flowOf(false)
         override val state: Flow<AutoContinueState> = flowOf(AutoContinueState.Idle)
         override val drafts: Flow<AutoContinueOutput.Draft> = emptyFlow()
+        override fun autopilotTurns(chat: String): Flow<Set<String>> = flowOf(emptySet())
         override suspend fun send(intent: AutoContinueIntent.Public) = Unit
     }
 }

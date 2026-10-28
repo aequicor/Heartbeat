@@ -14,12 +14,14 @@
     <string name="auto_continue_thinking">Подбираю продолжение…</string>
     <string name="auto_continue_sending">Отправляю реплику автопилота…</string>
     <string name="auto_continue_paused">Автопилот ждёт вашего решения</string>
-    <string name="auto_continue_countdown">Автопилот отправит через %1$d с</string>
+    <string name="auto_continue_countdown">Отправка через %1$d с</string>
+    <string name="auto_continue_countdown_text">Автопилот отправит: %1$s</string>
     <string name="auto_continue_send_now">Отправить сейчас</string>
     <string name="auto_continue_edit">Править</string>
     <string name="auto_continue_stop">Стоп</string>
     <string name="auto_continue_refresh">Обновить варианты</string>
-    <string name="auto_continue_insert">Вставить в поле ввода</string>
+    <string name="auto_continue_insert">Вставить в поле ввода: %1$s</string>
+    <string name="auto_continue_notice_reason">%1$s. %2$s</string>
     <string name="auto_continue_notice_done">Похоже, задача выполнена</string>
     <string name="auto_continue_notice_needs_user">Нужно ваше решение</string>
     <string name="auto_continue_notice_limit">Автопилот остановлен: достигнут лимит реплик</string>

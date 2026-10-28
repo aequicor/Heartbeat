@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueState
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueView
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterIsInstance
@@ -43,10 +44,19 @@ internal class MachineStudioAutoContinue(
         .flatMapLatest { it?.outputs ?: emptyFlow() }
         .filterIsInstance<AutoContinueOutput.Draft>()
 
-    override fun autopilotTurns(chat: String): Flow<Set<String>> = marks.observeAutopilotTurns(chat)
+    /** Marks only label the feed: an unreadable store leaves prompts unmarked instead of failing the transcripts. */
+    override fun autopilotTurns(chat: String): Flow<Set<String>> = marks.observeAutopilotTurns(chat).catch { e ->
+        log.w(e) { "autopilot marks of $chat are unreadable" }
+        emit(emptySet())
+    }
 
     override suspend fun send(intent: AutoContinueIntent.Public) {
         val result = machines.send(AutoContinueMachineKey, intent)
-        log.i { "auto-continue command $intent: $result" }
+        // Typing is reported on keystrokes, not as a user action.
+        if (intent is AutoContinueIntent.Public.DraftTyped) {
+            log.v { "auto-continue command $intent: $result" }
+        } else {
+            log.i { "auto-continue command $intent: $result" }
+        }
     }
 }

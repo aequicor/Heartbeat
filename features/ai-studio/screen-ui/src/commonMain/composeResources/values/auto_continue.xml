@@ -14,12 +14,14 @@
     <string name="auto_continue_thinking">Picking a reply…</string>
     <string name="auto_continue_sending">Sending the autopilot reply…</string>
     <string name="auto_continue_paused">Autopilot waits for your decision</string>
-    <string name="auto_continue_countdown">Autopilot sends in %1$d s</string>
+    <string name="auto_continue_countdown">Sending in %1$d s</string>
+    <string name="auto_continue_countdown_text">Autopilot will send: %1$s</string>
     <string name="auto_continue_send_now">Send now</string>
     <string name="auto_continue_edit">Edit</string>
     <string name="auto_continue_stop">Stop</string>
     <string name="auto_continue_refresh">Refresh suggestions</string>
-    <string name="auto_continue_insert">Put into the composer</string>
+    <string name="auto_continue_insert">Put into the composer: %1$s</string>
+    <string name="auto_continue_notice_reason">%1$s. %2$s</string>
     <string name="auto_continue_notice_done">The task looks done</string>
     <string name="auto_continue_notice_needs_user">Your decision is needed</string>
     <string name="auto_continue_notice_limit">Autopilot stopped: the reply limit is reached</string>

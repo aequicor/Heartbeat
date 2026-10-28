@@ -158,7 +158,7 @@ class AiStudioModel(
 
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
     private val plans = StudioPlanView(machine, planning)
-    private val autoContinue = StudioAutoContinueView(autoContinuePort)
+    private val autoContinue = StudioAutoContinueView(autoContinuePort, clock)
     private val appUpdate = StudioAppUpdate(machines)
     private val projectTrust = StudioProjectTrust(configuration, facade)
 
