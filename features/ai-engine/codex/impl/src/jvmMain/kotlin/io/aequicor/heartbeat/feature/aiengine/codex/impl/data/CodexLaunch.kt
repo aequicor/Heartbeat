@@ -71,6 +71,12 @@ internal fun codexCommand(launch: CodexLaunch, off: CodexNativeOff = CodexNative
         listOf("-c", "model_provider=\"openai\"") +
         CodexDisabledCapabilities.flatMap { listOf("-c", "features.$it=false") } + off.arguments()
 
+/** Full CLI-owned account metadata, including models that are newer than this binary's bundled catalog. */
+internal fun codexModelCatalogCommand(launch: CodexLaunch): List<String> =
+    listOf(launch.executable, "debug", "models") +
+        launch.overrides.flatMap { listOf("-c", "${it.key}=${it.value}") } +
+        listOf("-c", "model_provider=\"openai\"")
+
 /** The host environment without API keys (the CLI login is used), plus the user's entries and `CODEX_HOME`. */
 internal fun applyCodexEnvironment(environment: MutableMap<String, String>, launch: CodexLaunch) {
     listOf("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL").forEach(environment::remove)

@@ -24,6 +24,29 @@ class CodexLaunchTest {
     private val managed = ManagedInstall("0.159.3", "/data/codex/bin/codex", Instant.fromEpochSeconds(1))
 
     @Test
+    fun `model export uses launch overrides and the same provider instead of the bundled catalog`() {
+        val launch = CodexLaunch(
+            "/custom/codex",
+            InstallSource.Custom,
+            true,
+            "/account/home",
+            listOf(ConfigOverride("model_catalog_json", "\"/account/catalog.json\"")),
+        )
+        assertEquals(
+            listOf(
+                "/custom/codex",
+                "debug",
+                "models",
+                "-c",
+                "model_catalog_json=\"/account/catalog.json\"",
+                "-c",
+                "model_provider=\"openai\"",
+            ),
+            codexModelCatalogCommand(launch),
+        )
+    }
+
+    @Test
     fun `a custom executable wins over Heartbeat's copy, which wins over the system`() {
         val executable = File("/opt/homebrew/bin/codex").path
         val mac = host(available = setOf(executable))

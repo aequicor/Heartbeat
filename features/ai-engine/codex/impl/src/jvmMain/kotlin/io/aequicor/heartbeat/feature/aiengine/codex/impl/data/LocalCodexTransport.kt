@@ -111,7 +111,7 @@ internal class LocalCodexTransport(
         nativeOff: CodexNativeOff,
     ): CodexWire {
         val identity = withContext(dispatchers.io) { codexExecutableIdentity(resolved.executable) }
-        val catalog = CodexModelCatalog.create(resolved.executable, dispatchers)
+        val catalog = CodexModelCatalog.create(resolved, environment, dispatchers)
         var isTransferred = false
         try {
             val isolated = resolved.copy(

@@ -1,9 +1,12 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigOverride
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -18,6 +21,51 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CodexModelCatalogTest {
+    @Test
+    fun `account export retains the captured home environment and overrides and rejects absent models`() {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+        val directory = Files.createTempDirectory("heartbeat-codex-account-catalog-")
+        try {
+            val record = directory.resolve("export.json")
+            val executable = FakeCodexInventoryCli.install(
+                directory.toFile(),
+                FakeInventoryScenario.AccountCatalog,
+                record.toFile(),
+            )
+            val home = Files.createDirectory(directory.resolve("account-home"))
+            val launch = CodexLaunch(
+                executable.absolutePath,
+                InstallSource.Custom,
+                true,
+                home.toString(),
+                listOf(ConfigOverride("model_catalog_json", "\"/account/models.json\"")),
+            )
+            val environment = mapOf("CODEX_HOME" to home.toString(), "HEARTBEAT_TEST_ACCOUNT" to "selected")
+            val dispatchers = object : DispatcherProvider {
+                override val main = Dispatchers.IO
+                override val io = Dispatchers.IO
+                override val default = Dispatchers.Default
+            }
+            runBlocking {
+                CodexModelCatalog.create(launch, environment, dispatchers).use { catalog ->
+                    catalog.requireModel("${FakeCodexInventoryCli.MODEL}-account")
+                    assertFailsWith<EngineException> { catalog.requireModel("unknown-model") }
+                    val exported = Json.parseToJsonElement(Files.readString(record)) as JsonObject
+                    assertEquals(home.toString(), exported.text("home"))
+                    assertEquals("selected", exported.text("account"))
+                    assertEquals(
+                        JsonArray(codexModelCatalogCommand(launch).drop(1).map { it.json() }),
+                        exported["args"],
+                    )
+                    val source = Json.parseToJsonElement(Files.readString(catalog.path)) as JsonObject
+                    assertEquals("direct", ((source["models"] as JsonArray).single() as JsonObject).text("tool_mode"))
+                }
+            }
+        } finally {
+            deleteTree(directory)
+        }
+    }
+
     @Test
     fun `normalization disables model native surfaces while preserving inference metadata`() {
         val original = json(
