@@ -29,6 +29,12 @@ inputs:
       launcher. A secret of the environment launcher-signing, which only master can use.
     required: false
     default: ''
+  launcher-signing-required:
+    description: >-
+      'true': the build fails when no signing key is given (publishing on master): a missing secret must stop the
+      publication, not publish a launcher that no installed app takes. 'false' (a dry run): the launcher stays unsigned.
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -57,20 +63,27 @@ runs:
     - name: Level of the launcher
       shell: bash
       # The level orders the signed launchers of the train: a slot with a lower one is refused. It is the number of
-      # commits that changed the launcher: it grows along master and stays while the launcher is untouched, so an
-      # unchanged launcher keeps its signed entry (the train then carries the jar of the earlier one).
+      # commits of the first-parent history (master) that changed the launcher: it grows along master and stays while
+      # the launcher is untouched. An unchanged launcher is then published once: train_manifest.py reuses its entry
+      # together with the signature made for it (the signature covers the train id, so it is not re-signed per train).
       run: |
         if [ "$(git rev-parse --is-shallow-repository)" != false ]; then
           echo "The launcher level counts commits: check out with fetch-depth: 0" >&2
           exit 1
         fi
-        level=$(git rev-list --count HEAD -- platform-main/launcher)
+        level=$(git rev-list --count --first-parent HEAD -- platform-main/launcher)
         if [ "$level" -lt 1 ]; then
           echo "No commit changed platform-main/launcher: the launcher level is $level" >&2
           exit 1
         fi
         echo "LAUNCHER_API=$level" >> "$GITHUB_ENV"
         echo "Launcher level: $level" >> "$GITHUB_STEP_SUMMARY"
+    - name: Check the signing key
+      if: inputs.launcher-signing-required == 'true' && inputs.launcher-signing-key == ''
+      shell: bash
+      run: |
+        echo "The launcher has to be signed here, but no signing key was given: is the secret HEARTBEAT_LAUNCHER_SIGNING_KEY set in the environment launcher-signing?" >&2
+        exit 1
     - name: Assemble the bundles
       shell: bash
       env:

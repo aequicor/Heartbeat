@@ -116,6 +116,7 @@ jobs:
           base-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/train-${{ steps.affected.outputs.train }}/
           github-token: ${{ github.token }}
           launcher-signing-key: ${{ secrets.HEARTBEAT_LAUNCHER_SIGNING_KEY }}
+          launcher-signing-required: 'true'
       - uses: actions/upload-artifact@v7
         if: steps.affected.outputs.publish == 'true'
         with:

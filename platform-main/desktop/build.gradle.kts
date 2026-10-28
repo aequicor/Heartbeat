@@ -329,7 +329,9 @@ val trainSeed = tasks.register<WriteTrainSeed>("assembleTrainSeed") {
     dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts", "assembleLauncher")
 }
 // The launcher the installer carries as a file, not on the class path (`.seed`: jpackage puts every `.jar` there): the
-// selector starts it when no slot is usable, e.g. on a fresh install. The same jar is the launcher of the train.
+// selector starts it when no slot is usable, e.g. on a fresh install. Built from this checkout, it is the launcher of the
+// train this build makes; with a published seed (-Pheartbeat.seedDir) the launcher of that train is taken from the seed
+// instead, so the fallback of the installer is the very launcher the seed's train carries.
 val embeddedLauncher = tasks.named<org.gradle.jvm.tasks.Jar>("assembleLauncher")
 val smokeTimeoutMinutes = 15L
 
@@ -391,6 +393,8 @@ tasks.register<JavaExec>("verifyShrunkTrain") {
         smokeLog.get().asFile.delete()
         logger.lifecycle("The logs of the smoke are written to ${smokeLog.get().asFile}")
         systemProperty("user.home", homeDirectory.absolutePath)
+        // repository code runs in the smoke: it must not see the signing key that Gradle was given for bundleManifest
+        environment.remove("HEARTBEAT_LAUNCHER_SIGNING_KEY")
         listOf("APPDATA", "LOCALAPPDATA", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME")
             .forEach { environment(it, homeDirectory.absolutePath) }
     }
@@ -407,10 +411,25 @@ tasks.register<JavaExec>("verifyShrunkTrain") {
 }
 val collectAppResources = tasks.register<Sync>("collectAppResources") {
     from(prepareExtensionMetadata) { into("common") }
-    if (publishedSeed != null) from(publishedSeed) { into("common/seed") } else from(trainSeed) { into("common/seed") }
-    from(embeddedLauncher.flatMap { it.archiveFile }) {
-        into("common")
-        rename { "launcher-embedded.seed" }
+    if (publishedSeed != null) {
+        from(publishedSeed) { into("common/seed") }
+        from(publishedSeed) {
+            include("bundle-launcher-*.jar.seed")
+            into("common")
+            rename { "launcher-embedded.seed" }
+        }
+    } else {
+        from(trainSeed) { into("common/seed") }
+        from(embeddedLauncher.flatMap { it.archiveFile }) {
+            into("common")
+            rename { "launcher-embedded.seed" }
+        }
+    }
+    doLast {
+        // Without the fallback launcher the installed app would not start when no slot is usable: fail the build instead
+        check(destinationDir.resolve("common/launcher-embedded.seed").isFile) {
+            "No launcher for the installer: the published seed has no bundle-launcher-*.jar.seed (kind=launcher)"
+        }
     }
     from(layout.projectDirectory.file("pi/LICENSE")) { into("common/licenses/pi") }
     into(layout.buildDirectory.dir("generated/appResources"))

@@ -175,6 +175,7 @@ jobs:
           base-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/
           github-token: ${{ github.token }}
           launcher-signing-key: ${{ secrets.HEARTBEAT_LAUNCHER_SIGNING_KEY }}
+          launcher-signing-required: ${{ !inputs.dry_run }}
       - name: Check the train manifest
         run: test -s train-out/train-manifest.json
       - uses: actions/upload-artifact@v7
