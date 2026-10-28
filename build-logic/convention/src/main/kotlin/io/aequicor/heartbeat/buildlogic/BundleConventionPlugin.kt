@@ -193,7 +193,6 @@ class BundleConventionPlugin : Plugin<Project> {
                 launcherApi.set(providers.gradleProperty(LAUNCHER_API_PROPERTY).map(String::toInt).orElse(DEFAULT_LAUNCHER_API))
                 // the secret comes from the environment: a Gradle property would show up in process lists and logs
                 launcherSigningKey.set(providers.environmentVariable(LAUNCHER_SIGNING_KEY_ENV))
-                launcherSigningKeyDigest.set(launcherSigningKey.map { key -> sha256Hex(key.toByteArray()) })
                 manifestFile.set(root.layout.buildDirectory.file("bundles/manifest.json"))
                 // prebuilt `foundation` and `contracts` jars of the train:
                 // -Pheartbeat.baseArtifacts=foundation,contracts, jars in -Pheartbeat.baseArtifactDir=<dir>

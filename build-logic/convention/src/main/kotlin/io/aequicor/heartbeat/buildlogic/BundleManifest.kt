@@ -6,6 +6,7 @@ import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
@@ -83,7 +84,7 @@ internal fun renderBundleManifest(platformApi: Int, entries: List<BundleManifest
         appendLine("      \"version\": ${jsonString(entry.version)},")
         appendLine("      \"jar\": ${jsonString(entry.jar)},")
         appendLine("      \"sha256\": ${jsonString(entry.sha256)},")
-        // only base artifacts carry a kind, so the entries of plain bundles keep the format launchers already read
+        // only base artifacts and the launcher carry a kind, so plain bundles keep the format launchers already read
         if (entry.kind != BundleArtifactKind.Bundle) appendLine("      \"kind\": ${jsonString(entry.kind.json)},")
         if (entry.launcherApi > 0) appendLine("      \"launcherApi\": ${entry.launcherApi},")
         entry.signature?.let { appendLine("      \"signature\": ${jsonString(it)},") }
@@ -110,6 +111,8 @@ private fun jsonString(value: String): String = buildString {
 /**
  * Root task `bundleManifest`: writes the JSON manifest of the train for every `:bundles:*` project —
  * bundle id, version, jar name, SHA-256 of the jar and the base bundles it depends on — together with `platformApi`.
+ * The base artifacts (`foundation`, `contracts`) are listed with `kind=base`; the `launcher` entry has `kind=launcher`,
+ * its monotonic level `launcherApi` and, when a signing key is given, the Ed25519 `signature` of its record.
  */
 abstract class BundleManifest : DefaultTask() {
     /** `bundle id -> version`, filled by each `heartbeat.bundle` project. */
@@ -117,8 +120,9 @@ abstract class BundleManifest : DefaultTask() {
     abstract val versions: MapProperty<String, String>
 
     /**
-     * `base artifact id -> version` of the prebuilt `foundation` and `contracts` jars of the train (same jar naming as
-     * the bundles). Empty keeps the manifest to the bundles.
+     * `artifact id -> version` of the prebuilt `foundation`, `contracts` and `launcher` jars of the train (same jar
+     * naming as the bundles). The `launcher` entry gets `kind`, [launcherApi] and a signature. Empty keeps the
+     * manifest to the bundles.
      */
     @get:Input
     abstract val baseArtifacts: MapProperty<String, String>
@@ -141,12 +145,16 @@ abstract class BundleManifest : DefaultTask() {
     abstract val launcherSigningKey: Property<String>
 
     /**
-     * SHA-256 of [launcherSigningKey], the only trace of the secret among the inputs: a manifest written without the key
-     * (or with another one) is not up to date once the key is given, so a signed train is never skipped as unchanged.
+     * SHA-256 of [launcherSigningKey] without whitespace (the way signing reads it), the only trace of the secret among
+     * the inputs: a manifest written without the key (or with another one) is not up to date once the key is given, so a
+     * signed train is never skipped as unchanged. Absent for a missing or blank key. Derived here, not wired by the
+     * caller, so no way of setting the key can forget it.
      */
     @get:Input
     @get:Optional
-    abstract val launcherSigningKeyDigest: Property<String>
+    val launcherSigningKeyDigest: Provider<String>
+        get() = launcherSigningKey.map { key -> key.filterNot(Char::isWhitespace) }.filter { it.isNotEmpty() }
+            .map { key -> sha256Hex(key.toByteArray()) }
 
     /** Jars made by `assembleBundle` of every bundle. */
     @get:InputFiles

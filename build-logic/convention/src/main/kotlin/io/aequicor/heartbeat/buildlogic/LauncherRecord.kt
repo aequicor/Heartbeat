@@ -16,12 +16,15 @@ internal fun launcherRecordCanonical(id: String, version: String, sha256: String
 
 /**
  * Ed25519 signature of [message] in Base64 (64 bytes, 88 characters). [privateKeyPkcs8Base64] is the PKCS#8 private
- * key in Base64, as `openssl genpkey -algorithm ed25519 | openssl pkcs8 -topk8 -nocrypt` writes it without the PEM
- * frame; it comes from a CI secret and is never logged.
+ * key in Base64 without the PEM frame, as `openssl genpkey -algorithm ed25519 | openssl pkcs8 -topk8 -nocrypt` writes
+ * it; whitespace, such as the line breaks `openssl` puts every 64 characters, is ignored. It comes from a CI secret and
+ * is never logged.
  */
 internal fun signEd25519(privateKeyPkcs8Base64: String, message: ByteArray): String {
     val key = KeyFactory.getInstance("Ed25519")
-        .generatePrivate(PKCS8EncodedKeySpec(Base64.getDecoder().decode(privateKeyPkcs8Base64.trim())))
+        .generatePrivate(
+            PKCS8EncodedKeySpec(Base64.getDecoder().decode(privateKeyPkcs8Base64.filterNot(Char::isWhitespace))),
+        )
     val signer = Signature.getInstance("Ed25519")
     signer.initSign(key)
     signer.update(message)

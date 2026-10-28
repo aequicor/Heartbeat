@@ -13,23 +13,23 @@ import org.gradle.api.tasks.TaskAction
 private val GLOBAL_PATHS = listOf("build-logic/", "gradle/")
 private val GLOBAL_FILES = setOf("build.gradle.kts", "settings.gradle.kts", "gradle.properties")
 
-/**
- * The launcher is a part of the train (its jar, signed), but no bundle depends on it: a change here publishes a train
- * with the bundles unchanged. The launcher selector is not listed: it ships in the installer, not in the train.
- */
-private const val LAUNCHER_DIRECTORY = "platform-main/launcher/"
-
 private fun normalized(changedPaths: Collection<String>): List<String> =
     changedPaths.map { it.trim().replace('\\', '/').removePrefix("./") }.filter { it.isNotEmpty() }
 
 private fun isBuildFile(path: String): Boolean = path in GLOBAL_FILES || GLOBAL_PATHS.any { path.startsWith(it) }
 
 /**
- * Whether the launcher jar of the train may change with [changedPaths]: its own directory, or the build itself
- * (build-logic, version catalog, root scripts), which can change any jar.
+ * Whether the launcher jar of the train may change with [changedPaths]: the directory of the launcher project, or the
+ * build itself (build-logic, version catalog, root scripts), which can change any jar. The launcher is a part of the
+ * train (its jar, signed), but no bundle depends on it, so a change here publishes a train with the bundles unchanged.
+ * The launcher selector is not the launcher: it ships in the installer, not in the train. The directory comes from
+ * [projectDirs] (`project path -> directory`), so moving the project cannot silently stop publication; a build without
+ * the launcher project counts as affected.
  */
-internal fun launcherAffected(changedPaths: Collection<String>): Boolean =
-    normalized(changedPaths).any { isBuildFile(it) || it.startsWith(LAUNCHER_DIRECTORY) }
+internal fun launcherAffected(changedPaths: Collection<String>, projectDirs: Map<String, String>): Boolean {
+    val directory = projectDirs[LAUNCHER_PROJECT] ?: return true
+    return normalized(changedPaths).any { isBuildFile(it) || it == directory || it.startsWith("$directory/") }
+}
 
 /**
  * Bundles that must be rebuilt for [changedPaths] (repository-relative, `/`-separated).
@@ -73,7 +73,8 @@ internal fun affectedBundles(
 
 /**
  * Root task `affectedBundles`: prints and writes the bundles to rebuild for the changed paths given as
- * `-Pheartbeat.changedPaths=a,b` (comma-separated) or `-Pheartbeat.changedFile=<file>` (one path per line).
+ * `-Pheartbeat.changedPaths=a,b` (comma-separated) or `-Pheartbeat.changedFile=<file>` (one path per line), and whether
+ * the launcher of the train may have changed (`launcher.txt`, `true` or `false`: a train is published for it too).
  */
 abstract class AffectedBundlesTask : DefaultTask() {
     /** `project path -> repository-relative directory`, computed from the Gradle project graph. */
@@ -100,8 +101,9 @@ abstract class AffectedBundlesTask : DefaultTask() {
 
     @TaskAction
     fun compute() {
+        val paths = changedPaths.getOrElse(emptyList())
         val result = affectedBundles(
-            changedPaths = changedPaths.getOrElse(emptyList()),
+            changedPaths = paths,
             projectDirs = projectDirs.get(),
             dependencies = projectDependencies.get(),
             bundles = bundles.get().toSet(),
@@ -111,7 +113,7 @@ abstract class AffectedBundlesTask : DefaultTask() {
             parentFile.mkdirs()
             writeText(if (text.isEmpty()) "" else text + "\n")
         }
-        val launcher = launcherAffected(changedPaths.getOrElse(emptyList()))
+        val launcher = launcherAffected(paths, projectDirs.get())
         launcherFile.get().asFile.apply {
             parentFile.mkdirs()
             writeText("$launcher\n")

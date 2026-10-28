@@ -176,6 +176,37 @@ class BundleManifestTest {
     }
 
     @Test
+    fun `the key digest ignores whitespace and is absent without a usable key`() {
+        val task = fixture()
+        assertEquals(null, task.launcherSigningKeyDigest.orNull)
+        task.launcherSigningKey.set("  \n ")
+        assertEquals(null, task.launcherSigningKeyDigest.orNull)
+        task.launcherSigningKey.set("abc")
+        val digest = task.launcherSigningKeyDigest.get()
+        assertEquals(sha256Hex("abc".toByteArray()), digest)
+        task.launcherSigningKey.set(" ab\nc \n")
+        assertEquals(digest, task.launcherSigningKeyDigest.get())
+        task.launcherSigningKey.set("abd")
+        assertEquals(false, digest == task.launcherSigningKeyDigest.get())
+    }
+
+    @Test
+    fun `launcher entry is signed with a key that openssl wrapped into lines`() {
+        val keys = java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        val wrapped = java.util.Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(keys.private.encoded)
+        val task = fixture()
+        val jars = temporaryFolder.newFolder("jars")
+        task.baseArtifacts.put("launcher", "t1")
+        task.jars.from(jars.resolve(bundleJarName("launcher", "t1")).apply { writeText("launcher") })
+        task.launcherApi.set(2)
+        task.launcherSigningKey.set(wrapped + "\n")
+
+        task.write()
+
+        assertEquals(true, "\"signature\"" in task.manifestFile.get().asFile.readText())
+    }
+
+    @Test
     fun `launcher entry without a key is written unsigned and needs a level`() {
         val task = fixture()
         val jars = temporaryFolder.newFolder("jars")

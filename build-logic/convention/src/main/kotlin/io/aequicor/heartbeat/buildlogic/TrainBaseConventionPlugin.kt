@@ -38,7 +38,7 @@ internal enum class TrainPart {
  * itself is an artifact of the train, kept in the installer only as a file (the fallback of the selector).
  */
 private const val SELECTOR_PROJECT = ":platform-main:launcher-selector"
-private const val LAUNCHER_PROJECT = ":platform-main:launcher"
+internal const val LAUNCHER_PROJECT = ":platform-main:launcher"
 
 private val FEATURE_API = Regex("""^:features:.+:api$""")
 
@@ -150,7 +150,12 @@ class TrainBaseConventionPlugin : Plugin<Project> {
             }.flatMap { it.output }
         }
         // The launcher is not processed: it starts before the train and is read by the selector as it is.
-        val launcher = registerBaseJar(LAUNCHER_ID, version, jarsOf(TrainPart.Launcher), null, FINAL_JAR_DIRECTORY, "assembleLauncher")
+        val launcherJars = jarsOf(TrainPart.Launcher)
+        val launcher = registerBaseJar(LAUNCHER_ID, version, launcherJars, null, FINAL_JAR_DIRECTORY, "assembleLauncher")
+        launcher.configure {
+            // An empty jar is valid and reproducible, and the manifest would sign it as a launcher that cannot start.
+            doFirst { check(launcherJars.get().isNotEmpty()) { "$LAUNCHER_PROJECT is not on the runtime classpath" } }
+        }
         rootProject.tasks.matching { it.name == MANIFEST_TASK }.configureEach {
             this as BundleManifest
             baseArtifacts.put("foundation", version)
