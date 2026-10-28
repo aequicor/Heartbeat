@@ -12885,6 +12885,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -12898,7 +12899,8 @@
    "y": 652.0,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent"
+   "fill": "$hb:annotation.accent",
+   "opacity": 0.65
   },
   {
    "id": "flow-arrow-st-0-text",
@@ -12937,6 +12939,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -12950,7 +12953,8 @@
    "y": 923.0,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent"
+   "fill": "$hb:annotation.accent",
+   "opacity": 0.65
   },
   {
    "id": "flow-arrow-st-1-text",
@@ -12989,6 +12993,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -13002,7 +13007,8 @@
    "y": 923.0,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent"
+   "fill": "$hb:annotation.accent",
+   "opacity": 0.65
   },
   {
    "id": "flow-arrow-st-2-text",
@@ -13041,6 +13047,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -13054,7 +13061,8 @@
    "y": 941.0,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent"
+   "fill": "$hb:annotation.accent",
+   "opacity": 0.65
   },
   {
    "id": "callout-st-1-arrow",
@@ -13075,6 +13083,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -13088,7 +13097,8 @@
    "y": 681.0,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent2"
+   "fill": "$hb:annotation.accent2",
+   "opacity": 0.65
   },
   {
    "id": "callout-st-0",

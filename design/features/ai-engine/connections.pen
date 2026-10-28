@@ -12849,6 +12849,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -12862,7 +12863,8 @@
    "y": 325.0,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent"
+   "fill": "$hb:annotation.accent",
+   "opacity": 0.65
   },
   {
    "id": "flow-arrow-cn-0-text",
@@ -12901,6 +12903,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -12914,7 +12917,8 @@
    "y": 923.0,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent"
+   "fill": "$hb:annotation.accent",
+   "opacity": 0.65
   },
   {
    "id": "flow-arrow-cn-1-text",
@@ -12953,6 +12957,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -12966,7 +12971,8 @@
    "y": 2129.0,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent"
+   "fill": "$hb:annotation.accent",
+   "opacity": 0.65
   },
   {
    "id": "flow-arrow-cn-2-text",
@@ -13005,6 +13011,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -13018,7 +13025,8 @@
    "y": 941,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent"
+   "fill": "$hb:annotation.accent",
+   "opacity": 0.65
   },
   {
    "id": "callout-cn-1-arrow",
@@ -13039,6 +13047,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -13052,7 +13061,8 @@
    "y": 484.9,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent"
+   "fill": "$hb:annotation.accent",
+   "opacity": 0.65
   },
   {
    "id": "callout-cn-2-arrow",
@@ -13073,6 +13083,7 @@
    "strokeWidth": 3,
    "strokeLinecap": "round",
    "strokeLinejoin": "round",
+   "opacity": 0.65,
    "theme": {
     "hb:mode": "dark",
     "hb:host": "desktop"
@@ -13086,7 +13097,8 @@
    "y": 1844.9,
    "width": 10,
    "height": 10,
-   "fill": "$hb:annotation.accent"
+   "fill": "$hb:annotation.accent",
+   "opacity": 0.65
   },
   {
    "id": "callout-cn-0",
