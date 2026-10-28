@@ -116,3 +116,6 @@ __pycache__/
 chromium-plugin/*.pem
 # Side panel build (Kotlin/Wasm), copied by ./gradlew :chromium-plugin:panel:syncChromiumPanel
 chromium-plugin/app/
+
+# Codex worktrees
+/.worktrees/
