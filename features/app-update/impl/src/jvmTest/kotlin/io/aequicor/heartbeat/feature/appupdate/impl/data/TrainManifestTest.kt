@@ -64,6 +64,44 @@ class TrainManifestTest {
     }
 
     @Test
+    fun `the launcher entry keeps its kind, level and signature`() {
+        val signature = "A".repeat(86) + "=="
+        val text = manifestJson("t-1", listOf("core.jar" to sha, "launcher.jar" to sha.reversed())).replace(
+            "\"jar\": \"launcher.jar\",",
+            "\"jar\": \"launcher.jar\", \"kind\": \"launcher\", \"launcherApi\": 4, \"signature\": \"$signature\",",
+        )
+
+        val launcher = parseTrainManifest(text).bundles.single { it.id == "launcher" }
+
+        assertEquals("launcher", launcher.kind)
+        assertEquals(4, launcher.launcherApi)
+        assertEquals(signature, launcher.signature)
+        assertNull(parseTrainManifest(text).bundles.single { it.id == "core" }.kind)
+    }
+
+    @Test
+    fun `a launcher entry the launcher would refuse is an invalid release`() {
+        val signature = "A".repeat(86) + "=="
+        val entry = "\"jar\": \"launcher.jar\", \"kind\": \"launcher\", \"launcherApi\": 4, " +
+            "\"signature\": \"$signature\","
+        val bundles = listOf("core.jar" to sha, "launcher.jar" to sha.reversed())
+        fun manifest(fields: String) = manifestJson("t-1", bundles).replace("\"jar\": \"launcher.jar\",", fields)
+        val broken = listOf(
+            manifest(entry.replace("\"launcher\", \"launcherApi\"", "\"plugin\", \"launcherApi\"")),
+            manifest(entry.replace("\"launcherApi\": 4, ", "")),
+            manifest(entry.replace("\"launcherApi\": 4", "\"launcherApi\": 0")),
+            manifest(entry.replace(signature, "short")),
+            manifest(entry).replace(
+                "\"jar\": \"core.jar\",",
+                "\"jar\": \"core.jar\", \"kind\": \"launcher\", \"launcherApi\": 1,",
+            ),
+        )
+        broken.forEach { text ->
+            assertUpdateFailure(AppUpdateFailure.InvalidRelease) { parseTrainManifest(text) }
+        }
+    }
+
+    @Test
     fun `a bundle url is trusted only as a release download of the configured repository`() {
         val repository = GitHubRepository("aequicor", "Heartbeat")
 

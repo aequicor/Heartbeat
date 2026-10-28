@@ -39,8 +39,11 @@ import java.util.Set;
  * {@code instance.lock}, см. {@link LauncherMain}) состояние не меняет и вызывает только {@link #prepareReadOnly()}.
  */
 public final class Launcher {
-    /** Версия API платформы, которую поддерживает этот лаунчер. */
-    public static final int PLATFORM_API = 1;
+    /**
+     * Версия API платформы, которую поддерживает этот лаунчер. Уровень 2: поезд может нести запись
+     * {@code kind=launcher}, которую лаунчер уровня 1 положил бы в classpath приложения как бандл.
+     */
+    public static final int PLATFORM_API = 2;
     public static final long STABLE_AFTER_MILLIS = 60_000L;
     public static final int CRASH_LIMIT = 2;
 

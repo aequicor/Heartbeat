@@ -44,8 +44,10 @@ dependencies {
     implementation(libs.compose.uiToolingPreview)
     implementation(libs.jbr.api)
     implementation(libs.jna.platform)
-    // The platform launcher starts the app from the installed seed or the active train (LauncherMain); it stays on the
-    // installer's class path, the project code does not.
+    // The launcher selector (SelectorMain) is the only project code on the installer's class path: it picks the slot of
+    // the platform launcher (LauncherMain) and starts it. The launcher itself is an artifact of the train (assembleLauncher)
+    // and a file of the installer (the fallback of the selector), so it is a dependency only to be packaged.
+    runtimeOnly(projects.platformMain.launcherSelector)
     runtimeOnly(projects.platformMain.launcher)
     testImplementation(libs.kotlin.testJunit)
     // The headless smoke of the shrunk train reads the health of the bundles (verifyShrunkTrain).
@@ -324,8 +326,11 @@ val trainSeed = tasks.register<WriteTrainSeed>("assembleTrainSeed") {
     jars.from(rootProject.fileTree("bundles") { include("*/build/bundle/*.jar") })
     jars.from(layout.buildDirectory.dir("bundle").map { fileTree(it) { include("*.jar") } })
     seedDirectory.set(layout.buildDirectory.dir("generated/trainSeed"))
-    dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts")
+    dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts", "assembleLauncher")
 }
+// The launcher the installer carries as a file, not on the class path (`.seed`: jpackage puts every `.jar` there): the
+// selector starts it when no slot is usable, e.g. on a fresh install. The same jar is the launcher of the train.
+val embeddedLauncher = tasks.named<org.gradle.jvm.tasks.Jar>("assembleLauncher")
 val smokeTimeoutMinutes = 15L
 
 // Headless smoke of the shrunk train: the production graph over the processed jars of the train (no classes of this
@@ -356,7 +361,10 @@ tasks.register<JavaExec>("verifyShrunkTrain") {
         classpath(
             files(
                 trainRoot.provider {
-                    trainRoot.tasks.withType(BundleManifest::class.java).flatMap { manifest -> manifest.jars.files }
+                    trainRoot.tasks.withType(BundleManifest::class.java).flatMap { manifest ->
+                        // The launcher jar is in the train but not on the class path of the application.
+                        manifest.jars.files.filterNot { it.name.startsWith("bundle-launcher-") }
+                    }
                 },
             ),
         )
@@ -400,6 +408,10 @@ tasks.register<JavaExec>("verifyShrunkTrain") {
 val collectAppResources = tasks.register<Sync>("collectAppResources") {
     from(prepareExtensionMetadata) { into("common") }
     if (publishedSeed != null) from(publishedSeed) { into("common/seed") } else from(trainSeed) { into("common/seed") }
+    from(embeddedLauncher.flatMap { it.archiveFile }) {
+        into("common")
+        rename { "launcher-embedded.seed" }
+    }
     from(layout.projectDirectory.file("pi/LICENSE")) { into("common/licenses/pi") }
     into(layout.buildDirectory.dir("generated/appResources"))
 }
@@ -622,18 +634,19 @@ afterEvaluate {
                 .withPropertyName("releaseAppResources")
                 .withPathSensitivity(PathSensitivity.RELATIVE)
             files.setFrom(fileTree(prepareReleaseRuntimeJars.flatMap { it.outputDirectory }))
-            val launcherJar = project(":platform-main:launcher").tasks.named<org.gradle.jvm.tasks.Jar>("jar")
+            val selectorJar = project(":platform-main:launcher-selector").tasks.named<org.gradle.jvm.tasks.Jar>("jar")
             launcherMainJar.set(prepareReleaseRuntimeJars.flatMap { prepared ->
-                launcherJar.flatMap { jar -> prepared.outputDirectory.file(jar.archiveFileName) }
+                selectorJar.flatMap { jar -> prepared.outputDirectory.file(jar.archiveFileName) }
             })
-            launcherMainClass.set("io.aequicor.heartbeat.launcher.LauncherMain")
+            launcherMainClass.set("io.aequicor.heartbeat.selector.SelectorMain")
             // $APPDIR is the installed app directory; the launcher finds the data directory of the user itself.
-            // The agent lets the launcher append the train to the system class loader (LauncherAgent); it is the
-            // launcher jar itself, so the argument follows the jar name instead of repeating it.
-            launcherJvmArgs.add(launcherJar.map { jar -> "-javaagent:\$APPDIR/${jar.archiveFileName.get()}" })
+            // The agent (SelectorAgent) hands Instrumentation to the launcher of the slot, which appends the train to the
+            // system class loader; it is the selector jar itself, so the argument follows the jar name.
+            launcherJvmArgs.add(selectorJar.map { jar -> "-javaagent:\$APPDIR/${jar.archiveFileName.get()}" })
             launcherJvmArgs.addAll(
                 "-Dheartbeat.launcher.default.root=true",
                 "-Dheartbeat.seed.dir=\$APPDIR/resources/seed",
+                "-Dheartbeat.selector.embedded=\$APPDIR/resources/launcher-embedded.seed",
                 "-Dheartbeat.app.main=" + if (isTestingFlavor) {
                     "io.aequicor.heartbeat.platform.desktop.TestingMainKt"
                 } else {

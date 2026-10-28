@@ -52,6 +52,11 @@ class BundleManifestTest {
     }
 
     @Test
+    fun `sha256 of bytes matches the one of a file with the same content`() {
+        assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", sha256Hex("abc".toByteArray()))
+    }
+
+    @Test
     fun `task writes manifest with jar hashes and base dependencies`() {
         val task = fixture()
         val jars = temporaryFolder.newFolder("jars")
@@ -116,6 +121,72 @@ class BundleManifestTest {
     fun `plain bundles keep the entry format without kind`() {
         val json = renderBundleManifest(1, listOf(BundleManifestEntry("web", "1", "j", "aa", emptyList())))
         assertEquals(false, "kind" in json)
+    }
+
+    @Test
+    fun `launcher entry carries its level and signature after the kind`() {
+        val json = renderBundleManifest(
+            2,
+            listOf(
+                BundleManifestEntry(
+                    "launcher", "t1", "bundle-launcher-t1.jar", "ab", emptyList(), BundleArtifactKind.Launcher, 4, "c2ln",
+                ),
+            ),
+        )
+        val expected = """
+            {
+              "platformApi": 2,
+              "bundles": [
+                {
+                  "id": "launcher",
+                  "version": "t1",
+                  "jar": "bundle-launcher-t1.jar",
+                  "sha256": "ab",
+                  "kind": "launcher",
+                  "launcherApi": 4,
+                  "signature": "c2ln",
+                  "dependencies": []
+                }
+              ]
+            }
+        """.trimIndent() + "\n"
+        assertEquals(expected, json)
+    }
+
+    @Test
+    fun `launcher entry is signed over the record of its jar when a key is given`() {
+        val keys = java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        val task = fixture()
+        val jars = temporaryFolder.newFolder("jars")
+        val launcher = jars.resolve(bundleJarName("launcher", "t1")).apply { writeText("launcher") }
+        task.baseArtifacts.put("launcher", "t1")
+        task.jars.from(launcher)
+        task.launcherApi.set(5)
+        task.launcherSigningKey.set(java.util.Base64.getEncoder().encodeToString(keys.private.encoded))
+
+        task.write()
+
+        val text = task.manifestFile.get().asFile.readText()
+        val signature = Regex("\"signature\": \"([^\"]+)\"").find(text)!!.groupValues[1]
+        val verifier = java.security.Signature.getInstance("Ed25519")
+        verifier.initVerify(keys.public)
+        verifier.update(launcherRecordCanonical("launcher", "t1", sha256Hex(launcher), "launcher", 5))
+        assertEquals(true, verifier.verify(java.util.Base64.getDecoder().decode(signature)))
+        assertEquals(true, "\"kind\": \"launcher\"" in text && "\"launcherApi\": 5" in text)
+    }
+
+    @Test
+    fun `launcher entry without a key is written unsigned and needs a level`() {
+        val task = fixture()
+        val jars = temporaryFolder.newFolder("jars")
+        task.baseArtifacts.put("launcher", "t1")
+        task.jars.from(jars.resolve(bundleJarName("launcher", "t1")).apply { writeText("launcher") })
+        assertFailsWith<GradleException> { task.write() }
+        task.launcherApi.set(2)
+        task.write()
+        val text = task.manifestFile.get().asFile.readText()
+        assertEquals(false, "signature" in text)
+        assertEquals(true, "\"launcherApi\": 2" in text)
     }
 
     @Test

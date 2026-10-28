@@ -14,7 +14,7 @@ internal const val TRAIN_MANIFEST_ASSET = "train-manifest.json"
  * The platform API this build of the app (the launcher and the shared platform code) implements. A train that needs a
  * higher one cannot run on it: the platform comes first, through a full installer.
  */
-internal const val INSTALLED_PLATFORM_API = 1
+internal const val INSTALLED_PLATFORM_API = 2
 
 /**
  * `train-manifest.json` of a train: the bundles of one desktop release. The field names are the contract with the
@@ -33,6 +33,12 @@ internal data class TrainManifest(
  * One bundle of a train: [jar] is a plain file name whose content has the lowercase hex [sha256]. [url] is the
  * absolute address of the jar in the release that first published it (`scripts/train_manifest.py`), null in a train
  * written before the field existed; it is only a hint where to download from, the digest decides what is accepted.
+ *
+ * [kind] is `bundle` (also when absent), `base` or `launcher`. The `launcher` entry is the jar of the platform
+ * launcher: it is downloaded and verified like the others, but the launcher does not put it on the class path;
+ * [launcherApi] is its monotonic level and [signature] the Ed25519 signature of the record, which the launcher
+ * selector of the installed app
+ * verifies (this app only checks the shape).
  */
 @Serializable
 internal data class TrainBundle(
@@ -41,6 +47,9 @@ internal data class TrainBundle(
     val jar: String,
     val sha256: String,
     val url: String? = null,
+    val kind: String? = null,
+    val launcherApi: Int? = null,
+    val signature: String? = null,
 )
 
 /**
@@ -59,6 +68,7 @@ internal fun parseTrainManifest(text: String): TrainManifest {
     manifest.bundles.forEach(::validate)
     if (manifest.bundles.distinctBy { it.id }.size != manifest.bundles.size) invalid("duplicate bundle id")
     if (manifest.bundles.distinctBy { it.jar }.size != manifest.bundles.size) invalid("duplicate jar")
+    if (manifest.bundles.count { it.kind == KIND_LAUNCHER } > 1) invalid("more than one launcher entry")
     return manifest.copy(bundles = manifest.bundles.map { it.copy(sha256 = it.sha256.lowercase()) })
 }
 
@@ -69,6 +79,10 @@ private fun validate(bundle: TrainBundle) {
     if (bundle.id.isBlank() || bundle.version.isBlank()) invalid("bundle id or version")
     if (!isPlainJarName(bundle.jar)) invalid("jar name")
     if (!Sha256Hex.matches(bundle.sha256)) invalid("sha256")
+    if (bundle.kind != null && bundle.kind !in KINDS) invalid("kind of ${bundle.id}")
+    if (bundle.launcherApi != null && bundle.launcherApi < 1) invalid("launcherApi of ${bundle.id}")
+    if (bundle.kind == KIND_LAUNCHER && bundle.launcherApi == null) invalid("launcherApi of the launcher entry")
+    if (bundle.signature != null && !Signature.matches(bundle.signature)) invalid("signature of ${bundle.id}")
 }
 
 private fun decode(text: String): TrainManifest = try {
@@ -86,5 +100,10 @@ private fun isPlainJarName(name: String): Boolean =
 private fun invalid(what: String): Nothing = updateFailure(AppUpdateFailure.InvalidRelease, "train manifest: $what")
 
 private val ManifestJson = Json { ignoreUnknownKeys = true }
+private const val KIND_LAUNCHER = "launcher"
+private val KINDS = setOf("bundle", "base", KIND_LAUNCHER)
+
+/** Ed25519 signature: 64 bytes in Base64. */
+private val Signature = Regex("[A-Za-z0-9+/]{86}==")
 private val TrainId = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 private val Sha256Hex = Regex("[0-9a-fA-F]{64}")

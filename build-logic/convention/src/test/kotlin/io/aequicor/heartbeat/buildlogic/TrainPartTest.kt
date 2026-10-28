@@ -9,7 +9,12 @@ class TrainPartTest {
     @Test
     fun `third-party artifacts stay in the platform`() {
         assertEquals(TrainPart.Platform, trainPartOf(null, bundleImpls))
-        assertEquals(TrainPart.Platform, trainPartOf(":platform-main:launcher", bundleImpls))
+        assertEquals(TrainPart.Platform, trainPartOf(":platform-main:launcher-selector", bundleImpls))
+    }
+
+    @Test
+    fun `the launcher is an artifact of the train, not of the installer class path`() {
+        assertEquals(TrainPart.Launcher, trainPartOf(":platform-main:launcher", bundleImpls))
     }
 
     @Test
@@ -45,9 +50,9 @@ class TrainPartTest {
     }
 
     @Test
-    fun `only the launcher may bring project classes to the platform class path`() {
+    fun `only the selector may bring project classes to the platform class path`() {
         val clean = sequenceOf(
-            "io/aequicor/heartbeat/launcher/LauncherMain.class",
+            "io/aequicor/heartbeat/selector/SelectorMain.class",
             "androidx/compose/runtime/Composer.class",
             "io/aequicor/heartbeat/data.txt",
         )
@@ -55,6 +60,11 @@ class TrainPartTest {
         assertEquals(
             listOf("io/aequicor/heartbeat/core/common/Foo.class"),
             projectClassesIn(sequenceOf("io/aequicor/heartbeat/core/common/Foo.class")),
+        )
+        // the launcher runs from its own slot jar: a copy on the class path would be dead weight
+        assertEquals(
+            listOf("io/aequicor/heartbeat/launcher/LauncherMain.class"),
+            projectClassesIn(sequenceOf("io/aequicor/heartbeat/launcher/LauncherMain.class")),
         )
     }
 }

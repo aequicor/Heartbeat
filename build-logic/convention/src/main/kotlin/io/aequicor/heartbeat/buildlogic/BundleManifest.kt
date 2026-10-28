@@ -7,6 +7,8 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
@@ -18,10 +20,16 @@ import java.security.MessageDigest
 /** Bundles every other bundle builds on; each bundle of the train lists them in its manifest entry. */
 internal val BUNDLE_BASE_DEPENDENCIES = listOf("contracts", "foundation")
 
-/** What an entry of the train is: a feature bundle or a base artifact (`foundation`, `contracts`) the bundles build on. */
-internal enum class BundleArtifactKind(val json: String) { Bundle("bundle"), Base("base") }
+/**
+ * What an entry of the train is: a feature bundle, a base artifact (`foundation`, `contracts`) the bundles build on,
+ * or the `launcher` jar, which the launcher selector installs into a slot and which is not on the application class path.
+ */
+internal enum class BundleArtifactKind(val json: String) { Bundle("bundle"), Base("base"), Launcher("launcher") }
 
-/** One artifact of the train as the launcher reads it. */
+/**
+ * One artifact of the train as the launcher reads it. [launcherApi] is the monotonic level of a launcher entry
+ * (0 for the others) and [signature] its Ed25519 signature in Base64 (null: not signed).
+ */
 internal data class BundleManifestEntry(
     val id: String,
     val version: String,
@@ -29,29 +37,37 @@ internal data class BundleManifestEntry(
     val sha256: String,
     val dependencies: List<String>,
     val kind: BundleArtifactKind = BundleArtifactKind.Bundle,
+    val launcherApi: Int = 0,
+    val signature: String? = null,
 )
 
 /** Base artifacts and what each depends on: `contracts` (the `features:*:api`) is built on the foundation. */
 internal val BASE_ARTIFACT_DEPENDENCIES = mapOf(
     "foundation" to emptyList(),
     "contracts" to listOf("foundation"),
+    LAUNCHER_ID to emptyList(),
 )
+
+/** Id of the launcher entry of the train. */
+internal const val LAUNCHER_ID = "launcher"
 
 /** File name of the bundle jar: stable for a given id and version, so the manifest can point at it. */
 internal fun bundleJarName(id: String, version: String): String = "bundle-$id-$version.jar"
 
-internal fun sha256Hex(file: File): String {
+internal fun sha256Hex(file: File): String = file.inputStream().use { input ->
     val digest = MessageDigest.getInstance("SHA-256")
-    file.inputStream().use { input ->
-        val buffer = ByteArray(BUFFER_SIZE)
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) break
-            digest.update(buffer, 0, read)
-        }
+    val buffer = ByteArray(BUFFER_SIZE)
+    while (true) {
+        val read = input.read(buffer)
+        if (read < 0) break
+        digest.update(buffer, 0, read)
     }
-    return digest.digest().joinToString("") { "%02x".format(it) }
+    digest.digest().toHex()
 }
+
+internal fun sha256Hex(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).toHex()
+
+private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
 /**
  * Train manifest as JSON. Bundles are sorted by id and no timestamps are written, so equal inputs give equal bytes.
@@ -69,6 +85,8 @@ internal fun renderBundleManifest(platformApi: Int, entries: List<BundleManifest
         appendLine("      \"sha256\": ${jsonString(entry.sha256)},")
         // only base artifacts carry a kind, so the entries of plain bundles keep the format launchers already read
         if (entry.kind != BundleArtifactKind.Bundle) appendLine("      \"kind\": ${jsonString(entry.kind.json)},")
+        if (entry.launcherApi > 0) appendLine("      \"launcherApi\": ${entry.launcherApi},")
+        entry.signature?.let { appendLine("      \"signature\": ${jsonString(it)},") }
         appendLine("      \"dependencies\": [${entry.dependencies.sorted().joinToString(", ") { jsonString(it) }}]")
         appendLine("    }" + if (index < sorted.lastIndex) "," else "")
     }
@@ -109,6 +127,27 @@ abstract class BundleManifest : DefaultTask() {
     @get:Input
     abstract val platformApi: Property<Int>
 
+    /** Monotonic level of the launcher in the train: a launcher below the highest confirmed level is not accepted. */
+    @get:Input
+    @get:Optional
+    abstract val launcherApi: Property<Int>
+
+    /**
+     * PKCS#8 Ed25519 private key (Base64) that signs the launcher entry. A secret: it is not an input of the task, so it
+     * never reaches the build cache key or a log. Without it the launcher entry is written unsigned, and the selector of an
+     * installed app does not accept such a launcher.
+     */
+    @get:Internal
+    abstract val launcherSigningKey: Property<String>
+
+    /**
+     * SHA-256 of [launcherSigningKey], the only trace of the secret among the inputs: a manifest written without the key
+     * (or with another one) is not up to date once the key is given, so a signed train is never skipped as unchanged.
+     */
+    @get:Input
+    @get:Optional
+    abstract val launcherSigningKeyDigest: Property<String>
+
     /** Jars made by `assembleBundle` of every bundle. */
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.NAME_ONLY)
@@ -116,6 +155,16 @@ abstract class BundleManifest : DefaultTask() {
 
     @get:OutputFile
     abstract val manifestFile: RegularFileProperty
+
+    private fun launcherEntry(version: String, jar: String, sha256: String): BundleManifestEntry {
+        val level = launcherApi.orNull?.takeIf { it > 0 }
+            ?: throw GradleException("The launcher level launcherApi must be set to a positive number")
+        val kind = BundleArtifactKind.Launcher
+        val signature = launcherSigningKey.orNull?.takeIf { it.isNotBlank() }?.let { key ->
+            signEd25519(key, launcherRecordCanonical(LAUNCHER_ID, version, sha256, kind.json, level))
+        }
+        return BundleManifestEntry(LAUNCHER_ID, version, jar, sha256, emptyList(), kind, level, signature)
+    }
 
     @TaskAction
     fun write() {
@@ -125,7 +174,10 @@ abstract class BundleManifest : DefaultTask() {
                 ?: throw GradleException("Unknown base artifact $id, expected ${BASE_ARTIFACT_DEPENDENCIES.keys}")
             val name = bundleJarName(id, version)
             val jar = jarsByName[name] ?: throw GradleException("Base artifact jar $name is missing")
-            BundleManifestEntry(id, version, name, sha256Hex(jar), dependencies, BundleArtifactKind.Base)
+            val sha = sha256Hex(jar)
+            if (id == LAUNCHER_ID) launcherEntry(version, name, sha) else {
+                BundleManifestEntry(id, version, name, sha, dependencies, BundleArtifactKind.Base)
+            }
         }
         val entries = base + versions.get().map { (id, version) ->
             val name = bundleJarName(id, version)

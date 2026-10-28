@@ -10,7 +10,11 @@ gets `--base-url` (the download URL of the release being published) plus its jar
 
 With `--mappings <dir>` (an obfuscated train) the ProGuard mapping of every jar the train carries is published next to
 it as `mapping-<jar name without .jar>.txt`, in the release that first published the jar: that release is the one
-`scripts/retrace.py` finds the mapping in. `contracts` is not processed and has none; any other missing mapping fails.
+`scripts/retrace.py` finds the mapping in. `contracts` and `launcher` are not processed and have none; any other missing mapping fails.
+
+An entry may also carry `kind` (`bundle`, `base`, `launcher`), `launcherApi` and `signature`. They are published as
+built, and an entry is only reused when they are unchanged too: a launcher signed with another key, or with a higher
+level, is published again even though its jar is the same.
 """
 
 from __future__ import annotations
@@ -30,7 +34,10 @@ BASE_URL = re.compile(r"https://[^\s?#/]+/(?:[^\s?#]*/)?")
 MANIFEST_ASSET = "train-manifest.json"
 FIELDS = ("id", "version", "jar", "sha256")
 MAPPING_NAME = "mapping-{}.txt"
-UNPROCESSED_ID = "contracts"
+UNPROCESSED_IDS = ("contracts", "launcher")
+OPTIONAL_FIELDS = ("kind", "launcherApi", "signature")
+KINDS = ("bundle", "base", "launcher")
+SIGNATURE = re.compile(r"[A-Za-z0-9+/]{86}==")
 
 
 def check_base_url(url: str, name: str) -> str:
@@ -55,12 +62,33 @@ def check_bundle(bundle: object, where: str) -> dict:
         raise ValueError(f"{where}: bundle {name}: bad jar name")
     if not SHA256.fullmatch(bundle["sha256"]):
         raise ValueError(f"{where}: bundle {name}: bad sha256")
+    check_optional(bundle, where, name)
     url = bundle.get("url")
     if url is not None:
         jar = bundle["jar"]
         if not (isinstance(url, str) and url.endswith("/" + jar) and BASE_URL.fullmatch(url[: -len(jar)])):
             raise ValueError(f"{where}: bundle {name}: bad url")
     return bundle
+
+
+def check_optional(bundle: dict, where: str, name: str) -> None:
+    """Validate `kind`, `launcherApi` and `signature` as the launcher and the app read them."""
+    kind = bundle.get("kind")
+    if kind is not None and kind not in KINDS:
+        raise ValueError(f"{where}: bundle {name}: unknown kind {kind!r}")
+    level = bundle.get("launcherApi")
+    if level is not None and (not isinstance(level, int) or isinstance(level, bool) or level < 1):
+        raise ValueError(f"{where}: bundle {name}: launcherApi is not a positive integer")
+    if kind == "launcher" and level is None:
+        raise ValueError(f"{where}: bundle {name}: a launcher entry needs launcherApi")
+    signature = bundle.get("signature")
+    if signature is not None and not (isinstance(signature, str) and SIGNATURE.fullmatch(signature)):
+        raise ValueError(f"{where}: bundle {name}: bad signature")
+
+
+def published(bundle: dict) -> dict:
+    """The fields of a built entry that go to the train manifest."""
+    return {**{k: bundle[k] for k in FIELDS}, **{k: bundle[k] for k in OPTIONAL_FIELDS if k in bundle}}
 
 
 def check_manifest(manifest: object, where: str) -> dict:
@@ -100,17 +128,22 @@ def build_train(
     bundles, carried = [], []
     for bundle in sorted(built["bundles"], key=lambda b: b["id"]):
         old = known.get(bundle["id"])
-        if old is not None and old["sha256"] == bundle["sha256"] and "url" in old:
-            bundles.append({**{k: old[k] for k in FIELDS}, "url": old["url"]})
+        if (
+            old is not None
+            and old["sha256"] == bundle["sha256"]
+            and "url" in old
+            and all(old.get(k) == bundle.get(k) for k in OPTIONAL_FIELDS)
+        ):
+            bundles.append({**published(old), "url": old["url"]})
             continue
-        bundles.append({**{k: bundle[k] for k in FIELDS}, "url": base_url + bundle["jar"]})
+        bundles.append({**published(bundle), "url": base_url + bundle["jar"]})
         carried.append(bundle["jar"])
     return {"train": train, "platformApi": built["platformApi"], "bundles": bundles}, carried
 
 
 def mapping_files(carried: list[str], directory: Path, built: dict) -> list[Path]:
     """The mapping files of the carried jars; every processed jar needs one."""
-    unprocessed = {b["jar"] for b in built["bundles"] if b["id"] == UNPROCESSED_ID}
+    unprocessed = {b["jar"] for b in built["bundles"] if b["id"] in UNPROCESSED_IDS}
     found, missing = [], []
     for jar in carried:
         if jar in unprocessed:
