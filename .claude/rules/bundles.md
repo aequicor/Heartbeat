@@ -115,7 +115,8 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   production-графа на обработанных jar поезда (список — из `bundleManifest`), открытие профиля, все бандлы обязаны быть
   `Healthy` и на уровне приложения, и в профильном графе (`BundleHost.lastProfileHealth`); логи прогона — `build/train-smoke/smoke.log`
   (смоук `TrainSmoke` в тестах desktop; не покрывает UI и JCEF-браузер). Перед включением `obfuscate` в CI прогнан `e2e-regression` (core) на упакованном
-  `HeartbeatE2E`; в CI смоук идёт перед записью поезда, маппинги публикуются вместе с jar (`ci.md`).
+  `HeartbeatE2E`; в CI оптимизированный поезд `o<sha12>` (ночь и релиз) проходит смоук перед записью, маппинги публикуются
+  вместе с jar; быстрый поезд после мержа (`t<sha12>`) ProGuard не обрабатывается (`ci.md`).
 - **Лаунчер в поезде.** `assembleLauncher` собирает jar лаунчера (`TrainPart.Launcher`), `bundleManifest` пишет его записью
   `kind=launcher` с `launcherApi` и подписью Ed25519, `scripts/train_manifest.py` публикует эти поля. Лаунчер не входит в
   classpath приложения; слоты, селектор и подпись — `.claude/rules/launcher.md`.

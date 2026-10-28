@@ -12,7 +12,8 @@ name: Release
 # created as a draft, gets every installer and SHA256SUMS, and only then becomes public and latest. The asset
 # names are what the app looks for (ReleasePlatform in features/app-update/impl): keep them in sync.
 # The release is also a channel of bundles: it carries the train of its commit (train-manifest.json and the jars
-# that changed), promoted from the pre-release that prerelease.yml tested, or built here when there is none. Every
+# that changed), optimized by ProGuard: usually built here, promoted from the nightly pre-release train-o<sha12> only
+# when the release commit was the master head of that run. The fast train-t<sha12> of a push is never released. Every
 # installer is the platform plus the whole train as its seed (scripts/train_seed.py) and must fit the size budget
 # (scripts/check_installer_size.py) before anything is published.
 # dry_run builds and checks everything without creating a tag or publishing:
@@ -122,7 +123,9 @@ jobs:
     name: Bundle train
     needs: [version, checks]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Usually builds the optimized train itself (the nightly one exists only when the release commit was its master
+    # head): ProGuard and the headless start of the processed train, the budget of the nightly run.
+    timeout-minutes: 60
     # The launcher of a train built here is signed with HEARTBEAT_LAUNCHER_SIGNING_KEY of the environment launcher-signing,
     # which only master can use. A dry run (it may come from a working branch) takes the environment without secrets:
     # its launcher is unsigned, and no installed app takes it.
@@ -139,8 +142,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # prerelease.yml tested and published the train of every master commit that changed a bundle.
-          train="t${GITHUB_SHA:0:12}"
+          # prerelease.yml publishes the optimized train of master once a night; the fast train of a push (t<sha12>,
+          # no ProGuard) is never promoted: installers carry processed jars only.
+          train="o${GITHUB_SHA:0:12}"
           echo "train=$train" >> "$GITHUB_OUTPUT"
           # Only "no such release" or a draft left by a failed run means there is nothing to promote; any other
           # gh failure stops the job instead of rebuilding a train that differs from the tested one.
@@ -150,7 +154,7 @@ jobs:
             echo "Promoting train $train" >> "$GITHUB_STEP_SUMMARY"
           elif [ "$draft" = true ] || grep -qi 'release not found' view.err; then
             echo "promoted=false" >> "$GITHUB_OUTPUT"
-            echo "No published pre-release train for this commit: building it" >> "$GITHUB_STEP_SUMMARY"
+            echo "No published optimized train for this commit: building it" >> "$GITHUB_STEP_SUMMARY"
           else
             cat view.err >&2
             exit 1

@@ -521,8 +521,9 @@ design/          макеты pen.dev (`.pen`): библиотека токен�
 > проходят отдельный прогон ProGuard по явной SDK-границе (`heartbeatTrain { sdk(...) }`, `verifyTrainSdk`); keep-правила SDK
 > генерирует `generateTrainSdkRules`, остальное — `platform-main/desktop/train-rules.pro`. `verifyShrunkTrain` запускает
 > обработанный поезд headless (все бандлы `Healthy`), маппинги — `build/train/mapping-*.txt`, имена в логах
-> восстанавливает `scripts/retrace.py` (в логе строка `Launch: train=…`). CI (`bundle-train`) собирает поезд с `obfuscate`,
-> гоняет `verifyShrunkTrain` перед записью и публикует маппинги ассетами пре-релиза `train-*`.
+> восстанавливает `scripts/retrace.py` (в логе строка `Launch: train=…`). CI после мержа публикует быстрый поезд
+> `train-t<sha12>` без ProGuard; ночной (и релизный) `train-o<sha12>` собирается с `obfuscate`, гоняет `verifyShrunkTrain`
+> перед записью и публикует маппинги ассетами пре-релиза; релиз ставит только оптимизированный поезд.
 > Правила и ограничения — `.claude/rules/bundles.md`.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 

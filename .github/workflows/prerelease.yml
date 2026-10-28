@@ -1,32 +1,50 @@
 name: Prerelease train
 
-# Every push to master that touches a desktop bundle publishes a bundle train as a GitHub pre-release `train-t<sha12>`
-# with `train-manifest.json` and the jars that changed since the previous train (features/app-update reads it on the
-# opt-in beta channel, toggle app_update.beta). Linux only, no installers: affectedBundles picks the bundles the
-# push changes, their tests gate the train, the Gradle build cache keeps the rest cheap (target: 20 minutes).
+# Every push to master that touches a desktop bundle publishes a fast bundle train as a GitHub pre-release
+# `train-t<sha12>` with `train-manifest.json` and the jars that changed since the previous fast train (features/app-update
+# reads it on the opt-in beta channel, toggle app_update.beta). A fast train skips ProGuard (shrink off): the time from
+# a merge to a published bundle is the tests of the affected bundles plus the assembly. Linux only, no installers:
+# affectedBundles picks the bundles the push changes, their tests gate the train, the Gradle build cache keeps the rest
+# cheap (target: 20 minutes).
+# Once a night (and on Run workflow) the same job publishes the optimized train `train-o<sha12>` of master: obfuscated
+# by ProGuard, started headless by verifyShrunkTrain and published with its mappings. It is skipped when no bundle and
+# not the launcher changed since the previous optimized train, or when a release v* of the commit already carries its
+# optimized train (release.yml usually builds that train itself). Publications of both families run one at a time, and
+# a train whose commit does not contain the newest published train is dropped: the app offers trains by publication time.
 # A push that changes no bundle (docs, CI, scripts) publishes nothing; a change of the launcher (platform-main/launcher)
 # publishes a train too, the bundles unchanged. The train carries the launcher jar signed with the key of the environment
-# launcher-signing, which only master can use. release.yml promotes the train of its commit.
-run-name: "Prerelease train ${{ github.sha }}"
+# launcher-signing, which only master can use.
+run-name: "${{ github.event_name == 'push' && 'Prerelease train' || 'Optimized train' }} ${{ github.sha }}"
 on:
   push:
     branches: [master]
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # Trains are diffed against the previous one: publish them in order, never cancel a running publication.
-  # GitHub still replaces a pending run by a newer one, so the affected bundles are diffed against the commit of the
-  # latest published train, not against the push: a skipped push's bundles are tested by the next run.
-  group: heartbeat-prerelease
+  # Trains are diffed against the previous one of their family: publish each family in order, never cancel a running
+  # publication. The families do not wait for each other. GitHub still replaces a pending run by a newer one, so the
+  # affected bundles are diffed against the commit of the latest published train of the family, not against the push:
+  # a skipped push's bundles are tested by the next run.
+  group: heartbeat-prerelease-${{ github.event_name == 'push' && 'fast' || 'optimized' }}
   cancel-in-progress: false
+
+env:
+  # t: fast train after a push (no ProGuard); o: optimized train (nightly, Run workflow).
+  FAMILY: ${{ github.event_name == 'push' && 't' || 'o' }}
 
 jobs:
   build:
     name: Build the train
+    # The launcher-signing environment is master only: Run workflow from another branch builds nothing.
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # The optimized train runs ProGuard and a headless start of the processed train on top of the tests.
+    timeout-minutes: ${{ github.event_name == 'push' && 20 || 60 }}
     # The secret HEARTBEAT_LAUNCHER_SIGNING_KEY (Ed25519 key of the launcher) belongs to this environment, restricted to master.
     environment: launcher-signing
     outputs:
@@ -59,20 +77,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          train="t${GITHUB_SHA:0:12}"
+          train="$FAMILY${GITHUB_SHA:0:12}"
           echo "train=$train" >> "$GITHUB_OUTPUT"
-          # Base: the commit of the latest published train (its id is t<sha12> of that commit), so pushes whose runs
-          # were skipped or failed are diffed too; the push's own `before` only when there is no such ancestor.
-          last=$(gh release list --limit 100 --json tagName,isDraft \
-            --jq '[.[] | select(.isDraft | not) | select(.tagName | test("^train-t[0-9a-f]{12}$"))][0].tagName // ""')
+          # Base: the commit of the latest published train of the family (its id is <family><sha12> of that commit),
+          # so pushes whose runs were skipped or failed are diffed too; the push's own `before` only when there is no
+          # such ancestor (a nightly run has none: without an optimized train every bundle is affected).
+          last=$(gh release list --limit 1000 --json tagName,isDraft \
+            --jq "[.[] | select(.isDraft | not) | select(.tagName | test(\"^train-${FAMILY}[0-9a-f]{12}\$\"))][0].tagName // \"\"")
           base=""
           if [ -n "$last" ]; then
-            base=$(git rev-parse --verify --quiet "${last#train-t}^{commit}" || true)
+            base=$(git rev-parse --verify --quiet "${last#"train-$FAMILY"}^{commit}" || true)
             if [ -n "$base" ] && ! git merge-base --is-ancestor "$base" "$GITHUB_SHA"; then
               base=""
             fi
           fi
-          if [ -z "$base" ] && ! [[ $BEFORE =~ ^0+$ ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+          if [ -z "$base" ] && [ -n "$BEFORE" ] && ! [[ $BEFORE =~ ^0+$ ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             base=$BEFORE
           fi
           echo "previous=$last" >> "$GITHUB_OUTPUT"
@@ -86,7 +105,12 @@ jobs:
           cat build/bundles/affected.txt
           launcher=$(cat build/bundles/launcher.txt)
           echo "launcher=$launcher" >> "$GITHUB_OUTPUT"
-          if [ -s build/bundles/affected.txt ] || [ "$launcher" = true ]; then
+          # A release builds the optimized train of its commit itself and publishes it under v<version>: the same
+          # train id published again here could carry other bytes under the same jar names.
+          if [ "$FAMILY" = o ] && git tag --points-at "$GITHUB_SHA" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "A release of this commit already carries its optimized train: nothing to publish" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -s build/bundles/affected.txt ] || [ "$launcher" = true ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
@@ -113,6 +137,7 @@ jobs:
         if: steps.affected.outputs.publish == 'true'
         with:
           train: ${{ steps.affected.outputs.train }}
+          shrink: ${{ env.FAMILY == 't' && 'off' || 'obfuscate' }}
           base-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/train-${{ steps.affected.outputs.train }}/
           github-token: ${{ github.token }}
           launcher-signing-key: ${{ secrets.HEARTBEAT_LAUNCHER_SIGNING_KEY }}
@@ -142,6 +167,11 @@ jobs:
     if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The app offers the newest train by publication time (AppReleases.newerTrain): both families publish one at a time,
+    # and a train whose commit is behind the newest published train is not published (see the check below).
+    concurrency:
+      group: heartbeat-prerelease-publish
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -164,17 +194,36 @@ jobs:
               echo "Train $tag is already published"
               exit 0
             fi
+          fi
+          # The families build in parallel: a nightly train started before a merge can finish after the fast train of
+          # that merge. Published later, it would be offered as newer and roll beta users back, so a train whose commit
+          # does not contain the newest published train is dropped; the next train of its family covers its bundles.
+          # Newest by publishedAt, as the app orders them (gh lists by createdAt, the date of the target commit).
+          newest=$(gh release list --limit 1000 --json tagName,isDraft,publishedAt \
+            --jq '[.[] | select(.isDraft | not) | select(.tagName | test("^train-[to][0-9a-f]{12}$"))]
+              | (max_by(.publishedAt) // {}) | .tagName // ""')
+          if [ -n "$newest" ] && [ "$newest" != "$tag" ]; then
+            status=$(gh api "repos/$GH_REPO/compare/${newest:7}...$GITHUB_SHA" --jq .status)
+            if [ "$status" != ahead ] && [ "$status" != identical ]; then
+              echo "::notice::Newest train $newest is not behind ${GITHUB_SHA:0:12} ($status): $tag is not published"
+              echo "Newest train $newest is not behind ${GITHUB_SHA:0:12} ($status): $tag is not published" >> "$GITHUB_STEP_SUMMARY"
+              # A draft left by a failed run of this train is never published now: do not leave it behind.
+              if [ -s draft ]; then gh release delete "$tag" --yes; fi
+              exit 0
+            fi
+          fi
+          if [ -s draft ]; then
             gh release upload "$tag" train-out/* --clobber
           else
             # Title: Heartbeat v<next patch version>-beta.<n> (GitHub's pre-release naming, sorts below the final
             # release), where n counts the trains published since the latest stable release (this one included),
             # e.g. v1.0.9-beta.1; notes: the head commit's subject, then the merged PRs since
             # the previous train, generated by GitHub.
-            read -r stable count < <(gh release list --limit 100 --json tagName,isDraft,isPrerelease,publishedAt --jq '
+            read -r stable count < <(gh release list --limit 1000 --json tagName,isDraft,isPrerelease,publishedAt --jq '
               [.[] | select(.isDraft | not)] as $all
               | ([$all[] | select(.isPrerelease | not) | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))]
                  | max_by(.tagName[1:] | split(".") | map(tonumber))) as $stable
-              | "\($stable.tagName // "none") \([$all[] | select(.tagName | test("^train-t[0-9a-f]{12}$"))
+              | "\($stable.tagName // "none") \([$all[] | select(.tagName | test("^train-[to][0-9a-f]{12}$"))
                  | select(.publishedAt > ($stable.publishedAt // ""))] | length)"')
             if [ "$stable" != none ]; then
               IFS=. read -r major minor patch <<< "${stable#v}"
@@ -183,7 +232,8 @@ jobs:
               title="Heartbeat beta $TRAIN"
             fi
             subject=$(printf '%s' "$SUBJECT" | head -n 1 | cut -c1-100)
-            intro="Beta build of Heartbeat at ${GITHUB_SHA:0:7} (${subject:-bundle train}): desktop bundles for the beta update channel (app_update.beta), not a full installer."
+            if [ "${TRAIN:0:1}" = o ]; then kind="optimized (ProGuard)"; else kind="fast (no ProGuard)"; fi
+            intro="Beta build of Heartbeat at ${GITHUB_SHA:0:7} (${subject:-bundle train}): $kind desktop bundles for the beta update channel (app_update.beta), not a full installer."
             args=(--title "$title" --notes "$intro Train id: $TRAIN." --generate-notes)
             if [ -n "$PREVIOUS" ]; then args+=(--notes-start-tag "$PREVIOUS"); fi
             gh release create "$tag" train-out/* --draft --prerelease --target "$GITHUB_SHA" "${args[@]}"
