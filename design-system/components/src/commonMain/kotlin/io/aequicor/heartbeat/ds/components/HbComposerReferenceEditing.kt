@@ -13,7 +13,7 @@ internal fun composerReferenceEditing(removals: ComposerReferenceRemovals? = nul
     InputTransformation {
         val deleted = changes.takeIf { it.changeCount == 1 }?.let { change ->
             val original = change.getOriginalRange(0)
-            original.takeIf { change.getRange(0).collapsed && !it.collapsed }?.let { it.min until it.max }
+            if (change.getRange(0).collapsed && !original.collapsed) original.min until original.max else null
         }
         removals?.record(originalText, deleted)
         val edits = (0 until changes.changeCount).map { index ->

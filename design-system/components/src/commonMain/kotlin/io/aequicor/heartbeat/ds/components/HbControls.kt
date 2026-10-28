@@ -44,8 +44,9 @@ private val log = Log.tag("DS/Controls")
  * Emphasis of an accessible action, independent of its selected visual implementation.
  * [Primary] is the one main action of a region; [Secondary] a quiet filled action; [Ghost] has no fill until hover;
  * [Danger] confirms a destructive action and is used only where the consequence is spelled out next to it.
+ * [Accent] uses the secondary coral palette for an action that needs a distinct, non-destructive emphasis.
  */
-public enum class HbButtonStyle { Primary, Secondary, Ghost, Danger }
+public enum class HbButtonStyle { Primary, Secondary, Ghost, Danger, Accent }
 
 /** Height of a button: [Regular] 32dp and [Small] 28dp on desktop; touch hosts never go below their touch target. */
 public enum class HbButtonSize { Regular, Small }
@@ -245,6 +246,7 @@ private fun FlatTextField(
 private fun buttonFill(colors: HbColors, style: HbButtonStyle, enabled: Boolean): Color = when {
     style == HbButtonStyle.Primary && enabled -> colors.primary
     style == HbButtonStyle.Danger && enabled -> colors.error
+    style == HbButtonStyle.Accent && enabled -> colors.secondary
     style == HbButtonStyle.Ghost -> Color.Transparent
     else -> colors.buttonFill
 }
@@ -254,5 +256,6 @@ private fun buttonContent(colors: HbColors, style: HbButtonStyle, enabled: Boole
     !enabled -> colors.textSecondary
     style == HbButtonStyle.Primary -> colors.onPrimary
     style == HbButtonStyle.Danger -> colors.onError
+    style == HbButtonStyle.Accent -> colors.onSecondary
     else -> colors.textPrimary
 }

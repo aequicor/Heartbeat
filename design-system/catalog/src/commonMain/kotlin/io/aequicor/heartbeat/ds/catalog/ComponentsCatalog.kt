@@ -119,6 +119,11 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                     )
                     HbButton(hbString(HbString.Disabled), state::showActionFeedback, enabled = false)
                     HbButton(
+                        hbString(HbString.SecondaryAction),
+                        state::showActionFeedback,
+                        style = HbButtonStyle.Accent,
+                    )
+                    HbButton(
                         hbString(HbString.QuietAction),
                         state::showActionFeedback,
                         style = HbButtonStyle.Ghost,
