@@ -118,4 +118,4 @@ chromium-plugin/*.pem
 chromium-plugin/app/
 
 # Codex worktrees
-.worktrees
+/.worktrees/
