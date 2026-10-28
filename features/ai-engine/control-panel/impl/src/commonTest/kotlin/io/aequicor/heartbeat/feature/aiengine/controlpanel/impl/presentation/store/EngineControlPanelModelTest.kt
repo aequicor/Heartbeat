@@ -349,6 +349,7 @@ class EngineControlPanelModelTest {
         val model = model()
         val actions = mutableListOf<EngineControlPanelAction>()
         val screen = subscribe(model.store, actions)
+        model.store.intent(EngineManagementIntent.EditLaunch(LaunchDraftUi(executable = "/custom/codex")))
         model.store.intent(ConfigIntent.EditField("retries", FieldInputUi.Number("3")))
         model.store.intent(EngineControlPanelIntent.Back)
         runCurrent()
@@ -364,6 +365,7 @@ class EngineControlPanelModelTest {
         model.store.intent(EngineControlPanelIntent.DiscardAndLeave)
         runCurrent()
         assertEquals(null, screen.states.value.configDraft)
+        assertEquals(null, screen.states.value.launchDraft)
         assertEquals(listOf<EngineControlPanelAction>(EngineControlPanelAction.Leave), actions)
     }
 

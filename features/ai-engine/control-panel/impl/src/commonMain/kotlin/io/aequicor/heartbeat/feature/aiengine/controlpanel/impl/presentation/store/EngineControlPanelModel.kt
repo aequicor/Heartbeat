@@ -213,7 +213,7 @@ class EngineControlPanelModel(
             with(projects) { handle(ProjectIntent.Close) }
         } else {
             log.i { "leave the engine panel" }
-            updateState { copy(configDraft = null).reflect(engineId, machine.state.value) }
+            updateState { copy(configDraft = null, launchDraft = null).reflect(engineId, machine.state.value) }
             action(EngineControlPanelAction.Leave)
         }
     }

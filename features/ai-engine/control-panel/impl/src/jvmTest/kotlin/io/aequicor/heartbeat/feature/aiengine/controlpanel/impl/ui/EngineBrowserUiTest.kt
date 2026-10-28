@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -23,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.managedSnapshot
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.reflect
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toPersistentList
 import java.io.File
 import java.util.Locale
 import javax.imageio.ImageIO
@@ -81,6 +83,24 @@ class EngineBrowserUiTest {
             val details = onNodeWithTag("engine-browser-details").fetchSemanticsNode().boundsInRoot
             assertTrue(list.right <= details.left)
             assertEquals(list.top, details.top)
+        }
+
+    @Test
+    fun `short browser list scrolls to and selects its last engine`() =
+        runSkikoComposeUiTest(size = Size(1016f, 180f)) {
+            val engines = (0..20).map { index ->
+                EngineItemUi("engine-$index", "Engine $index", EngineStatusUi.On, null, false)
+            }.toPersistentList()
+            val state = loaded.copy(engines = engines)
+            var selected by mutableStateOf<String?>(null)
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    EngineControlBrowserContent(state, selected, { selected = it }) { HbText("Selected: $selected") }
+                }
+            }
+            onNodeWithTag("engine-browser-list-scroll").performScrollToIndex(engines.lastIndex)
+            onNodeWithTag("engine-control:engine-20").performClick().assertIsSelected()
+            onNodeWithText("Selected: engine-20").assertExists()
         }
 
     @Test

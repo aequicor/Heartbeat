@@ -85,8 +85,17 @@ class EngineControlPanelComponent(
         backHandler.register(BackCallback { model.store.intent(EngineControlPanelIntent.Back) })
     }
 
-    /** Returns to the engine list. */
-    fun close() = navigator.close()
+    /** Returns to the embedded engine list, or closes a standalone panel. */
+    fun close() {
+        if (isEmbedded) {
+            navigator.navigate(
+                EngineControlBlankRoute,
+                NavOptions(launch = LaunchMode.BringToFront, transition = NavTransition.None),
+            )
+        } else {
+            navigator.close()
+        }
+    }
 
     /** Metro factory for a lifecycle-owned engine panel. */
     @AssistedFactory

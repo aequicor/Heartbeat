@@ -3,10 +3,12 @@ package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +39,7 @@ import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.component.EngineControlBackTarget
@@ -137,7 +140,13 @@ internal fun EngineControlBrowserContent(
             gap = HbTheme.spacing.s,
         ) {
             HbPaneHeader(stringResource(Res.string.control_list_engines))
-            EngineBrowserList(state, selectedEngine, onOpen, onRetry)
+            HbLazyColumn(
+                Modifier.weight(1f).fillMaxSize().testTag("engine-browser-list-scroll"),
+                gap = HbTheme.spacing.none,
+                contentPadding = PaddingValues(HbTheme.spacing.none),
+            ) {
+                engineBrowserList(state, selectedEngine, onOpen, onRetry)
+            }
         }
         HbDivider(Modifier.fillMaxHeight(), isVertical = true)
         Box(Modifier.weight(1f).fillMaxHeight().testTag("engine-browser-details")) { details() }
@@ -145,19 +154,24 @@ internal fun EngineControlBrowserContent(
 }
 
 /** Loading and failure stay in the list area while an existing engine panel remains open. */
-@Composable
-private fun EngineBrowserList(
+private fun androidx.compose.foundation.lazy.LazyListScope.engineBrowserList(
     state: EngineControlListState,
     selectedEngine: String?,
     onOpen: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
     when {
-        state.hasLoadFailure -> LoadFailure(onRetry)
-        state.isLoading -> HbLoadingState(stringResource(Res.string.control_loading))
-        state.isOff -> HbBanner(stringResource(Res.string.control_off), tone = HbTone.Warning)
-        state.engines.isEmpty() -> HbEmptyState(stringResource(Res.string.control_list_empty))
-        else -> state.engines.forEach { EngineBrowserRow(it, it.id == selectedEngine, onOpen) }
+        state.hasLoadFailure -> item { LoadFailure(onRetry) }
+
+        state.isLoading -> item { HbLoadingState(stringResource(Res.string.control_loading)) }
+
+        state.isOff -> item { HbBanner(stringResource(Res.string.control_off), tone = HbTone.Warning) }
+
+        state.engines.isEmpty() -> item { HbEmptyState(stringResource(Res.string.control_list_empty)) }
+
+        else -> items(state.engines, key = EngineItemUi::id) {
+            EngineBrowserRow(it, it.id == selectedEngine, onOpen)
+        }
     }
 }
 
