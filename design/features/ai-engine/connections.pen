@@ -40,18 +40,8 @@
          "id": "settings-sidebar-lights",
          "type": "ref",
          "ref": "hb:window-traffic-lights"
-        },
-        {
-         "id": "settings-sidebar-title",
-         "type": "text",
-         "content": "Настройки",
-         "fill": "$hb:colors.textSecondary",
-         "fontSize": "$hb:typography.label.size",
-         "lineHeight": "$hb:typography.label.lineHeight",
-         "fontWeight": "$hb:typography.label.weight"
         }
-       ],
-       "name": "settings-sidebar-header · dimensions.headerHeight"
+       ]
       },
       {
        "id": "settings-sidebar-list",
@@ -63,7 +53,70 @@
         6,
         8
        ],
+       "gap": "$hb:spacing.xxs",
        "children": [
+        {
+         "id": "settings-back",
+         "type": "frame",
+         "name": "Назад",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "settings-back-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-arrow-left",
+           "width": 18,
+           "height": 18,
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
+          },
+          {
+           "id": "settings-back-label",
+           "type": "text",
+           "content": "Назад",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "settings-heading",
+         "type": "frame",
+         "name": "Настройки",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          8
+         ],
+         "alignItems": "center",
+         "children": [
+          {
+           "id": "settings-heading-label",
+           "type": "text",
+           "content": "Настройки",
+           "fill": "$hb:colors.textSecondary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          }
+         ]
+        },
         {
          "id": "settings-item-0",
          "type": "frame",
@@ -83,18 +136,19 @@
          "children": [
           {
            "id": "settings-item-0-icon",
-           "type": "icon",
-           "library": "lucide",
-           "icon": "layers",
+           "type": "ref",
+           "ref": "hb:hb-icon-layers",
            "width": 18,
            "height": 18,
-           "fill": "$hb:surfaces.onSelected"
+           "stroke": "$hb:surfaces.onSelected",
+           "strokeWidth": 1.26
           },
           {
            "id": "settings-item-0-label",
            "type": "text",
            "content": "Модели и движки",
            "fill": "$hb:surfaces.onSelected",
+           "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
@@ -120,18 +174,19 @@
          "children": [
           {
            "id": "settings-item-1-icon",
-           "type": "icon",
-           "library": "lucide",
-           "icon": "cpu",
+           "type": "ref",
+           "ref": "hb:hb-icon-terminal",
            "width": 18,
            "height": 18,
-           "fill": "$hb:colors.textSecondary"
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
           },
           {
            "id": "settings-item-1-label",
            "type": "text",
            "content": "Движки",
            "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
@@ -157,18 +212,19 @@
          "children": [
           {
            "id": "settings-item-2-icon",
-           "type": "icon",
-           "library": "lucide",
-           "icon": "shield",
+           "type": "ref",
+           "ref": "hb:hb-icon-shield",
            "width": 18,
            "height": 18,
-           "fill": "$hb:colors.textSecondary"
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
           },
           {
            "id": "settings-item-2-label",
            "type": "text",
            "content": "Безопасность",
            "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
@@ -178,43 +234,6 @@
         },
         {
          "id": "settings-item-3",
-         "type": "frame",
-         "name": "Контекст",
-         "width": "fill_container",
-         "height": 28,
-         "padding": [
-          0,
-          4,
-          0,
-          8
-         ],
-         "gap": "$hb:spacing.l",
-         "alignItems": "center",
-         "cornerRadius": "$hb:dimensions.controlCornerRadius",
-         "children": [
-          {
-           "id": "settings-item-3-icon",
-           "type": "icon",
-           "library": "lucide",
-           "icon": "gauge",
-           "width": 18,
-           "height": 18,
-           "fill": "$hb:colors.textSecondary"
-          },
-          {
-           "id": "settings-item-3-label",
-           "type": "text",
-           "content": "Контекст",
-           "fill": "$hb:colors.textPrimary",
-           "fontSize": "$hb:typography.label.size",
-           "lineHeight": "$hb:typography.label.lineHeight",
-           "fontWeight": "$hb:typography.label.weight",
-           "width": "fill_container"
-          }
-         ]
-        },
-        {
-         "id": "settings-item-4",
          "type": "frame",
          "name": "Субагенты",
          "width": "fill_container",
@@ -230,19 +249,58 @@
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
-           "id": "settings-item-4-icon",
-           "type": "icon",
-           "library": "lucide",
-           "icon": "users",
+           "id": "settings-item-3-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-users",
            "width": 18,
            "height": 18,
-           "fill": "$hb:colors.textSecondary"
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
+          },
+          {
+           "id": "settings-item-3-label",
+           "type": "text",
+           "content": "Субагенты",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "settings-item-4",
+         "type": "frame",
+         "name": "Поиск",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "settings-item-4-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-search",
+           "width": 18,
+           "height": 18,
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
           },
           {
            "id": "settings-item-4-label",
            "type": "text",
-           "content": "Субагенты",
+           "content": "Поиск",
            "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
@@ -253,7 +311,7 @@
         {
          "id": "settings-item-5",
          "type": "frame",
-         "name": "Харнесс",
+         "name": "Управление компьютером",
          "width": "fill_container",
          "height": 28,
          "padding": [
@@ -268,18 +326,19 @@
          "children": [
           {
            "id": "settings-item-5-icon",
-           "type": "icon",
-           "library": "lucide",
-           "icon": "package",
+           "type": "ref",
+           "ref": "hb:hb-icon-layers",
            "width": 18,
            "height": 18,
-           "fill": "$hb:colors.textSecondary"
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
           },
           {
            "id": "settings-item-5-label",
            "type": "text",
-           "content": "Харнесс",
+           "content": "Управление компьютером",
            "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
@@ -290,7 +349,7 @@
         {
          "id": "settings-item-6",
          "type": "frame",
-         "name": "Интерфейсы",
+         "name": "Браузер Chrome",
          "width": "fill_container",
          "height": 28,
          "padding": [
@@ -305,18 +364,19 @@
          "children": [
           {
            "id": "settings-item-6-icon",
-           "type": "icon",
-           "library": "lucide",
-           "icon": "layout-panel-top",
+           "type": "ref",
+           "ref": "hb:hb-icon-globe",
            "width": 18,
            "height": 18,
-           "fill": "$hb:colors.textSecondary"
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
           },
           {
            "id": "settings-item-6-label",
            "type": "text",
-           "content": "Интерфейсы",
+           "content": "Браузер Chrome",
            "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
@@ -326,6 +386,120 @@
         },
         {
          "id": "settings-item-7",
+         "type": "frame",
+         "name": "Самообучение",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "settings-item-7-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-sparkles",
+           "width": 18,
+           "height": 18,
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
+          },
+          {
+           "id": "settings-item-7-label",
+           "type": "text",
+           "content": "Самообучение",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "settings-item-8",
+         "type": "frame",
+         "name": "Контекст",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "settings-item-8-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-minimize",
+           "width": 18,
+           "height": 18,
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
+          },
+          {
+           "id": "settings-item-8-label",
+           "type": "text",
+           "content": "Контекст",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "settings-item-9",
+         "type": "frame",
+         "name": "Автопродолжение",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "settings-item-9-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-play",
+           "width": 18,
+           "height": 18,
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
+          },
+          {
+           "id": "settings-item-9-label",
+           "type": "text",
+           "content": "Автопродолжение",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "settings-item-10",
          "type": "frame",
          "name": "Сборки",
          "width": "fill_container",
@@ -341,19 +515,20 @@
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
-           "id": "settings-item-7-icon",
-           "type": "icon",
-           "library": "lucide",
-           "icon": "hammer",
+           "id": "settings-item-10-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-terminal",
            "width": 18,
            "height": 18,
-           "fill": "$hb:colors.textSecondary"
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
           },
           {
-           "id": "settings-item-7-label",
+           "id": "settings-item-10-label",
            "type": "text",
            "content": "Сборки",
            "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
@@ -362,7 +537,121 @@
          ]
         },
         {
-         "id": "settings-item-8",
+         "id": "settings-item-11",
+         "type": "frame",
+         "name": "Харнесс",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "settings-item-11-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-code",
+           "width": 18,
+           "height": 18,
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
+          },
+          {
+           "id": "settings-item-11-label",
+           "type": "text",
+           "content": "Харнесс",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "settings-item-12",
+         "type": "frame",
+         "name": "Интерфейсы",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "settings-item-12-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-grid",
+           "width": 18,
+           "height": 18,
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
+          },
+          {
+           "id": "settings-item-12-label",
+           "type": "text",
+           "content": "Интерфейсы",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "settings-item-13",
+         "type": "frame",
+         "name": "Конфигурация",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "settings-item-13-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-folder-open",
+           "width": 18,
+           "height": 18,
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
+          },
+          {
+           "id": "settings-item-13-label",
+           "type": "text",
+           "content": "Конфигурация",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "settings-item-14",
          "type": "frame",
          "name": "Обновления",
          "width": "fill_container",
@@ -378,19 +667,20 @@
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
-           "id": "settings-item-8-icon",
-           "type": "icon",
-           "library": "lucide",
-           "icon": "download",
+           "id": "settings-item-14-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-download",
            "width": 18,
            "height": 18,
-           "fill": "$hb:colors.textSecondary"
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
           },
           {
-           "id": "settings-item-8-label",
+           "id": "settings-item-14-label",
            "type": "text",
            "content": "Обновления",
            "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
@@ -399,7 +689,7 @@
          ]
         },
         {
-         "id": "settings-item-9",
+         "id": "settings-item-15",
          "type": "frame",
          "name": "Логи приложения",
          "width": "fill_container",
@@ -415,19 +705,58 @@
          "cornerRadius": "$hb:dimensions.controlCornerRadius",
          "children": [
           {
-           "id": "settings-item-9-icon",
-           "type": "icon",
-           "library": "lucide",
-           "icon": "scroll-text",
+           "id": "settings-item-15-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-file-text",
            "width": 18,
            "height": 18,
-           "fill": "$hb:colors.textSecondary"
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
           },
           {
-           "id": "settings-item-9-label",
+           "id": "settings-item-15-label",
            "type": "text",
            "content": "Логи приложения",
            "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "settings-item-16",
+         "type": "frame",
+         "name": "Фича-флаги",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "settings-item-16-icon",
+           "type": "ref",
+           "ref": "hb:hb-icon-sliders",
+           "width": 18,
+           "height": 18,
+           "stroke": "$hb:colors.textSecondary",
+           "strokeWidth": 1.26
+          },
+          {
+           "id": "settings-item-16-label",
+           "type": "text",
+           "content": "Фича-флаги",
+           "fill": "$hb:colors.textPrimary",
+           "fontFamily": "$hb:typography.family",
            "fontSize": "$hb:typography.label.size",
            "lineHeight": "$hb:typography.label.lineHeight",
            "fontWeight": "$hb:typography.label.weight",
@@ -502,6 +831,7 @@
              "type": "text",
              "content": "Подключение движка",
              "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.title.size",
              "lineHeight": "$hb:typography.title.lineHeight",
              "fontWeight": "600"
@@ -511,6 +841,7 @@
              "type": "text",
              "content": "Шаг 1 из 3 · Движок",
              "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.caption.size",
              "lineHeight": "$hb:typography.caption.lineHeight",
              "fontWeight": "$hb:typography.caption.weight"
@@ -530,6 +861,7 @@
              "type": "text",
              "content": "Выберите движок, который будет выполнять сессии.",
              "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.label.size",
              "lineHeight": "$hb:typography.label.lineHeight",
              "fontWeight": "$hb:typography.label.weight",
@@ -566,6 +898,7 @@
                    "type": "text",
                    "content": "Pi",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -575,6 +908,7 @@
                    "type": "text",
                    "content": "Подключений: 1",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight"
@@ -593,12 +927,12 @@
                 },
                 {
                  "id": "wizard-engine-pi-chevron",
-                 "type": "icon",
-                 "library": "lucide",
-                 "icon": "chevron-right",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-chevron-right",
                  "width": 18,
                  "height": 18,
-                 "fill": "$hb:colors.textSecondary"
+                 "stroke": "$hb:colors.textSecondary",
+                 "strokeWidth": 1.26
                 }
                ]
               },
@@ -631,6 +965,7 @@
                    "type": "text",
                    "content": "Koog",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -640,6 +975,7 @@
                    "type": "text",
                    "content": "Подключений: 0",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight"
@@ -658,12 +994,12 @@
                 },
                 {
                  "id": "wizard-engine-koog-chevron",
-                 "type": "icon",
-                 "library": "lucide",
-                 "icon": "chevron-right",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-chevron-right",
                  "width": 18,
                  "height": 18,
-                 "fill": "$hb:colors.textSecondary"
+                 "stroke": "$hb:colors.textSecondary",
+                 "strokeWidth": 1.26
                 }
                ]
               },
@@ -696,6 +1032,7 @@
                    "type": "text",
                    "content": "Codex",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -705,6 +1042,7 @@
                    "type": "text",
                    "content": "Подключений: 0",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight"
@@ -723,12 +1061,12 @@
                 },
                 {
                  "id": "wizard-engine-codex-chevron",
-                 "type": "icon",
-                 "library": "lucide",
-                 "icon": "chevron-right",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-chevron-right",
                  "width": 18,
                  "height": 18,
-                 "fill": "$hb:colors.textSecondary"
+                 "stroke": "$hb:colors.textSecondary",
+                 "strokeWidth": 1.26
                 }
                ]
               },
@@ -761,6 +1099,7 @@
                    "type": "text",
                    "content": "Claude Code",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -770,6 +1109,7 @@
                    "type": "text",
                    "content": "Подключений: 1",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight"
@@ -788,12 +1128,12 @@
                 },
                 {
                  "id": "wizard-engine-claude-chevron",
-                 "type": "icon",
-                 "library": "lucide",
-                 "icon": "chevron-right",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-chevron-right",
                  "width": 18,
                  "height": 18,
-                 "fill": "$hb:colors.textSecondary"
+                 "stroke": "$hb:colors.textSecondary",
+                 "strokeWidth": 1.26
                 }
                ]
               }
@@ -878,6 +1218,7 @@
              "type": "text",
              "content": "Подключение движка",
              "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.title.size",
              "lineHeight": "$hb:typography.title.lineHeight",
              "fontWeight": "600"
@@ -887,6 +1228,7 @@
              "type": "text",
              "content": "Шаг 2 из 3 · Авторизация · Koog",
              "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.caption.size",
              "lineHeight": "$hb:typography.caption.lineHeight",
              "fontWeight": "$hb:typography.caption.weight"
@@ -924,6 +1266,7 @@
                  "type": "text",
                  "content": "Авторизация",
                  "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.title.size",
                  "lineHeight": "$hb:typography.title.lineHeight",
                  "fontWeight": "600"
@@ -966,6 +1309,7 @@
                      "type": "text",
                      "content": "Anthropic",
                      "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
                      "fontWeight": "$hb:typography.label.weight"
@@ -975,6 +1319,7 @@
                      "type": "text",
                      "content": "API-ключ",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
                      "fontWeight": "$hb:typography.caption.weight"
@@ -1007,6 +1352,7 @@
                      "type": "text",
                      "content": "OpenAI",
                      "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
                      "fontWeight": "$hb:typography.label.weight"
@@ -1016,6 +1362,7 @@
                      "type": "text",
                      "content": "API-ключ",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
                      "fontWeight": "$hb:typography.caption.weight"
@@ -1048,6 +1395,7 @@
                      "type": "text",
                      "content": "OpenRouter",
                      "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
                      "fontWeight": "$hb:typography.label.weight"
@@ -1057,6 +1405,7 @@
                      "type": "text",
                      "content": "API-ключ",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
                      "fontWeight": "$hb:typography.caption.weight"
@@ -1089,6 +1438,7 @@
                      "type": "text",
                      "content": "Ollama",
                      "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
                      "fontWeight": "$hb:typography.label.weight"
@@ -1098,6 +1448,7 @@
                      "type": "text",
                      "content": "Без авторизации",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
                      "fontWeight": "$hb:typography.caption.weight"
@@ -1133,6 +1484,7 @@
                  "type": "text",
                  "content": "Anthropic",
                  "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.title.size",
                  "lineHeight": "$hb:typography.title.lineHeight",
                  "fontWeight": "600"
@@ -1142,6 +1494,7 @@
                  "type": "text",
                  "content": "API-ключ",
                  "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
                  "lineHeight": "$hb:typography.caption.lineHeight",
                  "fontWeight": "$hb:typography.caption.weight"
@@ -1171,6 +1524,7 @@
                    "type": "text",
                    "content": "API-ключ",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -1191,6 +1545,7 @@
                    "type": "text",
                    "content": "Ключ хранится в защищённом хранилище профиля.",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight",
@@ -1221,6 +1576,7 @@
                    "type": "text",
                    "content": "Адрес API",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -1241,6 +1597,7 @@
                    "type": "text",
                    "content": "Адрес фиксирован для этого провайдера.",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight",
@@ -1261,6 +1618,7 @@
                    "type": "text",
                    "content": "Название подключения",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -1397,6 +1755,7 @@
              "type": "text",
              "content": "Подключение движка",
              "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.title.size",
              "lineHeight": "$hb:typography.title.lineHeight",
              "fontWeight": "600"
@@ -1406,6 +1765,7 @@
              "type": "text",
              "content": "Шаг 2 из 3 · Авторизация · Koog",
              "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.caption.size",
              "lineHeight": "$hb:typography.caption.lineHeight",
              "fontWeight": "$hb:typography.caption.weight"
@@ -1443,6 +1803,7 @@
                  "type": "text",
                  "content": "Авторизация",
                  "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.title.size",
                  "lineHeight": "$hb:typography.title.lineHeight",
                  "fontWeight": "600"
@@ -1485,6 +1846,7 @@
                      "type": "text",
                      "content": "Anthropic",
                      "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
                      "fontWeight": "$hb:typography.label.weight"
@@ -1494,6 +1856,7 @@
                      "type": "text",
                      "content": "API-ключ",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
                      "fontWeight": "$hb:typography.caption.weight"
@@ -1526,6 +1889,7 @@
                      "type": "text",
                      "content": "OpenAI",
                      "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
                      "fontWeight": "$hb:typography.label.weight"
@@ -1535,6 +1899,7 @@
                      "type": "text",
                      "content": "API-ключ",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
                      "fontWeight": "$hb:typography.caption.weight"
@@ -1567,6 +1932,7 @@
                      "type": "text",
                      "content": "OpenRouter",
                      "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
                      "fontWeight": "$hb:typography.label.weight"
@@ -1576,6 +1942,7 @@
                      "type": "text",
                      "content": "API-ключ",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
                      "fontWeight": "$hb:typography.caption.weight"
@@ -1608,6 +1975,7 @@
                      "type": "text",
                      "content": "Ollama",
                      "fill": "$hb:colors.textPrimary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.label.size",
                      "lineHeight": "$hb:typography.label.lineHeight",
                      "fontWeight": "$hb:typography.label.weight"
@@ -1617,6 +1985,7 @@
                      "type": "text",
                      "content": "Без авторизации",
                      "fill": "$hb:colors.textSecondary",
+                     "fontFamily": "$hb:typography.family",
                      "fontSize": "$hb:typography.caption.size",
                      "lineHeight": "$hb:typography.caption.lineHeight",
                      "fontWeight": "$hb:typography.caption.weight"
@@ -1652,6 +2021,7 @@
                  "type": "text",
                  "content": "Anthropic",
                  "fill": "$hb:colors.textPrimary",
+                 "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.title.size",
                  "lineHeight": "$hb:typography.title.lineHeight",
                  "fontWeight": "600"
@@ -1661,6 +2031,7 @@
                  "type": "text",
                  "content": "API-ключ",
                  "fill": "$hb:colors.textSecondary",
+                 "fontFamily": "$hb:typography.family",
                  "fontSize": "$hb:typography.caption.size",
                  "lineHeight": "$hb:typography.caption.lineHeight",
                  "fontWeight": "$hb:typography.caption.weight"
@@ -1690,6 +2061,7 @@
                    "type": "text",
                    "content": "API-ключ",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -1710,6 +2082,7 @@
                    "type": "text",
                    "content": "Ключ хранится в защищённом хранилище профиля.",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight",
@@ -1745,6 +2118,7 @@
                    "type": "text",
                    "content": "Адрес API",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -1765,6 +2139,7 @@
                    "type": "text",
                    "content": "Адрес фиксирован для этого провайдера.",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight",
@@ -1785,6 +2160,7 @@
                    "type": "text",
                    "content": "Название подключения",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -1921,6 +2297,7 @@
              "type": "text",
              "content": "Подключение движка",
              "fill": "$hb:colors.textPrimary",
+             "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.title.size",
              "lineHeight": "$hb:typography.title.lineHeight",
              "fontWeight": "600"
@@ -1930,6 +2307,7 @@
              "type": "text",
              "content": "Шаг 3 из 3 · Модели · Koog",
              "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.caption.size",
              "lineHeight": "$hb:typography.caption.lineHeight",
              "fontWeight": "$hb:typography.caption.weight"
@@ -1949,6 +2327,7 @@
              "type": "text",
              "content": "Выберите модели, которые будут доступны через это подключение.",
              "fill": "$hb:colors.textSecondary",
+             "fontFamily": "$hb:typography.family",
              "fontSize": "$hb:typography.label.size",
              "lineHeight": "$hb:typography.label.lineHeight",
              "fontWeight": "$hb:typography.label.weight",
@@ -1977,6 +2356,7 @@
                "type": "text",
                "content": "Выбрано: 2",
                "fill": "$hb:colors.textSecondary",
+               "fontFamily": "$hb:typography.family",
                "fontSize": "$hb:typography.caption.size",
                "lineHeight": "$hb:typography.caption.lineHeight",
                "fontWeight": "$hb:typography.caption.weight"
@@ -2033,6 +2413,7 @@
                    "type": "text",
                    "content": "Claude Opus 5.5",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -2042,6 +2423,7 @@
                    "type": "text",
                    "content": "claude-opus-5-5 · Контекст: 200 000 токенов",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight"
@@ -2079,6 +2461,7 @@
                    "type": "text",
                    "content": "Claude Sonnet 5.5",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -2088,6 +2471,7 @@
                    "type": "text",
                    "content": "claude-sonnet-5-5 · Контекст: 200 000 токенов",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight"
@@ -2125,6 +2509,7 @@
                    "type": "text",
                    "content": "Claude Haiku 5.5",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -2134,6 +2519,7 @@
                    "type": "text",
                    "content": "claude-haiku-5-5 · Контекст: 200 000 токенов",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight"
@@ -2171,6 +2557,7 @@
                    "type": "text",
                    "content": "Claude Fable 5.1",
                    "fill": "$hb:colors.textPrimary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.label.size",
                    "lineHeight": "$hb:typography.label.lineHeight",
                    "fontWeight": "$hb:typography.label.weight"
@@ -2180,6 +2567,7 @@
                    "type": "text",
                    "content": "claude-fable-5-1 · Контекст: 200 000 токенов",
                    "fill": "$hb:colors.textSecondary",
+                   "fontFamily": "$hb:typography.family",
                    "fontSize": "$hb:typography.caption.size",
                    "lineHeight": "$hb:typography.caption.lineHeight",
                    "fontWeight": "$hb:typography.caption.weight"
