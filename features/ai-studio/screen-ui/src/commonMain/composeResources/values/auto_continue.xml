@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="auto_continue_menu">Auto-continue</string>
+    <string name="auto_continue_chip_off">Auto-continue</string>
+    <string name="auto_continue_chip_suggest">Suggestions</string>
+    <string name="auto_continue_chip_autopilot">Autopilot %1$d/%2$d</string>
+    <string name="auto_continue_mode_off">Off</string>
+    <string name="auto_continue_mode_off_hint">Nothing is suggested after a turn</string>
+    <string name="auto_continue_mode_suggest">Suggestions</string>
+    <string name="auto_continue_mode_suggest_hint">Replies are offered after each turn; you pick one or write your own</string>
+    <string name="auto_continue_mode_autopilot">Autopilot</string>
+    <string name="auto_continue_mode_autopilot_hint">Replies itself until the task is done or you are needed</string>
+    <string name="auto_continue_thinking">Picking a reply…</string>
+    <string name="auto_continue_sending">Sending the autopilot reply…</string>
+    <string name="auto_continue_paused">Autopilot waits for your decision</string>
+    <string name="auto_continue_countdown">Autopilot sends in %1$d s</string>
+    <string name="auto_continue_send_now">Send now</string>
+    <string name="auto_continue_edit">Edit</string>
+    <string name="auto_continue_stop">Stop</string>
+    <string name="auto_continue_refresh">Refresh suggestions</string>
+    <string name="auto_continue_insert">Put into the composer</string>
+    <string name="auto_continue_notice_done">The task looks done</string>
+    <string name="auto_continue_notice_needs_user">Your decision is needed</string>
+    <string name="auto_continue_notice_limit">Autopilot stopped: the reply limit is reached</string>
+    <string name="auto_continue_notice_looping">Autopilot stopped: it kept repeating itself</string>
+    <string name="auto_continue_notice_failed">No reply could be picked</string>
+    <string name="auto_continue_notice_unavailable">The continuer model is unavailable; check the auto-continue settings</string>
+    <string name="auto_continue_notice_delivery">Autopilot stopped: the reply was not sent</string>
+    <string name="auto_continue_notice_turn_failed">Autopilot stopped: the turn failed</string>
+    <string name="auto_continue_notice_user_stopped">Autopilot stopped</string>
+    <string name="auto_continue_notice_took_over">Autopilot stopped: you took over</string>
+    <string name="auto_continue_notice_restarted">Autopilot stopped by the restart</string>
+</resources>

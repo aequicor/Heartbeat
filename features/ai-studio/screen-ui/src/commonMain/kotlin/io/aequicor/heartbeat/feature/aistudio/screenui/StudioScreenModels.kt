@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerCaretRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
@@ -148,6 +149,10 @@ data class PaneContent(
     val isHarnessFailed: Boolean = false,
     val organism: OrganismUi? = null,
     val planning: PanePlanning = PanePlanning(),
+    /** Auto-continue of the pane's chat; null when it is not offered (off, new chat, helper or organism). */
+    val autoContinue: AutoContinueUi? = null,
+    /** Autopilot replies allowed after the last human message. */
+    val autoContinueLimit: Int = 0,
     val subSession: String = PRIMARY_SUB_SESSION,
     val nativeTree: SessionTreeUi? = null,
     val isAttachmentFailed: Boolean = false,
@@ -288,7 +293,15 @@ private fun AiStudioScreenState.projectPaneContent(
     isSandboxAvailable = isSandboxAvailable && isWorktreeOffered(pane),
     worktree = worktreeFor(pane.sessionId),
     worktreeJournal = worktreeJournal,
-).copy(planning = PanePlanning(isPlanningEnabled, plans[pane.sessionId], planModes(pane, session)))
+).withChatModes(this, session, organism)
+
+/** Planning and auto-continue of the pane's chat; auto-continue is offered for ordinary chats while it is on. */
+private fun PaneContent.withChatModes(screen: AiStudioScreenState, session: SessionUi?, organism: OrganismUi?) = copy(
+    planning = PanePlanning(screen.isPlanningEnabled, screen.plans[pane.sessionId], screen.planModes(pane, session)),
+    autoContinue = screen.autoContinue.takeIf { it.isEnabled && session?.isHelper != true && organism == null }
+        ?.chat(pane.sessionId),
+    autoContinueLimit = screen.autoContinue.autoTurnLimit,
+)
 
 /** Where a plan of [session] can be implemented: a checkout needs a Git project, an organism a shared folder. */
 private fun AiStudioScreenState.planModes(pane: PaneUi, session: SessionUi?): ImmutableList<PlanImplementationModeUi> {

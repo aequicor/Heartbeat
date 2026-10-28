@@ -994,6 +994,7 @@ private fun PaneFooter(
                 isOpeningAvailable = content.host.isAttachmentOpeningAvailable,
             )
         }
+        AutoContinueStrip(content, onIntent, column)
         // Interfaces of the harnesses active in the chat sit right above its input; a tall one scrolls, so the
         // input stays on screen.
         val slotScroll = rememberScrollState()

@@ -279,7 +279,7 @@ private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, ()
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
     return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() || app != null ||
-        contextUsage != null || providerUsage != null || planning.plan != null
+        contextUsage != null || providerUsage != null || planning.plan != null || autoContinue != null
 }
 
 /** Suggestions of the pane's active token with section labels and icons for their kinds and origins. */
@@ -453,6 +453,7 @@ private fun StudioComposerModes(content: PaneContent, onIntent: (StudioIntent) -
     val pane = content.pane
     OrganismModeToggle(content, onIntent)
     PlanningModeToggle(content, onIntent)
+    AutoContinueModeMenu(content, onIntent)
     if (content.worktree != null || content.session?.isWorktree == true) {
         val isSandbox = content.worktree?.isSandbox == true
         HbComposerToggle(
