@@ -25,7 +25,7 @@ import kotlinx.collections.immutable.ImmutableList
 private val log = Log.tag("DS/ComposerMenu")
 
 /** The standard toolbar action, a circular add control, or a pill with an optional accent fill. */
-public enum class HbComposerMenuStyle { Standard, Circle, Pill, AccentPill }
+public enum class HbComposerMenuStyle { Standard, Circle, AccentCircle, Pill, AccentPill }
 
 /**
  * Controlled toolbar menu. The owner supplies localized labels and handles action identifiers.
@@ -33,6 +33,7 @@ public enum class HbComposerMenuStyle { Standard, Circle, Pill, AccentPill }
  * Escape and outside clicks dismiss the menu and restore focus to its trigger.
  * [icon] uses the shared vector style with the separate [accessibleLabel] announced.
  * [isIcon] retains support for custom text glyphs; prefer [icon] for design-system actions.
+ * [closeOnAction] is false when the owner switches between pages of commands inside the same popup.
  */
 @Composable
 public fun HbComposerMenuButton(
@@ -48,6 +49,7 @@ public fun HbComposerMenuButton(
     isIcon: Boolean = false,
     icon: ImageVector? = null,
     style: HbComposerMenuStyle = HbComposerMenuStyle.Standard,
+    closeOnAction: Boolean = true,
 ) {
     require(actions.map { it.id }.distinct().size == actions.size) { "Composer action ids must be unique" }
     val triggerFocus = remember { FocusRequester() }
@@ -82,7 +84,7 @@ public fun HbComposerMenuButton(
                 onDismiss = { changeExpanded(false) },
                 onAction = { action ->
                     log.i { "composer menu action activated" }
-                    changeExpanded(false)
+                    if (closeOnAction) changeExpanded(false)
                     onAction(action)
                 },
                 headerLabel = headerLabel,
@@ -116,7 +118,7 @@ private fun ComposerMenuTrigger(
         }
     if (style == HbComposerMenuStyle.Pill || style == HbComposerMenuStyle.AccentPill) {
         ComposerMenuPill(label, onClick, triggerModifier, icon, enabled, style == HbComposerMenuStyle.AccentPill)
-    } else if (style == HbComposerMenuStyle.Circle) {
+    } else if (style == HbComposerMenuStyle.Circle || style == HbComposerMenuStyle.AccentCircle) {
         ComposerIconButton(
             icon,
             accessibleLabel,
@@ -126,7 +128,12 @@ private fun ComposerMenuTrigger(
             fallbackSymbol = label,
             shape = HbTheme.shapes.small,
             size = HbTheme.dimensions.composerActionSize,
-            background = HbTheme.surfaces.composerPill,
+            background = if (style == HbComposerMenuStyle.AccentCircle) {
+                HbTheme.surfaces.composerPillAccent
+            } else {
+                HbTheme.surfaces.composerPill
+            },
+            tint = HbTheme.surfaces.onComposerPillAccent.takeIf { style == HbComposerMenuStyle.AccentCircle },
             iconSize = HbTheme.dimensions.iconSize,
             tooltipText = null,
         )

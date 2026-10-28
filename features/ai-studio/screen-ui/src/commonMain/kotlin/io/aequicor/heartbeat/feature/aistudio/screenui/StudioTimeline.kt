@@ -175,7 +175,7 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         retained = nextRetained
         val inline = anchored.values.mapTo(HashSet()) { it.id }
         placement.inline = inline
-        val updated = weave(next, nextCards, nextRetained, inline, sections, nextLabels)
+        val updated = weave(next, nextCards, nextRetained, sections, nextLabels)
         observedCards = woven
         observedPositions = weaves
         return updated
@@ -244,16 +244,16 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
 
     /**
      * Appends new cards at the current end, refreshes known ones in place and retires absent ones. A card shown
-     * [inline] in a reply still records the point it appeared at: once it leaves the reply it returns there.
+     * inline in a reply still records the point it appeared at: once it leaves the reply it returns there.
      */
     private fun weave(
         next: List<MessageUi>,
         nextCards: List<HbChatMessage>,
         nextRetained: Set<String>,
-        inline: Set<String>,
         sections: List<HbChatSection>,
         nextLabels: TimelineLabels,
     ): HbChatTimeline {
+        val inline = placement.inline
         val offered = nextCards.mapTo(HashSet()) { it.id }
         offered.addAll(nextRetained)
         val positioned = weaves.mapTo(HashSet()) { it.id }
@@ -405,9 +405,10 @@ internal fun anchoredCards(
     if (builds.isEmpty()) return emptyMap()
     val calls = messages.withIndex().flatMap { (index, message) ->
         val reply = message as? MessageUi.Reply ?: return@flatMap emptyList()
-        reply.parts.filterIsInstance<ReplyPartUi.Tool>()
+        reply.parts.asSequence().filterIsInstance<ReplyPartUi.Tool>()
             .filter { it.tool.title == RUN_BUILD_TOOL }
             .map { RunBuildCall(it.tool, index, outputs.of(it.tool)) }
+            .toList()
     }
     outputs.retainOnly(calls.mapTo(HashSet()) { it.tool.id })
     fun RunBuildCall.mayTake(card: HbChatMessage): Boolean {
@@ -453,7 +454,7 @@ private class RunBuildCall(val tool: ToolUi, val replyIndex: Int, output: RunBui
 }
 
 /** The operations and commands named by one run_build [output]. */
-internal class RunBuildOutput(val output: String) {
+internal data class RunBuildOutput(val output: String) {
     val operations: Set<String> = OPERATION_ID.findAll(output).mapTo(HashSet()) { it.groupValues[1] }
     val commands: Set<String> = BUILD_COMMAND.findAll(output).mapTo(HashSet()) { it.groupValues[1] }
 }

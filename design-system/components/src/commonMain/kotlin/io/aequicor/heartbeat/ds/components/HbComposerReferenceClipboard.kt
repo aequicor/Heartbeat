@@ -41,7 +41,7 @@ internal class ComposerReferenceRemovals {
         ?.takeIf { it.at == caret && it.after.contentEquals(text) && composerReferenceDisplay(it.raw) == shown }
         ?.raw
 
-    private class Removal(val raw: String, val at: Int, val after: String)
+    private data class Removal(val raw: String, val at: Int, val after: String)
 }
 
 /**

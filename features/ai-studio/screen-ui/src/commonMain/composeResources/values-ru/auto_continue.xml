@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="auto_continue_suggest_title">Как продолжим работу?</string>
     <string name="auto_continue_author">Автопилот</string>
     <string name="auto_continue_menu">Автопродолжение</string>
     <string name="auto_continue_chip_off">Автопродолжение</string>
@@ -10,8 +11,9 @@
     <string name="auto_continue_mode_suggest">Подсказки</string>
     <string name="auto_continue_mode_suggest_hint">После каждого хода — варианты продолжения; выбираете вы или пишете сами</string>
     <string name="auto_continue_mode_autopilot">Автопилот</string>
-    <string name="auto_continue_mode_autopilot_hint">Отвечает сам, пока задача не готова или не нужен человек</string>
+    <string name="auto_continue_mode_autopilot_hint">Сам выбирает следующий шаг и продолжает до завершения задачи</string>
     <string name="auto_continue_thinking">Подбираю продолжение…</string>
+    <string name="auto_continue_running">Автопилот продолжает работу</string>
     <string name="auto_continue_sending">Отправляю реплику автопилота…</string>
     <string name="auto_continue_paused">Автопилот ждёт вашего решения</string>
     <string name="auto_continue_countdown">Отправка через %1$d с</string>

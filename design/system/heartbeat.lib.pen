@@ -1119,6 +1119,44 @@
         },
         {
           "type": "frame",
+          "id": "hb-dropdown",
+          "x": 280,
+          "y": 1550,
+          "name": "HbDropdown / Desktop / Closed",
+          "context": "Один выбор из списка. Enter, Space или стрелка вниз открывают меню; Esc закрывает, фокус возвращается к полю. Длинное значение затухает к краю и доступно целиком в подсказке.",
+          "reusable": true,
+          "width": 240,
+          "height": 32,
+          "fill": "$colors.inputFill",
+          "cornerRadius": "$dimensions.fieldCornerRadius",
+          "layout": "none",
+          "children": [
+            {
+              "type": "text",
+              "id": "hb-dropdown-value",
+              "x": 10,
+              "y": 7,
+              "fill": "$colors.textPrimary",
+              "content": "Автоматически",
+              "fontFamily": "$typography.family",
+              "fontSize": "$typography.label.size",
+              "fontWeight": "$typography.label.weight"
+            },
+            {
+              "id": "hb-dropdown-chevron",
+              "type": "ref",
+              "ref": "hb-icon-chevron-down",
+              "width": 14,
+              "height": 14,
+              "x": 216,
+              "y": 9,
+              "stroke": "$colors.textSecondary",
+              "strokeWidth": 0.98
+            }
+          ]
+        },
+        {
+          "type": "frame",
           "id": "window-traffic-lights",
           "x": 40,
           "y": 1602.9,
@@ -8794,8 +8832,21 @@
     },
     "dimensions.engineListWidth": {
       "type": "number",
-      "value": 240
+      "value": [
+        {
+          "value": 240,
+          "theme": {
+            "host": "desktop"
+          }
+        },
+        {
+          "value": 240,
+          "theme": {
+            "host": "mobile"
+          }
+        }
+      ]
     }
   },
-  "fileToken": "40fe6af4-7cb0-436a-9b00-759b81d81722"
+  "fileToken": "326ac8e9-b6bd-4e3d-90d5-e13cf3d23273"
 }

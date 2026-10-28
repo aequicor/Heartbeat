@@ -198,7 +198,13 @@ class HbControlsInteractionTest {
         setContent { InteractionHost(onClick = {}, isDark = true, style = style) }
         onNodeWithTag("action").performSemanticsAction(SemanticsActions.RequestFocus)
         mainClock.autoAdvance = false
-        listOf(HbButtonStyle.Ghost, HbButtonStyle.Primary, HbButtonStyle.Secondary, HbButtonStyle.Primary).forEach {
+        listOf(
+            HbButtonStyle.Ghost,
+            HbButtonStyle.Primary,
+            HbButtonStyle.Secondary,
+            HbButtonStyle.Accent,
+            HbButtonStyle.Primary,
+        ).forEach {
             runOnIdle { style = it }
             mainClock.advanceTimeByFrame()
             onNodeWithTag("action").assertIsFocused()
@@ -206,11 +212,16 @@ class HbControlsInteractionTest {
             val image = captureToImage().toAwtImage()
             val pixel = Color(image.getRGB(bounds.center.x.toInt(), (bounds.top + bounds.height / 4f).toInt()))
             val colors = HbColors.DesktopDark
-            val foreground = if (it == HbButtonStyle.Primary) colors.onPrimary else colors.textPrimary
+            val foreground = when (it) {
+                HbButtonStyle.Primary -> colors.onPrimary
+                HbButtonStyle.Accent -> colors.onSecondary
+                else -> colors.textPrimary
+            }
             val expectedFill = when (it) {
                 HbButtonStyle.Primary -> colors.primary
                 HbButtonStyle.Ghost -> colors.background
                 HbButtonStyle.Secondary, HbButtonStyle.Danger -> colors.buttonFill
+                HbButtonStyle.Accent -> colors.secondary
             }
             assertEquals(expectedFill.toArgb(), pixel.toArgb(), "First style frame must use its matching fill")
             assertTrue(contrastRatio(foreground, pixel) >= 4.5f, "Style transition must preserve text contrast")
