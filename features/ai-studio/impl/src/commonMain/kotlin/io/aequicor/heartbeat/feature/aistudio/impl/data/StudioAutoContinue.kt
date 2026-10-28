@@ -23,9 +23,9 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueEnabled
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueHost
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMachineKey
-import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueState
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueView
+import io.aequicor.heartbeat.feature.autocontinue.api.Phase
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineKey
@@ -88,7 +88,8 @@ internal suspend fun StudioTurnLifecycle.observe(
 /**
  * Connects studio chats with auto-continue. It reports the turns of ordinary chats (not helpers and organisms) to
  * the auto-continue machine: a completed turn is settled with the dialog for the continuer, or reported as waiting for
- * the human while a checklist, a proposed plan, a wake of the agent, a compaction or a questionnaire is open. As the
+ * the human while a checklist, a proposed plan, a wake of the agent, a compaction or a questionnaire is open. Context
+ * upkeep turns are not reported as turns: after them the chat is judged again. As the
  * chat host it sends autopilot replies as turns of the chat (request ids `autopilot-…`, not human prompts) and
  * remembers their native turns, so the dialog and the transcript can mark them. Never throws into the turn.
  */
@@ -119,27 +120,49 @@ internal class StudioAutoContinue(
     private val marks by lazy { stores.keyValue(MarkSpec) }
     private val marksLock = Mutex()
 
+    // The transcript reader keeps migration state: reads of parallel turns are serialized.
+    private val transcriptsLock = Mutex()
+
     /** Read-only view of the transcripts the repository writes; the repository moves legacy carriers itself. */
     private val transcripts by lazy {
         StudioTranscripts(stores.database(StudioTranscriptDatabaseSpec).transcripts(), { emptyList() }, {})
     }
 
     override suspend fun started(request: StudioTurnRequest) = guarded("start") {
+        val kind = request.turnKind()
+        // Context upkeep keeps the dialog as it was: it neither cancels an answer nor counts as a new turn.
+        if (kind == StudioTurnKind.Service) return@guarded
         val record = tracked(request) ?: return@guarded
-        val isHuman = request.isUserPrompt || request.userInstruction != null
-        machines.send(AutoContinueMachineKey, Public.TurnStarted(record.id, isHuman))
+        view.value // Starts the machine with the first tracked turn of the profile.
+        machines.send(AutoContinueMachineKey, Public.TurnStarted(record.id, kind == StudioTurnKind.Human))
     }
 
-    override suspend fun finished(request: StudioTurnRequest, outcome: RunOutcome) = guarded("finish") {
-        val record = tracked(request)
-        if (record == null || request.compaction != null || mode(record.id) == AutoContinueMode.Off) return@guarded
-        val intent = when (outcome) {
-            RunOutcome.Stopped -> Public.TurnFailed(record.id, isStoppedByUser = true)
-            RunOutcome.Failed -> Public.TurnFailed(record.id, isStoppedByUser = false)
-            RunOutcome.Completed -> settled(record)
+    override suspend fun finished(request: StudioTurnRequest, outcome: RunOutcome) {
+        val record = try {
+            tracked(request) ?: return
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "auto-continue: chat of a finished turn is unreadable" }
+            return
+        }
+        val isService = request.turnKind() == StudioTurnKind.Service
+        val intent = try {
+            when {
+                isService && outcome != RunOutcome.Completed -> return
+                outcome == RunOutcome.Stopped -> Public.TurnFailed(record.id, isStoppedByUser = true)
+                outcome == RunOutcome.Failed -> Public.TurnFailed(record.id, isStoppedByUser = false)
+                else -> settled(record, isAfterService = isService)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // The machine already left the previous answer behind: without a report the chat would wait forever.
+            log.w(e) { "auto-continue: turn of ${record.id} could not be judged; the human decides" }
+            Public.TurnAwaitsHuman(record.id)
         }
         log.i { "auto-continue: turn of ${record.id} ended $outcome" }
-        machines.send(AutoContinueMachineKey, intent)
+        guarded("finish") { machines.send(AutoContinueMachineKey, intent) }
     }
 
     override suspend fun deliver(chat: String, text: String): Boolean {
@@ -158,22 +181,28 @@ internal class StudioAutoContinue(
         )
         val run = profile.coroutineScope.async {
             try {
-                runs.value.run(host.value, request, beforeExecute = {
-                    check(record(chat)?.runRevision == record.runRevision) {
-                        "The conversation changed before the autopilot reply"
-                    }
+                // Waits for an ending turn or a compaction; sends only while the machine still sends this reply.
+                runs.value.run(host.value, request, waitForIdle = true, beforeExecute = {
+                    check(isSending(chat, text)) { "The autopilot reply was taken back before its turn" }
                 })
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // After acceptance nobody awaits the run: its failure must reach the log here.
-                log.w(e) { "autopilot turn of $chat failed" }
+                if (accepted.isCompleted) log.w(e) { "autopilot turn of $chat failed" }
                 throw e
             }
         }
-        val outcome = select<RunOutcome?> {
-            accepted.onAwait { null }
-            run.onAwait { it }
+        var outcome: RunOutcome? = null
+        var isSettled = false
+        try {
+            outcome = select<RunOutcome?> {
+                accepted.onAwait { null }
+                run.onAwait { it }
+            }
+            isSettled = true
+        } finally {
+            if (!isSettled && !accepted.isCompleted) run.cancel()
         }
         return (outcome == null || accepted.isCompleted).also { log.i { "autopilot reply to $chat accepted: $it" } }
     }
@@ -185,30 +214,46 @@ internal class StudioAutoContinue(
     /** Native turn ids of the autopilot replies of [chat]. */
     suspend fun autopilotTurns(chat: String): Set<String> = marks.get(MarksKey)?.get(chat).orEmpty().toSet()
 
-    private suspend fun settled(record: StudioChatRecord): Public {
+    /**
+     * The completed turn of [record] for the continuer, or a wait for the human. After context upkeep
+     * ([isAfterService]) the compaction that just ran does not count as one still open.
+     */
+    private suspend fun settled(record: StudioChatRecord, isAfterService: Boolean): Public {
         val plan = planning.plans.first()[record.id]
         val end = StudioTurnEnd(
             isChecklistOpen = record.checklistReadiness(checklists.events.first()).first,
             plan = plan,
             hasWakes = (machines.find(SchedulerMachineKey)?.state?.value as? SchedulerState.Ready)
                 ?.wakes.orEmpty().any { record.owns(it.session) },
-            isCompacting = record.id in compactions.compacting.first(),
+            isCompacting = !isAfterService && record.id in compactions.compacting.first(),
             hasQuestions = (machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking)
                 ?.pending.orEmpty().any { it.source == record.id },
         )
         if (end.isAwaitingHuman) return Public.TurnAwaitsHuman(record.id)
-        val context = continuationContext(record, transcripts.read(record.id), autopilotTurns(record.id), plan)
+        val items = transcriptsLock.withLock { transcripts.read(record.id) }
+        val context = continuationContext(record, items, autopilotTurns(record.id), plan)
         return if (context == null) Public.TurnAwaitsHuman(record.id) else Public.TurnSettled(record.id, context)
     }
 
     private suspend fun record(chat: String): StudioChatRecord? =
         chats.get(ChatsKey).orEmpty().firstOrNull { it.id == chat }
 
-    private suspend fun mark(chat: String, turn: String) = marksLock.withLock {
-        val all = marks.get(MarksKey).orEmpty()
-        val turns = (all[chat].orEmpty() + turn).takeLast(MAX_MARKS)
-        marks.set(MarksKey, all + (chat to turns))
+    /** Remembers an autopilot turn; a failed write only loses the label, never the accepted turn. */
+    private suspend fun mark(chat: String, turn: String) = try {
+        marksLock.withLock {
+            val all = marks.get(MarksKey).orEmpty()
+            val turns = (all[chat].orEmpty() + turn).takeLast(MAX_MARKS)
+            marks.set(MarksKey, all + (chat to turns))
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "autopilot turn of $chat was not marked" }
     }
+
+    /** Whether the machine is still sending [text] to [chat]; a human message or Stop in between takes it back. */
+    private fun isSending(chat: String, text: String): Boolean =
+        ((view.value.state.value as? AutoContinueState.Ready)?.chat(chat)?.phase as? Phase.Delivering)?.text == text
 
     /** The chat of [request] when auto-continue follows it: an ordinary chat turn, not a rollover. */
     private suspend fun tracked(request: StudioTurnRequest): StudioChatRecord? =
@@ -216,10 +261,6 @@ internal class StudioAutoContinue(
 
     private suspend fun isTracked(record: StudioChatRecord): Boolean =
         record.helper == null && record.organismId == null && toggles.get(AutoContinueEnabled)
-
-    /** The chat's mode; reading the view starts the machine with the first tracked turn of the profile. */
-    private fun mode(chat: String): AutoContinueMode? = (view.value.state.value as? AutoContinueState.Ready)
-        ?.chat(chat)?.mode
 
     private suspend fun guarded(what: String, block: suspend () -> Unit) {
         try {

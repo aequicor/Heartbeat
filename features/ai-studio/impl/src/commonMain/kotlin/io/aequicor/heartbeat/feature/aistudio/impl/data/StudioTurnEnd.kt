@@ -4,10 +4,31 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationContext
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogAuthor
+import io.aequicor.heartbeat.feature.autocontinue.api.DialogEntry
 import io.aequicor.heartbeat.feature.autocontinue.api.dialogOf
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.planningmode.api.PlanMode
 import io.aequicor.heartbeat.feature.planningmode.api.PlanStatus
+
+/** How auto-continue sees a turn of a chat. */
+internal enum class StudioTurnKind {
+    /** The human's own message or click: it takes over from the autopilot. */
+    Human,
+
+    /** A host-started turn of the agent (a wake, a continuation, an autopilot reply). */
+    Host,
+
+    /** Context upkeep (compaction, rollover, the handoff summary before it): the dialog goes on as it was. */
+    Service,
+}
+
+/** The kind of turn [this] request starts. */
+internal fun StudioTurnRequest.turnKind(): StudioTurnKind = when {
+    compaction != null || isRollover || request.value.startsWith(HANDOFF_REQUEST_PREFIX) -> StudioTurnKind.Service
+    isUserPrompt || userInstruction != null -> StudioTurnKind.Human
+    else -> StudioTurnKind.Host
+}
 
 /**
  * What else waits for the human in a chat whose turn completed: an open checklist card, a proposed plan, a wake of
@@ -39,7 +60,7 @@ internal fun continuationContext(
 ): ContinuationContext? {
     val route = record.target ?: return null
     val autopilotItems = items.filter { it.info.turn?.value in autopilotTurns }.mapTo(mutableSetOf()) { it.info.id }
-    val dialog = dialogOf(items, autopilotItems).mapNotNull { entry ->
+    val dialog = dialogOf(items, autopilotItems).takeTask(MAX_DIALOG_ENTRIES).mapNotNull { entry ->
         if (entry.author == DialogAuthor.Agent) {
             entry
         } else {
@@ -49,6 +70,17 @@ internal fun continuationContext(
     if (dialog.none { it.author == DialogAuthor.Agent }) return null
     return ContinuationContext(route, dialog, planNote(plan))
 }
+
+/** The first human message (the task) and the newest of the other entries, [limit] in all. */
+private fun List<DialogEntry>.takeTask(limit: Int): List<DialogEntry> {
+    if (size <= limit) return this
+    val task = indexOfFirst { it.author == DialogAuthor.Human }
+    val tail = takeLast(limit - 1)
+    return if (task < 0 || task >= size - tail.size) takeLast(limit) else listOf(this[task]) + tail
+}
+
+/** Entries kept of a long dialog; the continuer's prompt budget shortens them further. */
+private const val MAX_DIALOG_ENTRIES = 60
 
 /** The plan for the continuer: mode, status and text; null outside the planning mode. */
 internal fun planNote(plan: Plan?): String? {

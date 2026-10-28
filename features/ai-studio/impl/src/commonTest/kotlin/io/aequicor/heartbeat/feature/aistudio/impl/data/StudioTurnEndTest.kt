@@ -8,17 +8,25 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
+import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogAuthor
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogEntry
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.planningmode.api.PlanChat
 import io.aequicor.heartbeat.feature.planningmode.api.PlanMode
 import io.aequicor.heartbeat.feature.planningmode.api.PlanStatus
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -83,5 +91,68 @@ class StudioTurnEndTest {
         assertNull(continuationContext(record.copy(target = null), items, emptySet(), plan = null))
         assertNull(planNote(plan.copy(mode = PlanMode.Detached)))
         assertNull(planNote(null))
+    }
+
+    private fun request(id: String, isUserPrompt: Boolean = false, userInstruction: String? = null) = StudioTurnRequest(
+        "chat",
+        prompt = "text",
+        settings = DefaultRunSettings,
+        kind = WorktreeRunKind.Coding,
+        request = RequestId(id),
+        isUserPrompt = isUserPrompt,
+        userInstruction = userInstruction,
+    )
+
+    @Test
+    fun `turns are told apart by who started them`() {
+        assertEquals(StudioTurnKind.Human, request("r", isUserPrompt = true).turnKind())
+        assertEquals(StudioTurnKind.Human, request("r", userInstruction = "do it").turnKind())
+        assertEquals(StudioTurnKind.Host, request("autopilot-1").turnKind())
+        assertEquals(StudioTurnKind.Host, request("continue-1").turnKind())
+        assertEquals(StudioTurnKind.Service, request("${HANDOFF_REQUEST_PREFIX}1").turnKind())
+        assertEquals(StudioTurnKind.Service, request("r").copy(isRollover = true).turnKind())
+    }
+
+    @Test
+    fun `a turn that throws or is cancelled ends as failed`() = runTest {
+        val lifecycle = RecordingLifecycle()
+        assertEquals(RunOutcome.Completed, lifecycle.observe(request("a")) { RunOutcome.Completed })
+        assertFailsWith<IllegalStateException> { lifecycle.observe(request("b")) { error("boom") } }
+        assertFailsWith<CancellationException> {
+            lifecycle.observe(request("c")) { throw CancellationException("stopped") }
+        }
+        assertEquals(listOf("a", "b", "c"), lifecycle.started)
+        assertEquals(
+            listOf("a" to RunOutcome.Completed, "b" to RunOutcome.Failed, "c" to RunOutcome.Failed),
+            lifecycle.finished,
+        )
+    }
+
+    @Test
+    fun `a long dialog keeps the task and the newest entries`() {
+        val items = listOf(message("u0", MessageRole.User, "task", turn = "t0")) +
+            (1..80).flatMap { index ->
+                listOf(
+                    message("u$index", MessageRole.User, "next $index", turn = "t$index"),
+                    message("a$index", MessageRole.Assistant, "done $index", turn = "t$index"),
+                )
+            }
+        val dialog = continuationContext(record, items, emptySet(), plan = null)?.dialog.orEmpty()
+        assertEquals(60, dialog.size)
+        assertEquals(DialogEntry(DialogAuthor.Human, "task"), dialog.first())
+        assertEquals(DialogEntry(DialogAuthor.Agent, "done 80"), dialog.last())
+    }
+
+    private class RecordingLifecycle : StudioTurnLifecycle {
+        val started = mutableListOf<String>()
+        val finished = mutableListOf<Pair<String, RunOutcome>>()
+
+        override suspend fun started(request: StudioTurnRequest) {
+            started += request.request.value
+        }
+
+        override suspend fun finished(request: StudioTurnRequest, outcome: RunOutcome) {
+            finished += request.request.value to outcome
+        }
     }
 }
