@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Interna
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueSettings
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuerFailure
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -23,6 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 
 /** Storage of auto-continue settings and chat modes owned by the profile. */
@@ -51,6 +53,7 @@ internal class AutoContinueEffects(
     private val prompts: IsolatedPrompts,
     private val hosts: () -> Set<AutoContinueHost>,
     private val isEnabled: suspend () -> Boolean,
+    private val clock: Clock,
 ) : EffectHandler<AutoContinueEffect, AutoContinueIntent> {
 
     private val log = Log.tag("AutoContinueEffects")
@@ -63,7 +66,14 @@ internal class AutoContinueEffects(
             AutoContinueEffect.Load -> {
                 val settings = store.settings()
                 val modes = store.modes()
-                stopAutopilots(modes)
+                try {
+                    stopAutopilots(modes)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // The machine still loads: it turns autopilot chats into suggestions in memory anyway.
+                    log.w(e) { "stored autopilot modes not reset" }
+                }
                 log.i { "auto-continue loaded: ${modes.size} chat mode(s)" }
                 machine.send(Internal.Loaded(settings, modes))
             }
@@ -80,6 +90,9 @@ internal class AutoContinueEffects(
             }
 
             is AutoContinueEffect.Deliver -> job(effect.chat, machine, lost(effect)) { machine.send(deliver(effect)) }
+
+            is AutoContinueEffect.Resettle -> hosts().firstOrNull()?.resettle(effect.chat)
+                ?: log.d { "auto-continue of ${effect.chat} switched on without a studio to report its last turn" }
 
             is AutoContinueEffect.Cancel -> jobsLock.withLock { jobs.remove(effect.chat) }?.let {
                 it.cancel()
@@ -116,7 +129,7 @@ internal class AutoContinueEffects(
                 Internal.AskFailed(effect.chat, effect.seq, ContinuerFailure.InvalidAnswer)
             } else {
                 log.i { "continuer of ${effect.chat} answered ${verdict.status}, options ${verdict.options.size}" }
-                Internal.Answered(effect.chat, effect.seq, verdict)
+                Internal.Answered(effect.chat, effect.seq, verdict, clock.now())
             }
         }
     }

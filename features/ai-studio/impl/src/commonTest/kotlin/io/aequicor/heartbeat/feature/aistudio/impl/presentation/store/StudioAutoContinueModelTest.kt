@@ -126,7 +126,7 @@ class StudioAutoContinueModelTest {
     fun `commands and typing reach the machine and edits fill the draft`() = runTest {
         val port = RecordingPort()
         port.state.value = AutoContinueState.Ready(
-            chats = mapOf("chat" to ChatAuto(AutoContinueMode.Autopilot, Phase.Countdown(1, "go", 5))),
+            chats = mapOf("chat" to ChatAuto(AutoContinueMode.Autopilot, Phase.Countdown(1, "go", 5, ENDS_AT))),
         )
         val fixture = AiStudioModelTest.Fixture(this, ready, autoContinue = port)
         val screen = fixture.subscribe()
@@ -158,7 +158,7 @@ class StudioAutoContinueModelTest {
         runCurrent()
         assertEquals("my own\n\nedited", screen.states.value.draft(0))
         val countdown = screen.states.value.autoContinue.chat("chat")?.countdown
-        assertTrue(countdown != null && countdown.deadline != kotlin.time.Instant.DISTANT_PAST)
+        assertEquals(ENDS_AT, countdown?.deadline)
     }
 
     @Test
@@ -207,5 +207,9 @@ class StudioAutoContinueModelTest {
         override suspend fun send(intent: AutoContinueIntent.Public) {
             sent += intent
         }
+    }
+
+    private companion object {
+        val ENDS_AT: kotlin.time.Instant = kotlin.time.Instant.fromEpochSeconds(1_000)
     }
 }

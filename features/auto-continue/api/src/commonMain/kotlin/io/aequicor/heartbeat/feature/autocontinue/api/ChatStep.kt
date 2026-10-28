@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.autocontinue.api
 
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Internal
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 
 /** Result of a chat intent: the new [chat] (null removes it), at most one [job], one [save] and one [output]. */
 internal data class ChatStep(
@@ -109,10 +111,18 @@ private fun AutoContinueState.Ready.setMode(id: String, chat: ChatAuto, mode: Au
             context,
         )
     } else {
-        ChatStep(base, cancel(id, chat))
+        ChatStep(base, if (isResettleNeeded(chat, mode)) AutoContinueEffect.Resettle(id) else cancel(id, chat))
     }
     return step.copy(save = save(id, mode))
 }
+
+/** Switched on with nothing to answer and nothing running: the host judges the last turn again. */
+private fun isResettleNeeded(chat: ChatAuto, mode: AutoContinueMode): Boolean =
+    mode != AutoContinueMode.Off && chat.context == null && chat.phase !is Phase.Delivering && !chat.isBusy
+
+/** When the countdown of an answer that came [at] ends; unknown stays unknown. */
+private fun AutoContinueState.Ready.endsAt(at: Instant): Instant =
+    if (at == Instant.DISTANT_PAST) at else at + settings.countdownSeconds.seconds
 
 private fun turnStarted(id: String, chat: ChatAuto, isHuman: Boolean): ChatStep? {
     if (chat.mode == AutoContinueMode.Off) return dropContext(chat)
@@ -200,7 +210,7 @@ private fun AutoContinueState.Ready.answered(id: String, chat: ChatAuto, intent:
         settings.countdownSeconds == 0 -> deliver(id, chat, intent.seq, text)
 
         else -> ChatStep(
-            chat.copy(phase = Phase.Countdown(intent.seq, text, settings.countdownSeconds)),
+            chat.copy(phase = Phase.Countdown(intent.seq, text, settings.countdownSeconds, endsAt(intent.at))),
             AutoContinueEffect.Countdown(id, intent.seq, settings.countdownSeconds),
         )
     }

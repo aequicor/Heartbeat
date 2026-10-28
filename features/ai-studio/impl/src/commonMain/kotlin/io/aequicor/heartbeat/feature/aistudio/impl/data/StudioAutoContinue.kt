@@ -23,8 +23,10 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueEnabled
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueHost
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMachineKey
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueState
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueView
+import io.aequicor.heartbeat.feature.autocontinue.api.ChatAuto
 import io.aequicor.heartbeat.feature.autocontinue.api.Phase
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
@@ -88,8 +90,9 @@ internal suspend fun StudioTurnLifecycle.observe(
 /**
  * Connects studio chats with auto-continue. It reports the turns of ordinary chats (not helpers and organisms) to
  * the auto-continue machine: a completed turn is settled with the dialog for the continuer, or reported as waiting for
- * the human while a checklist, a proposed plan, a wake of the agent, a compaction or a questionnaire is open. Context
- * upkeep turns are not reported as turns: after them the chat is judged again. As the
+ * the human while a checklist, a proposed plan, a wake of the agent, a compaction or a questionnaire is open. Chats in
+ * Off are not read at all; switching one on asks for its last turn ([resettle]). Context upkeep turns are not
+ * reported as turns: after them a chat that paused or waits on is judged again ([isRejudgedAfterService]). As the
  * chat host it sends autopilot replies as turns of the chat (request ids `autopilot-…`, not human prompts) and
  * remembers their native turns, so the dialog and the transcript can mark them. Never throws into the turn.
  */
@@ -147,12 +150,15 @@ internal class StudioAutoContinue(
             return
         }
         val isService = request.turnKind() == StudioTurnKind.Service
+        val chat = autoChat(record.id)
+        // Off chats are never judged: nothing is read for them; a compaction re-judges only a waiting chat.
+        if (if (isService) !isRejudgedAfterService(request, chat) else chat?.mode == AutoContinueMode.Off) return
         val intent = try {
             when {
-                isService && outcome != RunOutcome.Completed -> return
+                isService -> settled(record, isAfterService = true)
                 outcome == RunOutcome.Stopped -> Public.TurnFailed(record.id, isStoppedByUser = true)
                 outcome == RunOutcome.Failed -> Public.TurnFailed(record.id, isStoppedByUser = false)
-                else -> settled(record, isAfterService = isService)
+                else -> settled(record, isAfterService = false)
             }
         } catch (e: CancellationException) {
             throw e
@@ -163,6 +169,24 @@ internal class StudioAutoContinue(
         }
         log.i { "auto-continue: turn of ${record.id} ended $outcome" }
         guarded("finish") { machines.send(AutoContinueMachineKey, intent) }
+    }
+
+    /** Reports the last turn of [chat] again when it is idle; a running turn reports itself when it ends. */
+    override suspend fun resettle(chat: String) {
+        val record = record(chat)
+        if (record == null || !isTracked(record) || runs.value.isBusy(chat)) return
+        val intent = try {
+            settled(record, isAfterService = false)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "auto-continue: last turn of $chat could not be judged" }
+            Public.TurnAwaitsHuman(chat)
+        }
+        // A turn that started meanwhile reports itself; an older answer must not overtake it.
+        if (runs.value.isBusy(chat)) return
+        log.i { "auto-continue: last turn of $chat reported again" }
+        guarded("resettle") { machines.send(AutoContinueMachineKey, intent) }
     }
 
     override suspend fun deliver(chat: String, text: String): Boolean {
@@ -179,20 +203,7 @@ internal class StudioAutoContinue(
             onTurnAccepted = { _, turn -> mark(chat, turn.value) },
             onAccepted = { accepted.complete(Unit) },
         )
-        val run = profile.coroutineScope.async {
-            try {
-                // Waits for an ending turn or a compaction; sends only while the machine still sends this reply.
-                runs.value.run(host.value, request, waitForIdle = true, beforeExecute = {
-                    check(isSending(chat, text)) { "The autopilot reply was taken back before its turn" }
-                })
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // After acceptance nobody awaits the run: its failure must reach the log here.
-                if (accepted.isCompleted) log.w(e) { "autopilot turn of $chat failed" }
-                throw e
-            }
-        }
+        val run = profile.coroutineScope.async { runReply(request, text, accepted) }
         var outcome: RunOutcome? = null
         var isSettled = false
         try {
@@ -201,10 +212,34 @@ internal class StudioAutoContinue(
                 run.onAwait { it }
             }
             isSettled = true
+        } catch (e: ReplyWithdrawn) {
+            // The human or Stop took the reply back while it waited: nothing was sent.
+            log.w(e) { "autopilot reply to $chat withdrawn before its turn" }
+            return false
         } finally {
             if (!isSettled && !accepted.isCompleted) run.cancel()
         }
         return (outcome == null || accepted.isCompleted).also { log.i { "autopilot reply to $chat accepted: $it" } }
+    }
+
+    /**
+     * Runs the autopilot turn of [request] after an ending turn or a compaction, only while the machine still sends
+     * [text]; otherwise it fails with [ReplyWithdrawn] before submission.
+     */
+    private suspend fun runReply(request: StudioTurnRequest, text: String, accepted: CompletableDeferred<Unit>) = try {
+        runs.value.run(
+            host.value,
+            request,
+            waitForIdle = true,
+            cancelBeforeSubmission = true,
+            beforeExecute = { if (!isSending(request.id, text)) throw ReplyWithdrawn() },
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // After acceptance nobody awaits the run: its failure must reach the log here.
+        if (accepted.isCompleted) log.w(e) { "autopilot turn of ${request.id} failed" }
+        throw e
     }
 
     /** Native turn ids of the autopilot replies of [chat] over time. */
@@ -253,7 +288,13 @@ internal class StudioAutoContinue(
 
     /** Whether the machine is still sending [text] to [chat]; a human message or Stop in between takes it back. */
     private fun isSending(chat: String, text: String): Boolean =
-        ((view.value.state.value as? AutoContinueState.Ready)?.chat(chat)?.phase as? Phase.Delivering)?.text == text
+        (autoChat(chat)?.phase as? Phase.Delivering)?.text == text
+
+    /** [chat] as the machine sees it; null until the machine has loaded. */
+    private fun autoChat(chat: String): ChatAuto? = (view.value.state.value as? AutoContinueState.Ready)?.chat(chat)
+
+    /** The autopilot reply was taken back before its turn started. */
+    private class ReplyWithdrawn : IllegalStateException("The autopilot reply was taken back before its turn")
 
     /** The chat of [request] when auto-continue follows it: an ordinary chat turn, not a rollover. */
     private suspend fun tracked(request: StudioTurnRequest): StudioChatRecord? =

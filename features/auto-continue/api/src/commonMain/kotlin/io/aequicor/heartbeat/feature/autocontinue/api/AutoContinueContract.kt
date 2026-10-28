@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
+import kotlin.time.Instant
 
 /** How a chat continues after the agent's turn. */
 @Serializable
@@ -199,9 +200,17 @@ public sealed interface Phase {
     @Serializable
     public data class Offered(val verdict: ContinuationVerdict) : Phase
 
-    /** Autopilot will send [text] when the countdown of request [seq] elapses. */
+    /**
+     * Autopilot will send [text] when the countdown of request [seq] elapses, [seconds] after it began, at [endsAt]
+     * ([Instant.DISTANT_PAST] when the answer carried no time); views show the time left from [endsAt].
+     */
     @Serializable
-    public data class Countdown(val seq: Long, val text: String, val seconds: Int) : Phase {
+    public data class Countdown(
+        val seq: Long,
+        val text: String,
+        val seconds: Int,
+        val endsAt: Instant = Instant.DISTANT_PAST,
+    ) : Phase {
         override fun toString(): String = "Countdown(seq=$seq, seconds=$seconds)"
     }
 
@@ -321,8 +330,13 @@ public sealed interface AutoContinueIntent : MachineIntent {
         public data object LoadFailed : Internal
 
         /** The continuer answered request [seq]. */
-        public data class Answered(override val chat: String, val seq: Long, val verdict: ContinuationVerdict) :
-            Internal
+        public data class Answered(
+            override val chat: String,
+            val seq: Long,
+            val verdict: ContinuationVerdict,
+            /** When the answer came; an autopilot countdown ends [AutoContinueSettings.countdownSeconds] later. */
+            val at: Instant = Instant.DISTANT_PAST,
+        ) : Internal
 
         /** The continuer failed request [seq]. */
         public data class AskFailed(override val chat: String, val seq: Long, val failure: ContinuerFailure) :
@@ -373,6 +387,12 @@ public sealed interface AutoContinueEffect : MachineEffect {
 
     /** Cancels the running job of [chat]. */
     public data class Cancel(val chat: String) : AutoContinueEffect
+
+    /**
+     * Asks the host to judge the last turn of [chat] again (auto-continue was switched on without a kept context); the
+     * host answers with the usual turn intents, or nothing while a turn runs.
+     */
+    public data class Resettle(val chat: String) : AutoContinueEffect
 }
 
 /** One-shot notifications. */
@@ -411,6 +431,10 @@ public interface AutoContinueView {
 public fun interface AutoContinueHost {
     /** Sends [text] to [chat]; false when the chat cannot take a message now. */
     public suspend fun deliver(chat: String, text: String): Boolean
+
+    /** Reports the last turn of [chat] again ([AutoContinueEffect.Resettle]); nothing while a turn of it runs. */
+    public suspend fun resettle(chat: String) {
+    }
 }
 
 /** Auto-continue of studio chats: suggestions and autopilot. */

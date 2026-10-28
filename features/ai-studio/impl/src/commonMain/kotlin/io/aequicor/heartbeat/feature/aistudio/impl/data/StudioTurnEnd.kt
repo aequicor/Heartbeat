@@ -2,9 +2,12 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
+import io.aequicor.heartbeat.feature.autocontinue.api.ChatAuto
 import io.aequicor.heartbeat.feature.autocontinue.api.ContinuationContext
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogAuthor
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogEntry
+import io.aequicor.heartbeat.feature.autocontinue.api.Phase
 import io.aequicor.heartbeat.feature.autocontinue.api.dialogOf
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
@@ -21,6 +24,17 @@ internal enum class StudioTurnKind {
 
     /** Context upkeep (compaction, rollover, the handoff summary before it): the dialog goes on as it was. */
     Service,
+}
+
+/**
+ * Whether context upkeep that just ended is a reason to judge the chat ([chat] as auto-continue sees it) again: only
+ * a chat that paused for it or has nothing on offer while on. A handoff summary is followed by a rollover instead, and
+ * replies on offer, a countdown or a halt stay as they are.
+ */
+internal fun isRejudgedAfterService(request: StudioTurnRequest, chat: ChatAuto?): Boolean = when {
+    chat == null || request.request.value.startsWith(HANDOFF_REQUEST_PREFIX) -> false
+    chat.phase == Phase.Paused -> true
+    else -> chat.phase == Phase.Idle && chat.mode != AutoContinueMode.Off
 }
 
 /** The kind of turn [this] request starts. */

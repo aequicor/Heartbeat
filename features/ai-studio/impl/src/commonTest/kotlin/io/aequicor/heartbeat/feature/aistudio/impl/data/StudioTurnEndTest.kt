@@ -14,8 +14,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
+import io.aequicor.heartbeat.feature.autocontinue.api.ChatAuto
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogAuthor
 import io.aequicor.heartbeat.feature.autocontinue.api.DialogEntry
+import io.aequicor.heartbeat.feature.autocontinue.api.Phase
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
 import io.aequicor.heartbeat.feature.planningmode.api.Plan
 import io.aequicor.heartbeat.feature.planningmode.api.PlanChat
@@ -111,6 +114,22 @@ class StudioTurnEndTest {
         assertEquals(StudioTurnKind.Host, request("continue-1").turnKind())
         assertEquals(StudioTurnKind.Service, request("${HANDOFF_REQUEST_PREFIX}1").turnKind())
         assertEquals(StudioTurnKind.Service, request("r").copy(isRollover = true).turnKind())
+    }
+
+    @Test
+    fun `context upkeep judges again only a chat that paused or waits on`() {
+        val compaction = request("compact-1")
+        val handoff = request("${HANDOFF_REQUEST_PREFIX}1")
+        val paused = ChatAuto(AutoContinueMode.Autopilot, Phase.Paused)
+        assertTrue(isRejudgedAfterService(compaction, paused))
+        assertTrue(isRejudgedAfterService(compaction, ChatAuto(AutoContinueMode.Suggest)))
+        assertFalse(isRejudgedAfterService(handoff, paused))
+        assertFalse(isRejudgedAfterService(compaction, null))
+        assertFalse(isRejudgedAfterService(compaction, ChatAuto(AutoContinueMode.Off)))
+        assertFalse(isRejudgedAfterService(compaction, ChatAuto(AutoContinueMode.Suggest, Phase.Thinking(1))))
+        assertFalse(
+            isRejudgedAfterService(compaction, ChatAuto(AutoContinueMode.Autopilot, Phase.Countdown(1, "go", 5))),
+        )
     }
 
     @Test

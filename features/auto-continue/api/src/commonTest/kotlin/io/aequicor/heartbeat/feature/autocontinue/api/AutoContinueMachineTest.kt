@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Interna
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 
 class AutoContinueMachineTest {
     private val spec = AutoContinueMachineSpec
@@ -101,7 +103,7 @@ class AutoContinueMachineTest {
             ready(settled),
             Public.SetMode(CHAT, AutoContinueMode.Suggest),
             ready(ChatAuto(AutoContinueMode.Suggest)),
-            effects = listOf(saveMode(AutoContinueMode.Suggest)),
+            effects = listOf(AutoContinueEffect.Resettle(CHAT), saveMode(AutoContinueMode.Suggest)),
         )
         val offered = ChatAuto(
             AutoContinueMode.Suggest,
@@ -127,6 +129,35 @@ class AutoContinueMachineTest {
             Public.SetMode(CHAT, AutoContinueMode.Suggest),
             ready(ChatAuto(AutoContinueMode.Suggest, Phase.Thinking(1), context = context, seq = 1)),
             effects = listOf(ask(1, AutoContinueMode.Suggest), saveMode(AutoContinueMode.Suggest)),
+        )
+    }
+
+    @Test
+    fun `switching on without a settled turn asks the host to report it again`() {
+        spec.assertTransition(
+            ready(ChatAuto(AutoContinueMode.Off)),
+            Public.SetMode(CHAT, AutoContinueMode.Autopilot),
+            ready(ChatAuto(AutoContinueMode.Autopilot)),
+            effects = listOf(AutoContinueEffect.Resettle(CHAT), saveMode(AutoContinueMode.Autopilot)),
+        )
+        val delivering = ChatAuto(AutoContinueMode.Autopilot, Phase.Delivering(1, "go"), seq = 1)
+        spec.assertTransition(
+            ready(delivering),
+            Public.SetMode(CHAT, AutoContinueMode.Suggest),
+            ready(delivering.copy(mode = AutoContinueMode.Suggest, phase = Phase.Idle)),
+            effects = listOf(saveMode(AutoContinueMode.Suggest)),
+        )
+    }
+
+    @Test
+    fun `a countdown ends its length after the answer came`() {
+        val thinking = ChatAuto(AutoContinueMode.Autopilot, Phase.Thinking(1), context = context, seq = 1)
+        val at = Instant.fromEpochSeconds(1_000)
+        spec.assertTransition(
+            ready(thinking),
+            Internal.Answered(CHAT, 1, proceed, at),
+            ready(thinking.copy(phase = Phase.Countdown(1, option.text, 5, at + 5.seconds))),
+            effects = listOf(AutoContinueEffect.Countdown(CHAT, 1, 5)),
         )
     }
 

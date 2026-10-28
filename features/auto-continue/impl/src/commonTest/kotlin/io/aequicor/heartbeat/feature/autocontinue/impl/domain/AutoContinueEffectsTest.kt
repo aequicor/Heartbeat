@@ -32,6 +32,8 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 class AutoContinueEffectsTest {
     private val target = EngineTarget(EngineId("pi"), EngineBindingId("b"), ModelId("m"))
@@ -63,7 +65,7 @@ class AutoContinueEffectsTest {
         val prompts = ScriptedPrompts(IsolatedAnswer.Answered("sure!"), IsolatedAnswer.Answered(valid))
         val machine = RecordingScope()
         effects(prompts = prompts).handle(ask, machine)
-        assertEquals(listOf<AutoContinueIntent>(Internal.Answered(CHAT, 1, verdict)), machine.sent)
+        assertEquals(listOf<AutoContinueIntent>(Internal.Answered(CHAT, 1, verdict, NOW)), machine.sent)
         assertEquals(2, prompts.asked.size)
         assertTrue("not a valid JSON object" in prompts.asked[1].text)
         assertEquals(target, prompts.asked[0].target)
@@ -197,12 +199,49 @@ class AutoContinueEffectsTest {
         assertEquals(mapOf(CHAT to AutoContinueMode.Suggest, "b" to AutoContinueMode.Suggest), store.modes())
     }
 
+    @Test
+    fun `switching on asks the studio to report the last turn again`() = runTest {
+        val resettled = mutableListOf<String>()
+        val host = object : AutoContinueHost {
+            override suspend fun deliver(chat: String, text: String) = false
+
+            override suspend fun resettle(chat: String) {
+                resettled += chat
+            }
+        }
+        val studio = effects(prompts = ScriptedPrompts(), hosts = setOf(host))
+        studio.handle(AutoContinueEffect.Resettle(CHAT), RecordingScope())
+        effects(prompts = ScriptedPrompts()).handle(AutoContinueEffect.Resettle("b"), RecordingScope())
+        assertEquals(listOf(CHAT), resettled)
+    }
+
+    @Test
+    fun `a store that cannot reset autopilots still loads`() = runTest {
+        val store = object : AutoContinueStore by MemoryStore() {
+            override suspend fun modes() = mapOf(CHAT to AutoContinueMode.Autopilot)
+
+            override suspend fun saveMode(chat: String, mode: AutoContinueMode?): Unit = error("disk full")
+        }
+        val machine = RecordingScope()
+        effects(store, prompts = ScriptedPrompts()).handle(AutoContinueEffect.Load, machine)
+        assertEquals(
+            listOf<AutoContinueIntent>(
+                Internal.Loaded(AutoContinueSettings(), mapOf(CHAT to AutoContinueMode.Autopilot)),
+            ),
+            machine.sent,
+        )
+    }
+
     private fun effects(
         store: AutoContinueStore = MemoryStore(),
         prompts: IsolatedPrompts,
         hosts: Set<AutoContinueHost> = emptySet(),
         isEnabled: Boolean = true,
-    ) = AutoContinueEffects(store, prompts, { hosts }) { isEnabled }
+    ) = AutoContinueEffects(store, prompts, { hosts }, { isEnabled }, FixedClock)
+
+    private object FixedClock : Clock {
+        override fun now(): Instant = NOW
+    }
 
     private class ScriptedPrompts(
         vararg answers: IsolatedAnswer,
@@ -245,5 +284,6 @@ class AutoContinueEffectsTest {
 
     private companion object {
         const val CHAT = "chat-1"
+        val NOW: Instant = Instant.fromEpochSeconds(1_000)
     }
 }

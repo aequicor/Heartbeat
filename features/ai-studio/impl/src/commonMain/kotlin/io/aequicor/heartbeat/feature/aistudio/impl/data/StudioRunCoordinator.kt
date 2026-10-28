@@ -60,6 +60,9 @@ internal class StudioRunCoordinator(
     private val lock = Mutex()
     private val busy = MutableStateFlow<Set<String>>(emptySet())
 
+    /** Whether a request or mutation of chat [id] runs now. */
+    fun isBusy(id: String): Boolean = id in busy.value
+
     /** Reserves a non-turn mutation without starting an agent or waiting behind a running request. */
     suspend fun <T> mutate(id: String, body: suspend () -> T): T {
         log.i { "Reserve chat mutation until durable completion" }

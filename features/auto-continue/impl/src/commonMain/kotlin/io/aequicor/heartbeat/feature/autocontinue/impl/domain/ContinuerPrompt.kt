@@ -124,16 +124,24 @@ internal fun parseVerdict(answer: String, optionCount: Int): ContinuationVerdict
     return ContinuationVerdict(status, reason, options)
 }
 
-/** The first balanced JSON object of [answer] as a raw verdict, or null. */
+/**
+ * The first balanced JSON object of [answer] that reads as a raw verdict, or null; when none does, only the failure
+ * of the first candidate is logged, so prose with braces around the verdict does not flood the log.
+ */
 private fun decodeVerdict(answer: String): RawVerdict? {
+    var firstFailure: Throwable? = null
     var start = answer.indexOf('{')
     while (start >= 0) {
         val end = objectEnd(answer, start)
         if (end > start) {
-            val raw = decodeObject(answer.substring(start, end + 1))
-            if (raw != null) return raw
+            val decoded = decodeObject(answer.substring(start, end + 1))
+            decoded.getOrNull()?.let { return it }
+            if (firstFailure == null) firstFailure = decoded.exceptionOrNull()
         }
         start = answer.indexOf('{', start + 1)
+    }
+    firstFailure?.let { e ->
+        log.w(UnreadableVerdict(e::class.simpleName.orEmpty())) { "continuer answer is not a verdict" }
     }
     return null
 }
@@ -157,15 +165,16 @@ private fun objectEnd(text: String, start: Int): Int {
     return -1
 }
 
-/** [text] as a raw verdict; an unreadable one is reported by its kind only, never with the model's text. */
-private fun decodeObject(text: String): RawVerdict? = try {
-    json.decodeFromString(RawVerdict.serializer(), text)
+/**
+ * [text] as a raw verdict, or the failure that the caller reports by its kind only, never with the model's text
+ * (the parser's message quotes it).
+ */
+private fun decodeObject(text: String): Result<RawVerdict> = try {
+    Result.success(json.decodeFromString(RawVerdict.serializer(), text))
 } catch (e: SerializationException) {
-    log.w(UnreadableVerdict(e::class.simpleName.orEmpty())) { "continuer answer is not a verdict" }
-    null
+    Result.failure(e)
 } catch (e: IllegalArgumentException) {
-    log.w(UnreadableVerdict(e::class.simpleName.orEmpty())) { "continuer answer is not a verdict" }
-    null
+    Result.failure(e)
 }
 
 /** A verdict that could not be read; carries the failure kind instead of the parser's message with the text. */

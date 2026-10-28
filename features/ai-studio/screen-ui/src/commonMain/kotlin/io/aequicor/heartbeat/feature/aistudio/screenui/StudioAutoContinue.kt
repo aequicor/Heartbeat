@@ -11,7 +11,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbBanner
@@ -226,7 +225,7 @@ private fun AutoContinueOptions(paneId: Int, chat: String, ui: AutoContinueUi, o
 
 /**
  * The reply the autopilot is about to send with its controls. The text is announced once; the seconds left come from
- * the countdown's deadline, so a redrawn view stays in step, and are not announced every second. The controls wrap
+ * the countdown's deadline, so a redrawn view stays in step, and are readable but not a live region. The controls wrap
  * under the text on a narrow pane.
  */
 @Composable
@@ -235,7 +234,8 @@ private fun AutoContinueCountdown(chat: String, countdown: AutoContinueCountdown
     LaunchedEffect(chat, countdown.seq) {
         while (left > 0) {
             delay(SECOND_MILLIS)
-            left = secondsLeft(countdown)
+            // Without a deadline the view counts down by itself.
+            left = if (countdown.deadline == Instant.DISTANT_PAST) left - 1 else secondsLeft(countdown)
         }
     }
     HbColumn(Modifier.testTag("auto-continue-countdown"), gap = HbTheme.spacing.xs) {
@@ -246,7 +246,6 @@ private fun AutoContinueCountdown(chat: String, countdown: AutoContinueCountdown
         HbFlowRow(gap = HbTheme.spacing.s) {
             HbText(
                 stringResource(Res.string.auto_continue_countdown, left),
-                Modifier.clearAndSetSemantics {},
                 style = HbTheme.typography.caption,
                 color = HbTheme.colors.textSecondary,
             )

@@ -28,34 +28,23 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import kotlin.time.Clock
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.Instant
 
 /**
  * Projects auto-continue into the screen and forwards the human's choices. A picked reply is the human's own message:
  * it goes through the pane's draft and the ordinary submission. Typing over offered replies or a countdown tells the
  * machine that the human took over; edited autopilot replies land in the composer of the chat's pane.
  */
-internal class StudioAutoContinueView(private val port: StudioAutoContinuePort, private val clock: Clock) {
-    /** When the countdown of each chat ends, by its sequence number; projections run one at a time. */
-    private val deadlines = mutableMapOf<String, Pair<Long, Instant>>()
-
+internal class StudioAutoContinueView(private val port: StudioAutoContinuePort) {
     suspend fun observe(pipeline: StudioPipeline) = coroutineScope {
         with(pipeline) {
             launch {
-                combine(port.availability, port.state) { isEnabled, state -> state.toUi(isEnabled, ::deadline) }
+                combine(port.availability, port.state) { isEnabled, state -> state.toUi(isEnabled) }
                     .collect { updateState { copy(autoContinue = it) } }
             }
             launch {
                 port.drafts.collect { draft -> updateState { withAutopilotDraft(draft.chat, draft.text) } }
             }
         }
-    }
-
-    private fun deadline(chat: String, countdown: Phase.Countdown): Instant {
-        val known = deadlines[chat]?.takeIf { it.first == countdown.seq }
-        return known?.second ?: (clock.now() + countdown.seconds.seconds).also { deadlines[chat] = countdown.seq to it }
     }
 
     /** Handles [intent]; [submit] sends the draft of a pane as the human's message. */
@@ -77,12 +66,15 @@ internal class StudioAutoContinueView(private val port: StudioAutoContinuePort, 
             is AiStudioScreenIntent.StopAutoContinue -> port.send(Public.Stop(chat))
 
             is AiStudioScreenIntent.PickAutoContinue -> {
-                var draft: String? = null
-                pipeline.withState { draft = pickedDraft(intent) }
-                val picked = draft ?: return
-                pipeline.updateState { withDraft(intent.paneId, picked).withDraftCaret(intent.paneId, picked.length) }
+                // Checked and applied in one update, so a draft typed meanwhile is never overwritten.
+                var isLone = false
+                pipeline.updateState {
+                    val picked = pickedDraft(intent) ?: return@updateState this
+                    isLone = picked == intent.text
+                    withDraft(intent.paneId, picked).withDraftCaret(intent.paneId, picked.length)
+                }
                 // A reply joins the human's own draft instead of replacing it; only a lone reply is sent at once.
-                if (intent.isSend && picked == intent.text) submit(intent.paneId)
+                if (intent.isSend && isLone) submit(intent.paneId)
             }
         }
     }
@@ -132,33 +124,30 @@ private val AutoContinueUi.hasOffer: Boolean
     }
 
 /** Screen projection of the auto-continue machine. */
-internal fun AutoContinueState.toUi(
-    isEnabled: Boolean,
-    deadline: (chat: String, countdown: Phase.Countdown) -> Instant = { _, _ -> Instant.DISTANT_PAST },
-): AutoContinueScreenUi {
+internal fun AutoContinueState.toUi(isEnabled: Boolean): AutoContinueScreenUi {
     val ready = this as? AutoContinueState.Ready ?: return AutoContinueScreenUi(isEnabled = false)
     return AutoContinueScreenUi(
         isEnabled = isEnabled,
         defaultMode = ready.settings.defaultMode.toUi(),
         autoTurnLimit = ready.settings.autoTurnLimit,
-        chats = ready.chats.mapValues { (id, chat) -> chat.toUi { deadline(id, it) } }.toImmutableMap(),
+        chats = ready.chats.mapValues { (_, chat) -> chat.toUi() }.toImmutableMap(),
     )
 }
 
-internal fun ChatAuto.toUi(deadline: (Phase.Countdown) -> Instant = { Instant.DISTANT_PAST }): AutoContinueUi {
+internal fun ChatAuto.toUi(): AutoContinueUi {
     val base = AutoContinueUi(mode = mode.toUi(), autoTurns = autoTurns)
     return when (val phase = phase) {
         Phase.Idle -> base
         is Phase.Thinking -> base.copy(isThinking = true)
         is Phase.Offered -> base.withVerdict(phase.verdict, notice = phase.verdict.notice())
-        is Phase.Countdown -> base.copy(countdown = phase.toUi(deadline(phase)))
+        is Phase.Countdown -> base.copy(countdown = phase.toUi())
         is Phase.Delivering -> base.copy(isSending = true)
         Phase.Paused -> base.copy(isPaused = true)
         is Phase.Halted -> base.withVerdict(phase.verdict, notice = phase.reason.toUi(phase.failure))
     }
 }
 
-private fun Phase.Countdown.toUi(deadline: Instant) = AutoContinueCountdownUi(seq, text, seconds, deadline)
+private fun Phase.Countdown.toUi() = AutoContinueCountdownUi(seq, text, seconds, endsAt)
 
 private fun AutoContinueUi.withVerdict(verdict: ContinuationVerdict?, notice: AutoContinueNoticeUi?) = copy(
     options = verdict?.options.orEmpty().map { AutoContinueOptionUi(it.label, it.text) }.toImmutableList(),

@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.autocontinue.impl.domain.AutoContinueEffect
 import io.aequicor.heartbeat.feature.autocontinue.impl.domain.AutoContinueMachine
 import io.aequicor.heartbeat.feature.autocontinue.impl.domain.AutoContinueStore
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
 
 private val log = Log.tag("AutoContinueBindings")
 
@@ -42,8 +43,9 @@ object AutoContinueBindings {
         prompts: IsolatedPrompts,
         hosts: Provider<Set<AutoContinueHost>>,
         toggles: FeatureToggles,
+        clock: Clock,
     ): AutoContinueMachine {
-        val effects = AutoContinueEffects(store, prompts, { hosts() }) { toggles.get(AutoContinueEnabled) }
+        val effects = AutoContinueEffects(store, prompts, { hosts() }, { toggles.get(AutoContinueEnabled) }, clock)
         val machine = launcher.launch(AutoContinueMachineSpec, scope, effects)
         scope.coroutineScope.launch {
             val result = machine.send(AutoContinueIntent.Public.Start)

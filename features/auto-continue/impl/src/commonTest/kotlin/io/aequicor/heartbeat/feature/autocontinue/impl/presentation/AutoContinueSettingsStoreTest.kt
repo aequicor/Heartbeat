@@ -43,13 +43,17 @@ class AutoContinueSettingsStoreTest {
         runCurrent()
         assertTrue(screen.states.value.isLoaded)
         screen.intent(AutoContinueSettingsIntent.SetAutoTurnLimit(20))
-        screen.intent(AutoContinueSettingsIntent.SetAutoTurnLimit(AutoContinueSettings.DEFAULT_AUTO_TURN_LIMIT))
+        runCurrent()
+        assertEquals(20, screen.states.value.autoTurnLimit)
+        screen.intent(AutoContinueSettingsIntent.SetAutoTurnLimit(20))
         screen.intent(AutoContinueSettingsIntent.SetDefaultMode(DefaultModeUi.Suggest))
         runCurrent()
         assertEquals(
             listOf<AutoContinueIntent>(
                 AutoContinueIntent.Public.UpdateSettings(AutoContinueSettings(autoTurnLimit = 20)),
-                AutoContinueIntent.Public.UpdateSettings(AutoContinueSettings(defaultMode = AutoContinueMode.Suggest)),
+                AutoContinueIntent.Public.UpdateSettings(
+                    AutoContinueSettings(defaultMode = AutoContinueMode.Suggest, autoTurnLimit = 20),
+                ),
             ),
             fixture.machine.sent,
         )
@@ -115,8 +119,14 @@ class AutoContinueSettingsStoreTest {
         val sent = mutableListOf<AutoContinueIntent>()
         var result = SendResult.Accepted
 
+        /** Applies settings changes like the machine, so the screen sees what it sent. */
         override suspend fun send(intent: AutoContinueIntent): SendResult {
-            if (result == SendResult.Accepted) sent += intent
+            if (result != SendResult.Accepted) return result
+            sent += intent
+            val ready = state.value as? AutoContinueState.Ready
+            if (intent is AutoContinueIntent.Public.UpdateSettings && ready != null) {
+                state.value = ready.copy(settings = intent.settings)
+            }
             return result
         }
     }

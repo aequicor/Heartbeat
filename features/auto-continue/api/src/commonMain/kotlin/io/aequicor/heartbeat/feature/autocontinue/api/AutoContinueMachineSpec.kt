@@ -19,11 +19,12 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
  * | Ready | UpdateSettings | differs | Ready(settings) | SaveSettings |
  * | Ready | SaveFailed | | Ready | SaveFailed |
  *
- * Per chat in `Ready` (mode Off only keeps the context of the last settled turn):
+ * Per chat in `Ready` (mode Off only keeps the context of a settled turn; switched on without one, it asks the host to
+ * report the last turn again with `Resettle`):
  *
  * | Phase | Intent | Guard | Chat | Effect / output |
  * |---|---|---|---|---|
- * | any | SetMode | mode differs | mode, Idle; Autopilot resets counter; settled → Thinking | Ask / Cancel; SaveMode |
+ * | any | SetMode | mode differs | Idle; Autopilot: counter 0; on, context → Thinking | Ask/Cancel/Resettle; SaveMode |
  * | any | TurnStarted | | Idle, no context; human resets counter; Autopilot → Halted(HumanTookOver) | Cancel; Save |
  * | any | TurnSettled | | Thinking(seq + 1), context kept; Off: only the context kept | Ask |
  * | any | TurnAwaitsHuman | | Autopilot → Paused, Suggest → Idle | Cancel if busy |
@@ -33,10 +34,10 @@ import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
  * | not busy | Refresh | context known | Thinking(seq + 1) | Ask |
  * | Thinking(seq) | Answered | Suggest | Offered(verdict) | |
  * | Thinking(seq) | Answered | Autopilot: Done / NeedsUser / limit / near repeat | Halted(reason, verdict) | SaveMode |
- * | Thinking(seq) | Answered | Autopilot: Continue, countdown > 0 | Countdown(seq, first option) | Countdown |
+ * | Thinking(seq) | Answered | Autopilot: Continue, countdown > 0 | Countdown(seq, first option, ends) | Countdown |
  * | Thinking(seq) | Answered | Autopilot: Continue, countdown = 0 | Delivering, counter + 1 | Deliver |
  * | Thinking(seq) | AskFailed | | Autopilot → Halted(ContinuerFailed); Suggest → Halted, mode kept | SaveMode |
- * | Countdown(seq) | CountdownElapsed / SendNow | | Delivering, counter + 1 | Deliver |
+ * | Countdown(seq) | CountdownElapsed / SendNow | | Delivering, counter + 1, context dropped | Deliver |
  * | Countdown | Edit | | Suggest, Idle | Cancel; SaveMode; Draft(text) |
  * | any | Stop | Autopilot | Halted(UserStopped) | Cancel if busy; SaveMode |
  * | Delivering(seq) | Delivered | | Idle | |
@@ -93,7 +94,7 @@ public val AutoContinueMachineSpec: AutoContinueSpec =
                 is AutoContinueEffect.SaveSettings, is AutoContinueEffect.SaveMode -> Internal.SaveFailed
                 is AutoContinueEffect.Ask -> Internal.AskFailed(effect.chat, effect.seq, ContinuerFailure.Failed)
                 is AutoContinueEffect.Deliver -> Internal.DeliveryFailed(effect.chat, effect.seq)
-                is AutoContinueEffect.Countdown, is AutoContinueEffect.Cancel -> null
+                is AutoContinueEffect.Countdown, is AutoContinueEffect.Cancel, is AutoContinueEffect.Resettle -> null
             }
         }
     }
