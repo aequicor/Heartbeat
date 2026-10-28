@@ -27,7 +27,7 @@ final class SlotState {
     /** Версия формата, которую читает и пишет этот селектор. */
     static final int FORMAT = 1;
 
-    private static final Set<String> KNOWN = Set.of("format", "active", "confirmed", "launching", "crashes", "bad");
+    private static final Set<String> KNOWN = Set.of("format", "active", "confirmed", "launching", "crashes", "bad", "floor");
 
     /** Файл состояния записан более новым селектором: этот его не читает и не затирает. */
     static final class UnsupportedFormatException extends IOException {
@@ -44,6 +44,8 @@ final class SlotState {
     boolean launching;
     /** Пробные запуски подряд, не дошедшие до подтверждения. */
     int crashes;
+    /** Самый высокий уровень лаунчера ({@code launcherApi}) из подтверждённых слотов: ниже него слот не принимается. */
+    int floor;
     /** SHA-256 отвергнутых jar: обновление не кладёт их в слот повторно. */
     final Set<String> bad = new LinkedHashSet<>();
     /** Поля файла, которых этот селектор не знает: пишутся обратно без изменений. */
@@ -79,6 +81,7 @@ final class SlotState {
         state.confirmed = slotOf(props.getProperty("confirmed", ""));
         state.launching = Boolean.parseBoolean(props.getProperty("launching", "false"));
         state.crashes = crashesOf(props.getProperty("crashes", "0"));
+        state.floor = crashesOf(props.getProperty("floor", "0"));
         for (String item : props.getProperty("bad", "").split(",")) {
             if (!item.isEmpty()) {
                 state.bad.add(item);
@@ -95,6 +98,7 @@ final class SlotState {
         props.setProperty("confirmed", confirmed);
         props.setProperty("launching", Boolean.toString(launching));
         props.setProperty("crashes", Integer.toString(crashes));
+        props.setProperty("floor", Integer.toString(floor));
         props.setProperty("bad", String.join(",", bad));
         Files.createDirectories(file.toAbsolutePath().getParent());
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
@@ -123,6 +127,7 @@ final class SlotState {
         return SlotStore.SLOTS.contains(slot) ? slot : "";
     }
 
+    /** Неотрицательное число из файла; нечитаемое значение — {@code 0}. */
     private static int crashesOf(String value) {
         try {
             return Math.max(0, Integer.parseInt(value.trim()));

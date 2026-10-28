@@ -15,8 +15,8 @@ import java.util.Set;
  * ({@code "beta"}) ставит app-update в очередной копии поезда, взятого из pre-release; другие значения игнорируются.
  *
  * <p>Необязательные поля записи: {@code kind} ({@value #KIND_BUNDLE} по умолчанию, {@value #KIND_BASE},
- * {@value #KIND_LAUNCHER}), {@code launcherApi} (обязателен у лаунчера: версия лаунчера, которая нужна поезду) и
- * {@code signature} (подпись записи; проверяет селектор, не парсер). Запись {@value #KIND_LAUNCHER} — jar самого
+ * {@value #KIND_LAUNCHER}), {@code launcherApi} (обязателен у лаунчера: его монотонный уровень; поезд требует лаунчер
+ * не ниже этого уровня) и {@code signature} (подпись Ed25519 записи в Base64, 64 байта; проверяет селектор, не парсер). Запись {@value #KIND_LAUNCHER} — jar самого
  * лаунчера: он хранится и проверяется как остальные, но в classpath приложения не входит. Неизвестный {@code kind} —
  * ошибка манифеста: лаунчер не кладёт в classpath то, чего не знает.
  */
@@ -160,7 +160,7 @@ public final class TrainManifest {
         if (KIND_LAUNCHER.equals(bundle.kind()) && bundle.launcherApi() < 1) {
             throw new IllegalArgumentException("Launcher entry " + bundle.id() + " needs launcherApi >= 1");
         }
-        if (bundle.signature() != null && !bundle.signature().matches("[A-Za-z0-9+/=_-]{1,512}")) {
+        if (bundle.signature() != null && !bundle.signature().matches("[A-Za-z0-9+/]{86}==")) {
             throw new IllegalArgumentException("Invalid signature of " + bundle.id());
         }
     }

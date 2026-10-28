@@ -21,13 +21,14 @@ class SelectorTest {
     @TempDir
     Path tmp;
 
+    final TestSigning signing = new TestSigning();
     Path slots;
     Selector selector;
 
     @BeforeEach
     void setUp() {
         slots = tmp.resolve("slots");
-        selector = new Selector(slots);
+        selector = new Selector(slots, signing.trusted());
         selector.becomeOwner();
     }
 
@@ -37,9 +38,16 @@ class SelectorTest {
     }
 
     void jar(String slot, String content) throws IOException {
+        jar(slot, content, 1);
+    }
+
+    /** Слот с подписанной основным ключом записью уровня {@code level}. */
+    void jar(String slot, String content, int level) throws IOException {
         Path jar = selector.store().jar(slot);
         Files.createDirectories(jar.getParent());
         Files.writeString(jar, content, StandardCharsets.UTF_8);
+        TestSigning.record(signing.primary, "launcher", "t" + level, SlotStore.sha256(jar), level)
+            .write(selector.store().slotDir(slot).resolve(SlotRecord.FILE_NAME));
     }
 
     SlotState state() throws IOException {
@@ -189,7 +197,7 @@ class SelectorTest {
         jar("A", "v1");
         selector.activateTrial("A");
         selector.choose(NONE);   // the owner marks the launch
-        Selector other = new Selector(slots);
+        Selector other = new Selector(slots, signing.trusted());
         assertFalse(other.becomeOwner());
         byte[] before = Files.readAllBytes(selector.store().stateFile());
         Choice choice = other.choose(NONE);

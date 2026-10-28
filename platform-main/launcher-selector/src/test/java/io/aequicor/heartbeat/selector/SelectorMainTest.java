@@ -21,13 +21,14 @@ class SelectorMainTest {
     @TempDir
     Path tmp;
 
+    final TestSigning signing = new TestSigning();
     Selector selector;
     Path embedded;
 
     @BeforeEach
     void setUp() throws Exception {
         System.clearProperty(LauncherFixtures.LOG);
-        selector = new Selector(tmp.resolve("slots"));
+        selector = new Selector(tmp.resolve("slots"), signing.trusted());
         selector.becomeOwner();
         embedded = LauncherFixtures.working(tmp.resolve("embedded/launcher.jar"), "embedded");
     }
@@ -39,9 +40,7 @@ class SelectorMainTest {
     }
 
     void slot(String slot, Path built) throws Exception {
-        Path target = selector.store().jar(slot);
-        java.nio.file.Files.createDirectories(target.getParent());
-        java.nio.file.Files.copy(built, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        TestSigning.install(selector.store(), slot, built, signing.primary, 1);
     }
 
     @Test
@@ -113,7 +112,7 @@ class SelectorMainTest {
     void nonOwnerRunsTheSlotWithoutConfirmingIt() throws Exception {
         slot("A", LauncherFixtures.working(tmp.resolve("built/a.jar"), "A"));
         selector.activateTrial("A");
-        Selector other = new Selector(tmp.resolve("slots"));
+        Selector other = new Selector(tmp.resolve("slots"), signing.trusted());
         assertFalse(other.becomeOwner());
         SelectorMain.run(other, ARGS, null, embedded, false);
         assertEquals("A;", System.getProperty(LauncherFixtures.LOG));

@@ -22,7 +22,7 @@ public final class SelectorMain {
     }
 
     public static void main(String[] args) throws Exception {
-        Selector selector = new Selector(SelectorPaths.slotsDir());
+        Selector selector = new Selector(SelectorPaths.slotsDir(), trustedKeys());
         boolean owner = !isAuxiliary(args) && selector.becomeOwner();
         run(selector, args, SelectorAgent.instrumentation(), embeddedJar(), owner);
     }
@@ -62,6 +62,16 @@ public final class SelectorMain {
                 System.err.println("Slot " + choice.slot() + " was not confirmed: " + e);
             }
         };
+    }
+
+    /** Зашитые ключи; если их не прочитать, ни один слот не доверенный и работает встроенный лаунчер. */
+    private static TrustedKeys trustedKeys() {
+        try {
+            return TrustedKeys.builtIn();
+        } catch (IOException e) {
+            System.err.println("Trusted keys are unavailable, only the embedded launcher starts: " + e);
+            return TrustedKeys.of(java.util.List.of());
+        }
     }
 
     private static Path embeddedJar() {

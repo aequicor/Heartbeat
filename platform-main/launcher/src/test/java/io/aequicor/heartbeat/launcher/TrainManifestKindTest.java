@@ -19,6 +19,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class TrainManifestKindTest {
+    /** 64 байта подписи Ed25519 в Base64: 86 символов и «==». */
+    static final String SIGNATURE = "A".repeat(43) + "+" + "B".repeat(41) + "/" + "==";
+
     @TempDir
     Path tmp;
 
@@ -59,10 +62,10 @@ class TrainManifestKindTest {
     @Test
     void launcherEntryCarriesApiAndSignatureAndIsOffTheClasspath() {
         TrainManifest.Bundle bundle = TrainManifest.parse(manifest(entry("launcher",
-            ",\"kind\":\"launcher\",\"launcherApi\":3,\"signature\":\"c2ln+/_-=\""))).bundles().get(0);
+            ",\"kind\":\"launcher\",\"launcherApi\":3,\"signature\":\"" + SIGNATURE + "\""))).bundles().get(0);
         assertEquals(TrainManifest.KIND_LAUNCHER, bundle.kind());
         assertEquals(3, bundle.launcherApi());
-        assertEquals("c2ln+/_-=", bundle.signature());
+        assertEquals(SIGNATURE, bundle.signature());
         assertFalse(bundle.onClasspath());
     }
 

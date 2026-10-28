@@ -14,6 +14,10 @@ import java.util.Set;
  * последний подтверждённый слот; без него — встроенный в установщик лаунчер. Подтверждённый слот не перезаписывается:
  * обновление всегда пишет в соседний.
  *
+ * <p>Слот запускается и активируется только после проверки ({@link SlotVerifier}): подпись доверенного ключа, SHA-256
+ * jar и уровень лаунчера не ниже {@link SlotState#floor}. Не прошедший проверку слот отвергается так же, как не
+ * запустившийся, а встроенный лаунчер входит в подписанный установщик и не проверяется.
+ *
  * <p>Состояние слотов меняет только владелец ({@link #becomeOwner()}): второй экземпляр и вспомогательные процессы
  * выбирают слот на чтение и ничего не считают и не пишут. Файл состояния новее поддерживаемого формата
  * ({@link SlotState.UnsupportedFormatException}) не читается и не затирается: запускается встроенный лаунчер, который
@@ -24,10 +28,12 @@ final class Selector {
     static final int CRASH_LIMIT = 2;
 
     private final SlotStore store;
+    private final SlotVerifier verifier;
     private boolean owner;
 
-    Selector(Path slotsDir) {
+    Selector(Path slotsDir, TrustedKeys keys) {
         this.store = new SlotStore(slotsDir);
+        this.verifier = new SlotVerifier(keys);
     }
 
     SlotStore store() {
@@ -87,6 +93,7 @@ final class Selector {
         if (state.isTrial()) {
             state.confirmed = state.active;
         }
+        raiseFloor(state);
         state.crashes = 0;
         state.launching = false;
         state.save(store.stateFile());
@@ -110,6 +117,12 @@ final class Selector {
             throw new IllegalArgumentException("Slot " + slot + " is the confirmed one and is not replaced");
         }
         if (state.bad.contains(SlotStore.sha256(store.jar(slot)))) {
+            return false;
+        }
+        try {
+            verifier.verify(store, slot, state.floor);
+        } catch (SlotVerifier.VerificationException e) {
+            System.err.println("Slot " + slot + " is not activated: " + e.getMessage());
             return false;
         }
         state.active = slot;
@@ -159,23 +172,49 @@ final class Selector {
         state.launching = false;
     }
 
-    /** Лаунчер для запуска по состоянию: активный слот, иначе подтверждённый, иначе встроенный. */
-    private Choice pick(SlotState state, Set<String> excluded) {
-        if (usable(state.active, excluded)) {
-            return Choice.slot(state.active, store.jar(state.active), state.isTrial());
-        }
-        if (usable(state.confirmed, excluded)) {
-            if (owner) {
-                state.active = state.confirmed;
+    /**
+     * Лаунчер для запуска по состоянию: активный слот, иначе подтверждённый, иначе встроенный. Слот должен пройти
+     * проверку; не прошедший владелец отвергает (его jar запоминается), не владелец только пропускает.
+     */
+    private Choice pick(SlotState state, Set<String> excluded) throws IOException {
+        for (String slot : new String[] {state.active, state.confirmed}) {
+            if (slot.isEmpty() || !usable(slot, excluded) || !slot.equals(state.active) && !slot.equals(state.confirmed)) {
+                continue;
+            }
+            try {
+                verifier.verify(store, slot, state.floor);
+            } catch (SlotVerifier.VerificationException e) {
+                System.err.println("Slot " + slot + " is not started: " + e.getMessage());
+                if (owner) {
+                    reject(state, slot);
+                }
+                continue;
+            }
+            boolean trial = !slot.equals(state.confirmed);
+            if (owner && !slot.equals(state.active)) {
+                state.active = slot;
                 state.crashes = 0;
             }
-            return Choice.slot(state.confirmed, store.jar(state.confirmed), false);
+            return Choice.slot(slot, store.jar(slot), trial);
         }
         if (owner) {
             state.active = "";
             state.crashes = 0;
         }
         return Choice.embedded();
+    }
+
+    /** Порог поднимается до уровня подтверждённого слота; запись, которую не прочитать, порог не меняет. */
+    private void raiseFloor(SlotState state) {
+        if (state.confirmed.isEmpty()) {
+            return;
+        }
+        try {
+            SlotRecord record = SlotRecord.read(store.slotDir(state.confirmed).resolve(SlotRecord.FILE_NAME));
+            state.floor = Math.max(state.floor, record.launcherApi());
+        } catch (IOException e) {
+            System.err.println("Level of slot " + state.confirmed + " is not recorded: " + e.getMessage());
+        }
     }
 
     private boolean usable(String slot, Set<String> excluded) {
