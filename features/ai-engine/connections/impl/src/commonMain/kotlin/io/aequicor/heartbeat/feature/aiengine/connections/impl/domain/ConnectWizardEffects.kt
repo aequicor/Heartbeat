@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardEffect
@@ -120,8 +121,9 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
     }
 
     /**
-     * Discovers models through a temporary connection that is removed whatever the outcome. The wizard may be left
-     * mid-check, so writing the connection is not cancellable: what was written is always known and removed.
+     * Discovers models through an existing CLI binding or a temporary connection removed whatever the outcome.
+     * The wizard may be left mid-check, so writing the connection is not cancellable: what was written is always
+     * known and compensated according to its ownership.
      * The installation probe before it stays cancellable.
      */
     private suspend fun check(effect: ConnectWizardEffect.CheckConnection): Int {
@@ -268,16 +270,16 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
                     ?.phase
             }
         } finally {
-            if (phase == null) cancelSignIn(engine)
+            if (phase == null) withContext(NonCancellable) { cancelSignIn(engine) }
         }
-        when (phase) {
-            JobPhase.Succeeded -> log.i { "signed in engine=${engine.value}" }
+        when {
+            phase == JobPhase.Succeeded -> log.i { "signed in engine=${engine.value}" }
 
-            null -> log.w { "sign in timed out engine=${engine.value}" }
+            phase == null -> log.w { "sign in timed out engine=${engine.value}" }
 
             else -> log.w {
-                "sign in did not complete engine=${engine.value} phase=${phase::class.simpleName} " +
-                    "failure=${(phase as? JobPhase.Failed)?.failure?.let { it::class.simpleName }}"
+                "sign in did not complete engine=${engine.value} phase=${phase::class.simpleName.orEmpty()} " +
+                    "failure=${(phase as? JobPhase.Failed)?.failure?.let { it::class.simpleName }.orEmpty()}"
             }
         }
         // The outcome is the wizard's own; the panel must not show it as a login the user started.
@@ -312,8 +314,9 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         services.facade.engines.refresh(engine).availability.failure()?.let { throw EngineException(it) }
     }
 
-    /** Creates the source and binds it; the source is forgotten again if binding fails. */
+    /** Reuses an existing CLI route, or creates a source and binds it with compensation on failure. */
     private suspend fun write(engine: EngineId, method: ConnectionMethod, credential: CredentialInput): NewConnection {
+        existingLogin(engine, method)?.let { return it }
         val key = (credential as? CredentialInput.ApiKey)?.key
         val source = services.sources.create(
             method,
@@ -325,6 +328,19 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         val binding = bindOrForget(engine, source.info.id)
         log.i { "connected engine=${engine.value}" }
         return NewConnection(binding.id, source.info.id)
+    }
+
+    /** The same native account location cannot have two bindings, regardless of the wizard's connection label. */
+    private suspend fun existingLogin(engine: EngineId, method: ConnectionMethod): NewConnection? {
+        if (method !is ConnectionMethod.CliLogin) return null
+        for (binding in services.facade.bindings.state.value.filter { it.engine == engine }) {
+            val source = services.sources.get(binding.authSource) as? AuthSource.CliLogin ?: continue
+            if (source.owner == method.owner && source.location == method.location) {
+                log.i { "reusing CLI connection engine=${engine.value} binding=${binding.id.value}" }
+                return NewConnection(binding.id, source.info.id, isCreated = false)
+            }
+        }
+        return null
     }
 
     /**
@@ -361,6 +377,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
      * the source is kept only while the binding still exists, so a binding never points at a missing source.
      */
     private suspend fun rollback(connection: NewConnection) {
+        if (!connection.isCreated) return
         log.i { "roll back abandoned connection" }
         val isDisconnected = attempt("disconnect the binding; the connection stays visible in settings") {
             services.facade.bindings.disconnect(connection.binding)

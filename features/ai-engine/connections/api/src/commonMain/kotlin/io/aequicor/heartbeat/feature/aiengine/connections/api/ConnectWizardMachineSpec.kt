@@ -22,7 +22,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 
 /**
  * Wizard engine → authentication → models. The binding is created before model discovery, because models are only
- * resolvable through an exact binding; abandoning the wizard afterwards rolls the connection back.
+ * resolvable through an exact binding; abandoning the wizard afterwards rolls a newly created connection back.
+ * An existing CLI binding is reused and survives checks, cancellation and rejected delivery to the wizard.
  *
  * | From | Intent | Guard | To | Effect / Output |
  * |---|---|---|---|---|
