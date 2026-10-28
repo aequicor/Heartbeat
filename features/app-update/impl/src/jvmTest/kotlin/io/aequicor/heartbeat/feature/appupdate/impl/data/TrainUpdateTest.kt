@@ -142,7 +142,7 @@ class TrainUpdateTest {
 
     @Test
     fun `a train that needs a newer platform is refused`() = runTest {
-        val newer = manifestJson("t2", listOf("ui.jar" to sha256(ui)), platformApi = 2)
+        val newer = manifestJson("t2", listOf("ui.jar" to sha256(ui)), platformApi = 3)
 
         assertUpdateFailure(AppUpdateFailure.InvalidRelease) {
             update(manifestText = newer).prepare(repository, root, offer, progress())

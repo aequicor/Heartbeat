@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.buildlogic
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AffectedBundlesTest {
@@ -12,6 +13,8 @@ class AffectedBundlesTest {
         ":features:checklist:impl" to "features/checklist/impl",
         ":bundles:web" to "bundles/web",
         ":bundles:studio" to "bundles/studio",
+        ":platform-main:launcher" to "platform-main/launcher",
+        ":platform-main:launcher-selector" to "platform-main/launcher-selector",
     )
     private val deps = mapOf(
         ":features:browser:api" to listOf(":core:common"),
@@ -44,6 +47,38 @@ class AffectedBundlesTest {
         assertEquals(bundles.sorted(), affected("gradle/libs.versions.toml"))
         assertEquals(bundles.sorted(), affected("build-logic/convention/src/main/Foo.kt"))
         assertEquals(bundles.sorted(), affected("settings.gradle.kts"))
+    }
+
+    @Test
+    fun `launcher change affects no bundle but publishes a train`() {
+        val path = "platform-main/launcher/src/main/java/io/aequicor/heartbeat/launcher/Launcher.java"
+        assertTrue(affected(path).isEmpty())
+        assertTrue(launcherAffected(listOf(path), dirs))
+    }
+
+    @Test
+    fun `the launcher is affected by its directory and by the build itself only`() {
+        assertTrue(launcherAffected(listOf("platform-main/launcher/build.gradle.kts"), dirs))
+        assertTrue(launcherAffected(listOf("build-logic/convention/src/main/Foo.kt"), dirs))
+        assertTrue(launcherAffected(listOf("gradle/libs.versions.toml", "docs/a.md"), dirs))
+        assertTrue(launcherAffected(listOf(".\\platform-main\\launcher\\A.java"), dirs))
+        assertFalse(
+            launcherAffected(listOf("features/browser/impl/src/Foo.kt", "docs/readme.md", ".github/workflows/a.yml"), dirs),
+        )
+        // the selector ships in the installer, not in the train; a sibling directory is not the launcher
+        assertFalse(
+            launcherAffected(listOf("platform-main/launcher-selector/src/A.java", "platform-main/launcher2/A.java"), dirs),
+        )
+        assertFalse(launcherAffected(emptyList(), dirs))
+    }
+
+    @Test
+    fun `the launcher directory comes from the project graph`() {
+        val moved = dirs + (":platform-main:launcher" to "platform-main/boot")
+        assertTrue(launcherAffected(listOf("platform-main/boot/src/A.java"), moved))
+        assertFalse(launcherAffected(listOf("platform-main/launcher/src/A.java"), moved))
+        // no launcher project in the build: be safe and publish
+        assertTrue(launcherAffected(listOf("docs/a.md"), dirs - ":platform-main:launcher"))
     }
 
     @Test

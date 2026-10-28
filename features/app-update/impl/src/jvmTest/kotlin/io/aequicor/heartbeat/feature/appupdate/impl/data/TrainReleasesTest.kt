@@ -176,7 +176,7 @@ class TrainReleasesTest {
 
     @Test
     fun `a train that needs a newer platform is not offered`() = runTest {
-        val (release, document) = trainRelease("t2", platformApi = 2)
+        val (release, document) = trainRelease("t2", platformApi = 3)
         val (installed, installedDocument) = trainRelease("t1")
 
         val found = releases(listOf(release, installed), mapOf(document, installedDocument))

@@ -116,6 +116,9 @@ Compose), `contracts` (все `features:*:api`), `engines`, `web`, `agent-runtim
   `Healthy` и на уровне приложения, и в профильном графе (`BundleHost.lastProfileHealth`); логи прогона — `build/train-smoke/smoke.log`
   (смоук `TrainSmoke` в тестах desktop; не покрывает UI и JCEF-браузер). Перед включением `obfuscate` в CI прогнан `e2e-regression` (core) на упакованном
   `HeartbeatE2E`; в CI смоук идёт перед записью поезда, маппинги публикуются вместе с jar (`ci.md`).
+- **Лаунчер в поезде.** `assembleLauncher` собирает jar лаунчера (`TrainPart.Launcher`), `bundleManifest` пишет его записью
+  `kind=launcher` с `launcherApi` и подписью Ed25519, `scripts/train_manifest.py` публикует эти поля. Лаунчер не входит в
+  classpath приложения; слоты, селектор и подпись — `.claude/rules/launcher.md`.
 - **Профильный граф бандла.** Фичи профиля (`ProfileScope`) живут в `@GraphExtension(ProfileScope::class)` бандла
   (`WebProfileGraph`), который создаётся из app-графа бандла (`val profileGraphs: …Graph.Factory`) и получает
   `@Includes FoundationProfileBindings`. `BundleEntry.hasProfileGraph = true`, `createProfileGraph` и

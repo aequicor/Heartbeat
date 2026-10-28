@@ -14,16 +14,19 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-/** Packages of the project: only the platform launcher may be on the installer's class path. */
+/**
+ * Packages of the project: only the launcher selector may be on the installer's class path. The launcher is loaded
+ * from a slot jar in a class loader of its own, so its classes on the class path would not be used and would only confuse.
+ */
 private const val PROJECT_PREFIX = "io/aequicor/heartbeat/"
-private const val LAUNCHER_PREFIX = "io/aequicor/heartbeat/launcher/"
+private const val SELECTOR_PREFIX = "io/aequicor/heartbeat/selector/"
 
 /**
  * The class path of the installer is the parent of the train's class loader and wins over it: a project class there
  * would shadow the train, and an update would silently keep running the old code.
  */
 internal fun projectClassesIn(entryNames: Sequence<String>): List<String> = entryNames
-    .filter { it.endsWith(".class") && it.startsWith(PROJECT_PREFIX) && !it.startsWith(LAUNCHER_PREFIX) }
+    .filter { it.endsWith(".class") && it.startsWith(PROJECT_PREFIX) && !it.startsWith(SELECTOR_PREFIX) }
     .take(MAX_REPORTED)
     .toList()
 

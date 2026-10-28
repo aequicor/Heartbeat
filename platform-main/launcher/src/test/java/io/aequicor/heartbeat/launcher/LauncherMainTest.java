@@ -31,6 +31,24 @@ class LauncherMainTest {
     }
 
     @Test
+    void confirmsTheStartBeforeEnteringTheApplication() throws Exception {
+        received = new String[] {"untouched"};
+        java.util.List<String> order = new java.util.ArrayList<>();
+        LauncherMain.invokeMain(getClass().getClassLoader(), LauncherMainTest.class.getName(), new String[] {"x"},
+            () -> order.add("confirmed:" + received[0]));
+        assertEquals(java.util.List.of("confirmed:untouched"), order);
+        assertArrayEquals(new String[] {"x"}, received);
+    }
+
+    @Test
+    void unknownApplicationClassIsNotConfirmed() {
+        java.util.List<String> order = new java.util.ArrayList<>();
+        assertThrows(ClassNotFoundException.class, () -> LauncherMain.invokeMain(getClass().getClassLoader(),
+            "no.such.Main", new String[0], () -> order.add("confirmed")));
+        assertTrue(order.isEmpty());
+    }
+
+    @Test
     void unknownClassFails() {
         assertThrows(ClassNotFoundException.class,
                 () -> LauncherMain.invokeMain(getClass().getClassLoader(), "no.such.Main", new String[0]));

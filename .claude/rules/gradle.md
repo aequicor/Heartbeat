@@ -16,9 +16,10 @@ paths:
     она компилирует; браузерные тесты выключены — `commonTest` идёт на JVM, `check` только компилирует тесты под wasm;
   - `heartbeat.feature.api` / `heartbeat.feature.impl` — зависимости и ограничения для фич;
   - `heartbeat.metro` — Metro-плагин;
-  - `heartbeat.train` — доля поезда в `:platform-main:desktop`: `assembleFoundation`/`assembleContracts`, `trainSeed` (seed установщика, `.seed`-jar вне classpath), список SDK `heartbeatTrain { sdk(...) }`, `generateTrainSdkRules` и ProGuard-задачи `shrinkFoundation`/`shrinkBundle` при `-Pheartbeat.trainShrink=shrink|obfuscate`; `heartbeat.bundle` — сборщик бандла desktop (`:bundles:<name>`, только JVM), см. `bundles.md`; задачи: `:bundles:<name>:assembleBundle` (воспроизводимый jar), корневые `bundleManifest`
-     (JSON поезда: id, версия, jar, SHA-256, `platformApi`) и `affectedBundles`
-     (`-Pheartbeat.changedPaths=a,b` или `-Pheartbeat.changedFile=<файл>`);
+  - `heartbeat.train` — доля поезда в `:platform-main:desktop`: `assembleFoundation`/`assembleContracts`/`assembleLauncher` (jar лаунчера с записью `kind=launcher` и подписью, см. `launcher.md`), `trainSeed` (seed установщика, `.seed`-jar вне classpath), список SDK `heartbeatTrain { sdk(...) }`, `generateTrainSdkRules` и ProGuard-задачи `shrinkFoundation`/`shrinkBundle` при `-Pheartbeat.trainShrink=shrink|obfuscate`; `heartbeat.bundle` — сборщик бандла desktop (`:bundles:<name>`, только JVM), см. `bundles.md`; задачи: `:bundles:<name>:assembleBundle` (воспроизводимый jar), корневые `bundleManifest`
+     (JSON поезда: id, версия, jar, SHA-256, `platformApi`; у записи лаунчера ещё `kind`, `launcherApi`, `signature`) и
+     `affectedBundles` (`-Pheartbeat.changedPaths=a,b` или `-Pheartbeat.changedFile=<файл>`; пишет `build/bundles/affected.txt`
+     и `build/bundles/launcher.txt` — `true`, если мог измениться jar лаунчера, который входит в поезд);
   - `heartbeat.detekt` — detekt + ktlint-wrapper + compose-rules;
   - `heartbeat.jcef` — встроенный Chromium (JCEF): натив хоста из каталога, JDK-модули и JVM-аргументы, проверка закреплённого runtime и изолированные нативные тест-задачи.
 - Новый модуль регистрируется в `settings.gradle.kts` (`include(":features:chat:api")`). Используй typesafe project accessors (`projects.core.logging`).

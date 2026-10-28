@@ -92,6 +92,9 @@ public final class FirstLaunch {
         List<Path> result = new ArrayList<>();
         StringBuilder fresh = new StringBuilder();
         for (TrainManifest.Bundle bundle : TrainManifest.parse(Files.readString(manifestFile, StandardCharsets.UTF_8)).bundles()) {
+            if (!bundle.onClasspath()) {
+                continue;
+            }
             Path jar = seedDir.resolve(bundle.jar() + SEED_SUFFIX);
             if (!Files.isRegularFile(jar)) {
                 jar = seedDir.resolve(bundle.jar());

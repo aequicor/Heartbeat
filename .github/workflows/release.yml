@@ -121,9 +121,15 @@ jobs:
     needs: [version, checks]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # The launcher of a train built here is signed with HEARTBEAT_LAUNCHER_SIGNING_KEY of the environment launcher-signing,
+    # which only master can use. A dry run (it may come from a working branch) takes the environment without secrets:
+    # its launcher is unsigned, and no installed app takes it.
+    environment: ${{ inputs.dry_run && 'launcher-dry-run' || 'launcher-signing' }}
     steps:
       - uses: actions/checkout@v7
         with:
+          # the level of the launcher counts the commits that changed it
+          fetch-depth: 0
           persist-credentials: false
       - name: Promote the tested train of this commit
         id: promote
@@ -168,6 +174,8 @@ jobs:
           train: ${{ steps.promote.outputs.train }}
           base-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/
           github-token: ${{ github.token }}
+          launcher-signing-key: ${{ secrets.HEARTBEAT_LAUNCHER_SIGNING_KEY }}
+          launcher-signing-required: ${{ !inputs.dry_run }}
       - name: Check the train manifest
         run: test -s train-out/train-manifest.json
       - uses: actions/upload-artifact@v7

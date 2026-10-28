@@ -47,6 +47,8 @@ public final class LauncherMain {
     static final String SEED_DIR = "heartbeat.seed.dir";
     static final String APP_MAIN = "heartbeat.app.main";
     static final String EXIT_CLEAN = "heartbeat.exit.clean";
+    /** Селектор ставит {@code true}, пока запущенный слот пробный и не подтверждён: данные не трогаем. */
+    static final String SLOT_TRIAL = "heartbeat.slot.trial";
     static final String DEFAULT_APP_MAIN = "io.aequicor.heartbeat.platform.desktop.MainKt";
 
     /** Блокировка экземпляра; держится до конца процесса (поле не даёт сборщику освободить её). */
@@ -56,6 +58,24 @@ public final class LauncherMain {
     }
 
     public static void main(String[] args) throws Exception {
+        start(args, () -> { }, null);
+    }
+
+    /**
+     * Запуск через селектор слотов: как {@link #main}, но {@code applicationStarted} вызывается непосредственно перед
+     * входом в приложение, когда его класс уже загружен. Это момент, в который селектор подтверждает слот лаунчера.
+     */
+    public static void start(String[] args, Runnable applicationStarted) throws Exception {
+        start(args, applicationStarted, null);
+    }
+
+    /**
+     * Как {@link #start(String[], Runnable)}, но владелец лаунчера предлагает селектору jar лаунчера активного поезда
+     * через {@code slotStager} (см. {@link SlotUpdate}); {@code null} — запуск без слотов, предлагать некому.
+     * Предложение уходит в фоновом потоке и не задерживает запуск; его сбой только пишется в журнал.
+     */
+    public static void start(String[] args, Runnable applicationStarted,
+                             java.util.function.Predicate<java.util.Map<String, String>> slotStager) throws Exception {
         String rootValue = System.getProperty(ROOT);
         Path root;
         Path dataDir;
@@ -71,32 +91,59 @@ public final class LauncherMain {
         } else {
             throw new IllegalStateException("System property " + ROOT + " is required");
         }
-        Launcher launcher = new Launcher(root, dataDir);
+        Launcher launcher = new Launcher(root, dataDir, Boolean.getBoolean(SLOT_TRIAL));
         boolean owner = false;
         if (!isAuxiliary(args)) {
             instanceLock = acquireInstanceLock(root);
             owner = instanceLock != null;
         }
         String seed = System.getProperty(SEED_DIR);
-        if (owner && seed != null) {
-            ensureFirstLaunch(new FirstLaunch(launcher, Path.of(seed)));
+        Launcher.Prepared prepared;
+        boolean degraded = false;
+        try {
+            if (owner && seed != null) {
+                ensureFirstLaunch(new FirstLaunch(launcher, Path.of(seed)));
+            }
+            prepared = owner ? launcher.prepare() : launcher.prepareReadOnly();
+        } catch (LauncherState.UnsupportedFormatException newer) {
+            // A newer launcher wrote the state and this older one runs after a rollback of the slot: it neither reads
+            // nor overwrites the state and starts the application from the seed, so the app still opens.
+            System.err.println("Launcher state is of a newer format, starting from the seed without it: " + newer.getMessage());
+            prepared = new Launcher.Prepared(null, java.util.List.of(), null, false);
+            degraded = true;
+        } catch (Exception failed) {
+            // a failed launcher must not keep the lock from the launcher that the selector starts next
+            releaseInstanceLock();
+            throw failed;
         }
-        Launcher.Prepared prepared = owner ? launcher.prepare() : launcher.prepareReadOnly();
-        launcher.exposeToApp(prepared, root);
-        ClassLoader loader = Thread.currentThread().getContextClassLoader();
-        java.util.List<Path> classpath = prepared.classpath();
-        if (prepared.train() == null && seed != null) {
-            // No train is active: a fresh install for a worker, the packaging probe or a second launch, and for the
-            // owner a seed train marked bad with nothing to roll back to. Run from the seed, read-only, rather
-            // than fail with a missing application class.
-            classpath = FirstLaunch.seedClasspath(Path.of(seed), root.resolve("seed-verified"));
-        }
-        if (prepared.train() != null || !classpath.isEmpty()) {
-            loader = trainLoader(classpath);
-            Thread.currentThread().setContextClassLoader(loader);
+        final boolean ownsState = owner && !degraded;
+        final Launcher.Prepared active = prepared;
+        ClassLoader loader;
+        try {
+            if (degraded) {
+                Launcher.exposeWithoutState(root);
+            } else {
+                launcher.exposeToApp(active, root);
+            }
+            loader = Thread.currentThread().getContextClassLoader();
+            java.util.List<Path> classpath = active.classpath();
+            if (active.train() == null && seed != null) {
+                // No train is active: a fresh install for a worker, the packaging probe or a second launch, and for the
+                // owner a seed train marked bad with nothing to roll back to. Run from the seed, read-only, rather
+                // than fail with a missing application class.
+                classpath = FirstLaunch.seedClasspath(Path.of(seed), root.resolve("seed-verified"));
+            }
+            if (active.train() != null || !classpath.isEmpty()) {
+                loader = trainLoader(classpath);
+                Thread.currentThread().setContextClassLoader(loader);
+            }
+        } catch (Exception failed) {
+            // any failure before the application starts must not keep the lock from the launcher the selector starts next
+            releaseInstanceLock();
+            throw failed;
         }
         AtomicBoolean returned = new AtomicBoolean();
-        if (owner) {
+        if (ownsState) {
             scheduleStable(launcher);
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 if (!isCleanExit(returned.get())) {
@@ -110,11 +157,18 @@ public final class LauncherMain {
                 }
             }, "heartbeat-launcher-exit"));
         }
+        // The new launcher is offered only after the slot is confirmed: a trial launcher is refused while it is a trial
+        Runnable started = () -> {
+            applicationStarted.run();
+            if (ownsState && active.train() != null && slotStager != null) {
+                offerLauncherUpdate(launcher.store(), active.train(), slotStager);
+            }
+        };
         try {
-            invokeMain(loader, System.getProperty(APP_MAIN, DEFAULT_APP_MAIN), args);
+            invokeMain(loader, System.getProperty(APP_MAIN, DEFAULT_APP_MAIN), args, started);
             returned.set(true);
         } catch (InvocationTargetException e) {
-            if (owner && prepared.train() != null) {
+            if (ownsState && active.train() != null) {
                 reportBundleFailure(launcher, e);
             }
             throw e;
@@ -205,6 +259,12 @@ public final class LauncherMain {
         return null;
     }
 
+    /** Отпускает блокировку экземпляра: лаунчер, не дошедший до приложения, не должен держать её для следующего. */
+    static void releaseInstanceLock() {
+        closeQuietly(instanceLock);
+        instanceLock = null;
+    }
+
     private static void closeQuietly(FileChannel channel) {
         if (channel == null) {
             return;
@@ -242,6 +302,21 @@ public final class LauncherMain {
         ready.await();
     }
 
+    private static void offerLauncherUpdate(TrainStore store, String train,
+                                            java.util.function.Predicate<java.util.Map<String, String>> stager) {
+        Thread offer = new Thread(() -> {
+            try {
+                if (SlotUpdate.offer(store, train, stager)) {
+                    System.err.println("Launcher of train " + train + " is staged and starts at the next launch");
+                }
+            } catch (IOException | RuntimeException e) {
+                System.err.println("Launcher of train " + train + " was not staged: " + e);
+            }
+        }, "heartbeat-launcher-slot-update");
+        offer.setDaemon(true);
+        offer.start();
+    }
+
     private static void scheduleStable(Launcher launcher) {
         Thread timer = new Thread(() -> {
             try {
@@ -259,7 +334,13 @@ public final class LauncherMain {
     }
 
     static void invokeMain(ClassLoader loader, String className, String[] args) throws Exception {
+        invokeMain(loader, className, args, () -> { });
+    }
+
+    static void invokeMain(ClassLoader loader, String className, String[] args, Runnable applicationStarted)
+        throws Exception {
         Method main = Class.forName(className, true, loader).getMethod("main", String[].class);
+        applicationStarted.run();
         main.invoke(null, (Object) args);
     }
 }

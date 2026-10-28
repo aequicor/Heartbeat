@@ -178,11 +178,13 @@ public final class TrainStore {
         return TrainManifest.parse(Files.readString(manifestFile(train), StandardCharsets.UTF_8));
     }
 
-    /** Классpath поезда: jar бандлов в порядке манифеста. */
+    /** Классpath поезда: jar бандлов в порядке манифеста, без jar лаунчера ({@code kind=launcher}). */
     public List<Path> classpath(String train) throws IOException {
         List<Path> result = new ArrayList<>();
         for (TrainManifest.Bundle bundle : readManifest(train).bundles()) {
-            result.add(jarPath(TrainManifest.normalizedSha(bundle)));
+            if (bundle.onClasspath()) {
+                result.add(jarPath(TrainManifest.normalizedSha(bundle)));
+            }
         }
         return result;
     }

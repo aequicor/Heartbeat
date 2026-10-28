@@ -13,16 +13,43 @@ import java.util.Set;
  * "bundles": [{"id","version","jar","sha256","url"?}]}}. Поле {@code dbSchema} необязательно — версия схем БД набора
  * (для бэкапа перед миграцией). Порядок бандлов задаёт порядок classpath. Необязательное поле {@code channel}
  * ({@code "beta"}) ставит app-update в очередной копии поезда, взятого из pre-release; другие значения игнорируются.
+ *
+ * <p>Необязательные поля записи: {@code kind} ({@value #KIND_BUNDLE} по умолчанию, {@value #KIND_BASE},
+ * {@value #KIND_LAUNCHER}), {@code launcherApi} (обязателен у лаунчера: его монотонный уровень; поезд требует лаунчер
+ * не ниже этого уровня) и {@code signature} (подпись Ed25519 записи в Base64, 64 байта; проверяет селектор, не парсер). Запись {@value #KIND_LAUNCHER} — jar самого
+ * лаунчера: он хранится и проверяется как остальные, но в classpath приложения не входит. Неизвестный {@code kind} —
+ * ошибка манифеста: лаунчер не кладёт в classpath то, чего не знает.
  */
 public final class TrainManifest {
+    /** Обычный бандл: входит в classpath. */
+    public static final String KIND_BUNDLE = "bundle";
+    /** Базовый артефакт ({@code foundation}, {@code contracts}): входит в classpath. */
+    public static final String KIND_BASE = "base";
+    /** Jar лаунчера: хранится в поезде, но в classpath приложения не входит. */
+    public static final String KIND_LAUNCHER = "launcher";
+
     /**
      * Бандл поезда: jar лежит рядом с манифестом под именем {@code jar}, либо по абсолютному адресу {@code url}
      * (необязательно; бандл, не менявшийся с более старого поезда, лежит в релизе того поезда). Адрес — HTTPS
      * или HTTP на loopback, как у {@link HttpFetcher}.
+     *
+     * @param kind {@link #KIND_BUNDLE}, {@link #KIND_BASE} или {@link #KIND_LAUNCHER}
+     * @param launcherApi версия лаунчера, которую требует запись; {@code 0} — не указана
+     * @param signature подпись записи или {@code null}
      */
-    public record Bundle(String id, String version, String jar, String sha256, String url) {
+    public record Bundle(String id, String version, String jar, String sha256, String url, String kind,
+                         int launcherApi, String signature) {
+        public Bundle(String id, String version, String jar, String sha256, String url) {
+            this(id, version, jar, sha256, url, KIND_BUNDLE, 0, null);
+        }
+
         public Bundle(String id, String version, String jar, String sha256) {
             this(id, version, jar, sha256, null);
+        }
+
+        /** Запись входит в classpath приложения. */
+        public boolean onClasspath() {
+            return !KIND_LAUNCHER.equals(kind);
         }
     }
 
@@ -42,8 +69,12 @@ public final class TrainManifest {
         }
         Set<String> ids = new HashSet<>();
         Set<String> jars = new HashSet<>();
+        int launchers = 0;
         for (Bundle bundle : bundles) {
             validate(bundle);
+            if (KIND_LAUNCHER.equals(bundle.kind()) && ++launchers > 1) {
+                throw new IllegalArgumentException("More than one launcher entry");
+            }
             if (!ids.add(bundle.id())) {
                 throw new IllegalArgumentException("Duplicate bundle id: " + bundle.id());
             }
@@ -99,8 +130,14 @@ public final class TrainManifest {
                 throw new IllegalArgumentException("Bundle entry must be an object");
             }
             Map<?, ?> b = (Map<?, ?>) item;
+            String kind = optionalString(b, "kind");
+            long level = number(b, "launcherApi", false);
+            if (b.get("launcherApi") != null && level < 1) {
+                throw new IllegalArgumentException("Manifest field 'launcherApi' must be at least 1");
+            }
             bundles.add(new Bundle(string(b, "id"), string(b, "version"), string(b, "jar"), string(b, "sha256"),
-                optionalString(b, "url")));
+                optionalString(b, "url"), kind == null ? KIND_BUNDLE : kind,
+                toInt("launcherApi", level), optionalString(b, "signature")));
         }
         boolean beta = "beta".equals(obj.get("channel"));
         return new TrainManifest(train, toInt("platformApi", api), toInt("dbSchema", schema), bundles, beta);
@@ -119,6 +156,16 @@ public final class TrainManifest {
         }
         if (bundle.url() != null && !isAllowedUrl(bundle.url())) {
             throw new IllegalArgumentException("Bundle " + bundle.id() + " url needs https: " + bundle.url());
+        }
+        if (!KIND_BUNDLE.equals(bundle.kind()) && !KIND_BASE.equals(bundle.kind())
+            && !KIND_LAUNCHER.equals(bundle.kind())) {
+            throw new IllegalArgumentException("Unknown kind of " + bundle.id() + ": " + bundle.kind());
+        }
+        if (KIND_LAUNCHER.equals(bundle.kind()) && bundle.launcherApi() < 1) {
+            throw new IllegalArgumentException("Launcher entry " + bundle.id() + " needs launcherApi >= 1");
+        }
+        if (bundle.signature() != null && !bundle.signature().matches("[A-Za-z0-9+/]{86}==")) {
+            throw new IllegalArgumentException("Invalid signature of " + bundle.id());
         }
     }
 

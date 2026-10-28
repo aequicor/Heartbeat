@@ -190,6 +190,9 @@ class BundleConventionPlugin : Plugin<Project> {
                 platformApi.set(
                     providers.gradleProperty(PLATFORM_API_PROPERTY).map(String::toInt).orElse(DEFAULT_PLATFORM_API),
                 )
+                launcherApi.set(providers.gradleProperty(LAUNCHER_API_PROPERTY).map(String::toInt).orElse(DEFAULT_LAUNCHER_API))
+                // the secret comes from the environment: a Gradle property would show up in process lists and logs
+                launcherSigningKey.set(providers.environmentVariable(LAUNCHER_SIGNING_KEY_ENV))
                 manifestFile.set(root.layout.buildDirectory.file("bundles/manifest.json"))
                 // prebuilt `foundation` and `contracts` jars of the train:
                 // -Pheartbeat.baseArtifacts=foundation,contracts, jars in -Pheartbeat.baseArtifactDir=<dir>
@@ -231,6 +234,7 @@ class BundleConventionPlugin : Plugin<Project> {
                     }.orElse(emptyList()),
                 )
                 resultFile.set(root.layout.buildDirectory.file("bundles/affected.txt"))
+                launcherFile.set(root.layout.buildDirectory.file("bundles/launcher.txt"))
             }
         }
         affected.configure { bundles.add(bundlePath) }
@@ -265,9 +269,13 @@ class BundleConventionPlugin : Plugin<Project> {
         const val BASE_ARTIFACTS_PROPERTY = "heartbeat.baseArtifacts"
         const val BASE_ARTIFACT_DIR_PROPERTY = "heartbeat.baseArtifactDir"
         const val PLATFORM_API_PROPERTY = "heartbeat.platformApi"
+        const val LAUNCHER_API_PROPERTY = "heartbeat.launcherApi"
+        const val LAUNCHER_SIGNING_KEY_ENV = "HEARTBEAT_LAUNCHER_SIGNING_KEY"
+        const val DEFAULT_LAUNCHER_API = 1
         const val CHANGED_PATHS_PROPERTY = "heartbeat.changedPaths"
         const val CHANGED_FILE_PROPERTY = "heartbeat.changedFile"
-        const val DEFAULT_PLATFORM_API = 1
+        /** Level 2: a train may carry the launcher entry, which a launcher of level 1 would put on the class path. */
+        const val DEFAULT_PLATFORM_API = 2
         const val JAR_FILE_MODE = "rw-r--r--"
         const val JAR_DIR_MODE = "rwxr-xr-x"
     }
