@@ -20,13 +20,17 @@ internal data class ClaudeToolFlags(val native: Set<String> = emptySet(), val al
     }
 
     fun arguments(): List<String> = buildList {
-        add("--tools=" + native.joinToString(","))
+        add("--tools=" + (native - CLAUDE_MCP_GROUP).joinToString(","))
         if (allowed.isNotEmpty()) add("--allowedTools=" + allowed.joinToString(","))
         // --tools restricts built-ins only. Explicit denies also remove disabled MCP search declarations.
         val denied = ClaudeSearchTools.values - allowed
         if (denied.isNotEmpty()) add("--disallowedTools=" + denied.joinToString(","))
     }
 }
+
+/** Keeps the MCP policy group only for a captured opt-in outside protected or tool-free turns. */
+internal fun ClaudeToolFlags.withMcpAccess(isAllowed: Boolean): ClaudeToolFlags =
+    if (isAllowed) this else copy(native = native - CLAUDE_MCP_GROUP)
 
 /** Turn-local flags. Legacy optional tools still require their own toggle as well as absence of an Off policy. */
 internal fun claudeToolFlags(

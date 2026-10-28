@@ -4,6 +4,8 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_SEARCH_SERVER
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -34,7 +36,21 @@ internal class ClaudeNativeWorkspace(private val path: String?) {
     fun supported(gated: Set<String>): Set<String> =
         if (path == null) gated.filter { name -> specOf(name)?.isWorkspaceFree == true }.toSet() else gated
 
-    fun classify(name: String, input: JsonObject): NativeToolCall? {
+    fun classify(name: String, input: JsonObject): NativeToolCall? = when {
+        isForeignClaudeMcp(name) -> path?.let { directory ->
+            NativeToolCall(
+                CLAUDE_MCP_GROUP,
+                AgentToolAction.Command,
+                command = name,
+                arguments = input,
+                workingDirectory = directory,
+            )
+        }
+
+        else -> classifyBuiltin(name, input)
+    }
+
+    private fun classifyBuiltin(name: String, input: JsonObject): NativeToolCall? {
         val spec = specOf(name) ?: return null
         if (path == null && !spec.isWorkspaceFree) return null
         // A workspace-free tool reaches out from this device: only a public address may reach the profile gate.
@@ -65,3 +81,14 @@ internal fun supportsClaudeNativeGate(version: String?): Boolean {
 }
 
 private const val MINIMUM_PATCH = 285
+private const val MAX_MCP_TOOL_NAME_LENGTH = 512
+
+/** Heartbeat's exact MCP prefixes retain their own hosted/search authorization. */
+internal fun isForeignClaudeMcp(name: String): Boolean = name.startsWith(
+    "mcp__",
+) && name.length <= MAX_MCP_TOOL_NAME_LENGTH &&
+    !name.startsWith("mcp__${HOSTED_TOOLS_SERVER}__") &&
+    !name.startsWith("mcp__${HOSTED_SEARCH_SERVER}__") &&
+    name.removePrefix(
+        "mcp__",
+    ).let { it.substringBefore("__").isNotEmpty() && it.substringAfter("__", "").isNotEmpty() }

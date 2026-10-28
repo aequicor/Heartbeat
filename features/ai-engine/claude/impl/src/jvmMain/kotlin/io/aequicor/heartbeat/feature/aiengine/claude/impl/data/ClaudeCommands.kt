@@ -4,9 +4,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 
 /**
- * No ambient settings, helpers, MCP or tool permissions are inherited by the adapter.
- * `--strict-mcp-config` without `--mcp-config` admits no servers; inline JSON is avoided because Windows
- * process creation does not preserve embedded quotes.
+ * Ambient settings and tool permissions stay disabled. Strict MCP configuration admits only supplied servers;
+ * an explicit opt-in imports user/local definitions separately without enabling ambient hooks or instructions.
+ * Inline JSON is avoided because Windows process creation does not preserve embedded quotes.
  */
 internal fun claudeArguments(
     model: ModelId? = null,
@@ -14,10 +14,12 @@ internal fun claudeArguments(
     resume: Boolean = false,
     search: Boolean = false,
     effort: String? = null,
+    mcp: Boolean = false,
     tools: ClaudeToolFlags = claudeToolFlags(ResolvedToolPolicy(), search, subagents = false, providerSearch = true),
 ): List<String> = buildList {
     addAll(listOf("--print", "--verbose", "--output-format", "stream-json", "--setting-sources="))
     add("--strict-mcp-config")
+    if (mcp) add(NATIVE_MCP_MARKER)
     addAll(tools.arguments())
     if (search) add(SEARCH_BRIDGE_MARKER)
     model?.let { add("--model=${it.value}") }
@@ -29,6 +31,7 @@ internal fun claudeArguments(
 /** Effort levels accepted by `claude --effort`; each model advertises its subset in `supportedEffortLevels`. */
 internal val ClaudeEffortLevels = setOf("low", "medium", "high", "xhigh", "max")
 
+internal const val NATIVE_MCP_MARKER = "--heartbeat-native-mcp"
 internal const val SEARCH_BRIDGE_MARKER = "--heartbeat-search-bridge"
 internal const val SCOPED_SEARCH_BRIDGE_MARKER = "--heartbeat-scoped-search-bridge"
 

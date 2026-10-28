@@ -53,7 +53,7 @@ class ClaudeToolFlagsTest {
             claudeHostedArguments(base, config, Path.of("instructions.txt"), flags),
         )) {
             val effective = claudeToolFlags(arguments)
-            assertEquals(native, effective.native)
+            assertEquals(native - CLAUDE_MCP_GROUP, effective.native)
             assertTrue(effective.allowed.all { it.startsWith("mcp__") || it in ClaudeProviderTools })
             assertEquals(ClaudeProviderTools, effective.allowed.intersect(native))
             assertEquals(1, arguments.count { it.startsWith("--tools=") })
@@ -122,7 +122,7 @@ class ClaudeToolFlagsTest {
     fun `additional native tools are gated and default disabled while legacy tools permit Off only`() {
         val additional = ClaudeNativeCatalog.filter { it.isGated }
         assertEquals(
-            setOf("Read", "Glob", "Grep", "Edit", "Write", "MultiEdit", "Bash", "WebFetch"),
+            setOf("Read", "Glob", "Grep", "Edit", "Write", "MultiEdit", "Bash", "WebFetch", CLAUDE_MCP_GROUP),
             additional.map { it.name }.toSet(),
         )
         assertTrue(additional.none { it.isEnabledByDefault })

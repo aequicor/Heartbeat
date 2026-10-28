@@ -52,6 +52,7 @@ import java.nio.file.attribute.PosixFilePermissions
 internal interface ClaudeTransport {
     /** Opaque fingerprint of the native history directory; a changed store cannot resume its UUIDs. */
     val nativeStore: String get() = "default"
+    val isMcpEnabled: Boolean get() = false
     suspend fun run(
         arguments: List<String>,
         input: String = "",
@@ -249,12 +250,13 @@ internal class ProcessClaudeTransport(
                 searchEndpoint != null -> searchConfig(searchEndpoint)
                 else -> null
             }
+            bridgeConfig = nativeMcpConfig(startup, arguments, workspace, bridgeConfig)
             instructionFile = hosted?.takeIf { endpoint != null || it.instructions.isNotBlank() }
                 ?.let { instructionFile(claudeToolNames(endpoint != null, searchEndpoint != null) + it.instructions) }
             if ("--print" in arguments) projectAssists = assists.prepare(workspace)
             val pluginArguments = projectAssists?.let { listOf("--plugin-dir", it.directory) }.orEmpty()
             val effectiveArguments = configuredArguments(
-                arguments,
+                arguments.filterNot { it == NATIVE_MCP_MARKER },
                 endpoint,
                 bridgeConfig,
                 instructionFile,
@@ -272,6 +274,17 @@ internal class ProcessClaudeTransport(
             bridgeConfig?.let(Files::deleteIfExists)
             instructionFile?.let(Files::deleteIfExists)
         }
+    }
+
+    private suspend fun nativeMcpConfig(
+        startup: ClaudeStartup,
+        arguments: List<String>,
+        workspace: WorkspaceRef?,
+        bridge: Path?,
+    ): Path? {
+        if (!startup.isMcpEnabled || NATIVE_MCP_MARKER !in arguments) return bridge
+        val servers = claudeNativeMcp(startup, Path.of(workingDirectory(workspace)))
+        return if (servers.isEmpty()) bridge else mergeClaudeMcp(servers, bridge, configDirectory)
     }
 
     /** Applies the prepared bridge files without changing which scoped capabilities were selected for the turn. */
@@ -433,22 +446,7 @@ internal class ProcessClaudeTransport(
             log.w { "Claude executable is missing or not runnable source=${startup.source}" }
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
-        val directory = if (workspace == null) {
-            configuration.workingDirectory ?: System.getProperty("user.home")
-        } else {
-            (
-                if (workspaces.isAvailable) {
-                    workspaces.executionDirectory(
-                        workspace,
-                    )
-                } else {
-                    null
-                }
-            ) ?: configuration.workspaces[workspace]
-                ?: throw EngineException(
-                    EngineFailure.Engine(EngineFailureReason.RequirementsNotMet),
-                )
-        }
+        val directory = workingDirectory(workspace)
         val builder = ProcessBuilder(listOf(startup.executable) + arguments).directory(File(directory))
             .redirectError(ProcessBuilder.Redirect.DISCARD)
         val environment = builder.environment()
@@ -456,6 +454,22 @@ internal class ProcessClaudeTransport(
         environment.clear()
         environment.putAll(allowed)
         return builder
+    }
+    private suspend fun workingDirectory(workspace: WorkspaceRef?): String = if (workspace == null) {
+        configuration.workingDirectory ?: System.getProperty("user.home")
+    } else {
+        (
+            if (workspaces.isAvailable) {
+                workspaces.executionDirectory(
+                    workspace,
+                )
+            } else {
+                null
+            }
+        ) ?: configuration.workspaces[workspace]
+            ?: throw EngineException(
+                EngineFailure.Engine(EngineFailureReason.RequirementsNotMet),
+            )
     }
 }
 
@@ -466,6 +480,7 @@ internal class ProcessClaudeTransport(
 private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, private val startup: ClaudeStartup) :
     ClaudeTransport {
     override val nativeStore: String = claudeNativeStore(startup.configDirectory)
+    override val isMcpEnabled: Boolean get() = startup.isMcpEnabled
 
     @Volatile
     private var knownVersion: String? = null

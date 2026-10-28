@@ -28,6 +28,7 @@ internal val ClaudeManagementSpec = ManagementSpec(
             LaunchOption.Runtime,
             LaunchOption.HomeDirectory,
             LaunchOption.Environment,
+            LaunchOption.Mcp,
         ),
         homeVariable = "CLAUDE_CONFIG_DIR",
         reservedEnvironment = setOf("CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER", "DISABLE_UPDATES"),

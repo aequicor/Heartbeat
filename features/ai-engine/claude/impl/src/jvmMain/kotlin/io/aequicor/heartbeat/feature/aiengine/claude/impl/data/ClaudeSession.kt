@@ -441,7 +441,7 @@ internal class ClaudeSession(
             subagents = false,
             providerSearch = route.workspace == null,
             requiresActionAnalysis = isActionAnalysisRequired,
-        )
+        ).withMcpAccess(transport.isMcpEnabled && !policy.isToolFree && !isActionAnalysisRequired)
         val requestedGated =
             requestedFlags.native.intersect(ClaudeNativeCatalog.filter { it.isGated }.map { it.name }.toSet())
         // A compaction runs no tools: it never needs the native gate.
@@ -455,6 +455,7 @@ internal class ClaudeSession(
             search = flags.allowed.any { it in ClaudeSearchTools.values },
             effort = request.reasoningEffort,
             tools = flags,
+            mcp = CLAUDE_MCP_GROUP in gated,
         )
         val inputFlags = if (native != null || request.parts.any { it !is ContentPart.Text }) {
             listOf("--input-format", "stream-json")

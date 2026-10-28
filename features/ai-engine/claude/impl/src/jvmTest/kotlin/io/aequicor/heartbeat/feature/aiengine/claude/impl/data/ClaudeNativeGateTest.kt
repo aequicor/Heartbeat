@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_SEARCH_SERVER
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeConfirmation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
@@ -18,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -28,6 +31,69 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 internal class ClaudeNativeGateTest {
+    @Test
+    fun `hook matcher is anchored JavaScript regex and excludes both hosted bridges`() {
+        val matcher = claudeNativeMatcher(setOf("Bash", CLAUDE_MCP_GROUP))
+        assertTrue(matcher.startsWith("^(?:"))
+        assertTrue(matcher.endsWith(")$"))
+        assertFalse(matcher.contains("\\Q"))
+        assertFalse(matcher.contains("\\E"))
+        val regex = Regex(matcher)
+        for (name in listOf("Bash", "mcp__pencil__execute", "mcp__foreign__read")) {
+            assertTrue(regex.matches(name), name)
+        }
+        for (name in listOf(
+            "BeforeBash",
+            "BashAfter",
+            "mcp__${HOSTED_TOOLS_SERVER}__run_command",
+            "mcp__${HOSTED_SEARCH_SERVER}__web_fetch",
+        )) {
+            assertFalse(regex.matches(name), name)
+        }
+        val initialization = gate(Tools(), tool = CLAUDE_MCP_GROUP).initialization()
+        val hooks = initialization["hooks"] as JsonObject
+        val hook = (hooks["PreToolUse"] as JsonArray).single() as JsonObject
+        assertEquals(claudeNativeMatcher(setOf(CLAUDE_MCP_GROUP)), hook.text("matcher"))
+    }
+
+    @Test
+    fun `foreign MCP calls require the opt-in group and retain exact preflight confirmation`() = runTest {
+        val tools = Tools()
+        val foreignHook = frame(hook().toString().replace("Bash", "mcp__pencil__execute"))
+        val foreignPermission = frame(permission().toString().replace("Bash", "mcp__pencil__execute"))
+        val gate = gate(tools, tool = CLAUDE_MCP_GROUP)
+        assertEquals("ask", hookOutput(gate.handle(foreignHook)).text("permissionDecision"))
+        assertEquals("allow", gate.handle(foreignPermission).text("behavior"))
+        assertEquals(1, tools.preflights)
+        assertEquals(1, tools.confirmations)
+        val classified = assertNotNull(nativeWorkspace().classify("mcp__pencil__execute", frame("{}")))
+        assertEquals(CLAUDE_MCP_GROUP, classified.name)
+        assertEquals("mcp__pencil__execute", classified.command)
+        assertEquals("deny", hookOutput(gate(Tools()).handle(foreignHook)).text("permissionDecision"))
+        gate.close()
+        assertFailsWith<EngineException> { gate.handle(foreignPermission) }
+    }
+
+    @Test
+    fun `MCP group never preapproves foreign calls or intercepts Heartbeat bridges`() {
+        assertFalse(
+            isForeignClaudeMcp(
+                "mcp__${io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER}__run_command",
+            ),
+        )
+        assertFalse(
+            isForeignClaudeMcp(
+                "mcp__${io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_SEARCH_SERVER}__web_fetch",
+            ),
+        )
+        val args = ClaudeToolFlags(native = setOf(CLAUDE_MCP_GROUP)).arguments()
+        assertEquals(listOf("--tools="), args.filter { it.startsWith("--tools=") })
+        assertFalse(args.any { it.startsWith("--allowedTools=") })
+        assertTrue("--strict-mcp-config" in claudeArguments())
+        assertTrue("--strict-mcp-config" in claudeArguments(mcp = true))
+        assertTrue(NATIVE_MCP_MARKER in claudeArguments(mcp = true))
+    }
+
     @Test
     fun `shared allowance is honored by both native transports`() = runTest {
         for (isPreflight in listOf(false, true)) {

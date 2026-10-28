@@ -29,6 +29,17 @@ class ClaudeStartupTest {
     private val managed = ManagedInstall("2.1.285", "/data/claude/claude", Instant.fromEpochSeconds(1))
 
     @Test
+    fun `MCP access is captured from the selected launch rather than enabled by its installation`() {
+        val enabledContext = LaunchContext(LaunchSettings(executable = "/custom/claude", isMcpEnabled = true))
+        val captured = resolveClaudeStartup(enabledContext, config, host())
+        assertTrue(captured.isMcpEnabled)
+        val disabledContext = enabledContext.copy(settings = enabledContext.settings.copy(isMcpEnabled = false))
+        assertFalse(resolveClaudeStartup(disabledContext, config, host()).isMcpEnabled)
+        assertTrue(captured.isMcpEnabled)
+        assertFalse(resolveClaudeStartup(LaunchContext(managed = managed), config, host()).isMcpEnabled)
+    }
+
+    @Test
     fun `a custom executable wins over Heartbeat's copy, which wins over the system`() {
         val mac = host(available = setOf(localClaude))
         val custom = LaunchContext(LaunchSettings(executable = "/custom/claude"), managed)
