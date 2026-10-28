@@ -24,6 +24,7 @@ kotlin {
             implementation(projects.designSystem.theme)
             implementation(projects.designSystem.layouts)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.collectionsImmutable)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
