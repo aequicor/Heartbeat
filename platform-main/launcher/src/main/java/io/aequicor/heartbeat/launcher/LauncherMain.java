@@ -98,14 +98,31 @@ public final class LauncherMain {
             owner = instanceLock != null;
         }
         String seed = System.getProperty(SEED_DIR);
-        if (owner && seed != null) {
-            ensureFirstLaunch(new FirstLaunch(launcher, Path.of(seed)));
+        Launcher.Prepared prepared;
+        boolean degraded = false;
+        try {
+            if (owner && seed != null) {
+                ensureFirstLaunch(new FirstLaunch(launcher, Path.of(seed)));
+            }
+            prepared = owner ? launcher.prepare() : launcher.prepareReadOnly();
+        } catch (LauncherState.UnsupportedFormatException newer) {
+            // A newer launcher wrote the state and this older one runs after a rollback of the slot: it neither reads
+            // nor overwrites the state and starts the application from the seed, so the app still opens.
+            System.err.println("Launcher state is of a newer format, starting from the seed without it: " + newer.getMessage());
+            prepared = new Launcher.Prepared(null, java.util.List.of(), null, false);
+            degraded = true;
+        } catch (Exception failed) {
+            // a failed launcher must not keep the lock from the launcher that the selector starts next
+            releaseInstanceLock();
+            throw failed;
         }
-        Launcher.Prepared prepared = owner ? launcher.prepare() : launcher.prepareReadOnly();
-        launcher.exposeToApp(prepared, root);
-        if (owner && prepared.train() != null && slotStager != null) {
-            offerLauncherUpdate(launcher.store(), prepared.train(), slotStager);
+        final boolean ownsState = owner && !degraded;
+        if (degraded) {
+            Launcher.exposeWithoutState(root);
+        } else {
+            launcher.exposeToApp(prepared, root);
         }
+        final Launcher.Prepared active = prepared;
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         java.util.List<Path> classpath = prepared.classpath();
         if (prepared.train() == null && seed != null) {
@@ -119,7 +136,7 @@ public final class LauncherMain {
             Thread.currentThread().setContextClassLoader(loader);
         }
         AtomicBoolean returned = new AtomicBoolean();
-        if (owner) {
+        if (ownsState) {
             scheduleStable(launcher);
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 if (!isCleanExit(returned.get())) {
@@ -133,11 +150,18 @@ public final class LauncherMain {
                 }
             }, "heartbeat-launcher-exit"));
         }
+        // The new launcher is offered only after the slot is confirmed: a trial launcher is refused while it is a trial
+        Runnable started = () -> {
+            applicationStarted.run();
+            if (ownsState && active.train() != null && slotStager != null) {
+                offerLauncherUpdate(launcher.store(), active.train(), slotStager);
+            }
+        };
         try {
-            invokeMain(loader, System.getProperty(APP_MAIN, DEFAULT_APP_MAIN), args, applicationStarted);
+            invokeMain(loader, System.getProperty(APP_MAIN, DEFAULT_APP_MAIN), args, started);
             returned.set(true);
         } catch (InvocationTargetException e) {
-            if (owner && prepared.train() != null) {
+            if (ownsState && active.train() != null) {
                 reportBundleFailure(launcher, e);
             }
             throw e;
@@ -226,6 +250,12 @@ public final class LauncherMain {
         }
         closeQuietly(channel);
         return null;
+    }
+
+    /** Отпускает блокировку экземпляра: лаунчер, не дошедший до приложения, не должен держать её для следующего. */
+    static void releaseInstanceLock() {
+        closeQuietly(instanceLock);
+        instanceLock = null;
     }
 
     private static void closeQuietly(FileChannel channel) {

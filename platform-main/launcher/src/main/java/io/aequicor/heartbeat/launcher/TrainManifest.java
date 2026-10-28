@@ -131,9 +131,13 @@ public final class TrainManifest {
             }
             Map<?, ?> b = (Map<?, ?>) item;
             String kind = optionalString(b, "kind");
+            long level = number(b, "launcherApi", false);
+            if (b.containsKey("launcherApi") && level < 1) {
+                throw new IllegalArgumentException("Manifest field 'launcherApi' must be at least 1");
+            }
             bundles.add(new Bundle(string(b, "id"), string(b, "version"), string(b, "jar"), string(b, "sha256"),
                 optionalString(b, "url"), kind == null ? KIND_BUNDLE : kind,
-                toInt("launcherApi", number(b, "launcherApi", false)), optionalString(b, "signature")));
+                toInt("launcherApi", level), optionalString(b, "signature")));
         }
         boolean beta = "beta".equals(obj.get("channel"));
         return new TrainManifest(train, toInt("platformApi", api), toInt("dbSchema", schema), bundles, beta);

@@ -269,4 +269,25 @@ class FirstLaunchTest {
         log.export(out);
         assertTrue(Files.readString(out).startsWith("line 5"));
     }
+
+    @Test
+    void seedWithALauncherEntryStoresItButKeepsItOffTheClasspath() throws Exception {
+        byte[] foundation = "foundation@t1".getBytes(StandardCharsets.UTF_8);
+        byte[] launcherJar = "launcher@t1".getBytes(StandardCharsets.UTF_8);
+        Files.write(seed.resolve("foundation.jar"), foundation);
+        Files.write(seed.resolve("launcher.jar"), launcherJar);
+        Files.writeString(seed.resolve(FirstLaunch.MANIFEST), "{\"train\":\"t1\",\"platformApi\":2,\"bundles\":["
+            + "{\"id\":\"foundation\",\"version\":\"1\",\"jar\":\"foundation.jar\",\"sha256\":\"" + sha(foundation) + "\"},"
+            + "{\"id\":\"launcher\",\"version\":\"1\",\"jar\":\"launcher.jar\",\"sha256\":\"" + sha(launcherJar)
+            + "\",\"kind\":\"launcher\",\"launcherApi\":2}]}");
+        assertEquals("t1", firstLaunch.run(fetcher, listener));
+        assertTrue(fetched.isEmpty());
+        Launcher.Prepared prepared = launcher.prepare();
+        assertEquals("t1", prepared.train());
+        assertEquals(1, prepared.classpath().size());
+        // the train is complete: every jar, the launcher's included, is in the store and verified
+        launcher.store().verify("t1");
+        assertTrue(Files.isRegularFile(launcher.store().jarPath(sha(launcherJar))));
+        assertEquals(1, FirstLaunch.seedClasspath(seed, tmp.resolve("stamp")).size());
+    }
 }

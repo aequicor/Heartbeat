@@ -45,6 +45,11 @@ public final class Launcher {
      */
     public static final int PLATFORM_API = 2;
     public static final long STABLE_AFTER_MILLIS = 60_000L;
+    /**
+     * Системное свойство: пробный лаунчер отказывается стартовать, потому что операция с данными (откат с восстановлением
+     * БД) ждёт подтверждённого лаунчера. Селектор не считает такой отказ крахом слота и запускает подтверждённый.
+     */
+    public static final String DEFERRED = "heartbeat.slot.deferred";
     public static final int CRASH_LIMIT = 2;
 
     /** Манифест требует более новую платформу, чем установленная. */
@@ -163,6 +168,7 @@ public final class Launcher {
             } catch (IOException | RuntimeException e) {
                 if (deferDataOperations) {
                     keepRollbackRequest();
+                    System.setProperty(DEFERRED, "true");
                     throw new IOException("Train " + state.current + " is damaged; its rollback restores data and "
                         + "waits until the launcher is confirmed (" + e.getMessage() + ")", e);
                 }
@@ -356,6 +362,14 @@ public final class Launcher {
             state.save(store.stateFile());
             return state.previous;
         });
+    }
+
+    /** Свойства для приложения без состояния лаунчера: поезда нет, запуск из seed установщика. */
+    public static void exposeWithoutState(Path root) {
+        System.setProperty("heartbeat.launcher.root", root.toAbsolutePath().toString());
+        System.clearProperty("heartbeat.train.bad");
+        System.clearProperty("heartbeat.train");
+        System.clearProperty("heartbeat.train.channel");
     }
 
     /**
