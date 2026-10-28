@@ -3547,6 +3547,204 @@
    "type": "string",
    "value": "600"
   },
+  "effects.fade.sidebar": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#F0F5FA00",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#222B3A00",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#F4F4F500",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#28282B00",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "effects.fade.selected": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#E6E0FC00",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#433C5D00",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#E9E9E900",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#39393B00",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "effects.fade.assistant": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF00",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#29334400",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF00",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#20202200",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "effects.fade.composer": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF00",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#2C374900",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF00",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#2A2A2D00",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "effects.fade.header": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#FFFFFF00",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#27324300",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF00",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#20202200",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
+  "effects.fade.backdrop": {
+   "type": "color",
+   "value": [
+    {
+     "value": "#EAF3FA00",
+     "theme": {
+      "mode": "light",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#1C243200",
+     "theme": {
+      "mode": "dark",
+      "host": "mobile"
+     }
+    },
+    {
+     "value": "#FFFFFF00",
+     "theme": {
+      "mode": "light",
+      "host": "desktop"
+     }
+    },
+    {
+     "value": "#20202200",
+     "theme": {
+      "mode": "dark",
+      "host": "desktop"
+     }
+    }
+   ]
+  },
   "shapes.small": {
    "type": "number",
    "value": [
