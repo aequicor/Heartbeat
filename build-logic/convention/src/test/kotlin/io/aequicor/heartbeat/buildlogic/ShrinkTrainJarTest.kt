@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.buildlogic
 
 import org.gradle.api.GradleException
+import org.junit.Assume
 import proguard.Configuration
 import proguard.ConfigurationParser
 import proguard.ProGuard
@@ -93,6 +94,31 @@ class ShrinkTrainJarTest {
     }
 
     @Test
+    fun `clashing class name prefixes of the train are refused`() {
+        checkObfuscationTags(listOf("foundation", "web", "studio"))
+        // two ids with one tag: found by searching, the tag space is small
+        val seen = HashMap<String, String>()
+        val twin = (0..200_000).asSequence().map { "bundle-$it" }.first { id ->
+            val other = seen.put(obfuscationTag(id), id)
+            other != null
+        }
+        val first = seen.getValue(obfuscationTag(twin))
+        assertFailsWith<GradleException> { checkObfuscationTags(listOf(first, twin)) }
+    }
+
+    @Test
+    fun `a jar with a class in the root package cannot be kept by package`() {
+        val work = Files.createTempDirectory("rootpkg").toFile()
+        val jar = File(work, "root.jar")
+        JarOutputStream(jar.outputStream()).use { out ->
+            out.putNextEntry(ZipEntry("Root.class"))
+            out.write(byteArrayOf(1))
+            out.closeEntry()
+        }
+        assertFailsWith<GradleException> { jarPackages(jar) }
+    }
+
+    @Test
     fun `packages of a jar are listed sorted`() {
         val jar = fixtureJar(Files.createTempDirectory("packages").toFile(), "classes.jar")
         assertEquals(listOf("io.aequicor.heartbeat.buildlogic.sdkfixture"), jarPackages(jar))
@@ -118,8 +144,8 @@ class ShrinkTrainJarTest {
     @Test
     fun `shrinking removes what is unused and is deterministic`() {
         val jmods = File(System.getProperty("java.home"), "jmods")
-        // A JDK without jmods or newer than the class files ProGuard reads cannot be its library: nothing to verify here.
-        if (!jmods.isDirectory || Runtime.version().feature() > MAX_PROGUARD_JDK) return
+        // A JDK without jmods or newer than the class files ProGuard reads cannot be its library: skipped, not green.
+        Assume.assumeTrue(jmods.isDirectory && Runtime.version().feature() <= MAX_PROGUARD_JDK)
         val work = Files.createTempDirectory("shrink").toFile()
         val input = fixtureJar(work, "in.jar")
         val first = shrink(work, input, "first.jar")

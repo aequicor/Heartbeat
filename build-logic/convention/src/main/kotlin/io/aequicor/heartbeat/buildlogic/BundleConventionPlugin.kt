@@ -81,7 +81,7 @@ class BundleConventionPlugin : Plugin<Project> {
         )
         val bundleId = name
         // The jar the manifest takes: the processed one when the train is shrunk.
-        val bundleJar: Any = if (mode == TrainShrinkMode.Off) assemble else registerShrinkBundle(assemble, bundleVersion, mode)
+        val bundleJar: Any = if (mode == TrainShrinkMode.Off) assemble else registerShrinkBundle(assemble, bundleVersion, mode).flatMap { it.output }
         registerTrainTasks(root).first.configure {
             versions.put(bundleId, bundleVersion)
             jars.from(bundleJar)
@@ -132,7 +132,6 @@ class BundleConventionPlugin : Plugin<Project> {
         mode: TrainShrinkMode,
     ): TaskProvider<ShrinkTrainJar> {
         val desktop = rootProject.project(DESKTOP_PROJECT)
-        val trainJars = desktop.layout.buildDirectory.dir(FINAL_JAR_DIRECTORY)
         // The third-party jars of the installed platform, not the bundle's own resolution: the two may differ in versions.
         val libraries = desktop.provider { desktop.extensions.getByType(TrainPlatformJars::class.java).jars.get() }
         val bundleId = name
@@ -144,13 +143,17 @@ class BundleConventionPlugin : Plugin<Project> {
             mode,
         ) {
             libraryJars.from(libraries)
+            // The processed foundation and the contracts jar are the outputs of the desktop module's tasks: taken from
+            // them, not from a guessed file name, so that the task dependencies follow.
             libraryJars.from(
-                trainJars.zip(bundleVersion) { dir, version ->
-                    listOf("foundation", "contracts").map { dir.file(bundleJarName(it, version)) }
+                // By type: matching by name alone would create every task of the desktop module (Compose's included).
+                desktop.provider {
+                    desktop.tasks.withType(ShrinkTrainJar::class.java).matching { it.name == "shrinkFoundation" }
+                        .map { it.outputs.files } +
+                        desktop.tasks.withType(Jar::class.java).matching { it.name == "assembleContracts" }
+                            .map { it.outputs.files }
                 },
             )
-            // The processed foundation and the contracts jar are produced by the desktop module.
-            dependsOn("$DESKTOP_PROJECT:shrinkFoundation", "$DESKTOP_PROJECT:assembleContracts")
         }.also { shrunk ->
             // `assembleBundle` stays the task that gives the final jar.
             tasks.register(ASSEMBLE_TASK) {

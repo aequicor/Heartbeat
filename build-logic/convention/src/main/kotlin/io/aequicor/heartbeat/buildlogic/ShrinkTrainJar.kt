@@ -17,6 +17,8 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.time.LocalDateTime
 import java.util.zip.ZipEntry
@@ -119,7 +121,18 @@ internal fun obfuscationTag(id: String): String {
     }
 }
 
-/** The names `<tag>0`, `<tag>1`, … `<tag>z`, `<tag>10`, …: [count] class names that ProGuard hands out in order. */
+/** Fails when two artifacts of [ids] share an [obfuscationTag]: their class names would meet in one class loader. */
+internal fun checkObfuscationTags(ids: Collection<String>) {
+    val clashes = ids.groupBy(::obfuscationTag).filterValues { it.size > 1 }
+    if (clashes.isNotEmpty()) {
+        throw GradleException(
+            "Artifacts of the train share a class name prefix: " +
+                clashes.entries.joinToString { (tag, same) -> "$tag <- ${same.joinToString()}" },
+        )
+    }
+}
+
+/** The names `<tag>0, `<tag>1`, … `<tag>z`, `<tag>10`, …: [count] class names that ProGuard hands out in order. */
 internal fun classDictionary(tag: String, count: Int): String =
     (0 until count).joinToString("\n", postfix = "\n") { tag + it.toString(CLASS_NAME_RADIX) }
 
@@ -145,6 +158,9 @@ internal fun jarPackages(jar: File): List<String> = ZipFile(jar).use { zip ->
         .map { it.substringBeforeLast('/', "").replace('/', '.') }
         .toSortedSet()
         .toList()
+}.also { packages ->
+    // `class .*` is not a ProGuard pattern: a class in the root package cannot be kept by a package rule.
+    if ("" in packages) throw GradleException("${jar.name} has classes in the root package")
 }
 
 /**
@@ -184,19 +200,26 @@ abstract class ShrinkTrainJar @Inject constructor(private val exec: ExecOperatio
     @get:Input
     abstract val javaHome: Property<String>
 
+    /** ProGuard itself (the `trainProguard` configuration). */
     @get:Classpath
     abstract val proguardClasspath: ConfigurableFileCollection
 
+    /** The processed jar, named like [input] so that the manifest and the installer do not depend on the mode. */
     @get:OutputFile
     abstract val output: RegularFileProperty
 
+    /** The ProGuard mapping of the jar (empty when nothing is renamed); the mapping of an obfuscated jar is published. */
     @get:OutputFile
     abstract val mapping: RegularFileProperty
 
     @TaskAction
     fun shrink() {
         val outputFile = output.get().asFile.apply { parentFile.mkdirs() }
-        val mappingFile = mapping.get().asFile.apply { parentFile.mkdirs() }
+        // A mapping of an earlier run (another mode) must not outlive this one: it would describe other names.
+        val mappingFile = mapping.get().asFile.apply {
+            parentFile.mkdirs()
+            delete()
+        }
         val scratch = File(temporaryDir, "scratch").apply {
             deleteRecursively()
             mkdirs()
@@ -204,6 +227,10 @@ abstract class ShrinkTrainJar @Inject constructor(private val exec: ExecOperatio
         val jmodsDirectory = File(javaHome.get(), "jmods")
         if (!jmodsDirectory.isDirectory) {
             throw GradleException("The JDK ${javaHome.get()} has no jmods directory: ProGuard needs the platform classes")
+        }
+        val missingRules = rules.files.filterNot { it.isFile }
+        if (missingRules.isNotEmpty()) {
+            throw GradleException("ProGuard rule files are missing: ${missingRules.joinToString { it.path }}")
         }
         val kept = keptJars.files.sortedBy { it.name }
         val processed = File(temporaryDir, "processed.jar")
@@ -229,6 +256,8 @@ abstract class ShrinkTrainJar @Inject constructor(private val exec: ExecOperatio
             args("@${configurationFile.absolutePath}")
             maxHeapSize = "2g"
         }
+        // ProGuard prints no mapping when nothing is renamed; the declared output must exist all the same.
+        if (!mappingFile.isFile) mappingFile.writeText("")
         normalizeJar(processed, outputFile)
     }
 }
@@ -238,8 +267,10 @@ abstract class ShrinkTrainJar @Inject constructor(private val exec: ExecOperatio
  * manifest with the time of the run, which would give every build a new SHA-256.
  */
 internal fun normalizeJar(source: File, target: File) {
+    // Written aside and moved: a failure halfway must not leave a broken jar where the manifest and the seed read.
+    val partial = File(target.parentFile, target.name + ".partial")
     ZipFile(source).use { zip ->
-        ZipOutputStream(target.outputStream().buffered()).use { out ->
+        ZipOutputStream(partial.outputStream().buffered()).use { out ->
             for (entry in zip.entries().asSequence()) {
                 out.putNextEntry(ZipEntry(entry.name).apply { setTimeLocal(FIXED_ENTRY_TIME) })
                 if (!entry.isDirectory) zip.getInputStream(entry).use { it.copyTo(out) }
@@ -247,6 +278,7 @@ internal fun normalizeJar(source: File, target: File) {
             }
         }
     }
+    Files.move(partial.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
 }
 
 /** 1980-02-01 as a local time, so that the bytes do not depend on the time zone (like Gradle's reproducible jars). */
@@ -275,13 +307,14 @@ internal fun Project.desktopRuntimeHome(): Provider<String> {
     }.map { it.metadata.installationPath.asFile.absolutePath }
 }
 
-/** Rule files of the train that exist: the generated SDK rules and the hand-written `train-rules.pro`. */
+/** Rule files of the train: the generated SDK rules and the hand-written `train-rules.pro` (both required). */
 internal fun Project.trainRuleFiles(): List<Any> {
     val root = rootProject
     // Bundles may be configured before the desktop module registers the generator: take the task lazily.
     return listOf(
         root.tasks.withType(GenerateTrainSdkRules::class.java),
-        root.provider { listOfNotNull(root.file(TRAIN_RULES_PATH).takeIf(File::isFile)) },
+        // Not filtered by existence: a missing file fails the run instead of silently dropping the entry points.
+        root.provider { listOf(root.file(TRAIN_RULES_PATH)) },
     )
 }
 

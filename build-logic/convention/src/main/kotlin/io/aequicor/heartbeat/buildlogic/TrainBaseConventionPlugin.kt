@@ -103,6 +103,10 @@ class TrainBaseConventionPlugin : Plugin<Project> {
         })
         val ownClasses = extensions.getByType<SourceSetContainer>().getByName("main").output
         val mode = TrainShrinkMode.parse(providers.gradleProperty(TrainShrinkMode.PROPERTY).orNull)
+        if (mode == TrainShrinkMode.Obfuscate) {
+            val bundles = rootProject.subprojects.filter { it.parent?.path == ":bundles" }.map { it.name }
+            checkObfuscationTags(listOf("foundation") + bundles)
+        }
         val foundationDirectory = if (mode == TrainShrinkMode.Off) FINAL_JAR_DIRECTORY else RAW_JAR_DIRECTORY
         val foundation = registerBaseJar(
             "foundation",
@@ -134,7 +138,7 @@ class TrainBaseConventionPlugin : Plugin<Project> {
                     description = "Assembles and processes the foundation jar of the bundle train."
                     dependsOn(shrunk)
                 }
-            }
+            }.flatMap { it.output }
         }
         rootProject.tasks.matching { it.name == MANIFEST_TASK }.configureEach {
             this as BundleManifest
