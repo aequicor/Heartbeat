@@ -1,0 +1,2132 @@
+{
+ "version": "2.21",
+ "imports": {
+  "hb": "../../system/heartbeat.lib.pen"
+ },
+ "children": [
+  {
+   "id": "section-components",
+   "type": "frame",
+   "name": "Components",
+   "x": 0,
+   "y": -1000,
+   "layout": "horizontal",
+   "gap": 80,
+   "padding": 40,
+   "children": [
+    {
+     "id": "studio-sidebar",
+     "type": "frame",
+     "name": "Studio / Sidebar · dimensions.sidebarWidth",
+     "width": 264,
+     "height": 800,
+     "layout": "vertical",
+     "fill": "$hb:surfaces.sidebar",
+     "children": [
+      {
+       "id": "studio-sidebar-header",
+       "type": "frame",
+       "width": "fill_container",
+       "height": 44,
+       "padding": [
+        0,
+        8,
+        0,
+        4
+       ],
+       "alignItems": "center",
+       "children": [
+        {
+         "id": "studio-sidebar-lights",
+         "type": "ref",
+         "ref": "hb:window-traffic-lights"
+        },
+        {
+         "id": "studio-sidebar-header-gap",
+         "type": "frame",
+         "width": "fill_container",
+         "height": 1
+        },
+        {
+         "id": "studio-sidebar-new",
+         "type": "ref",
+         "ref": "hb:hb-icon-button",
+         "descendants": {
+          "hb:hb-icon-button-icon": {
+           "icon": "plus"
+          }
+         }
+        },
+        {
+         "id": "studio-sidebar-hide",
+         "type": "ref",
+         "ref": "hb:hb-icon-button",
+         "descendants": {
+          "hb:hb-icon-button-icon": {
+           "icon": "panel-left"
+          }
+         }
+        }
+       ],
+       "name": "studio-sidebar-header · dimensions.headerHeight"
+      },
+      {
+       "id": "studio-sidebar-list",
+       "type": "frame",
+       "width": "fill_container",
+       "height": "fill_container",
+       "layout": "vertical",
+       "padding": [
+        6,
+        8
+       ],
+       "children": [
+        {
+         "id": "sb-search",
+         "type": "frame",
+         "name": "Поиск по сессиям",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "sb-search-icon",
+           "type": "icon",
+           "library": "lucide",
+           "icon": "search",
+           "width": 18,
+           "height": 18,
+           "fill": "$hb:colors.textSecondary"
+          },
+          {
+           "id": "sb-search-label",
+           "type": "text",
+           "content": "Поиск по сессиям",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          },
+          {
+           "id": "sb-search-hint",
+           "type": "text",
+           "content": "⌘K",
+           "fill": "$hb:colors.textSecondary",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          }
+         ]
+        },
+        {
+         "id": "sb-projects",
+         "type": "frame",
+         "name": "Проекты",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          8
+         ],
+         "alignItems": "center",
+         "children": [
+          {
+           "id": "sb-projects-label",
+           "type": "text",
+           "content": "Проекты",
+           "fill": "$hb:colors.textSecondary",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          }
+         ]
+        },
+        {
+         "id": "sb-project",
+         "type": "frame",
+         "name": "Heartbeat",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "sb-project-icon",
+           "type": "icon",
+           "library": "lucide",
+           "icon": "folder-open",
+           "width": 18,
+           "height": 18,
+           "fill": "$hb:colors.textSecondary"
+          },
+          {
+           "id": "sb-project-label",
+           "type": "text",
+           "content": "Heartbeat",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "sb-session-latency",
+         "type": "frame",
+         "name": "Задержка ответа после отправки",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          24
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "sb-session-latency-label",
+           "type": "text",
+           "content": "Задержка ответа после отправки",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "sb-session-review",
+         "type": "frame",
+         "name": "Ревью PR дизайна",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          24
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "sb-session-review-label",
+           "type": "text",
+           "content": "Ревью PR дизайна",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "sb-session-tests",
+         "type": "frame",
+         "name": "Тесты визарда подключений",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          24
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "sb-session-tests-label",
+           "type": "text",
+           "content": "Тесты визарда подключений",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "sb-recent",
+         "type": "frame",
+         "name": "Недавние",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          8
+         ],
+         "alignItems": "center",
+         "children": [
+          {
+           "id": "sb-recent-label",
+           "type": "text",
+           "content": "Недавние",
+           "fill": "$hb:colors.textSecondary",
+           "fontSize": "$hb:typography.caption.size",
+           "lineHeight": "$hb:typography.caption.lineHeight",
+           "fontWeight": "$hb:typography.caption.weight"
+          }
+         ]
+        },
+        {
+         "id": "sb-recent-1",
+         "type": "frame",
+         "name": "Как устроен планировщик",
+         "width": "fill_container",
+         "height": 28,
+         "padding": [
+          0,
+          4,
+          0,
+          8
+         ],
+         "gap": "$hb:spacing.l",
+         "alignItems": "center",
+         "cornerRadius": "$hb:dimensions.controlCornerRadius",
+         "children": [
+          {
+           "id": "sb-recent-1-label",
+           "type": "text",
+           "content": "Как устроен планировщик",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.label.size",
+           "lineHeight": "$hb:typography.label.lineHeight",
+           "fontWeight": "$hb:typography.label.weight",
+           "width": "fill_container"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "studio-sidebar-footer",
+       "type": "frame",
+       "width": "fill_container",
+       "padding": [
+        8,
+        8
+       ],
+       "gap": "$hb:spacing.xxs",
+       "alignItems": "center",
+       "children": [
+        {
+         "id": "sb-rail-sessions",
+         "type": "ref",
+         "ref": "hb:hb-icon-button",
+         "fill": "$hb:surfaces.selected",
+         "descendants": {
+          "hb:hb-icon-button-icon": {
+           "icon": "messages-square"
+          }
+         }
+        },
+        {
+         "id": "sb-rail-archive",
+         "type": "ref",
+         "ref": "hb:hb-icon-button",
+         "descendants": {
+          "hb:hb-icon-button-icon": {
+           "icon": "archive"
+          }
+         }
+        },
+        {
+         "id": "sb-rail-browser",
+         "type": "ref",
+         "ref": "hb:hb-icon-button",
+         "descendants": {
+          "hb:hb-icon-button-icon": {
+           "icon": "globe"
+          }
+         }
+        },
+        {
+         "id": "sb-rail-gap",
+         "type": "frame",
+         "width": "fill_container",
+         "height": 1
+        },
+        {
+         "id": "sb-rail-settings",
+         "type": "ref",
+         "ref": "hb:hb-icon-button",
+         "descendants": {
+          "hb:hb-icon-button-icon": {
+           "icon": "settings"
+          }
+         }
+        },
+        {
+         "id": "sb-rail-connections",
+         "type": "ref",
+         "ref": "hb:hb-icon-button",
+         "descendants": {
+          "hb:hb-icon-button-icon": {
+           "icon": "link"
+          }
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "section-screens",
+   "type": "frame",
+   "name": "Screens",
+   "x": 0,
+   "y": 0,
+   "layout": "horizontal",
+   "gap": 80,
+   "padding": 40,
+   "children": [
+    {
+     "id": "studio-empty",
+     "type": "frame",
+     "name": "Studio / Empty",
+     "reusable": true,
+     "width": 1280,
+     "height": 800,
+     "layout": "horizontal",
+     "theme": {
+      "hb:mode": "light",
+      "hb:host": "desktop"
+     },
+     "fill": "$hb:surfaces.backdrop",
+     "clip": true,
+     "children": [
+      {
+       "id": "studio-empty-sidebar",
+       "type": "ref",
+       "ref": "studio-sidebar",
+       "height": "fill_container"
+      },
+      {
+       "id": "studio-empty-content",
+       "type": "frame",
+       "name": "Content",
+       "width": "fill_container",
+       "height": "fill_container",
+       "layout": "vertical",
+       "children": [
+        {
+         "id": "studio-empty-content-header",
+         "type": "frame",
+         "name": "Header · dimensions.headerHeight",
+         "width": "fill_container",
+         "height": 44,
+         "padding": [
+          4,
+          8
+         ],
+         "gap": "$hb:spacing.m",
+         "alignItems": "center",
+         "fill": "$hb:surfaces.header",
+         "children": [
+          {
+           "id": "studio-empty-content-header-title",
+           "type": "text",
+           "content": "Новый чат",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.title.size",
+           "lineHeight": "$hb:typography.title.lineHeight",
+           "fontWeight": "$hb:typography.title.weight",
+           "width": "fill_container"
+          },
+          {
+           "id": "studio-empty-content-header-more",
+           "type": "ref",
+           "ref": "hb:hb-icon-button",
+           "descendants": {
+            "hb:hb-icon-button-icon": {
+             "icon": "ellipsis-vertical"
+            }
+           }
+          },
+          {
+           "id": "studio-empty-content-header-summary",
+           "type": "ref",
+           "ref": "hb:hb-icon-button",
+           "descendants": {
+            "hb:hb-icon-button-icon": {
+             "icon": "panel-right"
+            }
+           }
+          },
+          {
+           "id": "studio-empty-content-header-split",
+           "type": "ref",
+           "ref": "hb:hb-icon-button",
+           "descendants": {
+            "hb:hb-icon-button-icon": {
+             "icon": "layout-grid"
+            }
+           }
+          }
+         ]
+        },
+        {
+         "id": "studio-empty-content-body",
+         "type": "frame",
+         "width": "fill_container",
+         "height": "fill_container",
+         "layout": "vertical",
+         "justifyContent": "center",
+         "alignItems": "center",
+         "gap": "$hb:spacing.l",
+         "padding": [
+          0,
+          16
+         ],
+         "children": [
+          {
+           "id": "studio-empty-content-title",
+           "type": "text",
+           "content": "Что создадим?",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.display.size",
+           "lineHeight": "$hb:typography.display.lineHeight",
+           "fontWeight": "$hb:typography.display.weight"
+          },
+          {
+           "id": "studio-empty-content-subtitle",
+           "type": "text",
+           "content": "От идеи до результата — начните с задачи.",
+           "fill": "$hb:colors.textSecondary",
+           "fontSize": "$hb:typography.body.size",
+           "lineHeight": "$hb:typography.body.lineHeight",
+           "fontWeight": "$hb:typography.body.weight"
+          },
+          {
+           "id": "studio-empty-content-gap",
+           "type": "frame",
+           "height": 20,
+           "name": "studio-empty-content-gap · spacing.xxl"
+          },
+          {
+           "id": "studio-empty-content-composer",
+           "type": "frame",
+           "name": "HbChatComposer · dimensions.composerMaxWidth",
+           "width": 760,
+           "layout": "vertical",
+           "gap": "$hb:spacing.s",
+           "children": [
+            {
+             "id": "studio-empty-content-composer-context",
+             "type": "frame",
+             "name": "Context",
+             "width": "fill_container",
+             "padding": [
+              4,
+              8
+             ],
+             "gap": "$hb:spacing.s",
+             "alignItems": "center",
+             "children": [
+              {
+               "id": "studio-empty-content-composer-project",
+               "type": "ref",
+               "ref": "hb:hb-composer-pill",
+               "descendants": {
+                "hb:hb-composer-pill-icon": {
+                 "icon": "folder"
+                },
+                "hb:hb-composer-pill-label": {
+                 "content": "Без проекта"
+                }
+               }
+              },
+              {
+               "id": "studio-empty-content-composer-context-window",
+               "type": "ref",
+               "ref": "hb:hb-button-ghost-small",
+               "descendants": {
+                "hb:hb-button-ghost-small-label": {
+                 "content": "Контекстное окно"
+                }
+               }
+              }
+             ]
+            },
+            {
+             "id": "studio-empty-content-composer-panel",
+             "type": "frame",
+             "name": "Panel",
+             "width": "fill_container",
+             "layout": "vertical",
+             "padding": "$hb:spacing.m",
+             "gap": "$hb:spacing.xs",
+             "cornerRadius": "$hb:dimensions.cornerRadius",
+             "fill": "$hb:surfaces.composer",
+             "stroke": "$hb:surfaces.outline",
+             "strokeWidth": 1,
+             "strokeAlignment": "inner",
+             "children": [
+              {
+               "id": "studio-empty-content-composer-placeholder",
+               "type": "text",
+               "content": "Работайте с Heartbeat",
+               "fill": "$hb:colors.textSecondary",
+               "fontSize": "$hb:typography.body.size",
+               "lineHeight": "$hb:typography.body.lineHeight",
+               "fontWeight": "$hb:typography.body.weight",
+               "width": "fill_container"
+              },
+              {
+               "id": "studio-empty-content-composer-toolbar",
+               "type": "frame",
+               "width": "fill_container",
+               "gap": "$hb:spacing.xs",
+               "alignItems": "center",
+               "children": [
+                {
+                 "id": "studio-empty-content-composer-add",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-button",
+                 "descendants": {
+                  "hb:hb-icon-button-icon": {
+                   "icon": "plus"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-empty-content-composer-image",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-button",
+                 "descendants": {
+                  "hb:hb-icon-button-icon": {
+                   "icon": "image"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-empty-content-composer-toolbar-gap",
+                 "type": "frame",
+                 "width": "fill_container",
+                 "height": 1
+                },
+                {
+                 "id": "studio-empty-content-composer-model",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-pill"
+                },
+                {
+                 "id": "studio-empty-content-composer-effort",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-accentpill"
+                },
+                {
+                 "id": "studio-empty-content-composer-send",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-send"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "id": "studio-empty-content-starters",
+           "type": "frame",
+           "name": "Starters",
+           "gap": "$hb:spacing.xl",
+           "alignItems": "center",
+           "children": [
+            {
+             "id": "studio-empty-content-starters-0",
+             "type": "frame",
+             "gap": "$hb:spacing.xs",
+             "alignItems": "center",
+             "children": [
+              {
+               "id": "studio-empty-content-starters-0-icon",
+               "type": "icon",
+               "library": "lucide",
+               "icon": "file-text",
+               "width": 14,
+               "height": 14,
+               "fill": "$hb:colors.textSecondary"
+              },
+              {
+               "id": "studio-empty-content-starters-0-label",
+               "type": "text",
+               "content": "Спланировать фичу",
+               "fill": "$hb:colors.textPrimary",
+               "fontSize": "$hb:typography.caption.size",
+               "lineHeight": "$hb:typography.caption.lineHeight",
+               "fontWeight": "$hb:typography.caption.weight"
+              }
+             ]
+            },
+            {
+             "id": "studio-empty-content-starters-1",
+             "type": "frame",
+             "gap": "$hb:spacing.xs",
+             "alignItems": "center",
+             "children": [
+              {
+               "id": "studio-empty-content-starters-1-icon",
+               "type": "icon",
+               "library": "lucide",
+               "icon": "search",
+               "width": 14,
+               "height": 14,
+               "fill": "$hb:colors.textSecondary"
+              },
+              {
+               "id": "studio-empty-content-starters-1-label",
+               "type": "text",
+               "content": "Провести ревью",
+               "fill": "$hb:colors.textPrimary",
+               "fontSize": "$hb:typography.caption.size",
+               "lineHeight": "$hb:typography.caption.lineHeight",
+               "fontWeight": "$hb:typography.caption.weight"
+              }
+             ]
+            },
+            {
+             "id": "studio-empty-content-starters-2",
+             "type": "frame",
+             "gap": "$hb:spacing.xs",
+             "alignItems": "center",
+             "children": [
+              {
+               "id": "studio-empty-content-starters-2-icon",
+               "type": "icon",
+               "library": "lucide",
+               "icon": "check",
+               "width": 14,
+               "height": 14,
+               "fill": "$hb:colors.textSecondary"
+              },
+              {
+               "id": "studio-empty-content-starters-2-label",
+               "type": "text",
+               "content": "Написать тесты",
+               "fill": "$hb:colors.textPrimary",
+               "fontSize": "$hb:typography.caption.size",
+               "lineHeight": "$hb:typography.caption.lineHeight",
+               "fontWeight": "$hb:typography.caption.weight"
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "studio-conversation",
+     "type": "frame",
+     "name": "Studio / Conversation",
+     "reusable": true,
+     "width": 1280,
+     "height": 800,
+     "layout": "horizontal",
+     "theme": {
+      "hb:mode": "light",
+      "hb:host": "desktop"
+     },
+     "fill": "$hb:surfaces.backdrop",
+     "clip": true,
+     "children": [
+      {
+       "id": "studio-conversation-sidebar",
+       "type": "ref",
+       "ref": "studio-sidebar",
+       "height": "fill_container",
+       "descendants": {
+        "sb-session-latency": {
+         "fill": "$hb:surfaces.selected"
+        }
+       }
+      },
+      {
+       "id": "studio-conversation-content",
+       "type": "frame",
+       "name": "Content",
+       "width": "fill_container",
+       "height": "fill_container",
+       "layout": "vertical",
+       "children": [
+        {
+         "id": "studio-conversation-content-header",
+         "type": "frame",
+         "name": "Header · dimensions.headerHeight",
+         "width": "fill_container",
+         "height": 44,
+         "padding": [
+          4,
+          8
+         ],
+         "gap": "$hb:spacing.m",
+         "alignItems": "center",
+         "fill": "$hb:surfaces.header",
+         "children": [
+          {
+           "id": "studio-conversation-content-header-title",
+           "type": "text",
+           "content": "Задержка ответа после отправки",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.title.size",
+           "lineHeight": "$hb:typography.title.lineHeight",
+           "fontWeight": "$hb:typography.title.weight",
+           "width": "fill_container"
+          },
+          {
+           "id": "studio-conversation-content-header-more",
+           "type": "ref",
+           "ref": "hb:hb-icon-button",
+           "descendants": {
+            "hb:hb-icon-button-icon": {
+             "icon": "ellipsis-vertical"
+            }
+           }
+          },
+          {
+           "id": "studio-conversation-content-header-summary",
+           "type": "ref",
+           "ref": "hb:hb-icon-button",
+           "descendants": {
+            "hb:hb-icon-button-icon": {
+             "icon": "panel-right"
+            }
+           }
+          },
+          {
+           "id": "studio-conversation-content-header-split",
+           "type": "ref",
+           "ref": "hb:hb-icon-button",
+           "descendants": {
+            "hb:hb-icon-button-icon": {
+             "icon": "layout-grid"
+            }
+           }
+          }
+         ]
+        },
+        {
+         "id": "studio-conversation-content-transcript",
+         "type": "frame",
+         "width": "fill_container",
+         "height": "fill_container",
+         "layout": "vertical",
+         "alignItems": "center",
+         "padding": [
+          16,
+          16
+         ],
+         "children": [
+          {
+           "id": "studio-conversation-content-column",
+           "type": "frame",
+           "name": "Transcript · dimensions.messageMaxWidth",
+           "width": 760,
+           "layout": "vertical",
+           "gap": "$hb:spacing.xl",
+           "children": [
+            {
+             "id": "studio-conversation-content-date",
+             "type": "frame",
+             "width": "fill_container",
+             "justifyContent": "center",
+             "children": [
+              {
+               "id": "studio-conversation-content-date-label",
+               "type": "text",
+               "content": "Сегодня",
+               "fill": "$hb:colors.textSecondary",
+               "fontSize": "$hb:typography.caption.size",
+               "lineHeight": "$hb:typography.caption.lineHeight",
+               "fontWeight": "$hb:typography.caption.weight"
+              }
+             ]
+            },
+            {
+             "id": "studio-conversation-content-user",
+             "type": "frame",
+             "name": "Message / User",
+             "width": "fill_container",
+             "layout": "vertical",
+             "alignItems": "end",
+             "gap": "$hb:spacing.xs",
+             "children": [
+              {
+               "id": "studio-conversation-content-user-time",
+               "type": "text",
+               "content": "14:02",
+               "fill": "$hb:colors.textSecondary",
+               "fontSize": "$hb:typography.metadata.size",
+               "lineHeight": "$hb:typography.metadata.lineHeight",
+               "fontWeight": "$hb:typography.metadata.weight"
+              },
+              {
+               "id": "studio-conversation-content-user-bubble",
+               "type": "frame",
+               "name": "Bubble",
+               "padding": "$hb:spacing.l",
+               "cornerRadius": "$hb:shapes.medium",
+               "fill": "$hb:surfaces.outgoing",
+               "children": [
+                {
+                 "id": "studio-conversation-content-user-text",
+                 "type": "text",
+                 "content": "Почему ответ приходит с задержкой после отправки?",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontSize": "$hb:typography.body.size",
+                 "lineHeight": "$hb:typography.body.lineHeight",
+                 "fontWeight": "$hb:typography.body.weight"
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "studio-conversation-content-reply",
+             "type": "frame",
+             "name": "Message / Assistant",
+             "width": "fill_container",
+             "layout": "vertical",
+             "gap": "$hb:spacing.l",
+             "padding": "$hb:dimensions.messagePadding",
+             "cornerRadius": "$hb:dimensions.messageCornerRadius",
+             "fill": "$hb:surfaces.assistant",
+             "children": [
+              {
+               "id": "studio-conversation-content-reply-head",
+               "type": "frame",
+               "gap": "$hb:spacing.l",
+               "alignItems": "center",
+               "children": [
+                {
+                 "id": "studio-conversation-content-reply-mark",
+                 "type": "ref",
+                 "ref": "hb:hb-studio-mark"
+                },
+                {
+                 "id": "studio-conversation-content-reply-author",
+                 "type": "text",
+                 "content": "Heartbeat",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontSize": "$hb:typography.label.size",
+                 "lineHeight": "$hb:typography.label.lineHeight",
+                 "fontWeight": "600"
+                },
+                {
+                 "id": "studio-conversation-content-reply-time",
+                 "type": "text",
+                 "content": "14:02",
+                 "fill": "$hb:colors.textSecondary",
+                 "fontSize": "$hb:typography.metadata.size",
+                 "lineHeight": "$hb:typography.metadata.lineHeight",
+                 "fontWeight": "$hb:typography.metadata.weight"
+                }
+               ]
+              },
+              {
+               "id": "studio-conversation-content-reply-body",
+               "type": "frame",
+               "width": "fill_container",
+               "layout": "vertical",
+               "gap": "$hb:spacing.m",
+               "padding": [
+                0,
+                0,
+                0,
+                40
+               ],
+               "children": [
+                {
+                 "id": "studio-conversation-content-reasoning",
+                 "type": "ref",
+                 "ref": "hb:hb-tool-row-reasoning",
+                 "width": "fill_container",
+                 "descendants": {
+                  "hb:hb-tool-row-reasoning-title": {
+                   "content": "Размышление"
+                  },
+                  "hb:hb-tool-row-reasoning-summary": {
+                   "content": "Сначала найду, где композер ждёт ответ движка"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-conversation-content-read",
+                 "type": "ref",
+                 "ref": "hb:hb-tool-row-done",
+                 "width": "fill_container",
+                 "descendants": {
+                  "hb:hb-tool-row-done-title": {
+                   "content": "Прочитан файл"
+                  },
+                  "hb:hb-tool-row-done-summary": {
+                   "content": "StudioComposer.kt"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-conversation-content-grep",
+                 "type": "ref",
+                 "ref": "hb:hb-tool-row-done",
+                 "width": "fill_container",
+                 "descendants": {
+                  "hb:hb-tool-row-done-title": {
+                   "content": "Поиск"
+                  },
+                  "hb:hb-tool-row-done-summary": {
+                   "content": "debounce в StudioPaneView.kt"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-conversation-content-answer",
+                 "type": "text",
+                 "content": "Задержка возникает до отправки: композер ждёт 300 мс debounce, прежде чем передать черновик в стор. Для отправки debounce не нужен — интент можно отправлять сразу, а debounce оставить только для автосохранения черновика.",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontSize": "$hb:typography.body.size",
+                 "lineHeight": "$hb:typography.body.lineHeight",
+                 "fontWeight": "$hb:typography.body.weight",
+                 "width": "fill_container",
+                 "textGrowth": "fixed-width"
+                }
+               ]
+              },
+              {
+               "id": "studio-conversation-content-reply-footer",
+               "type": "frame",
+               "width": "fill_container",
+               "alignItems": "center",
+               "padding": [
+                0,
+                0,
+                0,
+                36
+               ],
+               "children": [
+                {
+                 "id": "studio-conversation-content-reply-copy",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-button",
+                 "descendants": {
+                  "hb:hb-icon-button-icon": {
+                   "icon": "copy"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-conversation-content-reply-footer-gap",
+                 "type": "frame",
+                 "width": "fill_container",
+                 "height": 1
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "id": "studio-conversation-content-footer",
+         "type": "frame",
+         "name": "Footer",
+         "width": "fill_container",
+         "layout": "vertical",
+         "alignItems": "center",
+         "gap": "$hb:spacing.s",
+         "padding": [
+          8,
+          16
+         ],
+         "children": [
+          {
+           "id": "studio-conversation-content-composer",
+           "type": "frame",
+           "name": "HbChatComposer · dimensions.composerMaxWidth",
+           "width": 760,
+           "layout": "vertical",
+           "gap": "$hb:spacing.s",
+           "children": [
+            {
+             "id": "studio-conversation-content-composer-context",
+             "type": "frame",
+             "name": "Context",
+             "width": "fill_container",
+             "padding": [
+              4,
+              8
+             ],
+             "gap": "$hb:spacing.s",
+             "alignItems": "center",
+             "children": [
+              {
+               "id": "studio-conversation-content-composer-project",
+               "type": "frame",
+               "gap": "$hb:spacing.xs",
+               "alignItems": "center",
+               "children": [
+                {
+                 "id": "studio-conversation-content-composer-project-icon",
+                 "type": "icon",
+                 "library": "lucide",
+                 "icon": "folder",
+                 "width": 14,
+                 "height": 14,
+                 "fill": "$hb:colors.textSecondary"
+                },
+                {
+                 "id": "studio-conversation-content-composer-project-label",
+                 "type": "text",
+                 "content": "Heartbeat",
+                 "fill": "$hb:colors.textSecondary",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight"
+                }
+               ]
+              },
+              {
+               "id": "studio-conversation-content-composer-usage",
+               "type": "frame",
+               "name": "HbComposerUsageButton · dimensions.composerPillHeight",
+               "height": 32,
+               "padding": [
+                0,
+                8
+               ],
+               "gap": "$hb:spacing.s",
+               "alignItems": "center",
+               "cornerRadius": "$hb:dimensions.controlCornerRadius",
+               "fill": "$hb:surfaces.composerPill",
+               "children": [
+                {
+                 "id": "studio-conversation-content-composer-usage-ring",
+                 "type": "ellipse",
+                 "width": 14,
+                 "height": 14,
+                 "stroke": "$hb:colors.brand",
+                 "strokeWidth": 2
+                },
+                {
+                 "id": "studio-conversation-content-composer-usage-label",
+                 "type": "text",
+                 "content": "34%",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight"
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "studio-conversation-content-composer-panel",
+             "type": "frame",
+             "name": "Panel",
+             "width": "fill_container",
+             "layout": "vertical",
+             "padding": "$hb:spacing.m",
+             "gap": "$hb:spacing.xs",
+             "cornerRadius": "$hb:dimensions.cornerRadius",
+             "fill": "$hb:surfaces.composer",
+             "stroke": "$hb:surfaces.outline",
+             "strokeWidth": 1,
+             "strokeAlignment": "inner",
+             "children": [
+              {
+               "id": "studio-conversation-content-composer-placeholder",
+               "type": "text",
+               "content": "Работайте с Heartbeat",
+               "fill": "$hb:colors.textSecondary",
+               "fontSize": "$hb:typography.body.size",
+               "lineHeight": "$hb:typography.body.lineHeight",
+               "fontWeight": "$hb:typography.body.weight",
+               "width": "fill_container"
+              },
+              {
+               "id": "studio-conversation-content-composer-toolbar",
+               "type": "frame",
+               "width": "fill_container",
+               "gap": "$hb:spacing.xs",
+               "alignItems": "center",
+               "children": [
+                {
+                 "id": "studio-conversation-content-composer-add",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-button",
+                 "descendants": {
+                  "hb:hb-icon-button-icon": {
+                   "icon": "plus"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-conversation-content-composer-image",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-button",
+                 "descendants": {
+                  "hb:hb-icon-button-icon": {
+                   "icon": "image"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-conversation-content-composer-toolbar-gap",
+                 "type": "frame",
+                 "width": "fill_container",
+                 "height": 1
+                },
+                {
+                 "id": "studio-conversation-content-composer-model",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-pill"
+                },
+                {
+                 "id": "studio-conversation-content-composer-effort",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-accentpill"
+                },
+                {
+                 "id": "studio-conversation-content-composer-send",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-send"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "studio-streaming",
+     "type": "frame",
+     "name": "Studio / Streaming",
+     "reusable": true,
+     "width": 1280,
+     "height": 800,
+     "layout": "horizontal",
+     "theme": {
+      "hb:mode": "light",
+      "hb:host": "desktop"
+     },
+     "fill": "$hb:surfaces.backdrop",
+     "clip": true,
+     "children": [
+      {
+       "id": "studio-streaming-sidebar",
+       "type": "ref",
+       "ref": "studio-sidebar",
+       "height": "fill_container",
+       "descendants": {
+        "sb-session-latency": {
+         "fill": "$hb:surfaces.selected"
+        }
+       }
+      },
+      {
+       "id": "studio-streaming-content",
+       "type": "frame",
+       "name": "Content",
+       "width": "fill_container",
+       "height": "fill_container",
+       "layout": "vertical",
+       "children": [
+        {
+         "id": "studio-streaming-content-header",
+         "type": "frame",
+         "name": "Header · dimensions.headerHeight",
+         "width": "fill_container",
+         "height": 44,
+         "padding": [
+          4,
+          8
+         ],
+         "gap": "$hb:spacing.m",
+         "alignItems": "center",
+         "fill": "$hb:surfaces.header",
+         "children": [
+          {
+           "id": "studio-streaming-content-header-title",
+           "type": "text",
+           "content": "Задержка ответа после отправки",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.title.size",
+           "lineHeight": "$hb:typography.title.lineHeight",
+           "fontWeight": "$hb:typography.title.weight",
+           "width": "fill_container"
+          },
+          {
+           "id": "studio-streaming-content-header-more",
+           "type": "ref",
+           "ref": "hb:hb-icon-button",
+           "descendants": {
+            "hb:hb-icon-button-icon": {
+             "icon": "ellipsis-vertical"
+            }
+           }
+          },
+          {
+           "id": "studio-streaming-content-header-summary",
+           "type": "ref",
+           "ref": "hb:hb-icon-button",
+           "descendants": {
+            "hb:hb-icon-button-icon": {
+             "icon": "panel-right"
+            }
+           }
+          },
+          {
+           "id": "studio-streaming-content-header-split",
+           "type": "ref",
+           "ref": "hb:hb-icon-button",
+           "descendants": {
+            "hb:hb-icon-button-icon": {
+             "icon": "layout-grid"
+            }
+           }
+          }
+         ]
+        },
+        {
+         "id": "studio-streaming-content-transcript",
+         "type": "frame",
+         "width": "fill_container",
+         "height": "fill_container",
+         "layout": "vertical",
+         "alignItems": "center",
+         "padding": [
+          16,
+          16
+         ],
+         "children": [
+          {
+           "id": "studio-streaming-content-column",
+           "type": "frame",
+           "name": "Transcript · dimensions.messageMaxWidth",
+           "width": 760,
+           "layout": "vertical",
+           "gap": "$hb:spacing.xl",
+           "children": [
+            {
+             "id": "studio-streaming-content-date",
+             "type": "frame",
+             "width": "fill_container",
+             "justifyContent": "center",
+             "children": [
+              {
+               "id": "studio-streaming-content-date-label",
+               "type": "text",
+               "content": "Сегодня",
+               "fill": "$hb:colors.textSecondary",
+               "fontSize": "$hb:typography.caption.size",
+               "lineHeight": "$hb:typography.caption.lineHeight",
+               "fontWeight": "$hb:typography.caption.weight"
+              }
+             ]
+            },
+            {
+             "id": "studio-streaming-content-user",
+             "type": "frame",
+             "name": "Message / User",
+             "width": "fill_container",
+             "layout": "vertical",
+             "alignItems": "end",
+             "gap": "$hb:spacing.xs",
+             "children": [
+              {
+               "id": "studio-streaming-content-user-time",
+               "type": "text",
+               "content": "14:02",
+               "fill": "$hb:colors.textSecondary",
+               "fontSize": "$hb:typography.metadata.size",
+               "lineHeight": "$hb:typography.metadata.lineHeight",
+               "fontWeight": "$hb:typography.metadata.weight"
+              },
+              {
+               "id": "studio-streaming-content-user-bubble",
+               "type": "frame",
+               "name": "Bubble",
+               "padding": "$hb:spacing.l",
+               "cornerRadius": "$hb:shapes.medium",
+               "fill": "$hb:surfaces.outgoing",
+               "children": [
+                {
+                 "id": "studio-streaming-content-user-text",
+                 "type": "text",
+                 "content": "Почему ответ приходит с задержкой после отправки?",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontSize": "$hb:typography.body.size",
+                 "lineHeight": "$hb:typography.body.lineHeight",
+                 "fontWeight": "$hb:typography.body.weight"
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "studio-streaming-content-reply",
+             "type": "frame",
+             "name": "Message / Assistant",
+             "width": "fill_container",
+             "layout": "vertical",
+             "gap": "$hb:spacing.l",
+             "padding": "$hb:dimensions.messagePadding",
+             "cornerRadius": "$hb:dimensions.messageCornerRadius",
+             "fill": "$hb:surfaces.assistant",
+             "children": [
+              {
+               "id": "studio-streaming-content-reply-head",
+               "type": "frame",
+               "gap": "$hb:spacing.l",
+               "alignItems": "center",
+               "children": [
+                {
+                 "id": "studio-streaming-content-reply-mark",
+                 "type": "ref",
+                 "ref": "hb:hb-studio-mark"
+                },
+                {
+                 "id": "studio-streaming-content-reply-author",
+                 "type": "text",
+                 "content": "Heartbeat",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontSize": "$hb:typography.label.size",
+                 "lineHeight": "$hb:typography.label.lineHeight",
+                 "fontWeight": "600"
+                },
+                {
+                 "id": "studio-streaming-content-reply-time",
+                 "type": "text",
+                 "content": "14:02",
+                 "fill": "$hb:colors.textSecondary",
+                 "fontSize": "$hb:typography.metadata.size",
+                 "lineHeight": "$hb:typography.metadata.lineHeight",
+                 "fontWeight": "$hb:typography.metadata.weight"
+                }
+               ]
+              },
+              {
+               "id": "studio-streaming-content-reply-body",
+               "type": "frame",
+               "width": "fill_container",
+               "layout": "vertical",
+               "gap": "$hb:spacing.m",
+               "padding": [
+                0,
+                0,
+                0,
+                40
+               ],
+               "children": [
+                {
+                 "id": "studio-streaming-content-reasoning",
+                 "type": "ref",
+                 "ref": "hb:hb-tool-row-reasoning",
+                 "width": "fill_container",
+                 "descendants": {
+                  "hb:hb-tool-row-reasoning-title": {
+                   "content": "Размышление"
+                  },
+                  "hb:hb-tool-row-reasoning-summary": {
+                   "content": "Сначала найду, где композер ждёт ответ движка"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-streaming-content-read",
+                 "type": "ref",
+                 "ref": "hb:hb-tool-row-done",
+                 "width": "fill_container",
+                 "descendants": {
+                  "hb:hb-tool-row-done-title": {
+                   "content": "Прочитан файл"
+                  },
+                  "hb:hb-tool-row-done-summary": {
+                   "content": "StudioComposer.kt"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-streaming-content-grep",
+                 "type": "ref",
+                 "ref": "hb:hb-tool-row-done",
+                 "width": "fill_container",
+                 "descendants": {
+                  "hb:hb-tool-row-done-title": {
+                   "content": "Поиск"
+                  },
+                  "hb:hb-tool-row-done-summary": {
+                   "content": "debounce в StudioPaneView.kt"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-streaming-content-answer",
+                 "type": "text",
+                 "content": "Задержка возникает до отправки: композер ждёт 300 мс debounce, прежде чем передать черновик в стор. Для отправки debounce не нужен — интент можно отправлять сразу, а debounce оставить только для автосохранения черновика.",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontSize": "$hb:typography.body.size",
+                 "lineHeight": "$hb:typography.body.lineHeight",
+                 "fontWeight": "$hb:typography.body.weight",
+                 "width": "fill_container",
+                 "textGrowth": "fixed-width"
+                },
+                {
+                 "id": "studio-streaming-content-edit",
+                 "type": "ref",
+                 "ref": "hb:hb-tool-row-running",
+                 "width": "fill_container",
+                 "descendants": {
+                  "hb:hb-tool-row-running-title": {
+                   "content": "Правка файла"
+                  },
+                  "hb:hb-tool-row-running-summary": {
+                   "content": "StudioComposer.kt"
+                  }
+                 }
+                }
+               ]
+              },
+              {
+               "id": "studio-streaming-content-reply-footer",
+               "type": "frame",
+               "width": "fill_container",
+               "alignItems": "center",
+               "padding": [
+                0,
+                0,
+                0,
+                36
+               ],
+               "children": [
+                {
+                 "id": "studio-streaming-content-reply-copy",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-button",
+                 "descendants": {
+                  "hb:hb-icon-button-icon": {
+                   "icon": "copy"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-streaming-content-reply-footer-gap",
+                 "type": "frame",
+                 "width": "fill_container",
+                 "height": 1
+                },
+                {
+                 "id": "studio-streaming-content-reply-writing",
+                 "type": "text",
+                 "content": "Пишет…",
+                 "fill": "$hb:colors.textSecondary",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "id": "studio-streaming-content-footer",
+         "type": "frame",
+         "name": "Footer",
+         "width": "fill_container",
+         "layout": "vertical",
+         "alignItems": "center",
+         "gap": "$hb:spacing.s",
+         "padding": [
+          8,
+          16
+         ],
+         "children": [
+          {
+           "id": "studio-streaming-content-run",
+           "type": "frame",
+           "name": "Run status",
+           "gap": "$hb:spacing.s",
+           "alignItems": "center",
+           "children": [
+            {
+             "id": "studio-streaming-content-run-icon",
+             "type": "icon",
+             "library": "lucide",
+             "icon": "loader-circle",
+             "width": 14,
+             "height": 14,
+             "fill": "$hb:colors.textPrimary"
+            },
+            {
+             "id": "studio-streaming-content-run-label",
+             "type": "text",
+             "content": "Работает уже 0:42",
+             "fill": "$hb:colors.textPrimary",
+             "fontSize": "$hb:typography.caption.size",
+             "lineHeight": "$hb:typography.caption.lineHeight",
+             "fontWeight": "$hb:typography.caption.weight"
+            }
+           ]
+          },
+          {
+           "id": "studio-streaming-content-composer",
+           "type": "frame",
+           "name": "HbChatComposer · dimensions.composerMaxWidth",
+           "width": 760,
+           "layout": "vertical",
+           "gap": "$hb:spacing.s",
+           "children": [
+            {
+             "id": "studio-streaming-content-composer-context",
+             "type": "frame",
+             "name": "Context",
+             "width": "fill_container",
+             "padding": [
+              4,
+              8
+             ],
+             "gap": "$hb:spacing.s",
+             "alignItems": "center",
+             "children": [
+              {
+               "id": "studio-streaming-content-composer-project",
+               "type": "frame",
+               "gap": "$hb:spacing.xs",
+               "alignItems": "center",
+               "children": [
+                {
+                 "id": "studio-streaming-content-composer-project-icon",
+                 "type": "icon",
+                 "library": "lucide",
+                 "icon": "folder",
+                 "width": 14,
+                 "height": 14,
+                 "fill": "$hb:colors.textSecondary"
+                },
+                {
+                 "id": "studio-streaming-content-composer-project-label",
+                 "type": "text",
+                 "content": "Heartbeat",
+                 "fill": "$hb:colors.textSecondary",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight"
+                }
+               ]
+              },
+              {
+               "id": "studio-streaming-content-composer-usage",
+               "type": "frame",
+               "name": "HbComposerUsageButton · dimensions.composerPillHeight",
+               "height": 32,
+               "padding": [
+                0,
+                8
+               ],
+               "gap": "$hb:spacing.s",
+               "alignItems": "center",
+               "cornerRadius": "$hb:dimensions.controlCornerRadius",
+               "fill": "$hb:surfaces.composerPill",
+               "children": [
+                {
+                 "id": "studio-streaming-content-composer-usage-ring",
+                 "type": "ellipse",
+                 "width": 14,
+                 "height": 14,
+                 "stroke": "$hb:colors.brand",
+                 "strokeWidth": 2
+                },
+                {
+                 "id": "studio-streaming-content-composer-usage-label",
+                 "type": "text",
+                 "content": "34%",
+                 "fill": "$hb:colors.textPrimary",
+                 "fontSize": "$hb:typography.caption.size",
+                 "lineHeight": "$hb:typography.caption.lineHeight",
+                 "fontWeight": "$hb:typography.caption.weight"
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "studio-streaming-content-composer-panel",
+             "type": "frame",
+             "name": "Panel",
+             "width": "fill_container",
+             "layout": "vertical",
+             "padding": "$hb:spacing.m",
+             "gap": "$hb:spacing.xs",
+             "cornerRadius": "$hb:dimensions.cornerRadius",
+             "fill": "$hb:surfaces.composer",
+             "stroke": "$hb:surfaces.outline",
+             "strokeWidth": 1,
+             "strokeAlignment": "inner",
+             "children": [
+              {
+               "id": "studio-streaming-content-composer-placeholder",
+               "type": "text",
+               "content": "Работайте с Heartbeat",
+               "fill": "$hb:colors.textSecondary",
+               "fontSize": "$hb:typography.body.size",
+               "lineHeight": "$hb:typography.body.lineHeight",
+               "fontWeight": "$hb:typography.body.weight",
+               "width": "fill_container"
+              },
+              {
+               "id": "studio-streaming-content-composer-toolbar",
+               "type": "frame",
+               "width": "fill_container",
+               "gap": "$hb:spacing.xs",
+               "alignItems": "center",
+               "children": [
+                {
+                 "id": "studio-streaming-content-composer-add",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-button",
+                 "descendants": {
+                  "hb:hb-icon-button-icon": {
+                   "icon": "plus"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-streaming-content-composer-image",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-button",
+                 "descendants": {
+                  "hb:hb-icon-button-icon": {
+                   "icon": "image"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-streaming-content-composer-toolbar-gap",
+                 "type": "frame",
+                 "width": "fill_container",
+                 "height": 1
+                },
+                {
+                 "id": "studio-streaming-content-composer-model",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-pill"
+                },
+                {
+                 "id": "studio-streaming-content-composer-effort",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-accentpill"
+                },
+                {
+                 "id": "studio-streaming-content-composer-send",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-stop"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "studio-conversation-dark",
+     "type": "ref",
+     "ref": "studio-conversation",
+     "name": "Studio / Conversation (dark)",
+     "theme": {
+      "hb:mode": "dark",
+      "hb:host": "desktop"
+     }
+    },
+    {
+     "id": "studio-empty-compact",
+     "type": "frame",
+     "name": "Studio / Empty / Compact 420",
+     "reusable": true,
+     "width": 420,
+     "height": 800,
+     "layout": "horizontal",
+     "theme": {
+      "hb:mode": "light",
+      "hb:host": "desktop"
+     },
+     "fill": "$hb:surfaces.backdrop",
+     "clip": true,
+     "children": [
+      {
+       "id": "studio-compact-content",
+       "type": "frame",
+       "name": "Content",
+       "width": "fill_container",
+       "height": "fill_container",
+       "layout": "vertical",
+       "children": [
+        {
+         "id": "studio-compact-content-header",
+         "type": "frame",
+         "name": "Header · dimensions.headerHeight",
+         "width": "fill_container",
+         "height": 44,
+         "padding": [
+          4,
+          8
+         ],
+         "gap": "$hb:spacing.m",
+         "alignItems": "center",
+         "fill": "$hb:surfaces.header",
+         "children": [
+          {
+           "id": "studio-compact-content-header-menu",
+           "type": "ref",
+           "ref": "hb:hb-icon-button",
+           "descendants": {
+            "hb:hb-icon-button-icon": {
+             "icon": "menu"
+            }
+           }
+          },
+          {
+           "id": "studio-compact-content-header-title",
+           "type": "text",
+           "content": "Новый чат",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.title.size",
+           "lineHeight": "$hb:typography.title.lineHeight",
+           "fontWeight": "$hb:typography.title.weight",
+           "width": "fill_container"
+          }
+         ]
+        },
+        {
+         "id": "studio-compact-content-body",
+         "type": "frame",
+         "width": "fill_container",
+         "height": "fill_container",
+         "layout": "vertical",
+         "justifyContent": "center",
+         "alignItems": "center",
+         "gap": "$hb:spacing.l",
+         "padding": [
+          0,
+          8
+         ],
+         "children": [
+          {
+           "id": "studio-compact-content-title",
+           "type": "text",
+           "content": "Что создадим?",
+           "fill": "$hb:colors.textPrimary",
+           "fontSize": "$hb:typography.display.size",
+           "lineHeight": "$hb:typography.display.lineHeight",
+           "fontWeight": "$hb:typography.display.weight"
+          },
+          {
+           "id": "studio-compact-content-subtitle",
+           "type": "text",
+           "content": "От идеи до результата — начните с задачи.",
+           "fill": "$hb:colors.textSecondary",
+           "fontSize": "$hb:typography.body.size",
+           "lineHeight": "$hb:typography.body.lineHeight",
+           "fontWeight": "$hb:typography.body.weight"
+          },
+          {
+           "id": "studio-compact-content-gap",
+           "type": "frame",
+           "height": 20,
+           "name": "studio-compact-content-gap · spacing.xxl"
+          },
+          {
+           "id": "studio-compact-content-composer",
+           "type": "frame",
+           "name": "HbChatComposer · dimensions.composerMaxWidth",
+           "width": "fill_container",
+           "layout": "vertical",
+           "gap": "$hb:spacing.s",
+           "children": [
+            {
+             "id": "studio-compact-content-composer-context",
+             "type": "frame",
+             "name": "Context",
+             "width": "fill_container",
+             "padding": [
+              4,
+              8
+             ],
+             "gap": "$hb:spacing.s",
+             "alignItems": "center",
+             "children": [
+              {
+               "id": "studio-compact-content-composer-project",
+               "type": "ref",
+               "ref": "hb:hb-composer-pill",
+               "descendants": {
+                "hb:hb-composer-pill-icon": {
+                 "icon": "folder"
+                },
+                "hb:hb-composer-pill-label": {
+                 "content": "Без проекта"
+                }
+               }
+              },
+              {
+               "id": "studio-compact-content-composer-context-window",
+               "type": "ref",
+               "ref": "hb:hb-button-ghost-small",
+               "descendants": {
+                "hb:hb-button-ghost-small-label": {
+                 "content": "Контекстное окно"
+                }
+               }
+              }
+             ]
+            },
+            {
+             "id": "studio-compact-content-composer-panel",
+             "type": "frame",
+             "name": "Panel",
+             "width": "fill_container",
+             "layout": "vertical",
+             "padding": "$hb:spacing.m",
+             "gap": "$hb:spacing.xs",
+             "cornerRadius": "$hb:dimensions.cornerRadius",
+             "fill": "$hb:surfaces.composer",
+             "stroke": "$hb:surfaces.outline",
+             "strokeWidth": 1,
+             "strokeAlignment": "inner",
+             "children": [
+              {
+               "id": "studio-compact-content-composer-placeholder",
+               "type": "text",
+               "content": "Работайте с Heartbeat",
+               "fill": "$hb:colors.textSecondary",
+               "fontSize": "$hb:typography.body.size",
+               "lineHeight": "$hb:typography.body.lineHeight",
+               "fontWeight": "$hb:typography.body.weight",
+               "width": "fill_container"
+              },
+              {
+               "id": "studio-compact-content-composer-toolbar",
+               "type": "frame",
+               "width": "fill_container",
+               "gap": "$hb:spacing.xs",
+               "alignItems": "center",
+               "children": [
+                {
+                 "id": "studio-compact-content-composer-add",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-button",
+                 "descendants": {
+                  "hb:hb-icon-button-icon": {
+                   "icon": "plus"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-compact-content-composer-image",
+                 "type": "ref",
+                 "ref": "hb:hb-icon-button",
+                 "descendants": {
+                  "hb:hb-icon-button-icon": {
+                   "icon": "image"
+                  }
+                 }
+                },
+                {
+                 "id": "studio-compact-content-composer-toolbar-gap",
+                 "type": "frame",
+                 "width": "fill_container",
+                 "height": 1
+                },
+                {
+                 "id": "studio-compact-content-composer-model",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-pill"
+                },
+                {
+                 "id": "studio-compact-content-composer-effort",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-accentpill"
+                },
+                {
+                 "id": "studio-compact-content-composer-send",
+                 "type": "ref",
+                 "ref": "hb:hb-composer-send"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "id": "studio-compact-content-starters",
+           "type": "frame",
+           "name": "Starters",
+           "gap": "$hb:spacing.xl",
+           "alignItems": "center",
+           "children": [
+            {
+             "id": "studio-compact-content-starters-0",
+             "type": "frame",
+             "gap": "$hb:spacing.xs",
+             "alignItems": "center",
+             "children": [
+              {
+               "id": "studio-compact-content-starters-0-icon",
+               "type": "icon",
+               "library": "lucide",
+               "icon": "file-text",
+               "width": 14,
+               "height": 14,
+               "fill": "$hb:colors.textSecondary"
+              },
+              {
+               "id": "studio-compact-content-starters-0-label",
+               "type": "text",
+               "content": "Спланировать фичу",
+               "fill": "$hb:colors.textPrimary",
+               "fontSize": "$hb:typography.caption.size",
+               "lineHeight": "$hb:typography.caption.lineHeight",
+               "fontWeight": "$hb:typography.caption.weight"
+              }
+             ]
+            },
+            {
+             "id": "studio-compact-content-starters-1",
+             "type": "frame",
+             "gap": "$hb:spacing.xs",
+             "alignItems": "center",
+             "children": [
+              {
+               "id": "studio-compact-content-starters-1-icon",
+               "type": "icon",
+               "library": "lucide",
+               "icon": "search",
+               "width": 14,
+               "height": 14,
+               "fill": "$hb:colors.textSecondary"
+              },
+              {
+               "id": "studio-compact-content-starters-1-label",
+               "type": "text",
+               "content": "Провести ревью",
+               "fill": "$hb:colors.textPrimary",
+               "fontSize": "$hb:typography.caption.size",
+               "lineHeight": "$hb:typography.caption.lineHeight",
+               "fontWeight": "$hb:typography.caption.weight"
+              }
+             ]
+            },
+            {
+             "id": "studio-compact-content-starters-2",
+             "type": "frame",
+             "gap": "$hb:spacing.xs",
+             "alignItems": "center",
+             "children": [
+              {
+               "id": "studio-compact-content-starters-2-icon",
+               "type": "icon",
+               "library": "lucide",
+               "icon": "check",
+               "width": 14,
+               "height": 14,
+               "fill": "$hb:colors.textSecondary"
+              },
+              {
+               "id": "studio-compact-content-starters-2-label",
+               "type": "text",
+               "content": "Написать тесты",
+               "fill": "$hb:colors.textPrimary",
+               "fontSize": "$hb:typography.caption.size",
+               "lineHeight": "$hb:typography.caption.lineHeight",
+               "fontWeight": "$hb:typography.caption.weight"
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "section-transitions",
+   "type": "frame",
+   "name": "Transitions",
+   "x": 0,
+   "y": 1000,
+   "layout": "horizontal",
+   "gap": 80,
+   "padding": 40,
+   "children": [
+    {
+     "id": "note-first-message",
+     "type": "note",
+     "content": "Studio / Empty → Studio / Conversation\ntrigger: отправка первого сообщения\ntransition: смена режима области контента, не навигация (NavTransition не используется)",
+     "fontSize": 14,
+     "width": 420
+    },
+    {
+     "id": "note-run-status",
+     "type": "note",
+     "content": "Run status (микро-анимация)\ntrigger: начало хода агента\nduration: HbMotion.fastMillis\neasing: стандартный (FastOutSlowIn)\nreduced: мгновенно (HbMotion.isReducedMotion)",
+     "fontSize": 14,
+     "width": 420
+    }
+   ]
+  }
+ ]
+}
