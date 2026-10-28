@@ -12,7 +12,8 @@ name: Release
 # created as a draft, gets every installer and SHA256SUMS, and only then becomes public and latest. The asset
 # names are what the app looks for (ReleasePlatform in features/app-update/impl): keep them in sync.
 # The release is also a channel of bundles: it carries the train of its commit (train-manifest.json and the jars
-# that changed), promoted from the pre-release that prerelease.yml tested, or built here when there is none. Every
+# that changed), promoted from the optimized (ProGuard) pre-release train-o<sha12> that prerelease.yml tested at night,
+# or built here, optimized as well, when there is none: the fast train-t<sha12> of a push is never released. Every
 # installer is the platform plus the whole train as its seed (scripts/train_seed.py) and must fit the size budget
 # (scripts/check_installer_size.py) before anything is published.
 # dry_run builds and checks everything without creating a tag or publishing:
@@ -139,8 +140,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # prerelease.yml tested and published the train of every master commit that changed a bundle.
-          train="t${GITHUB_SHA:0:12}"
+          # prerelease.yml publishes the optimized train of master once a night; the fast train of a push (t<sha12>,
+          # no ProGuard) is never promoted: installers carry processed jars only.
+          train="o${GITHUB_SHA:0:12}"
           echo "train=$train" >> "$GITHUB_OUTPUT"
           # Only "no such release" or a draft left by a failed run means there is nothing to promote; any other
           # gh failure stops the job instead of rebuilding a train that differs from the tested one.
@@ -150,7 +152,7 @@ jobs:
             echo "Promoting train $train" >> "$GITHUB_STEP_SUMMARY"
           elif [ "$draft" = true ] || grep -qi 'release not found' view.err; then
             echo "promoted=false" >> "$GITHUB_OUTPUT"
-            echo "No published pre-release train for this commit: building it" >> "$GITHUB_STEP_SUMMARY"
+            echo "No published optimized train for this commit: building it" >> "$GITHUB_STEP_SUMMARY"
           else
             cat view.err >&2
             exit 1

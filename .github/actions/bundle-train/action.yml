@@ -4,7 +4,10 @@ description: >-
   train; every bundle carries the absolute url of the release that holds its jar.
 inputs:
   train:
-    description: Train id (a plain name; the tag is train-<id>).
+    description: >-
+      Train id (the tag is train-<id>): t<sha12> for a train without ProGuard (shrink off, published after every merge),
+      o<sha12> for a processed one (nightly and releases). Each family is diffed against its own previous train: a
+      processed jar never equals an unprocessed one, so a diff across families would republish every bundle.
     required: true
   out:
     description: Directory for train-manifest.json and the changed jars.
@@ -44,13 +47,22 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         GH_REPO: ${{ github.repository }}
         TRAIN: ${{ inputs.train }}
+        SHRINK: ${{ inputs.shrink }}
       # No previous train is the only reason to go on without one: a failing gh call or a published train
       # without its manifest stops the build instead of silently republishing every jar.
       run: |
+        case "$SHRINK:$TRAIN" in
+          off:t*) family=t ;;
+          shrink:o* | obfuscate:o*) family=o ;;
+          *)
+            echo "Train $TRAIN does not match shrink=$SHRINK: t<sha12> is built with off, o<sha12> with shrink or obfuscate" >&2
+            exit 1
+            ;;
+        esac
         rm -rf train-previous
         mkdir -p train-previous
-        # The same tag filter as prerelease.yml: only train-t<sha12> pre-releases are trains.
-        is_train='test("^train-t[0-9a-f]{12}$")'
+        # The same tag filter as prerelease.yml: only train-<family><sha12> pre-releases are trains of this family.
+        is_train="test(\"^train-${family}[0-9a-f]{12}\$\")"
         tag=$(gh release list --limit 100 --json tagName,isDraft \
           --jq "[.[] | select(.isDraft | not) | select(.tagName | $is_train) | select(.tagName != \"train-$TRAIN\")][0].tagName // \"\"")
         if [ -n "$tag" ]; then
