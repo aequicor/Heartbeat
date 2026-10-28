@@ -116,6 +116,8 @@ sealed interface MessageUi {
         val text: String,
         override val isTimestampKnown: Boolean = true,
         val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
+        /** Sent by the autopilot of auto-continue, not typed by the human. */
+        val isAutopilot: Boolean = false,
     ) : MessageUi
 
     /** An agent answer, streamed while [isStreaming]. */

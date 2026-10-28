@@ -411,8 +411,8 @@ class AiStudioModel(
             emitAll(
                 combine(
                     ids.map { id ->
-                        repository.observeMessages(id)
-                            .flatMapLatest { messages -> messages.toTranscriptUi().withAttachmentMetadata() }
+                        autoContinue.transcript(id, repository.observeMessages(id))
+                            .flatMapLatest { it.withAttachmentMetadata() }
                             .map { entries -> id to entries }
                     },
                 ) { it.toMap() },

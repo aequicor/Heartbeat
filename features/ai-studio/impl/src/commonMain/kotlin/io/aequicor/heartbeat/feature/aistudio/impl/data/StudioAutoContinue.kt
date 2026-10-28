@@ -35,7 +35,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -52,6 +55,12 @@ internal interface StudioTurnLifecycle {
 
     /** The turn of [request] ended with [outcome]. */
     suspend fun finished(request: StudioTurnRequest, outcome: RunOutcome)
+}
+
+/** Native turns of studio chats whose prompts the autopilot sent. */
+internal fun interface StudioAutopilotMarks {
+    /** Turn ids of the autopilot replies of [chat] over time. */
+    fun observeAutopilotTurns(chat: String): Flow<Set<String>>
 }
 
 /** No lifecycle listener. */
@@ -86,6 +95,7 @@ internal suspend fun StudioTurnLifecycle.observe(
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<StudioTurnLifecycle>())
 @ContributesIntoSet(ProfileScope::class, binding = binding<AutoContinueHost>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioAutopilotMarks>())
 @Inject
 internal class StudioAutoContinue(
     @ForScope(ProfileScope::class) stores: DataStores,
@@ -102,6 +112,7 @@ internal class StudioAutoContinue(
     private val compactions: StudioCompactionPort,
     private val checklists: StudioChecklists,
 ) : StudioTurnLifecycle,
+    StudioAutopilotMarks,
     AutoContinueHost {
     private val log = Log.tag("StudioAutoContinue")
     private val chats by lazy { stores.keyValue(ChatSpec) }
@@ -166,6 +177,10 @@ internal class StudioAutoContinue(
         }
         return (outcome == null || accepted.isCompleted).also { log.i { "autopilot reply to $chat accepted: $it" } }
     }
+
+    /** Native turn ids of the autopilot replies of [chat] over time. */
+    override fun observeAutopilotTurns(chat: String): Flow<Set<String>> =
+        marks.observe(MarksKey).map { it?.get(chat).orEmpty().toSet() }.distinctUntilChanged()
 
     /** Native turn ids of the autopilot replies of [chat]. */
     suspend fun autopilotTurns(chat: String): Set<String> = marks.get(MarksKey)?.get(chat).orEmpty().toSet()

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="auto_continue_author">Автопилот</string>
     <string name="auto_continue_menu">Автопродолжение</string>
     <string name="auto_continue_chip_off">Автопродолжение</string>
     <string name="auto_continue_chip_suggest">Подсказки</string>

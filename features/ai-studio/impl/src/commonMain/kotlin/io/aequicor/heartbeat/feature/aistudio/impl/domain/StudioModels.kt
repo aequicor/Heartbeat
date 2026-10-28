@@ -128,6 +128,8 @@ sealed interface StudioMessage {
         val text: String,
         override val isTimestampKnown: Boolean = true,
         val attachments: List<ResourceRef> = emptyList(),
+        /** Native turn that carried the prompt, when the engine reports it; marks autopilot replies. */
+        val turn: String? = null,
     ) : StudioMessage
 
     /** An agent answer; streamed while [isStreaming]. [tools] keep their order of appearance. */

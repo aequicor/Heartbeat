@@ -18,6 +18,9 @@ interface StudioAutoContinuePort {
     /** Replies the human chose to edit; the screen puts them into the chat's composer. */
     val drafts: Flow<AutoContinueOutput.Draft>
 
+    /** Native turns of [chat] whose prompts the autopilot sent. */
+    fun autopilotTurns(chat: String): Flow<Set<String>> = flowOf(emptySet())
+
     /** Sends a command to the auto-continue machine. */
     suspend fun send(intent: AutoContinueIntent.Public)
 

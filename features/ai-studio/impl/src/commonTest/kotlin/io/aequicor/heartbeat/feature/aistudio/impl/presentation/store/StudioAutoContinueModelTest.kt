@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAutoContinuePort
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.isAllowedRemotely
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueCountdownUi
@@ -12,6 +13,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueModeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueMode
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueOutput
@@ -152,11 +154,25 @@ class StudioAutoContinueModelTest {
         assertTrue(port.sent.isEmpty())
     }
 
+    @Test
+    fun `prompts of autopilot turns are marked in the transcript`() {
+        val at = kotlin.time.Instant.fromEpochSeconds(0)
+        val messages = listOf(
+            StudioMessage.Prompt("p1", at, "Сделай фичу", turn = "t1"),
+            StudioMessage.Prompt("p2", at, "Продолжай", turn = "t2"),
+            StudioMessage.Prompt("p3", at, "Без хода"),
+        )
+        val marked = messages.toTranscriptUi(setOf("t2")).filterIsInstance<MessageUi.Prompt>()
+        assertEquals(listOf(false, true, false), marked.map { it.isAutopilot })
+    }
+
     private class RecordingPort : StudioAutoContinuePort {
         override val availability = MutableStateFlow(true)
         override val state = MutableStateFlow<AutoContinueState>(AutoContinueState.Idle)
         override val drafts = MutableSharedFlow<AutoContinueOutput.Draft>(extraBufferCapacity = 4)
         val sent = mutableListOf<AutoContinueIntent.Public>()
+
+        override fun autopilotTurns(chat: String) = MutableStateFlow(setOf("t2"))
 
         override suspend fun send(intent: AutoContinueIntent.Public) {
             sent += intent

@@ -31,6 +31,7 @@ internal class MachineStudioAutoContinue(
     view: Lazy<AutoContinueView>,
     private val machines: MachineRegistry,
     toggles: FeatureToggles,
+    private val marks: StudioAutopilotMarks,
 ) : StudioAutoContinuePort {
     private val log = Log.tag("MachineStudioAutoContinue")
 
@@ -41,6 +42,8 @@ internal class MachineStudioAutoContinue(
     override val drafts: Flow<AutoContinueOutput.Draft> = machines.observe(AutoContinueMachineKey)
         .flatMapLatest { it?.outputs ?: emptyFlow() }
         .filterIsInstance<AutoContinueOutput.Draft>()
+
+    override fun autopilotTurns(chat: String): Flow<Set<String>> = marks.observeAutopilotTurns(chat)
 
     override suspend fun send(intent: AutoContinueIntent.Public) {
         val result = machines.send(AutoContinueMachineKey, intent)

@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.author_agent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.author_studio
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.author_you
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.auto_continue_author
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.collapsed_tool_calls
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.context_compacted
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.context_rolled_over
@@ -55,6 +56,7 @@ internal fun timelineLabels(section: String, calendar: StudioCalendar = StudioCa
     TimelineLabels(
         section = section,
         you = stringResource(Res.string.author_you),
+        autopilot = stringResource(Res.string.auto_continue_author),
         agent = stringResource(Res.string.author_agent),
         studio = stringResource(Res.string.author_studio),
         stoppedTemplate = stringResource(Res.string.stopped_after),

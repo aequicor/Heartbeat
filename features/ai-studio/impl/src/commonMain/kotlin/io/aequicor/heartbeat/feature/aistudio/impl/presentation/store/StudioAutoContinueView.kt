@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAutoContinuePort
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueCountdownUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueModeUi
@@ -8,6 +9,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueScreenUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AutoContinueUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraftCaret
 import io.aequicor.heartbeat.feature.autocontinue.api.AutoContinueIntent.Public
@@ -22,6 +24,7 @@ import io.aequicor.heartbeat.feature.autocontinue.api.Phase
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
@@ -77,6 +80,10 @@ internal class StudioAutoContinueView(private val port: StudioAutoContinuePort) 
             }
         }
     }
+
+    /** Screen entries of [messages] of [chat], with the prompts the autopilot sent marked. */
+    fun transcript(chat: String, messages: Flow<List<StudioMessage>>): Flow<List<MessageUi>> =
+        messages.combine(port.autopilotTurns(chat)) { list, turns -> list.toTranscriptUi(turns) }
 
     /** The human typed in a pane: replies on offer or a countdown give way to the human. */
     suspend fun typed(pipeline: StudioPipeline, intent: AiStudioScreenIntent) {

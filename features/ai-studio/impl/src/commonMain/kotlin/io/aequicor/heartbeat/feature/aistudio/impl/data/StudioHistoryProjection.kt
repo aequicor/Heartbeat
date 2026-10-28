@@ -129,6 +129,7 @@ private class NativeHistoryProjection(private val time: Instant) {
                         text,
                         isTimestampKnown = false,
                         attachments = attachments,
+                        turn = item.info.turn?.value,
                     )
                 }
             }

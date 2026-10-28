@@ -8,8 +8,8 @@ import kotlinx.collections.immutable.toImmutableList
 
 /** One live app at the first successful anchor, with the newest receipt id; inline snapshots keep their places. */
 @HighFrequency
-internal fun List<StudioMessage>.toTranscriptUi(): List<MessageUi> {
-    val messages = map { it.toUi() }
+internal fun List<StudioMessage>.toTranscriptUi(autopilotTurns: Set<String> = emptySet()): List<MessageUi> {
+    val messages = map { it.toUi(autopilotTurns) }
     val receipts = messages.filterIsInstance<MessageUi.Reply>().flatMap { it.liveCardAliases }
     val current = receipts.lastOrNull() ?: return messages
     val aliases = receipts.distinct().toImmutableList()
