@@ -139,6 +139,68 @@ class TrainManifestTests(unittest.TestCase):
             urls = {b["id"]: b["url"] for b in json.loads((out / "train-manifest.json").read_text())["bundles"]}
             self.assertEqual(urls, {"shell": BASE2 + "bundle-shell-t2.jar", "web": BASE1 + "bundle-web-t1.jar"})
 
+    def _mapped_train(self, root, with_web_mapping=True):
+        jars, maps, out = root / "jars", root / "maps", root / "out"
+        jars.mkdir()
+        maps.mkdir()
+        for name in ("bundle-shell-t2.jar", "bundle-web-t2.jar", "bundle-contracts-t2.jar"):
+            (jars / name).write_bytes(b"j")
+        (maps / "mapping-bundle-shell-t2.txt").write_text("shell mapping")
+        (maps / "mapping-bundle-web-t1.txt").write_text("old web mapping")
+        if with_web_mapping:
+            (maps / "mapping-bundle-web-t2.txt").write_text("web mapping")
+        (root / "built.json").write_text(
+            json.dumps({"platformApi": 1, "bundles": [
+                bundle("web", "t2", A), bundle("shell", "t2", C), bundle("contracts", "t2", B)]})
+        )
+        (root / "prev.json").write_text(
+            json.dumps({"train": "t1", "platformApi": 1, "bundles": [with_url(bundle("web", "t1", A), BASE1)]})
+        )
+        return train_manifest.main(
+            ["--built", str(root / "built.json"), "--jars", str(jars), "--previous", str(root / "prev.json"),
+             "--mappings", str(maps), "--train", "t2", "--base-url", BASE2, "--out", str(out)]
+        ), out
+
+    def test_mappings_are_published_with_the_jars_the_train_carries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out = self._mapped_train(Path(tmp))
+            self.assertEqual(code, 0)
+            # web is unchanged (its mapping lives in train t1), contracts is not processed
+            self.assertEqual(
+                sorted(p.name for p in out.iterdir()),
+                ["bundle-contracts-t2.jar", "bundle-shell-t2.jar", "mapping-bundle-shell-t2.txt", "train-manifest.json"],
+            )
+            self.assertEqual((out / "mapping-bundle-shell-t2.txt").read_text(), "shell mapping")
+
+    def test_only_the_contracts_bundle_needs_no_mapping_not_one_named_like_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "jars").mkdir()
+            (root / "maps").mkdir()
+            (root / "jars" / "bundle-contracts-extra-t2.jar").write_bytes(b"x")
+            (root / "built.json").write_text(
+                json.dumps({"platformApi": 1, "bundles": [bundle("contracts-extra", "t2", A)]})
+            )
+            code = train_manifest.main(
+                ["--built", str(root / "built.json"), "--jars", str(root / "jars"), "--mappings", str(root / "maps"),
+                 "--train", "t2", "--base-url", BASE2, "--out", str(root / "out")]
+            )
+            self.assertEqual(code, 1)
+
+    def test_missing_mapping_of_a_carried_jar_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "jars").mkdir()
+            (root / "maps").mkdir()
+            (root / "jars" / "bundle-web-t2.jar").write_bytes(b"w")
+            (root / "built.json").write_text(json.dumps({"platformApi": 1, "bundles": [bundle("web", "t2", A)]}))
+            code = train_manifest.main(
+                ["--built", str(root / "built.json"), "--jars", str(root / "jars"), "--mappings", str(root / "maps"),
+                 "--train", "t2", "--base-url", BASE2, "--out", str(root / "out")]
+            )
+            self.assertEqual(code, 1)
+            self.assertFalse((root / "out").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

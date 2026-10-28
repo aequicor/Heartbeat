@@ -17,6 +17,11 @@ inputs:
   github-token:
     description: Token that reads the previous train release.
     required: true
+  shrink:
+    description: >-
+      How the jars are processed by ProGuard (-Pheartbeat.trainShrink): off, shrink or obfuscate. A processed train is
+      started headless by verifyShrunkTrain before it is written; an obfuscated one carries the mapping of every jar it publishes.
+    default: obfuscate
 runs:
   using: composite
   steps:
@@ -46,27 +51,50 @@ runs:
       shell: bash
       env:
         TRAIN: ${{ inputs.train }}
+        SHRINK: ${{ inputs.shrink }}
       # The jar name carries the train id; the build cache makes unchanged bundles cache hits, and
       # train_manifest.py maps their identical jars back to the version of the train that first published them.
+      # With shrink != off assembleBundle runs ProGuard (foundation first), on the JBR 21 of the desktop runtime.
       run: |
-        ./gradlew -Pheartbeat.bundleVersion="$TRAIN" \
+        ./gradlew -Pheartbeat.bundleVersion="$TRAIN" -Pheartbeat.trainShrink="$SHRINK" \
           -Porg.gradle.java.installations.auto-detect=false \
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64 \
           assembleBundle bundleManifest --no-daemon --stacktrace --profile
+    - name: Start the processed train
+      if: inputs.shrink != 'off'
+      shell: bash
+      env:
+        TRAIN: ${{ inputs.train }}
+        SHRINK: ${{ inputs.shrink }}
+      # Nothing is written before every bundle of the processed train is healthy in a headless run.
+      run: |
+        env -u LD_LIBRARY_PATH xvfb-run --auto-servernum ./gradlew -Pheartbeat.bundleVersion="$TRAIN" \
+          -Pheartbeat.trainShrink="$SHRINK" \
+          -Porg.gradle.java.installations.auto-detect=false \
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64 \
+          :platform-main:desktop:verifyShrunkTrain --no-daemon --stacktrace --profile
     - name: Write the train
       shell: bash
       env:
         TRAIN: ${{ inputs.train }}
         OUT: ${{ inputs.out }}
         BASE_URL: ${{ inputs.base-url }}
+        SHRINK: ${{ inputs.shrink }}
       run: |
-        rm -rf train-jars "$OUT"
+        rm -rf train-jars train-mappings "$OUT"
         mkdir train-jars
         cp bundles/*/build/bundle/*.jar platform-main/desktop/build/bundle/*.jar train-jars/
         previous=()
         if [ -f train-previous/train-manifest.json ]; then
           previous=(--previous train-previous/train-manifest.json)
         fi
+        mappings=()
+        if [ "$SHRINK" = obfuscate ]; then
+          # The mapping of a jar is published by the train that first carries the jar: retrace.py reads it there.
+          mkdir train-mappings
+          cp bundles/*/build/train/mapping-*.txt platform-main/desktop/build/train/mapping-*.txt train-mappings/
+          mappings=(--mappings train-mappings)
+        fi
         python3 scripts/train_manifest.py --built build/bundles/manifest.json --jars train-jars \
-          "${previous[@]}" --train "$TRAIN" --base-url "$BASE_URL" --out "$OUT"
+          "${previous[@]}" "${mappings[@]}" --train "$TRAIN" --base-url "$BASE_URL" --out "$OUT"
         cat "$OUT/train-manifest.json"

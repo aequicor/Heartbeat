@@ -1,3 +1,4 @@
+import io.aequicor.heartbeat.buildlogic.BundleManifest
 import io.aequicor.heartbeat.buildlogic.CollectPlatformJars
 import io.aequicor.heartbeat.buildlogic.CompressReleaseDmg
 import io.aequicor.heartbeat.buildlogic.HarnessProbeArguments
@@ -47,7 +48,43 @@ dependencies {
     // installer's class path, the project code does not.
     runtimeOnly(projects.platformMain.launcher)
     testImplementation(libs.kotlin.testJunit)
+    // The headless smoke of the shrunk train reads the health of the bundles (verifyShrunkTrain).
+    testImplementation(projects.core.bundles.api)
     testImplementation(libs.kotlinx.coroutines.test)
+}
+
+// The train SDK: foundation modules that bundles compile against. Their public API stays by name in processed jars;
+// a bundle reaching any other foundation module fails `verifyTrainSdk`.
+heartbeatTrain {
+    sdk(
+        projects.core.bundles.api,
+        projects.core.common,
+        projects.core.datastore.api,
+        projects.core.desktopDialogs,
+        projects.core.di.api,
+        projects.core.di.ext,
+        projects.core.featureToggles.api,
+        projects.core.logging,
+        projects.core.mvi,
+        projects.core.navigation.api,
+        projects.core.navigation.compose,
+        projects.core.network.api,
+        projects.core.profileFacade.api,
+        projects.core.secrets.api,
+        projects.core.stateMachine.api,
+        projects.core.stateMachine.flowmviExt,
+        projects.designSystem.components,
+        projects.designSystem.layouts,
+        projects.designSystem.theme,
+        projects.designSystem.tokens,
+        projects.designSystem.adaptive,
+        // Shared modules of the Chromium panel (Wasm) and the desktop bundles.
+        projects.features.checklist.screenModel,
+        projects.features.checklist.screenUi,
+        projects.features.questionnaire.screenModel,
+        projects.features.questionnaire.screenUi,
+        projects.features.chromiumBridge.protocol,
+    )
 }
 
 // The app runtime is independent of Gradle's daemon and shared modules' compilation toolchains.
@@ -134,7 +171,7 @@ tasks.withType<Test>().configureEach {
     // Match launchHeartbeat's owned-window layers, including tests that do not enter main().
     systemProperties(heartbeatJcef.renderingProperties)
     // BundleKeepRulesTest compares the release keep rules with the binding interfaces of core:bundles:api.
-    inputs.file("compose-desktop.pro").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file("train-rules.pro").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.dir(rootProject.file("core/bundles/api/src")).withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
@@ -289,6 +326,77 @@ val trainSeed = tasks.register<WriteTrainSeed>("assembleTrainSeed") {
     seedDirectory.set(layout.buildDirectory.dir("generated/trainSeed"))
     dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts")
 }
+val smokeTimeoutMinutes = 15L
+
+// Headless smoke of the shrunk train: the production graph over the processed jars of the train (no classes of this
+// module but the smoke main) starts every bundle and opens a profile. Data, logs and secrets go to a throwaway home.
+val trainBundleIds = rootProject.subprojects.filter { it.parent?.path == ":bundles" }.map { it.name }.sorted()
+val trainThirdPartyJars = extensions.getByType<TrainPlatformJars>().jars
+val isTrainShrunk = providers.gradleProperty("heartbeat.trainShrink").map { it == "shrink" || it == "obfuscate" }
+    .orElse(false).get()
+val trainRoot = rootProject
+tasks.register<JavaExec>("verifyShrunkTrain") {
+    group = "verification"
+    description = "Starts every bundle of the train processed with -Pheartbeat.trainShrink=shrink|obfuscate; all must be healthy."
+    // Locals: the actions below must not capture the script object (configuration cache).
+    val bundleIds = trainBundleIds
+    val shrunk = isTrainShrunk
+    // Bounded: a hung graph must not hang the build.
+    timeout.set(Duration.ofMinutes(smokeTimeoutMinutes))
+    val smokeDirectory = layout.buildDirectory.dir("train-smoke")
+    val report = smokeDirectory.map { it.file("report.txt") }
+    val home = smokeDirectory.map { it.dir("home") }
+    val smokeLog = smokeDirectory.map { it.file("smoke.log") }
+    javaLauncher.set(desktopRuntime)
+    // Without the property the task only fails: it builds and compiles nothing first.
+    if (shrunk) {
+        dependsOn(":bundleManifest", "assembleFoundation", "assembleContracts", "testClasses")
+        classpath(sourceSets.test.get().output.classesDirs)
+        // Exactly the jars of this train (what the manifest lists), not whatever else lies in the build directories.
+        classpath(
+            files(
+                trainRoot.provider {
+                    trainRoot.tasks.withType(BundleManifest::class.java).flatMap { manifest -> manifest.jars.files }
+                },
+            ),
+        )
+        classpath(trainThirdPartyJars)
+    }
+    mainClass.set("io.aequicor.heartbeat.platform.desktop.TrainSmokeKt")
+    jvmArgs("-Djava.awt.headless=true", "-Dheartbeat.data.name=HeartbeatTrainSmoke")
+    // The smoke writes its findings and its own logs to these files, so a hung run still leaves both behind.
+    argumentProviders.add(
+        CommandLineArgumentProvider {
+            listOf(report.get().asFile.absolutePath, smokeLog.get().asFile.absolutePath) + bundleIds
+        },
+    )
+    isIgnoreExitValue = true
+    doFirst {
+        check(shrunk) { "verifyShrunkTrain checks the processed train: pass -Pheartbeat.trainShrink=shrink or obfuscate" }
+        check(bundleIds.isNotEmpty()) { "the build has no :bundles:* to start" }
+        val homeDirectory = home.get().asFile.apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        report.get().asFile.delete()
+        // A log of an earlier run must not be taken for this one's when the JVM dies before it opens its own.
+        smokeLog.get().asFile.delete()
+        logger.lifecycle("The logs of the smoke are written to ${smokeLog.get().asFile}")
+        systemProperty("user.home", homeDirectory.absolutePath)
+        listOf("APPDATA", "LOCALAPPDATA", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME")
+            .forEach { environment(it, homeDirectory.absolutePath) }
+    }
+    doLast {
+        if (executionResult.get().exitValue != 0) {
+            val findings = report.get().asFile.takeIf { it.isFile }?.readText() ?: "the smoke wrote no report"
+            val tail = smokeLog.get().asFile.takeIf { it.isFile }?.useLines { it.toList().takeLast(40) }.orEmpty()
+            throw GradleException(
+                "The processed train does not run:\n$findings\nLast lines of ${smokeLog.get().asFile}:\n" +
+                    tail.joinToString("\n"),
+            )
+        }
+    }
+}
 val collectAppResources = tasks.register<Sync>("collectAppResources") {
     from(prepareExtensionMetadata) { into("common") }
     if (publishedSeed != null) from(publishedSeed) { into("common/seed") } else from(trainSeed) { into("common/seed") }
@@ -315,12 +423,6 @@ compose.desktop {
         jvmArgs("-Dheartbeat.channel=${heartbeatChannel.id}")
         // A dev build keeps its own data, logs and single-instance lock; beta and release share Heartbeat's.
         if (heartbeatChannel.id == "dev") jvmArgs("-Dheartbeat.data.name=${heartbeatChannel.packageName}")
-        buildTypes.release.proguard {
-            configurationFiles.from(
-                layout.projectDirectory.file("compose-desktop.pro"),
-                layout.projectDirectory.file("proguard-rules.pro"),
-            )
-        }
         nativeDistributions {
             // Windows: Inno Setup installer, see `packageInnoSetup` below.
             targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
@@ -383,7 +485,8 @@ tasks.withType<ComposeHotRun>().configureEach {
 afterEvaluate {
     // The installer holds the platform only: the launcher and the third-party libraries of this OS. The project code
     // (foundation, contracts, bundles) is the train. Libraries are neither shrunk nor renamed, as the train is
-    // compiled against their original classes, so ProGuard does not run on a release.
+    // compiled against their original classes, so Compose's ProGuard does not run on a release: the train is shrunk by
+    // `shrinkFoundation`/`shrinkBundle` with `train-rules.pro` (-Pheartbeat.trainShrink=shrink).
     tasks.named<AbstractProguardTask>("proguardReleaseJars") { enabled = false }
     val platformJars = extensions.getByType<TrainPlatformJars>().installedNames
     val collectPlatformJars = tasks.register<CollectPlatformJars>("collectPlatformJars") {

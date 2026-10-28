@@ -70,6 +70,16 @@ public class BundleHost internal constructor(
 
     override val health: Map<BundleId, BundleHealth> get() = synchronized(healthById) { healthById.toMap() }
 
+    /**
+     * The health of the profile graphs of the bundles as the last completed [openProfile] found it (empty until a
+     * profile is opened; a profile opened later replaces it, and one that fails before the end leaves it as it was).
+     * [health] is the app level only: a bundle whose profile graph fails stays healthy there, so a check that must see
+     * the profile graphs (the smoke of a processed train) reads this too. It survives the closing of the profile.
+     */
+    @Volatile
+    public var lastProfileHealth: Map<BundleId, BundleHealth> = emptyMap()
+        private set
+
     /** Graph of a started bundle, for platform code that needs an accessor (`registry.accessor<X>()` successor). */
     public fun graph(id: BundleId): Any? = synchronized(graphs) { graphs[id] }
 
@@ -183,6 +193,7 @@ public class BundleHost internal constructor(
         }
         val summary = profileHealth.entries.joinToString { "${it.key}=${it.value::class.simpleName}" }
         log.i { "Profile graphs of bundles: $summary" }
+        lastProfileHealth = profileHealth.toMap()
         return profileHealth
     }
 
